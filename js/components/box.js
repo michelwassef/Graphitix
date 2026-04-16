@@ -447,6 +447,69 @@
     return pairResult;
   }
 
+  function mapPostHocPairResults(pairList, config = {}){
+    const sourcePairs = Array.isArray(pairList) ? pairList : [];
+    const refIndex = Number.isInteger(config.refIndex) ? config.refIndex : null;
+    const buildConfig = { ...config };
+    delete buildConfig.refIndex;
+    const resolvedPairs = refIndex == null
+      ? sourcePairs
+      : sourcePairs.filter(pr => pr.i === refIndex || pr.j === refIndex);
+    return resolvedPairs.map(pr => buildPostHocPairResult(pr, buildConfig));
+  }
+
+  function buildStandardPairResult(config = {}){
+    const pairResult = config.testResult || {};
+    const rawAValues = Array.isArray(config.rawAValues) ? config.rawAValues : [];
+    const rawBValues = Array.isArray(config.rawBValues) ? config.rawBValues : [];
+    const effectMetrics = computeEffectSizeMetrics(rawAValues, rawBValues, { paired: config.paired === true });
+    const paramEffectMeta = config.paramEffectMeta;
+    const nonParamEffectMeta = config.nonParamEffectMeta;
+    const formattedParamEffect = formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value], paramEffectMeta);
+    const formattedNonParamEffect = formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value], nonParamEffectMeta);
+    const statName = config.statName || (pairResult.t !== undefined ? 't' : pairResult.U !== undefined ? 'U' : pairResult.W !== undefined ? 'W' : 'stat');
+    const statVal = config.statValue != null ? config.statValue : pairResult[statName];
+    const rangeMax = typeof config.getRenderedRangeMax === 'function' ? config.getRenderedRangeMax(config.ai, config.bi) : null;
+    const comparisonLabel = typeof config.comparisonLabel === 'string' && config.comparisonLabel.trim()
+      ? config.comparisonLabel.trim()
+      : `${config.labelA || 'A'} vs ${config.labelB || 'B'}`;
+    const debugLabel = typeof config.debugLabel === 'string' && config.debugLabel.trim()
+      ? config.debugLabel.trim()
+      : 'Debug: box pair effect metrics';
+    console.debug(debugLabel, {
+      comparison: comparisonLabel,
+      parametric: Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key, val]) => [key, safeRound(val, 4)])),
+      nonParametric: Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key, val]) => [key, safeRound(val, 4)]))
+    });
+    return {
+      a: config.a,
+      b: config.b,
+      ai: config.ai,
+      bi: config.bi,
+      p: pairResult.p,
+      adjP: config.adjP != null ? config.adjP : pairResult.p,
+      diff: Number.isFinite(pairResult.diff)
+        ? pairResult.diff
+        : (config.lognormalVariant ? NaN : (mean(rawAValues) - mean(rawBValues))),
+      ciLow: pairResult.ciLow,
+      ciHigh: pairResult.ciHigh,
+      rangeMax,
+      stat: statVal,
+      statName,
+      df: pairResult.df,
+      labelA: config.labelA,
+      labelB: config.labelB,
+      effects: effectMetrics,
+      effectParametric: formattedParamEffect,
+      effectNonParametric: formattedNonParamEffect,
+      method: config.method || 'standard',
+      ratio: pairResult.ratio,
+      scale: pairResult.scale,
+      geoMeanA: pairResult.geoMeanA,
+      geoMeanB: pairResult.geoMeanB
+    };
+  }
+
   function prepareSwarmPointLayoutConfig(params = {}){
     const rawValues = Array.isArray(params.valueList) ? params.valueList : [];
     const pointCount = rawValues.length;
@@ -2041,21 +2104,6 @@
     const wrap = doc.createElement('div');
     wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-point-controls scatter-format-controls';
     wrap.dataset.pointControls = '1';
-
-    const makeInput = (labelText, inputEl) => {
-      const lbl = doc.createElement('label');
-      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
-      const span = doc.createElement('span');
-      span.className = 'workspace-toolbar__input-label';
-      span.textContent = labelText;
-      if(inputEl && inputEl.classList){
-        inputEl.classList.add('workspace-toolbar__input-control');
-      }
-      lbl.appendChild(span);
-      lbl.appendChild(inputEl);
-      return lbl;
-    };
-
     // Determine parent group for the points (all points in the same point layer if present)
     const parentGroup = el.closest
       ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
@@ -2088,21 +2136,7 @@
       const fromData = data && typeof data.seriesName === 'string' ? data.seriesName.trim() : '';
       if(fromData){ return fromData; }
       return resolveBoxTraceDisplayLabel(traceIndex);
-    })();
-    const resolveTargetPoints = () => {
-      const plotRoot = doc.getElementById('boxPlot');
-      if(plotRoot && traceIndex != null){
-        const scoped = Array.from(plotRoot.querySelectorAll(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] circle, g[data-export-layer="box-points"][data-trace="${traceIndex}"] rect, g[data-export-layer="box-points"][data-trace="${traceIndex}"] path`));
-        if(scoped.length){
-          return scoped;
-        }
-      }
-      if(parentGroup){
-        return Array.from(parentGroup.querySelectorAll('circle,rect,path'));
-      }
-      return [el];
-    };
-    const scopeName = `boxPointScope_${Date.now()}`;
+    })();    const scopeName = `boxPointScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span');
@@ -5132,31 +5166,6 @@
     };
     return named[raw] || null;
   }
-
-  function getColorLuminance(color){
-    const rgb = parseColorToRgb(color);
-    if(!rgb){
-      return null;
-    }
-    const [r, g, b] = rgb.map(value => {
-      const normalized = value / 255;
-      return normalized <= 0.03928
-        ? normalized / 12.92
-        : Math.pow((normalized + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  }
-
-  function isNearNeutralColor(color){
-    const rgb = parseColorToRgb(color);
-    if(!rgb){
-      return false;
-    }
-    const max = Math.max(rgb[0], rgb[1], rgb[2]);
-    const min = Math.min(rgb[0], rgb[1], rgb[2]);
-    return (max - min) <= 18;
-  }
-
   function resolveIndividualPointThemeDefaults(config){
     const fillColor = String(config?.fillColor == null ? '' : config.fillColor).trim();
     const borderColor = String(config?.borderColor == null ? '' : config.borderColor).trim();
@@ -7311,6 +7320,96 @@
         break;
     }
   }
+  function prepareStripIndividualSummaryOverlay(params = {}){
+    const createGroup = typeof params.createGroup === 'function' ? params.createGroup : null;
+    const summaryGroup = createGroup ? createGroup() : null;
+    if(!summaryGroup){
+      return null;
+    }
+    summaryGroup.dataset.boxSummary = '1';
+    summaryGroup.style.cursor = 'pointer';
+    if(typeof params.onClick === 'function'){
+      summaryGroup.addEventListener('click', params.onClick);
+    }
+    const localBand = Number(params.localBand);
+    const pointRadius = Number(params.pointRadius);
+    const swarm = params.swarmResult?.swarm;
+    const summaryRadius = params.swarmResult?.effectiveRadius != null
+      ? params.swarmResult.effectiveRadius
+      : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+    const summaryCap = Math.max(6, localBand * 0.12);
+    const offsetExtent = Number.isFinite(Number(params.swarmResult?.maxOffsetUsed)) ? Number(params.swarmResult.maxOffsetUsed) : 0;
+    const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
+    const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
+    const pointSpreadWidth = pointSpreadHalfExtent * 2;
+    const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
+    const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
+    const summaryPointHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
+      ? Math.max(fallbackHalfSpan, scaledHalfSpan)
+      : fallbackHalfSpan;
+    if(params.debugEnabled){
+      console.debug('Debug: box strip summary span',{
+        index: params.traceIndex,
+        orientation: params.orientation,
+        maxOffsetUsed: offsetExtent,
+        summaryRadius: radiusExtent,
+        pointSpreadWidth,
+        summaryBarWidth: summaryPointHalfSpan * 2
+      });
+    }
+    const summaryStyle = typeof params.getSummaryStyle === 'function' ? params.getSummaryStyle(params.traceIndex) : null;
+    const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, params.fillColor, params.borderColor, {
+      schemeId: typeof params.getSchemeId === 'function' ? params.getSchemeId() : getBoxSelectedColorSchemeId()
+    });
+    const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
+    const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
+    const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
+    const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
+    const baseStroke = Math.max(params.errorBarWidthPx || 0, params.borderWidthPx || 0.8, 0.8);
+    const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
+    const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (params.errorBarWidthPx || params.borderWidthPx || summaryStrokeWidth));
+    const summaryStrokeAttrs = width => {
+      const effectiveWidth = Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth);
+      const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
+      const attrs = {
+        stroke: summaryColor,
+        'stroke-width': effectiveWidth,
+        'data-summary-line': '1'
+      };
+      if(patternAttrs['stroke-dasharray']){
+        attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
+      }
+      if(patternAttrs['stroke-linecap']){
+        attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
+      }
+      if(summaryOpacity !== 1){
+        attrs['stroke-opacity'] = summaryOpacity;
+      }
+      return attrs;
+    };
+    const summaryAdd = (tag, attrs = {}) => {
+      const node = document.createElementNS(NS, tag);
+      const finalAttrs = params.mergeStrokeAttrsOnShape !== false && (tag === 'line' || tag === 'path' || tag === 'rect')
+        ? { ...attrs, ...summaryStrokeAttrs(attrs['stroke-width']) }
+        : attrs;
+      for(const [key, value] of Object.entries(finalAttrs)){
+        node.setAttribute(key, String(value));
+      }
+      summaryGroup.appendChild(node);
+      return node;
+    };
+    return {
+      summaryGroup,
+      summaryRadius,
+      summaryCap,
+      summaryPointHalfSpan,
+      summaryStrokeWidth,
+      summaryIntervalWidth,
+      summaryStrokeAttrs,
+      summaryAdd
+    };
+  }
+
   const makeEditable = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
     if (typeof fn === 'function') {
@@ -10335,14 +10434,6 @@
       applied: !!resizeApplied
     };
   }
-
-  function applyBoxSignificanceViewportExtension(nextExtensionPx, options = {}){
-    return applyBoxViewportExtensions({
-      significance: nextExtensionPx,
-      bottom: state.bottomViewportExtensionPx
-    }, options);
-  }
-
   function ensureBoxSignificanceControlPlacement(){
     const controls = els.boxSignificanceControls
       || global.document?.getElementById?.('boxSignificanceControls')
@@ -23692,6 +23783,16 @@ Technical analysis record (advanced)
       console.debug('Debug: box computeStats postHoc normalized',{ before:state.statsPostHoc, after:postHocMode });
       state.statsPostHoc=postHocMode;
     }
+    const postHocPairBaseConfig = {
+      indices,
+      traces,
+      labels,
+      groups,
+      paramEffectMeta,
+      nonParamEffectMeta,
+      getRenderedRangeMax,
+      lognormalVariant
+    };
     if(state.statsMode==='all'){
       if(postHocMode==='tukey'){
         const tukey=computeTukeyComparisons(analysisGroups,labels,{ alpha: state.statsAlpha });
@@ -23701,22 +23802,13 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(tukey.footnote);
-        pairs=tukey.pairs.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.pAdj,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.q,
-            statName:'q',
-            method:'tukey'
-          });
+        pairs=mapPostHocPairResults(tukey.pairs, {
+          ...postHocPairBaseConfig,
+          pValueResolver: pair => pair.pAdj,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.q,
+          statName:'q',
+          method:'tukey'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
@@ -23727,22 +23819,13 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(gh.footnote);
-        pairs=gh.pairs.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.p,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.q,
-            statName:'q',
-            method:'gamesHowell'
-          });
+        pairs=mapPostHocPairResults(gh.pairs, {
+          ...postHocPairBaseConfig,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.q,
+          statName:'q',
+          method:'gamesHowell'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='tamhaneT2'){
@@ -23753,22 +23836,13 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(tamhane.footnote);
-        pairs=tamhane.pairs.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.p,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.t,
-            statName:'t',
-            method:'tamhaneT2'
-          });
+        pairs=mapPostHocPairResults(tamhane.pairs, {
+          ...postHocPairBaseConfig,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.t,
+          statName:'t',
+          method:'tamhaneT2'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -23779,31 +23853,14 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(dunn.footnote);
-        pairs=dunn.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            stat:pr.z,
-            statName:'z',
-            df:null,
-            diff:pr.diff,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
-            method:'dunn'
-          };
+        pairs=mapPostHocPairResults(dunn.pairs, {
+          ...postHocPairBaseConfig,
+          paired:false,
+          pValueResolver: pair => pair.p,
+          statValueResolver: pair => pair.z,
+          dfResolver: () => null,
+          statName:'z',
+          method:'dunn'
         });
         if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
@@ -23818,32 +23875,15 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(nemenyi.footnote);
-        pairs=nemenyi.pairs.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:true });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax=getRenderedRangeMax(ai, bi);
-          return {
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.p,
-            stat:pr.q,
-            statName:'q',
-            df:null,
-            diff:pr.diff,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
-            method:'nemenyi'
-          };
+        pairs=mapPostHocPairResults(nemenyi.pairs, {
+          ...postHocPairBaseConfig,
+          paired:true,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.p,
+          statValueResolver: pair => pair.q,
+          dfResolver: () => null,
+          statName:'q',
+          method:'nemenyi'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else{
@@ -23855,38 +23895,25 @@ Technical analysis record (advanced)
             const rawAValues=groups[i];
             const rawBValues=groups[j];
             const r=pairTest(aValues,bValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
-            const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-            const statVal=r[statName];
-            const effectMetrics=computeEffectSizeMetrics(rawAValues,rawBValues,{ paired:state.statsPaired });
-            const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-            const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-            console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-            const rangeMax = getRenderedRangeMax(aIdx, bIdx);
-            pairs.push({
+            pairs.push(buildStandardPairResult({
               a:i,
               b:j,
               ai:aIdx,
               bi:bIdx,
-              p:r.p,
-              adjP:r.p,
-              diff:Number.isFinite(r.diff)?r.diff:(lognormalVariant ? NaN : (mean(rawAValues)-mean(rawBValues))),
-              ciLow:r.ciLow,
-              ciHigh:r.ciHigh,
-              rangeMax,
-              stat:statVal,
-              statName,
-              df:r.df,
+              rawAValues,
+              rawBValues,
+              testResult:r,
               labelA:labels[i],
               labelB:labels[j],
-              effects:effectMetrics,
-              effectParametric:formattedParamEffect,
-              effectNonParametric:formattedNonParamEffect,
-              method:'standard',
-              ratio:r.ratio,
-              scale:r.scale,
-              geoMeanA:r.geoMeanA,
-              geoMeanB:r.geoMeanB
-            });
+              comparisonLabel:`${labels[i]} vs ${labels[j]}`,
+              debugLabel:'Debug: box pair effect metrics',
+              paired:state.statsPaired,
+              paramEffectMeta,
+              nonParamEffectMeta,
+              getRenderedRangeMax,
+              lognormalVariant,
+              method:'standard'
+            }));
           }
         }
         if(pairs.length && postHocMode!=='gamesHowell'){
@@ -23908,23 +23935,14 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(tukey.footnote);
-        const filtered=tukey.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
-        pairs=filtered.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.pAdj,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.q,
-            statName:'q',
-            method:'tukey'
-          });
+        pairs=mapPostHocPairResults(tukey.pairs, {
+          ...postHocPairBaseConfig,
+          refIndex: refIdx,
+          pValueResolver: pair => pair.pAdj,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.q,
+          statName:'q',
+          method:'tukey'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='gamesHowell'){
@@ -23935,23 +23953,14 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(gh.footnote);
-        const filtered=gh.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
-        pairs=filtered.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.p,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.q,
-            statName:'q',
-            method:'gamesHowell'
-          });
+        pairs=mapPostHocPairResults(gh.pairs, {
+          ...postHocPairBaseConfig,
+          refIndex: refIdx,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.q,
+          statName:'q',
+          method:'gamesHowell'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='tamhaneT2'){
@@ -23962,23 +23971,14 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(tamhane.footnote);
-        const filtered=tamhane.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
-        pairs=filtered.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.p,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.t,
-            statName:'t',
-            method:'tamhaneT2'
-          });
+        pairs=mapPostHocPairResults(tamhane.pairs, {
+          ...postHocPairBaseConfig,
+          refIndex: refIdx,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.t,
+          statName:'t',
+          method:'tamhaneT2'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
@@ -23989,32 +23989,15 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(dunn.footnote);
-        const filtered=dunn.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
-        pairs=filtered.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax = getRenderedRangeMax(ai, bi);
-          return {
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            stat:pr.z,
-            statName:'z',
-            df:null,
-            diff:pr.diff,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
-            method:'dunn'
-          };
+        pairs=mapPostHocPairResults(dunn.pairs, {
+          ...postHocPairBaseConfig,
+          refIndex: refIdx,
+          paired:false,
+          pValueResolver: pair => pair.p,
+          statValueResolver: pair => pair.z,
+          dfResolver: () => null,
+          statName:'z',
+          method:'dunn'
         });
         if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
@@ -24029,33 +24012,16 @@ Technical analysis record (advanced)
           return;
         }
         methodFootnotes.push(nemenyi.footnote);
-        const filtered=nemenyi.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
-        pairs=filtered.map(pr=>{
-          const ai=indices[pr.i];
-          const bi=indices[pr.j];
-          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:true });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          const rangeMax=getRenderedRangeMax(ai, bi);
-          return {
-            a:pr.i,
-            b:pr.j,
-            ai,
-            bi,
-            p:pr.p,
-            adjP:pr.p,
-            stat:pr.q,
-            statName:'q',
-            df:null,
-            diff:pr.diff,
-            labelA:labels[pr.i],
-            labelB:labels[pr.j],
-            effects:effectMetrics,
-            effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect,
-            rangeMax,
-            method:'nemenyi'
-          };
+        pairs=mapPostHocPairResults(nemenyi.pairs, {
+          ...postHocPairBaseConfig,
+          refIndex: refIdx,
+          paired:true,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.p,
+          statValueResolver: pair => pair.q,
+          dfResolver: () => null,
+          statName:'q',
+          method:'nemenyi'
         });
         updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunnett' || postHocMode==='dunnettT3'){
@@ -24068,22 +24034,13 @@ Technical analysis record (advanced)
         if(dunnett.footnote){
           methodFootnotes.push(dunnett.footnote);
         }
-        pairs=dunnett.pairs.map(pr=>{
-          return buildPostHocPairResult(pr, {
-            indices,
-            traces,
-            labels,
-            groups,
-            paramEffectMeta,
-            nonParamEffectMeta,
-            getRenderedRangeMax,
-            lognormalVariant,
-            pValueResolver: pair => pair.p,
-            adjustedPValueResolver: pair => pair.pAdj,
-            statValueResolver: pair => pair.t,
-            statName:'t',
-            method:postHocMode
-          });
+        pairs=mapPostHocPairResults(dunnett.pairs, {
+          ...postHocPairBaseConfig,
+          pValueResolver: pair => pair.p,
+          adjustedPValueResolver: pair => pair.pAdj,
+          statValueResolver: pair => pair.t,
+          statName:'t',
+          method:postHocMode
         });
         updateStatsCorrectionSummary(pairs.length);
       }else{
@@ -24092,38 +24049,25 @@ Technical analysis record (advanced)
           const compareValues=analysisGroups[i];
           const rawCompareValues=groups[i];
           const r=pairTest(refData,compareValues,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative, resamplingMode: state.statsResamplingMode, iterations: state.statsMonteCarloIterations, seed: state.statsSeed });
-          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-          const statVal=r[statName];
-          const effectMetrics=computeEffectSizeMetrics(refRawData,rawCompareValues,{ paired:state.statsPaired });
-          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-          const rangeMax = getRenderedRangeMax(state.statsRef, idx);
-          pairs.push({
+          pairs.push(buildStandardPairResult({
             a:refIdx,
             b:i,
-              ai:state.statsRef,
-              bi:idx,
-              p:r.p,
-              adjP:r.p,
-              diff:Number.isFinite(r.diff)?r.diff:(lognormalVariant ? NaN : (mean(refRawData)-mean(rawCompareValues))),
-              ciLow:r.ciLow,
-              ciHigh:r.ciHigh,
-              rangeMax,
-              labelA:labels[refIdx],
-              labelB:labels[i],
-              stat:statVal,
-              statName,
-              df:r.df,
-              effects:effectMetrics,
-              effectParametric:formattedParamEffect,
-              effectNonParametric:formattedNonParamEffect,
-              method:'standard',
-              ratio:r.ratio,
-              scale:r.scale,
-              geoMeanA:r.geoMeanA,
-              geoMeanB:r.geoMeanB
-            });
+            ai:state.statsRef,
+            bi:idx,
+            rawAValues:refRawData,
+            rawBValues:rawCompareValues,
+            testResult:r,
+            labelA:labels[refIdx],
+            labelB:labels[i],
+            comparisonLabel:`${labels[refIdx]} vs ${labels[i]}`,
+            debugLabel:'Debug: box reference pair effect metrics',
+            paired:state.statsPaired,
+            paramEffectMeta,
+            nonParamEffectMeta,
+            getRenderedRangeMax,
+            lognormalVariant,
+            method:'standard'
+          }));
         });
         if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
@@ -28098,76 +28042,23 @@ Technical analysis record (advanced)
             const summaryRadius = swarmResult?.effectiveRadius != null
               ? swarmResult.effectiveRadius
               : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex });
-            summaryGroup.dataset.boxSummary = '1';
-            summaryGroup.style.cursor = 'pointer';
-            summaryGroup.addEventListener('click', handleBoxSummaryClick);
-            const summaryCap = Math.max(6, localBand * 0.12);
-            const summaryPointHalfSpan = (() => {
-              const offsetExtent = Number.isFinite(Number(swarmResult?.maxOffsetUsed)) ? Number(swarmResult.maxOffsetUsed) : 0;
-              const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
-              const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
-              const pointSpreadWidth = pointSpreadHalfExtent * 2;
-              const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
-              const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
-              const resolvedHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
-                ? Math.max(fallbackHalfSpan, scaledHalfSpan)
-                : fallbackHalfSpan;
-              if(debugEnabled){
-                console.debug('Debug: box strip summary span',{
-                  index: i,
-                  orientation: 'vertical',
-                  maxOffsetUsed: offsetExtent,
-                  summaryRadius: radiusExtent,
-                  pointSpreadWidth,
-                  summaryBarWidth: resolvedHalfSpan * 2
-                });
-              }
-              return resolvedHalfSpan;
-            })();
-            const summaryStyle = getSummaryStyle(i);
-            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor, {
-              schemeId: getBoxSelectedColorSchemeId()
+            const summaryContext = prepareStripIndividualSummaryOverlay({
+              createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
+              onClick: handleBoxSummaryClick,
+              localBand,
+              swarmResult,
+              pointRadius,
+              traceIndex: i,
+              orientation: 'vertical',
+              debugEnabled,
+              getSummaryStyle,
+              fillColor,
+              borderColor,
+              errorBarWidthPx,
+              borderWidthPx,
+              mergeStrokeAttrsOnShape: true
             });
-            const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
-            const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
-            const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
-            const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
-            const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
-            const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
-            const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
-            const summaryStrokeAttrs = width => {
-              const effectiveWidth = Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth);
-              const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
-              const attrs = {
-                stroke: summaryColor,
-                'stroke-width': effectiveWidth,
-                'data-summary-line': '1'
-              };
-              if(patternAttrs['stroke-dasharray']){
-                attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
-              }
-              if(patternAttrs['stroke-linecap']){
-                attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
-              }
-              if(summaryOpacity !== 1){
-                attrs['stroke-opacity'] = summaryOpacity;
-              }
-              return attrs;
-            };
-            const summaryAdd = (tag, attrs) => {
-              const node = document.createElementNS(NS, tag);
-              for(const [key, value] of Object.entries(attrs)){
-                node.setAttribute(key, String(value));
-              }
-              if(tag === 'line' || tag === 'path' || tag === 'rect'){
-                const widthOverride = attrs['stroke-width'];
-                const merged = summaryStrokeAttrs(widthOverride);
-                Object.entries(merged).forEach(([k,v]) => node.setAttribute(k,String(v)));
-              }
-              summaryGroup.appendChild(node);
-              return node;
-            };
+            const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
             const summaryOps = {
               drawInterval: (low, high, opts = {}) => {
                 if(!Number.isFinite(low) || !Number.isFinite(high)){
@@ -29732,71 +29623,23 @@ Technical analysis record (advanced)
             const summaryRadius = swarmResult?.effectiveRadius != null
               ? swarmResult.effectiveRadius
               : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex });
-            summaryGroup.dataset.boxSummary = '1';
-            summaryGroup.style.cursor = 'pointer';
-            summaryGroup.addEventListener('click', handleBoxSummaryClick);
-            const summaryCap = Math.max(6, localBand * 0.12);
-            const summaryPointHalfSpan = (() => {
-              const offsetExtent = Number.isFinite(Number(swarmResult?.maxOffsetUsed)) ? Number(swarmResult.maxOffsetUsed) : 0;
-              const radiusExtent = Number.isFinite(Number(summaryRadius)) ? Number(summaryRadius) : pointRadius;
-              const pointSpreadHalfExtent = Math.max(0, offsetExtent) + Math.max(0, radiusExtent || 0);
-              const pointSpreadWidth = pointSpreadHalfExtent * 2;
-              const fallbackHalfSpan = Math.max(summaryCap, (summaryRadius || pointRadius) * 1.4, 4);
-              const scaledHalfSpan = pointSpreadHalfExtent > 0 ? pointSpreadHalfExtent * 1.3 : NaN;
-              const resolvedHalfSpan = Number.isFinite(scaledHalfSpan) && scaledHalfSpan > 0
-                ? Math.max(fallbackHalfSpan, scaledHalfSpan)
-                : fallbackHalfSpan;
-              if(debugEnabled){
-                console.debug('Debug: box strip summary span',{
-                  index: i,
-                  orientation: 'horizontal',
-                  maxOffsetUsed: offsetExtent,
-                  summaryRadius: radiusExtent,
-                  pointSpreadWidth,
-                  summaryBarWidth: resolvedHalfSpan * 2
-                });
-              }
-              return resolvedHalfSpan;
-            })();
-            const summaryStyle = getSummaryStyle(i);
-            const summaryColor = resolveBoxSummaryOverlayColor(summaryStyle, fillColor, borderColor, {
-              schemeId: getBoxSelectedColorSchemeId()
+            const summaryContext = prepareStripIndividualSummaryOverlay({
+              createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
+              onClick: handleBoxSummaryClick,
+              localBand,
+              swarmResult,
+              pointRadius,
+              traceIndex: i,
+              orientation: 'horizontal',
+              debugEnabled,
+              getSummaryStyle,
+              fillColor,
+              borderColor,
+              errorBarWidthPx,
+              borderWidthPx,
+              mergeStrokeAttrsOnShape: false
             });
-            const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
-            const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
-            const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
-            const summaryPattern = sanitizeSummaryLinePattern(summaryStyle?.pattern ?? summaryStyle?.linePattern);
-            const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
-            const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
-            const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
-            const summaryStrokeAttrs = width => {
-              const effectiveWidth = Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth);
-              const patternAttrs = getSummaryStrokePatternAttrs(effectiveWidth, summaryPattern);
-              const attrs = {
-                stroke: summaryColor,
-                'stroke-width': effectiveWidth,
-                'data-summary-line': '1'
-              };
-              if(patternAttrs['stroke-dasharray']){
-                attrs['stroke-dasharray'] = patternAttrs['stroke-dasharray'];
-              }
-              if(patternAttrs['stroke-linecap']){
-                attrs['stroke-linecap'] = patternAttrs['stroke-linecap'];
-              }
-              if(summaryOpacity !== 1){
-                attrs['stroke-opacity'] = summaryOpacity;
-              }
-              return attrs;
-            };
-            const summaryAdd = (tag, attrs) => {
-              const node = document.createElementNS(NS, tag);
-              for(const [key, value] of Object.entries(attrs)){
-                node.setAttribute(key, String(value));
-              }
-              summaryGroup.appendChild(node);
-              return node;
-            };
+            const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
             const summaryOps = {
               drawInterval: (low, high, opts = {}) => {
                 if(!Number.isFinite(low) || !Number.isFinite(high)){
