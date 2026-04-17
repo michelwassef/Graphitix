@@ -1192,6 +1192,222 @@
     };
   }
 
+  function collectScatterStatPairsCore(points, options = {}){
+    const safePoints = Array.isArray(points) ? points : [];
+    const pairedPoints = [];
+    const xValues = [];
+    const yValues = [];
+    for(let idx = 0; idx < safePoints.length; idx += 1){
+      const point = safePoints[idx];
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        continue;
+      }
+      pairedPoints.push(options.preservePointFields ? { ...point, x, y } : { x, y });
+      xValues.push(x);
+      yValues.push(y);
+    }
+    return {
+      points: pairedPoints,
+      x: xValues,
+      y: yValues,
+      count: pairedPoints.length,
+      totalRows: safePoints.length,
+      droppedRows: Math.max(0, safePoints.length - pairedPoints.length)
+    };
+  }
+
+  function normalizeScatterAssociationSelectionFallback(value){
+    const raw = String(value || 'auto').trim().toLowerCase();
+    return (raw === 'pearson' || raw === 'spearman' || raw === 'none' || raw === 'auto')
+      ? raw
+      : 'auto';
+  }
+
+  function resolveScatterAssociationMethodFallback(selection, regressionMode){
+    const normalizedSelection = normalizeScatterAssociationSelectionFallback(selection);
+    if(normalizedSelection === 'pearson' || normalizedSelection === 'spearman' || normalizedSelection === 'none'){
+      return normalizedSelection;
+    }
+    const policy = {
+      linear: 'pearson',
+      linearthroughorigin: 'pearson',
+      deming: 'pearson',
+      orthogonal: 'pearson',
+      lowess: 'none',
+      quadratic: 'none',
+      cubic: 'none',
+      logistic: 'spearman',
+      doseresponse3pl: 'spearman',
+      doseresponse4pl: 'spearman',
+      doseresponse5pl: 'spearman',
+      exponential: 'spearman',
+      onephaseassociation: 'spearman',
+      onephasedecay: 'spearman',
+      gompertz: 'spearman',
+      power: 'spearman',
+      gaussian: 'none',
+      spline: 'none',
+      bindingsaturation: 'spearman',
+      bindingcompetitive: 'spearman',
+      enzymekineticssubstrate: 'spearman',
+      enzymekineticsinhibition: 'spearman'
+    };
+    const modeKey = String(regressionMode || 'linear').trim().toLowerCase();
+    return normalizeScatterAssociationSelectionFallback(policy[modeKey] || 'pearson');
+  }
+
+  function getScatterAssociationMethodLabelFallback(method){
+    const normalized = normalizeScatterAssociationSelectionFallback(method);
+    if(normalized === 'spearman') return 'Spearman';
+    if(normalized === 'none') return 'None (model fit only)';
+    return 'Pearson';
+  }
+
+  function computeScatterStatsCore(points, method, options = {}, deps = {}){
+    const safeOptions = options || {};
+    const normalizeAssociationSelection = typeof deps.normalizeAssociationSelection === 'function'
+      ? deps.normalizeAssociationSelection
+      : normalizeScatterAssociationSelectionFallback;
+    const resolveAssociationMethod = typeof deps.resolveAssociationMethod === 'function'
+      ? deps.resolveAssociationMethod
+      : resolveScatterAssociationMethodFallback;
+    const getAssociationLabel = typeof deps.getAssociationMethodLabel === 'function'
+      ? deps.getAssociationMethodLabel
+      : getScatterAssociationMethodLabelFallback;
+    const collectPairs = typeof deps.collectPairs === 'function'
+      ? deps.collectPairs
+      : value => collectScatterStatPairsCore(value);
+    const computeCorrelationStats = typeof deps.computeCorrelationStats === 'function'
+      ? deps.computeCorrelationStats
+      : null;
+    const statsApi = typeof deps.getStatsApi === 'function'
+      ? deps.getStatsApi()
+      : (global.jStat || global.window?.jStat || null);
+    const regressionMode = safeOptions.regressionMode || 'linear';
+    const fitMethod = safeOptions.fitMethod || 'ols';
+    const associationSelection = normalizeAssociationSelection(safeOptions.associationSelection || method || 'auto');
+    const associationResolveInput = deps.resolveAssociationFromSelection ? associationSelection : method;
+    const resolvedAssociationMethod = resolveAssociationMethod(associationResolveInput, regressionMode);
+    const fitSpec = safeOptions.fitSpec && typeof safeOptions.fitSpec === 'object' ? safeOptions.fitSpec : {};
+    const domainOption = safeOptions.domain || null;
+    const paired = collectPairs(points);
+    const n = paired.count;
+    const x = paired.x;
+    const y = paired.y;
+    if(typeof deps.onPaired === 'function'){
+      deps.onPaired(paired);
+    }
+    if(n < 3){
+      return {
+        method: getAssociationLabel(resolvedAssociationMethod),
+        associationSelection,
+        associationMethod: resolvedAssociationMethod,
+        r: NaN,
+        p: NaN,
+        r2: NaN,
+        m: NaN,
+        b: NaN,
+        regression: null,
+        pointCount: n
+      };
+    }
+    const correlation = computeCorrelationStats
+      ? computeCorrelationStats(resolvedAssociationMethod, x, y)
+      : { methodCode: resolvedAssociationMethod, methodLabel: getAssociationLabel(resolvedAssociationMethod), r: NaN, p: NaN };
+    const pearson = Number.isFinite(correlation?.r)
+      ? Number(correlation.r)
+      : ((statsApi && typeof statsApi.corrcoeff === 'function')
+        ? Number(statsApi.corrcoeff(x, y))
+        : NaN);
+    const xMean = (statsApi && typeof statsApi.mean === 'function')
+      ? Number(statsApi.mean(x))
+      : (x.reduce((sum, value) => sum + value, 0) / Math.max(1, x.length));
+    const yMean = (statsApi && typeof statsApi.mean === 'function')
+      ? Number(statsApi.mean(y))
+      : (y.reduce((sum, value) => sum + value, 0) / Math.max(1, y.length));
+    const num = x.reduce((sum, xi, index) => sum + ((xi - xMean) * (y[index] - yMean)), 0);
+    const den = x.reduce((sum, xi) => sum + Math.pow(xi - xMean, 2), 0);
+    const linearSlope = den !== 0 ? (num / den) : NaN;
+    const linearIntercept = yMean - (linearSlope * xMean);
+    let regression = null;
+    try{
+      const modeKey = String(regressionMode || 'linear').trim().toLowerCase();
+      if((modeKey === 'deming' || modeKey === 'orthogonal') && typeof deps.fitDemingRegression === 'function'){
+        regression = deps.fitDemingRegression(paired.points, {
+          mode: regressionMode,
+          method: fitMethod,
+          fitSpec,
+          domain: domainOption || null
+        });
+      }else if(modeKey === 'lowess' && typeof deps.fitLowessRegression === 'function'){
+        regression = deps.fitLowessRegression(paired.points, {
+          mode: regressionMode,
+          method: fitMethod,
+          fitSpec,
+          domain: domainOption || null
+        });
+      }else if(typeof deps.fitRegressionModel === 'function'){
+        regression = deps.fitRegressionModel(paired.points, {
+          mode: regressionMode,
+          method: fitMethod,
+          fitSpec,
+          domain: domainOption || null,
+          preferDoseResponse: regressionMode === 'logistic'
+        });
+      }else if(regressionTools && typeof regressionTools.fitRegression === 'function'){
+        regression = regressionTools.fitRegression(paired.points, {
+          mode: regressionMode,
+          method: fitMethod,
+          fitSpec,
+          domain: domainOption || null,
+          preferDoseResponse: regressionMode === 'logistic'
+        });
+      }
+      if(regression && domainOption){
+        const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
+        const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;
+        if(Number.isFinite(minCandidate) && Number.isFinite(maxCandidate)){
+          regression.domain = { minX: minCandidate, maxX: maxCandidate };
+        }
+      }
+    }catch(err){
+      console.error('Regression fit error', err);
+    }
+    const summaryForRegression = regression?.summary;
+    const regressionSlope = summaryForRegression?.slope;
+    const regressionIntercept = summaryForRegression?.intercept;
+    let resolvedSlope = Number.isFinite(regressionSlope) ? regressionSlope : linearSlope;
+    if(summaryForRegression?.primaryParameter && Number.isFinite(summaryForRegression.primaryParameter.value)){
+      resolvedSlope = summaryForRegression.primaryParameter.value;
+    }
+    const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
+    const regressionR2 = regression?.metrics?.r2;
+    const derived = {
+      ...(typeof deps.computeDerivedRegressionStats === 'function'
+        ? (deps.computeDerivedRegressionStats(regression) || {})
+        : {}),
+      ...(regression?.derived || {})
+    };
+    return {
+      method: correlation?.methodLabel || getAssociationLabel(resolvedAssociationMethod),
+      associationSelection,
+      associationMethod: correlation?.methodCode || resolvedAssociationMethod,
+      r: correlation?.r,
+      p: correlation?.p,
+      pMethod: correlation?.pMethod,
+      correlationCI: correlation?.ci || null,
+      correlationCiApproximate: !!correlation?.ciApproximate,
+      r2: Number.isFinite(regressionR2) ? regressionR2 : (pearson * pearson),
+      m: resolvedSlope,
+      b: resolvedIntercept,
+      pointCount: n,
+      regression,
+      derived
+    };
+  }
+
   function getScatterLockRatioCheckbox(){
     if(scatterLockRatioInput && scatterLockRatioInput.isConnected){
       return scatterLockRatioInput;
@@ -10401,29 +10617,7 @@
       }
 
       function collectScatterStatPairs(points){
-        const safePoints = Array.isArray(points) ? points : [];
-        const pairedPoints = [];
-        const xValues = [];
-        const yValues = [];
-        for(let idx = 0; idx < safePoints.length; idx += 1){
-          const point = safePoints[idx];
-          const x = Number(point?.x);
-          const y = Number(point?.y);
-          if(!Number.isFinite(x) || !Number.isFinite(y)){
-            continue;
-          }
-          pairedPoints.push({ ...point, x, y });
-          xValues.push(x);
-          yValues.push(y);
-        }
-        return {
-          points: pairedPoints,
-          x: xValues,
-          y: yValues,
-          count: pairedPoints.length,
-          totalRows: safePoints.length,
-          droppedRows: Math.max(0, safePoints.length - pairedPoints.length)
-        };
+        return collectScatterStatPairsCore(points, { preservePointFields: true });
       }
 
       function formatScatterSignatureNumber(value){
@@ -19524,207 +19718,37 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(debugEnabled){
           console.debug('Debug: computeScatterStats',{ method, pointCount: points.length, options });
         }
-        const regressionMode = options.regressionMode || 'linear';
-        const fitMethod = options.fitMethod || 'ols';
-        const associationSelection = normalizeScatterAssociationSelection(options.associationSelection || method || 'auto');
-        const resolvedAssociationMethod = resolveScatterAssociationMethod(method, regressionMode);
-        const fitSpec = options.fitSpec && typeof options.fitSpec === 'object' ? options.fitSpec : {};
-        const domainOption = options.domain || null;
-        const paired = collectScatterStatPairs(points);
-        const n = paired.count;
-        const x = paired.x;
-        const y = paired.y;
-        if((typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) && paired.droppedRows > 0){
-          console.debug('Debug: scatter stats dropped invalid rows', {
-            totalRows: paired.totalRows,
-            droppedRows: paired.droppedRows,
-            retainedRows: paired.count
-          });
-        }
-        if(n<3){
-          return {
-            method:getScatterAssociationMethodLabel(resolvedAssociationMethod),
-            associationSelection,
-            associationMethod: resolvedAssociationMethod,
-            r:NaN,
-            p:NaN,
-            r2:NaN,
-            m:NaN,
-            b:NaN,
-            regression:null,
-            pointCount:n
-          };
-        }
-        const correlation = computeScatterCorrelationStats(resolvedAssociationMethod, x, y);
-        const statsApi = getScatterJStat();
-        const pearson = Number.isFinite(correlation?.r)
-          ? Number(correlation.r)
-          : ((statsApi && typeof statsApi.corrcoeff === 'function')
-            ? Number(statsApi.corrcoeff(x,y))
-            : NaN);
-        const r = correlation.r;
-        const p = correlation.p;
-        const label = correlation.methodLabel;
-        const xMean=(statsApi && typeof statsApi.mean === 'function')
-          ? Number(statsApi.mean(x))
-          : (x.reduce((sum, value) => sum + value, 0) / Math.max(1, x.length));
-        const yMean=(statsApi && typeof statsApi.mean === 'function')
-          ? Number(statsApi.mean(y))
-          : (y.reduce((sum, value) => sum + value, 0) / Math.max(1, y.length));
-        const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
-        const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
-        const linearSlope=den!==0?num/den:NaN;
-        const linearIntercept=yMean-linearSlope*xMean;
-        let regression=null;
-        try{
-          regression=fitScatterRegressionModel(paired.points,{
-            mode: regressionMode,
-            method: fitMethod,
-            fitSpec,
-            domain: domainOption || null,
-            preferDoseResponse: regressionMode === 'logistic'
-          });
-          if(regression && domainOption){
-            const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
-            const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;
-            if(Number.isFinite(minCandidate) && Number.isFinite(maxCandidate)){
-              regression.domain = { minX: minCandidate, maxX: maxCandidate };
+        const stats = computeScatterStatsCore(points, method, options, {
+          normalizeAssociationSelection: normalizeScatterAssociationSelection,
+          resolveAssociationMethod: resolveScatterAssociationMethod,
+          getAssociationMethodLabel: getScatterAssociationMethodLabel,
+          collectPairs: collectScatterStatPairs,
+          computeCorrelationStats: computeScatterCorrelationStats,
+          getStatsApi: getScatterJStat,
+          fitRegressionModel: fitScatterRegressionModel,
+          computeDerivedRegressionStats: computeScatterDerivedRegressionStats,
+          onPaired: paired => {
+            if((typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) && paired.droppedRows > 0){
+              console.debug('Debug: scatter stats dropped invalid rows', {
+                totalRows: paired.totalRows,
+                droppedRows: paired.droppedRows,
+                retainedRows: paired.count
+              });
             }
           }
-        }catch(err){
-          console.error('Regression fit error', err);
-        }
-        const summaryForRegression = regression?.summary;
-        const regressionSlope = summaryForRegression?.slope;
-        const regressionIntercept = summaryForRegression?.intercept;
-        let resolvedSlope = Number.isFinite(regressionSlope) ? regressionSlope : linearSlope;
-        if(summaryForRegression?.primaryParameter && Number.isFinite(summaryForRegression.primaryParameter.value)){
-          resolvedSlope = summaryForRegression.primaryParameter.value;
-        }
-        const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
-        const regressionR2 = regression?.metrics?.r2;
-        const r2 = Number.isFinite(regressionR2) ? regressionR2 : pearson*pearson;
-        const derived = {
-          ...(computeScatterDerivedRegressionStats(regression) || {}),
-          ...(regression?.derived || {})
-        };
-        const stats={
-          method:label,
-          associationSelection,
-          associationMethod: correlation?.methodCode || resolvedAssociationMethod,
-          r,
-          p,
-          pMethod: correlation.pMethod,
-          correlationCI: correlation.ci,
-          correlationCiApproximate: !!correlation.ciApproximate,
-          r2,
-          m:resolvedSlope,
-          b:resolvedIntercept,
-          pointCount:n,
-          regression,
-          derived
-        };
+        });
         if(debugEnabled){
-          console.debug('Debug: computeScatterStats result',{ method: label, r, r2, p, slope: resolvedSlope, intercept: resolvedIntercept, mode: regressionMode });
+          console.debug('Debug: computeScatterStats result',{
+            method: stats.method,
+            r: stats.r,
+            r2: stats.r2,
+            p: stats.p,
+            slope: stats.m,
+            intercept: stats.b,
+            mode: options.regressionMode || 'linear'
+          });
         }
         return stats;
-      }
-      function updateLineStats(series){
-        const method=lineStatType.value;
-        const regressionEl=global.lineRegressionMode || document.getElementById('lineRegressionMode');
-        const regressionMode=(regressionEl&&regressionEl.value)||'linear';
-        scatterLog('updateLineStats start',{seriesCount:series.length,method,regressionMode});
-        const tableRows=[];
-        let methodLabel='';
-        series.forEach(s=>{
-          const pts=s.points.filter(p=>p);
-          if(pts.length>=3){
-            const stats=computeScatterStats(pts,method,{ regressionMode });
-            methodLabel=stats.method;
-            tableRows.push({
-              series:s.name,
-              r:formatMetricValue(stats.r),
-              p:formatP(stats.p),
-              slope:formatMetricValue(stats.regression?.summary?.slope ?? stats.m),
-              r2:formatMetricValue(stats.regression?.metrics?.r2 ?? stats.r2),
-              rmse:formatMetricValue(stats.regression?.metrics?.rmse)
-            });
-          }
-        });
-        if(tableRows.length){
-          renderStatsCard(lineStatsResults,{
-            caption:methodLabel?`${methodLabel} correlation summary (${regressionMode} regression)`:'Correlation summary',
-            columns:[
-              {key:'series',label:'Series',align:'left'},
-              {key:'r',label:'r',align:'right'},
-              {key:'p',label:'p',align:'right'},
-              {key:'slope',label:'Slope',align:'right'},
-              {key:'r2',label:'R²',align:'right'},
-              {key:'rmse',label:'RMSE',align:'right'}
-            ],
-            rows:tableRows,
-            options:{
-              fileName:'scatter-series-correlation',
-              contextLabel:'scatter-series-corr'
-            }
-          });
-        }else{
-          lineStatsResults.textContent='Not enough data for statistics.';
-        }
-        scatterLog('updateLineStats complete',{rows:tableRows.length,regressionMode});
-      }
-      function updateHistStats(values){
-        scatterLog('updateHistStats start',values.length);
-        if(!values.length){histStatsResults.textContent='No data';return;}
-        const mean=jStat.mean(values);
-        const median=jStat.median(values);
-        const sd=jStat.stdev(values,true);
-        renderStatsCard(histStatsResults,{
-          caption:'Distribution summary',
-          columns:[
-            {key:'metric',label:'Metric',align:'left'},
-            {key:'value',label:'Value',align:'right'}
-          ],
-          rows:[
-            {metric:'n',value:String(values.length)},
-            {metric:'Mean',value:mean.toFixed(4)},
-            {metric:'Median',value:median.toFixed(4)},
-            {metric:'SD',value:sd.toFixed(4)}
-          ],
-          options:{
-            fileName:'histogram-summary',
-            contextLabel:'hist-summary'
-          }
-        });
-        scatterLog('updateHistStats result',{mean,median,sd});
-      }
-      function updatePieStats(labels,observed,expected){
-        scatterLog('updatePieStats start',{labels:labels.length,observed:observed.length,expected:expected.length});
-        if(!observed.length){pieStatsResults.textContent='No data';return;}
-        if(expected.length!==observed.length || expected.some(e=>isNaN(e))){
-          pieStatsResults.textContent='Expected values required';
-          return;
-        }
-        const chi2=observed.reduce((s,o,i)=>s+Math.pow(o-expected[i],2)/expected[i],0);
-        const df=observed.length-1;
-        const p=1-jStat.chisquare.cdf(chi2,df);
-        renderStatsCard(pieStatsResults,{
-          caption:'Goodness-of-fit test',
-          columns:[
-            {key:'metric',label:'Metric',align:'left'},
-            {key:'value',label:'Value',align:'right'}
-          ],
-          rows:[
-            {metric:'Chi²',value:chi2.toFixed(4)},
-            {metric:'df',value:String(df)},
-            {metric:'p-value',value:isFinite(p)?formatP(p):'N/A'}
-          ],
-          options:{
-            fileName:'pie-chi-square',
-            contextLabel:'pie-chi-square'
-          }
-        });
-        scatterLog('updatePieStats result',{chi2,df,p});
       }
     
       function getScatterGraphPayload(){
@@ -20789,192 +20813,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ciApproximate: false
       };
     },
-    computeScatterStats: (points, method, options = {}) => {
-      const safePoints = Array.isArray(points) ? points : [];
-      const safeOptions = options || {};
-      const regressionMode = safeOptions.regressionMode || 'linear';
-      const fitMethod = safeOptions.fitMethod || 'ols';
-      const normalizeAssociationSelection = value => {
-        if(typeof normalizeScatterAssociationSelection === 'function'){
-          return normalizeScatterAssociationSelection(value);
-        }
-        const raw = String(value || 'auto').trim().toLowerCase();
-        return (raw === 'pearson' || raw === 'spearman' || raw === 'none' || raw === 'auto')
-          ? raw
-          : 'auto';
-      };
-      const modeKey = String(regressionMode || 'linear').trim().toLowerCase();
-      const associationPolicy = {
-        linear: 'pearson',
-        linearthroughorigin: 'pearson',
-        deming: 'pearson',
-        orthogonal: 'pearson',
-        lowess: 'none',
-        quadratic: 'none',
-        cubic: 'none',
-        logistic: 'spearman',
-        doseresponse3pl: 'spearman',
-        doseresponse4pl: 'spearman',
-        doseresponse5pl: 'spearman',
-        exponential: 'spearman',
-        onephaseassociation: 'spearman',
-        onephasedecay: 'spearman',
-        gompertz: 'spearman',
-        power: 'spearman',
-        gaussian: 'none',
-        spline: 'none',
-        bindingsaturation: 'spearman',
-        bindingcompetitive: 'spearman',
-        enzymekineticssubstrate: 'spearman',
-        enzymekineticsinhibition: 'spearman'
-      };
-      const associationSelection = normalizeAssociationSelection(safeOptions.associationSelection || method || 'auto');
-      const resolvedAssociationMethod = associationSelection === 'auto'
-        ? normalizeAssociationSelection(associationPolicy[modeKey] || 'pearson')
-        : associationSelection;
-      const fitSpec = safeOptions.fitSpec && typeof safeOptions.fitSpec === 'object' ? safeOptions.fitSpec : {};
-      const domainOption = safeOptions.domain || null;
-      const paired = (() => {
-        const rows = [];
-        const xs = [];
-        const ys = [];
-        let droppedRows = 0;
-        safePoints.forEach(point => {
-          const xv = Number(point?.x);
-          const yv = Number(point?.y);
-          if(Number.isFinite(xv) && Number.isFinite(yv)){
-            rows.push({ x: xv, y: yv });
-            xs.push(xv);
-            ys.push(yv);
-          }else{
-            droppedRows += 1;
-          }
-        });
-        return {
-          points: rows,
-          x: xs,
-          y: ys,
-          count: rows.length,
-          totalRows: safePoints.length,
-          droppedRows
-        };
-      })();
-      const n = paired.count;
-      const x = paired.x;
-      const y = paired.y;
-      if(n < 3){
-        return {
-          method: resolvedAssociationMethod === 'spearman'
-            ? 'Spearman'
-            : (resolvedAssociationMethod === 'none' ? 'None (model fit only)' : 'Pearson'),
-          associationSelection,
-          associationMethod: resolvedAssociationMethod,
-          r: NaN,
-          p: NaN,
-          r2: NaN,
-          m: NaN,
-          b: NaN,
-          regression: null,
-          pointCount: n
-        };
-      }
-      const correlation = scatter.__testHooks.computeScatterCorrelationStats(resolvedAssociationMethod, x, y);
-      const statsApi = global.jStat || global.window?.jStat || null;
-      const pearson = Number.isFinite(correlation?.r)
-        ? Number(correlation.r)
-        : ((statsApi && typeof statsApi.corrcoeff === 'function')
-          ? Number(statsApi.corrcoeff(x, y))
-          : NaN);
-      const xMean = (statsApi && typeof statsApi.mean === 'function')
-        ? Number(statsApi.mean(x))
-        : (x.reduce((sum, value) => sum + value, 0) / Math.max(1, x.length));
-      const yMean = (statsApi && typeof statsApi.mean === 'function')
-        ? Number(statsApi.mean(y))
-        : (y.reduce((sum, value) => sum + value, 0) / Math.max(1, y.length));
-      const num = x.reduce((sum, xi, index) => sum + ((xi - xMean) * (y[index] - yMean)), 0);
-      const den = x.reduce((sum, xi) => sum + Math.pow(xi - xMean, 2), 0);
-      const linearSlope = den !== 0 ? (num / den) : NaN;
-      const linearIntercept = yMean - (linearSlope * xMean);
-      let regression = null;
-      try{
-        const scatterFitModel = scatterFitRegressionModelForTests;
-        if((modeKey === 'deming' || modeKey === 'orthogonal') && typeof scatterFitDemingRegressionForTests === 'function'){
-          regression = scatterFitDemingRegressionForTests(paired.points, {
-            mode: regressionMode,
-            method: fitMethod,
-            fitSpec,
-            domain: domainOption || null
-          });
-        }else if(modeKey === 'lowess'){
-          const lowessFitter = typeof scatterFitLowessRegressionForTests === 'function'
-            ? scatterFitLowessRegressionForTests
-            : fitScatterLowessRegressionCore;
-          regression = lowessFitter(paired.points, {
-            mode: regressionMode,
-            method: fitMethod,
-            fitSpec,
-            domain: domainOption || null
-          });
-        }else if(typeof scatterFitModel === 'function'){
-          regression = scatterFitModel(paired.points, {
-            mode: regressionMode,
-            method: fitMethod,
-            fitSpec,
-            domain: domainOption || null,
-            preferDoseResponse: regressionMode === 'logistic'
-          });
-        }else if(regressionTools && typeof regressionTools.fitRegression === 'function'){
-          regression = regressionTools.fitRegression(paired.points, {
-            mode: regressionMode,
-            method: fitMethod,
-            fitSpec,
-            domain: domainOption || null,
-            preferDoseResponse: regressionMode === 'logistic'
-          });
-        }
-        if(regression && domainOption){
-          const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
-          const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;
-          if(Number.isFinite(minCandidate) && Number.isFinite(maxCandidate)){
-            regression.domain = { minX: minCandidate, maxX: maxCandidate };
-          }
-        }
-      }catch(err){
-        console.error('Regression fit error', err);
-      }
-      const summaryForRegression = regression?.summary;
-      const regressionSlope = summaryForRegression?.slope;
-      const regressionIntercept = summaryForRegression?.intercept;
-      let resolvedSlope = Number.isFinite(regressionSlope) ? regressionSlope : linearSlope;
-      if(summaryForRegression?.primaryParameter && Number.isFinite(summaryForRegression.primaryParameter.value)){
-        resolvedSlope = summaryForRegression.primaryParameter.value;
-      }
-      const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
-      const regressionR2 = regression?.metrics?.r2;
-      return {
-        method: correlation?.methodLabel || (resolvedAssociationMethod === 'spearman'
-          ? 'Spearman'
-          : (resolvedAssociationMethod === 'none' ? 'None (model fit only)' : 'Pearson')),
-        associationSelection,
-        associationMethod: correlation?.methodCode || resolvedAssociationMethod,
-        r: correlation?.r,
-        p: correlation?.p,
-        pMethod: correlation?.pMethod,
-        correlationCI: correlation?.ci || null,
-        correlationCiApproximate: !!correlation?.ciApproximate,
-        r2: Number.isFinite(regressionR2) ? regressionR2 : (pearson * pearson),
-        m: resolvedSlope,
-        b: resolvedIntercept,
-        pointCount: n,
-        regression,
-        derived: {
-          ...(typeof computeScatterDerivedRegressionStats === 'function'
-            ? (computeScatterDerivedRegressionStats(regression) || {})
-            : {}),
-          ...(regression?.derived || {})
-        }
-      };
-    },
+    computeScatterStats: (points, method, options = {}) => computeScatterStatsCore(points, method, options, {
+      resolveAssociationFromSelection: true,
+      computeCorrelationStats: (resolvedMethod, x, y) => scatter.__testHooks.computeScatterCorrelationStats(resolvedMethod, x, y),
+      fitRegressionModel: scatterFitRegressionModelForTests,
+      fitDemingRegression: scatterFitDemingRegressionForTests,
+      fitLowessRegression: typeof scatterFitLowessRegressionForTests === 'function'
+        ? scatterFitLowessRegressionForTests
+        : fitScatterLowessRegressionCore,
+      computeDerivedRegressionStats: typeof computeScatterDerivedRegressionStats === 'function'
+        ? computeScatterDerivedRegressionStats
+        : null
+    }),
     fitScatterLowessRegression: (points, options = {}) => fitScatterLowessRegressionCore(
       Array.isArray(points) ? points : [],
       options || {}
