@@ -352,6 +352,20 @@
       control.addEventListener('keydown', onKeyDown);
       control.__resizerOptionsKeyHandler = onKeyDown;
     }
+    if(!control.__resizerOptionsOutsideHandler){
+      const onOutsidePointerDown = (event) => {
+        if(!control.hasAttribute('open')){
+          return;
+        }
+        const target = event?.target || null;
+        if(target && control.contains(target)){
+          return;
+        }
+        control.removeAttribute('open');
+      };
+      doc.addEventListener('pointerdown', onOutsidePointerDown, true);
+      control.__resizerOptionsOutsideHandler = onOutsidePointerDown;
+    }
     const setup = {
       tray,
       control,

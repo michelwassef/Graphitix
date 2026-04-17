@@ -122,4 +122,28 @@ describe('Shared resizer graph options menu', () => {
 
     expect(axes.hasAttribute('open')).toBe(true);
   });
+
+  test('closes the cog menu when clicking outside it', () => {
+    const box = createSvgBox();
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      onResize: jest.fn()
+    });
+
+    const options = box.querySelector('.resizer-options-control');
+    const menu = box.querySelector('.resizer-options-menu');
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+
+    options.setAttribute('open', '');
+    menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(options.hasAttribute('open')).toBe(true);
+
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(options.hasAttribute('open')).toBe(false);
+  });
 });
