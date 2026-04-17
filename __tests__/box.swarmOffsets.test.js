@@ -356,6 +356,105 @@ describe('Box swarm offset constraints', () => {
     expect(layout.bins[0].coord).toBeLessThanOrEqual(layout.bins[layout.bins.length - 1].coord);
   });
 
+  test('huge-trace approximation centers preserve selected symbol geometry', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxApproximatePointCenters).toBe('function');
+    const centers = hooks.buildBoxApproximatePointCenters({
+      bins: [
+        { coord: 100, halfWidth: 12, count: 20 },
+        { coord: 116, halfWidth: 6, count: 4 }
+      ],
+      orientation: 'vertical',
+      center: 240,
+      radius: 3
+    });
+    expect(Array.isArray(centers)).toBe(true);
+    expect(centers.length).toBeGreaterThan(2);
+    expect(centers.some(point => point.x < 240)).toBe(true);
+    expect(centers.some(point => point.x > 240)).toBe(true);
+    expect(centers.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+  });
+
+  test('canvas-approx live shape and size changes update render state and rebuilt geometry', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.applyBoxCanvasPointGroupStyleLive).toBe('function');
+    const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
+    const ops = [];
+    window.HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
+      setTransform: jest.fn(),
+      beginPath: jest.fn(() => ops.push('begin')),
+      moveTo: jest.fn((x, y) => ops.push(['moveTo', x, y])),
+      lineTo: jest.fn((x, y) => ops.push(['lineTo', x, y])),
+      closePath: jest.fn(() => ops.push('close')),
+      arc: jest.fn((x, y, radius) => ops.push(['arc', x, y, radius])),
+      rect: jest.fn((x, y, width, height) => ops.push(['rect', x, y, width, height])),
+      fill: jest.fn(() => ops.push('fill')),
+      stroke: jest.fn(() => ops.push('stroke')),
+      set fillStyle(value){ ops.push(['fillStyle', value]); },
+      set strokeStyle(value){ ops.push(['strokeStyle', value]); },
+      set lineWidth(value){ ops.push(['lineWidth', value]); },
+      set globalAlpha(value){ ops.push(['globalAlpha', value]); },
+      set lineCap(value){ ops.push(['lineCap', value]); },
+      set lineJoin(value){ ops.push(['lineJoin', value]); }
+    }));
+    try{
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('data-export-layer', 'box-points');
+      group.setAttribute('data-trace', '0');
+      const coords = new Float64Array(120);
+      for(let idx = 0; idx < coords.length; idx += 1){
+        coords[idx] = 100 + idx * 0.25;
+      }
+      const initial = hooks.buildBoxApproximatePointBins({
+        coords,
+        raws: coords,
+        orientation: 'vertical',
+        radius: 3,
+        maxHalfWidth: 20,
+        widthScaleMode: 'density'
+      });
+      group.__boxCanvasRenderState = {
+        renderer: 'canvas-approx',
+        bins: initial.bins,
+        hitBins: initial.bins,
+        orientation: 'vertical',
+        center: 200,
+        thickness: initial.thickness,
+        traceIndex: 0,
+        pointRadius: 3,
+        shape: 'circle',
+        hitCenter: 200,
+        hitOrientation: 'vertical',
+        hitStrokeWidth: 20,
+        approximation: {
+          coords,
+          raws: coords,
+          maxHalfWidth: 20,
+          widthScaleMode: 'density'
+        },
+        style: {
+          fill: '#111111',
+          fillOpacity: 1,
+          stroke: '#222222',
+          strokeWidth: 1,
+          strokeOpacity: 1
+        }
+      };
+      const applied = hooks.applyBoxCanvasPointGroupStyleLive(group, { shape: 'diamond', size: 6 });
+      expect(applied).toBe(true);
+      expect(group.__boxCanvasRenderState.shape).toBe('diamond');
+      expect(group.__boxCanvasRenderState.pointRadius).toBe(6);
+      expect(group.__boxCanvasRenderState.thickness).toBeGreaterThan(initial.thickness);
+      expect(group.__boxCanvasRenderState.bins).not.toBe(initial.bins);
+      expect(group.getAttribute('data-shape')).toBe('diamond');
+      expect(group.getAttribute('data-point-size')).toBe('12');
+      expect(ops.some(entry => Array.isArray(entry) && entry[0] === 'lineTo')).toBe(true);
+      expect(ops.some(entry => Array.isArray(entry) && entry[0] === 'arc')).toBe(false);
+    }finally{
+      window.HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+  });
+
   test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
@@ -620,8 +719,8 @@ describe('Box swarm offset constraints', () => {
     });
     const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
     expect(rebuiltPaths.length).toBeGreaterThan(0);
-    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#ff0000')).toBe(true);
-    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#111111')).toBe(false);
+    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#ff0000')).toBe(true);
+    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#111111')).toBe(false);
   });
 
   test('box preview svg ignores stale hidden export geometry styles for large canvas-approx traces', () => {
@@ -675,7 +774,7 @@ describe('Box swarm offset constraints', () => {
     });
     const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
     expect(rebuiltPaths.length).toBeGreaterThan(0);
-    expect(rebuiltPaths.some(node => node.getAttribute('stroke') === '#ff0000')).toBe(true);
+    expect(rebuiltPaths.some(node => node.getAttribute('fill') === '#ff0000')).toBe(true);
     expect(rebuiltPaths.some(node => node.getAttribute('d') === 'M 10 10 L 20 20')).toBe(false);
   });
 
@@ -724,7 +823,8 @@ describe('Box swarm offset constraints', () => {
     });
     const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
     expect(rebuiltPaths.length).toBe(1);
-    expect(rebuiltPaths[0].getAttribute('stroke')).toBe('#ff0000');
+    expect(rebuiltPaths[0].getAttribute('fill')).toBe('#ff0000');
+    expect(rebuiltPaths[0].getAttribute('stroke')).toBeNull();
   });
 
   test('box preview svg ignores child geometry styles for canvas-approx and uses group attrs when border is zero', () => {
@@ -777,8 +877,8 @@ describe('Box swarm offset constraints', () => {
     });
     const rebuiltPaths = Array.from(previewSvg.querySelectorAll('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])'));
     expect(rebuiltPaths.length).toBe(1);
-    expect(rebuiltPaths[0].getAttribute('stroke')).toBe('#ff0000');
-    expect(rebuiltPaths[0].getAttribute('stroke-width')).toBe('5');
+    expect(rebuiltPaths[0].getAttribute('fill')).toBe('#ff0000');
+    expect(rebuiltPaths[0].getAttribute('stroke')).toBeNull();
   });
 
   test('fast strip auto-size estimator activates for dense datasets', () => {

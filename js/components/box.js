@@ -3605,11 +3605,13 @@
     const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
     const center = Number(config?.center);
     const thickness = Math.max(1, Number(config?.thickness) || 1);
+    const pointRadius = Math.max(0.4, Number(config?.pointRadius) || Math.max(0.4, thickness / 1.3));
+    const shape = typeof config?.shape === 'string' && config.shape.trim() ? config.shape.trim() : 'circle';
     if(!doc || !group || !bins.length || !Number.isFinite(center)){
       return false;
     }
     const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
-    const padding = Math.max(2, thickness + strokeWidth + 2);
+    const padding = Math.max(2, pointRadius + strokeWidth + 2);
     const bounds = expandBoxCanvasBounds(computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
     if(!bounds){
       return false;
@@ -3620,43 +3622,75 @@
       bounds,
       rendererType: 'canvas-approx',
       draw(ctx){
+        const centers = buildBoxApproximatePointCenters({
+          bins,
+          orientation,
+          center,
+          radius: pointRadius
+        });
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        const drawSegments = (lineWidth, color, alpha) => {
-          if(!color || color === 'none' || lineWidth <= 0){
+        const drawSymbols = (mode, color, alpha) => {
+          if(!color || color === 'none' || !centers.length){
             return;
           }
           ctx.beginPath();
-          bins.forEach(bin => {
-            const coord = Number(bin?.coord);
-            const halfWidth = Number(bin?.halfWidth);
-            if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
-              return;
-            }
-            if(orientation === 'vertical'){
-              const y = coord - bounds.minY;
-              ctx.moveTo(center - halfWidth - bounds.minX, y);
-              ctx.lineTo(center + halfWidth - bounds.minX, y);
-            }else{
-              const x = coord - bounds.minX;
-              ctx.moveTo(x, center - halfWidth - bounds.minY);
-              ctx.lineTo(x, center + halfWidth - bounds.minY);
-            }
+          centers.forEach(point => {
+            appendBoxPointCanvasShapePath(ctx, shape, point.x - bounds.minX, point.y - bounds.minY, pointRadius);
           });
           const effectiveAlpha = Number.isFinite(Number(alpha)) ? Number(alpha) : 1;
           ctx.globalAlpha = Math.max(0, Math.min(1, effectiveAlpha));
-          ctx.strokeStyle = color;
-          ctx.lineWidth = lineWidth;
-          ctx.stroke();
+          if(mode === 'stroke'){
+            ctx.strokeStyle = color;
+            ctx.lineWidth = strokeWidth;
+            ctx.stroke();
+          }else{
+            ctx.fillStyle = color;
+            ctx.fill();
+          }
         };
-        if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
-          drawSegments(Math.max(1, thickness + strokeWidth * 2), config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
-        }
         if(config.fill && config.fill !== 'none'){
-          drawSegments(thickness, config.fill, Number(config.fillOpacity));
+          drawSymbols('fill', config.fill, Number(config.fillOpacity));
+        }
+        if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
+          drawSymbols('stroke', config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
         }
       }
     });
+  }
+
+  function buildBoxApproximatePointCenters(config = {}){
+    const bins = Array.isArray(config?.bins) ? config.bins : [];
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const center = Number(config?.center);
+    const radius = Math.max(0.4, Number(config?.radius) || 0.4);
+    if(!bins.length || !Number.isFinite(center)){
+      return [];
+    }
+    const pitch = Math.max(radius * 1.8, 1);
+    const centers = [];
+    bins.forEach(bin => {
+      const coord = Number(bin?.coord);
+      const halfWidth = Number(bin?.halfWidth);
+      if(!Number.isFinite(coord) || !Number.isFinite(halfWidth) || halfWidth <= 0){
+        return;
+      }
+      const span = halfWidth * 2;
+      const maxSlots = Math.max(1, Math.floor(span / pitch) + 1);
+      const binCount = Number.isFinite(Number(bin?.count)) && Number(bin.count) > 0 ? Math.floor(Number(bin.count)) : maxSlots;
+      const slots = Math.max(1, Math.min(maxSlots, binCount));
+      for(let idx = 0; idx < slots; idx += 1){
+        const offset = slots === 1
+          ? 0
+          : -halfWidth + (span * idx) / (slots - 1);
+        if(orientation === 'vertical'){
+          centers.push({ x: center + offset, y: coord });
+        }else{
+          centers.push({ x: coord, y: center + offset });
+        }
+      }
+    });
+    return centers;
   }
 
   function buildBoxPointInteractionMaskPath(config){
@@ -3937,48 +3971,35 @@
       return [];
     }
     const hidden = options.hidden !== false;
-    const nodes = [];
-    const buildPath = (stroke, strokeWidth, opacity) => {
-      if(!stroke || stroke === 'none' || !Number.isFinite(Number(strokeWidth)) || Number(strokeWidth) <= 0){
-        return null;
-      }
-      const node = doc.createElementNS(NS, 'path');
-      node.setAttribute('d', pathData);
-      node.setAttribute('fill', 'none');
-      node.setAttribute('stroke', stroke);
-      node.setAttribute('stroke-width', String(strokeWidth));
-      node.setAttribute('stroke-linecap', 'round');
-      node.setAttribute('stroke-linejoin', 'round');
-      node.setAttribute('data-box-export-geometry', '1');
-      if(Number.isFinite(Number(opacity))){
-        node.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(opacity)))));
-      }
-      if(renderState.traceIndex != null){
-        node.setAttribute('data-trace', String(renderState.traceIndex));
-      }
-      if(hidden && node.style){
-        node.style.display = 'none';
-      }
-      return node;
-    };
-    const thickness = Math.max(1, Number(renderState.thickness) || 1);
     const configuredStrokeWidth = Math.max(0, Number(style.strokeWidth) || 0);
-    const outlineWidth = configuredStrokeWidth > 0
-      ? Math.max(1, thickness + configuredStrokeWidth * 2)
-      : 0;
-    const outlineNode = configuredStrokeWidth > 0
-      ? buildPath(style.stroke, outlineWidth, style.strokeOpacity)
-      : null;
-    if(outlineNode){
-      targetGroup.appendChild(outlineNode);
-      nodes.push(outlineNode);
+    const radius = Math.max(0.4, Number(renderState.pointRadius) || 0.4);
+    const points = buildBoxApproximatePointCenters({
+      bins: renderState.bins,
+      orientation: renderState.orientation,
+      center: renderState.center,
+      radius
+    });
+    if(!points.length){
+      return [];
     }
-    const fillNode = buildPath(style.fill, thickness, style.fillOpacity);
-    if(fillNode){
-      targetGroup.appendChild(fillNode);
-      nodes.push(fillNode);
+    const node = createBatchedPointPath(doc, points, radius * 2, {
+      fill: style.fill,
+      fillOpacity: style.fillOpacity,
+      stroke: configuredStrokeWidth > 0 ? style.stroke : null,
+      strokeWidth: configuredStrokeWidth > 0 ? configuredStrokeWidth : null,
+      dataTrace: renderState.traceIndex,
+      shape: renderState.shape
+    });
+    node.setAttribute('data-box-export-geometry', '1');
+    node.setAttribute('data-box-approx-symbol-geometry', '1');
+    if(Number.isFinite(Number(style.strokeOpacity)) && configuredStrokeWidth > 0){
+      node.setAttribute('stroke-opacity', String(Math.max(0, Math.min(1, Number(style.strokeOpacity)))));
     }
-    return nodes;
+    if(hidden && node.style){
+      node.style.display = 'none';
+    }
+    targetGroup.appendChild(node);
+    return [node];
   }
 
   function createBoxCanvasPointRenderStyle(config = {}){
@@ -4011,10 +4032,48 @@
       state.orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
       state.center = Number.isFinite(Number(config.center)) ? Number(config.center) : null;
       state.thickness = Math.max(1, Number(config.thickness) || 1);
+      if(config.approximation && typeof config.approximation === 'object'){
+        state.approximation = {
+          coords: (Array.isArray(config.approximation.coords) || ArrayBuffer.isView(config.approximation.coords)) ? config.approximation.coords : null,
+          raws: (Array.isArray(config.approximation.raws) || ArrayBuffer.isView(config.approximation.raws)) ? config.approximation.raws : null,
+          maxHalfWidth: Number.isFinite(Number(config.approximation.maxHalfWidth)) ? Number(config.approximation.maxHalfWidth) : null,
+          widthScaleMode: config.approximation.widthScaleMode,
+          violinBounds: typeof config.approximation.violinBounds === 'function' ? config.approximation.violinBounds : null
+        };
+      }
     }else{
       state.points = Array.isArray(config.points) ? config.points : [];
     }
     return state;
+  }
+
+  function rebuildBoxApproximateRenderLayout(renderState, radius){
+    if(!renderState || renderState.renderer !== 'canvas-approx'){
+      return false;
+    }
+    const source = renderState.approximation;
+    const coords = source?.coords;
+    if(!(Array.isArray(coords) || ArrayBuffer.isView(coords))){
+      return false;
+    }
+    const nextRadius = Math.max(0.4, Number(radius) || 0.4);
+    const layout = buildBoxApproximatePointBins({
+      coords,
+      raws: (Array.isArray(source?.raws) || ArrayBuffer.isView(source?.raws)) ? source.raws : coords,
+      orientation: renderState.orientation,
+      radius: nextRadius,
+      maxHalfWidth: source?.maxHalfWidth,
+      widthScaleMode: source?.widthScaleMode,
+      violinBounds: source?.violinBounds
+    });
+    if(!layout){
+      return false;
+    }
+    renderState.bins = layout.bins;
+    renderState.hitBins = layout.bins;
+    renderState.thickness = layout.thickness;
+    renderState.hitStrokeWidth = Math.max(12, layout.thickness + nextRadius * 2 + 8);
+    return true;
   }
 
   function renderBoxCanvasPointLayerFromState(renderState, group, docOverride){
@@ -4031,6 +4090,8 @@
         orientation: renderState.orientation,
         center: renderState.center,
         thickness: renderState.thickness,
+        pointRadius: renderState.pointRadius,
+        shape: renderState.shape,
         fill: style.fill,
         fillOpacity: style.fillOpacity,
         strokeOpacity: style.strokeOpacity,
@@ -4181,14 +4242,11 @@
     if(patch.size != null){
       const nextRadius = Number(patch.size);
       if(Number.isFinite(nextRadius) && nextRadius > 0){
-        const previousRadius = Number(renderState.pointRadius);
         renderState.pointRadius = nextRadius;
         if(renderState.renderer === 'canvas-approx'){
-          const scale = Number.isFinite(previousRadius) && previousRadius > 0
-            ? (nextRadius / previousRadius)
-            : 1;
-          renderState.thickness = Math.max(1, Math.min(24, (Number(renderState.thickness) || 1) * scale));
-          renderState.hitStrokeWidth = Math.max(10, (Number(renderState.hitStrokeWidth) || 10) * scale);
+          if(!rebuildBoxApproximateRenderLayout(renderState, nextRadius)){
+            return false;
+          }
         }else{
           renderState.hitStrokeWidth = Math.max(10, nextRadius * 2 + 8);
         }
@@ -27105,6 +27163,13 @@ Technical analysis record (advanced)
           pointData: pointSelectionData,
           pointRadius: effectiveRadius,
           shape: effectiveShape,
+          approximation: {
+            coords: pointCoords,
+            raws: rawValues,
+            maxHalfWidth: resolvedMaxHalfWidth,
+            widthScaleMode,
+            violinBounds
+          },
           style: {
             fill: effectiveFill,
             fillOpacity: effectiveOpacity,
@@ -32079,6 +32144,9 @@ Technical analysis record (advanced)
       resolveFastStripAutoSizeProfile:config=>resolveFastStripAutoSizeProfile(config),
       shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
       buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
+      buildBoxApproximatePointCenters:config=>buildBoxApproximatePointCenters(config),
+      applyBoxCanvasPointGroupStyleLive:(group,patch)=>applyBoxCanvasPointGroupStyleLive(group,patch),
+      renderStoredBoxCanvasPointGroup:group=>renderStoredBoxCanvasPointGroup(group),
       buildBoxPointInteractionMaskPath:config=>buildBoxPointInteractionMaskPath(config),
       findBoxPointNodeForTrace:(traceIndex,fallbackNode)=>findBoxPointNodeForTrace(traceIndex,fallbackNode),
       resolveResponsivePointRadius:(baseRadius,scaleInfo,options={})=>resolveResponsivePointRadius(baseRadius,scaleInfo,options || {}),
