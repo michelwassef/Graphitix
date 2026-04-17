@@ -336,7 +336,7 @@ describe('Box swarm offset constraints', () => {
       coords[idx] = 100 + band * 0.28;
       raws[idx] = 50 + band * 0.5;
     }
-    const layout = hooks.buildBoxApproximatePointBins({
+    const layout = hooks.buildBoxDensityPointLayout({
       coords,
       raws,
       orientation: 'vertical',
@@ -408,7 +408,7 @@ describe('Box swarm offset constraints', () => {
 
   test('huge-trace density layout tapers at observed data boundaries', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointBins).toBe('function');
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
     const coords = new Float64Array(10000);
     for(let idx = 0; idx < coords.length; idx += 1){
       coords[idx] = 100 + Math.pow(idx / (coords.length - 1), 1.6) * 420;
@@ -440,8 +440,8 @@ describe('Box swarm offset constraints', () => {
 
   test('huge-trace density centers preserve selected symbol geometry', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointCenters).toBe('function');
-    const centers = hooks.buildBoxApproximatePointCenters({
+    expect(typeof hooks.buildBoxDensityPointCenters).toBe('function');
+    const centers = hooks.buildBoxDensityPointCenters({
       bins: [
         { coord: 100, halfWidth: 12, count: 20 },
         { coord: 116, halfWidth: 6, count: 4 }
@@ -459,16 +459,16 @@ describe('Box swarm offset constraints', () => {
 
   test('huge-trace density center count is independent from visual point size', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointCenters).toBe('function');
+    expect(typeof hooks.buildBoxDensityPointCenters).toBe('function');
     const bins = [{ coord: 100, halfWidth: 24, count: 100 }];
-    const small = hooks.buildBoxApproximatePointCenters({
+    const small = hooks.buildBoxDensityPointCenters({
       bins,
       orientation: 'vertical',
       center: 200,
       radius: 1,
       spacingRadius: 1
     });
-    const large = hooks.buildBoxApproximatePointCenters({
+    const large = hooks.buildBoxDensityPointCenters({
       bins,
       orientation: 'vertical',
       center: 200,
@@ -541,7 +541,7 @@ describe('Box swarm offset constraints', () => {
 
   test('canvas-density source layout interpolates density width between bins', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.resolveBoxApproximateHalfWidthForCoord).toBe('function');
+    expect(typeof hooks.resolveBoxDensityHalfWidthForCoord).toBe('function');
     const config = {
       bins: [
         { coord: 0, halfWidth: 10 },
@@ -549,9 +549,9 @@ describe('Box swarm offset constraints', () => {
       ],
       binSize: 10
     };
-    expect(hooks.resolveBoxApproximateHalfWidthForCoord(config, 0)).toBeCloseTo(10, 5);
-    expect(hooks.resolveBoxApproximateHalfWidthForCoord(config, 5)).toBeCloseTo(20, 5);
-    expect(hooks.resolveBoxApproximateHalfWidthForCoord(config, 10)).toBeCloseTo(30, 5);
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 0)).toBeCloseTo(10, 5);
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 5)).toBeCloseTo(20, 5);
+    expect(hooks.resolveBoxDensityHalfWidthForCoord(config, 10)).toBeCloseTo(30, 5);
   });
 
   test('canvas-density live shape and size changes update render state without rebuilding density layout', () => {
@@ -584,7 +584,7 @@ describe('Box swarm offset constraints', () => {
       for(let idx = 0; idx < coords.length; idx += 1){
         coords[idx] = 100 + idx * 0.25;
       }
-      const initial = hooks.buildBoxApproximatePointBins({
+      const initial = hooks.buildBoxDensityPointLayout({
         coords,
         raws: coords,
         orientation: 'vertical',
@@ -592,7 +592,7 @@ describe('Box swarm offset constraints', () => {
         maxHalfWidth: 20,
         widthScaleMode: 'density'
       });
-      const initialCenterCount = hooks.buildBoxApproximatePointCenters({
+      const initialCenterCount = hooks.buildBoxDensityPointCenters({
         bins: initial.bins,
         orientation: 'vertical',
         center: 200,
@@ -633,7 +633,7 @@ describe('Box swarm offset constraints', () => {
       expect(group.__boxCanvasRenderState.pointRadius).toBe(6);
       expect(group.__boxCanvasRenderState.thickness).toBeCloseTo(initial.thickness, 5);
       expect(group.__boxCanvasRenderState.bins).toBe(initial.bins);
-      expect(hooks.buildBoxApproximatePointCenters({
+      expect(hooks.buildBoxDensityPointCenters({
         bins: group.__boxCanvasRenderState.bins,
         orientation: 'vertical',
         center: 200,

@@ -241,6 +241,201 @@
     };
   };
 
+  function closeSiblingOptionsMenus(control){
+    const tray = control?.parentElement;
+    if(!tray){
+      return;
+    }
+    Array.from(tray.querySelectorAll('.resizer-options-control[open]')).forEach(openControl => {
+      if(openControl !== control){
+        openControl.removeAttribute('open');
+      }
+    });
+  }
+
+  function createGraphOptionsIcon(doc){
+    if(!doc){
+      return null;
+    }
+    const svgNs = 'http://www.w3.org/2000/svg';
+    const svg = doc.createElementNS(svgNs, 'svg');
+    svg.setAttribute('class', 'resizer-options-icon');
+    svg.setAttribute('viewBox', '0 0 1280 1280');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const group = doc.createElementNS(svgNs, 'g');
+    group.setAttribute('transform', 'translate(0,1280) scale(0.1,-0.1)');
+    group.setAttribute('fill', 'currentColor');
+    group.setAttribute('stroke', 'none');
+    const path = doc.createElementNS(svgNs, 'path');
+    path.setAttribute('d', 'M5860 12792 c0 -4 -29 -174 -65 -377 -36 -204 -95 -541 -131 -750 -37 -209 -68 -381 -69 -383 -1 -1 -61 -14 -133 -27 -233 -45 -467 -108 -691 -187 -110 -38 -114 -39 -131 -21 -9 10 -225 268 -480 573 -255 305 -470 563 -480 573 -16 17 -38 5 -476 -248 -252 -146 -460 -269 -462 -274 -2 -5 115 -332 259 -727 l262 -717 -40 -36 c-289 -261 -333 -304 -614 -615 l-36 -39 -704 257 c-387 142 -714 258 -726 259 -19 2 -58 -61 -288 -457 -253 -438 -265 -460 -248 -476 10 -10 270 -228 578 -485 308 -257 566 -473 573 -479 10 -10 5 -35 -27 -127 -85 -249 -141 -456 -185 -688 -14 -74 -27 -135 -28 -136 -2 -1 -174 -32 -383 -69 -209 -36 -546 -95 -750 -131 -203 -36 -373 -65 -377 -65 -4 0 -8 -243 -8 -540 0 -297 4 -540 8 -540 4 0 174 -29 377 -65 204 -36 541 -95 750 -131 209 -37 381 -68 383 -69 1 -1 14 -62 28 -136 44 -232 100 -439 185 -688 32 -92 37 -117 27 -127 -7 -6 -265 -222 -573 -479 -308 -257 -568 -475 -578 -485 -17 -16 -5 -38 248 -476 230 -396 269 -459 288 -457 12 1 339 117 726 259 l704 257 36 -39 c281 -311 325 -354 614 -615 l40 -36 -262 -717 c-144 -395 -261 -722 -259 -727 2 -5 210 -128 462 -274 438 -253 460 -265 476 -248 10 10 225 268 480 573 255 305 471 563 480 573 17 18 21 17 131 -21 224 -79 458 -142 691 -187 72 -13 132 -26 133 -27 1 -2 32 -174 69 -383 36 -209 95 -546 131 -750 36 -203 65 -373 65 -377 0 -4 242 -8 538 -8 l538 0 52 292 c28 161 88 502 133 758 44 256 82 466 84 468 1 1 69 16 151 32 254 50 420 94 673 181 92 32 117 37 127 27 6 -7 222 -265 479 -573 257 -308 475 -568 485 -578 16 -17 38 -5 476 248 252 146 460 269 462 274 2 7 -163 465 -465 1290 l-57 154 65 56 c217 190 384 356 570 570 l55 64 185 -67 c708 -260 1250 -456 1257 -456 5 0 94 147 198 327 103 181 223 388 266 462 63 108 76 137 66 146 -7 7 -267 225 -578 485 -311 260 -571 478 -578 484 -10 10 -5 35 27 127 84 246 150 491 191 712 12 64 26 117 30 117 4 0 227 38 496 85 269 47 604 106 744 130 140 25 258 45 262 45 5 0 8 243 8 540 0 297 -4 540 -8 540 -4 0 -172 29 -372 64 -201 35 -539 95 -752 132 l-387 68 -21 115 c-41 219 -107 465 -191 710 -32 92 -37 117 -27 127 7 6 267 224 578 484 311 260 571 478 578 485 10 9 -3 38 -66 146 -43 74 -163 281 -266 462 -104 180 -193 327 -198 327 -7 0 -549 -196 -1257 -456 l-185 -67 -55 64 c-186 214 -353 380 -570 570 l-65 56 57 154 c302 825 467 1283 465 1290 -2 5 -210 128 -462 274 -438 253 -460 265 -476 248 -10 -10 -228 -270 -485 -578 -257 -308 -473 -566 -479 -573 -10 -10 -35 -5 -127 27 -253 87 -419 131 -673 181 -82 16 -150 31 -151 32 -2 2 -40 212 -84 468 -45 256 -105 597 -133 758 l-52 292 -538 0 c-296 0 -538 -4 -538 -8z m745 -2616 c678 -24 1405 -277 1985 -690 358 -254 675 -576 924 -936 373 -538 598 -1161 657 -1820 14 -161 14 -499 0 -660 -94 -1039 -601 -1983 -1416 -2632 -493 -393 -1095 -662 -1715 -767 -246 -42 -300 -46 -640 -46 -340 0 -394 4 -640 46 -1177 199 -2203 959 -2740 2030 -295 587 -425 1198 -398 1870 48 1199 680 2316 1688 2983 502 332 1046 531 1658 606 96 12 405 28 457 23 17 -1 98 -5 180 -7z');
+    group.appendChild(path);
+    svg.appendChild(group);
+    return svg;
+  }
+
+  function openAxesLengthOptionsInMenu(menu){
+    if(!menu){
+      return;
+    }
+    Array.from(menu.querySelectorAll('.resizer-axeslength-control')).forEach(control => {
+      control.setAttribute('open', '');
+    });
+  }
+
+  function ensureGraphOptionsMenu(svgBox, doc, opts = {}){
+    if(!svgBox || !doc){
+      return null;
+    }
+    let tray = svgBox.querySelector('.resizer-control-tray');
+    if(!tray){
+      tray = doc.createElement('div');
+      tray.className = 'resizer-control-tray';
+      svgBox.appendChild(tray);
+      console.debug('Debug: resizer options tray created', {
+        label: opts.debugLabel || null,
+        trayChildren: tray.childElementCount
+      });
+    }
+    let control = tray.querySelector(':scope > .resizer-options-control');
+    if(!control){
+      control = doc.createElement('details');
+      control.className = 'resizer-options-control';
+      const summary = doc.createElement('summary');
+      summary.className = 'resizer-options-summary';
+      summary.title = opts.title || 'Graph options';
+      summary.setAttribute('aria-label', opts.title || 'Graph options');
+      const icon = createGraphOptionsIcon(doc);
+      if(icon){
+        summary.appendChild(icon);
+      }
+      const menu = doc.createElement('div');
+      menu.className = 'resizer-options-menu';
+      control.appendChild(summary);
+      control.appendChild(menu);
+      tray.insertBefore(control, tray.firstChild || null);
+      console.debug('Debug: resizer options menu created', {
+        label: opts.debugLabel || null,
+        trayChildren: tray.childElementCount
+      });
+    }else if(control.parentNode !== tray){
+      tray.insertBefore(control, tray.firstChild || null);
+    }else if(tray.firstChild !== control){
+      tray.insertBefore(control, tray.firstChild || null);
+    }
+    const menu = control.querySelector('.resizer-options-menu');
+    if(!menu){
+      const newMenu = doc.createElement('div');
+      newMenu.className = 'resizer-options-menu';
+      control.appendChild(newMenu);
+    }
+    if(!control.__resizerOptionsToggleHandler){
+      const onToggle = () => {
+        if(control.hasAttribute('open')){
+          closeSiblingOptionsMenus(control);
+          openAxesLengthOptionsInMenu(control.querySelector('.resizer-options-menu'));
+        }
+      };
+      control.addEventListener('toggle', onToggle);
+      control.__resizerOptionsToggleHandler = onToggle;
+    }
+    if(!control.__resizerOptionsKeyHandler){
+      const onKeyDown = (event) => {
+        if(event?.key === 'Escape' && control.hasAttribute('open')){
+          control.removeAttribute('open');
+          const summary = control.querySelector('.resizer-options-summary');
+          if(summary && typeof summary.focus === 'function'){
+            summary.focus();
+          }
+        }
+      };
+      control.addEventListener('keydown', onKeyDown);
+      control.__resizerOptionsKeyHandler = onKeyDown;
+    }
+    const setup = {
+      tray,
+      control,
+      summary: control.querySelector('.resizer-options-summary'),
+      menu: control.querySelector('.resizer-options-menu')
+    };
+    moveKnownGraphOptionsIntoMenu(svgBox, setup, opts);
+    if(!tray.__resizerOptionsObserver && global.MutationObserver){
+      const observer = new global.MutationObserver(() => {
+        moveKnownGraphOptionsIntoMenu(svgBox, setup, opts);
+      });
+      observer.observe(tray, { childList: true });
+      tray.__resizerOptionsObserver = observer;
+    }
+    return setup;
+  }
+
+  function moveGraphOptionIntoMenu(svgBox, optionControl, opts = {}){
+    if(!svgBox || !optionControl){
+      return null;
+    }
+    const doc = svgBox.ownerDocument || global.document;
+    const setup = ensureGraphOptionsMenu(svgBox, doc, opts);
+    if(!setup?.menu){
+      return null;
+    }
+    if(optionControl.parentNode !== setup.menu){
+      setup.menu.appendChild(optionControl);
+      if(optionControl.classList?.contains('resizer-axeslength-control')){
+        optionControl.setAttribute('open', '');
+      }
+      console.debug('Debug: resizer option moved into menu', {
+        label: opts.debugLabel || null,
+        className: optionControl.className || null,
+        menuChildren: setup.menu.childElementCount
+      });
+    }
+    return setup;
+  }
+
+  function moveKnownGraphOptionsIntoMenu(svgBox, setup, opts = {}){
+    const menu = setup?.menu;
+    if(!svgBox || !menu){
+      return;
+    }
+    const tray = setup.tray || svgBox.querySelector('.resizer-control-tray');
+    if(!tray){
+      return;
+    }
+    [
+      '.resizer-aspect-control',
+      '.resizer-textlock-control',
+      '.resizer-axeslength-control',
+      '.resizer-legend-control'
+    ].forEach(selector => {
+      Array.from(tray.querySelectorAll(selector)).forEach(control => {
+        if(control.closest('.resizer-options-control') === setup.control){
+          return;
+        }
+        menu.appendChild(control);
+        if(control.classList?.contains('resizer-axeslength-control')){
+          openAxesLengthOptionsInMenu(menu);
+        }
+        console.debug('Debug: resizer known option moved into menu', {
+          label: opts.debugLabel || null,
+          selector,
+          menuChildren: menu.childElementCount
+        });
+      });
+    });
+  }
+
+  resizerNamespace.ensureGraphOptionsMenu = function ensureGraphOptionsMenuPublic(options){
+    const opts = options || {};
+    const svgBox = opts.svgBox;
+    const doc = svgBox?.ownerDocument || global.document;
+    const setup = ensureGraphOptionsMenu(svgBox, doc, opts);
+    const controls = Array.isArray(opts.controls) ? opts.controls : [];
+    controls.forEach(control => {
+      moveGraphOptionIntoMenu(svgBox, control, opts);
+    });
+    return setup;
+  };
+
   resizerNamespace.ensureLegendControlPlacement = function ensureLegendControlPlacement(options){
     const opts = options || {};
     const svgBox = opts.svgBox;
@@ -248,33 +443,23 @@
     if(!svgBox || !control){
       return null;
     }
-    const doc = svgBox.ownerDocument || global.document;
-    let tray = svgBox.querySelector('.resizer-bottom-tray');
-    if(!tray && doc){
-      tray = doc.createElement('div');
-      tray.className = 'resizer-bottom-tray';
-      svgBox.appendChild(tray);
-      console.debug('Debug: resizer ensureLegendControlPlacement tray created', {
-        label: opts.debugLabel || null,
-        trayChildren: tray.childElementCount
-      });
-    }
-    if(!tray){
+    const setup = moveGraphOptionIntoMenu(svgBox, control, {
+      debugLabel: opts.debugLabel || 'legend-option',
+      title: 'Graph options'
+    });
+    if(!setup){
       return null;
-    }
-    if(control.parentNode !== tray){
-      tray.appendChild(control);
-      console.debug('Debug: resizer ensureLegendControlPlacement control moved', {
-        label: opts.debugLabel || null,
-        trayChildren: tray.childElementCount
-      });
     }
     control.classList.remove('config-panel__checkbox', 'config-panel__checkbox--inline');
     control.classList.add('resizer-legend-control');
     if(!control.title){
       control.title = opts.title || 'Toggle legend visibility';
     }
-    return tray;
+    const legacyTray = svgBox.querySelector('.resizer-bottom-tray');
+    if(legacyTray && legacyTray.childElementCount === 0){
+      legacyTray.remove();
+    }
+    return setup.menu;
   };
 
   function resolveSquareSize(label){
@@ -437,6 +622,7 @@
       classList.contains('resizer')
       || classList.contains('resizer-control-tray')
       || classList.contains('resizer-bottom-tray')
+      || classList.contains('resizer-options-control')
       || classList.contains('resizer-zoom-control')
       || classList.contains('resizer-zoom-viewport')
     )){
@@ -1338,6 +1524,17 @@
         }
       }
 
+      const optionsSetup = ensureGraphOptionsMenu(container, doc, {
+        debugLabel: `${containerLabel}-options`,
+        title: 'Graph options'
+      });
+      if(aspectControl){
+        moveGraphOptionIntoMenu(container, aspectControl, { debugLabel: `${containerLabel}-aspect-option` });
+      }
+      if(textLockControl){
+        moveGraphOptionIntoMenu(container, textLockControl, { debugLabel: `${containerLabel}-text-lock-option` });
+      }
+
       const zoomSetup = ensureZoomElements();
       if(zoomSetup){
         zoomControl = container.querySelector('.resizer-zoom-control');
@@ -1347,15 +1544,23 @@
           zoomControl.setAttribute('role', 'group');
           zoomControl.setAttribute('aria-label', 'Graph zoom controls');
           if(controlTray){
-            controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
+            controlTray.insertBefore(
+              zoomControl,
+              optionsSetup?.control ? optionsSetup.control.nextSibling : (controlTray.firstChild || null)
+            );
           }else{
             container.appendChild(zoomControl);
           }
           logZoom('control-created');
         }else if(controlTray){
           if(zoomControl.parentNode !== controlTray){
-            controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
-          }else if(controlTray.firstChild !== zoomControl){
+            controlTray.insertBefore(
+              zoomControl,
+              optionsSetup?.control ? optionsSetup.control.nextSibling : (controlTray.firstChild || null)
+            );
+          }else if(optionsSetup?.control && zoomControl.previousSibling !== optionsSetup.control){
+            controlTray.insertBefore(zoomControl, optionsSetup.control.nextSibling);
+          }else if(!optionsSetup?.control && controlTray.firstChild !== zoomControl){
             controlTray.insertBefore(zoomControl, controlTray.firstChild || null);
           }
         }

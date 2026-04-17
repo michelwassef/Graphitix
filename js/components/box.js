@@ -1053,6 +1053,8 @@
   const BOX_POINT_APPROX_THRESHOLD = 8000;
   const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const BOX_POINT_CANVAS_PATH_CHUNK_SIZE = 20000;
+  const BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT = 20000;
+  const BOX_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
   const BOX_POINT_DENSITY_CANVAS_RENDERER = 'canvas-density';
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
@@ -3831,6 +3833,17 @@
     return { offsets, maxOffsetUsed };
   }
 
+  function scheduleBoxCanvasDrawFrame(callback){
+    const raf = global.window && typeof global.window.requestAnimationFrame === 'function'
+      ? global.window.requestAnimationFrame.bind(global.window)
+      : (typeof global.requestAnimationFrame === 'function' ? global.requestAnimationFrame.bind(global) : null);
+    if(raf){
+      raf(callback);
+    }else{
+      global.setTimeout(callback, 0);
+    }
+  }
+
   function buildBoxApproximatePointBins(config){
     const coordsInput = config?.coords;
     const rawsInput = config?.raws;
@@ -3980,49 +3993,57 @@
     return lowerHalfWidth + (upperHalfWidth - lowerHalfWidth) * t;
   }
 
+  function resolveBoxApproximateSourcePointAt(config = {}, lookup, idx){
+    const coords = config.coords;
+    const center = Number(config.center);
+    if(!(Array.isArray(coords) || ArrayBuffer.isView(coords)) || !Number.isFinite(center)){
+      return null;
+    }
+    const coord = Number(coords[idx]);
+    if(!Number.isFinite(coord)){
+      return null;
+    }
+    const offsets = (Array.isArray(config.offsets) || ArrayBuffer.isView(config.offsets)) ? config.offsets : null;
+    const raws = (Array.isArray(config.raws) || ArrayBuffer.isView(config.raws)) ? config.raws : coords;
+    const orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    const pointRadius = Math.max(0.4, Number(config.pointRadius) || 0.4);
+    const violinBounds = typeof config.violinBounds === 'function' ? config.violinBounds : null;
+    let offset = Number.isFinite(Number(offsets?.[idx])) ? Number(offsets[idx]) : NaN;
+    if(!Number.isFinite(offset)){
+      let halfWidth = resolveBoxApproximateHalfWidthForCoord(lookup, coord);
+      if(violinBounds){
+        const rawValue = Number(raws?.[idx]);
+        const maxHalf = Number(violinBounds(Number.isFinite(rawValue) ? rawValue : coord));
+        if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+          halfWidth = 0;
+        }else{
+          halfWidth = Math.min(halfWidth, Math.max(0, maxHalf - pointRadius));
+        }
+      }
+      offset = halfWidth > 0 ? resolveBoxApproximatePointOffsetUnit(idx) * halfWidth : 0;
+    }
+    return orientation === 'vertical'
+      ? { x: center + offset, y: coord }
+      : { x: coord, y: center + offset };
+  }
+
   function forEachBoxApproximateSourcePoint(config = {}, callback){
     const coordsInput = config.coords;
     const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
-    const offsetsInput = config.offsets;
-    const offsets = (Array.isArray(offsetsInput) || ArrayBuffer.isView(offsetsInput)) ? offsetsInput : null;
-    const rawsInput = config.raws;
-    const raws = (Array.isArray(rawsInput) || ArrayBuffer.isView(rawsInput)) ? rawsInput : coords;
-    const center = Number(config.center);
-    const orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
-    if(!coords || !coords.length || !Number.isFinite(center) || typeof callback !== 'function'){
+    if(!coords || !coords.length || typeof callback !== 'function'){
       return 0;
     }
     const lookup = createBoxApproximateBinLookup(config.bins, config.binSize, {
       dataMin: config.dataMin,
       dataMax: config.dataMax
     });
-    const pointRadius = Math.max(0.4, Number(config.pointRadius) || 0.4);
-    const violinBounds = typeof config.violinBounds === 'function' ? config.violinBounds : null;
     let count = 0;
     for(let idx = 0; idx < coords.length; idx += 1){
-      const coord = Number(coords[idx]);
-      if(!Number.isFinite(coord)){
+      const point = resolveBoxApproximateSourcePointAt(config, lookup, idx);
+      if(!point){
         continue;
       }
-      let offset = Number.isFinite(Number(offsets?.[idx])) ? Number(offsets[idx]) : NaN;
-      if(!Number.isFinite(offset)){
-        let halfWidth = resolveBoxApproximateHalfWidthForCoord(lookup, coord);
-        if(violinBounds){
-          const rawValue = Number(raws?.[idx]);
-          const maxHalf = Number(violinBounds(Number.isFinite(rawValue) ? rawValue : coord));
-          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
-            halfWidth = 0;
-          }else{
-            halfWidth = Math.min(halfWidth, Math.max(0, maxHalf - pointRadius));
-          }
-        }
-        offset = halfWidth > 0 ? resolveBoxApproximatePointOffsetUnit(idx) * halfWidth : 0;
-      }
-      if(orientation === 'vertical'){
-        callback(center + offset, coord, idx);
-      }else{
-        callback(coord, center + offset, idx);
-      }
+      callback(point.x, point.y, idx);
       count += 1;
     }
     return count;
@@ -4072,18 +4093,18 @@
       orientation,
       center
     };
-    const sourceBounds = computeBoxApproximateSourcePointBounds(sourcePointConfig);
-    const bounds = expandBoxCanvasBounds(sourceBounds || computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
+    const sourceCoords = (Array.isArray(sourcePointConfig.coords) || ArrayBuffer.isView(sourcePointConfig.coords)) ? sourcePointConfig.coords : null;
+    const bounds = expandBoxCanvasBounds(computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
     if(!bounds){
       return false;
     }
-    const useSourcePoints = !!(sourceBounds && sourceBounds.count > 0);
+    const useSourcePoints = !!(sourceCoords && sourceCoords.length > 0);
     return renderBoxCanvasForeignObject({
       doc,
       group,
       bounds,
       rendererType: BOX_POINT_DENSITY_CANVAS_RENDERER,
-      draw(ctx){
+      draw(ctx, _bounds, surface){
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         let pointsInPath = 0;
@@ -4118,7 +4139,36 @@
         };
         ctx.beginPath();
         if(useSourcePoints){
-          forEachBoxApproximateSourcePoint(sourcePointConfig, appendSymbol);
+          if(sourceCoords.length > BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT){
+            const lookup = createBoxApproximateBinLookup(sourcePointConfig.bins, sourcePointConfig.binSize, {
+              dataMin: sourcePointConfig.dataMin,
+              dataMax: sourcePointConfig.dataMax
+            });
+            let idx = 0;
+            const drawChunk = () => {
+              if(surface?.foreignObject && !surface.foreignObject.parentNode){
+                return;
+              }
+              let processed = 0;
+              ctx.beginPath();
+              pointsInPath = 0;
+              while(idx < sourceCoords.length && processed < BOX_POINT_CANVAS_FRAME_POINT_BUDGET){
+                const point = resolveBoxApproximateSourcePointAt(sourcePointConfig, lookup, idx);
+                if(point){
+                  appendSymbol(point.x, point.y);
+                }
+                idx += 1;
+                processed += 1;
+              }
+              paintCurrentPath();
+              if(idx < sourceCoords.length){
+                scheduleBoxCanvasDrawFrame(drawChunk);
+              }
+            };
+            scheduleBoxCanvasDrawFrame(drawChunk);
+          }else{
+            forEachBoxApproximateSourcePoint(sourcePointConfig, appendSymbol);
+          }
         }else{
           const centers = buildBoxApproximatePointCenters({
             bins,
@@ -4131,7 +4181,9 @@
             appendSymbol(point.x, point.y);
           });
         }
-        paintCurrentPath();
+        if(!useSourcePoints || sourceCoords.length <= BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT){
+          paintCurrentPath();
+        }
       }
     });
   }
@@ -4617,9 +4669,6 @@
         stroke: style.stroke,
         strokeWidth: style.strokeWidth
       });
-      if(rendered){
-        appendBoxApproximateGeometryPaths(group, renderState, doc, { hidden: true });
-      }
       return rendered;
     }
     if(renderState.renderer === 'canvas-preview'){
