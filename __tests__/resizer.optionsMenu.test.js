@@ -140,10 +140,10 @@ describe('Shared resizer graph options menu', () => {
     document.body.appendChild(outside);
 
     options.setAttribute('open', '');
-    menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    menu.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(options.hasAttribute('open')).toBe(true);
 
-    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(options.hasAttribute('open')).toBe(false);
   });
 });
