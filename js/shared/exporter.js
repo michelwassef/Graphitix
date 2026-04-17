@@ -3681,6 +3681,63 @@
     return Array.from(defs || []);
   }
 
+  function collectCanvasNodes(node) {
+    if (!node) return [];
+    const nodes = [];
+    const tag = String(node.tagName || '').toLowerCase();
+    if (tag === 'canvas') {
+      nodes.push(node);
+    }
+    if (typeof node.querySelectorAll === 'function') {
+      nodes.push(...Array.from(node.querySelectorAll('canvas')));
+    }
+    return nodes;
+  }
+
+  function hydrateCanvasBitmapsInClone(sourceNode, cloneNode) {
+    if (!sourceNode || !cloneNode) return;
+    const sourceCanvases = collectCanvasNodes(sourceNode);
+    if (!sourceCanvases.length) return;
+    const cloneCanvases = collectCanvasNodes(cloneNode);
+    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
+    for (let i = 0; i < count; i += 1) {
+      const sourceCanvas = sourceCanvases[i];
+      const cloneCanvas = cloneCanvases[i];
+      if (!sourceCanvas || !cloneCanvas || typeof sourceCanvas.toDataURL !== 'function') {
+        continue;
+      }
+      let dataUrl = '';
+      try {
+        dataUrl = sourceCanvas.toDataURL('image/png');
+      } catch (err) {
+        debugLog('buildHybridSvg canvas bitmap copy skipped', { error: err?.message });
+        continue;
+      }
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        continue;
+      }
+      const ownerDoc = cloneCanvas.ownerDocument || doc;
+      const img = ownerDoc?.createElement ? ownerDoc.createElement('img') : null;
+      if (!img || !cloneCanvas.parentNode) {
+        continue;
+      }
+      img.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+      img.setAttribute('src', dataUrl);
+      img.setAttribute('width', cloneCanvas.getAttribute('width') || String(sourceCanvas.width || 1));
+      img.setAttribute('height', cloneCanvas.getAttribute('height') || String(sourceCanvas.height || 1));
+      const style = cloneCanvas.getAttribute('style');
+      if (style) {
+        img.setAttribute('style', style);
+      }
+      img.style.display = cloneCanvas.style?.display || 'block';
+      img.style.width = cloneCanvas.style?.width || `${sourceCanvas.width || 1}px`;
+      img.style.height = cloneCanvas.style?.height || `${sourceCanvas.height || 1}px`;
+      img.style.background = cloneCanvas.style?.background || 'transparent';
+      img.style.pointerEvents = 'none';
+      cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
+    }
+  }
+
   async function buildHybridSvg(svgEl, options = {}) {
     if (!svgEl) {
       logDebug('buildHybridSvg skipped', { contextLabel: options.contextLabel, reason: 'no element' });
@@ -3752,7 +3809,9 @@
       layerGroup.setAttribute('data-export-raster-source', label);
       targets.forEach(node => {
         try {
-          layerGroup.appendChild(node.cloneNode(true));
+          const clone = node.cloneNode(true);
+          hydrateCanvasBitmapsInClone(node, clone);
+          layerGroup.appendChild(clone);
         } catch (err) {
           debugLog('buildHybridSvg node clone error', { error: err?.message });
         }

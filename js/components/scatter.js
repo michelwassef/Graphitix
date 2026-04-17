@@ -160,6 +160,7 @@
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
   const SCATTER_POINT_BATCH_THRESHOLD = 12000;
+  const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
 
   const SCATTER_SHAPE_OPTIONS = Shared.getShapePickerOptions
@@ -14527,6 +14528,292 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return `M ${safeCx - r} ${safeCy} a ${r} ${r} 0 1 0 ${diameter} 0 a ${r} ${r} 0 1 0 ${-diameter} 0`;
       }
 
+      let scatterPointCanvasSupported = null;
+
+      function canUseScatterPointCanvas(){
+        if(scatterPointCanvasSupported != null){
+          return scatterPointCanvasSupported;
+        }
+        try{
+          const doc = global.document;
+          const canvas = doc && typeof doc.createElement === 'function'
+            ? doc.createElement('canvas')
+            : null;
+          scatterPointCanvasSupported = !!(canvas && typeof canvas.getContext === 'function' && canvas.getContext('2d'));
+        }catch(err){
+          scatterPointCanvasSupported = false;
+        }
+        return scatterPointCanvasSupported;
+      }
+
+      function appendScatterPointCanvasShapePath(ctx, shape, x, y, radius){
+        const safeRadius = Math.max(0.2, Number(radius) || 0.2);
+        const normalized = SCATTER_SHAPE_VALUES.has(shape) ? shape : 'circle';
+        if(normalized === 'square'){
+          ctx.rect(x - safeRadius, y - safeRadius, safeRadius * 2, safeRadius * 2);
+          return;
+        }
+        if(normalized === 'triangle'){
+          ctx.moveTo(x, y - safeRadius);
+          ctx.lineTo(x + safeRadius, y + safeRadius);
+          ctx.lineTo(x - safeRadius, y + safeRadius);
+          ctx.closePath();
+          return;
+        }
+        if(normalized === 'diamond'){
+          ctx.moveTo(x, y - safeRadius);
+          ctx.lineTo(x + safeRadius, y);
+          ctx.lineTo(x, y + safeRadius);
+          ctx.lineTo(x - safeRadius, y);
+          ctx.closePath();
+          return;
+        }
+        if(normalized === 'cross'){
+          const size = Math.max(safeRadius * 2, 2);
+          const half = size / 2;
+          const bar = Math.max(size / 3, 2);
+          const hb = bar / 2;
+          const top = y - half;
+          const bottom = y + half;
+          const left = x - half;
+          const right = x + half;
+          ctx.moveTo(left, top + hb);
+          ctx.lineTo(left + hb, top);
+          ctx.lineTo(x, y - hb);
+          ctx.lineTo(right - hb, top);
+          ctx.lineTo(right, top + hb);
+          ctx.lineTo(x + hb, y);
+          ctx.lineTo(right, bottom - hb);
+          ctx.lineTo(right - hb, bottom);
+          ctx.lineTo(x, y + hb);
+          ctx.lineTo(left + hb, bottom);
+          ctx.lineTo(left, bottom - hb);
+          ctx.lineTo(x - hb, y);
+          ctx.closePath();
+          return;
+        }
+        if(normalized === 'plus'){
+          const size = Math.max(safeRadius * 2, 2);
+          const half = size / 2;
+          const bar = Math.max(size / 3, 2);
+          const hb = bar / 2;
+          ctx.moveTo(x - hb, y - half);
+          ctx.lineTo(x + hb, y - half);
+          ctx.lineTo(x + hb, y - hb);
+          ctx.lineTo(x + half, y - hb);
+          ctx.lineTo(x + half, y + hb);
+          ctx.lineTo(x + hb, y + hb);
+          ctx.lineTo(x + hb, y + half);
+          ctx.lineTo(x - hb, y + half);
+          ctx.lineTo(x - hb, y + hb);
+          ctx.lineTo(x - half, y + hb);
+          ctx.lineTo(x - half, y - hb);
+          ctx.lineTo(x - hb, y - hb);
+          ctx.closePath();
+          return;
+        }
+        if(normalized === 'star'){
+          const innerRadius = Math.max(safeRadius * 0.45, 1);
+          for(let k = 0; k < 5; k += 1){
+            const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+            const outerX = x + Math.cos(a) * safeRadius;
+            const outerY = y + Math.sin(a) * safeRadius;
+            const b = a + Math.PI / 5;
+            const innerX = x + Math.cos(b) * innerRadius;
+            const innerY = y + Math.sin(b) * innerRadius;
+            if(k === 0){
+              ctx.moveTo(outerX, outerY);
+            }else{
+              ctx.lineTo(outerX, outerY);
+            }
+            ctx.lineTo(innerX, innerY);
+          }
+          ctx.closePath();
+          return;
+        }
+        ctx.moveTo(x + safeRadius, y);
+        ctx.arc(x, y, safeRadius, 0, Math.PI * 2);
+      }
+
+      function expandScatterPointCanvasBounds(bounds, padding){
+        if(!bounds){
+          return null;
+        }
+        const safePadding = Math.max(0, Number(padding) || 0);
+        const minX = Number(bounds.minX) - safePadding;
+        const minY = Number(bounds.minY) - safePadding;
+        const maxX = Number(bounds.maxX) + safePadding;
+        const maxY = Number(bounds.maxY) + safePadding;
+        if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
+          return null;
+        }
+        return {
+          minX,
+          minY,
+          maxX,
+          maxY,
+          width: Math.max(1, Math.ceil(maxX - minX)),
+          height: Math.max(1, Math.ceil(maxY - minY))
+        };
+      }
+
+      function createScatterPointCanvasSurface(doc, bounds, rendererType){
+        if(!doc || !bounds){
+          return null;
+        }
+        const minX = Number(bounds.minX);
+        const minY = Number(bounds.minY);
+        const width = Math.max(1, Math.ceil(Number(bounds.width) || 0));
+        const height = Math.max(1, Math.ceil(Number(bounds.height) || 0));
+        if(!Number.isFinite(minX) || !Number.isFinite(minY) || width <= 0 || height <= 0){
+          scatterDebug('Debug: scatter canvas surface skipped due to invalid bounds', { bounds, rendererType });
+          return null;
+        }
+        const foreignObject = doc.createElementNS(NS, 'foreignObject');
+        foreignObject.setAttribute('x', String(minX));
+        foreignObject.setAttribute('y', String(minY));
+        foreignObject.setAttribute('width', String(width));
+        foreignObject.setAttribute('height', String(height));
+        foreignObject.setAttribute('data-point-renderer', rendererType || 'canvas-preview');
+        const canvas = doc.createElement('canvas');
+        canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+        canvas.style.display = 'block';
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        canvas.style.background = 'transparent';
+        canvas.style.pointerEvents = 'none';
+        const dpr = Math.max(1, (global.window?.devicePixelRatio || 1) * SCATTER_POINT_CANVAS_RESOLUTION_SCALE);
+        canvas.setAttribute('data-resolution-scale', String(SCATTER_POINT_CANVAS_RESOLUTION_SCALE));
+        canvas.width = Math.max(1, Math.ceil(width * dpr));
+        canvas.height = Math.max(1, Math.ceil(height * dpr));
+        const ctx = canvas.getContext('2d');
+        if(!ctx){
+          scatterDebug('Debug: scatter canvas surface skipped because 2D context is unavailable', { rendererType, width, height });
+          return null;
+        }
+        return { foreignObject, canvas, ctx, dpr, width, height, minX, minY };
+      }
+
+      function updateScatterPointCanvasBounds(bounds, x, y, radius, strokeWidth){
+        const pad = Math.max(0, Number(radius) || 0) + Math.max(0, Number(strokeWidth) || 0) * 0.5;
+        if(!Number.isFinite(x) || !Number.isFinite(y)){
+          return bounds;
+        }
+        const next = bounds || { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+        next.minX = Math.min(next.minX, x - pad);
+        next.minY = Math.min(next.minY, y - pad);
+        next.maxX = Math.max(next.maxX, x + pad);
+        next.maxY = Math.max(next.maxY, y + pad);
+        return next;
+      }
+
+      function renderScatterPointCanvasBuckets(group, buckets, bounds, options = {}){
+        const doc = options.doc || global.document;
+        if(!doc || !group || !buckets || !buckets.size || !canUseScatterPointCanvas()){
+          return false;
+        }
+        const expandedBounds = expandScatterPointCanvasBounds(bounds, 2);
+        if(!expandedBounds){
+          return false;
+        }
+        const surface = createScatterPointCanvasSurface(doc, expandedBounds, 'canvas-preview');
+        if(!surface){
+          return false;
+        }
+        const { foreignObject, canvas, ctx, dpr } = surface;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        buckets.forEach(bucket => {
+          if(!bucket || !Array.isArray(bucket.points) || !bucket.points.length){
+            return;
+          }
+          ctx.beginPath();
+          bucket.points.forEach(point => {
+            appendScatterPointCanvasShapePath(
+              ctx,
+              bucket.shape,
+              point.x - expandedBounds.minX,
+              point.y - expandedBounds.minY,
+              point.r
+            );
+          });
+          if(bucket.fill && bucket.fill !== 'none'){
+            ctx.fillStyle = bucket.fill;
+            ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.fillOpacity)));
+            ctx.fill();
+          }
+          if(bucket.stroke && bucket.strokeWidth > 0){
+            ctx.strokeStyle = bucket.stroke;
+            ctx.lineWidth = bucket.strokeWidth;
+            ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.strokeOpacity)));
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        });
+        foreignObject.appendChild(canvas);
+        group.appendChild(foreignObject);
+        group.setAttribute('data-render-mode', 'canvas');
+        group.setAttribute('data-point-renderer', 'canvas-preview');
+        return true;
+      }
+
+      function appendScatterPointCanvasBucketsAsPaths(group, buckets){
+        const doc = global.document;
+        if(!doc || !group || !buckets || !buckets.size){
+          return false;
+        }
+        let appended = false;
+        buckets.forEach(bucket => {
+          if(!bucket || !Array.isArray(bucket.points) || !bucket.points.length){
+            return;
+          }
+          const segments = [];
+          bucket.points.forEach(point => {
+            if(bucket.shape === 'circle'){
+              const segment = buildScatterCirclePathSegment(point.x, point.y, point.r);
+              if(segment){ segments.push(segment); }
+              return;
+            }
+            const node = createScatterMarkerElement(bucket.shape, {
+              cx: point.x,
+              cy: point.y,
+              radius: point.r,
+              fill: bucket.fill,
+              stroke: bucket.stroke,
+              strokeWidth: bucket.strokeWidth,
+              fillOpacity: bucket.fillOpacity,
+              strokeOpacity: bucket.strokeOpacity
+            });
+            if(node){
+              group.appendChild(node);
+              appended = true;
+            }
+          });
+          if(segments.length){
+            const path = doc.createElementNS(NS, 'path');
+            path.setAttribute('d', segments.join(' '));
+            path.setAttribute('fill', bucket.fill || '#000000');
+            if(bucket.fillOpacity !== 1){
+              path.setAttribute('fill-opacity', String(bucket.fillOpacity));
+            }
+            if(bucket.stroke && bucket.strokeWidth > 0){
+              path.setAttribute('stroke', bucket.stroke);
+              path.setAttribute('stroke-width', String(bucket.strokeWidth));
+              if(bucket.strokeOpacity !== 1){
+                path.setAttribute('stroke-opacity', String(bucket.strokeOpacity));
+              }
+            }else{
+              path.setAttribute('stroke', 'none');
+            }
+            group.appendChild(path);
+            appended = true;
+          }
+        });
+        if(appended){
+          group.setAttribute('data-render-mode', 'batched-fallback');
+        }
+        return appended;
+      }
+
       function createBubbleRadiusScaler(points, baseRadius){
         const safeBase = Math.max(1, Number(baseRadius) || 1);
         let minValue = Infinity;
@@ -17999,15 +18286,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && !!scatterShowErrorBars?.checked
           && errorBarWidthPx > 0;
         const largePointMode = scatterState.viewMode === '2d' && points.length >= SCATTER_POINT_BATCH_THRESHOLD;
-        const useBatchedCircleRender = largePointMode && !isBubbleView && !showGroupedErrorBars;
+        const useCanvasPointRender = largePointMode && !isBubbleView && !showGroupedErrorBars && canUseScatterPointCanvas();
+        const useBatchedCircleRender = largePointMode && !useCanvasPointRender && !isBubbleView && !showGroupedErrorBars;
         const densityColorSteps = (largePointMode && scatterColorModeApplied === 'density')
           ? SCATTER_DENSITY_LARGE_COLOR_STEPS
           : 0;
         const enablePointInteractivity = !largePointMode;
+        const canvasPointBuckets = useCanvasPointRender ? new Map() : null;
+        let canvasPointBounds = null;
         const batchedCircleBuckets = useBatchedCircleRender ? new Map() : null;
         if(largePointMode){
           debug('Debug: scatter large point render mode', {
             pointCount: points.length,
+            useCanvasPointRender,
             useBatchedCircleRender,
             densityColorSteps,
             showGroupedErrorBars,
@@ -18044,6 +18335,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const markerOpacity = 1 - (markerAlpha != null ? markerAlpha : alpha);
           const canBatchCirclePoint = !!batchedCircleBuckets
             && markerShape === 'circle'
+            && Number.isFinite(markerRadius)
+            && markerRadius > 0;
+          const canCanvasPoint = !!canvasPointBuckets
             && Number.isFinite(markerRadius)
             && markerRadius > 0;
           if(showGroupedErrorBars && !p?.isGroupedReplicatePoint){
@@ -18160,7 +18454,33 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               labelColor: null
             });
           }
-          if(canBatchCirclePoint){
+          if(canCanvasPoint){
+            const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
+            const strokeWidthValue = markerBorderWidth>0 ? markerBorderWidth : 0;
+            const bucketKey = [
+              markerShape,
+              color,
+              markerOpacity,
+              strokeValue,
+              strokeWidthValue,
+              markerOpacity
+            ].join('|');
+            let bucket = canvasPointBuckets.get(bucketKey);
+            if(!bucket){
+              bucket = {
+                shape: markerShape,
+                fill: color,
+                fillOpacity: markerOpacity,
+                stroke: strokeValue,
+                strokeWidth: strokeWidthValue,
+                strokeOpacity: markerOpacity,
+                points: []
+              };
+              canvasPointBuckets.set(bucketKey, bucket);
+            }
+            bucket.points.push({ x: cxVal, y: cyVal, r: markerRadius });
+            canvasPointBounds = updateScatterPointCanvasBounds(canvasPointBounds, cxVal, cyVal, markerRadius, strokeWidthValue);
+          }else if(canBatchCirclePoint){
             const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
             const strokeWidthValue = markerBorderWidth>0 ? markerBorderWidth : 0;
             const bucketKey = [
@@ -18263,7 +18583,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           errorLayer.appendChild(errorBarFrag);
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
-        pointLayer.setAttribute('data-render-mode', useBatchedCircleRender ? 'batched-circles' : 'markers');
+        pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
         if(!enablePointInteractivity){
           pointLayer.setAttribute('pointer-events', 'none');
           hideScatterTooltip('point-interaction-disabled-large-dataset');
@@ -18273,9 +18593,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           token,
           points: points.length
         });
-        pointLayer.appendChild(frag);
+        let canvasPointLayerRendered = false;
+        if(useCanvasPointRender){
+          canvasPointLayerRendered = renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, { doc: global.document });
+          if(!canvasPointLayerRendered){
+            appendScatterPointCanvasBucketsAsPaths(pointLayer, canvasPointBuckets);
+            debug('Debug: scatter canvas point render fallback used', { pointCount: points.length });
+          }else{
+            debug('Debug: scatter canvas point render complete', {
+              pointCount: points.length,
+              bucketCount: canvasPointBuckets?.size || 0,
+              bounds: canvasPointBounds
+            });
+          }
+        }
+        if(frag.childNodes.length){
+          pointLayer.appendChild(frag);
+        }
         if(perfApi && pointAttachPerf){
-          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length });
+          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: canvasPointLayerRendered });
         }
         if(scatterState.useDelegatedPointEvents && enablePointInteractivity){
           ensureScatterPointDelegation(pointLayer);

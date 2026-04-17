@@ -47,6 +47,37 @@ describe('preview hybrid capture for canvas-backed layers', () => {
     expect(window.Shared.exporter.buildHybridSvg).toHaveBeenCalledTimes(1);
   });
 
+  test('scatter previews force hybrid capture when point layer uses canvas foreignObject', () => {
+    const previews = window.Main.previews;
+    expect(previews).toBeTruthy();
+    const element = document.createElement('div');
+    element.innerHTML = `
+      <div class="svgbox">
+        <svg width="640" height="480" viewBox="0 0 640 480">
+          <g data-export-layer="scatter-points" data-layer="points" data-render-mode="canvas">
+            <foreignObject x="10" y="20" width="200" height="180" data-point-renderer="canvas-preview">
+              <canvas xmlns="http://www.w3.org/1999/xhtml"></canvas>
+            </foreignObject>
+          </g>
+        </svg>
+      </div>
+    `;
+    document.body.appendChild(element);
+    const tab = {
+      id: 'scatter-tab-1',
+      type: 'scatter',
+      payloadSignature: 'scatter-sig-1'
+    };
+    const result = previews.captureWorkspacePreview({
+      type: 'scatter',
+      element
+    }, tab);
+    expect(result).toBeTruthy();
+    expect(result.simplified).toBe(true);
+    expect(result.markup).toContain('Preparing preview');
+    expect(window.Shared.exporter.buildHybridSvg).toHaveBeenCalledTimes(1);
+  });
+
   test('inactive hover refreshes box preview when hybrid canvas capture is needed', () => {
     const previews = window.Main.previews;
     const element = document.createElement('div');
