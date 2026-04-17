@@ -68,10 +68,14 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
       return {
         renderMode: layer?.getAttribute?.('data-render-mode') || null,
-        nodeCount: layer ? layer.querySelectorAll('*').length : 0
+        nodeCount: layer ? layer.querySelectorAll('*').length : 0,
+        hasCanvasLayer: !!layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas')
       };
     });
-    if(largeRenderMeta.renderMode === 'batched-circles'){
+    if(largeRenderMeta.renderMode === 'canvas'){
+      expect(largeRenderMeta.hasCanvasLayer, 'large scatter point layer should use canvas foreignObject rendering').toBe(true);
+      expect(largeRenderMeta.nodeCount, 'canvas point layer should stay compact on huge datasets').toBeLessThan(10);
+    }else if(largeRenderMeta.renderMode === 'batched-circles'){
       expect(largeRenderMeta.nodeCount, 'batched point layer should stay compact on huge datasets').toBeLessThan(300);
     }else{
       expect(largeRenderMeta.nodeCount).toBeGreaterThanOrEqual(0);
