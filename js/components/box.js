@@ -575,6 +575,9 @@
       ? resolvedMaxHalfWidth
       : null;
     const swarmPointRadius = resolvedRadius != null ? resolvedRadius : fallbackRadius;
+    const approximateLayoutRadius = Number.isFinite(Number(fallbackRadius)) && Number(fallbackRadius) > 0
+      ? Number(fallbackRadius)
+      : swarmPointRadius;
     const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
     const canvasPointLayerEnabled = shouldUseBoxPointCanvasPreview(params.drawOpts, {
         pointCount,
@@ -593,7 +596,7 @@
           coords: pointCoords,
           raws: rawValues,
           orientation: params.orientation,
-          radius: swarmPointRadius,
+          radius: approximateLayoutRadius,
           maxHalfWidth: resolvedMaxHalfWidth,
           widthScaleMode: params.widthScaleMode,
           violinBounds: params.violinBounds
@@ -613,6 +616,7 @@
       resolvedMaxHalfWidth,
       hardStripHalfWidthCap,
       swarmPointRadius,
+      approximateLayoutRadius,
       effectiveShape,
       canvasPointLayerEnabled,
       useApproximateCanvas,
@@ -1048,6 +1052,7 @@
   const BOX_POINT_CANVAS_THRESHOLD = 1200;
   const BOX_POINT_APPROX_THRESHOLD = 8000;
   const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
+  const BOX_POINT_CANVAS_PATH_CHUNK_SIZE = 20000;
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
@@ -3589,6 +3594,224 @@
     return true;
   }
 
+  function hashBoxDensityPointUnit(rawValue, coordValue, index, seed = 0){
+    const raw = Number(rawValue);
+    const coord = Number(coordValue);
+    const baseValue = Number.isFinite(raw) ? raw : (Number.isFinite(coord) ? coord : 0);
+    const scaled = Math.round(baseValue * 1000);
+    let hash = (scaled ^ seed) >>> 0;
+    hash = Math.imul((hash >>> 16) ^ hash, 0x45d9f3b) >>> 0;
+    hash = Math.imul((hash >>> 16) ^ hash, 0x45d9f3b) >>> 0;
+    hash = ((hash >>> 16) ^ hash) >>> 0;
+    hash = (hash + Math.imul((Number(index) + 1) >>> 0, 1013)) >>> 0;
+    return hash / 4294967295;
+  }
+
+  function computeBoxDensityBandwidth(stats, binWidth, pointRadius){
+    const count = Math.max(1, Number(stats?.count) || 1);
+    const range = Math.max(0, Number(stats?.range) || 0);
+    const sd = Math.max(0, Number(stats?.sd) || 0);
+    const silverman = sd > 0 ? 1.06 * sd * Math.pow(count, -0.2) : 0;
+    const minBandwidth = Math.max(binWidth * 3, Number(pointRadius) * 4, 3);
+    const fallback = range > 0 ? Math.max(minBandwidth, range / 64) : minBandwidth;
+    const maxBandwidth = range > 0 ? Math.max(minBandwidth, range / 3) : minBandwidth;
+    const raw = Number.isFinite(silverman) && silverman > 0 ? silverman : fallback;
+    return Math.max(minBandwidth, Math.min(maxBandwidth, raw));
+  }
+
+  function buildBoxSmoothDensityProfile(config = {}){
+    const coordsInput = config.coords;
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
+    const pointRadius = Math.max(0.4, Number(config.radius) || 0.4);
+    const maxHalfWidth = Math.max(pointRadius * 1.1, Number(config.maxHalfWidth) || pointRadius * 1.1);
+    const widthScaleMode = typeof config.widthScaleMode === 'string' ? config.widthScaleMode : 'density';
+    if(!coords || !coords.length || !Number.isFinite(maxHalfWidth) || maxHalfWidth <= 0){
+      return null;
+    }
+    let minCoord = Infinity;
+    let maxCoord = -Infinity;
+    let sum = 0;
+    let sumSq = 0;
+    let validCount = 0;
+    for(let idx = 0; idx < coords.length; idx += 1){
+      const coord = Number(coords[idx]);
+      if(!Number.isFinite(coord)){
+        continue;
+      }
+      if(coord < minCoord) minCoord = coord;
+      if(coord > maxCoord) maxCoord = coord;
+      sum += coord;
+      sumSq += coord * coord;
+      validCount += 1;
+    }
+    if(!validCount || !Number.isFinite(minCoord) || !Number.isFinite(maxCoord)){
+      return null;
+    }
+    const range = Math.max(0, maxCoord - minCoord);
+    const mean = sum / validCount;
+    const variance = Math.max(0, (sumSq / validCount) - mean * mean);
+    const sd = Math.sqrt(variance);
+    const maxProfileSamples = 1400;
+    const baseBinWidth = range > 0
+      ? Math.max(1, range / Math.max(1, maxProfileSamples - 1))
+      : 1;
+    const bandwidth = computeBoxDensityBandwidth({ count: validCount, range, sd }, baseBinWidth, pointRadius);
+    const domainPadding = range > 0 ? Math.max(bandwidth * 3, baseBinWidth * 2) : 0;
+    const domainMin = minCoord - domainPadding;
+    const domainMax = maxCoord + domainPadding;
+    const domainRange = Math.max(baseBinWidth, domainMax - domainMin);
+    const binWidth = Math.max(1, domainRange / Math.max(1, maxProfileSamples - 1));
+    const sampleCount = Math.max(1, Math.floor(domainRange / binWidth) + 1);
+    const histogram = new Float64Array(sampleCount);
+    for(let idx = 0; idx < coords.length; idx += 1){
+      const coord = Number(coords[idx]);
+      if(!Number.isFinite(coord)){
+        continue;
+      }
+      const binIndex = sampleCount === 1
+        ? 0
+        : Math.max(0, Math.min(sampleCount - 1, Math.round((coord - domainMin) / binWidth)));
+      histogram[binIndex] += 1;
+    }
+    const kernelRadius = Math.max(1, Math.ceil((bandwidth / binWidth) * 3));
+    const kernel = new Float64Array(kernelRadius * 2 + 1);
+    const denom = 2 * bandwidth * bandwidth;
+    for(let k = -kernelRadius; k <= kernelRadius; k += 1){
+      const distance = k * binWidth;
+      kernel[k + kernelRadius] = Math.exp(-(distance * distance) / denom);
+    }
+    const smoothed = new Float64Array(sampleCount);
+    let peak = 0;
+    for(let idx = 0; idx < sampleCount; idx += 1){
+      let density = 0;
+      for(let k = -kernelRadius; k <= kernelRadius; k += 1){
+        const sourceIndex = idx + k;
+        if(sourceIndex < 0 || sourceIndex >= sampleCount){
+          continue;
+        }
+        density += histogram[sourceIndex] * kernel[k + kernelRadius];
+      }
+      smoothed[idx] = density;
+      if(density > peak){
+        peak = density;
+      }
+    }
+    if(peak <= 0){
+      return null;
+    }
+    const nonDensityMinHalfWidth = Math.max(pointRadius * 1.05, 0.25);
+    const bins = [];
+    let maxOffsetUsed = 0;
+    for(let idx = 0; idx < sampleCount; idx += 1){
+      const density = smoothed[idx];
+      const normalized = peak > 0 ? density / peak : 0;
+      const coord = domainMin + idx * binWidth;
+      let halfWidth;
+      if(widthScaleMode === 'density'){
+        const clampedDensity = Math.max(0, Math.min(1, normalized));
+        let boundaryTaper = 1;
+        if(range > 0){
+          const taperSpan = Math.max(binWidth, bandwidth * 0.9);
+          const lowerTaper = Math.max(0, Math.min(1, (coord - minCoord) / taperSpan));
+          const upperTaper = Math.max(0, Math.min(1, (maxCoord - coord) / taperSpan));
+          boundaryTaper = Math.min(lowerTaper, upperTaper);
+        }
+        halfWidth = maxHalfWidth * Math.pow(clampedDensity, 1.45) * boundaryTaper;
+      }else{
+        halfWidth = Math.min(maxHalfWidth, pointRadius * (0.85 + Math.log2(Math.max(0, density) + 1)));
+        halfWidth = Math.max(nonDensityMinHalfWidth, halfWidth);
+      }
+      halfWidth = Math.min(maxHalfWidth, Math.max(0, halfWidth));
+      if(halfWidth > maxOffsetUsed){
+        maxOffsetUsed = halfWidth;
+      }
+      bins.push({
+        binIndex: idx,
+        coord,
+        raw: coord,
+        count: histogram[idx],
+        density: normalized,
+        halfWidth
+      });
+    }
+    return {
+      bins,
+      binSize: binWidth,
+      bandwidth,
+      peak,
+      dataMin: minCoord,
+      dataMax: maxCoord,
+      pointCount: validCount,
+      maxCount: peak,
+      maxOffsetUsed
+    };
+  }
+
+  function buildBoxCanvasDensityOffsets(config = {}){
+    const coordsInput = config.coords;
+    const rawsInput = config.raws;
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
+    const raws = (Array.isArray(rawsInput) || ArrayBuffer.isView(rawsInput)) ? rawsInput : coords;
+    const profile = config.profile || null;
+    const pointRadius = Math.max(0.4, Number(config.radius) || 0.4);
+    const violinBounds = typeof config.violinBounds === 'function' ? config.violinBounds : null;
+    if(!coords || !coords.length || !profile || !Array.isArray(profile.bins) || !profile.bins.length){
+      return { offsets: null, maxOffsetUsed: 0 };
+    }
+    const lookup = createBoxApproximateBinLookup(profile.bins, profile.binSize, {
+      dataMin: profile.dataMin,
+      dataMax: profile.dataMax
+    });
+    const offsets = new Float32Array(coords.length);
+    const bucketQuantum = Math.max(0.5, Math.min(2, Number(profile.binSize) || 1));
+    const bucketCounts = new Map();
+    const bucketRanks = new Map();
+    for(let idx = 0; idx < coords.length; idx += 1){
+      const coord = Number(coords[idx]);
+      if(!Number.isFinite(coord)){
+        continue;
+      }
+      const key = Math.round(coord / bucketQuantum);
+      bucketCounts.set(key, (bucketCounts.get(key) || 0) + 1);
+    }
+    let maxOffsetUsed = 0;
+    for(let idx = 0; idx < coords.length; idx += 1){
+      const coord = Number(coords[idx]);
+      if(!Number.isFinite(coord)){
+        offsets[idx] = 0;
+        continue;
+      }
+      const key = Math.round(coord / bucketQuantum);
+      const bucketCount = bucketCounts.get(key) || 1;
+      const rank = bucketRanks.get(key) || 0;
+      bucketRanks.set(key, rank + 1);
+      let halfWidth = resolveBoxApproximateHalfWidthForCoord(lookup, coord);
+      if(violinBounds){
+        const rawValue = Number(raws?.[idx]);
+        const maxHalf = Number(violinBounds(Number.isFinite(rawValue) ? rawValue : coord));
+        if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+          halfWidth = 0;
+        }else{
+          halfWidth = Math.min(halfWidth, Math.max(0, maxHalf - pointRadius));
+        }
+      }
+      let unit;
+      if(bucketCount > 1){
+        const phase = hashBoxDensityPointUnit(key, coord, bucketCount, 2654435761);
+        unit = ((((rank + phase) % bucketCount) + 0.5) / bucketCount) * 2 - 1;
+      }else{
+        unit = 0;
+      }
+      const offset = halfWidth > 0 ? unit * halfWidth : 0;
+      offsets[idx] = offset;
+      const abs = Math.abs(offset);
+      if(abs > maxOffsetUsed){
+        maxOffsetUsed = abs;
+      }
+    }
+    return { offsets, maxOffsetUsed };
+  }
+
   function buildBoxApproximatePointBins(config){
     const coordsInput = config?.coords;
     const rawsInput = config?.raws;
@@ -3608,82 +3831,195 @@
       ? 1.9
       : (pointCount >= BOX_POINT_APPROX_THRESHOLD * 2 ? 1.55 : 1.3);
     const thickness = Math.max(1, Math.min(10, pointRadius * densityBoost));
-    const binSize = Math.max(1, Math.min(12, thickness));
-    const binsByIndex = new Map();
-    let maxCount = 0;
-    for(let idx = 0; idx < pointCount; idx += 1){
+    const widthScaleMode = typeof config?.widthScaleMode === 'string' ? config.widthScaleMode : 'density';
+    const violinBounds = typeof config?.violinBounds === 'function' ? config.violinBounds : null;
+    const profile = buildBoxSmoothDensityProfile({
+      coords,
+      radius: pointRadius,
+      maxHalfWidth,
+      widthScaleMode
+    });
+    if(!profile || !Array.isArray(profile.bins) || !profile.bins.length){
+      return null;
+    }
+    const offsetLayout = buildBoxCanvasDensityOffsets({
+      coords,
+      raws,
+      radius: pointRadius,
+      violinBounds,
+      profile
+    });
+    return {
+      bins: profile.bins,
+      binSize: profile.binSize,
+      bandwidth: profile.bandwidth,
+      peak: profile.peak,
+      dataMin: profile.dataMin,
+      dataMax: profile.dataMax,
+      orientation,
+      thickness,
+      pointCount,
+      maxCount: profile.maxCount,
+      offsets: offsetLayout.offsets,
+      maxOffsetUsed: Math.max(profile.maxOffsetUsed || 0, offsetLayout.maxOffsetUsed || 0)
+    };
+  }
+
+  function resolveBoxApproximatePointOffsetUnit(index){
+    const numericIndex = Number.isFinite(Number(index)) ? Number(index) : 0;
+    const fraction = (((numericIndex + 0.5) * 0.6180339887498949) % 1 + 1) % 1;
+    return fraction * 2 - 1;
+  }
+
+  function createBoxApproximateBinLookup(bins, binSize, options = {}){
+    const entries = (Array.isArray(bins) ? bins : [])
+      .filter(bin => Number.isFinite(Number(bin?.coord)) && Number.isFinite(Number(bin?.halfWidth)))
+      .slice()
+      .sort((a, b) => Number(a.coord) - Number(b.coord));
+    const safeBinSize = Number.isFinite(Number(binSize)) && Number(binSize) > 0 ? Number(binSize) : null;
+    const dataMin = Number.isFinite(Number(options.dataMin)) ? Number(options.dataMin) : null;
+    const dataMax = Number.isFinite(Number(options.dataMax)) ? Number(options.dataMax) : null;
+    return {
+      bins: entries,
+      binSize: safeBinSize,
+      startCoord: entries.length ? Number(entries[0].coord) : null,
+      dataMin,
+      dataMax
+    };
+  }
+
+  function resolveBoxApproximateHalfWidthForCoord(lookup, coord){
+    const numericCoord = Number(coord);
+    if(!lookup || !Number.isFinite(numericCoord)){
+      return 0;
+    }
+    if(Number.isFinite(Number(lookup.dataMin)) && numericCoord <= Number(lookup.dataMin)){
+      return 0;
+    }
+    if(Number.isFinite(Number(lookup.dataMax)) && numericCoord >= Number(lookup.dataMax)){
+      return 0;
+    }
+    const bins = Array.isArray(lookup.bins) ? lookup.bins : [];
+    if(!bins.length){
+      return 0;
+    }
+    if(Number.isFinite(Number(lookup.binSize)) && Number(lookup.binSize) > 0 && Number.isFinite(Number(lookup.startCoord))){
+      const rawIndex = (numericCoord - Number(lookup.startCoord)) / Number(lookup.binSize);
+      if(Number.isFinite(rawIndex)){
+        if(rawIndex <= 0){
+          return Math.max(0, Number(bins[0]?.halfWidth) || 0);
+        }
+        const lastIndex = bins.length - 1;
+        if(rawIndex >= lastIndex){
+          return Math.max(0, Number(bins[lastIndex]?.halfWidth) || 0);
+        }
+        const lowerIndex = Math.floor(rawIndex);
+        const upperIndex = Math.min(lastIndex, lowerIndex + 1);
+        const lowerHalfWidth = Math.max(0, Number(bins[lowerIndex]?.halfWidth) || 0);
+        const upperHalfWidth = Math.max(0, Number(bins[upperIndex]?.halfWidth) || 0);
+        const t = rawIndex - lowerIndex;
+        return lowerHalfWidth + (upperHalfWidth - lowerHalfWidth) * t;
+      }
+    }
+    let lo = 0;
+    let hi = bins.length - 1;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1;
+      const midCoord = Number(bins[mid]?.coord);
+      if(!Number.isFinite(midCoord)){
+        break;
+      }
+      if(midCoord < numericCoord){
+        lo = mid + 1;
+      }else if(midCoord > numericCoord){
+        hi = mid - 1;
+      }else{
+        return Math.max(0, Number(bins[mid]?.halfWidth) || 0);
+      }
+    }
+    const lower = hi >= 0 ? bins[hi] : null;
+    const upper = lo < bins.length ? bins[lo] : null;
+    if(!lower){
+      return Math.max(0, Number(upper?.halfWidth) || 0);
+    }
+    if(!upper){
+      return Math.max(0, Number(lower?.halfWidth) || 0);
+    }
+    const lowerCoord = Number(lower.coord);
+    const upperCoord = Number(upper.coord);
+    const lowerHalfWidth = Math.max(0, Number(lower.halfWidth) || 0);
+    const upperHalfWidth = Math.max(0, Number(upper.halfWidth) || 0);
+    const span = upperCoord - lowerCoord;
+    if(!Number.isFinite(span) || Math.abs(span) < 1e-9){
+      return lowerHalfWidth;
+    }
+    const t = Math.max(0, Math.min(1, (numericCoord - lowerCoord) / span));
+    return lowerHalfWidth + (upperHalfWidth - lowerHalfWidth) * t;
+  }
+
+  function forEachBoxApproximateSourcePoint(config = {}, callback){
+    const coordsInput = config.coords;
+    const coords = (Array.isArray(coordsInput) || ArrayBuffer.isView(coordsInput)) ? coordsInput : null;
+    const offsetsInput = config.offsets;
+    const offsets = (Array.isArray(offsetsInput) || ArrayBuffer.isView(offsetsInput)) ? offsetsInput : null;
+    const rawsInput = config.raws;
+    const raws = (Array.isArray(rawsInput) || ArrayBuffer.isView(rawsInput)) ? rawsInput : coords;
+    const center = Number(config.center);
+    const orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    if(!coords || !coords.length || !Number.isFinite(center) || typeof callback !== 'function'){
+      return 0;
+    }
+    const lookup = createBoxApproximateBinLookup(config.bins, config.binSize, {
+      dataMin: config.dataMin,
+      dataMax: config.dataMax
+    });
+    const pointRadius = Math.max(0.4, Number(config.pointRadius) || 0.4);
+    const violinBounds = typeof config.violinBounds === 'function' ? config.violinBounds : null;
+    let count = 0;
+    for(let idx = 0; idx < coords.length; idx += 1){
       const coord = Number(coords[idx]);
       if(!Number.isFinite(coord)){
         continue;
       }
-      const rawValue = Number(raws?.[idx]);
-      const safeRaw = Number.isFinite(rawValue) ? rawValue : coord;
-      const binIndex = Math.round(coord / binSize);
-      let entry = binsByIndex.get(binIndex);
-      if(!entry){
-        entry = {
-          count: 0,
-          coordSum: 0,
-          rawSum: 0
-        };
-        binsByIndex.set(binIndex, entry);
-      }
-      entry.count += 1;
-      entry.coordSum += coord;
-      entry.rawSum += safeRaw;
-      if(entry.count > maxCount){
-        maxCount = entry.count;
-      }
-    }
-    if(!binsByIndex.size || maxCount <= 0){
-      return null;
-    }
-    const widthScaleMode = typeof config?.widthScaleMode === 'string' ? config.widthScaleMode : 'density';
-    const violinBounds = typeof config?.violinBounds === 'function' ? config.violinBounds : null;
-    const bins = Array.from(binsByIndex.entries())
-      .map(([, entry]) => {
-        const coord = entry.coordSum / entry.count;
-        const raw = entry.rawSum / entry.count;
-        const density = entry.count / maxCount;
-        let halfWidth = widthScaleMode === 'density'
-          ? maxHalfWidth * Math.pow(Math.max(density, 1 / maxCount), 0.58)
-          : Math.min(maxHalfWidth, pointRadius * (0.85 + Math.log2(entry.count + 1)));
-        halfWidth = Math.max(pointRadius * 0.55, halfWidth);
+      let offset = Number.isFinite(Number(offsets?.[idx])) ? Number(offsets[idx]) : NaN;
+      if(!Number.isFinite(offset)){
+        let halfWidth = resolveBoxApproximateHalfWidthForCoord(lookup, coord);
         if(violinBounds){
-          const maxHalf = Number(violinBounds(raw));
+          const rawValue = Number(raws?.[idx]);
+          const maxHalf = Number(violinBounds(Number.isFinite(rawValue) ? rawValue : coord));
           if(!Number.isFinite(maxHalf) || maxHalf <= 0){
             halfWidth = 0;
           }else{
             halfWidth = Math.min(halfWidth, Math.max(0, maxHalf - pointRadius));
           }
         }
-        return {
-          coord,
-          raw,
-          count: entry.count,
-          density,
-          halfWidth
-        };
-      })
-      .filter(entry => Number.isFinite(entry.halfWidth) && entry.halfWidth > 0)
-      .sort((a, b) => a.coord - b.coord);
-    if(!bins.length){
+        offset = halfWidth > 0 ? resolveBoxApproximatePointOffsetUnit(idx) * halfWidth : 0;
+      }
+      if(orientation === 'vertical'){
+        callback(center + offset, coord, idx);
+      }else{
+        callback(coord, center + offset, idx);
+      }
+      count += 1;
+    }
+    return count;
+  }
+
+  function computeBoxApproximateSourcePointBounds(config = {}){
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const count = forEachBoxApproximateSourcePoint(config, (x, y) => {
+      if(x < minX) minX = x;
+      if(x > maxX) maxX = x;
+      if(y < minY) minY = y;
+      if(y > maxY) maxY = y;
+    });
+    if(!count || !Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)){
       return null;
     }
-    let maxOffsetUsed = 0;
-    bins.forEach(entry => {
-      if(entry.halfWidth > maxOffsetUsed){
-        maxOffsetUsed = entry.halfWidth;
-      }
-    });
-    return {
-      bins,
-      orientation,
-      thickness,
-      pointCount,
-      maxCount,
-      maxOffsetUsed
-    };
+    return { minX, minY, maxX, maxY, count };
   }
 
   function renderBoxApproximatePointCanvas(config){
@@ -3700,49 +4036,79 @@
     }
     const strokeWidth = Math.max(0, Number(config?.strokeWidth) || 0);
     const padding = Math.max(2, pointRadius + strokeWidth + 2);
-    const bounds = expandBoxCanvasBounds(computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
+    const sourcePointConfig = {
+      coords: config?.coords,
+      raws: config?.raws,
+      offsets: config?.offsets,
+      bins,
+      binSize: config?.binSize,
+      dataMin: config?.dataMin,
+      dataMax: config?.dataMax,
+      pointRadius,
+      violinBounds: config?.violinBounds,
+      orientation,
+      center
+    };
+    const sourceBounds = computeBoxApproximateSourcePointBounds(sourcePointConfig);
+    const bounds = expandBoxCanvasBounds(sourceBounds || computeBoxCanvasBoundsFromBins({ bins, orientation, center, thickness }), padding);
     if(!bounds){
       return false;
     }
+    const useSourcePoints = !!(sourceBounds && sourceBounds.count > 0);
     return renderBoxCanvasForeignObject({
       doc,
       group,
       bounds,
       rendererType: 'canvas-approx',
       draw(ctx){
-        const centers = buildBoxApproximatePointCenters({
-          bins,
-          orientation,
-          center,
-          radius: pointRadius
-        });
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        const drawSymbols = (mode, color, alpha) => {
-          if(!color || color === 'none' || !centers.length){
+        let pointsInPath = 0;
+        const fillVisible = !!(config.fill && config.fill !== 'none');
+        const strokeVisible = !!(config.stroke && config.stroke !== 'none' && strokeWidth > 0);
+        const paintCurrentPath = () => {
+          if(!pointsInPath){
             return;
           }
-          ctx.beginPath();
-          centers.forEach(point => {
-            appendBoxPointCanvasShapePath(ctx, shape, point.x - bounds.minX, point.y - bounds.minY, pointRadius);
-          });
-          const effectiveAlpha = Number.isFinite(Number(alpha)) ? Number(alpha) : 1;
-          ctx.globalAlpha = Math.max(0, Math.min(1, effectiveAlpha));
-          if(mode === 'stroke'){
-            ctx.strokeStyle = color;
-            ctx.lineWidth = strokeWidth;
-            ctx.stroke();
-          }else{
-            ctx.fillStyle = color;
+          if(fillVisible){
+            const fillAlpha = Number.isFinite(Number(config.fillOpacity)) ? Number(config.fillOpacity) : 1;
+            ctx.globalAlpha = Math.max(0, Math.min(1, fillAlpha));
+            ctx.fillStyle = config.fill;
             ctx.fill();
           }
+          if(strokeVisible){
+            const strokeAlpha = Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity);
+            ctx.globalAlpha = Math.max(0, Math.min(1, Number.isFinite(strokeAlpha) ? strokeAlpha : 1));
+            ctx.strokeStyle = config.stroke;
+            ctx.lineWidth = strokeWidth;
+            ctx.stroke();
+          }
+          ctx.beginPath();
+          pointsInPath = 0;
         };
-        if(config.fill && config.fill !== 'none'){
-          drawSymbols('fill', config.fill, Number(config.fillOpacity));
+        const appendSymbol = (x, y) => {
+          appendBoxPointCanvasShapePath(ctx, shape, x - bounds.minX, y - bounds.minY, pointRadius);
+          pointsInPath += 1;
+          if(pointsInPath >= BOX_POINT_CANVAS_PATH_CHUNK_SIZE){
+            paintCurrentPath();
+          }
+        };
+        ctx.beginPath();
+        if(useSourcePoints){
+          forEachBoxApproximateSourcePoint(sourcePointConfig, appendSymbol);
+        }else{
+          const centers = buildBoxApproximatePointCenters({
+            bins,
+            orientation,
+            center,
+            radius: pointRadius,
+            spacingRadius: config?.spacingRadius
+          });
+          centers.forEach(point => {
+            appendSymbol(point.x, point.y);
+          });
         }
-        if(config.stroke && config.stroke !== 'none' && strokeWidth > 0){
-          drawSymbols('stroke', config.stroke, Number.isFinite(Number(config.strokeOpacity)) ? Number(config.strokeOpacity) : Number(config.fillOpacity));
-        }
+        paintCurrentPath();
       }
     });
   }
@@ -3752,10 +4118,11 @@
     const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
     const center = Number(config?.center);
     const radius = Math.max(0.4, Number(config?.radius) || 0.4);
+    const spacingRadius = Math.max(0.4, Number(config?.spacingRadius) || radius);
     if(!bins.length || !Number.isFinite(center)){
       return [];
     }
-    const pitch = Math.max(radius * 1.8, 1);
+    const pitch = Math.max(spacingRadius * 1.8, 1);
     const centers = [];
     bins.forEach(bin => {
       const coord = Number(bin?.coord);
@@ -4054,19 +4421,38 @@
       return [];
     }
     const style = renderState.style || {};
-    const pathData = buildApproximateBoxPreviewPathData(renderState);
-    if(!pathData){
-      return [];
-    }
     const hidden = options.hidden !== false;
     const configuredStrokeWidth = Math.max(0, Number(style.strokeWidth) || 0);
     const radius = Math.max(0.4, Number(renderState.pointRadius) || 0.4);
-    const points = buildBoxApproximatePointCenters({
-      bins: renderState.bins,
-      orientation: renderState.orientation,
-      center: renderState.center,
-      radius
-    });
+    const points = [];
+    if(options.sourcePoints === true && (Array.isArray(renderState.approximation?.coords) || ArrayBuffer.isView(renderState.approximation?.coords))){
+      forEachBoxApproximateSourcePoint({
+        coords: renderState.approximation.coords,
+        raws: renderState.approximation.raws,
+        offsets: renderState.approximation.offsets,
+        bins: renderState.bins,
+        binSize: renderState.approximation?.binSize,
+        pointRadius: radius,
+        violinBounds: renderState.approximation?.violinBounds,
+        orientation: renderState.orientation,
+        center: renderState.center
+      }, (x, y) => {
+        points.push({ x, y });
+      });
+    }
+    if(!points.length){
+      const pathData = buildApproximateBoxPreviewPathData(renderState);
+      if(!pathData){
+        return [];
+      }
+      points.push(...buildBoxApproximatePointCenters({
+        bins: renderState.bins,
+        orientation: renderState.orientation,
+        center: renderState.center,
+        radius,
+        spacingRadius: renderState.approximation?.layoutRadius
+      }));
+    }
     if(!points.length){
       return [];
     }
@@ -4124,7 +4510,10 @@
         state.approximation = {
           coords: (Array.isArray(config.approximation.coords) || ArrayBuffer.isView(config.approximation.coords)) ? config.approximation.coords : null,
           raws: (Array.isArray(config.approximation.raws) || ArrayBuffer.isView(config.approximation.raws)) ? config.approximation.raws : null,
+          offsets: (Array.isArray(config.approximation.offsets) || ArrayBuffer.isView(config.approximation.offsets)) ? config.approximation.offsets : null,
           maxHalfWidth: Number.isFinite(Number(config.approximation.maxHalfWidth)) ? Number(config.approximation.maxHalfWidth) : null,
+          layoutRadius: Number.isFinite(Number(config.approximation.layoutRadius)) && Number(config.approximation.layoutRadius) > 0 ? Number(config.approximation.layoutRadius) : null,
+          binSize: Number.isFinite(Number(config.approximation.binSize)) && Number(config.approximation.binSize) > 0 ? Number(config.approximation.binSize) : null,
           widthScaleMode: config.approximation.widthScaleMode,
           violinBounds: typeof config.approximation.violinBounds === 'function' ? config.approximation.violinBounds : null
         };
@@ -4145,11 +4534,14 @@
       return false;
     }
     const nextRadius = Math.max(0.4, Number(radius) || 0.4);
+    const layoutRadius = Number.isFinite(Number(source?.layoutRadius)) && Number(source.layoutRadius) > 0
+      ? Number(source.layoutRadius)
+      : nextRadius;
     const layout = buildBoxApproximatePointBins({
       coords,
       raws: (Array.isArray(source?.raws) || ArrayBuffer.isView(source?.raws)) ? source.raws : coords,
       orientation: renderState.orientation,
-      radius: nextRadius,
+      radius: layoutRadius,
       maxHalfWidth: source?.maxHalfWidth,
       widthScaleMode: source?.widthScaleMode,
       violinBounds: source?.violinBounds
@@ -4160,6 +4552,8 @@
     renderState.bins = layout.bins;
     renderState.hitBins = layout.bins;
     renderState.thickness = layout.thickness;
+    source.binSize = layout.binSize;
+    source.offsets = layout.offsets;
     renderState.hitStrokeWidth = Math.max(12, layout.thickness + nextRadius * 2 + 8);
     return true;
   }
@@ -4175,10 +4569,16 @@
         doc,
         group,
         bins: renderState.bins,
+        coords: renderState.approximation?.coords,
+        raws: renderState.approximation?.raws,
+        offsets: renderState.approximation?.offsets,
+        violinBounds: renderState.approximation?.violinBounds,
+        binSize: renderState.approximation?.binSize,
         orientation: renderState.orientation,
         center: renderState.center,
         thickness: renderState.thickness,
         pointRadius: renderState.pointRadius,
+        spacingRadius: renderState.approximation?.layoutRadius,
         shape: renderState.shape,
         fill: style.fill,
         fillOpacity: style.fillOpacity,
@@ -4234,7 +4634,11 @@
       return true;
     }
     if(renderState.renderer === 'canvas-approx'){
-      const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, { style }), doc, { hidden: false });
+      const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, {
+        style,
+        pointRadius: resolvedPreviewStyle?.pointRadius,
+        shape: resolvedPreviewStyle?.shape || renderState.shape
+      }), doc, { hidden: false, sourcePoints: true });
       return fallbackNodes.length > 0;
     }
     return false;
@@ -4332,9 +4736,7 @@
       if(Number.isFinite(nextRadius) && nextRadius > 0){
         renderState.pointRadius = nextRadius;
         if(renderState.renderer === 'canvas-approx'){
-          if(!rebuildBoxApproximateRenderLayout(renderState, nextRadius)){
-            return false;
-          }
+          renderState.hitStrokeWidth = Math.max(12, (Number(renderState.thickness) || 0) + nextRadius * 2 + 8);
         }else{
           renderState.hitStrokeWidth = Math.max(10, nextRadius * 2 + 8);
         }
@@ -27104,6 +27506,7 @@ Technical analysis record (advanced)
         resolvedMaxHalfWidth,
         hardStripHalfWidthCap,
         swarmPointRadius,
+        approximateLayoutRadius,
         effectiveShape,
         canvasPointLayerEnabled,
         useApproximateCanvas,
@@ -27223,6 +27626,7 @@ Technical analysis record (advanced)
           useApproximateCanvas,
           useBatchPath,
           baseRadius: fallbackRadius,
+          approximateLayoutRadius,
           overrideRadius: resolvedRadius,
           effectiveRadius,
           maxHalfWidth: resolvedMaxHalfWidth,
@@ -27282,7 +27686,10 @@ Technical analysis record (advanced)
           approximation: {
             coords: pointCoords,
             raws: rawValues,
+            offsets: approximateLayout.offsets,
             maxHalfWidth: resolvedMaxHalfWidth,
+            layoutRadius: approximateLayoutRadius,
+            binSize: approximateLayout.binSize,
             widthScaleMode,
             violinBounds
           },
@@ -27302,6 +27709,7 @@ Technical analysis record (advanced)
             pointCount,
             binCount: approximateLayout.bins.length,
             thickness: approximateLayout.thickness,
+            layoutRadius: approximateLayoutRadius,
             maxOffsetUsed
           });
         }
@@ -32261,6 +32669,7 @@ Technical analysis record (advanced)
       shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
       buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
       buildBoxApproximatePointCenters:config=>buildBoxApproximatePointCenters(config),
+      resolveBoxApproximateHalfWidthForCoord:(config, coord)=>resolveBoxApproximateHalfWidthForCoord(createBoxApproximateBinLookup(config?.bins, config?.binSize), coord),
       resolveBoxToolbarPointSizeValue:(style,sourcePoint)=>resolveBoxToolbarPointSizeValue(style,sourcePoint),
       resolveBoxToolbarPointBorderColorValue:(style,sourcePoint)=>resolveBoxToolbarPointBorderColorValue(style,sourcePoint),
       resolveBoxToolbarPointBorderWidthPatch:(style,sourcePoint,widthValue)=>resolveBoxToolbarPointBorderWidthPatch(style,sourcePoint,widthValue),
