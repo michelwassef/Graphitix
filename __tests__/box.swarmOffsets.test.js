@@ -313,21 +313,21 @@ describe('Box swarm offset constraints', () => {
     }
   });
 
-  test('huge-trace approximation gate only enables for very large non-indexed traces', () => {
+  test('huge-trace density canvas gate only enables for very large non-indexed traces', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.shouldUseBoxApproximatePointCanvas).toBe('function');
-    expect(hooks.shouldUseBoxApproximatePointCanvas({ pointCount: 8000, threshold: 8000 })).toBe(false);
-    expect(hooks.shouldUseBoxApproximatePointCanvas({ pointCount: 9001, threshold: 8000 })).toBe(true);
-    expect(hooks.shouldUseBoxApproximatePointCanvas({
+    expect(typeof hooks.shouldUseBoxDensityPointCanvas).toBe('function');
+    expect(hooks.shouldUseBoxDensityPointCanvas({ pointCount: 8000, threshold: 8000 })).toBe(false);
+    expect(hooks.shouldUseBoxDensityPointCanvas({ pointCount: 9001, threshold: 8000 })).toBe(true);
+    expect(hooks.shouldUseBoxDensityPointCanvas({
       pointCount: 12000,
       threshold: 8000,
       collectsPointByRow: true
     })).toBe(false);
   });
 
-  test('huge-trace approximation bins compress dense point clouds deterministically', () => {
+  test('huge-trace density bins compress dense point clouds deterministically', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointBins).toBe('function');
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
     const pointCount = 12000;
     const coords = new Float64Array(pointCount);
     const raws = new Float64Array(pointCount);
@@ -358,12 +358,12 @@ describe('Box swarm offset constraints', () => {
 
   test('huge-trace density layout stores one offset per source point', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointBins).toBe('function');
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
     const coords = new Float64Array(9000);
     for(let idx = 0; idx < coords.length; idx += 1){
       coords[idx] = 160 + Math.sin(idx / 90) * 18 + ((idx % 300) - 150) * 0.035;
     }
-    const layout = hooks.buildBoxApproximatePointBins({
+    const layout = hooks.buildBoxDensityPointLayout({
       coords,
       raws: coords,
       orientation: 'vertical',
@@ -381,13 +381,13 @@ describe('Box swarm offset constraints', () => {
 
   test('huge-trace density layout tapers sparse tails instead of enforcing a chimney floor', () => {
     expect(hooks).toBeDefined();
-    expect(typeof hooks.buildBoxApproximatePointBins).toBe('function');
+    expect(typeof hooks.buildBoxDensityPointLayout).toBe('function');
     const coords = new Float64Array(9001);
     for(let idx = 0; idx < 9000; idx += 1){
       coords[idx] = 220 + Math.sin(idx / 50) * 28 + ((idx % 240) - 120) * 0.04;
     }
     coords[9000] = 1050;
-    const layout = hooks.buildBoxApproximatePointBins({
+    const layout = hooks.buildBoxDensityPointLayout({
       coords,
       raws: coords,
       orientation: 'vertical',
@@ -413,7 +413,7 @@ describe('Box swarm offset constraints', () => {
     for(let idx = 0; idx < coords.length; idx += 1){
       coords[idx] = 100 + Math.pow(idx / (coords.length - 1), 1.6) * 420;
     }
-    const layout = hooks.buildBoxApproximatePointBins({
+    const layout = hooks.buildBoxDensityPointLayout({
       coords,
       raws: coords,
       orientation: 'vertical',
@@ -438,7 +438,7 @@ describe('Box swarm offset constraints', () => {
     expect(Math.abs(Number(layout.offsets[layout.offsets.length - 1]) || 0)).toBeLessThan(0.01);
   });
 
-  test('huge-trace approximation centers preserve selected symbol geometry', () => {
+  test('huge-trace density centers preserve selected symbol geometry', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.buildBoxApproximatePointCenters).toBe('function');
     const centers = hooks.buildBoxApproximatePointCenters({
@@ -457,7 +457,7 @@ describe('Box swarm offset constraints', () => {
     expect(centers.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
   });
 
-  test('huge-trace approximation center count is independent from visual point size', () => {
+  test('huge-trace density center count is independent from visual point size', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.buildBoxApproximatePointCenters).toBe('function');
     const bins = [{ coord: 100, halfWidth: 24, count: 100 }];
@@ -479,7 +479,7 @@ describe('Box swarm offset constraints', () => {
     expect(large.length).toBe(small.length);
   });
 
-  test('canvas-approx renderer draws every source datum', () => {
+  test('canvas-density renderer draws every source datum', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.renderStoredBoxCanvasPointGroup).toBe('function');
     const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
@@ -503,7 +503,7 @@ describe('Box swarm offset constraints', () => {
       const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       group.setAttribute('data-export-layer', 'box-points');
       group.__boxCanvasRenderState = {
-        renderer: 'canvas-approx',
+        renderer: 'canvas-density',
         bins: [{ coord: 100, halfWidth: 12, count: coords.length, binIndex: 100 }],
         hitBins: [{ coord: 100, halfWidth: 12, count: coords.length, binIndex: 100 }],
         orientation: 'vertical',
@@ -533,13 +533,13 @@ describe('Box swarm offset constraints', () => {
       };
       expect(hooks.renderStoredBoxCanvasPointGroup(group)).toBe(true);
       expect(arcCount).toBe(coords.length);
-      expect(group.querySelector('foreignObject[data-point-renderer="canvas-approx"]')).toBeTruthy();
+      expect(group.querySelector('foreignObject[data-point-renderer="canvas-density"]')).toBeTruthy();
     }finally{
       window.HTMLCanvasElement.prototype.getContext = originalGetContext;
     }
   });
 
-  test('canvas-approx source layout interpolates density width between bins', () => {
+  test('canvas-density source layout interpolates density width between bins', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.resolveBoxApproximateHalfWidthForCoord).toBe('function');
     const config = {
@@ -554,7 +554,7 @@ describe('Box swarm offset constraints', () => {
     expect(hooks.resolveBoxApproximateHalfWidthForCoord(config, 10)).toBeCloseTo(30, 5);
   });
 
-  test('canvas-approx live shape and size changes update render state without rebuilding density layout', () => {
+  test('canvas-density live shape and size changes update render state without rebuilding density layout', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.applyBoxCanvasPointGroupStyleLive).toBe('function');
     const originalGetContext = window.HTMLCanvasElement.prototype.getContext;
@@ -600,7 +600,7 @@ describe('Box swarm offset constraints', () => {
         spacingRadius: 3
       }).length;
       group.__boxCanvasRenderState = {
-        renderer: 'canvas-approx',
+        renderer: 'canvas-density',
         bins: initial.bins,
         hitBins: initial.bins,
         orientation: 'vertical',
@@ -718,9 +718,9 @@ describe('Box swarm offset constraints', () => {
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.setAttribute('data-export-layer', 'box-points');
     group.setAttribute('data-trace', '3');
-    group.__boxCanvasRenderState = { renderer: 'canvas-approx' };
+    group.__boxCanvasRenderState = { renderer: 'canvas-density' };
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     const exportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     exportPath.setAttribute('data-box-export-geometry', '1');
     exportPath.style.display = 'none';
@@ -806,10 +806,10 @@ describe('Box swarm offset constraints', () => {
     group.setAttribute('data-export-layer', 'box-points');
     group.setAttribute('data-trace', '1');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     group.appendChild(foreignObject);
     group.__boxCanvasRenderState = {
-      renderer: 'canvas-approx',
+      renderer: 'canvas-density',
       orientation: 'vertical',
       center: 140,
       bins: [
@@ -945,7 +945,7 @@ describe('Box swarm offset constraints', () => {
     expect(rebuiltPath.getAttribute('data-shape')).toBe('square');
   });
 
-  test('box preview svg rebuilds large canvas-approx traces from group style metadata', () => {
+  test('box preview svg rebuilds large canvas-density traces from group style metadata', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -960,11 +960,11 @@ describe('Box swarm offset constraints', () => {
     group.setAttribute('data-point-size', '8');
     group.setAttribute('data-shape', 'circle');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     group.appendChild(foreignObject);
     const coords = new Float64Array([100, 100, 100, 100, 100, 100, 100]);
     group.__boxCanvasRenderState = {
-      renderer: 'canvas-approx',
+      renderer: 'canvas-density',
       orientation: 'vertical',
       center: 140,
       bins: [
@@ -992,7 +992,7 @@ describe('Box swarm offset constraints', () => {
     svg.appendChild(group);
     frag.appendChild(svg);
     const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-approx-style-test',
+      id: 'workspace-preview-canvas-density-style-test',
       renderCache: {
         cache: {
           plot: { fragment: frag }
@@ -1007,7 +1007,7 @@ describe('Box swarm offset constraints', () => {
     expect((rebuiltPathData.match(/ a /g) || []).length).toBe(coords.length * 2);
   });
 
-  test('box preview svg ignores stale hidden export geometry styles for large canvas-approx traces', () => {
+  test('box preview svg ignores stale hidden export geometry styles for large canvas-density traces', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1020,7 +1020,7 @@ describe('Box swarm offset constraints', () => {
     group.setAttribute('data-point-stroke-opacity', '1');
     group.setAttribute('data-point-stroke-width', '0');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     const staleExportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     staleExportPath.setAttribute('data-box-export-geometry', '1');
     staleExportPath.setAttribute('d', 'M 10 10 L 20 20');
@@ -1029,7 +1029,7 @@ describe('Box swarm offset constraints', () => {
     group.appendChild(foreignObject);
     group.appendChild(staleExportPath);
     group.__boxCanvasRenderState = {
-      renderer: 'canvas-approx',
+      renderer: 'canvas-density',
       orientation: 'vertical',
       center: 140,
       bins: [
@@ -1049,7 +1049,7 @@ describe('Box swarm offset constraints', () => {
     svg.appendChild(group);
     frag.appendChild(svg);
     const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-approx-stale-export-style-test',
+      id: 'workspace-preview-canvas-density-stale-export-style-test',
       renderCache: {
         cache: {
           plot: { fragment: frag }
@@ -1075,10 +1075,10 @@ describe('Box swarm offset constraints', () => {
     group.setAttribute('data-point-stroke-opacity', '1');
     group.setAttribute('data-point-stroke-width', '0');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     group.appendChild(foreignObject);
     group.__boxCanvasRenderState = {
-      renderer: 'canvas-approx',
+      renderer: 'canvas-density',
       orientation: 'vertical',
       center: 140,
       bins: [
@@ -1098,7 +1098,7 @@ describe('Box swarm offset constraints', () => {
     svg.appendChild(group);
     frag.appendChild(svg);
     const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-approx-zero-border-test',
+      id: 'workspace-preview-canvas-density-zero-border-test',
       renderCache: {
         cache: {
           plot: { fragment: frag }
@@ -1111,7 +1111,7 @@ describe('Box swarm offset constraints', () => {
     expect(rebuiltPaths[0].getAttribute('stroke')).toBeNull();
   });
 
-  test('box preview svg ignores child geometry styles for canvas-approx and uses group attrs when border is zero', () => {
+  test('box preview svg ignores child geometry styles for canvas-density and uses group attrs when border is zero', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     const frag = document.createDocumentFragment();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1124,7 +1124,7 @@ describe('Box swarm offset constraints', () => {
     group.setAttribute('data-point-stroke-opacity', '1');
     group.setAttribute('data-point-stroke-width', '0');
     const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-density');
     const staleChild = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     staleChild.setAttribute('stroke', '#111111');
     staleChild.setAttribute('stroke-width', '9');
@@ -1132,7 +1132,7 @@ describe('Box swarm offset constraints', () => {
     group.appendChild(foreignObject);
     group.appendChild(staleChild);
     group.__boxCanvasRenderState = {
-      renderer: 'canvas-approx',
+      renderer: 'canvas-density',
       orientation: 'vertical',
       center: 140,
       bins: [
@@ -1152,7 +1152,7 @@ describe('Box swarm offset constraints', () => {
     svg.appendChild(group);
     frag.appendChild(svg);
     const previewSvg = window.Components.box.getPreviewSvg({
-      id: 'workspace-preview-canvas-approx-group-attrs-priority-test',
+      id: 'workspace-preview-canvas-density-group-attrs-priority-test',
       renderCache: {
         cache: {
           plot: { fragment: frag }

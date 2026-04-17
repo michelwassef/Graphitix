@@ -586,13 +586,13 @@
       && BATCHABLE_POINT_SHAPES.has(effectiveShape)
       && canUseBoxPointResizeCanvas();
     const useApproximateCanvas = canvasPointLayerEnabled
-      && shouldUseBoxApproximatePointCanvas({
+      && shouldUseBoxDensityPointCanvas({
         pointCount,
         threshold: params.approximateThreshold,
         collectsPointByRow: params.collectPointsByRow instanceof Map
       });
     const approximateLayout = useApproximateCanvas
-      ? buildBoxApproximatePointBins({
+      ? buildBoxDensityPointLayout({
           coords: pointCoords,
           raws: rawValues,
           orientation: params.orientation,
@@ -1053,6 +1053,7 @@
   const BOX_POINT_APPROX_THRESHOLD = 8000;
   const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const BOX_POINT_CANVAS_PATH_CHUNK_SIZE = 20000;
+  const BOX_POINT_DENSITY_CANVAS_RENDERER = 'canvas-density';
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
@@ -3594,6 +3595,24 @@
     return true;
   }
 
+  function shouldUseBoxDensityPointCanvas(renderOptions = {}){
+    return shouldUseBoxApproximatePointCanvas(renderOptions);
+  }
+
+  function normalizeBoxCanvasPointRenderer(renderer){
+    if(renderer === BOX_POINT_DENSITY_CANVAS_RENDERER){
+      return BOX_POINT_DENSITY_CANVAS_RENDERER;
+    }
+    return 'canvas-preview';
+  }
+
+  function isBoxDensityCanvasRenderer(renderStateOrRenderer){
+    const renderer = typeof renderStateOrRenderer === 'string'
+      ? renderStateOrRenderer
+      : renderStateOrRenderer?.renderer;
+    return normalizeBoxCanvasPointRenderer(renderer) === BOX_POINT_DENSITY_CANVAS_RENDERER;
+  }
+
   function hashBoxDensityPointUnit(rawValue, coordValue, index, seed = 0){
     const raw = Number(rawValue);
     const coord = Number(coordValue);
@@ -3865,6 +3884,10 @@
     };
   }
 
+  function buildBoxDensityPointLayout(config){
+    return buildBoxApproximatePointBins(config);
+  }
+
   function resolveBoxApproximatePointOffsetUnit(index){
     const numericIndex = Number.isFinite(Number(index)) ? Number(index) : 0;
     const fraction = (((numericIndex + 0.5) * 0.6180339887498949) % 1 + 1) % 1;
@@ -4059,7 +4082,7 @@
       doc,
       group,
       bounds,
-      rendererType: 'canvas-approx',
+      rendererType: BOX_POINT_DENSITY_CANVAS_RENDERER,
       draw(ctx){
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -4360,7 +4383,7 @@
         || String(group.getAttribute('data-point-stroke-width') || '').trim()
       );
       const shouldUseChildFallback = (!hasGroupFill && !hasGroupStroke)
-        && renderState?.renderer !== 'canvas-approx'
+        && !isBoxDensityCanvasRenderer(renderState)
         && typeof group.querySelector === 'function';
       if(shouldUseChildFallback){
         const sourceNode = group.querySelector('[data-point-proxy="1"]')
@@ -4489,7 +4512,7 @@
   }
 
   function createBoxCanvasPointRenderState(config = {}){
-    const renderer = config.renderer === 'canvas-approx' ? 'canvas-approx' : 'canvas-preview';
+    const renderer = normalizeBoxCanvasPointRenderer(config.renderer);
     const state = {
       doc: config.doc || global.document,
       renderer,
@@ -4503,7 +4526,7 @@
       hitStrokeWidth: Number.isFinite(Number(config.hitStrokeWidth)) ? Number(config.hitStrokeWidth) : null,
       style: createBoxCanvasPointRenderStyle(config.style || {})
     };
-    if(renderer === 'canvas-approx'){
+    if(isBoxDensityCanvasRenderer(renderer)){
       state.bins = Array.isArray(config.bins) ? config.bins : [];
       state.orientation = config.orientation === 'horizontal' ? 'horizontal' : 'vertical';
       state.center = Number.isFinite(Number(config.center)) ? Number(config.center) : null;
@@ -4529,7 +4552,7 @@
   }
 
   function rebuildBoxApproximateRenderLayout(renderState, radius){
-    if(!renderState || renderState.renderer !== 'canvas-approx'){
+    if(!renderState || !isBoxDensityCanvasRenderer(renderState)){
       return false;
     }
     const source = renderState.approximation;
@@ -4570,7 +4593,7 @@
     }
     const doc = docOverride || renderState.doc || global.document;
     const style = renderState.style || {};
-    if(renderState.renderer === 'canvas-approx'){
+    if(isBoxDensityCanvasRenderer(renderState)){
       const rendered = renderBoxApproximatePointCanvas({
         doc,
         group,
@@ -4641,7 +4664,7 @@
       cloneGroup.appendChild(pointPath);
       return true;
     }
-    if(renderState.renderer === 'canvas-approx'){
+    if(isBoxDensityCanvasRenderer(renderState)){
       const fallbackNodes = appendBoxApproximateGeometryPaths(cloneGroup, Object.assign({}, renderState, {
         style,
         pointRadius: resolvedPreviewStyle?.pointRadius,
@@ -4743,7 +4766,7 @@
       const nextRadius = Number(patch.size);
       if(Number.isFinite(nextRadius) && nextRadius > 0){
         renderState.pointRadius = nextRadius;
-        if(renderState.renderer === 'canvas-approx'){
+        if(isBoxDensityCanvasRenderer(renderState)){
           renderState.hitStrokeWidth = Math.max(12, (Number(renderState.thickness) || 0) + nextRadius * 2 + 8);
         }else{
           renderState.hitStrokeWidth = Math.max(10, nextRadius * 2 + 8);
@@ -27678,7 +27701,7 @@ Technical analysis record (advanced)
         maxOffsetUsed = Math.max(0, Number(approximateLayout.maxOffsetUsed) || 0);
         group.__boxCanvasRenderState = createBoxCanvasPointRenderState({
           doc: document,
-          renderer: 'canvas-approx',
+          renderer: BOX_POINT_DENSITY_CANVAS_RENDERER,
           bins: approximateLayout.bins,
           orientation,
           center: centerCoord,
@@ -27713,7 +27736,7 @@ Technical analysis record (advanced)
         });
         renderStoredBoxCanvasPointGroup(group);
         if(debugEnabled){
-          console.debug('Debug: box approximate point canvas rendered', {
+          console.debug('Debug: box density point canvas rendered', {
             orientation,
             traceIndex,
             pointCount,
@@ -27739,7 +27762,7 @@ Technical analysis record (advanced)
         });
         maxOffsetUsed = renderedMaxOffsetUsed;
         if(useResizeCanvasPreview){
-          const interactionLayout = buildBoxApproximatePointBins({
+      const interactionLayout = buildBoxDensityPointLayout({
             coords: pointCoords,
             raws: rawValues,
             orientation,
@@ -32676,10 +32699,10 @@ Technical analysis record (advanced)
       computeSwarmSpacingProfile:config=>computeSwarmSpacingProfile(config),
       resolveStripMinRadiusFloor:(sampleSize,baseRadius)=>resolveStripMinRadiusFloor(sampleSize,baseRadius),
       resolveFastStripAutoSizeProfile:config=>resolveFastStripAutoSizeProfile(config),
-      shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
-      buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
-      buildBoxApproximatePointCenters:config=>buildBoxApproximatePointCenters(config),
-      resolveBoxApproximateHalfWidthForCoord:(config, coord)=>resolveBoxApproximateHalfWidthForCoord(createBoxApproximateBinLookup(config?.bins, config?.binSize, {
+      shouldUseBoxDensityPointCanvas:config=>shouldUseBoxDensityPointCanvas(config),
+      buildBoxDensityPointLayout:config=>buildBoxDensityPointLayout(config),
+      buildBoxDensityPointCenters:config=>buildBoxApproximatePointCenters(config),
+      resolveBoxDensityHalfWidthForCoord:(config, coord)=>resolveBoxApproximateHalfWidthForCoord(createBoxApproximateBinLookup(config?.bins, config?.binSize, {
         dataMin: config?.dataMin,
         dataMax: config?.dataMax
       }), coord),
