@@ -1414,22 +1414,37 @@
     if(!plot){
       return fallbackNode || null;
     }
-    const pointSelector = 'circle:not([data-point-proxy="1"]), rect:not([data-point-proxy="1"]), path:not([data-point-proxy="1"])';
+    const pointSelector = 'circle:not([data-point-proxy="1"]):not([data-box-export-geometry="1"]):not([data-export-ignore="1"]), rect:not([data-point-proxy="1"]):not([data-box-export-geometry="1"]):not([data-export-ignore="1"]), path:not([data-point-proxy="1"]):not([data-box-export-geometry="1"]):not([data-export-ignore="1"])';
     const proxySelector = '[data-point-proxy="1"]';
+    const resolveFromGroup = group => {
+      if(!group || typeof group.querySelector !== 'function'){
+        return null;
+      }
+      const isCanvasBacked = !!group.__boxCanvasRenderState
+        || !!group.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
+      if(isCanvasBacked){
+        return group.querySelector(proxySelector) || group.querySelector(pointSelector);
+      }
+      return group.querySelector(pointSelector) || group.querySelector(proxySelector);
+    };
     if(traceIndex != null){
-      const node = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] ${pointSelector}`);
+      const group = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"]`);
+      const node = resolveFromGroup(group);
       if(node){
         return node;
       }
-      const proxyNode = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"] ${proxySelector}`);
-      if(proxyNode){
-        return proxyNode;
+    }
+    if(fallbackNode && fallbackNode.getAttribute && fallbackNode.getAttribute('data-box-export-geometry') !== '1' && fallbackNode.getAttribute('data-export-ignore') !== '1'){
+      return fallbackNode;
+    }
+    const groups = Array.from(plot.querySelectorAll('g[data-export-layer="box-points"]'));
+    for(let idx = 0; idx < groups.length; idx += 1){
+      const node = resolveFromGroup(groups[idx]);
+      if(node){
+        return node;
       }
     }
-    return fallbackNode
-      || plot.querySelector(`g[data-export-layer="box-points"] ${pointSelector}`)
-      || plot.querySelector(`g[data-export-layer="box-points"] ${proxySelector}`)
-      || null;
+    return null;
   }
 
   function findBoxSummaryNodeForTrace(traceIndex, fallbackNode){
@@ -1844,6 +1859,82 @@
     const specific = state.pointStyles && state.pointStyles[index] ? state.pointStyles[index] : null;
     return mergePointStyles(specific);
   }
+
+  function isBoxAutoDefaultPointSize(rawSize, renderedRadius){
+    const sizeValue = Number(rawSize);
+    if(!Number.isFinite(sizeValue) || sizeValue <= 0){
+      return false;
+    }
+    const tolerance = 0.01;
+    if(Math.abs(sizeValue - 5) <= tolerance){
+      return true;
+    }
+    const rendered = Number(renderedRadius);
+    return Number.isFinite(rendered) && rendered > 0 && Math.abs(sizeValue - rendered) <= tolerance;
+  }
+
+  function resolveBoxToolbarPointSizeValue(style, sourcePoint){
+    const explicit = readBoxPointSourceNumber(sourcePoint, ['data-point-size']);
+    const renderedRadius = Number.isFinite(explicit) && explicit > 0 ? explicit / 2 : NaN;
+    const styleSize = Number(style?.size);
+    if(Number.isFinite(styleSize) && styleSize > 0 && !isBoxAutoDefaultPointSize(styleSize, renderedRadius)){
+      return styleSize;
+    }
+    if(Number.isFinite(renderedRadius) && renderedRadius > 0){
+      return renderedRadius;
+    }
+    if(Number.isFinite(styleSize) && styleSize > 0){
+      return styleSize;
+    }
+    return readBoxPointSourceNumber(sourcePoint, ['r']) || 4;
+  }
+
+  function resolveBoxToolbarPointBorderColorValue(style, sourcePoint){
+    const styleSource = style && typeof style === 'object' ? style : {};
+    const styleStroke = styleSource.stroke && styleSource.stroke !== 'none' ? styleSource.stroke : '';
+    const styleBorder = styleSource.borderColor && styleSource.borderColor !== 'none' ? styleSource.borderColor : '';
+    if(styleStroke || styleBorder){
+      return styleStroke || styleBorder;
+    }
+    const sourceStrokeWidth = readBoxPointSourceNumber(sourcePoint, ['data-point-stroke-width', 'stroke-width']);
+    const sourceStroke = readBoxPointSourceAttr(sourcePoint, ['data-point-stroke', 'stroke']);
+    if(Number.isFinite(sourceStrokeWidth) && sourceStrokeWidth > 0 && sourceStroke && sourceStroke !== 'none'){
+      return sourceStroke;
+    }
+    return '#000000';
+  }
+
+  function resolveBoxToolbarPointBorderWidthPatch(style, sourcePoint, widthValue){
+    const next = Math.max(0, Number(widthValue) || 0);
+    const currentColor = resolveBoxToolbarPointBorderColorValue(style, sourcePoint);
+    const patch = { borderWidth: next, strokeWidth: next };
+    if(next > 0 && currentColor && currentColor !== 'none'){
+      patch.stroke = currentColor;
+      patch.borderColor = currentColor;
+    }
+    return patch;
+  }
+
+  function normalizeBoxPointStylePatch(patch){
+    if(!patch || typeof patch !== 'object'){
+      return {};
+    }
+    const normalized = Object.assign({}, patch);
+    if(normalized.stroke == null && normalized.borderColor != null){
+      normalized.stroke = normalized.borderColor;
+    }
+    if(normalized.borderColor == null && normalized.stroke != null){
+      normalized.borderColor = normalized.stroke;
+    }
+    if(normalized.strokeWidth == null && normalized.borderWidth != null){
+      normalized.strokeWidth = normalized.borderWidth;
+    }
+    if(normalized.borderWidth == null && normalized.strokeWidth != null){
+      normalized.borderWidth = normalized.strokeWidth;
+    }
+    return normalized;
+  }
+
   function getSummaryStyle(index){
     if(index == null){ return state.summaryGlobalStyle || null; }
     const specific = state.summaryStyles && state.summaryStyles[index] ? state.summaryStyles[index] : null;
@@ -1958,7 +2049,7 @@
   function previewTracePointStyle(traceIndexValue, patch){
     if(traceIndexValue == null){ return false; }
     try{
-      return !!tryApplyBoxStripPointStyleLive(patch, {
+      return !!tryApplyBoxStripPointStyleLive(normalizeBoxPointStylePatch(patch), {
         traceIndex: traceIndexValue,
         persistState: false
       });
@@ -1970,7 +2061,7 @@
 
   function previewGlobalPointStyle(patch){
     try{
-      return !!tryApplyBoxStripPointStyleLive(patch, { persistState: false });
+      return !!tryApplyBoxStripPointStyleLive(normalizeBoxPointStylePatch(patch), { persistState: false });
     }catch(err){
       console.warn('previewGlobalPointStyle error', err);
       return false;
@@ -1980,12 +2071,13 @@
   function persistTracePointStyle(traceIndexValue, patch, options){
     if(traceIndexValue == null){ return; }
     const opts = options && typeof options === 'object' ? options : {};
+    const normalizedPatch = normalizeBoxPointStylePatch(patch);
     const shouldRecordUndo = opts.recordUndo !== false;
     state.pointStyles = state.pointStyles || {};
     const previous = cloneSimple(state.pointStyles[traceIndexValue]) || {};
-    const next = Object.assign({}, previous, patch);
+    const next = Object.assign({}, previous, normalizedPatch);
     state.pointStyles[traceIndexValue] = next;
-    if(!tryApplyBoxStripPointStyleLive(patch, { traceIndex: traceIndexValue, persistState: false }) && typeof state.scheduleDraw === 'function'){
+    if(!tryApplyBoxStripPointStyleLive(normalizedPatch, { traceIndex: traceIndexValue, persistState: false }) && typeof state.scheduleDraw === 'function'){
       try{ scheduleBoxViewRefresh('point-style-trace-change'); }catch(err){ console.warn('persistTracePointStyle scheduleDraw error', err); }
     }
     if(!shouldRecordUndo){
@@ -2006,6 +2098,7 @@
 
   function applyPointGlobalStyle(patch, options){
     const opts = options && typeof options === 'object' ? options : {};
+    const normalizedPatch = normalizeBoxPointStylePatch(patch);
     const shouldRecordUndo = opts.recordUndo !== false;
     const previous = {
       pointStyles: cloneSimple(state.pointStyles || {}) || {},
@@ -2013,10 +2106,10 @@
     };
     state.pointStyles = state.pointStyles || {};
     Object.keys(state.pointStyles).forEach(key => {
-      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, patch);
+      state.pointStyles[key] = Object.assign({}, state.pointStyles[key] || {}, normalizedPatch);
     });
-    state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
-    if(!tryApplyBoxStripPointStyleLive(patch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
+    state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, normalizedPatch);
+    if(!tryApplyBoxStripPointStyleLive(normalizedPatch, { persistState: false }) && typeof state.scheduleDraw === 'function'){
       try{ scheduleBoxViewRefresh('point-style-global-change'); }catch(err){ console.warn('applyPointGlobalStyle scheduleDraw error', err); }
     }
     if(!shouldRecordUndo){
@@ -2310,11 +2403,7 @@
         border: {
           label: 'Border',
           getColor(ctx){
-            const style = resolvePointStyle(ctx);
-            return style.stroke
-              || style.borderColor
-              || readBoxPointSourceAttr(sourcePoint, ['data-point-stroke', 'stroke'])
-              || '#000000';
+            return resolveBoxToolbarPointBorderColorValue(resolvePointStyle(ctx), sourcePoint);
           },
           onColorInput(value, ctx){
             if(ctx.scope === 'trace'){
@@ -2337,21 +2426,18 @@
             return readBoxPointSourceNumber(sourcePoint, ['data-point-stroke-width', 'stroke-width']) || 0;
           },
           onWidthChange(value, ctx){
-            const next = Math.max(0, Number(value) || 0);
+            const patch = resolveBoxToolbarPointBorderWidthPatch(resolvePointStyle(ctx), sourcePoint, value);
             if(ctx.scope === 'trace'){
-              applyTracePatch({ borderWidth: next, strokeWidth: next });
+              applyTracePatch(patch);
             }else{
-              applyGlobalPatch({ borderWidth: next, strokeWidth: next });
+              applyGlobalPatch(patch);
             }
           }
         },
         size: {
           get(ctx){
             const style = resolvePointStyle(ctx);
-            if(Number.isFinite(Number(style.size))){ return Number(style.size); }
-            const explicit = readBoxPointSourceNumber(sourcePoint, ['data-point-size']);
-            if(Number.isFinite(explicit) && explicit > 0){ return explicit / 2; }
-            return readBoxPointSourceNumber(sourcePoint, ['r']) || 4;
+            return resolveBoxToolbarPointSizeValue(style, sourcePoint);
           },
           onChange(value, ctx){
             const rounded = roundStripPointControlValue(value, 0.1);
@@ -11946,6 +12032,28 @@
     return 0;
   }
 
+  function hasExplicitBoxPointBorderWidth(style){
+    return !!(style && (
+      Number.isFinite(Number(style.borderWidth))
+      || Number.isFinite(Number(style.strokeWidth))
+    ));
+  }
+
+  function resolveBoxPointStrokeWidthForRender(rawStrokeWidth, effectiveRadius, options = {}){
+    const raw = Math.max(0, Number(rawStrokeWidth) || 0);
+    if(raw <= 0){
+      return 0;
+    }
+    if(options.explicit === true){
+      return raw;
+    }
+    const radius = Number(effectiveRadius);
+    const strokeWidthCap = Number.isFinite(radius) && radius >= 0.7
+      ? Math.max(0, radius * 0.75)
+      : 0;
+    return Math.max(0, Math.min(raw, strokeWidthCap));
+  }
+
   function isBoxGrayscaleScheme(schemeId){
     const activeScheme = typeof schemeId === 'string' && schemeId.trim()
       ? schemeId.trim().toLowerCase()
@@ -12264,6 +12372,7 @@
     if(!patch || typeof patch !== 'object'){
       return false;
     }
+    const normalizedInputPatch = normalizeBoxPointStylePatch(patch);
     if(isBoxLiveStyleDisabled()){
       return false;
     }
@@ -12279,33 +12388,37 @@
       return false;
     }
     const stylePatch = {};
-    if(patch.fill != null){
-      stylePatch.fill = String(patch.fill);
+    if(normalizedInputPatch.fill != null){
+      stylePatch.fill = String(normalizedInputPatch.fill);
     }
-    if(patch.stroke != null){
-      stylePatch.stroke = String(patch.stroke);
+    if(normalizedInputPatch.stroke != null){
+      stylePatch.stroke = String(normalizedInputPatch.stroke);
     }
-    if(patch.borderWidth != null || patch.strokeWidth != null){
-      const widthRaw = patch.borderWidth != null ? patch.borderWidth : patch.strokeWidth;
+    if(normalizedInputPatch.borderColor != null){
+      stylePatch.borderColor = String(normalizedInputPatch.borderColor);
+    }
+    if(normalizedInputPatch.borderWidth != null || normalizedInputPatch.strokeWidth != null){
+      const widthRaw = normalizedInputPatch.borderWidth != null ? normalizedInputPatch.borderWidth : normalizedInputPatch.strokeWidth;
       const widthNumeric = Number(widthRaw);
       if(Number.isFinite(widthNumeric)){
         stylePatch.borderWidth = Math.max(0, widthNumeric);
+        stylePatch.strokeWidth = Math.max(0, widthNumeric);
       }
     }
-    if(patch.opacity != null){
-      const opacityNumeric = Number(patch.opacity);
+    if(normalizedInputPatch.opacity != null){
+      const opacityNumeric = Number(normalizedInputPatch.opacity);
       if(Number.isFinite(opacityNumeric)){
         stylePatch.opacity = Math.max(0, Math.min(1, opacityNumeric));
       }
     }
-    if(patch.size != null){
-      const sizeNumeric = Number(patch.size);
+    if(normalizedInputPatch.size != null){
+      const sizeNumeric = Number(normalizedInputPatch.size);
       if(Number.isFinite(sizeNumeric) && sizeNumeric > 0){
         stylePatch.size = sizeNumeric;
       }
     }
-    if(patch.shape != null){
-      stylePatch.shape = String(patch.shape || 'circle');
+    if(normalizedInputPatch.shape != null){
+      stylePatch.shape = String(normalizedInputPatch.shape || 'circle');
     }
     if(!Object.keys(stylePatch).length){
       return false;
@@ -27078,8 +27191,9 @@ Technical analysis record (advanced)
         ? resolveOverlayPointBorderWidthRaw(traceStyle, effectiveRadius, { minimumWidth: 0.8 })
         : resolveStripPointStrokeWidthRaw(traceStyle, borderWidthRaw);
       const rawStrokeWidth = chartStyle.scaleStrokeWidth(traceStrokeWidthRaw, styleScaleInfo, { context: 'box-point-border', min: 0 });
-      const strokeWidthCap = effectiveRadius < 0.7 ? 0 : Math.max(0, effectiveRadius * 0.75);
-      const effectiveStrokeWidth = Math.max(0, Math.min(rawStrokeWidth, strokeWidthCap));
+      const effectiveStrokeWidth = resolveBoxPointStrokeWidthForRender(rawStrokeWidth, effectiveRadius, {
+        explicit: hasExplicitBoxPointBorderWidth(traceStyle)
+      });
       const effectiveStroke = traceStrokeColor && traceStrokeColor !== 'none'
         ? traceStrokeColor
         : 'none';
@@ -32145,6 +32259,12 @@ Technical analysis record (advanced)
       shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
       buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
       buildBoxApproximatePointCenters:config=>buildBoxApproximatePointCenters(config),
+      resolveBoxToolbarPointSizeValue:(style,sourcePoint)=>resolveBoxToolbarPointSizeValue(style,sourcePoint),
+      resolveBoxToolbarPointBorderColorValue:(style,sourcePoint)=>resolveBoxToolbarPointBorderColorValue(style,sourcePoint),
+      resolveBoxToolbarPointBorderWidthPatch:(style,sourcePoint,widthValue)=>resolveBoxToolbarPointBorderWidthPatch(style,sourcePoint,widthValue),
+      normalizeBoxPointStylePatch:patch=>normalizeBoxPointStylePatch(patch),
+      hasExplicitBoxPointBorderWidth:style=>hasExplicitBoxPointBorderWidth(style),
+      resolveBoxPointStrokeWidthForRender:(rawStrokeWidth,effectiveRadius,options={})=>resolveBoxPointStrokeWidthForRender(rawStrokeWidth,effectiveRadius,options || {}),
       applyBoxCanvasPointGroupStyleLive:(group,patch)=>applyBoxCanvasPointGroupStyleLive(group,patch),
       renderStoredBoxCanvasPointGroup:group=>renderStoredBoxCanvasPointGroup(group),
       buildBoxPointInteractionMaskPath:config=>buildBoxPointInteractionMaskPath(config),

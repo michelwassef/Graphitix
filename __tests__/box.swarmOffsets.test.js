@@ -455,6 +455,56 @@ describe('Box swarm offset constraints', () => {
     }
   });
 
+  test('box point toolbar size reports rendered auto-sized canvas radius', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxToolbarPointSizeValue).toBe('function');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-size', '1.6');
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 5 }, proxy)).toBeCloseTo(0.8, 5);
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 3.2 }, proxy)).toBeCloseTo(3.2, 5);
+  });
+
+  test('box point toolbar border width enables the selected default stroke color', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxToolbarPointBorderWidthPatch).toBe('function');
+    expect(typeof hooks.resolveBoxToolbarPointBorderColorValue).toBe('function');
+    expect(typeof hooks.normalizeBoxPointStylePatch).toBe('function');
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-stroke', '#ffffff');
+    proxy.setAttribute('data-point-stroke-width', '0');
+    expect(hooks.resolveBoxToolbarPointBorderColorValue({}, proxy)).toBe('#000000');
+    const patch = hooks.resolveBoxToolbarPointBorderWidthPatch({ stroke: 'none' }, proxy, 1.5);
+    expect(patch).toEqual({
+      borderWidth: 1.5,
+      strokeWidth: 1.5,
+      stroke: '#000000',
+      borderColor: '#000000'
+    });
+    proxy.setAttribute('data-point-stroke-width', '2');
+    expect(hooks.resolveBoxToolbarPointBorderColorValue({}, proxy)).toBe('#ffffff');
+    expect(hooks.resolveBoxToolbarPointBorderWidthPatch({ stroke: '#123456' }, proxy, 0)).toEqual({
+      borderWidth: 0,
+      strokeWidth: 0
+    });
+    expect(hooks.normalizeBoxPointStylePatch({ stroke: '#000000', borderWidth: 1.5 })).toEqual({
+      stroke: '#000000',
+      borderWidth: 1.5,
+      borderColor: '#000000',
+      strokeWidth: 1.5
+    });
+  });
+
+  test('explicit point border width survives redraw stroke cap for tiny dense points', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.resolveBoxPointStrokeWidthForRender).toBe('function');
+    expect(typeof hooks.hasExplicitBoxPointBorderWidth).toBe('function');
+    expect(hooks.resolveBoxPointStrokeWidthForRender(1.5, 0.4, { explicit: false })).toBe(0);
+    expect(hooks.resolveBoxPointStrokeWidthForRender(1.5, 0.4, { explicit: true })).toBe(1.5);
+    expect(hooks.hasExplicitBoxPointBorderWidth({ borderWidth: 1.5 })).toBe(true);
+    expect(hooks.hasExplicitBoxPointBorderWidth({ strokeWidth: 1.5 })).toBe(true);
+    expect(hooks.hasExplicitBoxPointBorderWidth({})).toBe(false);
+  });
+
   test('canvas-backed point groups expose an interaction proxy for toolbar selection', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
@@ -462,6 +512,35 @@ describe('Box swarm offset constraints', () => {
     const node = hooks.findBoxPointNodeForTrace('7', null);
     expect(node).toBeTruthy();
     expect(node.getAttribute('data-point-proxy')).toBe('1');
+    document.body.innerHTML = '';
+  });
+
+  test('canvas-backed point lookup ignores hidden export geometry and keeps proxy size metadata', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
+    document.body.innerHTML = '<div id="boxPlot"></div>';
+    const plot = document.getElementById('boxPlot');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-export-layer', 'box-points');
+    group.setAttribute('data-trace', '3');
+    group.__boxCanvasRenderState = { renderer: 'canvas-approx' };
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-approx');
+    const exportPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    exportPath.setAttribute('data-box-export-geometry', '1');
+    exportPath.style.display = 'none';
+    const proxy = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    proxy.setAttribute('data-point-proxy', '1');
+    proxy.setAttribute('data-point-size', '1.4');
+    group.appendChild(foreignObject);
+    group.appendChild(exportPath);
+    group.appendChild(proxy);
+    svg.appendChild(group);
+    plot.appendChild(svg);
+    const node = hooks.findBoxPointNodeForTrace('3', exportPath);
+    expect(node).toBe(proxy);
+    expect(hooks.resolveBoxToolbarPointSizeValue({ size: 5 }, node)).toBeCloseTo(0.7, 5);
     document.body.innerHTML = '';
   });
 
