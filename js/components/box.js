@@ -295,7 +295,8 @@
     canvas.style.height = `${height}px`;
     canvas.style.background = 'transparent';
     canvas.style.pointerEvents = 'none';
-    const dpr = Math.max(1, global.window?.devicePixelRatio || 1);
+    const dpr = Math.max(1, (global.window?.devicePixelRatio || 1) * BOX_POINT_CANVAS_RESOLUTION_SCALE);
+    canvas.setAttribute('data-resolution-scale', String(BOX_POINT_CANVAS_RESOLUTION_SCALE));
     canvas.width = Math.max(1, Math.ceil(width * dpr));
     canvas.height = Math.max(1, Math.ceil(height * dpr));
     const ctx = canvas.getContext('2d');
@@ -1046,6 +1047,7 @@
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BOX_POINT_CANVAS_THRESHOLD = 1200;
   const BOX_POINT_APPROX_THRESHOLD = 8000;
+  const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
