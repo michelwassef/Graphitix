@@ -3716,7 +3716,7 @@
           const upperTaper = Math.max(0, Math.min(1, (maxCoord - coord) / taperSpan));
           boundaryTaper = Math.min(lowerTaper, upperTaper);
         }
-        halfWidth = maxHalfWidth * Math.pow(clampedDensity, 1.45) * boundaryTaper;
+        halfWidth = maxHalfWidth * Math.pow(clampedDensity, 1.45) * Math.pow(boundaryTaper, 1.5);
       }else{
         halfWidth = Math.min(maxHalfWidth, pointRadius * (0.85 + Math.log2(Math.max(0, density) + 1)));
         halfWidth = Math.max(nonDensityMinHalfWidth, halfWidth);
@@ -3877,8 +3877,8 @@
       .slice()
       .sort((a, b) => Number(a.coord) - Number(b.coord));
     const safeBinSize = Number.isFinite(Number(binSize)) && Number(binSize) > 0 ? Number(binSize) : null;
-    const dataMin = Number.isFinite(Number(options.dataMin)) ? Number(options.dataMin) : null;
-    const dataMax = Number.isFinite(Number(options.dataMax)) ? Number(options.dataMax) : null;
+    const dataMin = options.dataMin != null && Number.isFinite(Number(options.dataMin)) ? Number(options.dataMin) : null;
+    const dataMax = options.dataMax != null && Number.isFinite(Number(options.dataMax)) ? Number(options.dataMax) : null;
     return {
       bins: entries,
       binSize: safeBinSize,
@@ -3893,10 +3893,10 @@
     if(!lookup || !Number.isFinite(numericCoord)){
       return 0;
     }
-    if(Number.isFinite(Number(lookup.dataMin)) && numericCoord <= Number(lookup.dataMin)){
+    if(lookup.dataMin != null && Number.isFinite(Number(lookup.dataMin)) && numericCoord <= Number(lookup.dataMin)){
       return 0;
     }
-    if(Number.isFinite(Number(lookup.dataMax)) && numericCoord >= Number(lookup.dataMax)){
+    if(lookup.dataMax != null && Number.isFinite(Number(lookup.dataMax)) && numericCoord >= Number(lookup.dataMax)){
       return 0;
     }
     const bins = Array.isArray(lookup.bins) ? lookup.bins : [];
@@ -4432,6 +4432,8 @@
         offsets: renderState.approximation.offsets,
         bins: renderState.bins,
         binSize: renderState.approximation?.binSize,
+        dataMin: renderState.approximation?.dataMin,
+        dataMax: renderState.approximation?.dataMax,
         pointRadius: radius,
         violinBounds: renderState.approximation?.violinBounds,
         orientation: renderState.orientation,
@@ -4514,6 +4516,8 @@
           maxHalfWidth: Number.isFinite(Number(config.approximation.maxHalfWidth)) ? Number(config.approximation.maxHalfWidth) : null,
           layoutRadius: Number.isFinite(Number(config.approximation.layoutRadius)) && Number(config.approximation.layoutRadius) > 0 ? Number(config.approximation.layoutRadius) : null,
           binSize: Number.isFinite(Number(config.approximation.binSize)) && Number(config.approximation.binSize) > 0 ? Number(config.approximation.binSize) : null,
+          dataMin: config.approximation.dataMin != null && Number.isFinite(Number(config.approximation.dataMin)) ? Number(config.approximation.dataMin) : null,
+          dataMax: config.approximation.dataMax != null && Number.isFinite(Number(config.approximation.dataMax)) ? Number(config.approximation.dataMax) : null,
           widthScaleMode: config.approximation.widthScaleMode,
           violinBounds: typeof config.approximation.violinBounds === 'function' ? config.approximation.violinBounds : null
         };
@@ -4554,6 +4558,8 @@
     renderState.thickness = layout.thickness;
     source.binSize = layout.binSize;
     source.offsets = layout.offsets;
+    source.dataMin = Number.isFinite(Number(layout.dataMin)) ? Number(layout.dataMin) : null;
+    source.dataMax = Number.isFinite(Number(layout.dataMax)) ? Number(layout.dataMax) : null;
     renderState.hitStrokeWidth = Math.max(12, layout.thickness + nextRadius * 2 + 8);
     return true;
   }
@@ -4574,6 +4580,8 @@
         offsets: renderState.approximation?.offsets,
         violinBounds: renderState.approximation?.violinBounds,
         binSize: renderState.approximation?.binSize,
+        dataMin: renderState.approximation?.dataMin,
+        dataMax: renderState.approximation?.dataMax,
         orientation: renderState.orientation,
         center: renderState.center,
         thickness: renderState.thickness,
@@ -27690,6 +27698,8 @@ Technical analysis record (advanced)
             maxHalfWidth: resolvedMaxHalfWidth,
             layoutRadius: approximateLayoutRadius,
             binSize: approximateLayout.binSize,
+            dataMin: approximateLayout.dataMin,
+            dataMax: approximateLayout.dataMax,
             widthScaleMode,
             violinBounds
           },
@@ -32669,7 +32679,10 @@ Technical analysis record (advanced)
       shouldUseBoxApproximatePointCanvas:config=>shouldUseBoxApproximatePointCanvas(config),
       buildBoxApproximatePointBins:config=>buildBoxApproximatePointBins(config),
       buildBoxApproximatePointCenters:config=>buildBoxApproximatePointCenters(config),
-      resolveBoxApproximateHalfWidthForCoord:(config, coord)=>resolveBoxApproximateHalfWidthForCoord(createBoxApproximateBinLookup(config?.bins, config?.binSize), coord),
+      resolveBoxApproximateHalfWidthForCoord:(config, coord)=>resolveBoxApproximateHalfWidthForCoord(createBoxApproximateBinLookup(config?.bins, config?.binSize, {
+        dataMin: config?.dataMin,
+        dataMax: config?.dataMax
+      }), coord),
       resolveBoxToolbarPointSizeValue:(style,sourcePoint)=>resolveBoxToolbarPointSizeValue(style,sourcePoint),
       resolveBoxToolbarPointBorderColorValue:(style,sourcePoint)=>resolveBoxToolbarPointBorderColorValue(style,sourcePoint),
       resolveBoxToolbarPointBorderWidthPatch:(style,sourcePoint,widthValue)=>resolveBoxToolbarPointBorderWidthPatch(style,sourcePoint,widthValue),

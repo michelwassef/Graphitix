@@ -434,6 +434,8 @@ describe('Box swarm offset constraints', () => {
     }, null);
     expect(Number(edgeBin?.halfWidth) || 0).toBeLessThan(0.5);
     expect(Number(interiorBin?.halfWidth) || 0).toBeGreaterThan(Number(edgeBin?.halfWidth) || 0);
+    expect(Math.abs(Number(layout.offsets[0]) || 0)).toBeLessThan(0.01);
+    expect(Math.abs(Number(layout.offsets[layout.offsets.length - 1]) || 0)).toBeLessThan(0.01);
   });
 
   test('huge-trace approximation centers preserve selected symbol geometry', () => {
