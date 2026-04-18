@@ -187,4 +187,74 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 60000);
     await waitForCountIncrease(page, 'scatter.data.collect', beforeCollect, 60000);
   });
+
+  test('large volcano dataset skips expensive threshold row selection and reaches canvas render', async ({ page }) => {
+    test.setTimeout(180000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(
+      page,
+      { type: 'scatter', pageId: 'scatterPage' },
+      { first: true }
+    );
+
+    await page.waitForFunction(() => {
+      const scatter = window.Components?.scatter;
+      const hot = scatter?.__ensureHotForActiveTab?.();
+      return !!(hot && hot.gridApi && typeof hot.loadData === 'function');
+    }, null, { timeout: 60000 });
+
+    await page.evaluate(() => {
+      const typeSelect = document.getElementById('scatterGraphType');
+      if(typeSelect){
+        typeSelect.value = 'volcano';
+        typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const thresholdToggle = document.getElementById('scatterShowSignificantLabels');
+      if(thresholdToggle){
+        thresholdToggle.checked = true;
+      }
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      const rows = [['gene', 'log_fc', 'p_value']];
+      for(let idx = 1; idx <= 20000; idx += 1){
+        const sign = idx % 2 === 0 ? 1 : -1;
+        rows.push([`GENE_${idx}`, String(sign * (1.5 + (idx % 100) / 200)), '1e-8']);
+      }
+      hot.loadData(rows);
+      window.Components.scatter.draw();
+    });
+
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      return !!layer && layer.getAttribute('data-render-mode') === 'canvas'
+        && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas');
+    }, null, { timeout: 120000 });
+
+    const state = await page.evaluate(() => {
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      const selectedCount = hot?.gridApi?.getSelectedNodes?.()?.length || 0;
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const thresholdControls = document.getElementById('scatterThresholdControls');
+      const significantOptions = document.getElementById('scatterSignificantOptions');
+      const significantToggle = document.getElementById('scatterShowSignificantLabels');
+      return {
+        selectedCount,
+        renderMode: layer?.getAttribute?.('data-render-mode') || null,
+        nodeCount: layer ? layer.querySelectorAll('*').length : 0,
+        thresholdDisplay: thresholdControls ? getComputedStyle(thresholdControls).display : null,
+        significantDisplay: significantOptions ? getComputedStyle(significantOptions).display : null,
+        significantChecked: !!significantToggle?.checked,
+        significantDisabled: !!significantToggle?.disabled
+      };
+    });
+
+    expect(state.renderMode).toBe('canvas');
+    expect(state.nodeCount).toBeLessThan(10);
+    expect(state.selectedCount).toBeLessThan(1000);
+    expect(state.thresholdDisplay).not.toBe('none');
+    expect(state.significantDisplay).not.toBe('none');
+    expect(state.significantChecked).toBe(false);
+    expect(state.significantDisabled).toBe(false);
+  });
 });

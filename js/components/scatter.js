@@ -162,6 +162,9 @@
   const SCATTER_POINT_BATCH_THRESHOLD = 12000;
   const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
+  const SCATTER_THRESHOLD_SELECTION_ROW_LIMIT = 5000;
+  const SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT = 1000;
+  const SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT = SCATTER_POINT_BATCH_THRESHOLD;
 
   const SCATTER_SHAPE_OPTIONS = Shared.getShapePickerOptions
     ? Shared.getShapePickerOptions()
@@ -276,6 +279,7 @@
     dataDirty: true,
     cachedCollect: null,
     cachedGeometry: null,
+    significantLabelsUserModified: false,
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
   };
   function normalizeScatterAxisLabelMode(value){
@@ -3250,6 +3254,24 @@
     const negLogPThresholdValue = parseFloat(scatterNegLogPThreshold?.value);
     const log2fcThreshold = Number.isFinite(log2fcThresholdValue) ? log2fcThresholdValue : 0;
     const negLogPThreshold = Number.isFinite(negLogPThresholdValue) ? negLogPThresholdValue : 0;
+    const tableRowCount = typeof hotInstance.countRows === 'function'
+      ? Number(hotInstance.countRows())
+      : (typeof api.getDisplayedRowCount === 'function'
+        ? Number(api.getDisplayedRowCount())
+        : (Array.isArray(hotInstance.getData?.()) ? hotInstance.getData().length : NaN));
+    if(Number.isFinite(tableRowCount) && tableRowCount > SCATTER_THRESHOLD_SELECTION_ROW_LIMIT){
+      if(prevAuto.size){
+        scatterThresholdSelectionsByTab.delete(tabId);
+      }
+      scatterDebug('Debug: scatter threshold selection skipped before scan for large dataset', {
+        tabId,
+        graphType,
+        rowCount: tableRowCount,
+        rowLimit: SCATTER_THRESHOLD_SELECTION_ROW_LIMIT,
+        thresholds: { log2fcThreshold, negLogPThreshold }
+      });
+      return false;
+    }
     const selectedRowSet = getScatterSelectedRowSet(hotInstance) || new Set();
     const significantRows = new Set();
     const nextAuto = new Set();
@@ -3311,6 +3333,24 @@
           }
         }
       });
+      const selectionSyncTooLarge = examinedCount > SCATTER_THRESHOLD_SELECTION_ROW_LIMIT
+        || nextAuto.size > SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT;
+      if(selectionSyncTooLarge){
+        if(prevAuto.size){
+          scatterThresholdSelectionsByTab.delete(tabId);
+        }
+        scatterDebug('Debug: scatter threshold selection skipped for large dataset', {
+          tabId,
+          graphType,
+          examinedCount,
+          significantCount: significantRows.size,
+          autoSelectedCount: nextAuto.size,
+          rowLimit: SCATTER_THRESHOLD_SELECTION_ROW_LIMIT,
+          selectionLimit: SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT,
+          thresholds: { log2fcThreshold, negLogPThreshold }
+        });
+        return false;
+      }
       selectionUnchanged = targetSelection.size === selectedRowSet.size;
       if(selectionUnchanged){
         for(const rowIndex of targetSelection){
@@ -13153,10 +13193,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           clearScatterLogWarning();
         }
         if(scatterThresholdControls){
-          scatterThresholdControls.style.display=showThresholds?'':'none';
+          scatterThresholdControls.style.display=showThresholds?'flex':'none';
         }
         if(scatterSignificantOptions){
-          scatterSignificantOptions.style.display = (type === 'volcano' || type === 'ma') ? '' : 'none';
+          scatterSignificantOptions.style.display = (type === 'volcano' || type === 'ma') ? 'flex' : 'none';
         }
         if(scatterShowSignificantLabels){
           scatterShowSignificantLabels.disabled = type !== 'volcano' && type !== 'ma';
@@ -13912,6 +13952,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       if(scatterShowSignificantLabels){
         scatterShowSignificantLabels.addEventListener('change',()=>{
+          scatterState.significantLabelsUserModified = true;
           console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
           scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
@@ -15220,6 +15261,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let bubbleMaxRaw = -Infinity;
         let manualLabelSignature = selectedRowSignature;
         const maxLen = rowCount;
+        const shouldAutoDisableSignificantLabels = (graphType === 'volcano' || graphType === 'ma')
+          && !!scatterShowSignificantLabels?.checked
+          && !scatterState.significantLabelsUserModified
+          && maxLen > SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT;
+        if(shouldAutoDisableSignificantLabels){
+          scatterShowSignificantLabels.checked = false;
+          scatterThresholdSelectionPending = false;
+          scatterDebug('Debug: scatter significant labels defaulted off for large dataset', {
+            graphType,
+            rowCount: maxLen,
+            limit: SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT
+          });
+        }
         const collectPerf = !canReuseCollectCache && perfApi && typeof perfApi.start === 'function'
           ? perfApi.start('scatter.data.collect', { component: 'scatter', rows: maxLen })
           : null;
