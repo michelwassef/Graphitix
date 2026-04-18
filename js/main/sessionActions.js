@@ -417,8 +417,10 @@
       downloadFileName: fileName,
       fileTypes: sessionFileTypes,
       mimeType: 'application/zip',
+      allowFallback: options.allowFallback !== false,
       setFileHandle: handle => {
         workspaceState.sessionFileHandle = handle || null;
+        workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
         workspaceState.sessionFileScope = scope;
         debug(context, 'save.handleStored', { hasHandle: !!handle, scope });
       },
@@ -434,7 +436,18 @@
         session.clearSessionDirty('graph-save-success');
       }
       workspaceState.sessionFileName = ensureGraphFileName(context, result.fileName || workspaceState.sessionFileName || fileName, fileName);
+      workspaceState.sessionFilePath = result.filePath || workspaceState.sessionFileHandle?.__desktopFilePath || workspaceState.sessionFilePath || '';
       workspaceState.sessionFileScope = scope;
+      window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+        detail: {
+          type: 'saved',
+          dirty: false,
+          fileName: workspaceState.sessionFileName,
+          filePath: workspaceState.sessionFilePath,
+          fileScope: workspaceState.sessionFileScope,
+          reason: options.reason || 'graph-save-success'
+        }
+      }));
     }
 
     debug(context, 'saveWorkspaceArchiveWithScope.result', {
@@ -491,6 +504,7 @@
         setFileHandle: handle => {
           lastHandle = handle || null;
           workspaceState.sessionFileHandle = handle || null;
+          workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
           debug(context, 'load.handleCaptured', { hasHandle: !!handle });
         },
         setFileName: name => {
@@ -578,6 +592,85 @@
       persistedActive
     });
     return shouldWarn;
+  };
+
+  namespace.buildWorkspaceArchiveBlob = async function buildWorkspaceArchiveBlob(context, options = {}) {
+    const Shared = context?.Shared || window.Shared;
+    const graphArchive = ensureGraphArchiveApi(Shared);
+    if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
+      throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
+    }
+    const snapshot = buildScopeSnapshot(context, options.scope === 'tab' ? 'tab' : 'workspace', {
+      ...options,
+      reason: options.reason || 'document-snapshot'
+    });
+    if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
+      return null;
+    }
+    const fileName = resolveArchiveNameForScope(context, options.scope === 'tab' ? 'tab' : 'workspace', options);
+    return graphArchive.buildArchiveBlob({
+      tabs: snapshot.tabs,
+      activeIndex: snapshot.activeIndex,
+      fileName,
+      scope: options.scope === 'tab' ? 'tab' : 'workspace',
+      compression: options.compression || 'STORE',
+      payloadMode: options.payloadMode || 'full',
+      useWorker: options.useWorker !== false
+    });
+  };
+
+  namespace.applyArchiveBlob = async function applyArchiveBlob(context, blob, meta = {}) {
+    const Shared = context?.Shared || window.Shared;
+    const graphArchive = ensureGraphArchiveApi(Shared);
+    if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
+      throw new Error('Shared.graphArchive.parseFile is unavailable.');
+    }
+    const parsed = await graphArchive.parseFile(blob, {
+      fileName: meta.fileName || blob?.name || 'recovered.graph'
+    });
+    return applyParsedSession(context, parsed, {
+      reason: meta.reason || 'recovery-restore',
+      fileHandle: meta.fileHandle || null,
+      fileName: meta.fileName || '',
+      loadMode: 'replace'
+    });
+  };
+
+  namespace.autosaveWorkspace = async function autosaveWorkspace(context, options = {}) {
+    const { workspaceState, session } = context || {};
+    if (!workspaceState || !session) {
+      return { status: 'error', reason: 'missing-context' };
+    }
+    if (!workspaceState.sessionDirty) {
+      return { status: 'skipped', reason: 'clean' };
+    }
+    const handle = workspaceState.sessionFileHandle;
+    if (handle?.__desktopFilePath) {
+      return namespace.saveWorkspaceArchiveWithScope(context, {
+        ...options,
+        reason: options.reason || 'autosave',
+        scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
+        forcePicker: false,
+        allowFallback: false
+      });
+    }
+    if (handle && typeof handle.queryPermission === 'function') {
+      try {
+        const permission = await handle.queryPermission({ mode: 'readwrite' });
+        if (permission === 'granted') {
+          return namespace.saveWorkspaceArchiveWithScope(context, {
+            ...options,
+            reason: options.reason || 'autosave',
+            scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
+            forcePicker: false,
+            allowFallback: false
+          });
+        }
+      } catch (err) {
+        debug(context, 'autosaveWorkspace.permissionCheckFailed', { message: err?.message || String(err) });
+      }
+    }
+    return { status: 'skipped', reason: 'no-file-target' };
   };
 
   console.debug('Debug: sessionActions.js wiring complete', { exports: Object.keys(namespace) });

@@ -19,6 +19,7 @@ Defined in `js/main/session.js`.
   pendingClosePrompt: object | null,
   sessionFileHandle: FileSystemFileHandle | object | null,
   sessionFileName: string,
+  sessionFilePath: string,
   sessionFileScope: 'tab' | 'workspace' | null,
   sessionDirty: boolean,
   draggingTabId: string | null,
@@ -52,7 +53,17 @@ Defined in `js/main/session.js`.
 }
 ```
 
-## 2. Session Payload Shape (Archive-Level)
+Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic.
+
+## 2. Document UI, Autosave, And Recovery
+
+`js/main/documentState.js` owns the filename/status cluster rendered in each workspace toolbar tab row, to the right of the `General`, `Data`, and `Format` tabs. It is not rendered on the Welcome page because the Welcome page has no workspace toolbar.
+
+Autosave is off by default and persisted in `localStorage` under `graphitix.autosave.enabled`. When Autosave is on and the current `.graph` file has a writable target, `Main.sessionActions.autosaveWorkspace` writes through the same archive save path as manual save. If there is no writable target, Autosave still keeps the private recovery snapshot current without silently overwriting a user file.
+
+Crash recovery is separate from Autosave. `Main.documentState` periodically writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes.
+
+## 3. Session Payload Shape (Archive-Level)
 
 `Main.session.buildSessionPayload()` returns:
 
@@ -74,7 +85,7 @@ Defined in `js/main/session.js`.
 
 `Main.session.applySessionData()` expects this same shape when restoring.
 
-## 3. Component Payload Contract
+## 4. Component Payload Contract
 
 Each component payload is a JSON-serializable object with top-level keys:
 
@@ -84,7 +95,7 @@ Each component payload is a JSON-serializable object with top-level keys:
 - `exclusions` (common): row/point exclusion metadata
 - optional component-specific keys (`stats`, `series`, `analysis`, `style`, etc.)
 
-## 4. Default Payload Baselines by Component
+## 5. Default Payload Baselines by Component
 
 Derived from each `createEmptyPayload` implementation.
 
@@ -126,7 +137,7 @@ Derived from each `createEmptyPayload` implementation.
 - `pie` (`js/components/pie.js`)
   - top-level: `type`, `data`, `exclusions`, `config`
 
-## 5. Dirty-Tracking and Signatures
+## 6. Dirty-Tracking and Signatures
 
 `Main.session` computes payload/layout signatures via `serializePayloadSignature` and tracks deltas in:
 
@@ -136,7 +147,7 @@ Derived from each `createEmptyPayload` implementation.
 
 Dirty is set when payload/layout changes and cleared after successful archive save/load.
 
-## 6. Scope Semantics
+## 7. Scope Semantics
 
 Current save/load supports two scopes via `Main.sessionActions`:
 
@@ -145,7 +156,7 @@ Current save/load supports two scopes via `Main.sessionActions`:
 
 The last used scope is tracked in `workspaceState.sessionFileScope` and influences default save behavior.
 
-## 7. Safe Change Checklist (Persistence)
+## 8. Safe Change Checklist (Persistence)
 
 When adding/changing persisted fields:
 

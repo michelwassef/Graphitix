@@ -192,6 +192,75 @@ describe('Scatter SVG export optimization', () => {
     expect(layer.getAttribute('data-optimized')).toBe('true');
   });
 
+  test('serializes canvas-backed scatter layers with bitmap data instead of blank canvas nodes', () => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '800');
+    svg.setAttribute('height', '600');
+    svg.setAttribute('viewBox', '0 0 800 600');
+    const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    layer.setAttribute('data-export-layer', 'scatter-points');
+    const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreignObject.setAttribute('x', '10');
+    foreignObject.setAttribute('y', '20');
+    foreignObject.setAttribute('width', '100');
+    foreignObject.setAttribute('height', '80');
+    foreignObject.setAttribute('data-point-renderer', 'canvas-preview');
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 160;
+    canvas.style.width = '100px';
+    canvas.style.height = '80px';
+    canvas.toDataURL = jest.fn(() => 'data:image/png;base64,ZmFrZS1wbmc=');
+    foreignObject.appendChild(canvas);
+    layer.appendChild(foreignObject);
+    svg.appendChild(layer);
+
+    const xml = exporter.svgElementToXml(svg, 'scatter-canvas-export-test');
+
+    expect(canvas.toDataURL).toHaveBeenCalledWith('image/png');
+    expect(xml).toContain('data:image/png;base64,ZmFrZS1wbmc=');
+    expect(xml).toContain('<img');
+    expect(xml).not.toContain('<canvas');
+  });
+
+  test('copyBlobMap starts async clipboard write before promised PNG blob resolves', async () => {
+    const originalClipboard = global.navigator.clipboard;
+    const originalClipboardItem = global.ClipboardItem;
+    let resolveBlob;
+    const pngPromise = new Promise(resolve => {
+      resolveBlob = resolve;
+    });
+    const writeMock = jest.fn(() => Promise.resolve());
+    class TestClipboardItem {
+      constructor(items){
+        this.items = items;
+      }
+      static supports(){
+        return true;
+      }
+    }
+    Object.defineProperty(global.navigator, 'clipboard', {
+      configurable: true,
+      value: { write: writeMock }
+    });
+    global.ClipboardItem = TestClipboardItem;
+    try{
+      const copyPromise = exporter.copyBlobMap({ 'image/png': pngPromise }, 'promised-png-test');
+      await Promise.resolve();
+      expect(writeMock).toHaveBeenCalledTimes(1);
+      const item = writeMock.mock.calls[0][0][0];
+      expect(item.items['image/png']).toBe(pngPromise);
+      resolveBlob(new Blob(['png'], { type: 'image/png' }));
+      await expect(copyPromise).resolves.toBe(true);
+    }finally{
+      Object.defineProperty(global.navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard
+      });
+      global.ClipboardItem = originalClipboardItem;
+    }
+  });
+
   test('handles empty layer gracefully', () => {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');

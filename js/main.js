@@ -117,6 +117,7 @@
   const MainPreviews = bootstrap.previews;
   const MainDomControls = bootstrap.domControls;
   const MainSessionActions = bootstrap.sessionActions;
+  const MainDocumentState = Main.documentState || null;
   const MainTabDrag = bootstrap.tabDrag;
   const WORKSPACES = bootstrap.workspaces;
   const GRAPH_TYPES = bootstrap.graphTypes || [];
@@ -330,14 +331,14 @@
     const rawOptions = (options && typeof options === 'object' && typeof options.preventDefault !== 'function')
       ? options
       : {};
-    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
+    return MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
       ...rawOptions,
       promptForScope: rawOptions.promptForScope === false ? false : true
     });
   }
 
   async function handleSessionLoadClick(options) {
-    await MainSessionActions.handleSessionLoadClick(getSessionActionsContext(), options);
+    return MainSessionActions.handleSessionLoadClick(getSessionActionsContext(), options);
   }
 
   function handleSessionInputChange(event) {
@@ -702,6 +703,21 @@
     onMatchStylesClick: styleSyncApi?.handleMatchStylesClick,
     onWelcomeGraphInputChange: handleWelcomeGraphInputChange
   });
+
+  if (MainDocumentState && typeof MainDocumentState.init === 'function') {
+    MainDocumentState.init({
+      session: MainSession,
+      sessionActions: MainSessionActions,
+      workspaceState,
+      getSessionActionsContext,
+      dom
+    });
+    if (typeof MainDocumentState.maybeRestoreRecovery === 'function') {
+      void MainDocumentState.maybeRestoreRecovery().catch(err => {
+        console.error('document recovery restore error', err);
+      });
+    }
+  }
 
   document.addEventListener('click', event => {
     const actionTarget = resolveUnifiedFileActionTarget(event.target);

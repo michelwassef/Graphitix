@@ -258,37 +258,18 @@
     }
     const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     tabPreviewHybridRequests.set(tab.id, { id: requestId, signature });
-    const sandbox = doc.createElement('div');
-    sandbox.style.position = 'fixed';
-    sandbox.style.left = '-10000px';
-    sandbox.style.top = '-10000px';
-    sandbox.style.width = '0';
-    sandbox.style.height = '0';
-    sandbox.style.opacity = '0';
-    sandbox.style.pointerEvents = 'none';
-    sandbox.style.overflow = 'hidden';
-    const workingSvg = svg.cloneNode(true);
-    sandbox.appendChild(workingSvg);
-    doc.body.appendChild(sandbox);
-    const cleanup = () => {
-      if (sandbox.parentNode) {
-        sandbox.parentNode.removeChild(sandbox);
-      }
-    };
-    exporter.buildHybridSvg(workingSvg, {
+    exporter.buildHybridSvg(svg, {
       ...hybridOptions,
       baseFileName: 'tab-preview',
       contextLabel: `tab-preview-${tab.type || 'unknown'}`
     }).then(hybrid => {
       const current = tabPreviewHybridRequests.get(tab.id);
       if (!current || current.id !== requestId) {
-        cleanup();
         return;
       }
       tabPreviewHybridRequests.delete(tab.id);
       if (!hybrid?.svg) {
         console.debug('Debug: preview hybrid missing svg', { tabId: tab.id, type: tab.type });
-        cleanup();
         return;
       }
       const hybridSvg = hybrid.svg;
@@ -304,7 +285,6 @@
           type: tab.type,
           length: markup ? markup.length : 0
         });
-        cleanup();
         return;
       }
       tab.previewMarkup = markup;
@@ -335,11 +315,9 @@
         width: sizingResolved.targetWidth,
         height: sizingResolved.targetHeight
       });
-      cleanup();
     }).catch(err => {
       tabPreviewHybridRequests.delete(tab.id);
       console.debug('Debug: preview hybrid error', { tabId: tab.id, type: tab.type, err: err?.message || String(err) });
-      cleanup();
     });
     return true;
   }

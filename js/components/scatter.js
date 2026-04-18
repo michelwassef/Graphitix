@@ -161,6 +161,7 @@
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
   const SCATTER_POINT_BATCH_THRESHOLD = 12000;
   const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
+  const SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
   const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
   const SCATTER_THRESHOLD_SELECTION_ROW_LIMIT = 5000;
   const SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT = 1000;
@@ -279,6 +280,7 @@
     dataDirty: true,
     cachedCollect: null,
     cachedGeometry: null,
+    significanceRefreshSignature: null,
     significantLabelsUserModified: false,
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
   };
@@ -14748,11 +14750,49 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return next;
       }
 
-      function renderScatterPointCanvasBuckets(group, buckets, bounds, options = {}){
+      function waitScatterCanvasFrame(){
+        return new Promise(resolve => {
+          const raf = global.requestAnimationFrame;
+          if(typeof raf === 'function'){
+            raf(() => resolve());
+            return;
+          }
+          (global.setTimeout || setTimeout)(resolve, 0);
+        });
+      }
+
+      function paintScatterPointCanvasBucketChunk(ctx, bucket, points, start, end, bounds){
+        ctx.beginPath();
+        for(let i = start; i < end; i += 1){
+          const point = points[i];
+          appendScatterPointCanvasShapePath(
+            ctx,
+            bucket.shape,
+            point.x - bounds.minX,
+            point.y - bounds.minY,
+            point.r
+          );
+        }
+        if(bucket.fill && bucket.fill !== 'none'){
+          ctx.fillStyle = bucket.fill;
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.fillOpacity)));
+          ctx.fill();
+        }
+        if(bucket.stroke && bucket.strokeWidth > 0){
+          ctx.strokeStyle = bucket.stroke;
+          ctx.lineWidth = bucket.strokeWidth;
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.strokeOpacity)));
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      async function renderScatterPointCanvasBuckets(group, buckets, bounds, options = {}){
         const doc = options.doc || global.document;
         if(!doc || !group || !buckets || !buckets.size || !canUseScatterPointCanvas()){
           return false;
         }
+        const shouldCancel = typeof options.shouldCancel === 'function' ? options.shouldCancel : null;
         const expandedBounds = expandScatterPointCanvasBounds(bounds, 2);
         if(!expandedBounds){
           return false;
@@ -14763,33 +14803,33 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const { foreignObject, canvas, ctx, dpr } = surface;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        buckets.forEach(bucket => {
+        const bucketList = Array.from(buckets.values());
+        let pointsSinceYield = 0;
+        for(let bucketIndex = 0; bucketIndex < bucketList.length; bucketIndex += 1){
+          if(shouldCancel?.()){
+            return false;
+          }
+          const bucket = bucketList[bucketIndex];
           if(!bucket || !Array.isArray(bucket.points) || !bucket.points.length){
-            return;
+            continue;
           }
-          ctx.beginPath();
-          bucket.points.forEach(point => {
-            appendScatterPointCanvasShapePath(
-              ctx,
-              bucket.shape,
-              point.x - expandedBounds.minX,
-              point.y - expandedBounds.minY,
-              point.r
-            );
-          });
-          if(bucket.fill && bucket.fill !== 'none'){
-            ctx.fillStyle = bucket.fill;
-            ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.fillOpacity)));
-            ctx.fill();
+          const points = bucket.points;
+          for(let start = 0; start < points.length; start += SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET){
+            if(shouldCancel?.()){
+              return false;
+            }
+            const end = Math.min(points.length, start + SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET);
+            paintScatterPointCanvasBucketChunk(ctx, bucket, points, start, end, expandedBounds);
+            pointsSinceYield += end - start;
+            if(pointsSinceYield >= SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET && (end < points.length || bucketIndex < bucketList.length - 1)){
+              pointsSinceYield = 0;
+              await waitScatterCanvasFrame();
+            }
           }
-          if(bucket.stroke && bucket.strokeWidth > 0){
-            ctx.strokeStyle = bucket.stroke;
-            ctx.lineWidth = bucket.strokeWidth;
-            ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.strokeOpacity)));
-            ctx.stroke();
-          }
-          ctx.globalAlpha = 1;
-        });
+        }
+        if(shouldCancel?.()){
+          return false;
+        }
         foreignObject.appendChild(canvas);
         group.appendChild(foreignObject);
         group.setAttribute('data-render-mode', 'canvas');
@@ -15229,8 +15269,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const selectedRowSignature = buildScatterRowSetSignature(selectedRowSet);
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
-        const thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
-        const useSelectionForThresholdLabels = thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma');
+        let thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         let points=[];
         let labelSet=shouldCollectLabelSet ? new Set() : null;
@@ -15267,6 +15306,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && maxLen > SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT;
         if(shouldAutoDisableSignificantLabels){
           scatterShowSignificantLabels.checked = false;
+          thresholdLabelEnabled = false;
           scatterThresholdSelectionPending = false;
           scatterDebug('Debug: scatter significant labels defaulted off for large dataset', {
             graphType,
@@ -15603,7 +15643,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
+              const isThresholdLabel = thresholdLabelEnabled && isSignificant;
               points.push({x:log2fc,y:negLogP,negLogP,label:'',pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant){
                 significantCount++;
@@ -15634,7 +15674,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
-              const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
+              const isThresholdLabel = thresholdLabelEnabled && isSignificant;
               // Match volcano plot behavior - use empty label and let AG Grid selection handle labeling
               const labelValueFinal = '';
               points.push({x:meanExpr,y:log2fcVal,negLogP,label:labelValueFinal,pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
@@ -15861,36 +15901,66 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             });
           }
         }else{
-          let refreshedSignificantCount = 0;
-          let refreshedMissingPCount = 0;
-          const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
-          for(let i = 0; i < points.length; i += 1){
-            const point = points[i];
-            if(!point){
-              continue;
+          const significanceRefreshSignature = [
+            graphType,
+            points.length,
+            selectedRowSignature,
+            Number.isFinite(log2fcThreshold) ? log2fcThreshold : 'nan',
+            Number.isFinite(negLogPThreshold) ? negLogPThreshold : 'nan',
+            thresholdLabelEnabled ? 1 : 0,
+            'direct-threshold-labels'
+          ].join('|');
+          const cachedSignificanceSignature = typeof scatterState.cachedCollect?.significanceRefreshSignature === 'string'
+            ? scatterState.cachedCollect.significanceRefreshSignature
+            : scatterState.significanceRefreshSignature;
+          const canSkipSignificanceRefresh = viewOnly
+            && !pointsMutable
+            && canReuseCollectCache
+            && cachedSignificanceSignature === significanceRefreshSignature;
+          if(canSkipSignificanceRefresh){
+            debug('Debug: scatter threshold label refresh skipped (signature unchanged)', {
+              graphType,
+              pointCount: points.length,
+              selectionSignature: selectedRowSignature
+            });
+          }else{
+            let refreshedSignificantCount = 0;
+            let refreshedMissingPCount = 0;
+            const selectedRows = selectedRowSet && selectedRowSet.size ? selectedRowSet : null;
+            for(let i = 0; i < points.length; i += 1){
+              const point = points[i];
+              if(!point){
+                continue;
+              }
+              const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
+              point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
+              const negLogPValue = Number.isFinite(Number(point.negLogP))
+                ? Number(point.negLogP)
+                : (graphType === 'volcano' ? Number(point.y) : NaN);
+              const foldChangeValue = graphType === 'volcano' ? Number(point.x) : Number(point.y);
+              const isSignificant = Number.isFinite(negLogPValue)
+                && Number.isFinite(foldChangeValue)
+                && Math.abs(foldChangeValue) >= log2fcThreshold
+                && negLogPValue >= negLogPThreshold;
+              point.isSignificant = isSignificant;
+              point.isThresholdLabel = thresholdLabelEnabled && isSignificant;
+              if(isSignificant){
+                refreshedSignificantCount += 1;
+              }
+              if(graphType === 'ma' && !Number.isFinite(negLogPValue)){
+                refreshedMissingPCount += 1;
+              }
             }
-            const rowIndex = Number.isInteger(point.rowIndex) ? point.rowIndex : null;
-            point.isManualLabel = !!(selectedRows && rowIndex !== null && selectedRows.has(rowIndex));
-            const negLogPValue = Number.isFinite(Number(point.negLogP))
-              ? Number(point.negLogP)
-              : (graphType === 'volcano' ? Number(point.y) : NaN);
-            const foldChangeValue = graphType === 'volcano' ? Number(point.x) : Number(point.y);
-            const isSignificant = Number.isFinite(negLogPValue)
-              && Number.isFinite(foldChangeValue)
-              && Math.abs(foldChangeValue) >= log2fcThreshold
-              && negLogPValue >= negLogPThreshold;
-            point.isSignificant = isSignificant;
-            point.isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
-            if(isSignificant){
-              refreshedSignificantCount += 1;
+            significantCount = refreshedSignificantCount;
+            if(graphType === 'ma'){
+              maMissingPCount = refreshedMissingPCount;
             }
-            if(graphType === 'ma' && !Number.isFinite(negLogPValue)){
-              refreshedMissingPCount += 1;
+            scatterState.significanceRefreshSignature = significanceRefreshSignature;
+            if(scatterState.cachedCollect){
+              scatterState.cachedCollect.significanceRefreshSignature = significanceRefreshSignature;
+              scatterState.cachedCollect.significantCount = significantCount;
+              scatterState.cachedCollect.maMissingPCount = maMissingPCount;
             }
-          }
-          significantCount = refreshedSignificantCount;
-          if(graphType === 'ma'){
-            maMissingPCount = refreshedMissingPCount;
           }
         }
 
@@ -16871,7 +16941,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
             const markerRadius = markerSize != null ? markerSize : dotSizePx;
             pointBounds3d.push({ cx: entry.projected?.x, cy: entry.projected?.y, r: markerRadius });
-            if((entry.data?.isManualLabel || (entry.data?.isThresholdLabel && !useSelectionForThresholdLabels)) && manualLabelText){
+            if((entry.data?.isManualLabel || entry.data?.isThresholdLabel) && manualLabelText){
               manualLabelEntries3d.push({
                 text: manualLabelText,
                 cx: entry.projected?.x,
@@ -18499,7 +18569,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius });
           }
           const manualLabelText = (p.pointName || p.label || '').trim();
-          if((p.isManualLabel || (p.isThresholdLabel && !useSelectionForThresholdLabels)) && manualLabelText){
+          if((p.isManualLabel || p.isThresholdLabel) && manualLabelText){
             manualLabelEntries.push({
               text: manualLabelText,
               cx: cxVal,
@@ -18637,7 +18707,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           errorLayer.appendChild(errorBarFrag);
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
-        pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
+        pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas-pending' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
         if(!enablePointInteractivity){
           pointLayer.setAttribute('pointer-events', 'none');
           hideScatterTooltip('point-interaction-disabled-large-dataset');
@@ -18649,7 +18719,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
         let canvasPointLayerRendered = false;
         if(useCanvasPointRender){
-          canvasPointLayerRendered = renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, { doc: global.document });
+          canvasPointLayerRendered = await renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, {
+            doc: global.document,
+            shouldCancel: () => token !== scatterDrawToken
+          });
+          if(token !== scatterDrawToken){
+            if(perfApi && pointAttachPerf){
+              perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: false, outcome: 'stale' });
+            }
+            debug('Debug: scatter canvas point render ignored', { reason: 'stale-token', token, current: scatterDrawToken });
+            return;
+          }
           if(!canvasPointLayerRendered){
             appendScatterPointCanvasBucketsAsPaths(pointLayer, canvasPointBuckets);
             debug('Debug: scatter canvas point render fallback used', { pointCount: points.length });
@@ -20062,13 +20142,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           queueScatterOverlay(overlayReason);
         }
         const runSchedule = (runOpts) => scheduleScatterBase(runOpts || nextOpts);
-        if(!nextOpts.force && !nextOpts.viewOnly && scatterState.lastDrawAt){
+        if(!nextOpts.force && scatterState.lastDrawAt){
           const now = (global.performance && typeof global.performance.now === 'function')
             ? global.performance.now()
             : Date.now();
-          const cooldownMs = 80;
+          const cachedPointCount = Array.isArray(scatterState.cachedCollect?.points)
+            ? scatterState.cachedCollect.points.length
+            : 0;
+          const cooldownMs = nextOpts.viewOnly
+            ? (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0)
+            : 80;
           const elapsed = now - scatterState.lastDrawAt;
-          if(elapsed < cooldownMs){
+          if(cooldownMs > 0 && elapsed < cooldownMs){
             scatterState.pendingDrawOpts = mergeScatterDrawOptions(scatterState.pendingDrawOpts, nextOpts);
             if(!scatterState.drawCooldownTimer){
               const wait = Math.max(0, cooldownMs - elapsed);

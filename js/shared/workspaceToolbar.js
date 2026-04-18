@@ -1507,8 +1507,11 @@
 
     const tabs = doc.createElement('div');
     tabs.className = 'workspace-toolbar__tabs';
-    tabs.setAttribute('role', 'tablist');
-    tabs.setAttribute('aria-label', 'Toolbar sections');
+
+    const sectionTabs = doc.createElement('div');
+    sectionTabs.className = 'workspace-toolbar__section-tabs';
+    sectionTabs.setAttribute('role', 'tablist');
+    sectionTabs.setAttribute('aria-label', 'Toolbar sections');
 
     const content = doc.createElement('div');
     content.className = 'workspace-toolbar__content';
@@ -1541,8 +1544,39 @@
       tab.setAttribute('role', 'tab');
       tab.setAttribute('aria-selected', 'false');
       tab.tabIndex = -1;
-      tabs.appendChild(tab);
+      sectionTabs.appendChild(tab);
     });
+    tabs.appendChild(sectionTabs);
+
+    const documentArea = doc.createElement('div');
+    documentArea.className = 'workspace-toolbar__document';
+    documentArea.setAttribute('aria-label', 'Document autosave and file name');
+
+    const documentTitle = doc.createElement('div');
+    documentTitle.className = 'workspace-toolbar__document-title';
+    documentTitle.dataset.documentTitle = '1';
+    documentTitle.textContent = 'Untitled.graph';
+    documentArea.appendChild(documentTitle);
+
+    const autosaveLabel = doc.createElement('label');
+    autosaveLabel.className = 'workspace-toolbar__autosave';
+    autosaveLabel.title = 'Autosave this .graph file when possible';
+    const autosaveInput = doc.createElement('input');
+    autosaveInput.type = 'checkbox';
+    autosaveInput.dataset.documentAutosave = '1';
+    autosaveLabel.appendChild(autosaveInput);
+    const autosaveText = doc.createElement('span');
+    autosaveText.textContent = 'Autosave';
+    autosaveLabel.appendChild(autosaveText);
+    documentArea.appendChild(autosaveLabel);
+
+    const documentStatus = doc.createElement('div');
+    documentStatus.className = 'workspace-toolbar__document-status';
+    documentStatus.dataset.documentStatus = '1';
+    documentStatus.setAttribute('aria-live', 'polite');
+    documentStatus.textContent = 'Autosave Off · Saved';
+    documentArea.appendChild(documentStatus);
+    tabs.appendChild(documentArea);
 
     tabs.addEventListener('click', event => {
       const tab = event.target.closest('.workspace-toolbar__tab[data-toolbar-section-target]');

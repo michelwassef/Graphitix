@@ -76,6 +76,8 @@ describe('preview hybrid capture for canvas-backed layers', () => {
     expect(result.simplified).toBe(true);
     expect(result.markup).toContain('Preparing preview');
     expect(window.Shared.exporter.buildHybridSvg).toHaveBeenCalledTimes(1);
+    const liveSvg = element.querySelector('svg');
+    expect(window.Shared.exporter.buildHybridSvg.mock.calls[0][0]).toBe(liveSvg);
   });
 
   test('inactive hover refreshes box preview when hybrid canvas capture is needed', () => {

@@ -30,6 +30,17 @@
     return name || fallback || 'graph.graph';
   }
 
+  function getDesktopBridge(){
+    return global.desktop && global.desktop.isDesktop ? global.desktop : null;
+  }
+
+  function getBaseName(filePath, fallback){
+    const source = String(filePath || '').trim();
+    if(!source) return fallback || '';
+    const parts = source.split(/[\\/]+/);
+    return parts[parts.length - 1] || fallback || source;
+  }
+
   function resolveTypes(types){
     if(Array.isArray(types) && types.length){
       return types;
@@ -97,6 +108,53 @@
       return true;
     }
     return false;
+  }
+
+  async function payloadToBase64(payload){
+    const normalized = normalizeWritablePayload(payload);
+    let buffer = null;
+    if(normalized.kind === 'blob'){
+      buffer = await normalized.value.arrayBuffer();
+    }else if(normalized.kind === 'binary'){
+      buffer = normalized.value;
+    }else{
+      const text = String(normalized.value || '');
+      if(typeof TextEncoder !== 'undefined'){
+        buffer = new TextEncoder().encode(text).buffer;
+      }else{
+        const bytes = new Uint8Array(text.length);
+        for(let i = 0; i < text.length; i += 1){
+          bytes[i] = text.charCodeAt(i) & 0xff;
+        }
+        buffer = bytes.buffer;
+      }
+    }
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for(let i = 0; i < bytes.length; i += chunkSize){
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return global.btoa(binary);
+  }
+
+  function base64ToBlob(dataBase64, mimeType){
+    const binary = global.atob(String(dataBase64 || ''));
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i += 1){
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new (global.Blob || Blob)([bytes], { type: mimeType || 'application/octet-stream' });
+  }
+
+  function makeDesktopHandle(filePath){
+    const path = String(filePath || '').trim();
+    if(!path) return null;
+    return {
+      __desktopFilePath: path,
+      name: getBaseName(path, 'workspace.graph')
+    };
   }
 
   function normalizeWritablePayload(payload){
@@ -346,7 +404,8 @@
       fileName,
       downloadFileName,
       fileTypes,
-      mimeType
+      mimeType,
+      allowFallback = true
     } = options || {};
     const targetName = ensureName(downloadFileName || fileName, `${context}.graph`);
     debug('saveGraphFile.start', {
@@ -354,6 +413,18 @@
       hasHandle: !!fileHandle,
       targetName
     });
+    const desktop = getDesktopBridge();
+    const desktopPath = fileHandle?.__desktopFilePath || '';
+    if(desktop && desktopPath && typeof desktop.writeFile === 'function'){
+      const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
+      const dataBase64 = await payloadToBase64(data);
+      await desktop.writeFile({ filePath: desktopPath, dataBase64 });
+      const handle = makeDesktopHandle(desktopPath);
+      ensureSetter(setFileHandle, handle);
+      ensureSetter(setFileName, handle?.name || targetName);
+      debug('saveGraphFile.desktopPath', { context, filePath: desktopPath });
+      return { status: 'saved', via: 'desktopPath', fileHandle: handle, fileName: handle?.name || targetName, filePath: desktopPath, payload: data };
+    }
     if(fileHandle && typeof fileHandle.createWritable === 'function'){
       const permitted = await fileIO.verifyPermission(fileHandle, true);
       debug('saveGraphFile.permission', { context, permitted });
@@ -371,6 +442,10 @@
         if(fileHandle.name) ensureSetter(setFileName, fileHandle.name);
         return { status: 'saved', via: 'existingHandle', fileHandle, fileName: fileHandle.name, payload: data };
       }
+    }
+    if(allowFallback === false){
+      debug('saveGraphFile.noFallback', { context, targetName });
+      return { status: 'skipped', reason: 'no-existing-write-target', fileName: targetName };
     }
     if(global.showSaveFilePicker){
       debug('saveGraphFile.deferToSaveAs', { context });
@@ -421,6 +496,31 @@
       targetName,
       hasPicker: !!global.showSaveFilePicker
     });
+    const desktop = getDesktopBridge();
+    if(desktop && typeof desktop.showSaveDialog === 'function' && typeof desktop.writeFile === 'function'){
+      try{
+        const result = await desktop.showSaveDialog({
+          title: 'Save Graphitix workspace',
+          defaultPath: targetName,
+          filters: [{ name: 'Graph Files', extensions: ['graph'] }]
+        });
+        if(result?.canceled || !result?.filePath){
+          debug('saveGraphFileAs.desktopCancelled', { context, targetName });
+          return { status: 'cancelled', via: 'desktopDialog', fileName: targetName };
+        }
+        const data = await resolvePayloadWithGraphSizing(context, getPayload, payload);
+        const dataBase64 = await payloadToBase64(data);
+        await desktop.writeFile({ filePath: result.filePath, dataBase64 });
+        const handle = makeDesktopHandle(result.filePath);
+        ensureSetter(setFileHandle, handle);
+        ensureSetter(setFileName, handle?.name || targetName);
+        debug('saveGraphFileAs.desktopSaved', { context, filePath: result.filePath });
+        return { status: 'saved', via: 'desktopDialog', fileHandle: handle, fileName: handle?.name || targetName, filePath: result.filePath, payload: data };
+      }catch(err){
+        console.error('fileIO.saveGraphFileAs desktop error', { context, err });
+        return { status: 'error', via: 'desktopDialog', error: err };
+      }
+    }
     if(global.showSaveFilePicker){
       if(!hasUserActivation()){
         debug('saveGraphFileAs.skipPickerNoActivation', { context, targetName });
@@ -496,6 +596,35 @@
       fileTypes
     } = options || {};
     debug('openGraphFile.start', { context, hasPicker: !!global.showOpenFilePicker });
+    const desktop = getDesktopBridge();
+    if(desktop && typeof desktop.showOpenDialog === 'function' && typeof desktop.readFile === 'function'){
+      try{
+        const result = await desktop.showOpenDialog({
+          title: 'Open Graphitix workspace',
+          properties: ['openFile'],
+          filters: [{ name: 'Graph Files', extensions: ['graph', 'json', 'session'] }]
+        });
+        const filePath = result?.filePaths && result.filePaths[0];
+        if(result?.canceled || !filePath){
+          debug('openGraphFile.desktopCancelled', { context });
+          return { status: 'cancelled', via: 'desktopDialog' };
+        }
+        const read = await desktop.readFile(filePath);
+        const fileName = getBaseName(filePath, 'workspace.graph');
+        const blob = base64ToBlob(read?.dataBase64 || '', 'application/zip');
+        blob.name = fileName;
+        const handle = makeDesktopHandle(filePath);
+        ensureSetter(setFileHandle, handle);
+        ensureSetter(setFileName, fileName);
+        if(typeof loadFromFile === 'function'){
+          await loadFromFile(blob);
+        }
+        return { status: 'opened', via: 'desktopDialog', fileHandle: handle, file: blob, fileName, filePath };
+      }catch(err){
+        console.error('fileIO.openGraphFile desktop error', { context, err });
+        return { status: 'error', via: 'desktopDialog', error: err };
+      }
+    }
     if(global.showOpenFilePicker){
       try{
         const handles = await global.showOpenFilePicker({
@@ -581,4 +710,3 @@
   })();
 
 })(window);
-

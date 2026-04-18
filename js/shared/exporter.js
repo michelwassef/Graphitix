@@ -3973,6 +3973,7 @@
 
       const runPrepare = node => {
         try {
+          hydrateCanvasBitmapsInClone(svgEl, node);
           // Your existing normalization
           prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
           // Group all drawable children so paste into Inkscape keeps consistent stroke widths
@@ -5289,11 +5290,12 @@
   }
 
   async function readBlobAsText(blob) {
-    if (!blob || typeof blob.text !== 'function') {
+    const resolvedBlob = blob && typeof blob.then === 'function' ? await blob : blob;
+    if (!resolvedBlob || typeof resolvedBlob.text !== 'function') {
       return '';
     }
     try {
-      const value = await blob.text();
+      const value = await resolvedBlob.text();
       return typeof value === 'string' ? value : '';
     } catch (err) {
       warn('readBlobAsText error', { message: err?.message });
@@ -5329,7 +5331,8 @@
         svgText = await readBlobAsText(blob);
         continue;
       }
-      const base64 = await blobToBase64(blob);
+      const resolvedBlob = blob && typeof blob.then === 'function' ? await blob : blob;
+      const base64 = await blobToBase64(resolvedBlob);
       if (base64) {
         payload.formats[type] = base64;
       }
@@ -5711,7 +5714,7 @@
       }
       if (format === 'png') {
         const backgroundColor = resolveBackground();
-        const blob = await svgElementToPngBlob(svgEl, {
+        const pngOptions = {
           contextLabel: `${contextLabel}-png`,
           fallbackWidth,
           fallbackHeight,
@@ -5720,12 +5723,13 @@
           dpiY,
           pngScale,
           backgroundColor
-        });
-        if (!blob) return;
+        };
         if (mode === 'download') {
+          const blob = await svgElementToPngBlob(svgEl, pngOptions);
+          if (!blob) return;
           downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
         } else {
-          const copied = await copyBlobMap({ 'image/png': blob }, `${contextLabel}-png`);
+          const copied = await copyBlobMap({ 'image/png': svgElementToPngBlob(svgEl, pngOptions) }, `${contextLabel}-png`);
           if (!copied) {
             warn('svgActions png copy unavailable', { contextLabel: `${contextLabel}-png` });
           }

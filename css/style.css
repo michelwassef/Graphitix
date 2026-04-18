@@ -3014,6 +3014,65 @@ select {
     padding:0 2px;
     min-height:var(--workspace-toolbar-tabs-height);
 }
+.workspace-toolbar__section-tabs{
+    display:flex;
+    align-items:flex-end;
+    gap:2px;
+    flex:0 0 auto;
+}
+.workspace-toolbar__document{
+    margin-left:auto;
+    flex:1 1 auto;
+    min-width:0;
+    align-self:stretch;
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:12px;
+    padding:0 10px 2px;
+    color:#0f172a;
+    position:relative;
+}
+.workspace-toolbar__document-title{
+    min-width:0;
+    max-width:min(42vw,620px);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    text-align:center;
+    font-size:13px;
+    font-weight:700;
+    line-height:1.25;
+    order:1;
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+}
+.workspace-toolbar__document-status{
+    min-width:0;
+    max-width:180px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:11px;
+    color:#475569;
+    order:3;
+}
+.workspace-toolbar__autosave{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    white-space:nowrap;
+    font-size:12px;
+    color:#1f2937;
+    order:2;
+}
+.workspace-toolbar__autosave input{
+    width:15px;
+    height:15px;
+    margin:0;
+    accent-color:#0b63d1;
+}
 .workspace-toolbar__tab{
     appearance:none;
     border:1px solid transparent;

@@ -60,6 +60,7 @@
     pendingClosePrompt: null,
     sessionFileHandle: null,
     sessionFileName: '',
+    sessionFilePath: '',
     sessionFileScope: null,
     sessionDirty: false,
     draggingTabId: null,
@@ -76,6 +77,12 @@
   function markSessionDirty(reason, details) {
     const wasDirty = workspaceState.sessionDirty;
     workspaceState.sessionDirty = true;
+    notifySessionDocumentState('dirty', {
+      dirty: workspaceState.sessionDirty,
+      wasDirty,
+      reason: reason || 'unspecified',
+      details: details || null
+    });
     console.debug('Debug: session dirty flag updated', {
       reason: reason || 'unspecified',
       wasDirty,
@@ -86,10 +93,30 @@
   function clearSessionDirty(reason) {
     const wasDirty = workspaceState.sessionDirty;
     workspaceState.sessionDirty = false;
+    notifySessionDocumentState('clean', {
+      dirty: workspaceState.sessionDirty,
+      wasDirty,
+      reason: reason || 'unspecified'
+    });
     console.debug('Debug: session dirty flag cleared', {
       reason: reason || 'unspecified',
       wasDirty
     });
+  }
+
+  function notifySessionDocumentState(type, detail = {}) {
+    try {
+      const eventDetail = {
+        type,
+        fileName: workspaceState.sessionFileName || '',
+        filePath: workspaceState.sessionFilePath || '',
+        fileScope: workspaceState.sessionFileScope || null,
+        ...detail
+      };
+      window.dispatchEvent(new CustomEvent('graphitix:document-state-change', { detail: eventDetail }));
+    } catch (err) {
+      console.debug('Debug: session document state event skipped', { type, message: err?.message || String(err) });
+    }
   }
 
   const nativeStructuredClone = typeof window.structuredClone === 'function'
@@ -1079,11 +1106,16 @@
     workspaceState.nextId = 1;
     if (Object.prototype.hasOwnProperty.call(options, 'fileHandle')) {
       workspaceState.sessionFileHandle = options.fileHandle;
+      workspaceState.sessionFilePath = options.fileHandle?.__desktopFilePath || options.filePath || '';
       console.debug('Debug: session file handle applied', { hasHandle: !!options.fileHandle });
     }
     if (options.fileName) {
       workspaceState.sessionFileName = options.fileName;
       console.debug('Debug: session file name applied', { name: workspaceState.sessionFileName });
+    }
+    if (Object.prototype.hasOwnProperty.call(options, 'filePath')) {
+      workspaceState.sessionFilePath = options.filePath || workspaceState.sessionFilePath || '';
+      console.debug('Debug: session file path applied', { hasPath: !!workspaceState.sessionFilePath });
     }
     if (Object.prototype.hasOwnProperty.call(options, 'fileScope')) {
       workspaceState.sessionFileScope = options.fileScope || null;
@@ -1134,6 +1166,10 @@
       options.showGraphSelection({ reason: 'session-empty' });
     }
     clearSessionDirty(options.reason || 'session-load');
+    notifySessionDocumentState('loaded', {
+      dirty: workspaceState.sessionDirty,
+      reason: options.reason || 'session-load'
+    });
     console.debug('Debug: session applied', {
       requestedIndex,
       resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,

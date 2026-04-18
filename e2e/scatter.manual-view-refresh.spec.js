@@ -219,7 +219,12 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       const rows = [['gene', 'log_fc', 'p_value']];
       for(let idx = 1; idx <= 20000; idx += 1){
         const sign = idx % 2 === 0 ? 1 : -1;
-        rows.push([`GENE_${idx}`, String(sign * (1.5 + (idx % 100) / 200)), '1e-8']);
+        const significant = idx <= 12;
+        rows.push([
+          `GENE_${idx}`,
+          significant ? String(sign * (1.5 + (idx % 100) / 200)) : String(sign * 0.2),
+          significant ? '1e-8' : '0.8'
+        ]);
       }
       hot.loadData(rows);
       window.Components.scatter.draw();
@@ -238,6 +243,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       const thresholdControls = document.getElementById('scatterThresholdControls');
       const significantOptions = document.getElementById('scatterSignificantOptions');
       const significantToggle = document.getElementById('scatterShowSignificantLabels');
+      const defaultLabels = document.querySelectorAll('#scatterPlot svg [data-layer="point-labels"] text');
       return {
         selectedCount,
         renderMode: layer?.getAttribute?.('data-render-mode') || null,
@@ -245,7 +251,8 @@ test.describe('Scatter live updates with view-only optimizations', () => {
         thresholdDisplay: thresholdControls ? getComputedStyle(thresholdControls).display : null,
         significantDisplay: significantOptions ? getComputedStyle(significantOptions).display : null,
         significantChecked: !!significantToggle?.checked,
-        significantDisabled: !!significantToggle?.disabled
+        significantDisabled: !!significantToggle?.disabled,
+        defaultLabelCount: defaultLabels.length
       };
     });
 
@@ -256,5 +263,36 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(state.significantDisplay).not.toBe('none');
     expect(state.significantChecked).toBe(false);
     expect(state.significantDisabled).toBe(false);
+    expect(state.defaultLabelCount).toBe(0);
+
+    await page.evaluate(() => {
+      const significantToggle = document.getElementById('scatterShowSignificantLabels');
+      if(significantToggle){
+        significantToggle.checked = true;
+        significantToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+
+    await page.waitForFunction(() => {
+      const labels = document.querySelectorAll('#scatterPlot svg [data-layer="point-labels"] text');
+      return labels.length >= 12;
+    }, null, { timeout: 120000 });
+
+    const explicitLabelState = await page.evaluate(() => {
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      const labels = Array.from(document.querySelectorAll('#scatterPlot svg [data-layer="point-labels"] text'))
+        .map(node => node.textContent || '');
+      return {
+        selectedCount: hot?.gridApi?.getSelectedNodes?.()?.length || 0,
+        labelCount: labels.length,
+        hasFirstLabel: labels.includes('GENE_1'),
+        hasLastExpectedLabel: labels.includes('GENE_12')
+      };
+    });
+
+    expect(explicitLabelState.selectedCount).toBeLessThan(1000);
+    expect(explicitLabelState.labelCount).toBeGreaterThanOrEqual(12);
+    expect(explicitLabelState.hasFirstLabel).toBe(true);
+    expect(explicitLabelState.hasLastExpectedLabel).toBe(true);
   });
 });

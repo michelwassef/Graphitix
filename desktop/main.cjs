@@ -15,6 +15,23 @@ function resolveProdIndexPath() {
   return path.join(__dirname, 'app', 'index.html');
 }
 
+function resolveRecoveryPaths() {
+  const dir = path.join(app.getPath('userData'), 'recovery');
+  return {
+    dir,
+    graphPath: path.join(dir, 'active-recovery.graph'),
+    metaPath: path.join(dir, 'active-recovery.json')
+  };
+}
+
+async function writeFileAtomic(filePath, buffer) {
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  await fs.writeFile(tmpPath, buffer);
+  await fs.rename(tmpPath, filePath);
+}
+
 async function evaluateUnsavedState(win) {
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
     return { ok: false, shouldWarn: false };
@@ -88,6 +105,32 @@ async function requestRendererSave(win) {
   }
 }
 
+async function requestRendererClearRecovery(win) {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    return { ok: false, reason: 'window-destroyed' };
+  }
+  const script = `
+    (async () => {
+      try {
+        const api = window.Main && window.Main.documentState;
+        if (!api || typeof api.clearRecoverySnapshot !== 'function') {
+          return { ok: false, reason: 'recovery-handler-unavailable' };
+        }
+        await api.clearRecoverySnapshot('desktop-exit-without-saving');
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: String((err && err.message) || err) };
+      }
+    })();
+  `;
+  try {
+    const result = await win.webContents.executeJavaScript(script, true);
+    return (result && typeof result === 'object') ? result : { ok: false, reason: 'invalid-result' };
+  } catch (err) {
+    return { ok: false, reason: String((err && err.message) || err) };
+  }
+}
+
 async function handleCloseAttempt(win) {
   const state = await evaluateUnsavedState(win);
   if (!state.shouldWarn) {
@@ -112,6 +155,7 @@ async function handleCloseAttempt(win) {
   }
 
   if (decision.response === 1) {
+    await requestRendererClearRecovery(win);
     win.__allowClose = true;
     win.destroy();
     return;
@@ -229,6 +273,56 @@ app.whenReady().then(() => {
     }
     const buf = Buffer.from(payload.dataBase64, 'base64');
     await fs.writeFile(filePath, buf);
+    return { ok: true };
+  });
+
+  ipcMain.handle('desktop:writeRecoverySnapshot', async (_event, payload = {}) => {
+    if (typeof payload.dataBase64 !== 'string') {
+      throw new Error('desktop:writeRecoverySnapshot requires dataBase64');
+    }
+    const paths = resolveRecoveryPaths();
+    const graphBuffer = Buffer.from(payload.dataBase64, 'base64');
+    const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
+    await writeFileAtomic(paths.graphPath, graphBuffer);
+    await writeFileAtomic(paths.metaPath, Buffer.from(JSON.stringify({
+      ...meta,
+      graphPath: paths.graphPath
+    }), 'utf8'));
+    return { ok: true, graphPath: paths.graphPath };
+  });
+
+  ipcMain.handle('desktop:readRecoverySnapshot', async () => {
+    const paths = resolveRecoveryPaths();
+    try {
+      const [graphBuffer, metaBuffer] = await Promise.all([
+        fs.readFile(paths.graphPath),
+        fs.readFile(paths.metaPath).catch(() => Buffer.from('{}'))
+      ]);
+      let meta = {};
+      try {
+        meta = JSON.parse(metaBuffer.toString('utf8'));
+      } catch (_err) {
+        meta = {};
+      }
+      return {
+        exists: true,
+        dataBase64: graphBuffer.toString('base64'),
+        meta
+      };
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return { exists: false };
+      }
+      throw err;
+    }
+  });
+
+  ipcMain.handle('desktop:clearRecoverySnapshot', async () => {
+    const paths = resolveRecoveryPaths();
+    await Promise.all([
+      fs.rm(paths.graphPath, { force: true }),
+      fs.rm(paths.metaPath, { force: true })
+    ]);
     return { ok: true };
   });
 
