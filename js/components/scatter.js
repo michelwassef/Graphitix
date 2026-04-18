@@ -10273,6 +10273,47 @@
         return headers;
       }
 
+      function buildScatterGroupedColumnDragGroups(hotInstance, options = {}){
+        const hot = hotInstance || scatterHot || scatterRefs.hot;
+        const colCount = hot && typeof hot.countCols === 'function'
+          ? hot.countCols()
+          : SCATTER_SINGLE_FIXED_COLS;
+        const groupedActive = options.forceGrouped === true
+          ? true
+          : isScatterGroupedMode({
+              graphType: options.graphType || scatterCurrentGraphType,
+              tableFormat: options.tableFormat || getScatterReplicateMode()
+            });
+        if(!groupedActive || colCount <= 0){
+          return null;
+        }
+        const replicates = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
+        const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
+        const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+        const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
+        const groups = [];
+        if(xReplicateCount > 1 && colCount > 1){
+          groups.push({
+            startCol: 1,
+            span: Math.min(xReplicateCount, colCount - 1)
+          });
+        }
+        if(replicates > 1 && colCount > baseCols){
+          const seriesCount = Math.max(1, Math.ceil((colCount - baseCols) / Math.max(replicates, 1)));
+          for(let seriesIndex = 0; seriesIndex < seriesCount; seriesIndex += 1){
+            const startCol = getScatterGroupedSeriesStartCol(seriesIndex, replicates, { xReplicatesEnabled });
+            if(startCol >= colCount){
+              break;
+            }
+            groups.push({
+              startCol,
+              span: Math.min(replicates, colCount - startCol)
+            });
+          }
+        }
+        return groups.length ? groups : null;
+      }
+
       function updateScatterNestedHeaders(hotInstance, options = {}){
         const hot = hotInstance || scatterHot || scatterRefs.hot;
         if(!hot || typeof hot.updateSettings !== 'function'){
@@ -10304,13 +10345,15 @@
         if(!groupedActive){
           hot.updateSettings({
             nestedHeaders: false,
-            colHeaders: buildScatterAgColHeaders(hot, options)
+            colHeaders: buildScatterAgColHeaders(hot, options),
+            columnDragGroups: null
           });
           return;
         }
         hot.updateSettings({
           nestedHeaders: false,
-          colHeaders: buildScatterAgColHeaders(hot, options)
+          colHeaders: buildScatterAgColHeaders(hot, options),
+          columnDragGroups: buildScatterGroupedColumnDragGroups(hot, options)
         });
         scatterDebug('Debug: scatter grouped col headers restored', {
           replicates,
@@ -15835,6 +15878,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         if(scatterState.cachedCollect){
           scatterState.cachedCollect.manualLabelSignature = manualLabelSignature;
+        }
+        if(scatterState.cachedCollect && !canReuseCollectCache){
+          scatterState.dataDirty = false;
+          scatterDebug('Debug: scatter data marked clean after collect cache update', {
+            graphType,
+            points: points.length,
+            labels: labelsUsed.length
+          });
         }
         debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
         if(scatterCurrentGraphType!=='scatter'){

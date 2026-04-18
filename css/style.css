@@ -586,6 +586,10 @@ select {
     cursor: grabbing;
     opacity: 1;
 }
+.ag-theme-balham .hot-col-drag-handle.hot-col-drag-handle--hidden {
+    display: none;
+    pointer-events: none;
+}
 .ag-theme-balham .ag-header-cell:hover .hot-col-drag-handle,
 .ag-theme-balham .ag-header-cell:focus-within .hot-col-drag-handle {
     opacity: 1;

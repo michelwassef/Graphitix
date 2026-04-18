@@ -14009,6 +14009,35 @@
     return headers;
   }
 
+  function buildBoxGroupedColumnDragGroups(hotInstance, options = {}){
+    const hot = hotInstance || state.hot;
+    if(!hot || typeof hot.countCols !== 'function'){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true ? true : isBoxGroupedModeActive();
+    if(!groupedActive){
+      return null;
+    }
+    const colCount = Math.max(0, hot.countCols());
+    const replicates = getBoxGroupedReplicateCount(options);
+    if(replicates <= 1 || colCount <= 0){
+      return null;
+    }
+    const groups = [];
+    const groupCount = getBoxGroupedGroupCount(colCount, replicates);
+    for(let groupIndex = 0; groupIndex < groupCount; groupIndex += 1){
+      const startCol = getBoxGroupedSeriesStartCol(groupIndex, { replicates });
+      if(startCol >= colCount){
+        break;
+      }
+      groups.push({
+        startCol,
+        span: Math.min(replicates, colCount - startCol)
+      });
+    }
+    return groups;
+  }
+
   function updateBoxGroupedHeaderMergeStyles(hotInstance, options = {}){
     const hot = hotInstance || state.hot;
     const groupedActive = options.forceGrouped === true
@@ -14071,6 +14100,7 @@
     hot.updateSettings({
       nestedHeaders: false,
       colHeaders,
+      columnDragGroups: buildBoxGroupedColumnDragGroups(hot, { forceGrouped: true }),
       headerRowCount: groupedHeaderRows,
       pinFirstRow: groupedHeaderRows
     });
@@ -14120,6 +14150,7 @@
       state.hot.updateSettings({
         nestedHeaders: false,
         colHeaders: buildBoxAgColHeaders(state.hot, { forceGrouped: true }),
+        columnDragGroups: buildBoxGroupedColumnDragGroups(state.hot, { forceGrouped: true }),
         headerRowCount: groupedHeaderRows,
         pinFirstRow: groupedHeaderRows
       });
@@ -14130,6 +14161,7 @@
       state.hot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
+        columnDragGroups: null,
         headerRowCount: 1,
         pinFirstRow: 1
       });

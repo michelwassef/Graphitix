@@ -328,6 +328,53 @@
     return mergePayloadWithDefaultsRecursive(defaults, payload, cloneFn);
   }
 
+  function cloneWorkspaceApplyValue(value, cloneFn, key = null) {
+    if (key === 'data' && Array.isArray(value)) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(item => cloneWorkspaceApplyValue(item, cloneFn, null));
+    }
+    if (isPlainObject(value)) {
+      const cloned = {};
+      Object.keys(value).forEach(childKey => {
+        cloned[childKey] = cloneWorkspaceApplyValue(value[childKey], cloneFn, childKey);
+      });
+      return cloned;
+    }
+    return cloneValue(value, cloneFn);
+  }
+
+  function mergeWorkspaceApplyPayloadWithDefaults(payload, defaults, cloneFn, key = null) {
+    if (payload === undefined) {
+      return cloneWorkspaceApplyValue(defaults, cloneFn, key);
+    }
+    if (defaults === undefined || payload === null || defaults === null) {
+      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+    }
+    if (key === 'data' && Array.isArray(payload)) {
+      return payload;
+    }
+    if (Array.isArray(payload)) {
+      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+    }
+    if (Array.isArray(defaults)) {
+      return cloneWorkspaceApplyValue(payload, cloneFn, key);
+    }
+    if (isPlainObject(defaults) && isPlainObject(payload)) {
+      const merged = {};
+      const keys = new Set([...Object.keys(defaults), ...Object.keys(payload)]);
+      keys.forEach(childKey => {
+        const hasPayloadKey = Object.prototype.hasOwnProperty.call(payload, childKey);
+        merged[childKey] = hasPayloadKey
+          ? mergeWorkspaceApplyPayloadWithDefaults(payload[childKey], defaults[childKey], cloneFn, childKey)
+          : cloneWorkspaceApplyValue(defaults[childKey], cloneFn, childKey);
+      });
+      return merged;
+    }
+    return cloneWorkspaceApplyValue(payload, cloneFn, key);
+  }
+
   function resolveWorkspaceConfigForType(type) {
     if (!type) {
       return null;
@@ -683,8 +730,7 @@
       && cachedWorkspace.payloadSignature === targetPayloadSignature
       && cachedWorkspace.layoutSignature === targetLayoutSignature
       && alreadyInitialized
-      && renderedTabForType === tab.id
-      && !canRestoreRender;
+      && renderedTabForType === tab.id;
 
     const applyWorkspaceState = () => {
       if (Shared.workspaceTabs?.activateWorkspace) {
@@ -703,10 +749,40 @@
           workspaceState.lastActiveGraphId = tab.id;
           workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
         }
+        let restored = false;
+        if (canRestoreRender) {
+          if (Shared.componentLayout?.suppressNextScheduleFor) {
+            Shared.componentLayout.suppressNextScheduleFor(tab.type, {
+              reason: 'render-cache-restore-reuse',
+              delayMs: 400,
+              count: 3
+            });
+          }
+          try {
+            restored = !!config.restoreRenderCache(renderCache.cache, {
+              tabId: tab.id,
+              type: tab.type
+            });
+            if (restored && typeof session?.clearTabRenderCache === 'function') {
+              session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
+            }
+          } catch (err) {
+            console.error('workspace render cache restore error', { type: tab.type, err });
+            restored = false;
+          }
+          if (!restored && typeof config.draw === 'function') {
+            try {
+              config.draw();
+            } catch (err) {
+              console.error('workspace draw error', { type: tab.type, err });
+            }
+          }
+        }
         console.debug('Debug: workspace reuse without redraw', {
           tabId: tab.id,
           type: tab.type,
-          reason: options.reason || 'reuse-cache'
+          reason: options.reason || 'reuse-cache',
+          renderCacheRestored: restored
         });
         return;
       }
@@ -719,7 +795,9 @@
         });
       }
       if (!options.skipApply) {
-        let payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
+        let payload = tab.payload
+          ? mergeWorkspaceApplyPayloadWithDefaults(tab.payload, defaultPayload, cloneFn)
+          : cloneWorkspaceApplyValue(defaultPayload, cloneFn);
         if (!payload && typeof config.createEmptyPayload === 'function') {
           try {
             const emptyPayload = config.createEmptyPayload();
@@ -732,9 +810,6 @@
           } catch (err) {
             console.error('workspace payload empty rebuild error', { type: tab.type, err });
           }
-        }
-        if (payload && defaultPayload) {
-          payload = namespace.mergePayloadWithDefaults(tab.type, payload, defaultPayload, { cloneFn });
         }
         if (Shared.workspaceTabs?.applySharedPayloadState) {
           Shared.workspaceTabs.applySharedPayloadState(tab, tab.type, payload, config, {

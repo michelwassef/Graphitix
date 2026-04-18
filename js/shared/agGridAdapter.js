@@ -86,10 +86,17 @@
           if(!Array.isArray(matrix)){
             return false;
           }
-          if(!Array.isArray(matrix[rowIndex])){
-            matrix[rowIndex] = [];
+          const row = typeof dataHandle?.ensureMutableRow === 'function'
+            ? dataHandle.ensureMutableRow(rowIndex, c + 1)
+            : null;
+          if(row){
+            row[c] = params.newValue;
+          }else{
+            if(!Array.isArray(matrix[rowIndex])){
+              matrix[rowIndex] = [];
+            }
+            matrix[rowIndex][c] = params.newValue;
           }
-          matrix[rowIndex][c] = params.newValue;
           return true;
         }
       });

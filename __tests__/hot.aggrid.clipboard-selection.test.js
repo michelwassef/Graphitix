@@ -83,6 +83,42 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('X');
   });
 
+  test('loadData adopts large matrices without mutating the source matrix or source rows', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agLoadDataCowHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 1, cols: 1 },
+      () => {},
+      {
+        debugLabel: 'ag-load-data-cow',
+        data: [['']]
+      }
+    );
+    const source = [
+      ['A', 'B'],
+      ['1', '2']
+    ];
+
+    hot.loadData(source);
+
+    expect(source).toEqual([
+      ['A', 'B'],
+      ['1', '2']
+    ]);
+    expect(hot.getSourceData()).not.toBe(source);
+    expect(hot.getSourceData()[0]).toBe(source[0]);
+
+    hot.setDataAtCell(1, 1, 'changed', 'test-edit');
+
+    expect(hot.getDataAtCell(1, 1)).toBe('changed');
+    expect(source[1][1]).toBe('2');
+    expect(hot.getSourceData()[1]).not.toBe(source[1]);
+  });
+
   test('paste handler stops other paste listeners (capture)', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -1458,6 +1494,283 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     expect(moveColumnsSpy).toHaveBeenCalled();
     expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+  });
+
+  test('column drag groups hide follower header handles', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupedVisibilityHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-grouped-visibility',
+        data: Shared.createEmptyData(3, 4)
+      }
+    );
+
+    hot.updateSettings({
+      columnDragGroups: [{ startCol: 1, span: 3 }]
+    });
+
+    const instantiateHeader = colId => {
+      const colDef = capturedGridOptions?.columnDefs?.find(col => col.colId === colId);
+      expect(colDef?.headerComponent).toBeTruthy();
+      const headerComponent = new colDef.headerComponent();
+      headerComponent.init({
+        api: {
+          addEventListener: jest.fn(),
+          removeEventListener: jest.fn()
+        },
+        column: {
+          getColId: () => colId,
+          getSort: () => '',
+          getColDef: () => ({ headerName: colId })
+        },
+        displayName: colId
+      });
+      return headerComponent.getGui();
+    };
+
+    const anchorGui = instantiateHeader('c1');
+    const followerGui = instantiateHeader('c2');
+    const anchorHandle = anchorGui.querySelector('.hot-col-drag-handle');
+    const followerHandle = followerGui.querySelector('.hot-col-drag-handle');
+
+    expect(anchorHandle).toBeTruthy();
+    expect(anchorHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(false);
+    expect(anchorHandle.getAttribute('aria-label')).toBe('Drag to reorder column group');
+    expect(followerHandle).toBeTruthy();
+    expect(followerHandle.classList.contains('hot-col-drag-handle--hidden')).toBe(true);
+    expect(followerHandle.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  test('drag handle drag moves a configured column group without preselecting it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleConfiguredGroupMoveHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 5 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-configured-group-move',
+        data: Shared.createEmptyData(3, 5)
+      }
+    );
+
+    hot.updateSettings({
+      columnDragGroups: [{ startCol: 1, span: 3 }]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header4 = document.createElement('div');
+    header4.className = 'ag-header-cell';
+    header4.setAttribute('col-id', 'c4');
+    header4.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header4);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header4;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header4.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 80,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  test('drag handle group moves snap before another column group instead of inside it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupBoundaryBeforeHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 7 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-boundary-before',
+        data: Shared.createEmptyData(3, 7)
+      }
+    );
+
+    hot.updateSettings({
+      columnDragGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 4, span: 3 }
+      ]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' },
+        { getColId: () => 'c5' },
+        { getColId: () => 'c6' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header5 = document.createElement('div');
+    header5.className = 'ag-header-cell';
+    header5.setAttribute('col-id', 'c5');
+    header5.getBoundingClientRect = () => ({ left: 100, width: 100, top: 0, height: 20, right: 200, bottom: 20 });
+    container.appendChild(header5);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header5;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header5.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 125,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+    expect(moveColumnsSpy.mock.calls[0][1]).toBe(2);
+  });
+
+  test('drag handle group moves snap after another column group instead of inside it', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupBoundaryAfterHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 7 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-boundary-after',
+        data: Shared.createEmptyData(3, 7)
+      }
+    );
+
+    hot.updateSettings({
+      columnDragGroups: [
+        { startCol: 1, span: 2 },
+        { startCol: 4, span: 3 }
+      ]
+    });
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' },
+        { getColId: () => 'c4' },
+        { getColId: () => 'c5' },
+        { getColId: () => 'c6' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header5 = document.createElement('div');
+    header5.className = 'ag-header-cell';
+    header5.setAttribute('col-id', 'c5');
+    header5.getBoundingClientRect = () => ({ left: 100, width: 100, top: 0, height: 20, right: 200, bottom: 20 });
+    container.appendChild(header5);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header5;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header5.dispatchEvent(new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 175,
+      clientY: 10
+    }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+    expect(moveColumnsSpy.mock.calls[0][1]).toBe(5);
   });
 
   test('drag handle commits new column order into underlying data', async () => {

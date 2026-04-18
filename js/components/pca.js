@@ -1040,6 +1040,24 @@
     return headers;
   }
 
+  function buildPcaGroupedColumnDragGroups(hotInstance, options = {}){
+    const pcaHot = hotInstance || ensurePcaHotForActiveTab();
+    if(!pcaHot || typeof pcaHot.countCols !== 'function'){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true ? true : pcaState.tableFormat === 'grouped';
+    if(!groupedActive){
+      return null;
+    }
+    const groups = getPcaGroupedHeaderEntries(pcaHot, { forceGrouped: true, ...options })
+      .map(entry => ({
+        startCol: entry.startCol,
+        span: entry.colspan
+      }))
+      .filter(entry => Number.isInteger(entry.startCol) && entry.startCol >= 1 && Number(entry.span) > 1);
+    return groups.length ? groups : null;
+  }
+
   function updatePcaGroupedHeaders(hotInstance){
     const pcaHot = hotInstance || ensurePcaHotForActiveTab();
     if(!pcaHot){
@@ -1064,6 +1082,7 @@
       pcaHot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
+        columnDragGroups: null,
         headerRowIndex: PCA_HEADER_ROW_INDEX,
         pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true })
       });
@@ -1074,6 +1093,7 @@
     pcaHot.updateSettings({
       nestedHeaders: false,
       colHeaders: headers,
+      columnDragGroups: buildPcaGroupedColumnDragGroups(pcaHot, { forceGrouped: true }),
       headerRowIndex: getPcaHeaderRowIndexForMode({ forceGrouped: true }),
       pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceGrouped: true })
     });
@@ -1110,6 +1130,7 @@
       pcaHot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
+        columnDragGroups: null,
         headerRowIndex: PCA_HEADER_ROW_INDEX,
         pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true })
       });

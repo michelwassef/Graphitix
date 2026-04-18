@@ -4944,6 +4944,35 @@
     return headers;
   }
 
+  function buildLineGroupedColumnDragGroups(hotInstance, options = {}){
+    const hot = hotInstance || lineHot;
+    if(!hot || typeof hot.countCols !== 'function'){
+      return null;
+    }
+    const groupedActive = options.forceGrouped === true ? true : isLineGroupedModeActive();
+    if(!groupedActive){
+      return null;
+    }
+    const colCount = Math.max(0, hot.countCols());
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    if(replicates <= 1 || colCount <= 1){
+      return null;
+    }
+    const groups = [];
+    const seriesCount = Math.max(1, Math.ceil(Math.max(0, colCount - 1) / Math.max(replicates, 1)));
+    for(let seriesIndex = 0; seriesIndex < seriesCount; seriesIndex += 1){
+      const startCol = 1 + seriesIndex * replicates;
+      if(startCol >= colCount){
+        break;
+      }
+      groups.push({
+        startCol,
+        span: Math.min(replicates, colCount - startCol)
+      });
+    }
+    return groups;
+  }
+
   function padRowToLength(row, targetLength){
     const safeTarget = Math.max(0, targetLength | 0);
     const source = Array.isArray(row) ? row.slice() : [];
@@ -5295,13 +5324,14 @@
       }
     }
     if(!groupedActive){
-      lineHot.updateSettings({ nestedHeaders: false, colHeaders: true });
+      lineHot.updateSettings({ nestedHeaders: false, colHeaders: true, columnDragGroups: null });
       console.debug('Debug: updateLineNestedHeaders disabled',{ replicates: lineReplicates });
       return;
     }
     lineHot.updateSettings({
       nestedHeaders: false,
-      colHeaders: buildLineAgColHeaders(lineHot, { forceGrouped: true })
+      colHeaders: buildLineAgColHeaders(lineHot, { forceGrouped: true }),
+      columnDragGroups: buildLineGroupedColumnDragGroups(lineHot, { forceGrouped: true })
     });
     console.debug('Debug: updateLineNestedHeaders applied',{
       grouped: true,

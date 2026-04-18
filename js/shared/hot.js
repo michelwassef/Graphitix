@@ -935,6 +935,9 @@
     let colHeadersSetting = hotOptions.colHeaders;
     let rowHeadersSetting = hotOptions.rowHeaders;
     let nestedHeadersSetting = hotOptions.nestedHeaders;
+    let columnDragGroupsSetting = Object.prototype.hasOwnProperty.call(overrides || {}, 'columnDragGroups')
+      ? overrides.columnDragGroups
+      : hotOptions.columnDragGroups;
     const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
     const detectedEnterpriseModules = global.agGrid?.ModuleRegistry?.registeredModules || [];
     if (detectedEnterpriseModules.some(mod => /Enterprise/i.test(mod?.moduleName || ''))) {
@@ -942,6 +945,48 @@
     }
     const hasEnterprise = false;
 
+    const sharedLoadRows = typeof WeakSet === 'function' ? new WeakSet() : null;
+    const markRowsShared = (matrix)=>{
+      if(!sharedLoadRows || !Array.isArray(matrix)){
+        return;
+      }
+      for(let r = 0; r < matrix.length; r++){
+        if(Array.isArray(matrix[r])){
+          sharedLoadRows.add(matrix[r]);
+        }
+      }
+    };
+    const ensureMutableRowAt = (matrix, rowIndex, minCols = 0)=>{
+      if(!Array.isArray(matrix)){
+        return null;
+      }
+      const r = Number(rowIndex);
+      if(!Number.isInteger(r) || r < 0){
+        return null;
+      }
+      while(matrix.length <= r){
+        matrix.push([]);
+      }
+      let row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      if(sharedLoadRows && sharedLoadRows.has(row)){
+        const previous = row;
+        row = row.slice();
+        sharedLoadRows.delete(previous);
+        matrix[r] = row;
+      }else if(matrix[r] !== row){
+        matrix[r] = row;
+      }
+      const targetCols = Math.max(0, Number(minCols) || 0);
+      if(row.length < targetCols){
+        row.length = targetCols;
+      }
+      for(let c = 0; c < row.length; c++){
+        if(typeof row[c] === 'undefined'){
+          row[c] = '';
+        }
+      }
+      return row;
+    };
     const ensureDims = (matrix, targetRows, targetCols)=>{
       const totalRows = Math.max(targetRows, matrix.length);
       let maxCols = Math.max(targetCols, MIN_INPUT_COLS);
@@ -950,20 +995,28 @@
         maxCols = Math.max(maxCols, row.length);
       }
       for(let r = 0; r < totalRows; r++){
-        if(!Array.isArray(matrix[r])){
-          matrix[r] = [];
-        }
-        if(matrix[r].length < maxCols){
-          matrix[r].length = maxCols;
-        }
-        for(let c = 0; c < matrix[r].length; c++){
-          if(typeof matrix[r][c] === 'undefined'){
-            matrix[r][c] = '';
-          }
-        }
+        ensureMutableRowAt(matrix, r, maxCols);
       }
       colCount = Math.max(colCount, maxCols);
       return matrix;
+    };
+    const adoptMatrixForLoad = (matrix, targetRows, targetCols, options = {})=>{
+      const source = Array.isArray(matrix) ? matrix : [];
+      const totalRows = Math.max(Math.max(0, Number(targetRows) || 0), source.length);
+      const adopted = new Array(totalRows);
+      let maxCols = Math.max(Math.max(0, Number(targetCols) || 0), MIN_INPUT_COLS);
+      for(let r = 0; r < totalRows; r++){
+        const row = Array.isArray(source[r]) ? source[r] : [];
+        adopted[r] = row;
+        if(row.length > maxCols){
+          maxCols = row.length;
+        }
+      }
+      colCount = Math.max(colCount, maxCols);
+      if(options.shareRows !== false){
+        markRowsShared(adopted);
+      }
+      return adopted;
     };
 
     const getMatrixShape = (matrix)=>{
@@ -1072,7 +1125,12 @@
     let data = baseData ? ensureDims(baseData, rowCount, colCount) : createEmptyData(rowCount, colCount);
     const baseRowCount = rowCount;
     const baseColCount = colCount;
-    const dataHandle = { current: data };
+    const dataHandle = {
+      current: data,
+      ensureMutableRow(rowIndex, minCols){
+        return ensureMutableRowAt(dataHandle.current, rowIndex, minCols);
+      }
+    };
     const formulaEvaluationState = {
       enabled: !!enableFormulaEvaluation,
       model: null,
@@ -5387,7 +5445,10 @@
       if(hasForcedCols){
         colCount = Math.max(MIN_INPUT_COLS, Number(options.forceColCount) || MIN_INPUT_COLS);
       }
-      data = incoming ? ensureDims(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
+      if(incoming){
+        rowCount = Math.max(rowCount, incoming.length);
+      }
+      data = incoming ? adoptMatrixForLoad(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
       dataHandle.current = data;
       markFormulaModelDirty('load-data');
       colHeaders = resolveColHeaders(colCount);
@@ -7026,6 +7087,91 @@
       this._startedWithTyping = false;
     };
 
+    const normalizeColumnDragGroupEntry = (entry)=>{
+      if(!entry || typeof entry !== 'object'){
+        return null;
+      }
+      let startRaw = entry.startCol ?? entry.start ?? entry.col ?? entry.column ?? entry.anchorCol ?? entry.anchor;
+      let spanRaw = entry.span ?? entry.count ?? entry.colspan ?? entry.width;
+      let endRaw = entry.endCol ?? entry.end;
+      if(Array.isArray(entry.columns) && entry.columns.length){
+        const cols = entry.columns
+          .map(col => Number(col))
+          .filter(col => Number.isInteger(col) && col >= 0 && col < colCount)
+          .sort((a, b)=>a - b);
+        if(cols.length){
+          startRaw = cols[0];
+          endRaw = cols[cols.length - 1];
+          spanRaw = endRaw - startRaw + 1;
+        }
+      }
+      const start = Number(startRaw);
+      if(!Number.isInteger(start) || start < 0 || start >= colCount){
+        return null;
+      }
+      let span = Number(spanRaw);
+      const end = Number(endRaw);
+      if((!Number.isFinite(span) || span < 1) && Number.isInteger(end) && end >= start){
+        span = end - start + 1;
+      }
+      if(!Number.isFinite(span) || span < 1){
+        span = 1;
+      }
+      const safeSpan = Math.max(1, Math.min(colCount - start, Math.floor(span)));
+      const endCol = start + safeSpan - 1;
+      return {
+        startCol: start,
+        endCol,
+        span: safeSpan,
+        columns: Array.from({ length: safeSpan }, (_, offset)=>start + offset)
+      };
+    };
+
+    const resolveColumnDragGroups = ()=>{
+      let source = columnDragGroupsSetting;
+      if(typeof source === 'function'){
+        try{
+          source = source({
+            colCount,
+            instance,
+            data: dataHandle.current
+          });
+        }catch(err){
+          console.error('Shared.hot columnDragGroups resolver error', err);
+          return [];
+        }
+      }
+      const entries = Array.isArray(source) ? source : (source ? [source] : []);
+      const normalized = [];
+      for(let i = 0; i < entries.length; i += 1){
+        const group = normalizeColumnDragGroupEntry(entries[i]);
+        if(group){
+          normalized.push(group);
+        }
+      }
+      normalized.sort((a, b)=>a.startCol - b.startCol || b.span - a.span);
+      return normalized;
+    };
+
+    const resolveColumnDragGroupForColumn = (colIndex)=>{
+      const col = Number(colIndex);
+      if(!Number.isInteger(col) || col < 0){
+        return null;
+      }
+      const groups = resolveColumnDragGroups();
+      for(let i = 0; i < groups.length; i += 1){
+        const group = groups[i];
+        if(col >= group.startCol && col <= group.endCol){
+          return Object.assign({}, group, {
+            anchorCol: group.startCol,
+            isAnchor: col === group.startCol,
+            colIds: group.columns.map(groupCol => `c${groupCol}`)
+          });
+        }
+      }
+      return null;
+    };
+
     const buildColumnDefs = ()=>{
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
@@ -7051,11 +7197,27 @@
           const doc = container?.ownerDocument || document;
           const root = doc.createElement('div');
           root.className = 'hot-ag-header';
+          const colId = params?.column?.getColId?.() || '';
+          const colIndex = typeof colId === 'string' && colId.startsWith('c')
+            ? Number(colId.slice(1))
+            : null;
+          const dragGroup = Number.isInteger(colIndex)
+            ? resolveColumnDragGroupForColumn(colIndex)
+            : null;
 
           const handle = doc.createElement('span');
           handle.className = 'hot-col-drag-handle';
-          handle.setAttribute('title', 'Drag to reorder columns');
-          handle.setAttribute('aria-label', 'Drag to reorder columns');
+          if(dragGroup && !dragGroup.isAnchor){
+            handle.classList.add('hot-col-drag-handle--hidden');
+            handle.setAttribute('aria-hidden', 'true');
+            root.classList.add('hot-ag-header--drag-hidden');
+          }else{
+            const dragLabel = dragGroup && dragGroup.span > 1
+              ? 'Drag to reorder column group'
+              : 'Drag to reorder columns';
+            handle.setAttribute('title', dragLabel);
+            handle.setAttribute('aria-label', dragLabel);
+          }
           handle.tabIndex = -1;
 
           const label = doc.createElement('span');
@@ -8513,7 +8675,10 @@
           }
           rowCount = Number.isFinite(nextRows) ? Math.max(0, nextRows) : rowCount;
           colCount = Number.isFinite(nextCols) ? Math.max(MIN_INPUT_COLS, nextCols) : colCount;
-          data = ensureDims(incomingData, rowCount, colCount);
+          if(incomingData){
+            rowCount = Math.max(rowCount, incomingData.length);
+          }
+          data = adoptMatrixForLoad(incomingData, rowCount, colCount);
           dataHandle.current = data;
           needsSync = true;
           needsSchedule = true;
@@ -8545,6 +8710,10 @@
         if(Object.prototype.hasOwnProperty.call(opts, 'nestedHeaders')){
           nestedHeadersSetting = opts.nestedHeaders;
           instance.__agNestedHeaders = opts.nestedHeaders;
+          needsRebuild = true;
+        }
+        if(Object.prototype.hasOwnProperty.call(opts, 'columnDragGroups')){
+          columnDragGroupsSetting = opts.columnDragGroups;
           needsRebuild = true;
         }
 
@@ -10374,6 +10543,68 @@
       }catch(err){
         return false;
       }
+    };
+
+    const snapColumnHandleTargetBeforeToGroupBoundary = (targetBefore, hoverColId, positions, movingColIds)=>{
+      const target = Number(targetBefore);
+      if(!Number.isInteger(target) || !Array.isArray(positions) || !positions.length){
+        return targetBefore;
+      }
+      const movingSet = new Set(Array.isArray(movingColIds) ? movingColIds : []);
+      const groups = resolveColumnDragGroups();
+      if(!groups.length){
+        return targetBefore;
+      }
+      const positionsById = new Map();
+      positions.forEach(entry => {
+        if(entry?.colId && Number.isInteger(entry.index)){
+          positionsById.set(entry.colId, entry);
+        }
+      });
+      const resolveDisplayedGroup = (group)=>{
+        const groupColIds = Array.isArray(group?.colIds)
+          ? group.colIds
+          : (Array.isArray(group?.columns) ? group.columns.map(col => `c${col}`) : []);
+        const entries = groupColIds
+          .filter(colId => !movingSet.has(colId))
+          .map(colId => positionsById.get(colId))
+          .filter(entry => entry && Number.isInteger(entry.index))
+          .sort((a, b)=>a.index - b.index);
+        if(entries.length <= 1){
+          return null;
+        }
+        return {
+          minIndex: entries[0].index,
+          maxIndex: entries[entries.length - 1].index,
+          colIds: entries.map(entry => entry.colId)
+        };
+      };
+
+      if(typeof hoverColId === 'string' && hoverColId.startsWith('c') && !movingSet.has(hoverColId)){
+        const hoverCol = Number(hoverColId.slice(1));
+        const hoverGroup = resolveColumnDragGroupForColumn(hoverCol);
+        const displayedGroup = resolveDisplayedGroup(hoverGroup);
+        const hoverEntry = positionsById.get(hoverColId);
+        if(displayedGroup && hoverEntry){
+          return target > hoverEntry.index
+            ? displayedGroup.maxIndex + 1
+            : displayedGroup.minIndex;
+        }
+      }
+
+      for(let i = 0; i < groups.length; i += 1){
+        const displayedGroup = resolveDisplayedGroup(groups[i]);
+        if(!displayedGroup){
+          continue;
+        }
+        const beforeGroup = displayedGroup.minIndex;
+        const afterGroup = displayedGroup.maxIndex + 1;
+        if(target > beforeGroup && target < afterGroup){
+          const midpoint = beforeGroup + ((afterGroup - beforeGroup) / 2);
+          return target <= midpoint ? beforeGroup : afterGroup;
+        }
+      }
+      return targetBefore;
     };
 
     const getDisplayedDataColumnOrder = ()=>{
@@ -12512,7 +12743,13 @@
             headerDragRafPending = false;
             headerDragStartPointer = null;
             const colIdx = Number(colId.slice(1));
-            const selectedCols = resolveSelectedColumnGroup(colIdx) || [colIdx];
+            const dragGroup = resolveColumnDragGroupForColumn(colIdx);
+            if(dragGroup && !dragGroup.isAnchor){
+              return;
+            }
+            const selectedCols = dragGroup
+              ? dragGroup.columns
+              : (resolveSelectedColumnGroup(colIdx) || [colIdx]);
             const dragColIds = selectedCols.map(idx => `c${idx}`);
             startColumnHandleDrag(dragColIds);
           }
@@ -13276,6 +13513,7 @@
           const minIndex = positions[0].index;
           const maxIndex = positions[positions.length - 1].index;
           let targetBefore = null;
+          let targetHoverColId = null;
 
           const x = typeof event?.clientX === 'number' ? event.clientX : null;
           const y = typeof event?.clientY === 'number' ? event.clientY : null;
@@ -13287,6 +13525,7 @@
               const hitColId = headerCell?.getAttribute?.('col-id') || null;
               const hoverEntry = positions.find(entry => entry.colId === hitColId) || null;
               if(hoverEntry && !columnHandleDragColIds.includes(hitColId)){
+                targetHoverColId = hitColId;
                 const rect = headerCell.getBoundingClientRect?.();
                 const rectWidth = Number(rect?.width);
                 const rectLeft = Number(rect?.left);
@@ -13310,9 +13549,16 @@
             if(!hoverEntry || columnHandleDragColIds.includes(overColId)){
               return;
             }
+            targetHoverColId = overColId;
             targetBefore = hoverEntry.index;
           }
 
+          targetBefore = snapColumnHandleTargetBeforeToGroupBoundary(
+            targetBefore,
+            targetHoverColId,
+            positions,
+            columnHandleDragColIds
+          );
           targetBefore = Math.min(maxIndex + 1, Math.max(minIndex, targetBefore));
           if(targetBefore >= minMovingIndex && targetBefore <= (maxMovingIndex + 1)){
             return;

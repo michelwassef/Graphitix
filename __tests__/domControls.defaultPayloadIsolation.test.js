@@ -133,4 +133,136 @@ describe('domControls default payload cache isolation', () => {
     expect(second?.config?.stats?.controls?.method).toBe('pearson');
     expect(second?.config?.stats?.statsOptions?.showDiagnostics).toBe(true);
   });
+
+  test('showWorkspaceForTab reuses mounted large-tab payload when only render cache needs restore', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const payload = {
+      type: 'scatter',
+      data: Array.from({ length: 50000 }, (_, index) => [`g${index}`, index, index + 1]),
+      config: { title: 'Large scatter' }
+    };
+    const tab = {
+      id: 'workspace-2',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'payload-large',
+      layoutSignature: 'layout-large',
+      renderCache: {
+        payloadSignature: 'payload-large',
+        layoutSignature: 'layout-large',
+        cache: { svg: '<svg></svg>' }
+      }
+    };
+    const config = {
+      type: 'scatter',
+      element,
+      loadFromPayload: jest.fn(),
+      restoreRenderCache: jest.fn(() => true),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value)),
+      clearTabRenderCache: jest.fn()
+    };
+    const workspaceState = {
+      loadedWorkspaces: {
+        'workspace-2': {
+          tabId: 'workspace-2',
+          type: 'scatter',
+          payloadSignature: 'payload-large',
+          layoutSignature: 'layout-large'
+        }
+      },
+      renderedWorkspaceByType: {
+        scatter: 'workspace-2'
+      }
+    };
+
+    window.Shared = window.Shared || {};
+    window.Shared.workspaceTabs = {
+      activateWorkspace: jest.fn()
+    };
+    window.Shared.componentLayout = {
+      suppressNextScheduleFor: jest.fn()
+    };
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test' });
+
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.loadFromPayload).not.toHaveBeenCalled();
+    expect(config.applyLayoutState).not.toHaveBeenCalled();
+    expect(config.draw).not.toHaveBeenCalled();
+    expect(config.restoreRenderCache).toHaveBeenCalledWith(tab.renderCache.cache, {
+      tabId: 'workspace-2',
+      type: 'scatter'
+    });
+    expect(session.fastClonePayload).not.toHaveBeenCalled();
+    expect(session.clearTabRenderCache).toHaveBeenCalledWith(tab, { reason: 'render-cache-consumed' });
+  });
+
+  test('showWorkspaceForTab preserves large data matrix by reference on first activation', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const payload = {
+      type: 'scatter',
+      data: Array.from({ length: 50000 }, (_, index) => [`g${index}`, index, index + 1]),
+      config: { title: 'Large scatter', fontSize: '12' }
+    };
+    const defaultPayload = {
+      type: 'scatter',
+      data: [['']],
+      config: { title: 'Scatter plot', fontSize: '12', alpha: 0 }
+    };
+    let appliedPayload = null;
+    const config = {
+      type: 'scatter',
+      element: document.getElementById('scatterPage'),
+      createEmptyPayload: jest.fn(() => defaultPayload),
+      loadFromPayload: jest.fn(next => {
+        appliedPayload = next;
+      }),
+      draw: jest.fn()
+    };
+    const tab = {
+      id: 'workspace-3',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'payload-large-first',
+      layoutSignature: 'layout-large-first'
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value))
+    };
+
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test-first-activation' });
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState: { loadedWorkspaces: {}, renderedWorkspaceByType: {} }
+    });
+
+    expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
+    expect(appliedPayload).toBeTruthy();
+    expect(appliedPayload).not.toBe(payload);
+    expect(appliedPayload.data).toBe(payload.data);
+    expect(appliedPayload.config).not.toBe(payload.config);
+    expect(appliedPayload.config.alpha).toBe(0);
+    expect(session.fastClonePayload).not.toHaveBeenCalledWith(payload);
+    expect(session.fastClonePayload).not.toHaveBeenCalledWith(payload.data);
+  });
 });
