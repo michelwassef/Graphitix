@@ -9,6 +9,7 @@
   const TAB_PREVIEW_MAX_CHARS = 120000;
   const TAB_PREVIEW_MAX_CHARS_HYBRID = 600000;
   const TAB_PREVIEW_NS = 'http://www.w3.org/2000/svg';
+  const TAB_PREVIEW_CANVAS_BITMAP_MAX_DIMENSION = 180;
 
   let tabPreviewTooltipEl = null;
   let tabPreviewActiveId = null;
@@ -54,6 +55,15 @@
     sublabel.textContent = meta.detail || 'Large dataset';
     svg.appendChild(sublabel);
     return new XMLSerializer().serializeToString(svg);
+  }
+
+  function isPreviewPlaceholderMarkup(markup) {
+    if (typeof markup !== 'string' || !markup) {
+      return false;
+    }
+    return markup.includes('data-preview-placeholder')
+      || markup.includes('Preparing preview')
+      || markup.includes('Preview too large');
   }
 
   function resolvePreviewSizing(svg) {
@@ -235,6 +245,297 @@
     return !!svg.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
   }
 
+  function readPreviewNumber(node, attr, fallback) {
+    const raw = node?.getAttribute ? Number.parseFloat(node.getAttribute(attr)) : NaN;
+    return Number.isFinite(raw) ? raw : fallback;
+  }
+
+  function appendScatterCanvasPreviewGlyphs(layer, box) {
+    const doc = layer?.ownerDocument || document;
+    const width = Math.max(1, Number(box.width) || 1);
+    const height = Math.max(1, Number(box.height) || 1);
+    const minX = Number(box.x) || 0;
+    const minY = Number(box.y) || 0;
+    const count = 56;
+    const group = doc.createElementNS(TAB_PREVIEW_NS, 'g');
+    group.setAttribute('data-preview-canvas-simplified', 'scatter');
+    group.setAttribute('opacity', '0.75');
+    for (let idx = 0; idx < count; idx += 1) {
+      const t = count <= 1 ? 0 : idx / (count - 1);
+      const wave = Math.sin(idx * 2.17) * 0.18 + Math.cos(idx * 0.73) * 0.12;
+      const cx = minX + width * (0.08 + 0.84 * t);
+      const cy = minY + height * Math.max(0.08, Math.min(0.92, 0.66 - 0.38 * t + wave));
+      const dot = doc.createElementNS(TAB_PREVIEW_NS, 'circle');
+      dot.setAttribute('cx', String(cx));
+      dot.setAttribute('cy', String(cy));
+      dot.setAttribute('r', String(Math.max(0.8, Math.min(width, height) * 0.009)));
+      dot.setAttribute('fill', '#4f7fd9');
+      group.appendChild(dot);
+    }
+    layer.appendChild(group);
+  }
+
+  function appendBoxCanvasPreviewGlyph(layer, box) {
+    const doc = layer?.ownerDocument || document;
+    const width = Math.max(1, Number(box.width) || 1);
+    const height = Math.max(1, Number(box.height) || 1);
+    const minX = Number(box.x) || 0;
+    const minY = Number(box.y) || 0;
+    const midY = minY + height * 0.5;
+    const path = doc.createElementNS(TAB_PREVIEW_NS, 'path');
+    path.setAttribute('data-preview-canvas-simplified', 'box');
+    path.setAttribute('d', `M ${minX} ${midY} C ${minX + width * 0.22} ${minY + height * 0.18} ${minX + width * 0.78} ${minY + height * 0.82} ${minX + width} ${midY}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#4f7fd9');
+    path.setAttribute('stroke-width', String(Math.max(1, Math.min(width, height) * 0.018)));
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('opacity', '0.78');
+    layer.appendChild(path);
+  }
+
+  function collectPreviewCanvases(node) {
+    if (!node) {
+      return [];
+    }
+    const nodes = [];
+    if (String(node.tagName || '').toLowerCase() === 'canvas') {
+      nodes.push(node);
+    }
+    if (typeof node.querySelectorAll === 'function') {
+      nodes.push(...Array.from(node.querySelectorAll('canvas')));
+    }
+    return nodes;
+  }
+
+  function canvasToPreviewDataUrl(canvas) {
+    if (!canvas || typeof canvas.toDataURL !== 'function') {
+      return '';
+    }
+    const width = Math.max(1, Number(canvas.width) || 1);
+    const height = Math.max(1, Number(canvas.height) || 1);
+    const maxDim = TAB_PREVIEW_CANVAS_BITMAP_MAX_DIMENSION;
+    const scale = Math.min(1, maxDim / Math.max(width, height));
+    if (scale >= 0.999) {
+      try {
+        return canvas.toDataURL('image/png');
+      } catch (_err) {
+        return '';
+      }
+    }
+    const doc = canvas.ownerDocument || document;
+    const previewCanvas = doc.createElement('canvas');
+    previewCanvas.width = Math.max(1, Math.round(width * scale));
+    previewCanvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = previewCanvas.getContext?.('2d');
+    if (!ctx || typeof ctx.clearRect !== 'function' || typeof ctx.drawImage !== 'function') {
+      try {
+        return canvas.toDataURL('image/png');
+      } catch (_err) {
+        return '';
+      }
+    }
+    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    ctx.drawImage(canvas, 0, 0, previewCanvas.width, previewCanvas.height);
+    try {
+      return previewCanvas.toDataURL('image/png');
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function hydrateCanvasBitmapsForPreview(sourceSvg, cloneSvg) {
+    if (!sourceSvg || !cloneSvg) {
+      return 0;
+    }
+    const sourceCanvases = collectPreviewCanvases(sourceSvg);
+    const cloneCanvases = collectPreviewCanvases(cloneSvg);
+    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
+    let hydrated = 0;
+    for (let idx = 0; idx < count; idx += 1) {
+      const sourceCanvas = sourceCanvases[idx];
+      const cloneCanvas = cloneCanvases[idx];
+      const dataUrl = canvasToPreviewDataUrl(sourceCanvas);
+      if (!dataUrl || !cloneCanvas?.parentNode) {
+        continue;
+      }
+      const doc = cloneCanvas.ownerDocument || document;
+      const img = doc.createElement('img');
+      img.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+      img.setAttribute('src', dataUrl);
+      img.setAttribute('data-preview-canvas-bitmap', 'true');
+      img.setAttribute('width', cloneCanvas.getAttribute('width') || String(sourceCanvas.width || 1));
+      img.setAttribute('height', cloneCanvas.getAttribute('height') || String(sourceCanvas.height || 1));
+      const style = cloneCanvas.getAttribute('style');
+      if (style) {
+        img.setAttribute('style', style);
+      }
+      img.style.display = cloneCanvas.style?.display || 'block';
+      img.style.width = cloneCanvas.style?.width || `${sourceCanvas.width || 1}px`;
+      img.style.height = cloneCanvas.style?.height || `${sourceCanvas.height || 1}px`;
+      img.style.background = cloneCanvas.style?.background || 'transparent';
+      img.style.pointerEvents = 'none';
+      cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
+      hydrated += 1;
+    }
+    if (hydrated) {
+      cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
+    }
+    return hydrated;
+  }
+
+  function resolvePreviewFallbackBox(svg, sizing) {
+    const source = sizing || resolvePreviewSizing(svg);
+    const minX = Number.isFinite(source?.minX) ? source.minX : 0;
+    const minY = Number.isFinite(source?.minY) ? source.minY : 0;
+    const width = Number.isFinite(source?.boxW) && source.boxW > 0 ? source.boxW : TAB_PREVIEW_TARGET_WIDTH;
+    const height = Number.isFinite(source?.boxH) && source.boxH > 0 ? source.boxH : TAB_PREVIEW_MIN_HEIGHT;
+    return {
+      x: minX + width * 0.14,
+      y: minY + height * 0.17,
+      width: Math.max(1, width * 0.64),
+      height: Math.max(1, height * 0.58)
+    };
+  }
+
+  function resolvePreviewNodeBox(node, svg, sizing) {
+    if (node && typeof node.getBBox === 'function') {
+      try {
+        const box = node.getBBox();
+        if (Number.isFinite(box?.x) && Number.isFinite(box?.y) && Number.isFinite(box?.width) && Number.isFinite(box?.height) && box.width > 0 && box.height > 0) {
+          return { x: box.x, y: box.y, width: box.width, height: box.height };
+        }
+      } catch (_err) {
+        // Detached preview clones often cannot report getBBox; fall back to viewport proportions.
+      }
+    }
+    const foreignObject = node?.querySelector?.('foreignObject[data-point-renderer], foreignobject[data-point-renderer]') || null;
+    if (foreignObject) {
+      return {
+        x: readPreviewNumber(foreignObject, 'x', 0),
+        y: readPreviewNumber(foreignObject, 'y', 0),
+        width: Math.max(1, readPreviewNumber(foreignObject, 'width', 1)),
+        height: Math.max(1, readPreviewNumber(foreignObject, 'height', 1))
+      };
+    }
+    return resolvePreviewFallbackBox(svg, sizing);
+  }
+
+  function getPreviewPointLayerSelector(type) {
+    if (type === 'box') {
+      return '[data-export-layer="box-points"]';
+    }
+    if (type === 'scatter') {
+      return '[data-export-layer="scatter-points"]';
+    }
+    return '';
+  }
+
+  function measurePreviewPointLayerComplexity(layer) {
+    if (!layer || typeof layer.querySelectorAll !== 'function') {
+      return { nodeCount: 0, pathChars: 0, hasCanvasRenderer: false };
+    }
+    const nodes = Array.from(layer.querySelectorAll('circle, rect, path, use, foreignObject, foreignobject'));
+    let pathChars = 0;
+    nodes.forEach(node => {
+      if (String(node.tagName || '').toLowerCase() === 'path') {
+        const d = node.getAttribute?.('d') || '';
+        pathChars += d.length;
+      }
+    });
+    return {
+      nodeCount: nodes.length,
+      pathChars,
+      hasCanvasRenderer: !!layer.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]')
+    };
+  }
+
+  function shouldSimplifyPreviewPointLayer(layer, type, options = {}) {
+    if (options.force) {
+      return true;
+    }
+    if (!layer || layer.querySelector?.('[data-preview-canvas-simplified]')) {
+      return false;
+    }
+    if (layer.querySelector?.('[data-preview-canvas-bitmap]')) {
+      return false;
+    }
+    const complexity = measurePreviewPointLayerComplexity(layer);
+    return complexity.hasCanvasRenderer
+      || complexity.nodeCount > 400
+      || complexity.pathChars > 20000
+      || (type === 'box' && !!layer.querySelector?.('[data-box-export-geometry="1"], [data-box-approx-symbol-geometry="1"]'));
+  }
+
+  function simplifyPointLayerForPreview(layer, type, svg, sizing) {
+    if (!layer || typeof layer.appendChild !== 'function') {
+      return false;
+    }
+    const box = resolvePreviewNodeBox(layer, svg, sizing);
+    while (layer.firstChild) {
+      layer.removeChild(layer.firstChild);
+    }
+    if (type === 'box') {
+      appendBoxCanvasPreviewGlyph(layer, box);
+    } else {
+      appendScatterCanvasPreviewGlyphs(layer, box);
+    }
+    return true;
+  }
+
+  function simplifyHeavyPointLayersForPreview(svg, type, sizing, options = {}) {
+    const selector = getPreviewPointLayerSelector(type);
+    if (!svg || !selector || typeof svg.querySelectorAll !== 'function') {
+      return 0;
+    }
+    const layers = Array.from(svg.querySelectorAll(selector));
+    let simplified = 0;
+    layers.forEach(layer => {
+      if (!shouldSimplifyPreviewPointLayer(layer, type, options)) {
+        return;
+      }
+      if (simplifyPointLayerForPreview(layer, type, svg, sizing)) {
+        simplified += 1;
+      }
+    });
+    if (simplified) {
+      svg.setAttribute('data-preview-canvas-simplified', String(simplified));
+    }
+    return simplified;
+  }
+
+  function simplifyCanvasLayersForPreview(svg, type) {
+    if (!svg || typeof svg.querySelectorAll !== 'function') {
+      return 0;
+    }
+    const objects = Array.from(svg.querySelectorAll('foreignObject[data-point-renderer], foreignobject[data-point-renderer]'));
+    let simplified = 0;
+    objects.forEach(node => {
+      const layer = node.closest?.('[data-export-layer]') || node.parentNode;
+      if (!layer || typeof layer.appendChild !== 'function') {
+        return;
+      }
+      const box = {
+        x: readPreviewNumber(node, 'x', 0),
+        y: readPreviewNumber(node, 'y', 0),
+        width: Math.max(1, readPreviewNumber(node, 'width', 1)),
+        height: Math.max(1, readPreviewNumber(node, 'height', 1))
+      };
+      if (node.parentNode) {
+        node.parentNode.removeChild(node);
+      }
+      if (type === 'box') {
+        appendBoxCanvasPreviewGlyph(layer, box);
+      } else {
+        appendScatterCanvasPreviewGlyphs(layer, box);
+      }
+      simplified += 1;
+    });
+    if (simplified) {
+      svg.setAttribute('data-preview-canvas-simplified', String(simplified));
+    }
+    return simplified;
+  }
+
   function getRenderCacheSequence(tab) {
     const seq = Number(tab?.renderCache?.captureSequence);
     return Number.isFinite(seq) && seq > 0 ? seq : 0;
@@ -361,7 +662,12 @@
       return null;
     }
     const sizing = resolvePreviewSizing(svg);
-    const forceHybrid = shouldForceHybridPreviewCapture(svg, config.type);
+    const clone = svg.cloneNode(true);
+    const hydratedCanvasLayers = hydrateCanvasBitmapsForPreview(svg, clone);
+    const simplifiedCanvasLayers = hydratedCanvasLayers ? 0 : simplifyCanvasLayersForPreview(clone, config.type);
+    const simplifiedHeavyPointLayers = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing);
+    const simplifiedLayerCount = simplifiedCanvasLayers + simplifiedHeavyPointLayers;
+    const forceHybrid = !hydratedCanvasLayers && !simplifiedLayerCount && shouldForceHybridPreviewCapture(clone, config.type);
     if (forceHybrid) {
       const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
         reason: 'canvas-layer',
@@ -380,18 +686,57 @@
         return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: true };
       }
     }
-    const clone = svg.cloneNode(true);
     applyPreviewSizing(clone, sizing);
     ensurePreviewBackground(clone, sizing);
     const serializer = new XMLSerializer();
     let markup = serializer.serializeToString(clone);
-    let previewSimplified = false;
+    let previewSimplified = simplifiedLayerCount > 0;
     if (!markup) {
       console.debug('Debug: preview capture skipped', { reason: 'serialize-empty', type: config.type, tabId: tab?.id || null });
       return null;
     }
     if (markup.length > TAB_PREVIEW_MAX_CHARS) {
       console.debug('Debug: preview oversize detected', { length: markup.length, type: config.type, tabId: tab?.id || null });
+      if (hydratedCanvasLayers && markup.length <= TAB_PREVIEW_MAX_CHARS_HYBRID) {
+        console.debug('Debug: preview canvas bitmap accepted above vector budget', {
+          tabId: tab?.id || null,
+          type: config.type,
+          length: markup.length,
+          bitmapLayers: hydratedCanvasLayers
+        });
+        return {
+          markup,
+          width: sizing.targetWidth,
+          height: sizing.targetHeight,
+          size: markup.length,
+          simplified: previewSimplified,
+          canvasSimplified: false,
+          canvasBitmap: true
+        };
+      }
+      const forcedSimplified = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing, { force: config.type === 'box' || config.type === 'scatter' });
+      if (forcedSimplified) {
+        markup = serializer.serializeToString(clone);
+        previewSimplified = true;
+        if (markup && markup.length <= TAB_PREVIEW_MAX_CHARS) {
+          console.debug('Debug: preview oversize simplified', {
+            tabId: tab?.id || null,
+            type: config.type,
+            length: markup.length,
+            simplifiedLayers: forcedSimplified
+          });
+          return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: true, canvasSimplified: true, canvasBitmap: hydratedCanvasLayers > 0 };
+        }
+      }
+      if (config.type === 'box' || config.type === 'scatter') {
+        const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
+          message: 'Preview simplified',
+          detail: 'Large dataset'
+        });
+        if (placeholder) {
+          return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: true, canvasSimplified: true, canvasBitmap: false };
+        }
+      }
       const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
         reason: 'oversize',
         payloadSignature: tab?.payloadSignature || null
@@ -419,7 +764,15 @@
       width: sizing.targetWidth,
       height: sizing.targetHeight
     });
-    return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: previewSimplified };
+    return {
+      markup,
+      width: sizing.targetWidth,
+      height: sizing.targetHeight,
+      size: markup.length,
+      simplified: previewSimplified,
+      canvasSimplified: simplifiedLayerCount > 0,
+      canvasBitmap: hydratedCanvasLayers > 0
+    };
   }
 
   function syncTabPreviewIndicator(tab) {
@@ -481,15 +834,28 @@
       : null;
     const renderCacheSequence = getRenderCacheSequence(tab);
     const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || config.element?.querySelector?.('.svgbox svg') || null, config.type)
-      && !tab.previewMeta?.hybrid;
+      && !tab.previewMeta?.hybrid
+      && !tab.previewMeta?.canvasBitmap
+      && !tab.previewMeta?.canvasSimplified;
     const needsRenderCacheRefresh = renderCacheSequence > 0
       && Number(tab.previewMeta?.renderCacheSequence || 0) !== renderCacheSequence;
+    const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
+      && !tab.previewMeta?.hybrid
+      && !tab.previewMeta?.canvasBitmap
+      && !tab.previewMeta?.canvasSimplified;
+    const needsLegacyCanvasGlyphRefresh = !!tab.previewMeta?.canvasSimplified
+      && !tab.previewMeta?.canvasBitmap
+      && typeof tab.previewMarkup === 'string'
+      && tab.previewMarkup.includes('data-preview-canvas-simplified')
+      && (tab.type === 'box' || tab.type === 'scatter');
     const shouldCapture = meta.forceCapture
       || !tab.previewMarkup
       || !tab.previewSignature
       || (payloadSignature && tab.previewSignature !== payloadSignature)
       || needsHybridRefresh
-      || needsRenderCacheRefresh;
+      || needsRenderCacheRefresh
+      || needsPlaceholderRefresh
+      || needsLegacyCanvasGlyphRefresh;
     if (!shouldCapture) {
       console.debug('Debug: preview reuse', { tabId: tab.id, signature: tab.previewSignature, meta });
       return false;
@@ -503,6 +869,8 @@
         height: preview.height,
         size: preview.size,
         simplified: !!preview.simplified,
+        canvasSimplified: !!preview.canvasSimplified,
+        canvasBitmap: !!preview.canvasBitmap,
         hybrid: !!preview.hybrid,
         renderCacheSequence,
         updatedAt: Date.now(),

@@ -21041,6 +21041,22 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     return true;
   }
 
+  function resolveScatterPreviewSourceSvg(tab){
+    const cachedFragment = tab?.renderCache?.cache?.plot?.fragment || null;
+    if(cachedFragment && typeof cachedFragment.querySelector === 'function'){
+      const cachedSvg = cachedFragment.querySelector('#scatterSvg') || cachedFragment.querySelector('svg');
+      if(cachedSvg){
+        return cachedSvg;
+      }
+    }
+    const plot = document.getElementById('scatterPlot');
+    return plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
+  }
+
+  scatter.getThumbnailSvg = function getThumbnailSvg(tab){
+    return resolveScatterPreviewSourceSvg(tab);
+  };
+
   scatter.captureRenderCache = function captureRenderCache(){
     const plot = document.getElementById('scatterPlot');
     const stats = document.getElementById('scatterStatsResults');

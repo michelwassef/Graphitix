@@ -32628,6 +32628,10 @@ Technical analysis record (advanced)
     return buildBoxPreviewSvgFromSource(sourceSvg);
   };
 
+  box.getThumbnailSvg = function getThumbnailSvg(tab){
+    return resolveBoxPreviewSourceSvg(tab);
+  };
+
   box.captureRenderCache = function captureRenderCache(){
     const plotCache = detachChildren(els.plotDiv);
     const controlsCache = detachChildren(els.statsControls);

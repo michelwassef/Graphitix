@@ -63,6 +63,8 @@ Autosave is off by default and persisted in `localStorage` under `graphitix.auto
 
 Crash recovery is separate from Autosave. `Main.documentState` periodically writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes.
 
+Recovery snapshots are eligible only when the workspace has at least one graph tab with meaningful data according to the same `Main.session.graphTabsHaveData()` / `tabHasTableData()` heuristics used by unload prompts. Explicit discard paths clear the private recovery snapshot before continuing, so discarded changes are not offered again on the next launch.
+
 ## 3. Session Payload Shape (Archive-Level)
 
 `Main.session.buildSessionPayload()` returns:

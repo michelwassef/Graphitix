@@ -131,6 +131,9 @@
       workspaceState.pendingClosePrompt = null;
       hideUnsavedPrompt();
       console.debug('Debug: unsaved prompt discard confirmed', { tabId: pending.tabId });
+      if (window.Main?.documentState && typeof window.Main.documentState.clearRecoverySnapshot === 'function') {
+        void window.Main.documentState.clearRecoverySnapshot('unsaved-tab-discard');
+      }
       closeTab(pending.tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-discard' });
     }
 
@@ -192,6 +195,9 @@
         const proceed = window.confirm ? window.confirm(confirmMessage) : true;
         console.debug('Debug: unsaved prompt fallback confirm', { tabId, proceed });
         if (proceed) {
+          if (window.Main?.documentState && typeof window.Main.documentState.clearRecoverySnapshot === 'function') {
+            void window.Main.documentState.clearRecoverySnapshot('unsaved-tab-discard-fallback');
+          }
           closeTab(tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'fallback-confirm' });
         } else {
           workspaceState.pendingClosePrompt = null;

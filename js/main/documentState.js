@@ -125,6 +125,55 @@
     return String(workspaceState.sessionFileName || '').trim() || 'Untitled.graph';
   }
 
+  function currentWorkspaceHasRecoverableData() {
+    if (!state?.session || typeof state.session.graphTabsHaveData !== 'function') {
+      const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
+      return tabs.some(tab => tab && !tab.isWelcome && tab.type);
+    }
+    return !!state.session.graphTabsHaveData();
+  }
+
+  function parsedSessionHasRecoverableData(parsed) {
+    const tabs = Array.isArray(parsed?.session?.tabs) ? parsed.session.tabs : [];
+    if (!tabs.length) {
+      return false;
+    }
+    if (typeof state?.session?.tabHasTableData !== 'function') {
+      return true;
+    }
+    return tabs.some(tabData => state.session.tabHasTableData({
+      id: 'recovery-preview',
+      type: tabData?.type || tabData?.payload?.type || null,
+      payload: tabData?.payload || null,
+      isWelcome: false
+    }));
+  }
+
+  async function recoveryRecordHasRecoverableData(record) {
+    if (!record?.blob) {
+      return false;
+    }
+    if (Number.isFinite(Number(record?.meta?.tabCount)) && Number(record.meta.tabCount) <= 0) {
+      return false;
+    }
+    if (record.meta && Object.prototype.hasOwnProperty.call(record.meta, 'hasData')) {
+      return !!record.meta.hasData;
+    }
+    try {
+      const graphArchive = window.Shared?.graphArchive || null;
+      if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
+        return true;
+      }
+      const parsed = await graphArchive.parseFile(record.blob, {
+        fileName: record?.meta?.fileName || record.blob?.name || 'recovered.graph'
+      });
+      return parsedSessionHasRecoverableData(parsed);
+    } catch (err) {
+      debug('recovery.inspectFailed', { message: err?.message || String(err) });
+      return true;
+    }
+  }
+
   function syncTitle(meta = {}) {
     if (!state) {
       return;
@@ -156,6 +205,9 @@
     if (!state?.sessionActions || typeof state.sessionActions.buildWorkspaceArchiveBlob !== 'function') {
       return null;
     }
+    if (!currentWorkspaceHasRecoverableData()) {
+      return null;
+    }
     const context = state.getSessionActionsContext();
     const blob = await state.sessionActions.buildWorkspaceArchiveBlob(context, {
       reason,
@@ -166,6 +218,10 @@
       return null;
     }
     const workspaceState = state.workspaceState || {};
+    const graphTabs = Array.isArray(workspaceState.tabs)
+      ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
+      : [];
+    const hasData = currentWorkspaceHasRecoverableData();
     return {
       blob,
       meta: {
@@ -176,6 +232,8 @@
         updatedAt: Date.now(),
         reason,
         dirty: !!workspaceState.sessionDirty,
+        hasData,
+        tabCount: graphTabs.length,
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
         fileScope: workspaceState.sessionFileScope || null
@@ -186,6 +244,10 @@
   async function writeRecoverySnapshot(reason = 'recovery') {
     if (!state?.workspaceState?.sessionDirty) {
       return { status: 'skipped', reason: 'clean' };
+    }
+    if (!currentWorkspaceHasRecoverableData()) {
+      await clearRecoverySnapshot('no-recoverable-data');
+      return { status: 'skipped', reason: 'no-recoverable-data' };
     }
     const sequence = ++recoveryWriteSequence;
     try {
@@ -266,6 +328,10 @@
   async function maybeRestoreRecovery() {
     const record = await readRecoverySnapshot();
     if (!record?.blob || !record?.meta?.dirty) {
+      return false;
+    }
+    if (!(await recoveryRecordHasRecoverableData(record))) {
+      await clearRecoverySnapshot('no-recoverable-data');
       return false;
     }
     const fileName = record.meta.fileName || 'recovered.graph';

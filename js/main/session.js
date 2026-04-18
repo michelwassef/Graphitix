@@ -953,6 +953,10 @@
             };
             tab.renderCacheSignature = tab.payloadSignature || null;
             tab.renderCacheLayoutSignature = tab.layoutSignature || null;
+            if (tab.previewMeta && tab.previewSignature === (tab.payloadSignature || null)) {
+              tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
+              tab.previewMeta.renderCacheCapturedAt = capturedAt;
+            }
           } else {
             clearTabRenderCache(tab, { reason: `${options.reason || 'persist-active'}:capture-empty` });
           }
