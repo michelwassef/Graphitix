@@ -22,6 +22,7 @@ Defined in `js/main/session.js`.
   sessionFilePath: string,
   sessionFileScope: 'tab' | 'workspace' | null,
   sessionDirty: boolean,
+  sessionRevision: number,
   draggingTabId: string | null,
   dragStartIndex: number | null,
   dragOverTabId: string | null,
@@ -53,7 +54,7 @@ Defined in `js/main/session.js`.
 }
 ```
 
-Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic.
+Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates increment `sessionRevision` and emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic or repeatedly snapshot an unchanged dirty session.
 
 ## 2. Document UI, Autosave, And Recovery
 
@@ -61,7 +62,7 @@ Document lifecycle state is shared by the web and Electron builds. `sessionFileH
 
 Autosave is off by default and persisted in `localStorage` under `graphitix.autosave.enabled`. When Autosave is on and the current `.graph` file has a writable target, `Main.sessionActions.autosaveWorkspace` writes through the same archive save path as manual save. If there is no writable target, Autosave still keeps the private recovery snapshot current without silently overwriting a user file.
 
-Crash recovery is separate from Autosave. `Main.documentState` periodically writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes.
+Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes. Recovery scheduling is revision-aware: intervals only write when `sessionRevision` has advanced since the last successful snapshot, and large payload signatures use a longer debounce before archive construction.
 
 Recovery snapshots are eligible only when the workspace has at least one graph tab with meaningful data according to the same `Main.session.graphTabsHaveData()` / `tabHasTableData()` heuristics used by unload prompts. Explicit discard paths clear the private recovery snapshot before continuing, so discarded changes are not offered again on the next launch.
 

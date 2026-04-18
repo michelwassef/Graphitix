@@ -42,6 +42,7 @@
    * @property {string} sessionFileName Friendly name of the current session file.
    * @property {'tab'|'workspace'|null} sessionFileScope Scope of the last saved/opened `.graph` archive.
    * @property {boolean} sessionDirty True when the in-memory session differs from disk.
+   * @property {number} sessionRevision Monotonic counter incremented on dirty-state changes.
    * @property {string|null} draggingTabId Tab currently being dragged in the UI.
    * @property {number|null} dragStartIndex Starting index for the active drag operation.
    * @property {string|null} dragOverTabId Tab currently hovered while dragging.
@@ -63,6 +64,7 @@
     sessionFilePath: '',
     sessionFileScope: null,
     sessionDirty: false,
+    sessionRevision: 0,
     draggingTabId: null,
     dragStartIndex: null,
     dragOverTabId: null,
@@ -77,9 +79,11 @@
   function markSessionDirty(reason, details) {
     const wasDirty = workspaceState.sessionDirty;
     workspaceState.sessionDirty = true;
+    workspaceState.sessionRevision = (Number(workspaceState.sessionRevision) || 0) + 1;
     notifySessionDocumentState('dirty', {
       dirty: workspaceState.sessionDirty,
       wasDirty,
+      revision: workspaceState.sessionRevision,
       reason: reason || 'unspecified',
       details: details || null
     });
@@ -96,6 +100,7 @@
     notifySessionDocumentState('clean', {
       dirty: workspaceState.sessionDirty,
       wasDirty,
+      revision: workspaceState.sessionRevision,
       reason: reason || 'unspecified'
     });
     console.debug('Debug: session dirty flag cleared', {
@@ -111,6 +116,7 @@
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
         fileScope: workspaceState.sessionFileScope || null,
+        revision: Number(workspaceState.sessionRevision) || 0,
         ...detail
       };
       window.dispatchEvent(new CustomEvent('graphitix:document-state-change', { detail: eventDetail }));

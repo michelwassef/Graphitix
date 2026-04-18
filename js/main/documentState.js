@@ -17,6 +17,55 @@
   let autosaveInterval = null;
   let webDbPromise = null;
   let recoveryWriteSequence = 0;
+  let documentStateChangeHandler = null;
+  let recoveryTimerRevision = 0;
+  let recoveryInFlightRevision = 0;
+  let lastRecoverySavedRevision = 0;
+  let autosaveInFlightRevision = 0;
+  let lastAutosaveNoTargetRevision = 0;
+
+  function getSessionRevision() {
+    return Number(state?.workspaceState?.sessionRevision) || 0;
+  }
+
+  function estimateSnapshotSignatureSize() {
+    const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
+    let total = 0;
+    tabs.forEach(tab => {
+      if (!tab || tab.isWelcome) {
+        return;
+      }
+      total += String(tab.payloadSignature || '').length;
+      total += String(tab.layoutSignature || '').length;
+    });
+    return total;
+  }
+
+  function getRecoveryDelayMs() {
+    const signatureSize = estimateSnapshotSignatureSize();
+    if (signatureSize > 1000000) {
+      return Math.max(RECOVERY_DELAY_MS, 8000);
+    }
+    if (signatureSize > 250000) {
+      return Math.max(RECOVERY_DELAY_MS, 5000);
+    }
+    return RECOVERY_DELAY_MS;
+  }
+
+  function isRecoverySnapshotCurrent() {
+    const revision = getSessionRevision();
+    return revision > 0 && lastRecoverySavedRevision >= revision;
+  }
+
+  function hasRecoverySnapshotDue() {
+    const revision = getSessionRevision();
+    const inFlight = revision > 0
+      ? recoveryInFlightRevision === revision
+      : recoveryInFlightRevision < 0;
+    return !!state?.workspaceState?.sessionDirty
+      && !isRecoverySnapshotCurrent()
+      && !inFlight;
+  }
 
   function debug(message, payload) {
     const Shared = window.Shared || {};
@@ -245,11 +294,23 @@
     if (!state?.workspaceState?.sessionDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
+    const revision = getSessionRevision();
+    if (revision > 0 && lastRecoverySavedRevision >= revision) {
+      debug('recovery.write.skippedCurrent', { reason, revision });
+      return { status: 'skipped', reason: 'current', revision };
+    }
+    const inFlightToken = revision > 0 ? revision : -1;
+    if (recoveryInFlightRevision === inFlightToken) {
+      debug('recovery.write.skippedInFlight', { reason, revision });
+      return { status: 'skipped', reason: 'in-flight', revision };
+    }
     if (!currentWorkspaceHasRecoverableData()) {
       await clearRecoverySnapshot('no-recoverable-data');
+      lastRecoverySavedRevision = revision;
       return { status: 'skipped', reason: 'no-recoverable-data' };
     }
     const sequence = ++recoveryWriteSequence;
+    recoveryInFlightRevision = inFlightToken;
     try {
       const record = await buildRecoveryRecord(reason);
       if (!record) {
@@ -264,6 +325,7 @@
           meta: record.meta,
           dataBase64: await blobToBase64(record.blob)
         });
+        lastRecoverySavedRevision = revision;
         debug('recovery.write.desktop', { bytes: record.blob.size, reason });
         return { status: 'saved', via: 'desktop', bytes: record.blob.size };
       }
@@ -271,22 +333,45 @@
         meta: record.meta,
         blob: record.blob
       });
+      lastRecoverySavedRevision = revision;
       debug('recovery.write.web', { bytes: record.blob.size, reason });
       return { status: 'saved', via: 'web', bytes: record.blob.size };
     } catch (err) {
       console.error('documentState recovery snapshot error', err);
       return { status: 'error', error: err };
+    } finally {
+      if (recoveryInFlightRevision === inFlightToken) {
+        recoveryInFlightRevision = 0;
+      }
     }
   }
 
   function scheduleRecoverySnapshot(reason = 'document-change') {
+    if (!hasRecoverySnapshotDue()) {
+      debug('recovery.schedule.skipped', {
+        reason,
+        revision: getSessionRevision(),
+        lastRecoverySavedRevision,
+        recoveryInFlightRevision
+      });
+      return;
+    }
+    recoveryTimerRevision = getSessionRevision();
     if (recoveryTimer) {
       window.clearTimeout(recoveryTimer);
     }
+    const delay = getRecoveryDelayMs();
     recoveryTimer = window.setTimeout(() => {
+      const scheduledRevision = recoveryTimerRevision;
       recoveryTimer = null;
+      recoveryTimerRevision = 0;
+      if (scheduledRevision > 0 && lastRecoverySavedRevision >= scheduledRevision) {
+        debug('recovery.timer.skippedCurrent', { reason, scheduledRevision, lastRecoverySavedRevision });
+        return;
+      }
       void writeRecoverySnapshot(reason);
-    }, RECOVERY_DELAY_MS);
+    }, delay);
+    debug('recovery.schedule', { reason, revision: recoveryTimerRevision, delay });
   }
 
   async function clearRecoverySnapshot(reason = 'clear') {
@@ -373,11 +458,35 @@
     if (!state.workspaceState?.sessionDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
-    const result = await state.sessionActions.autosaveWorkspace(state.getSessionActionsContext(), { reason });
-    if (result?.status === 'saved' || result?.status === 'downloaded') {
-      await clearRecoverySnapshot('autosave-success');
-    } else {
-      await writeRecoverySnapshot(`${reason}-private-snapshot`);
+    const revision = getSessionRevision();
+    if (revision > 0 && autosaveInFlightRevision === revision) {
+      return { status: 'skipped', reason: 'in-flight', revision };
+    }
+    if (revision > 0 && lastAutosaveNoTargetRevision === revision && !state.workspaceState?.sessionFileHandle) {
+      if (hasRecoverySnapshotDue()) {
+        await writeRecoverySnapshot(`${reason}-private-snapshot`);
+      }
+      return { status: 'skipped', reason: 'no-file-target', revision };
+    }
+    autosaveInFlightRevision = revision;
+    let result = null;
+    try {
+      result = await state.sessionActions.autosaveWorkspace(state.getSessionActionsContext(), { reason });
+      if (result?.status === 'saved' || result?.status === 'downloaded') {
+        lastRecoverySavedRevision = revision;
+        await clearRecoverySnapshot('autosave-success');
+      } else {
+        if (result?.reason === 'no-file-target') {
+          lastAutosaveNoTargetRevision = revision;
+        }
+        if (hasRecoverySnapshotDue()) {
+          await writeRecoverySnapshot(`${reason}-private-snapshot`);
+        }
+      }
+    } finally {
+      if (autosaveInFlightRevision === revision) {
+        autosaveInFlightRevision = 0;
+      }
     }
     syncTitle({ reason });
     return result;
@@ -417,17 +526,23 @@
       restoringRecovery: false
     };
     bindUi();
-    window.addEventListener('graphitix:document-state-change', event => {
+    documentStateChangeHandler = event => {
+      if (!state) {
+        return;
+      }
       const type = event?.detail?.type || 'change';
       syncTitle({ reason: type });
       if (state.workspaceState?.sessionDirty) {
         scheduleRecoverySnapshot(type);
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {
+        lastRecoverySavedRevision = getSessionRevision();
+        lastAutosaveNoTargetRevision = 0;
         void clearRecoverySnapshot(type);
       }
-    });
+    };
+    window.addEventListener('graphitix:document-state-change', documentStateChangeHandler);
     recoveryInterval = window.setInterval(() => {
-      if (state.workspaceState?.sessionDirty) {
+      if (hasRecoverySnapshotDue()) {
         void writeRecoverySnapshot('recovery-interval');
       }
     }, RECOVERY_INTERVAL_MS);
@@ -449,9 +564,11 @@
     if (recoveryTimer) window.clearTimeout(recoveryTimer);
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
+    if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);
     recoveryTimer = null;
     recoveryInterval = null;
     autosaveInterval = null;
+    documentStateChangeHandler = null;
     state = null;
   };
 })();
