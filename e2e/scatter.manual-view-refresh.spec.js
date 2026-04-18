@@ -295,4 +295,96 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(explicitLabelState.hasFirstLabel).toBe(true);
     expect(explicitLabelState.hasLastExpectedLabel).toBe(true);
   });
+
+  test('large plain scatter keeps auto density while avoiding large label bookkeeping', async ({ page }) => {
+    test.setTimeout(180000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(
+      page,
+      { type: 'scatter', pageId: 'scatterPage' },
+      { first: true }
+    );
+
+    await page.waitForFunction(() => {
+      const scatter = window.Components?.scatter;
+      const hot = scatter?.__ensureHotForActiveTab?.();
+      return !!(hot && hot.gridApi && typeof hot.loadData === 'function');
+    }, null, { timeout: 60000 });
+
+    await page.evaluate(() => {
+      const typeSelect = document.getElementById('scatterGraphType');
+      if(typeSelect){
+        typeSelect.value = 'scatter';
+        typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const colorMode = document.getElementById('scatterColorMode');
+      if(colorMode){
+        colorMode.value = 'auto';
+        colorMode.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+      const rows = [['label', 'x', 'y', 'z']];
+      for(let idx = 1; idx <= 20000; idx += 1){
+        const angle = idx / 37;
+        rows.push([
+          `POINT_${idx}`,
+          String((idx % 1000) / 10),
+          String(Math.sin(angle) * 20 + (idx % 400) / 8),
+          String((idx % 300) + 1)
+        ]);
+      }
+      hot.loadData(rows);
+      window.Components.scatter.draw();
+    });
+
+    await page.waitForFunction(() => {
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      return !!layer && layer.getAttribute('data-render-mode') === 'canvas'
+        && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas');
+    }, null, { timeout: 120000 });
+
+    const summary = await page.evaluate(() => {
+      const hooks = window.Components?.scatter?.__testHooks;
+      const state = hooks?.getLargeDatasetRenderSummary?.() || {};
+      const autoMode = hooks?.resolveColorMode?.({
+        mode: 'auto',
+        graphType: 'scatter',
+        pointCount: 20000,
+        viewMode: '2d'
+      }) || {};
+      const explicitDensity = hooks?.resolveColorMode?.({
+        mode: 'density',
+        graphType: 'scatter',
+        pointCount: 20000,
+        viewMode: '2d'
+      }) || {};
+      const policy = hooks?.resolveLargeDatasetPolicy?.({
+        graphType: 'scatter',
+        rowCount: 20000,
+        pointCount: 20000,
+        viewMode: '2d'
+      }) || {};
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      return {
+        ...state,
+        autoApplied: autoMode.applied || null,
+        explicitDensityApplied: explicitDensity.applied || null,
+        collectLabelSet: !!policy.collectLabelSet,
+        useLargePointMode: !!policy.useLargePointMode,
+        nodeCount: layer ? layer.querySelectorAll('*').length : 0
+      };
+    });
+
+    expect(summary.renderMode).toBe('canvas');
+    expect(summary.nodeCount).toBeLessThan(10);
+    expect(summary.colorModeDesired).toBe('auto');
+    expect(summary.colorModeApplied).toBe('density');
+    expect(summary.autoApplied).toBe('density');
+    expect(summary.explicitDensityApplied).toBe('density');
+    expect(summary.collectLabelSet).toBe(false);
+    expect(summary.useLargePointMode).toBe(true);
+    expect(summary.labelCount).toBe(0);
+  });
 });

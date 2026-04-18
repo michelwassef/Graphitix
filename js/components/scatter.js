@@ -2014,16 +2014,63 @@
     return { values, max: maxDensity };
   }
 
+  function resolveScatterLargeDatasetPolicy(options = {}){
+    const graphType = String(options?.graphType || 'scatter').toLowerCase();
+    const viewMode = typeof options?.viewMode === 'string'
+      ? options.viewMode.toLowerCase()
+      : (scatterState.viewMode || '2d');
+    const requestedViewMode = typeof options?.requestedViewMode === 'string'
+      ? options.requestedViewMode.toLowerCase()
+      : viewMode;
+    const rowCount = Math.max(0, Number(options?.rowCount) || 0);
+    const pointCountRaw = Number(options?.pointCount);
+    const pointCount = Math.max(0, Number.isFinite(pointCountRaw) ? pointCountRaw : rowCount);
+    const largeRows = rowCount >= SCATTER_POINT_BATCH_THRESHOLD;
+    const largePoints = pointCount >= SCATTER_POINT_BATCH_THRESHOLD;
+    const is2d = viewMode === '2d';
+    const large2dPoints = is2d && largePoints;
+    const large2dRows = is2d && largeRows;
+    const isPlainScatter = graphType === 'scatter';
+    const allowDensity = isPlainScatter && viewMode !== '3d';
+    const autoDensity = allowDensity
+      && pointCount > SCATTER_DENSITY_POINT_THRESHOLD;
+    const collectLabelSet = isPlainScatter && !large2dRows;
+    const autoDisableSignificantLabels = (graphType === 'volcano' || graphType === 'ma')
+      && !!options?.significantLabelsEnabled
+      && !options?.significantLabelsUserModified
+      && rowCount > SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT;
+    return {
+      graphType,
+      viewMode,
+      requestedViewMode,
+      rowCount,
+      pointCount,
+      largeRows,
+      largePoints,
+      large2dRows,
+      large2dPoints,
+      collectLabelSet,
+      autoDensity,
+      autoDisableSignificantLabels,
+      useLargePointMode: large2dPoints
+    };
+  }
+
   function resolveScatterColorMode(options){
     const desired = normalizeScatterColorMode(options?.mode);
     const graphType = options?.graphType || 'scatter';
     const viewMode = typeof options?.viewMode === 'string' ? options.viewMode.toLowerCase() : scatterState.viewMode || '2d';
     const pointCount = Number(options?.pointCount) || 0;
+    const largeDatasetPolicy = options?.largeDatasetPolicy || resolveScatterLargeDatasetPolicy({
+      graphType,
+      viewMode,
+      pointCount
+    });
     const allowDensity = graphType === 'scatter' && viewMode !== '3d';
-    const applied = allowDensity && (desired === 'density' || (desired === 'auto' && pointCount > SCATTER_DENSITY_POINT_THRESHOLD))
+    const applied = allowDensity && (desired === 'density' || (desired === 'auto' && largeDatasetPolicy.autoDensity))
       ? 'density'
       : 'solid';
-    return { desired, applied, allowDensity };
+    return { desired, applied, allowDensity, largeDatasetPolicy };
   }
 
   /**
@@ -15270,7 +15317,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
         let thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
-        const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
+        const maxLen = canReuseCollectCache && Array.isArray(cachedCollect?.points)
+          ? cachedCollect.points.length
+          : rowCount;
+        const collectLargeDatasetPolicy = resolveScatterLargeDatasetPolicy({
+          graphType,
+          rowCount: maxLen,
+          viewMode: scatterState.viewMode,
+          requestedViewMode: scatterState.requestedViewMode,
+          significantLabelsEnabled: thresholdLabelEnabled,
+          significantLabelsUserModified: scatterState.significantLabelsUserModified
+        });
+        const shouldCollectLabelSet = collectLargeDatasetPolicy.collectLabelSet;
         let points=[];
         let labelSet=shouldCollectLabelSet ? new Set() : null;
         let labelsUsed = [];
@@ -15299,11 +15357,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let bubbleMinRaw = Infinity;
         let bubbleMaxRaw = -Infinity;
         let manualLabelSignature = selectedRowSignature;
-        const maxLen = rowCount;
-        const shouldAutoDisableSignificantLabels = (graphType === 'volcano' || graphType === 'ma')
-          && !!scatterShowSignificantLabels?.checked
-          && !scatterState.significantLabelsUserModified
-          && maxLen > SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT;
+        const shouldAutoDisableSignificantLabels = collectLargeDatasetPolicy.autoDisableSignificantLabels;
         if(shouldAutoDisableSignificantLabels){
           scatterShowSignificantLabels.checked = false;
           thresholdLabelEnabled = false;
@@ -15314,12 +15368,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             limit: SCATTER_SIGNIFICANT_LABELS_AUTO_OFF_POINT_LIMIT
           });
         }
+        if(collectLargeDatasetPolicy.largeRows){
+          scatterDebug('Debug: scatter large dataset policy resolved', {
+            graphType,
+            rowCount: collectLargeDatasetPolicy.rowCount,
+            viewMode: collectLargeDatasetPolicy.viewMode,
+            requestedViewMode: collectLargeDatasetPolicy.requestedViewMode,
+            collectLabelSet: collectLargeDatasetPolicy.collectLabelSet,
+            autoDensity: collectLargeDatasetPolicy.autoDensity
+          });
+        }
         const collectPerf = !canReuseCollectCache && perfApi && typeof perfApi.start === 'function'
           ? perfApi.start('scatter.data.collect', { component: 'scatter', rows: maxLen })
           : null;
         if(canReuseCollectCache){
           points = Array.isArray(cachedCollect.points) ? cachedCollect.points : [];
           labelsUsed = Array.isArray(cachedCollect.labelsUsed) ? cachedCollect.labelsUsed.slice() : [];
+          if(!shouldCollectLabelSet && labelsUsed.length){
+            labelsUsed = [];
+          }
           labelSet = shouldCollectLabelSet ? new Set(labelsUsed) : null;
           xMinRaw = Number(cachedCollect.xMinRaw);
           xMaxRaw = Number(cachedCollect.xMaxRaw);
@@ -16125,11 +16192,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ? resolveScatterAxisVariance(pointsInRange)
           : null;
         scatterColorModeDesired = scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT;
+        const renderLargeDatasetPolicy = resolveScatterLargeDatasetPolicy({
+          graphType: scatterCurrentGraphType,
+          rowCount: maxLen,
+          pointCount: pointsInRange.length,
+          viewMode: scatterState.viewMode,
+          requestedViewMode: scatterState.requestedViewMode
+        });
         const colorModeSetting = resolveScatterColorMode({
           mode: scatterColorModeDesired,
           pointCount: pointsInRange.length,
           graphType: scatterCurrentGraphType,
-          viewMode: scatterState.viewMode
+          viewMode: scatterState.viewMode,
+          largeDatasetPolicy: renderLargeDatasetPolicy
         });
         scatterColorModeApplied = colorModeSetting.applied;
         const densityPaletteKey = normalizeScatterDensityPalette(scatterDensityPalette?.value);
@@ -16142,6 +16217,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           desired: scatterColorModeDesired,
           applied: scatterColorModeApplied,
           allowDensity: colorModeSetting.allowDensity,
+          largeDataset: renderLargeDatasetPolicy.largePoints,
+          autoDensityAllowed: renderLargeDatasetPolicy.autoDensity,
           palette: densityPaletteKey,
           pointCount: pointsInRange.length,
           viewMode: scatterState.viewMode
@@ -16199,8 +16276,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           });
         }
         const largeScatterPointMode = scatterCurrentGraphType === 'scatter'
-          && scatterState.viewMode === '2d'
-          && pointsInRange.length >= SCATTER_POINT_BATCH_THRESHOLD;
+          && renderLargeDatasetPolicy.useLargePointMode;
         const labelDistribution = scatterCurrentGraphType==='scatter'
           ? (largeScatterPointMode
             ? {
@@ -16225,6 +16301,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             totalPoints: labelDistribution.totalPoints
           });
         }
+        scatter.__lastLargeDatasetRenderSummary = {
+          graphType: scatterCurrentGraphType,
+          viewMode: scatterState.viewMode,
+          pointCount: pointsInRange.length,
+          labelCount: labelsUsed.length,
+          colorModeDesired: scatterColorModeDesired,
+          colorModeApplied: scatterColorModeApplied,
+          collectLabelSet: shouldCollectLabelSet,
+          useLargePointMode: renderLargeDatasetPolicy.useLargePointMode,
+          renderMode: null
+        };
         if(scatterCurrentGraphType==='scatter' && !useUniformLabelStyle){
           const labelsUsedSet = labelSet || new Set(labelsUsed);
           ensureScatterLabelColors(labelsUsed, { labelSet: labelsUsedSet });
@@ -18409,7 +18496,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && scatterCurrentGraphType === 'scatter'
           && !!scatterShowErrorBars?.checked
           && errorBarWidthPx > 0;
-        const largePointMode = scatterState.viewMode === '2d' && points.length >= SCATTER_POINT_BATCH_THRESHOLD;
+        const largePointMode = renderLargeDatasetPolicy.useLargePointMode;
         const useCanvasPointRender = largePointMode && !isBubbleView && !showGroupedErrorBars && canUseScatterPointCanvas();
         const useBatchedCircleRender = largePointMode && !useCanvasPointRender && !isBubbleView && !showGroupedErrorBars;
         const densityColorSteps = (largePointMode && scatterColorModeApplied === 'density')
@@ -18746,6 +18833,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         if(perfApi && pointAttachPerf){
           perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: canvasPointLayerRendered });
+        }
+        if(scatter.__lastLargeDatasetRenderSummary){
+          scatter.__lastLargeDatasetRenderSummary.renderMode = pointLayer.getAttribute('data-render-mode') || null;
         }
         if(scatterState.useDelegatedPointEvents && enablePointInteractivity){
           ensureScatterPointDelegation(pointLayer);
@@ -21181,6 +21271,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.__testHooks = Object.assign({}, scatter.__testHooks, {
     benchmarkLoad: opts => benchmarkScatterLoad(opts),
+    resolveLargeDatasetPolicy: opts => resolveScatterLargeDatasetPolicy(opts || {}),
+    resolveColorMode: opts => resolveScatterColorMode(opts || {}),
+    getLargeDatasetRenderSummary: () => Object.assign({}, scatter.__lastLargeDatasetRenderSummary || {}, {
+      renderMode: global.document?.querySelector?.('#scatterPlot svg [data-layer="points"]')?.getAttribute?.('data-render-mode')
+        || scatter.__lastLargeDatasetRenderSummary?.renderMode
+        || null
+    }),
     buildAnnotationRequests: (points, options) => buildScatterAnnotationRequests(points, options),
     layoutAnnotations: params => layoutScatterAnnotations(params),
     resolveAnnotationCrowdingScale: (count, options) => resolveScatterAnnotationCrowdingScale(count, options),
