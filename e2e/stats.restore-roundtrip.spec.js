@@ -62,6 +62,20 @@ async function waitForLineStatsResults(page) {
   );
 }
 
+async function waitForLineRegressionOverlays(page) {
+  await page.waitForFunction(
+    () => {
+      const svg = document.querySelector('#linePlot svg');
+      if (!svg) return false;
+      return !!svg.querySelector('[data-line-overlay^="trend"]')
+        && !!svg.querySelector('[data-band="confidence"]')
+        && !!svg.querySelector('[data-band="prediction"]');
+    },
+    null,
+    { timeout: 35_000 }
+  );
+}
+
 async function waitForPieStatsResults(page) {
   await page.waitForFunction(
     () => {
@@ -234,6 +248,50 @@ test('pie restores computed statistics results and calculated button state from 
   await waitForPieStatsResults(page);
   await expect(page.locator('#pieComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
   await expect(page.locator('#pieStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
+
+  expect(issues.critical).toEqual([]);
+});
+
+test('line regression overlays require calculated statistics and interval toggles preserve results', async ({ page }) => {
+  test.setTimeout(150_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await openWorkspace(page, { type: 'line', pageId: 'linePage' });
+  await clickExampleButtonIfPresent(page, 'lineLoadExample');
+  await page.waitForFunction(() => !!document.querySelector('#linePlot svg'), null, { timeout: 30_000 });
+
+  await expect(page.locator('#lineShowTrendLine')).toBeDisabled({ timeout: 20_000 });
+  await expect(page.locator('#lineShowIntervals')).toBeDisabled({ timeout: 20_000 });
+  await expect(page.locator('#lineShowPredictionIntervals')).toBeDisabled({ timeout: 20_000 });
+
+  await setCheckboxes(page, ['lineShowTrendLine', 'lineShowIntervals', 'lineShowPredictionIntervals'], true);
+  await page.waitForTimeout(750);
+  await expect(page.locator('#linePlot svg [data-line-overlay^="trend"]')).toHaveCount(0);
+  await expect(page.locator('#linePlot svg [data-band="confidence"]')).toHaveCount(0);
+  await expect(page.locator('#linePlot svg [data-band="prediction"]')).toHaveCount(0);
+
+  await expect(page.locator('#lineComputeStats')).toBeEnabled({ timeout: 20_000 });
+  await page.locator('#lineComputeStats').click();
+  await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+  await expect(page.locator('#lineShowTrendLine')).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator('#lineShowIntervals')).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator('#lineShowPredictionIntervals')).toBeEnabled({ timeout: 20_000 });
+  await waitForLineStatsResults(page);
+  await expect(page.locator('#lineStatsResults')).toContainText('Residual diagnostics', { timeout: 20_000 });
+  await waitForLineRegressionOverlays(page);
+
+  await setCheckboxes(page, ['lineShowIntervals'], false);
+  await waitForLineStatsResults(page);
+  await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
+  await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
+
+  await setCheckboxes(page, ['lineShowPredictionIntervals'], false);
+  await waitForLineStatsResults(page);
+  await expect(page.locator('#lineStatsResults')).not.toContainText('Statistics will appear after calculation.', { timeout: 20_000 });
+  await expect(page.locator('#lineComputeStats')).toHaveText(/Recalculate statistics/, { timeout: 20_000 });
+  await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 20_000 });
 
   expect(issues.critical).toEqual([]);
 });

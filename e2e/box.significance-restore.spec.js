@@ -55,6 +55,7 @@ test('box significance bars render after saved payload is restored', async ({ pa
   expect(payload?.config?.showSignificanceBars).toBe(true);
   expect(payload?.config?.stats?.selectedColumns?.length).toBeGreaterThan(1);
   expect(payload?.config?.stats?.lastRunVersion).toBeGreaterThan(0);
+  expect(payload?.config?.stats?.annotationModel?.pairs?.length).toBeGreaterThan(0);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
@@ -76,6 +77,33 @@ test('box significance bars render after saved payload is restored', async ({ pa
     null,
     { timeout: 20_000 }
   );
+  await page.evaluate(() => {
+    window.Components.box.__getState().scheduleDraw({ viewOnly: true, reason: 'e2e-svg-replace-after-restore' });
+  });
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot path.box-significance-annotation').length > 0,
+    null,
+    { timeout: 20_000 }
+  );
+  await page.waitForTimeout(750);
+  await expect.poll(
+    () => page.locator('#boxPlot path.box-significance-annotation').count(),
+    { timeout: 20_000 }
+  ).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const state = window.Components.box.__getState();
+    state.statsContextSignature = 'e2e-stale-view-signature';
+    if (state.statsLastAnnotationModel) {
+      state.statsLastAnnotationModel.signature = 'e2e-stale-view-signature';
+    }
+    state.scheduleDraw({ viewOnly: true, reason: 'significance-viewport-extension' });
+  });
+  await page.waitForTimeout(1_500);
+  await expect.poll(
+    () => page.locator('#boxPlot path.box-significance-annotation').count(),
+    { timeout: 20_000 }
+  ).toBeGreaterThan(0);
+  await expect(page.locator('#statsResults')).toContainText('Pairwise comparisons', { timeout: 20_000 });
 
   const toggle = page.locator('#boxShowSignificance');
   await expect(toggle).toBeVisible();

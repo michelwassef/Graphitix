@@ -1847,6 +1847,7 @@
   }
 
   function isLineDiagnosticsEnabled(){
+    // Line regression reports always include residual diagnostics; this is not a user-facing toggle.
     return true;
   }
 
@@ -1856,8 +1857,6 @@
     }
     const method = payload.controls?.method || 'pearson';
     const regressionMode = payload.controls?.regressionMode || 'linear';
-    const showIntervalsKey = payload.statsOptions?.showIntervals ? 'intervals:on' : 'intervals:off';
-    const showDiagnosticsKey = 'diagnostics:on';
     const forecast = payload.statsOptions?.forecast || {};
     const forecastKey = [
       forecast.horizon ?? '',
@@ -1897,7 +1896,47 @@
       });
       seriesKey = parts.join(';');
     }
-    return [method, regressionMode, showIntervalsKey, showDiagnosticsKey, forecastKey, seriesKey].join('::');
+    return [method, regressionMode, forecastKey, seriesKey].join('::');
+  }
+
+  function isLineStatsDisplayOnlyRefresh(reason){
+    const token = String(reason || '').toLowerCase();
+    return token === 'intervals-toggle'
+      || token === 'prediction-intervals-toggle';
+  }
+
+  function isLineStatsCurrentForPayload(payload){
+    if(!payload || !Array.isArray(payload.series) || !payload.series.length){
+      return false;
+    }
+    const signature = buildLineStatsSignature(payload);
+    const version = Number(lineStatsState.version) || 0;
+    return version > 0
+      && signature === lineStatsState.signature
+      && lineStatsState.lastRunVersion === version
+      && lineStatsPanelHasRenderedResults();
+  }
+
+  function updateLineRegressionOverlayControlState(statsReady){
+    const ready = !!statsReady;
+    const msg = ready ? '' : 'Calculate statistics first to enable regression overlays.';
+    [
+      refs.showTrendLine,
+      refs.showIntervals,
+      refs.showPredictionIntervals
+    ].forEach(input => {
+      if(!input){
+        return;
+      }
+      input.disabled = !ready;
+      input.title = msg;
+      const label = typeof input.closest === 'function'
+        ? input.closest('label')
+        : input.parentElement;
+      if(label){
+        label.title = msg;
+      }
+    });
   }
 
   function handleLineStatsUnavailable(statsOptions, placeholder){
@@ -1918,6 +1957,7 @@
       clearLineStatsOutputs(options.placeholder || lineStatsEmptyPlaceholder);
       setLineStatsStatus('');
       updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      updateLineRegressionOverlayControlState(false);
       return;
     }
     const signature = buildLineStatsSignature(payload);
@@ -1938,6 +1978,7 @@
         lineStatsState.computationPending = false;
         setLineStatsStatus('Statistics up to date.');
         updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        updateLineRegressionOverlayControlState(true);
         console.debug('Debug: line stats restored context adopted', {
           savedSignature: pendingRestore.signature || null,
           currentSignature: signature,
@@ -1962,14 +2003,17 @@
       clearLineStatsOutputs(lineStatsDefaultPlaceholder);
       setLineStatsStatus('Statistics ready to calculate.');
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updateLineRegressionOverlayControlState(false);
       return;
     }
     if(lineStatsState.lastRunVersion === version && lineStatsPanelHasRenderedResults()){
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updateLineRegressionOverlayControlState(true);
     }else if(!lineStatsState.computationPending){
       setLineStatsStatus('Statistics ready to calculate.');
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updateLineRegressionOverlayControlState(false);
     }
   }
 
@@ -1995,8 +2039,13 @@
     if(context.statsOptions?.forecast){
       refreshed.statsOptions.forecast = { ...context.statsOptions.forecast };
     }
-    console.debug('Debug: line stats context refresh',{ reason, seriesCount: refreshed.series.length });
+    const displayOnlyRefresh = isLineStatsDisplayOnlyRefresh(reason);
+    const hadCurrentRenderedStats = displayOnlyRefresh && isLineStatsCurrentForPayload(refreshed);
+    console.debug('Debug: line stats context refresh',{ reason, seriesCount: refreshed.series.length, displayOnlyRefresh, hadCurrentRenderedStats });
     primeLineStatsContext(refreshed);
+    if(hadCurrentRenderedStats && !lineStatsState.computationPending){
+      handleLineStatsComputeClick();
+    }
     // Persist active tab state when this refresh is triggered by user control changes
     try{
       const skipPersist = String(reason || '').toLowerCase().includes('payload') || String(reason || '').toLowerCase().includes('payload-restored');
@@ -2029,6 +2078,8 @@
       lineStatsState.lastRunVersion = context.version;
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updateLineRegressionOverlayControlState(true);
+      scheduleLineDraw();
     }catch(err){
       console.error('line stats computation failed', err);
       if(refs.statsResults){
@@ -2036,6 +2087,7 @@
       }
       setLineStatsStatus('Failed to compute statistics.');
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updateLineRegressionOverlayControlState(false);
     }finally{
       lineStatsState.computationPending = false;
       // Persist the tab payload immediately if the computed results belong to the current context
@@ -9208,7 +9260,16 @@
         return clipped;
       };
         const labelsUsed=seriesWithData.map(s=>s.name);
-        if(global.jStat && typeof regressionTools.fitRegression==='function'){
+      const lineStatsPayloadForDraw = {
+        series: seriesWithData,
+        statsOptions: statsContext,
+        controls: {
+          method: refs.statType?.value || 'pearson',
+          regressionMode: regressionModeCurrent
+        }
+      };
+      const regressionStatsCurrent = isLineStatsCurrentForPayload(lineStatsPayloadForDraw);
+      if(global.jStat && typeof regressionTools.fitRegression==='function' && regressionStatsCurrent){
         seriesWithData.forEach(s=>{
           const pts=s.points.filter(Boolean);
           if(pts.length>=3){
@@ -9227,6 +9288,15 @@
             s.regression=null;
           }
         });
+      }else{
+        seriesWithData.forEach(s=>{ s.regression = null; });
+        if(showTrendLine || showIntervals){
+          console.debug('Debug: line regression overlays skipped until statistics are calculated', {
+            regressionStatsCurrent,
+            showTrendLine,
+            showIntervals
+          });
+        }
       }
       ensureLineLabelColors(labelsUsed);
       const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
@@ -11095,14 +11165,7 @@
         });
       }
       renderLineStatsAdvisor(seriesWithData, statsContext);
-      primeLineStatsContext({
-        series: seriesWithData,
-        statsOptions: statsContext,
-        controls: {
-          method: refs.statType?.value || 'pearson',
-          regressionMode: regressionModeCurrent
-        }
-      });
+      primeLineStatsContext(lineStatsPayloadForDraw);
       captureLineRegressionSummaries(seriesWithData, { mode: regressionModeCurrent });
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
@@ -11202,6 +11265,7 @@
     clearLineStatsOutputs(lineStatsEmptyPlaceholder);
     setLineStatsStatus('');
     updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+    updateLineRegressionOverlayControlState(false);
     if(refs.statsButton){
       refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
     }
