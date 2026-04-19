@@ -368,12 +368,51 @@
     if (value === undefined || value === null) {
       return null;
     }
+    const matrixSignatureCache = new WeakMap();
+    const compactMatrixSignatures = (input, seen = new WeakMap()) => {
+      if (input === null || typeof input !== 'object') {
+        return input;
+      }
+      if (Array.isArray(input) && typeof input.__graphitixMatrixSignature === 'string') {
+        if (matrixSignatureCache.has(input)) {
+          return matrixSignatureCache.get(input);
+        }
+        const compact = {
+          __graphitixMatrixSignature: input.__graphitixMatrixSignature,
+          rows: input.length
+        };
+        matrixSignatureCache.set(input, compact);
+        return compact;
+      }
+      if (seen.has(input)) {
+        return seen.get(input);
+      }
+      if (Array.isArray(input)) {
+        const cloned = new Array(input.length);
+        seen.set(input, cloned);
+        for (let i = 0; i < input.length; i += 1) {
+          cloned[i] = compactMatrixSignatures(input[i], seen);
+        }
+        return cloned;
+      }
+      const proto = Object.getPrototypeOf(input);
+      if (proto !== Object.prototype && proto !== null) {
+        return input;
+      }
+      const cloned = {};
+      seen.set(input, cloned);
+      Object.keys(input).forEach(key => {
+        cloned[key] = compactMatrixSignatures(input[key], seen);
+      });
+      return cloned;
+    };
     const isBinary = value instanceof ArrayBuffer || ArrayBuffer.isView(value);
     if (!isBinary) {
       try {
-        const serialized = JSON.stringify(value);
+        const compacted = compactMatrixSignatures(value);
+        const serialized = JSON.stringify(compacted);
         console.debug('Debug: serializePayloadSignature computed', {
-          method: 'json',
+          method: compacted === value ? 'json' : 'json-matrix-signature',
           length: serialized?.length || 0
         });
         return serialized;

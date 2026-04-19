@@ -853,6 +853,42 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    const hotMatrixSignatureId = `${debugLabel || 'grid'}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+    let dataRevision = 0;
+    const stampMatrixSignature = (matrix, reason)=>{
+      if(!Array.isArray(matrix)){
+        return null;
+      }
+      const signature = `hot-matrix:${hotMatrixSignatureId}:r${dataRevision}:rows${matrix.length}:cols${colCount}`;
+      try{
+        Object.defineProperty(matrix, '__graphitixMatrixSignature', {
+          value: signature,
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+        Object.defineProperty(matrix, '__graphitixMatrixRevision', {
+          value: dataRevision,
+          configurable: true,
+          enumerable: false,
+          writable: true
+        });
+      }catch(err){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot matrix signature stamp skipped', {
+            debugLabel,
+            reason: reason || null,
+            message: err?.message || String(err)
+          });
+        }
+      }
+      return signature;
+    };
+    const markDataRevision = (reason)=>{
+      dataRevision += 1;
+      stampMatrixSignature(dataHandle?.current, reason);
+      return dataRevision;
+    };
     const singleClickEdit = typeof hotOptions.singleClickEdit === 'boolean'
       ? hotOptions.singleClickEdit
       : false;
@@ -1129,8 +1165,12 @@
       current: data,
       ensureMutableRow(rowIndex, minCols){
         return ensureMutableRowAt(dataHandle.current, rowIndex, minCols);
+      },
+      markDataChanged(reason){
+        return markDataRevision(reason || 'dataHandle');
       }
     };
+    stampMatrixSignature(data, 'initial');
     const formulaEvaluationState = {
       enabled: !!enableFormulaEvaluation,
       model: null,
@@ -5450,6 +5490,7 @@
       }
       data = incoming ? adoptMatrixForLoad(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
       dataHandle.current = data;
+      markDataRevision('loadData');
       markFormulaModelDirty('load-data');
       colHeaders = resolveColHeaders(colCount);
       if(explicitExclusions && typeof explicitExclusions === 'object'){
@@ -8680,6 +8721,7 @@
           }
           data = adoptMatrixForLoad(incomingData, rowCount, colCount);
           dataHandle.current = data;
+          markDataRevision('updateSettings:data');
           needsSync = true;
           needsSchedule = true;
           if(colCount !== prevColCount){
@@ -9005,6 +9047,7 @@
             return;
           }
           dataHandle.current = data;
+          markDataRevision('setDataAtCell:batch');
           syncFormulaModelForVisualChanges(changesForHook, 'set-data-at-cell:batch');
           if(data.length !== prevRows){
             syncRowData(instance.gridApi);
@@ -9040,6 +9083,7 @@
         }
         data[physicalRow][physicalCol] = value;
         dataHandle.current = data;
+        markDataRevision('setDataAtCell:single');
         const synchronized = setFormulaModelRawCell(physicalRow, physicalCol, value, 'set-data-at-cell:single');
         if(formulaEvaluationState.enabled && !synchronized){
           markFormulaModelDirty('set-data-at-cell:single');

@@ -265,4 +265,37 @@ describe('domControls default payload cache isolation', () => {
     expect(session.fastClonePayload).not.toHaveBeenCalledWith(payload);
     expect(session.fastClonePayload).not.toHaveBeenCalledWith(payload.data);
   });
+
+  test('session payload signature compacts live table matrix revisions', () => {
+    const session = window.Main?.session;
+    expect(session?.serializePayloadSignature).toBeTruthy();
+
+    const data = Array.from({ length: 50000 }, (_, index) => [`g${index}`, index, index + 1]);
+    Object.defineProperty(data, '__graphitixMatrixSignature', {
+      value: 'hot-matrix:test:r1:rows50000:cols3',
+      configurable: true,
+      enumerable: false
+    });
+    const signature = session.serializePayloadSignature({
+      type: 'scatter',
+      data,
+      config: { title: 'Large scatter' }
+    });
+
+    expect(signature.length).toBeLessThan(300);
+    expect(signature).toContain('hot-matrix:test:r1:rows50000:cols3');
+    expect(signature).not.toContain('g49999');
+
+    Object.defineProperty(data, '__graphitixMatrixSignature', {
+      value: 'hot-matrix:test:r2:rows50000:cols3',
+      configurable: true,
+      enumerable: false
+    });
+    const changedSignature = session.serializePayloadSignature({
+      type: 'scatter',
+      data,
+      config: { title: 'Large scatter' }
+    });
+    expect(changedSignature).not.toBe(signature);
+  });
 });

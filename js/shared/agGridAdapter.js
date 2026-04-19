@@ -91,6 +91,9 @@
             : null;
           if(row){
             row[c] = params.newValue;
+            if(typeof dataHandle?.markDataChanged === 'function'){
+              dataHandle.markDataChanged('agGrid:valueSetter');
+            }
           }else{
             if(!Array.isArray(matrix[rowIndex])){
               matrix[rowIndex] = [];
