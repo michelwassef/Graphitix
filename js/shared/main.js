@@ -332,7 +332,7 @@
       : {};
     await MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
       ...rawOptions,
-      promptForScope: rawOptions.promptForScope === false ? false : true
+      scope: rawOptions.scope || 'workspace'
     });
   }
 
@@ -522,7 +522,6 @@
       const saveResult = await handleSessionSaveClick({
         reason: 'welcome-open-before-replace-save',
         scope: 'workspace',
-        promptForScope: false,
         forcePicker
       });
       const saveStatus = saveResult?.status || null;

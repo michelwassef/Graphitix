@@ -23,6 +23,8 @@
   let lastRecoverySavedRevision = 0;
   let autosaveInFlightRevision = 0;
   let lastAutosaveNoTargetRevision = 0;
+  let savedMessageTimer = null;
+  let savedTitleMessage = '';
 
   function getSessionRevision() {
     return Number(state?.workspaceState?.sessionRevision) || 0;
@@ -231,11 +233,12 @@
     const fileName = getDisplayName();
     const dirty = !!workspaceState.sessionDirty;
     const display = `${fileName}${dirty ? ' *' : ''}`;
+    const titleDisplay = savedTitleMessage || display;
     const titleEls = Array.from(document.querySelectorAll('[data-document-title="1"]'));
     const statusEls = Array.from(document.querySelectorAll('[data-document-status="1"]'));
     const autosaveEls = Array.from(document.querySelectorAll('input[data-document-autosave="1"]'));
     titleEls.forEach(titleEl => {
-      titleEl.textContent = display;
+      titleEl.textContent = titleDisplay;
       titleEl.title = workspaceState.sessionFilePath || fileName;
     });
     statusEls.forEach(statusEl => {
@@ -248,6 +251,20 @@
     });
     document.title = `Graphitix - ${display}`;
     debug('syncTitle', { fileName, dirty, reason: meta.reason || 'sync' });
+  }
+
+  function showSavedTitleMessage(detail = {}) {
+    const fileName = String(detail.fileName || getDisplayName()).trim() || 'Untitled.graph';
+    savedTitleMessage = `Saved: ${fileName}`;
+    if (savedMessageTimer) {
+      window.clearTimeout(savedMessageTimer);
+    }
+    syncTitle({ reason: detail.reason || 'saved-message' });
+    savedMessageTimer = window.setTimeout(() => {
+      savedTitleMessage = '';
+      savedMessageTimer = null;
+      syncTitle({ reason: 'saved-message-clear' });
+    }, 2200);
   }
 
   async function buildRecoveryRecord(reason) {
@@ -531,6 +548,9 @@
         return;
       }
       const type = event?.detail?.type || 'change';
+      if (type === 'saved' || type === 'saved-copy') {
+        showSavedTitleMessage(event.detail || {});
+      }
       syncTitle({ reason: type });
       if (state.workspaceState?.sessionDirty) {
         scheduleRecoverySnapshot(type);
@@ -562,6 +582,7 @@
   namespace.syncTitle = syncTitle;
   namespace.dispose = function dispose() {
     if (recoveryTimer) window.clearTimeout(recoveryTimer);
+    if (savedMessageTimer) window.clearTimeout(savedMessageTimer);
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
     if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);

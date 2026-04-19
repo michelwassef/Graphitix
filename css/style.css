@@ -6507,6 +6507,15 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .tab-context-menu__item:focus {
     background: var(--ui-menu-item-hover-bg);
 }
+.tab-context-menu__item:disabled,
+.tab-context-menu__item[aria-disabled="true"] {
+    color: #94a3b8;
+    cursor: default;
+}
+.tab-context-menu__item:disabled:hover,
+.tab-context-menu__item:disabled:focus {
+    background: none;
+}
 
 /* CRISPR policy: slight rounding everywhere except dropdown controls/menus. */
 :where(

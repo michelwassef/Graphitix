@@ -853,7 +853,8 @@
     signature: null,
     version: 0,
     lastRunVersion: 0,
-    computationPending: false
+    computationPending: false,
+    restorePending: null
   };
   let lineForecastOptions = {
     horizon: DEFAULT_FORECAST_HORIZON,
@@ -1813,6 +1814,13 @@
     }
   }
 
+  function lineStatsPanelHasRenderedResults(){
+    if(!refs.statsResults || typeof refs.statsResults.querySelector !== 'function'){
+      return false;
+    }
+    return !!refs.statsResults.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
+  }
+
   function setLineStatsStatus(message){
     if(refs.statsStatus){
       refs.statsStatus.textContent = message || '';
@@ -1889,9 +1897,7 @@
       });
       seriesKey = parts.join(';');
     }
-    const cacheSize = payload.statsOptions?.regressionCache instanceof Map ? payload.statsOptions.regressionCache.size : 0;
-    const cacheKey = `cache:${cacheSize}`;
-    return [method, regressionMode, showIntervalsKey, showDiagnosticsKey, forecastKey, cacheKey, seriesKey].join('::');
+    return [method, regressionMode, showIntervalsKey, showDiagnosticsKey, forecastKey, seriesKey].join('::');
   }
 
   function handleLineStatsUnavailable(statsOptions, placeholder){
@@ -1907,6 +1913,7 @@
       lineStatsState.version = 0;
       lineStatsState.lastRunVersion = 0;
       lineStatsState.computationPending = false;
+      lineStatsState.restorePending = null;
       lineLastRegressionSummaries = [];
       clearLineStatsOutputs(options.placeholder || lineStatsEmptyPlaceholder);
       setLineStatsStatus('');
@@ -1914,6 +1921,31 @@
       return;
     }
     const signature = buildLineStatsSignature(payload);
+    const pendingRestore = lineStatsState.restorePending;
+    if(pendingRestore){
+      lineStatsState.restorePending = null;
+      if(pendingRestore.hasResults && lineStatsPanelHasRenderedResults()){
+        const version = Math.max(
+          Number(lineStatsState.version) || 0,
+          Number(lineStatsState.lastRunVersion) || 0,
+          Number(pendingRestore.version) || 0,
+          1
+        );
+        lineStatsState.version = version;
+        lineStatsState.signature = signature;
+        lineStatsState.context = { ...payload, version, signature };
+        lineStatsState.lastRunVersion = version;
+        lineStatsState.computationPending = false;
+        setLineStatsStatus('Statistics up to date.');
+        updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        console.debug('Debug: line stats restored context adopted', {
+          savedSignature: pendingRestore.signature || null,
+          currentSignature: signature,
+          version
+        });
+        return;
+      }
+    }
     const changed = signature !== lineStatsState.signature;
     let version = lineStatsState.version || 0;
     if(changed){
@@ -1932,7 +1964,7 @@
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       return;
     }
-    if(lineStatsState.lastRunVersion === version && refs.statsResults?.childNodes?.length){
+    if(lineStatsState.lastRunVersion === version && lineStatsPanelHasRenderedResults()){
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
     }else if(!lineStatsState.computationPending){
@@ -7865,7 +7897,15 @@
             refs.regressionMode.value = s.controls.regressionMode;
           }
         }
-        if(lineStatsState.lastRunVersion && lineStatsState.lastRunVersion === lineStatsState.version){
+        const hasRestoredResults = lineStatsPanelHasRenderedResults();
+        lineStatsState.restorePending = hasRestoredResults && lineStatsState.lastRunVersion > 0
+          ? {
+              signature: typeof s.signature === 'string' ? s.signature : null,
+              version: lineStatsState.version,
+              hasResults: true
+            }
+          : null;
+        if(hasRestoredResults && lineStatsState.lastRunVersion){
           setLineStatsStatus('Statistics up to date.');
           updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
         }else{
@@ -7888,6 +7928,7 @@
         lineStatsState.lastRunVersion = 0;
         lineStatsState.context = null;
         lineStatsState.computationPending = false;
+        lineStatsState.restorePending = null;
         updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
       }catch(err){
         console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });

@@ -1926,6 +1926,7 @@
     <div id="tabContextMenu" class="tab-context-menu" hidden role="menu" aria-label="Tab actions">
       <button id="tabContextDuplicateReuse" type="button" class="tab-context-menu__item">Duplicate (Reuse data)</button>
       <button id="tabContextDuplicateEmpty" type="button" class="tab-context-menu__item">Duplicate (Start empty)</button>
+      <button id="tabContextSaveCurrent" type="button" class="tab-context-menu__item">Save this tab only...</button>
     </div>
     <div id="duplicatePrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="duplicatePromptTitle">
       <div class="workspace-modal__panel">
@@ -1946,17 +1947,6 @@
           <button id="unsavedPromptSave" type="button" class="btn">Save</button>
           <button id="unsavedPromptDiscard" type="button" class="btn">Close without saving</button>
           <button id="unsavedPromptCancel" type="button" class="btn btn-secondary">Cancel</button>
-        </div>
-      </div>
-    </div>
-    <div id="saveScopePrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="saveScopePromptTitle" tabindex="-1">
-      <div class="workspace-modal__panel">
-        <h3 id="saveScopePromptTitle" class="workspace-modal__title">What do you want to save?</h3>
-        <p id="saveScopePromptMessage" class="workspace-modal__message">Choose whether to save only the current tab or all tabs into one .graph file.</p>
-        <div class="workspace-modal__actions">
-          <button id="saveScopeCurrentTab" type="button" class="btn">Current tab only</button>
-          <button id="saveScopeAllTabs" type="button" class="btn">All tabs</button>
-          <button id="saveScopeCancel" type="button" class="btn btn-secondary">Cancel</button>
         </div>
       </div>
     </div>

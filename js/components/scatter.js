@@ -267,6 +267,7 @@
     statsLastRunVersion: 0,
     statsComputationPending: false,
     statsCacheBySignature: new Map(),
+    statsRestorePending: null,
     skipNextDraw: false,
     skipNextDrawReason: null,
     drawInProgress: false,
@@ -3223,6 +3224,44 @@
       }
       if(attempts < 10){
         setTimeout(tryRestore, 120);
+      }
+    };
+    setTimeout(tryRestore, 0);
+  }
+
+  function restoreScatterSelectedRowsFromPayload(hotInstance, rows, tabId){
+    const selectedRows = Array.isArray(rows)
+      ? Array.from(new Set(rows.map(value => Number(value)).filter(value => Number.isInteger(value) && value >= 0))).sort((a, b) => a - b)
+      : [];
+    const resolvedTabId = tabId || resolveScatterTabId(hotInstance);
+    if(resolvedTabId){
+      if(selectedRows.length){
+        scatterRowSelectionsByTab.set(resolvedTabId, selectedRows);
+      }else{
+        scatterRowSelectionsByTab.delete(resolvedTabId);
+      }
+    }
+    let attempts = 0;
+    const tryRestore = () => {
+      attempts += 1;
+      const api = hotInstance?.gridApi;
+      if(!api || typeof api.deselectAll !== 'function'){
+        if(attempts < 12){
+          setTimeout(tryRestore, 120);
+        }
+        return;
+      }
+      api.deselectAll();
+      selectedRows.forEach(rowIndex => {
+        setScatterRowSelected(hotInstance, rowIndex, true, { preserveExisting: true });
+      });
+      scheduleScatterViewRefresh('row-selection-restore');
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: scatter payload selection restored', {
+          tabId: resolvedTabId || null,
+          count: selectedRows.length,
+          attempts
+        });
       }
     };
     setTimeout(tryRestore, 0);
@@ -10598,6 +10637,7 @@
         scatterState.statsContextVersion = 0;
         scatterState.statsLastRunVersion = 0;
         scatterState.statsComputationPending = false;
+        scatterState.statsRestorePending = null;
         clearScatterStatsOutputs(placeholder);
         setScatterStatsStatus('');
         updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
@@ -11111,6 +11151,35 @@
         }
       }
 
+      function cloneScatterStatsForPayload(stats){
+        if(!stats || typeof stats !== 'object'){
+          return null;
+        }
+        try{
+          return JSON.parse(JSON.stringify(stats));
+        }catch(err){
+          scatterDebug('Debug: scatter stats payload clone skipped', { err: err?.message || String(err) });
+          return null;
+        }
+      }
+
+      function getScatterPersistedStatsSnapshot(){
+        const context = scatterState.statsContext;
+        let stats = context?.precomputedStats || null;
+        let controlSignature = context?.precomputedSignature || null;
+        if(!stats && scatterState.statsContextSignature){
+          const cached = readScatterStatsCache(scatterState.statsContextSignature);
+          if(cached?.stats){
+            stats = cached.stats;
+            controlSignature = cached.controlSignature || controlSignature;
+          }
+        }
+        return {
+          precomputedStats: cloneScatterStatsForPayload(stats),
+          precomputedSignature: controlSignature || null
+        };
+      }
+
       function buildScatterGroupedSignatureSeed(seriesList){
         const series = Array.isArray(seriesList) ? seriesList : [];
         if(!series.length){
@@ -11355,6 +11424,32 @@
           return;
         }
         const signature=buildScatterStatsSignature(context);
+        const pendingRestore = scatterState.statsRestorePending;
+        let autoComputeRestoredStats = false;
+        let redrawRestoredStats = false;
+        if(pendingRestore && context.graphType === 'scatter'){
+          scatterState.statsRestorePending = null;
+          if(pendingRestore.precomputedStats){
+            const precomputedSignature = pendingRestore.precomputedSignature || getScatterStatsControlSignature();
+            context = {
+              ...context,
+              precomputedStats: pendingRestore.precomputedStats,
+              precomputedSignature
+            };
+            writeScatterStatsCache(signature, pendingRestore.precomputedStats, precomputedSignature);
+            redrawRestoredStats = true;
+            scatterDebug('Debug: scatter stats restored model adopted', {
+              savedSignature: pendingRestore.contextSignature || null,
+              currentSignature: signature
+            });
+          }else if(pendingRestore.autoCompute === true){
+            autoComputeRestoredStats = true;
+            scatterDebug('Debug: scatter stats restore scheduled recompute', {
+              savedSignature: pendingRestore.contextSignature || null,
+              currentSignature: signature
+            });
+          }
+        }
         const changed=signature!==scatterState.statsContextSignature;
         const hasPrecomputed = context.graphType==='scatter' && !!context.precomputedStats;
         if(changed){
@@ -11391,6 +11486,11 @@
           updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
         }
         syncScatterRegressionOptionVisibility();
+        if(autoComputeRestoredStats && !scatterState.statsComputationPending){
+          handleScatterStatsComputeClick();
+        }else if(redrawRestoredStats){
+          scheduleScatterViewRefresh('scatter-stats-restore');
+        }
       }
 
       function requestScatterStatsContextRefresh(reason){
@@ -20393,6 +20493,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const persistedLabelColors = compactScatterLabelMapForPayload(scatterLabelColors, DEFAULT_SCATTER_COLORS, 'labelColors');
       const persistedLabelShapes = compactScatterLabelMapForPayload(scatterLabelShapes, SCATTER_SHAPE_DEFAULTS, 'labelShapes');
+      const persistedStats = getScatterPersistedStatsSnapshot();
+      const selectedRows = activeHot ? getScatterSelectedRowSet(activeHot) : null;
       return {
         type:'scatter',
         data:activeHot?.getData?.() || [],
@@ -20407,6 +20509,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             zLabel:scatterState.zLabelText,
             axisLabelModes: normalizeScatterAxisLabelModes(scatterState.axisLabelModes, { x: 'auto', y: 'auto', z: 'auto' }),
             dotSize:scatterDotSize.value,
+            dotSizeOverrideEnabled: !!scatterState.dotSizeOverrideEnabled,
+            dotSizeOverrideRaw: Number.isFinite(scatterState.dotSizeOverrideRaw) ? scatterState.dotSizeOverrideRaw : null,
             fill:scatterFill.value,
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
             densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
@@ -20420,6 +20524,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             labelShapes: persistedLabelShapes,
             labelStyles:{ ...scatterLabelStyles },
             overlayStyles: sanitizeScatterOverlayStylesMap(scatterOverlayStyles),
+            selectedRows: selectedRows ? Array.from(selectedRows).sort((a, b) => a - b) : [],
             showGrid:scatterShowGrid.checked,
             gridStyle: getScatterGridStyle(getScatterAxisStrokeWidth()),
             showFrame:scatterShowFrame.checked,
@@ -20513,7 +20618,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               fitSpec: buildScatterFitSpec(),
               showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
               showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
-              showDiagnostics: isScatterDiagnosticsEnabled()
+              showDiagnostics: isScatterDiagnosticsEnabled(),
+              precomputedStats: persistedStats.precomputedStats,
+              precomputedSignature: persistedStats.precomputedSignature
             },
             notes: {
               text: notesText,
@@ -20688,6 +20795,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
         scatterDotSize.value=c.dotSize||scatterDotSize.value;
+        scatterState.dotSizeOverrideEnabled = c.dotSizeOverrideEnabled === true;
+        const restoredDotSizeOverride = Number(c.dotSizeOverrideRaw);
+        scatterState.dotSizeOverrideRaw = scatterState.dotSizeOverrideEnabled && Number.isFinite(restoredDotSizeOverride)
+          ? restoredDotSizeOverride
+          : null;
         scatterFill.value=c.fill||scatterFill.value;
         if(scatterColorMode){
           scatterColorMode.value = normalizeScatterColorMode(c.colorMode || scatterColorMode.value);
@@ -20894,6 +21006,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             const savedFitSpec = c.stats.fitSpec && typeof c.stats.fitSpec === 'object' ? c.stats.fitSpec : null;
             const savedShowCI = c.stats.showCI === true;
             const savedShowPI = c.stats.showPI === true;
+            const savedPrecomputedStats = c.stats.precomputedStats && typeof c.stats.precomputedStats === 'object'
+              ? cloneScatterStatsForPayload(c.stats.precomputedStats)
+              : null;
+            const savedPrecomputedSignature = typeof c.stats.precomputedSignature === 'string'
+              ? c.stats.precomputedSignature
+              : null;
             if(scatterStatsResults){
               if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
                 Shared.statsReporting.restorePanelHtml(scatterStatsResults, c.stats, {
@@ -20917,12 +21035,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             scatterState.statsContextVersion = savedCtxVer || scatterState.statsContextVersion;
             scatterState.statsContext = null;
             scatterState.statsComputationPending = false;
-            const hasResults = !!(scatterStatsResults && scatterStatsResults.childNodes && scatterStatsResults.childNodes.length);
-            if(scatterState.statsLastRunVersion === scatterState.statsContextVersion && hasResults){
+            const hasResults = scatterStatsPanelHasRenderedResults();
+            if(hasResults && savedVersion > 0){
+              scatterState.statsRestorePending = {
+                contextSignature: savedSig,
+                precomputedStats: savedPrecomputedStats,
+                precomputedSignature: savedPrecomputedSignature,
+                autoCompute: !savedPrecomputedStats
+              };
               setScatterStatsStatus('Statistics up to date.');
               updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
               syncScatterRegressionOptionVisibility();
               restoredComputedStats = true;
+            }else{
+              scatterState.statsRestorePending = null;
             }
           }
           if(!restoredComputedStats){
@@ -20934,6 +21060,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
+        if(scatterHot){
+          const selectedRows = Array.isArray(c.selectedRows)
+            ? c.selectedRows.map(value => Number(value)).filter(value => Number.isInteger(value) && value >= 0)
+            : [];
+          restoreScatterSelectedRowsFromPayload(scatterHot, selectedRows, resolveScatterTabId(scatterHot));
+        }
         const publicationStyleApply = typeof meta?.reason === 'string'
           && meta.reason.indexOf('publication-style-scatter') === 0;
         if(!skipDraw && scheduleOriginal){
@@ -21129,6 +21261,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.config.stats.showCI = !!(scatterShowCI ? scatterShowCI.defaultChecked : false);
       payload.config.stats.showPI = !!(scatterShowPI ? scatterShowPI.defaultChecked : false);
       payload.config.stats.showDiagnostics = true;
+      payload.config.selectedRows = [];
+      payload.config.dotSizeOverrideEnabled = false;
+      payload.config.dotSizeOverrideRaw = null;
       payload.config.showErrorBars = false;
       payload.config.showGroupedReplicatePoints = true;
       if(Object.prototype.hasOwnProperty.call(payload, 'stats')){

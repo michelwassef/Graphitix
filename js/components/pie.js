@@ -186,7 +186,8 @@
       contextSignature: null,
       lastRunSignature: null,
       pending: false,
-      controlsSignature: null
+      controlsSignature: null,
+      restorePending: null
     };
   }
 
@@ -405,7 +406,6 @@
     axisSettings: createDefaultAxisSettings(),
     labelPositions: { title: null, legend: null },
     columnSignature: null,
-    statsSignature: null,
     statsDataModel: null,
     statsConfig: createDefaultPieStatsConfig(),
     colorSignature: null,
@@ -756,6 +756,14 @@
     msg.className = 'stats-table-message';
     msg.textContent = message || 'Statistics will appear after calculation.';
     out.appendChild(msg);
+  }
+
+  function pieStatsPanelHasRenderedResults(){
+    const out = document.getElementById('pieStatsResults');
+    if(!out || typeof out.querySelector !== 'function'){
+      return false;
+    }
+    return !!out.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
   }
 
   let pieStatsSummaryTabIdCounter = 0;
@@ -1146,6 +1154,7 @@
     const stats = getPieStatsConfig();
     stats.contextSignature = null;
     stats.pending = false;
+    stats.restorePending = null;
     clearPieStatsOutputs('Statistics ready to calculate.');
     setPieStatsStatus('Statistics ready to calculate.');
     updatePieStatsButtonState({ disabled: false, label: 'Calculate statistics' });
@@ -1167,11 +1176,42 @@
     if(!hasRows){
       stats.contextSignature = signature;
       stats.lastRunSignature = null;
+      stats.restorePending = null;
       clearPieStatsOutputs('Add data to enable statistics.');
       setPieStatsStatus('Statistics unavailable until data is loaded.');
       updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
       updatePieStatsCorrectionSummary(0);
       return;
+    }
+    if(stats.restorePending){
+      const restored = stats.restorePending;
+      stats.restorePending = null;
+      if(!pieStatsPanelHasRenderedResults() && (restored.resultsHtml != null || restored.reportHtml != null)){
+        const out = document.getElementById('pieStatsResults');
+        if(out){
+          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
+            Shared.statsReporting.restorePanelHtml(out, restored, {
+              ensureReportHost: () => ensurePieStatsReportHost(out)
+            });
+          }else{
+            try{ out.innerHTML = restored.resultsHtml || ''; }catch(_err){ out.textContent = String(restored.resultsHtml || ''); }
+          }
+        }
+      }
+      if(restored.hasResults && pieStatsPanelHasRenderedResults()){
+        stats.contextSignature = signature;
+        stats.lastRunSignature = signature;
+        setPieStatsStatus('Statistics up to date.');
+        updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+        if(pieDebugEnabled()){
+          pieDebug('Debug: pie stats restored context adopted', {
+            savedSignature: restored.lastRunSignature || null,
+            currentSignature: signature
+          });
+        }
+        return;
+      }
     }
     if(stats.contextSignature !== signature){
       stats.contextSignature = signature;
@@ -2360,6 +2400,10 @@
 
   function exportPieStatsConfig(){
     const stats = getPieStatsConfig();
+    const out = document.getElementById('pieStatsResults');
+    const panelHtml = Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
+      ? Shared.statsReporting.capturePanelHtml(out)
+      : { resultsHtml: out ? (out.innerHTML || null) : null, reportHtml: null };
     return {
       scope: sanitizePieStatsScope(stats.scope),
       test: sanitizePieStatsTest(stats.test),
@@ -2378,7 +2422,11 @@
         open: !!stats.advisor?.open,
         activated: !!stats.advisor?.activated,
         answers: { ...(stats.advisor?.answers || {}) }
-      }
+      },
+      resultsHtml: panelHtml.resultsHtml || null,
+      reportHtml: panelHtml.reportHtml || null,
+      contextSignature: stats.contextSignature || null,
+      lastRunSignature: stats.lastRunSignature || null
     };
   }
 
@@ -2422,9 +2470,38 @@
       });
       stats.customPairs = nextPairs;
     }
-    stats.contextSignature = null;
-    stats.lastRunSignature = null;
+    const savedContextSignature = typeof input.contextSignature === 'string' ? input.contextSignature : null;
+    const savedLastRunSignature = typeof input.lastRunSignature === 'string' ? input.lastRunSignature : null;
+    stats.contextSignature = savedContextSignature;
+    stats.lastRunSignature = savedLastRunSignature;
     stats.controlsSignature = null;
+    let restoredResults = false;
+    if(input.resultsHtml != null || input.reportHtml != null){
+      const out = document.getElementById('pieStatsResults');
+      if(out){
+        if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
+          Shared.statsReporting.restorePanelHtml(out, input, {
+            ensureReportHost: () => ensurePieStatsReportHost(out)
+          });
+        }else{
+          try{ out.innerHTML = input.resultsHtml || ''; }catch(_err){ out.textContent = String(input.resultsHtml || ''); }
+        }
+        restoredResults = pieStatsPanelHasRenderedResults();
+      }
+    }
+    const hasSavedResultsHtml = typeof input.resultsHtml === 'string' && input.resultsHtml
+      && /stats-table-card|<table|stats-report-panel|stats-assumption-container/i.test(input.resultsHtml);
+    const hasSavedReportHtml = typeof input.reportHtml === 'string' && input.reportHtml
+      && /stats-report-panel|stats-table-card|<table|stats-assumption-container/i.test(input.reportHtml);
+    stats.restorePending = (restoredResults || hasSavedResultsHtml || hasSavedReportHtml) && !!savedLastRunSignature
+      ? {
+          contextSignature: savedContextSignature,
+          lastRunSignature: savedLastRunSignature,
+          hasResults: true,
+          resultsHtml: typeof input.resultsHtml === 'string' ? input.resultsHtml : null,
+          reportHtml: typeof input.reportHtml === 'string' ? input.reportHtml : null
+        }
+      : null;
   }
 
   // Return a default color palette for slices
@@ -3371,24 +3448,20 @@
     }catch(err){ console.error('updatePieStats error',err); }
   }
 
-  function updatePieStatsIfNeeded(labels, observed, expected){
-    const signature = JSON.stringify({
-      labels: Array.isArray(labels) ? labels : [],
-      observed: Array.isArray(observed) ? observed : [],
-      expected: Array.isArray(expected) ? expected : []
-    });
-    if(signature === state.statsSignature){
-      return;
-    }
-    state.statsSignature = signature;
-    updatePieStats(labels, observed, expected);
-  }
-
   function updatePieColumns(header, matrix){
     const dataModel = buildPieStatsDataModel(Array.isArray(matrix) ? matrix : []);
     state.statsDataModel = dataModel;
     ensurePieStatsSelections(dataModel);
     renderPieStatsControls(dataModel, { force: true, reason: 'columns-update' });
+    if(getPieStatsConfig().restorePending){
+      if(pieDebugEnabled()){
+        pieDebug('Debug: pie stats column refresh preserved restored results', {
+          count: dataModel.columns?.length || 0,
+          rows: dataModel.rows?.length || 0
+        });
+      }
+      return;
+    }
     requestPieStatsContextRefresh('columns-update');
     if(pieDebugEnabled()){
       pieDebug('Debug: pie stats columns refreshed', {

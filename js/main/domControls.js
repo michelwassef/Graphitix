@@ -50,12 +50,6 @@
       unsavedSave: document.getElementById('unsavedPromptSave'),
       unsavedDiscard: document.getElementById('unsavedPromptDiscard'),
       unsavedCancel: document.getElementById('unsavedPromptCancel'),
-      saveScopePrompt: document.getElementById('saveScopePrompt'),
-      saveScopeTitle: document.getElementById('saveScopePromptTitle'),
-      saveScopeMessage: document.getElementById('saveScopePromptMessage'),
-      saveScopeCurrentTab: document.getElementById('saveScopeCurrentTab'),
-      saveScopeAllTabs: document.getElementById('saveScopeAllTabs'),
-      saveScopeCancel: document.getElementById('saveScopeCancel'),
       welcomeOpenModePrompt: document.getElementById('welcomeOpenModePrompt'),
       welcomeOpenModeTitle: document.getElementById('welcomeOpenModeTitle'),
       welcomeOpenModeMessage: document.getElementById('welcomeOpenModeMessage'),
@@ -79,7 +73,8 @@
       ,
       tabContextMenu: document.getElementById('tabContextMenu'),
       tabContextDuplicateReuse: document.getElementById('tabContextDuplicateReuse'),
-      tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty')
+      tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty'),
+      tabContextSaveCurrent: document.getElementById('tabContextSaveCurrent')
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;

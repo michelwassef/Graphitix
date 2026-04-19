@@ -260,6 +260,7 @@
       const menu = dom.tabContextMenu || null;
       const menuReuse = dom.tabContextDuplicateReuse || null;
       const menuEmpty = dom.tabContextDuplicateEmpty || null;
+      const menuSaveCurrent = dom.tabContextSaveCurrent || null;
       let currentContextTabId = null;
 
       function hideTabContextMenu() {
@@ -270,6 +271,12 @@
       function showTabContextMenuForButton(targetBtn, tabId) {
         if (!menu || !targetBtn) return;
         currentContextTabId = tabId || null;
+        const tab = getTabById(currentContextTabId);
+        if (menuSaveCurrent) {
+          const canSaveTab = !!(tab && !tab.isWelcome && tab.type);
+          menuSaveCurrent.disabled = !canSaveTab;
+          menuSaveCurrent.setAttribute('aria-disabled', canSaveTab ? 'false' : 'true');
+        }
         // measure menu size by revealing it invisibly, then position so its bottom abuts the tab's bottom
         try {
           const rect = targetBtn.getBoundingClientRect();
@@ -359,6 +366,28 @@
         session.markSessionDirty('duplicate-created-reuse', { tabId: newTab.id, sourceId });
       }
 
+      function saveCurrentTabOnly(sourceId) {
+        hideTabContextMenu();
+        const sourceTab = getTabById(sourceId);
+        if (!sourceTab || sourceTab.isWelcome || !sourceTab.type) {
+          return;
+        }
+        const sessionActions = Main.sessionActions || {};
+        if (typeof sessionActions.saveWorkspaceArchiveWithScope !== 'function') {
+          console.warn('Tab save unavailable: missing sessionActions.saveWorkspaceArchiveWithScope');
+          return;
+        }
+        sessionActions.saveWorkspaceArchiveWithScope(getSessionActionsContext(), {
+          scope: 'tab',
+          targetTabId: sourceTab.id,
+          forcePicker: true,
+          rememberFile: false,
+          reason: 'tab-context-save-current'
+        }).catch(err => {
+          console.error('tab context save current tab error', { tabId: sourceTab.id, err });
+        });
+      }
+
       // Disable native browser context menu on tabs list to avoid conflicts
       dom.tabsList.addEventListener('contextmenu', event => {
         const targetBtn = event.target && event.target.closest && event.target.closest('[data-tab-id]');
@@ -374,6 +403,7 @@
       // menu actions
       if (menuReuse) menuReuse.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, false); });
       if (menuEmpty) menuEmpty.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, true); });
+      if (menuSaveCurrent) menuSaveCurrent.addEventListener('click', () => { saveCurrentTabOnly(currentContextTabId); });
 
       // hide on outside click or escape
       document.addEventListener('mousedown', event => {

@@ -10394,7 +10394,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   state.scheduleResizePreview = function(){};
@@ -23048,6 +23048,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsComputationPending = false;
     state.pendingAutoShowSignificance = false;
     state.suppressNextStatsSvgReapply = false;
+    state.statsRestoredNeedsSignificanceReapply = false;
     if(options.clearOutputs !== false){
       clearStatsOutputs(placeholder);
     }
@@ -23372,6 +23373,12 @@ Technical analysis record (advanced)
       console.debug('Debug: box stats svg reapply suppressed',{ significance: state.showSignificanceBars, version });
     }else if(needsSvgReapply){
       console.debug('Debug: box stats recompute for new svg',{ svgChanged, significance: state.showSignificanceBars, version });
+      state.statsAutoSvgReapplyPending = true;
+      handleStatsComputeClick();
+    }
+    if(state.statsRestoredNeedsSignificanceReapply && state.showSignificanceBars && !state.statsComputationPending){
+      state.statsRestoredNeedsSignificanceReapply = false;
+      console.debug('Debug: box restored stats significance reapply',{ version, signature });
       state.statsAutoSvgReapplyPending = true;
       handleStatsComputeClick();
     }
@@ -24543,6 +24550,17 @@ Technical analysis record (advanced)
     const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
     const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
     console.debug('Debug: box effect meta',{ parametric:paramEffectMeta?.value, nonParametric:nonParamEffectMeta?.value });
+    const param=state.statsTest==='parametric';
+    const paramVariant=param?resolveStatsParametricVariant():'nonparametric';
+    const lognormalVariant=param && isLognormalParametricVariant(paramVariant);
+    const lognormalPreparation=lognormalVariant ? prepareLognormalGroups(groups,labels) : null;
+    if(lognormalVariant && !lognormalPreparation?.ok){
+      updateStatsCorrectionSummary(0);
+      setResultsMessage(lognormalPreparation?.message || 'Lognormal workflows require strictly positive values in every included group.');
+      return;
+    }
+    const analysisGroups=lognormalPreparation?.logGroups || groups;
+    const analysisGroupMapByTrace=new Map(indices.map((traceIndex,groupIdx)=>[traceIndex,analysisGroups[groupIdx]]));
     // Custom pairs mode
     if(state.statsMode==='custom'){
       if(!state.statsCustomPairs.length){ setResultsMessage('Specify pairs for comparison.'); return; }
@@ -24649,17 +24667,6 @@ Technical analysis record (advanced)
       }
       return;
     }
-    const param=state.statsTest==='parametric';
-    const paramVariant=param?resolveStatsParametricVariant():'nonparametric';
-    const lognormalVariant=param && isLognormalParametricVariant(paramVariant);
-    const lognormalPreparation=lognormalVariant ? prepareLognormalGroups(groups,labels) : null;
-    if(lognormalVariant && !lognormalPreparation?.ok){
-      updateStatsCorrectionSummary(0);
-      setResultsMessage(lognormalPreparation?.message || 'Lognormal workflows require strictly positive values in every included group.');
-      return;
-    }
-    const analysisGroups=lognormalPreparation?.logGroups || groups;
-    const analysisGroupMapByTrace=new Map(indices.map((traceIndex,groupIdx)=>[traceIndex,analysisGroups[groupIdx]]));
     const pairTestMeta=resolvePairwiseTestMeta({
       family: state.statsTest,
       paired: state.statsPaired,
@@ -32208,11 +32215,13 @@ Technical analysis record (advanced)
           state.statsContextSignature = savedSig;
           state.statsContext = null;
           state.statsComputationPending = false;
+          state.statsRestoredNeedsSignificanceReapply = false;
           const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
           if(savedVersion > 0 && hasResults){
             setStatsStatus('Statistics up to date.');
             updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
             updateSignificanceControlState({ statsReady: true });
+            state.statsRestoredNeedsSignificanceReapply = !!state.showSignificanceBars;
             restoredComputedStats = true;
           }
         }

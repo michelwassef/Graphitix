@@ -333,7 +333,7 @@
       : {};
     return MainSessionActions.handleSessionSaveClick(getSessionActionsContext(), {
       ...rawOptions,
-      promptForScope: rawOptions.promptForScope === false ? false : true
+      scope: rawOptions.scope || 'workspace'
     });
   }
 
@@ -523,7 +523,6 @@
       const saveResult = await handleSessionSaveClick({
         reason: 'welcome-open-before-replace-save',
         scope: 'workspace',
-        promptForScope: false,
         forcePicker
       });
       const saveStatus = saveResult?.status || null;
@@ -738,6 +737,18 @@
   if (window.desktop?.isDesktop && typeof window.desktop.onOpenGraphFile === 'function') {
     window.desktop.onOpenGraphFile(handleDesktopOpenGraphFilePayload);
     debug('Debug: desktop graph file open handler registered');
+  }
+
+  if (window.desktop?.isDesktop) {
+    document.addEventListener('keydown', event => {
+      const key = String(event.key || '').toLowerCase();
+      if (key !== 's' || !(event.ctrlKey || event.metaKey) || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void handleSessionSaveClick({ reason: 'desktop-keyboard-save', scope: 'workspace' });
+    }, true);
   }
 
   document.addEventListener('click', event => {

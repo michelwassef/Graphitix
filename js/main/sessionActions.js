@@ -157,93 +157,6 @@
     return true;
   }
 
-  function hasSaveScopePrompt(dom) {
-    return !!dom?.saveScopePrompt
-      && !!dom?.saveScopeCurrentTab
-      && !!dom?.saveScopeAllTabs
-      && !!dom?.saveScopeCancel;
-  }
-
-  function isSaveScope(value) {
-    return value === 'workspace' || value === 'tab';
-  }
-
-  function resolveDefaultSaveScope(context) {
-    const storedScope = context?.workspaceState?.sessionFileScope;
-    if (isSaveScope(storedScope)) {
-      return storedScope;
-    }
-    const graphTabs = getGraphTabsFromWorkspaceState(context?.workspaceState);
-    return graphTabs.length <= 1 ? 'tab' : 'workspace';
-  }
-
-  function fallbackScopePrompt() {
-    if (typeof window.confirm !== 'function') {
-      return 'workspace';
-    }
-    const saveAll = window.confirm('Save all tabs? Click "Cancel" to choose current tab only.');
-    if (saveAll) {
-      return 'workspace';
-    }
-    const saveCurrent = window.confirm('Save current tab only? Click "Cancel" to abort.');
-    return saveCurrent ? 'tab' : null;
-  }
-
-  function showSaveScopePrompt(context, options = {}) {
-    const dom = context?.dom;
-    if (!hasSaveScopePrompt(dom)) {
-      return Promise.resolve(fallbackScopePrompt());
-    }
-    const prompt = dom.saveScopePrompt;
-    const title = dom.saveScopeTitle;
-    const message = dom.saveScopeMessage;
-    const currentBtn = dom.saveScopeCurrentTab;
-    const allBtn = dom.saveScopeAllTabs;
-    const cancelBtn = dom.saveScopeCancel;
-
-    if (title) {
-      title.textContent = options.title || 'What do you want to save?';
-    }
-    if (message) {
-      message.textContent = options.message || 'Choose whether to save only the current tab or all tabs into one .graph file.';
-    }
-
-    return new Promise(resolve => {
-      let settled = false;
-      const cleanup = () => {
-        prompt.setAttribute('hidden', 'hidden');
-        prompt.removeEventListener('keydown', onKeyDown);
-        currentBtn.removeEventListener('click', onCurrent);
-        allBtn.removeEventListener('click', onAll);
-        cancelBtn.removeEventListener('click', onCancel);
-      };
-      const finish = scope => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cleanup();
-        resolve(scope || null);
-      };
-      const onCurrent = () => finish('tab');
-      const onAll = () => finish('workspace');
-      const onCancel = () => finish(null);
-      const onKeyDown = event => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          finish(null);
-        }
-      };
-
-      currentBtn.addEventListener('click', onCurrent);
-      allBtn.addEventListener('click', onAll);
-      cancelBtn.addEventListener('click', onCancel);
-      prompt.addEventListener('keydown', onKeyDown);
-      prompt.removeAttribute('hidden');
-      prompt.focus?.();
-    });
-  }
-
   async function applyParsedSession(context, parsed, meta = {}) {
     if (!canLoadFile(context)) {
       throw new Error('Session load unavailable: missing applySessionData context.');
@@ -373,6 +286,7 @@
     }
 
     const scope = options.scope === 'workspace' ? 'workspace' : 'tab';
+    const rememberFile = options.rememberFile !== false;
     const snapshot = buildScopeSnapshot(context, scope, options);
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
       debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });
@@ -419,32 +333,38 @@
       mimeType: 'application/zip',
       allowFallback: options.allowFallback !== false,
       setFileHandle: handle => {
-        workspaceState.sessionFileHandle = handle || null;
-        workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
-        workspaceState.sessionFileScope = scope;
+        if (rememberFile) {
+          workspaceState.sessionFileHandle = handle || null;
+          workspaceState.sessionFilePath = handle?.__desktopFilePath || '';
+          workspaceState.sessionFileScope = scope;
+        }
         debug(context, 'save.handleStored', { hasHandle: !!handle, scope });
       },
       setFileName: name => {
-        workspaceState.sessionFileName = ensureGraphFileName(context, name || fileName, fileName);
-        workspaceState.sessionFileScope = scope;
-        debug(context, 'save.fileNameStored', { name: workspaceState.sessionFileName, scope });
+        if (rememberFile) {
+          workspaceState.sessionFileName = ensureGraphFileName(context, name || fileName, fileName);
+          workspaceState.sessionFileScope = scope;
+        }
+        debug(context, 'save.fileNameStored', { name: rememberFile ? workspaceState.sessionFileName : name, scope, rememberFile });
       }
     });
 
     if (result && (result.status === 'saved' || result.status === 'downloaded')) {
-      if (typeof session.clearSessionDirty === 'function') {
+      if (rememberFile && typeof session.clearSessionDirty === 'function') {
         session.clearSessionDirty('graph-save-success');
       }
-      workspaceState.sessionFileName = ensureGraphFileName(context, result.fileName || workspaceState.sessionFileName || fileName, fileName);
-      workspaceState.sessionFilePath = result.filePath || workspaceState.sessionFileHandle?.__desktopFilePath || workspaceState.sessionFilePath || '';
-      workspaceState.sessionFileScope = scope;
+      if (rememberFile) {
+        workspaceState.sessionFileName = ensureGraphFileName(context, result.fileName || workspaceState.sessionFileName || fileName, fileName);
+        workspaceState.sessionFilePath = result.filePath || workspaceState.sessionFileHandle?.__desktopFilePath || workspaceState.sessionFilePath || '';
+        workspaceState.sessionFileScope = scope;
+      }
       window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
         detail: {
-          type: 'saved',
-          dirty: false,
-          fileName: workspaceState.sessionFileName,
-          filePath: workspaceState.sessionFilePath,
-          fileScope: workspaceState.sessionFileScope,
+          type: rememberFile ? 'saved' : 'saved-copy',
+          dirty: rememberFile ? false : !!workspaceState.sessionDirty,
+          fileName: rememberFile ? workspaceState.sessionFileName : (result.fileName || fileName),
+          filePath: rememberFile ? workspaceState.sessionFilePath : (result.filePath || ''),
+          fileScope: scope,
           reason: options.reason || 'graph-save-success'
         }
       }));
@@ -459,24 +379,8 @@
   };
 
   namespace.handleSessionSaveClick = async function handleSessionSaveClick(context, options = {}) {
-    const requestedScope = isSaveScope(options.scope) ? options.scope : null;
-    let scope = requestedScope;
-
-    if (!scope && options.promptForScope === true) {
-      scope = await showSaveScopePrompt(context, options);
-      if (!scope) {
-        debug(context, 'handleSessionSaveClick.cancelled');
-        return { status: 'cancelled', reason: 'scope-cancelled' };
-      }
-    }
-
-    if (!scope) {
-      scope = resolveDefaultSaveScope(context);
-      debug(context, 'handleSessionSaveClick.defaultScope', {
-        scope,
-        source: isSaveScope(context?.workspaceState?.sessionFileScope) ? 'stored' : 'tab-count'
-      });
-    }
+    const scope = options.scope === 'tab' ? 'tab' : 'workspace';
+    debug(context, 'handleSessionSaveClick.scope', { scope, explicit: options.scope || null });
 
     return namespace.saveWorkspaceArchiveWithScope(context, {
       ...options,

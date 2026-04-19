@@ -129,7 +129,7 @@ describe('sessionActions save lazy archive build', () => {
     expect(result.status).toBe('saved');
   });
 
-  test('handleSessionSaveClick reuses existing handle on Save and forces picker on Save As', async () => {
+  test('handleSessionSaveClick saves all tabs by default and does not reuse a tab-only handle', async () => {
     const sessionActions = installSessionActions();
     const existingHandle = { name: 'existing.graph' };
     window.Shared.fileIO.saveGraphFile = jest.fn().mockResolvedValue({
@@ -154,15 +154,15 @@ describe('sessionActions save lazy archive build', () => {
     const saveResult = await sessionActions.handleSessionSaveClick(baseContext, {
       reason: 'toolbar-save'
     });
-    expect(window.Shared.fileIO.saveGraphFile).toHaveBeenCalledTimes(1);
-    expect(window.Shared.fileIO.saveGraphFileAs).toHaveBeenCalledTimes(0);
+    expect(window.Shared.fileIO.saveGraphFile).toHaveBeenCalledTimes(0);
+    expect(window.Shared.fileIO.saveGraphFileAs).toHaveBeenCalledTimes(1);
     expect(saveResult.status).toBe('saved');
 
     const saveAsResult = await sessionActions.handleSessionSaveClick(baseContext, {
       reason: 'toolbar-save-as',
       forcePicker: true
     });
-    expect(window.Shared.fileIO.saveGraphFileAs).toHaveBeenCalledTimes(1);
+    expect(window.Shared.fileIO.saveGraphFileAs).toHaveBeenCalledTimes(2);
     expect(saveAsResult.status).toBe('saved');
   });
 
