@@ -538,6 +538,63 @@
     }
   };
 
+  namespace.handleDesktopOpenFilePath = async function handleDesktopOpenFilePath(context, filePath, options = {}) {
+    const Shared = context?.Shared || window.Shared;
+    const { workspaceState } = context || {};
+    const normalizedPath = String(filePath || '').trim();
+    if (!normalizedPath) {
+      return { status: 'error', reason: 'missing-file-path' };
+    }
+    if (!Shared?.fileIO || typeof Shared.fileIO.openGraphFilePath !== 'function') {
+      console.warn('Desktop file open unavailable: missing Shared.fileIO.openGraphFilePath');
+      return { status: 'error', reason: 'no-desktop-path-open-handler' };
+    }
+    if (!confirmWorkspaceReplacement(context)) {
+      return { status: 'cancelled', reason: 'replace-denied' };
+    }
+
+    let lastHandle = null;
+    let lastName = '';
+    try {
+      const result = await Shared.fileIO.openGraphFilePath({
+        context: 'desktop-file-association',
+        filePath: normalizedPath,
+        setFileHandle: handle => {
+          lastHandle = handle || null;
+          if (workspaceState) {
+            workspaceState.sessionFileHandle = handle || null;
+            workspaceState.sessionFilePath = handle?.__desktopFilePath || normalizedPath;
+          }
+          debug(context, 'desktopOpen.handleCaptured', { hasHandle: !!handle });
+        },
+        setFileName: name => {
+          lastName = String(name || '').trim();
+          if (workspaceState) {
+            workspaceState.sessionFileName = lastName;
+          }
+          debug(context, 'desktopOpen.fileNameCaptured', { name: lastName });
+        },
+        loadFromFile: async file => {
+          await namespace.loadWorkspaceFile(context, file, {
+            reason: options.reason || 'desktop-file-association',
+            fileHandle: lastHandle,
+            fileName: file?.name || lastName,
+            filePath: normalizedPath
+          });
+        }
+      });
+      debug(context, 'handleDesktopOpenFilePath.result', {
+        status: result?.status || null,
+        via: result?.via || null,
+        filePath: normalizedPath
+      });
+      return result;
+    } catch (err) {
+      console.error('handleDesktopOpenFilePath error', { filePath: normalizedPath, err });
+      return { status: 'error', filePath: normalizedPath, error: err };
+    }
+  };
+
   namespace.handleSessionInputChange = function handleSessionInputChange(context, event) {
     const { workspaceState } = context || {};
     const input = event?.target;

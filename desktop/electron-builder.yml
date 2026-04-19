@@ -13,23 +13,41 @@ extraMetadata:
   main: main.cjs
 
 win:
+  icon: build/icon.ico
   target:
     - nsis
+  fileAssociations:
+    - ext: graph
+      name: Graphitix Graph
+      description: Graphitix workspace archive
+      role: Editor
+      icon: build/icon.ico
 
 mac:
+  icon: build/icon.png
   target:
     - dmg
 
 linux:
+  icon: build/icon.png
   target:
     - AppImage
     - deb
     - rpm
 
 nsis:
+  artifactName: '${productName}-Setup-${version}.${ext}'
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   oneClick: false
   perMachine: false
+  allowElevation: true
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Graphitix
+  license: ../LICENSE
 
 portable:
   artifactName: '${productName}-Portable-${version}.${ext}'

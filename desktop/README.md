@@ -17,7 +17,7 @@ From the repository root:
 - `npm run desktop:build:portable`  
   Builds a single-file Windows portable executable.
 - `npm run desktop:build:installer`  
-  Builds the Windows installer (`nsis`).
+  Syncs the current web app and builds the Windows NSIS installer.
 
 From `desktop/` directly:
 
@@ -34,8 +34,11 @@ From `desktop/` directly:
 - Packaged desktop builds load `desktop/app/index.html`.
 - Runtime API bridge is exposed as `window.desktop` via `preload.cjs`.
 - Desktop sync rewrites CDN references to local `desktop/app/vendor/*` assets so packaged builds run without jsDelivr access.
+- The NSIS installer shows the root `LICENSE` file, creates Start Menu/Desktop shortcuts, and registers `.graph` as a Graphitix workspace file.
+- Opening a `.graph` file from Explorer launches Graphitix or focuses the existing instance and loads the file through the same archive import path used by the web UI.
 - GO/STRING/UniProt analysis features still require internet because they call external APIs.
 - `dist/win-unpacked/Graphitix.exe` is not standalone; it depends on sibling DLL files in the same folder.
-- For a copyable single executable, use the portable artifact from `npm run desktop:build:portable`.
+- For a proper installable executable, use the NSIS setup artifact from `npm run desktop:build:installer`.
+- For a copyable single executable without file association, use the portable artifact from `npm run desktop:build:portable`.
 - Closing with unsaved workspace changes is handled by a native Electron dialog (`Save and Exit`, `Exit without Saving`, `Cancel`).
 - Symlinks are not used because desktop packaging applies offline-specific URL patching to a build copy (`desktop/app`); this keeps the website source unchanged.

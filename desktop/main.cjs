@@ -4,12 +4,93 @@ const path = require('node:path');
 
 const isDev = process.env.VENN_ELECTRON_DEV === '1';
 const defaultDevUrl = process.env.VENN_DEV_URL || 'http://127.0.0.1:4173/index.html';
+const GRAPH_FILE_EXTENSION = '.graph';
+const pendingGraphFilePaths = [];
+let mainWindow = null;
 
 // Electron 41's Chromium uses the refreshed native form controls on Windows,
 // which rounds the OS-rendered <select> popup even when our CSS forces square
 // corners on the control itself. Disable that Chromium refresh so desktop
 // dropdowns match the web build's sharp-cornered menus.
 app.commandLine.appendSwitch('disable-features', 'FormControlsRefresh');
+
+function normalizeGraphFilePath(candidate, cwd) {
+  const raw = String(candidate || '').trim();
+  if (!raw) {
+    return '';
+  }
+  const withoutFilePrefix = raw.startsWith('file://') ? raw.slice('file://'.length) : raw;
+  let decoded = withoutFilePrefix;
+  try {
+    decoded = decodeURIComponent(withoutFilePrefix);
+  } catch (_err) {
+    decoded = withoutFilePrefix;
+  }
+  if (path.extname(decoded).toLowerCase() !== GRAPH_FILE_EXTENSION) {
+    return '';
+  }
+  return path.isAbsolute(decoded) ? decoded : path.resolve(cwd || process.cwd(), decoded);
+}
+
+function collectGraphFilePaths(argv, cwd) {
+  const seen = new Set();
+  const paths = [];
+  for (const arg of Array.isArray(argv) ? argv : []) {
+    const filePath = normalizeGraphFilePath(arg, cwd);
+    if (!filePath || seen.has(filePath)) {
+      continue;
+    }
+    seen.add(filePath);
+    paths.push(filePath);
+  }
+  return paths;
+}
+
+function flushPendingGraphFilePaths(win = mainWindow) {
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed() || !pendingGraphFilePaths.length) {
+    return;
+  }
+  const filePaths = pendingGraphFilePaths.splice(0, pendingGraphFilePaths.length);
+  win.webContents.send('desktop:openGraphFile', { filePaths });
+}
+
+function enqueueGraphFilePaths(filePaths) {
+  const existing = new Set(pendingGraphFilePaths);
+  for (const filePath of Array.isArray(filePaths) ? filePaths : []) {
+    if (!filePath || existing.has(filePath)) {
+      continue;
+    }
+    existing.add(filePath);
+    pendingGraphFilePaths.push(filePath);
+  }
+  flushPendingGraphFilePaths();
+}
+
+const initialGraphFilePaths = collectGraphFilePaths(process.argv, process.cwd());
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  pendingGraphFilePaths.push(...initialGraphFilePaths);
+  app.on('second-instance', (_event, argv, cwd) => {
+    const filePaths = collectGraphFilePaths(argv, cwd);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+    enqueueGraphFilePaths(filePaths);
+  });
+}
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  const normalized = normalizeGraphFilePath(filePath, process.cwd());
+  if (normalized) {
+    enqueueGraphFilePaths([normalized]);
+  }
+});
 
 function resolveProdIndexPath() {
   return path.join(__dirname, 'app', 'index.html');
@@ -226,9 +307,18 @@ function createMainWindow() {
       nodeIntegration: false
     }
   });
+  mainWindow = win;
 
   win.once('ready-to-show', () => {
     win.show();
+  });
+  win.webContents.once('did-finish-load', () => {
+    flushPendingGraphFilePaths(win);
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -244,6 +334,7 @@ function createMainWindow() {
   }
 }
 
+if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
   ipcMain.handle('desktop:showOpenDialog', async (_event, options = {}) => {
     return dialog.showOpenDialog({
@@ -405,6 +496,7 @@ app.whenReady().then(() => {
     }
   });
 });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

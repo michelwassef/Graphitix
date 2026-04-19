@@ -586,6 +586,48 @@
     return { status: 'downloaded', via: 'download', fileName: targetName, payload: data };
   };
 
+  fileIO.openGraphFilePath = async function openGraphFilePath(options){
+    const {
+      context = 'graph',
+      filePath,
+      setFileHandle,
+      setFileName,
+      loadFromFile
+    } = options || {};
+    const desktop = getDesktopBridge();
+    if(!desktop || typeof desktop.readFile !== 'function'){
+      return { status: 'error', via: 'desktopFilePath', reason: 'desktop-read-unavailable' };
+    }
+    const normalizedPath = String(filePath || '').trim();
+    if(!normalizedPath){
+      return { status: 'error', via: 'desktopFilePath', reason: 'missing-file-path' };
+    }
+    try{
+      const read = await desktop.readFile(normalizedPath);
+      const fileName = getBaseName(normalizedPath, 'workspace.graph');
+      const blob = base64ToBlob(read?.dataBase64 || '', 'application/zip');
+      blob.name = fileName;
+      const handle = makeDesktopHandle(normalizedPath);
+      ensureSetter(setFileHandle, handle);
+      ensureSetter(setFileName, fileName);
+      if(typeof loadFromFile === 'function'){
+        await loadFromFile(blob);
+      }
+      debug('openGraphFilePath.loaded', { context, fileName, filePath: normalizedPath });
+      return {
+        status: 'opened',
+        via: 'desktopFilePath',
+        fileHandle: handle,
+        file: blob,
+        fileName,
+        filePath: normalizedPath
+      };
+    }catch(err){
+      console.error('fileIO.openGraphFilePath desktop error', { context, filePath: normalizedPath, err });
+      return { status: 'error', via: 'desktopFilePath', filePath: normalizedPath, error: err };
+    }
+  };
+
   fileIO.openGraphFile = async function openGraphFile(options){
     const {
       context = 'graph',
@@ -609,17 +651,17 @@
           debug('openGraphFile.desktopCancelled', { context });
           return { status: 'cancelled', via: 'desktopDialog' };
         }
-        const read = await desktop.readFile(filePath);
-        const fileName = getBaseName(filePath, 'workspace.graph');
-        const blob = base64ToBlob(read?.dataBase64 || '', 'application/zip');
-        blob.name = fileName;
-        const handle = makeDesktopHandle(filePath);
-        ensureSetter(setFileHandle, handle);
-        ensureSetter(setFileName, fileName);
-        if(typeof loadFromFile === 'function'){
-          await loadFromFile(blob);
-        }
-        return { status: 'opened', via: 'desktopDialog', fileHandle: handle, file: blob, fileName, filePath };
+        const opened = await fileIO.openGraphFilePath({
+          context,
+          filePath,
+          setFileHandle,
+          setFileName,
+          loadFromFile
+        });
+        return {
+          ...opened,
+          via: opened?.status === 'opened' ? 'desktopDialog' : (opened?.via || 'desktopDialog')
+        };
       }catch(err){
         console.error('fileIO.openGraphFile desktop error', { context, err });
         return { status: 'error', via: 'desktopDialog', error: err };

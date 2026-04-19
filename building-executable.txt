@@ -1,9 +1,18 @@
 From the repo root (C:\Users\33683\Venn), paste this:
 
 npm run desktop:build:installer
-This builds an updated Windows .exe installer (NSIS) for the Electron app.
+This syncs the current web app into the Electron wrapper and builds an updated Windows .exe installer (NSIS) for the Electron app.
+The installer shows the license, asks for approval, creates shortcuts, and associates .graph files with Graphitix.
 
 If you want a standalone portable .exe instead, use:
 
 npm --prefix desktop install (> only once, to install the needed package)
 npm run desktop:build:portable
+
+
+to build the installer:
+cd C:\Users\33683\Venn
+npm run desktop:build:installer
+The installer should be created here: C:\Users\33683\Venn\desktop\dist\Graphitix-Setup-1.0.0.exe
+
+

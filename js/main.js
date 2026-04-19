@@ -719,6 +719,27 @@
     }
   }
 
+  function handleDesktopOpenGraphFilePayload(payload) {
+    const filePaths = Array.isArray(payload?.filePaths)
+      ? payload.filePaths
+      : (payload?.filePath ? [payload.filePath] : []);
+    const firstGraphPath = filePaths.find(filePath => /\.graph$/i.test(String(filePath || '').trim()));
+    if (!firstGraphPath) {
+      debug('Debug: desktop open graph payload ignored', { payload });
+      return;
+    }
+    MainSessionActions.handleDesktopOpenFilePath(getSessionActionsContext(), firstGraphPath, {
+      reason: 'desktop-file-association'
+    }).catch(err => {
+      console.error('desktop graph file open error', { filePath: firstGraphPath, err });
+    });
+  }
+
+  if (window.desktop?.isDesktop && typeof window.desktop.onOpenGraphFile === 'function') {
+    window.desktop.onOpenGraphFile(handleDesktopOpenGraphFilePayload);
+    debug('Debug: desktop graph file open handler registered');
+  }
+
   document.addEventListener('click', event => {
     const actionTarget = resolveUnifiedFileActionTarget(event.target);
     if (!actionTarget) {

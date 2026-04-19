@@ -12,6 +12,16 @@ contextBridge.exposeInMainWorld('desktop', {
   showSaveDialog: (options) => ipcRenderer.invoke('desktop:showSaveDialog', options),
   readFile: (filePath) => ipcRenderer.invoke('desktop:readFile', filePath),
   writeFile: (payload) => ipcRenderer.invoke('desktop:writeFile', payload),
+  onOpenGraphFile: (handler) => {
+    if (typeof handler !== 'function') {
+      return () => {};
+    }
+    const listener = (_event, payload) => {
+      handler(payload);
+    };
+    ipcRenderer.on('desktop:openGraphFile', listener);
+    return () => ipcRenderer.removeListener('desktop:openGraphFile', listener);
+  },
   writeRecoverySnapshot: (payload) => ipcRenderer.invoke('desktop:writeRecoverySnapshot', payload),
   readRecoverySnapshot: () => ipcRenderer.invoke('desktop:readRecoverySnapshot'),
   clearRecoverySnapshot: () => ipcRenderer.invoke('desktop:clearRecoverySnapshot'),

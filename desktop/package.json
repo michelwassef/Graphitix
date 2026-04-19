@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Electron desktop wrapper for the Graphitix web app",
+  "author": "Michel Wassef",
+  "license": "MIT",
   "main": "main.cjs",
   "scripts": {
     "dev": "node scripts/dev.cjs",
@@ -21,8 +23,5 @@
     "jstat": "^1.9.5",
     "jszip": "^3.10.1",
     "svd-js": "^1.1.1"
-  },
-  "dependencies": {
-    "graphitix": "file:.."
   }
 }
