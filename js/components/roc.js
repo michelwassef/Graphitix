@@ -401,13 +401,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'roc', config: {} };
   }
   const palette = Shared.palette = Shared.palette || {};
   if(typeof palette.ensureDefaultScatterColors !== 'function' && typeof require === 'function'){
@@ -3164,8 +3161,7 @@
   }
   roc.getPayload = getPayload;
   roc.captureEmptyPayloadTemplate = function captureRocEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = roc.createEmptyPayload();
     console.debug('Debug: roc empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -3180,8 +3176,7 @@
   };
   roc.createEmptyPayload = function createEmptyRocPayload(){
     roc.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'roc', config: {} };
+    const payload = { type: 'roc', config: {} };
     payload.type = 'roc';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'
@@ -3547,7 +3542,13 @@
       }
       runSchedule();
     };
-    scheduleDrawRocRaw = scheduleRocDrawInstrumented;
+    scheduleDrawRocRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'roc',
+          debugLabel: 'roc',
+          scheduleRaw: scheduleRocDrawInstrumented
+        })
+      : scheduleRocDrawInstrumented;
     if(!rocAutoDrawManager && Shared.hot?.createAutoDrawManager){
       rocAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'roc',

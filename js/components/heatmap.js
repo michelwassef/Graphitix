@@ -350,13 +350,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getHeatmapPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getHeatmapPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'heatmap', config: {} };
   }
   const NS = 'http://www.w3.org/2000/svg';
   const COLUMN_LABEL_VERTICAL_ANGLE = 90;
@@ -8033,8 +8030,7 @@
   }
   heatmap.getPayload = getPayload;
   heatmap.captureEmptyPayloadTemplate = function captureHeatmapEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = heatmap.createEmptyPayload();
     debugLog('Debug: heatmap empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -8049,8 +8045,7 @@
   };
   heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
     heatmap.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'heatmap', config: {} };
+    const payload = { type: 'heatmap', config: {} };
     payload.type = 'heatmap';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'
@@ -8410,7 +8405,13 @@
       }
       runSchedule();
     };
-    scheduleDrawHeatmapRaw = scheduleHeatmapInstrumented;
+    scheduleDrawHeatmapRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'heatmap',
+          debugLabel: 'heatmap',
+          scheduleRaw: scheduleHeatmapInstrumented
+        })
+      : scheduleHeatmapInstrumented;
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();

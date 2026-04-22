@@ -82,6 +82,18 @@
         frameId = null;
         logDebug('Debug: Shared.debounceFrame executing callback', { label, scheduledAt, startedAt: Date.now() }); // Debug: execution entry
         try{
+          const meta = args && args[0] && typeof args[0] === 'object'
+            ? (args[0].__workspaceSessionMeta || null)
+            : null;
+          if(meta && Shared.workspaceTabs?.isSessionMetaCurrent && !Shared.workspaceTabs.isSessionMetaCurrent(meta.componentKey || null, meta)){
+            logDebug('Debug: Shared.debounceFrame skipped stale workspace callback', {
+              label,
+              tabId: meta.tabId || null,
+              sessionGeneration: meta.sessionGeneration || 0,
+              componentKey: meta.componentKey || null
+            });
+            return;
+          }
           fn.apply(context, args);
         }catch(err){
           console.error('Shared.debounceFrame error', err);
@@ -99,4 +111,3 @@
     }
   }
 })(window);
-

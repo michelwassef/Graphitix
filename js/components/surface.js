@@ -76,13 +76,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getSurfacePayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getSurfacePayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'surface', config: {} };
   }
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
@@ -2630,7 +2627,13 @@
       }
       runSchedule();
     };
-    scheduleDrawSurfaceRaw = scheduleSurfaceDrawInstrumented;
+    scheduleDrawSurfaceRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'surface',
+          debugLabel: 'surface',
+          scheduleRaw: scheduleSurfaceDrawInstrumented
+        })
+      : scheduleSurfaceDrawInstrumented;
     if(surfaceAutoDrawManager){
       surfaceAutoDrawManager.setScheduleRaw(scheduleDrawSurfaceRaw);
       surfaceAutoDrawManager.setElements({
@@ -2939,8 +2942,7 @@
 
   surface.getPayload = getPayload;
   surface.captureEmptyPayloadTemplate = function captureSurfaceEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = surface.createEmptyPayload();
     console.debug('Debug: surface empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -2955,8 +2957,7 @@
   };
   surface.createEmptyPayload = function createEmptySurfacePayload(){
     surface.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'surface', config: {} };
+    const payload = { type: 'surface', config: {} };
     payload.type = 'surface';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'

@@ -310,6 +310,76 @@
     return true;
   };
 
+  namespace.buildSessionMeta = function buildSessionMeta(componentKey, options = {}){
+    const componentKeyText = String(componentKey || options?.type || options?.componentType || '').trim() || '__default__';
+    const active = namespace.getActiveSessionInfo(componentKeyText) || null;
+    const explicitTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId || '');
+    const explicitGeneration = Number(options?.sessionGeneration ?? options?.generation);
+    return {
+      tabId: explicitTabId || active?.tabId || resolveSession()?.getActiveTab?.()?.id || null,
+      sessionGeneration: Number.isFinite(explicitGeneration) && explicitGeneration > 0
+        ? explicitGeneration
+        : (Number(active?.generation) || 0),
+      componentKey: componentKeyText
+    };
+  };
+
+  namespace.isSessionMetaCurrent = function isSessionMetaCurrent(componentKey, meta){
+    if(!meta || typeof meta !== 'object'){
+      return true;
+    }
+    const componentKeyText = String(componentKey || meta.componentKey || '').trim() || '__default__';
+    const generation = Number(meta.sessionGeneration ?? meta.generation);
+    if(!Number.isFinite(generation) || generation <= 0){
+      return true;
+    }
+    return !!namespace.isSessionCurrent(componentKeyText, meta.tabId || null, generation);
+  };
+
+  namespace.createTabScopedScheduler = function createTabScopedScheduler(config = {}){
+    const componentKey = String(config.componentKey || config.type || '').trim() || '__default__';
+    const debugLabel = String(config.debugLabel || componentKey || 'workspace').trim();
+    let scheduleRaw = typeof config.scheduleRaw === 'function' ? config.scheduleRaw : () => {};
+    const onStale = typeof config.onStale === 'function' ? config.onStale : null;
+
+    const schedule = function scheduleTabScoped(options = {}){
+      const nextOptions = options && typeof options === 'object' ? options : {};
+      const meta = nextOptions.__workspaceSessionMeta || namespace.buildSessionMeta(componentKey, nextOptions);
+      if(!namespace.isSessionMetaCurrent(componentKey, meta)){
+        debugLog(`Debug: ${debugLabel} tab-scoped schedule skipped`, {
+          tabId: meta?.tabId || null,
+          sessionGeneration: meta?.sessionGeneration || 0,
+          reason: nextOptions.reason || null
+        });
+        try{
+          onStale?.(nextOptions, meta);
+        }catch(err){
+          console.error('workspaceTabs tab-scoped stale handler error', {
+            componentKey,
+            err
+          });
+        }
+        return false;
+      }
+      const guardedOptions = {
+        ...nextOptions,
+        tabId: nextOptions.tabId || meta.tabId || null,
+        sessionGeneration: nextOptions.sessionGeneration || meta.sessionGeneration || 0,
+        __workspaceSessionMeta: meta
+      };
+      scheduleRaw.call(this, guardedOptions);
+      return true;
+    };
+
+    schedule.setScheduleRaw = function setScheduleRaw(fn){
+      scheduleRaw = typeof fn === 'function' ? fn : () => {};
+    };
+    schedule.buildMeta = options => namespace.buildSessionMeta(componentKey, options || {});
+    schedule.isCurrent = meta => namespace.isSessionMetaCurrent(componentKey, meta);
+    schedule.getScheduleRaw = () => scheduleRaw;
+    return schedule;
+  };
+
   namespace.getActiveSessionInfo = function getActiveSessionInfo(componentKey){
     const componentKeyText = String(componentKey || '').trim() || '__default__';
     return namespace.__activeSessions?.[componentKeyText] || null;

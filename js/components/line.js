@@ -151,13 +151,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getLineGraphPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getLineGraphPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'line', config: {} };
   }
   const LINE_DEFAULT_SERIES_COUNT = 5;
   const LINE_MIN_REPLICATES = 1;
@@ -12517,7 +12514,13 @@
       }
       runSchedule();
     };
-    scheduleLineDrawRaw = scheduleLineInstrumented;
+    scheduleLineDrawRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'line',
+          debugLabel: 'line',
+          scheduleRaw: scheduleLineInstrumented
+        })
+      : scheduleLineInstrumented;
     if(lineAutoDrawManager){
       lineAutoDrawManager.setScheduleRaw(scheduleLineDrawRaw);
       lineAutoDrawManager.setElements({
@@ -12686,8 +12689,7 @@
   };
   line.getPayload = getLineGraphPayload;
   line.captureEmptyPayloadTemplate = function captureLineEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = line.createEmptyPayload();
     console.debug('Debug: line empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -12702,8 +12704,7 @@
   };
   line.createEmptyPayload = function createEmptyLinePayload(){
     line.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'line', config: {} };
+    const payload = { type: 'line', config: {} };
     payload.type = 'line';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'

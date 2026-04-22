@@ -7,6 +7,7 @@ describe('domControls default payload cache isolation', () => {
       global.__resetGrid__();
     }
     require('../js/main/session.js');
+    require('../js/shared/colorSchemes.js');
     require('../js/main/domControls.js');
   });
 
@@ -134,6 +135,87 @@ describe('domControls default payload cache isolation', () => {
     expect(second?.config?.stats?.statsOptions?.showDiagnostics).toBe(true);
   });
 
+  test('workspace defaults force immutable component theme defaults', () => {
+    const session = window.Main?.session;
+    const domControls = window.Main?.domControls;
+    expect(session).toBeTruthy();
+    expect(domControls).toBeTruthy();
+
+    const config = {
+      createEmptyPayload() {
+        return {
+          type: 'line',
+          data: [['X title', 'Series 1']],
+          config: {
+            colorScheme: 'dark',
+            labelColors: {
+              'Series 1': '#ffffff'
+            },
+            seriesStyles: {
+              'Series 1': {
+                color: '#ffffff',
+                markerStroke: '#ffffff'
+              }
+            }
+          }
+        };
+      }
+    };
+
+    const first = domControls.ensureDefaultPayload(session, 'line', config);
+    expect(first?.config?.colorScheme).toBe('scientific');
+    expect(first?.config?.labelColors?.['Series 1']).not.toBe('#ffffff');
+    expect(first?.config?.seriesStyles?.['Series 1']?.color).not.toBe('#ffffff');
+
+    const contaminated = deepClone(first);
+    contaminated.config.colorScheme = 'dark';
+    contaminated.config.labelColors['Series 1'] = '#ffffff';
+    expect(domControls.setWorkspaceDefaultPayload(session, 'line', contaminated)).toBe(true);
+
+    const second = domControls.ensureDefaultPayload(session, 'line', config);
+    expect(second?.config?.colorScheme).toBe('scientific');
+    expect(second?.config?.labelColors?.['Series 1']).not.toBe('#ffffff');
+  });
+
+  test('ensureDefaultPayload refuses live payload fallback for defaults', () => {
+    const session = window.Main?.session;
+    const domControls = window.Main?.domControls;
+    expect(session).toBeTruthy();
+    expect(domControls).toBeTruthy();
+
+    const config = {
+      createEmptyPayload: jest.fn(() => null),
+      captureEmptyPayloadTemplate: jest.fn(() => ({
+        type: 'hist',
+        data: [['Values'], [1], [2]],
+        config: {
+          plotMode: 'density',
+          distributions: {
+            selected: ['normal'],
+            showPdf: false
+          }
+        }
+      })),
+      getPayload: jest.fn(() => ({
+        type: 'hist',
+        data: [['Values'], [1], [2]],
+        config: {
+          plotMode: 'density',
+          distributions: {
+            selected: ['normal'],
+            showPdf: false
+          }
+        }
+      }))
+    };
+
+    const defaults = domControls.ensureDefaultPayload(session, 'hist', config);
+    expect(defaults).toBeNull();
+    expect(config.createEmptyPayload).toHaveBeenCalled();
+    expect(config.captureEmptyPayloadTemplate).not.toHaveBeenCalled();
+    expect(config.getPayload).not.toHaveBeenCalled();
+  });
+
   test('showWorkspaceForTab reuses mounted large-tab payload when only render cache needs restore', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();
@@ -161,6 +243,7 @@ describe('domControls default payload cache isolation', () => {
       type: 'scatter',
       element,
       loadFromPayload: jest.fn(),
+      canRestoreRenderCache: jest.fn(() => true),
       restoreRenderCache: jest.fn(() => true),
       draw: jest.fn(),
       applyLayoutState: jest.fn()
@@ -201,14 +284,191 @@ describe('domControls default payload cache isolation', () => {
     });
 
     expect(config.loadFromPayload).not.toHaveBeenCalled();
+    expect(config.canRestoreRenderCache).toHaveBeenCalledWith(
+      tab.renderCache.cache,
+      expect.objectContaining({
+        tab,
+        tabId: 'workspace-2',
+        type: 'scatter',
+        payload: tab.payload,
+        payloadSignature: 'payload-large',
+        layoutSignature: 'layout-large'
+      })
+    );
     expect(config.applyLayoutState).not.toHaveBeenCalled();
     expect(config.draw).not.toHaveBeenCalled();
-    expect(config.restoreRenderCache).toHaveBeenCalledWith(tab.renderCache.cache, {
-      tabId: 'workspace-2',
-      type: 'scatter'
-    });
+    expect(config.restoreRenderCache).toHaveBeenCalledWith(
+      tab.renderCache.cache,
+      expect.objectContaining({
+        tab,
+        tabId: 'workspace-2',
+        type: 'scatter',
+        payload: tab.payload,
+        payloadSignature: 'payload-large',
+        layoutSignature: 'layout-large',
+        authoritativeRenderRestore: false,
+        sessionGeneration: expect.any(Number)
+      })
+    );
     expect(session.fastClonePayload).not.toHaveBeenCalled();
     expect(session.clearTabRenderCache).toHaveBeenCalledWith(tab, { reason: 'render-cache-consumed' });
+  });
+
+  test('showWorkspaceForTab refuses live render cache restore without component validator', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const payload = {
+      type: 'scatter',
+      data: [['Gene', 'X', 'Y'], ['A', 1, 2]],
+      config: { title: 'Validated only' }
+    };
+    const tab = {
+      id: 'workspace-2',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'payload-large',
+      layoutSignature: 'layout-large',
+      renderCache: {
+        tabId: 'workspace-2',
+        type: 'scatter',
+        payloadSignature: 'payload-large',
+        layoutSignature: 'layout-large',
+        cache: { svg: '<svg></svg>' }
+      },
+      renderCacheTabId: 'workspace-2'
+    };
+    const config = {
+      type: 'scatter',
+      element,
+      loadFromPayload: jest.fn(),
+      restoreRenderCache: jest.fn(() => true),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value)),
+      clearTabRenderCache: jest.fn()
+    };
+    const workspaceState = {
+      loadedWorkspaces: {
+        'workspace-2': {
+          tabId: 'workspace-2',
+          type: 'scatter',
+          payloadSignature: 'payload-large',
+          layoutSignature: 'layout-large'
+        }
+      },
+      renderedWorkspaceByType: {
+        scatter: 'workspace-3'
+      }
+    };
+
+    window.Shared = window.Shared || {};
+    window.Shared.workspaceTabs = {
+      activateWorkspace: jest.fn()
+    };
+    window.Shared.componentLayout = {
+      suppressNextScheduleFor: jest.fn()
+    };
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test' });
+
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.restoreRenderCache).not.toHaveBeenCalled();
+    expect(session.clearTabRenderCache).not.toHaveBeenCalled();
+    expect(config.loadFromPayload).toHaveBeenCalled();
+    expect(config.applyLayoutState).toHaveBeenCalled();
+    expect(config.draw).toHaveBeenCalled();
+  });
+
+  test('showWorkspaceForTab rejects render cache owned by another tab', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const payload = {
+      type: 'scatter',
+      data: [['Gene', 'X', 'Y'], ['A', 1, 2]],
+      config: { title: 'Target scatter' }
+    };
+    const tab = {
+      id: 'workspace-2',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'same-payload-signature',
+      layoutSignature: 'same-layout-signature',
+      renderCache: {
+        tabId: 'workspace-3',
+        type: 'scatter',
+        payloadSignature: 'same-payload-signature',
+        layoutSignature: 'same-layout-signature',
+        cache: { svg: '<svg data-owner="workspace-3"></svg>' }
+      },
+      renderCacheTabId: 'workspace-3'
+    };
+    const config = {
+      type: 'scatter',
+      element,
+      loadFromPayload: jest.fn(),
+      canRestoreRenderCache: jest.fn(() => true),
+      restoreRenderCache: jest.fn(() => true),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value)),
+      clearTabRenderCache: jest.fn()
+    };
+    const workspaceState = {
+      loadedWorkspaces: {
+        'workspace-2': {
+          tabId: 'workspace-2',
+          type: 'scatter',
+          payloadSignature: 'same-payload-signature',
+          layoutSignature: 'same-layout-signature'
+        }
+      },
+      renderedWorkspaceByType: {
+        scatter: 'workspace-3'
+      }
+    };
+
+    window.Shared = window.Shared || {};
+    window.Shared.workspaceTabs = {
+      activateWorkspace: jest.fn()
+    };
+    window.Shared.componentLayout = {
+      suppressNextScheduleFor: jest.fn()
+    };
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test' });
+
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.restoreRenderCache).not.toHaveBeenCalled();
+    expect(session.clearTabRenderCache).not.toHaveBeenCalled();
+    expect(config.loadFromPayload).toHaveBeenCalled();
+    expect(config.applyLayoutState).toHaveBeenCalled();
+    expect(config.draw).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'workspace-2',
+      componentType: 'scatter',
+      reason: 'workspace-view'
+    }));
   });
 
   test('showWorkspaceForTab preserves large data matrix by reference on first activation', () => {

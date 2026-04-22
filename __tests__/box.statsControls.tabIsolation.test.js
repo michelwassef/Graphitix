@@ -157,6 +157,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     require('../js/shared/significanceControls.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
+    require('../js/shared/colorSchemes.js');
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
@@ -271,5 +272,125 @@ describe('Box stats controls tab isolation with render cache', () => {
     }
 
     expect(getBoxStatsButton()?.textContent).toBe('Calculate statistics');
+  });
+
+  test('box stats calculation remains clickable after switching between box tabs', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    expect(boxComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-click-a' });
+    await flushAsyncWork(25);
+    const tabA = main.session.getActiveTab();
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const emptyButton = document.getElementById('duplicateEmpty');
+      expect(emptyButton).toBeTruthy();
+      emptyButton.click();
+      await flushAsyncWork(25);
+    }
+
+    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-click-b' });
+    await flushAsyncWork(25);
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA?.id);
+
+    const state = boxComponent.__getState();
+    state.statsComputationPending = true;
+    state.statsComputationOwnerTabId = tabB.id;
+
+    await activateTabById(tabA.id, 'test-switch-to-a-with-stale-pending');
+    expect(boxComponent.__getState().statsComputationPending).toBe(false);
+
+    const statsButtonA = getBoxStatsButton();
+    expect(statsButtonA).toBeTruthy();
+    expect(statsButtonA.disabled).toBe(false);
+    statsButtonA.click();
+    await flushAsyncWork(50);
+    expect(statsButtonA.textContent).toBe('Recalculate statistics');
+    expect(boxComponent.__getState().statsComputationPending).toBe(false);
+
+    await activateTabById(tabB.id, 'test-switch-to-b-after-a-compute');
+    const statsButtonB = getBoxStatsButton();
+    expect(statsButtonB).toBeTruthy();
+    expect(statsButtonB.disabled).toBe(false);
+    statsButtonB.click();
+    await flushAsyncWork(50);
+    expect(statsButtonB.textContent).toBe('Recalculate statistics');
+    expect(boxComponent.__getState().statsComputationPending).toBe(false);
+  });
+
+  test('delayed dark theme repaint cannot cross-contaminate another box tab cache', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    const schemes = window.Shared?.colorSchemes;
+    expect(boxComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+    expect(schemes?.applyToActiveTab).toBeTruthy();
+
+    const payloadA = createSeedPayload(boxComponent);
+    payloadA.config = payloadA.config || {};
+    payloadA.config.colorScheme = 'scientific';
+    boxComponent.loadFromPayload(payloadA, { source: 'test-theme-a' });
+    await flushAsyncWork(25);
+    const tabA = main.session.getActiveTab();
+    main.session.persistActiveTabState(tabA, {
+      workspaces: main.components.registry,
+      previews: main.previews,
+      reason: 'test-theme-persist-a'
+    });
+    const tabAScheme = tabA.payload?.config?.colorScheme || '';
+    expect(tabAScheme).toBeTruthy();
+    expect(tabAScheme).not.toBe('dark');
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const emptyButton = document.getElementById('duplicateEmpty');
+      expect(emptyButton).toBeTruthy();
+      emptyButton.click();
+      await flushAsyncWork(25);
+    }
+
+    const payloadB = createSeedPayload(boxComponent);
+    payloadB.config = payloadB.config || {};
+    payloadB.config.colorScheme = 'scientific';
+    boxComponent.loadFromPayload(payloadB, { source: 'test-theme-b' });
+    await flushAsyncWork(25);
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    expect(schemes.applyToActiveTab('box', 'dark')).toBe(true);
+    await flushAsyncWork(5);
+    expect(tabB.payload?.config?.colorScheme).toBe('dark');
+
+    await activateTabById(tabA.id, 'test-theme-switch-back-before-delayed-dark');
+    await new Promise(resolve => setTimeout(resolve, 230));
+    await flushAsyncWork(20);
+
+    const active = main.session.getActiveTab();
+    expect(active?.id).toBe(tabA.id);
+    expect(active.payload?.config?.colorScheme).toBe(tabAScheme);
+    expect(schemes.getSelectedSchemeId('box')).toBe(tabAScheme);
+
+    const svgBoxBg = document.querySelector('#boxGraphPanel .svgbox')?.style?.backgroundColor || '';
+    const plotBg = document.getElementById('boxPlot')?.style?.backgroundColor || '';
+    const svgScheme = document.querySelector('#boxPlot svg')?.getAttribute('data-color-scheme') || '';
+    expect(svgBoxBg).not.toMatch(/rgb\(0,\s*0,\s*0\)|#000|black/i);
+    expect(plotBg).not.toMatch(/rgb\(0,\s*0,\s*0\)|#000|black/i);
+    expect(svgScheme).not.toBe('dark');
   });
 });

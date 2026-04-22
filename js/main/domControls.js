@@ -234,7 +234,8 @@
     if (!type || !payload || typeof payload !== 'object') {
       return null;
     }
-    const normalized = normalizeDefaultPayloadForType(type, cloneValue(payload, cloneFn));
+    const themed = enforceImmutableDefaultTheme(type, cloneValue(payload, cloneFn));
+    const normalized = normalizeDefaultPayloadForType(type, themed);
     moduleState.workspaceDefaults[type] = deepFreezeValue(normalized);
     return moduleState.workspaceDefaults[type];
   }
@@ -245,40 +246,6 @@
     }
     moduleState.workspaceLayoutDefaults[type] = deepFreezeValue(cloneValue(layout, cloneFn));
     return moduleState.workspaceLayoutDefaults[type];
-  }
-
-  function enrichDefaultPayloadCandidate(type, config, payload, cloneFn) {
-    if (!payload || typeof payload !== 'object') {
-      return payload;
-    }
-    const templateGetter = (typeof config?.captureEmptyPayloadTemplate === 'function')
-      ? config.captureEmptyPayloadTemplate
-      : null;
-    if (!templateGetter) {
-      return payload;
-    }
-    try {
-      const template = templateGetter();
-      if (!template || typeof template !== 'object') {
-        return payload;
-      }
-      const payloadConfigKeyCount = Object.keys(payload?.config || {}).length;
-      const templateConfigKeyCount = Object.keys(template?.config || {}).length;
-      const enriched = mergePayloadWithDefaults(payload, template, cloneFn);
-      const enrichedConfigKeyCount = Object.keys(enriched?.config || {}).length;
-      if (enrichedConfigKeyCount > payloadConfigKeyCount || templateConfigKeyCount > payloadConfigKeyCount) {
-        console.debug('Debug: ensureDefaultPayload enriched candidate from empty template', {
-          type,
-          payloadConfigKeyCount,
-          templateConfigKeyCount,
-          enrichedConfigKeyCount
-        });
-      }
-      return enriched || payload;
-    } catch (err) {
-      console.error('ensureDefaultPayload template enrichment error', { type, err });
-      return payload;
-    }
   }
 
   function mergePayloadWithDefaultsRecursive(defaultValue, payloadValue, cloneFn) {
@@ -394,11 +361,27 @@
     }
   }
 
+  function enforceImmutableDefaultTheme(type, payload) {
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+    const colorSchemes = Shared.colorSchemes;
+    if (!colorSchemes || typeof colorSchemes.applyDefaultToPayload !== 'function') {
+      return payload;
+    }
+    try {
+      return colorSchemes.applyDefaultToPayload(type, payload) || payload;
+    } catch (err) {
+      console.error('enforceImmutableDefaultTheme error', { type, err });
+      return payload;
+    }
+  }
+
   function sanitizeDefaultPayloadVolatileState(type, payload, baseline, cloneFn) {
     if (!payload || typeof payload !== 'object') {
       return payload;
     }
-    const next = cloneValue(payload, cloneFn) || payload;
+    const next = enforceImmutableDefaultTheme(type, cloneValue(payload, cloneFn) || payload);
     const nextConfig = isPlainObject(next.config) ? next.config : {};
     next.config = nextConfig;
     const baselineConfig = isPlainObject(baseline?.config) ? baseline.config : {};
@@ -522,26 +505,7 @@
       if (emptyPayload) {
         return emptyPayload;
       }
-      if (typeof config.captureEmptyPayloadTemplate === 'function') {
-        try {
-          const templatePayload = config.captureEmptyPayloadTemplate();
-          console.debug('Debug: ensureDefaultPayload using captureEmptyPayloadTemplate fallback', { type, hasPayload: !!templatePayload });
-          if (templatePayload) {
-            return templatePayload;
-          }
-        } catch (err) {
-          console.error('ensureDefaultPayload captureEmptyPayloadTemplate error', { type, err });
-        }
-      }
-      if (typeof config.getPayload === 'function') {
-        try {
-          const snapshot = config.getPayload();
-          console.debug('Debug: ensureDefaultPayload using live payload snapshot', { type, hasPayload: !!snapshot });
-          return snapshot;
-        } catch (err) {
-          console.error('ensureDefaultPayload live payload error', { type, err });
-        }
-      }
+      console.debug('Debug: ensureDefaultPayload immutable factory unavailable', { type });
       return null;
     };
     try {
@@ -550,7 +514,6 @@
         console.debug('Debug: ensureDefaultPayload payload unavailable', { type });
         return null;
       }
-      payload = enrichDefaultPayloadCandidate(type, config, payload, cloneFn);
       cacheWorkspaceDefaultPayload(type, payload, cloneFn);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
       const layoutGetter = (typeof config.getDefaultLayoutState === 'function')
@@ -729,29 +692,55 @@
       : (tab.renderCache || null);
     const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
     const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? tab.archiveRenderCacheLayoutSignature ?? null;
+    const renderCacheOwnerTabId = renderCache?.tabId ?? tab.renderCacheTabId ?? null;
     const isSameComponentTabSwitch = !!(renderedTabForType && renderedTabForType !== tab.id);
-    const canRestoreRender = !options.forceReload
+    const hasRenderCacheValidator = typeof config.canRestoreRenderCache === 'function';
+    let canRestoreRender = !options.forceReload
       && renderCache
       && renderCache.cache
+      && hasRenderCacheValidator
+      && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
       && renderPayloadSignature === targetPayloadSignature
       && renderLayoutSignature === targetLayoutSignature
       && typeof config.restoreRenderCache === 'function';
+    if (canRestoreRender) {
+      try {
+        canRestoreRender = !!config.canRestoreRenderCache(renderCache.cache, {
+          tab,
+          tabId: tab.id,
+          type: tab.type,
+          payload: tab.payload || null,
+          payloadSignature: targetPayloadSignature,
+          layoutSignature: targetLayoutSignature,
+          renderCache,
+          reason: options.reason || 'workspace-view'
+        });
+      } catch (err) {
+        console.error('workspace render cache validation error', { type: tab.type, err });
+        canRestoreRender = false;
+      }
+    }
     if (isSameComponentTabSwitch && canRestoreRender) {
       console.debug('Debug: workspace same-component render cache restore allowed', {
         tabId: tab.id,
         type: tab.type,
         renderedTabForType,
+        renderCacheOwnerTabId,
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
-        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature
+        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
+        hasRenderCacheValidator
       });
     } else if (isSameComponentTabSwitch && !canRestoreRender) {
       console.debug('Debug: workspace same-component render cache unavailable', {
         tabId: tab.id,
         type: tab.type,
         renderedTabForType,
+        renderCacheOwnerTabId,
+        renderCacheOwnerMatched: !renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id),
         hasRenderCache: !!(renderCache && renderCache.cache),
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
         layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
+        hasRenderCacheValidator,
         hasRestoreHook: typeof config.restoreRenderCache === 'function'
       });
     }
@@ -874,8 +863,12 @@
           }
           try {
             restored = guardWorkspaceMutation('restore-render-cache-reuse') && !!config.restoreRenderCache(renderCache.cache, {
+              tab,
               tabId: tab.id,
               type: tab.type,
+              payload: tab.payload || null,
+              payloadSignature: targetPayloadSignature,
+              layoutSignature: targetLayoutSignature,
               authoritativeRenderRestore,
               sessionGeneration
             });
@@ -942,8 +935,7 @@
           try {
             const emptyPayload = config.createEmptyPayload();
             if (!moduleState.workspaceDefaults[tab.type]) {
-              const enriched = enrichDefaultPayloadCandidate(tab.type, config, emptyPayload, cloneFn);
-              cacheWorkspaceDefaultPayload(tab.type, enriched, cloneFn);
+              cacheWorkspaceDefaultPayload(tab.type, emptyPayload, cloneFn);
             }
             payload = cloneFn?.(emptyPayload) || emptyPayload;
             console.debug('Debug: workspace payload rebuilt from empty template', { tabId: tab.id, type: tab.type });
@@ -1020,8 +1012,12 @@
       if (canRestoreRender) {
         try {
           restored = guardWorkspaceMutation('restore-render-cache') && !!config.restoreRenderCache(renderCache.cache, {
+            tab,
             tabId: tab.id,
             type: tab.type,
+            payload: tab.payload || null,
+            payloadSignature: targetPayloadSignature,
+            layoutSignature: targetLayoutSignature,
             authoritativeRenderRestore,
             sessionGeneration
           });

@@ -55,13 +55,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'hist', config: {} };
   }
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
@@ -541,6 +538,74 @@
       legend: null
     }
   };
+
+  function createImmutableHistDefaultConfig(){
+    const defaultPlotMode = HIST_PLOT_MODE_HISTOGRAM;
+    const frequency = createDefaultHistFrequencySettings();
+    const distributionOptions = getDistributionOptions()
+      .map((entry, index) => sanitizeDistributionOptionEntry(entry, index, entry));
+    const defaultDistributionSettings = createDefaultDistributionSettings();
+    const distributionSelections = mergeDistributionSelections(
+      defaultDistributionSettings.selections,
+      distributionOptions
+    );
+    return {
+      plotMode: defaultPlotMode,
+      title: getHistDefaultTitle(defaultPlotMode),
+      xLabel: 'Value',
+      yLabel: getHistDefaultYLabel(defaultPlotMode, frequency),
+      showLegend: true,
+      seriesColors: {},
+      densityLineColors: {},
+      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific',
+      fill: HIST_DEFAULT_FILL,
+      border: HIST_DEFAULT_BORDER,
+      borderWidth: String(HIST_DEFAULT_BORDER_WIDTH),
+      bins: '10',
+      frequency,
+      showGrid: false,
+      gridStyle: null,
+      showFrame: false,
+      logY: false,
+      fontSize: '12',
+      axis: createDefaultAxisSettings(),
+      axisLimits: { xMin: 0, xMax: null, yMax: null },
+      distributions: {
+        selected: Object.keys(distributionSelections).filter(key => distributionSelections[key]),
+        showPdf: !!defaultDistributionSettings.showPdf,
+        showCdf: !!defaultDistributionSettings.showCdf,
+        alpha: defaultDistributionSettings.alpha,
+        options: distributionOptions
+      },
+      stats: createDefaultHistStatsSettings(),
+      notes: {
+        text: '',
+        open: false
+      },
+      labelPositions: {
+        title: null,
+        xLabel: null,
+        yLabel: null,
+        legend: null
+      }
+    };
+  }
+
+  function createImmutableHistDefaultPayload(){
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS)
+      : Array.from({ length: HIST_DEFAULT_ROWS }, () => Array(HIST_DEFAULT_COLS).fill(''));
+    seedHistDefaultHeaderRow(emptyData);
+    return {
+      type: 'hist',
+      data: emptyData,
+      exclusions: [],
+      filters: null,
+      config: createImmutableHistDefaultConfig()
+    };
+  }
+
   function ensureHistStatsReportHost(target){
     const reporting = Shared.statsReporting;
     if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
@@ -671,12 +736,10 @@
     const cdfInput = document.getElementById('histShowCdf');
     const pdfInput = document.getElementById('histShowPdf');
     const cumulativeMode = frequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
-    const disablePdf = densityMode || cumulativeMode;
+    const disablePdf = cumulativeMode;
     if(pdfInput){
       pdfInput.disabled = disablePdf;
-      const title = densityMode
-        ? 'PDF overlay is only available in histogram mode.'
-        : (cumulativeMode ? 'PDF overlay is disabled for cumulative frequency mode.' : '');
+      const title = cumulativeMode ? 'PDF overlay is disabled for cumulative frequency mode.' : '';
       pdfInput.title = title;
       const label = pdfInput.closest('label');
       if(label){
@@ -3179,8 +3242,7 @@
     }
     hist.getPayload = getPayload;
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = createImmutableHistDefaultPayload();
     histDebug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -3195,22 +3257,7 @@
   };
   hist.createEmptyPayload = function createEmptyHistPayload(){
       hist.ensure();
-      ensureEmptyPayloadTemplate();
-      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'hist', config: {} };
-      payload.type = 'hist';
-      const createEmpty = Shared.createEmptyData;
-      const emptyData = typeof createEmpty === 'function'
-        ? createEmpty(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS)
-        : Array.from({ length: HIST_DEFAULT_ROWS }, () => Array(HIST_DEFAULT_COLS).fill(''));
-      seedHistDefaultHeaderRow(emptyData);
-      payload.data = emptyData;
-      payload.exclusions = [];
-      payload.filters = null;
-      payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
-      if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
-        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('hist') || 'scientific';
-      }
-      return payload;
+      return createImmutableHistDefaultPayload();
     };
     hist.save = async function(){
       histDebug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
@@ -4288,8 +4335,7 @@
       return;
     }
     const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
-    const includePdf = !densityMode
-      && frequencySettings.createMode !== HIST_FREQUENCY_CREATE_MODE.cumulative
+    const includePdf = frequencySettings.createMode !== HIST_FREQUENCY_CREATE_MODE.cumulative
       && !!state.distributionSettings.showPdf;
     const includeCdf = densityMode ? false : !!state.distributionSettings.showCdf;
     const statsHelpers = Shared.stats || {};
@@ -5324,7 +5370,13 @@
       }
       runSchedule();
     };
-    scheduleDrawHistRaw = scheduleHistInstrumented;
+    scheduleDrawHistRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'hist',
+          debugLabel: 'hist',
+          scheduleRaw: scheduleHistInstrumented
+        })
+      : scheduleHistInstrumented;
     if(histAutoDrawManager){
       histAutoDrawManager.setScheduleRaw(scheduleDrawHistRaw);
       histAutoDrawManager.setElements({

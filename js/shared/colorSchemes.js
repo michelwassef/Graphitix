@@ -272,7 +272,6 @@
   const state = {
     initialized: false,
     controlsByType: {},
-    preferredByType: {},
     monitorTimer: null,
     lastActiveSignature: null,
     pendingSyncTimer: null
@@ -422,7 +421,7 @@
     if(isKnownSchemeId(id)){
       return String(id).trim().toLowerCase();
     }
-    return state.preferredByType[type] || getDefaultSchemeIdForType(type);
+    return getDefaultSchemeIdForType(type);
   }
 
   function normalizeSurfaceSchemeId(id){
@@ -978,6 +977,34 @@
         applySvgVisualTheme(svg, scheme);
       }
     });
+  }
+
+  function applyRenderedThemeForTab(type, schemeId, tabId, reason){
+    const active = getActiveTab();
+    if(!active || active.type !== type || String(active.id || '') !== String(tabId || '')){
+      debugLog('Debug: colorSchemes rendered theme skipped', {
+        reason: reason || 'tab-mismatch',
+        type,
+        tabId: tabId || null,
+        activeTabId: active?.id || null,
+        activeType: active?.type || null,
+        scheme: schemeId
+      });
+      return false;
+    }
+    const activeScheme = readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
+    if(normalizePresetSchemeId(activeScheme, type) !== normalizePresetSchemeId(schemeId, type)){
+      debugLog('Debug: colorSchemes rendered theme skipped', {
+        reason: reason || 'scheme-mismatch',
+        type,
+        tabId: tabId || null,
+        activeScheme,
+        scheme: schemeId
+      });
+      return false;
+    }
+    applyRenderedTheme(type, schemeId);
+    return true;
   }
 
   function syncSharedScatterPalette(type, scheme){
@@ -1602,31 +1629,6 @@
     return buildPayloadColorSignature(type, payload, payload) === buildPayloadColorSignature(type, expected, payload);
   }
 
-  function setDefaultForNewTabs(type, scheme){
-    const main = global.Main || {};
-    const session = main.session;
-    const domControls = main.domControls;
-    const components = main.components;
-    if(!session || !domControls || typeof domControls.setWorkspaceDefaultPayload !== 'function'){
-      debugLog('Debug: colorSchemes default update skipped', { type, reason: 'missing-session-or-domControls' });
-      return;
-    }
-    const workspace = components && typeof components.get === 'function' ? components.get(type) : null;
-    if(!workspace || typeof workspace.createEmptyPayload !== 'function'){
-      debugLog('Debug: colorSchemes default update skipped', { type, reason: 'missing-workspace-createEmptyPayload' });
-      return;
-    }
-    let emptyPayload = null;
-    try{
-      emptyPayload = workspace.createEmptyPayload();
-    }catch(err){
-      console.error('colorSchemes createEmptyPayload error', { type, err });
-      return;
-    }
-    const patched = applySchemeToPayload(type, emptyPayload, scheme, { forceColors: true });
-    domControls.setWorkspaceDefaultPayload(session, type, patched);
-  }
-
   function applySchemeToActiveTab(type, schemeId){
     const scheme = getScheme(schemeId);
     const main = global.Main || {};
@@ -1700,11 +1702,9 @@
       session.markSessionDirty('color-scheme-applied', { type, tabId: tab.id, scheme: scheme.id });
     }
 
-    state.preferredByType[type] = scheme.id;
-    setDefaultForNewTabs(type, scheme);
-    applyRenderedTheme(type, scheme.id);
-    global.setTimeout(() => applyRenderedTheme(type, scheme.id), 40);
-    global.setTimeout(() => applyRenderedTheme(type, scheme.id), 180);
+    applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-immediate');
+    global.setTimeout(() => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-40'), 40);
+    global.setTimeout(() => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-180'), 180);
     debugLog('Debug: colorSchemes applied to active tab', { type, tabId: tab.id, scheme: scheme.id });
     return true;
   }
@@ -1738,7 +1738,7 @@
 
   function readActiveSchemeForType(type){
     const active = getActiveTab();
-    if(!active || active.type !== type || !active.payload) return state.preferredByType[type] || getDefaultSchemeIdForType(type);
+    if(!active || active.type !== type || !active.payload) return getDefaultSchemeIdForType(type);
     if(type === 'venn'){
       return normalizePresetSchemeId(active.payload.style?.colorScheme, type);
     }
@@ -2164,8 +2164,7 @@
 
   // Apply a scheme to an arbitrary payload without mutating global defaults.
   // This is used by higher-level features (e.g. publication styles) that want
-  // to recolor the current graph while keeping the user's preferred palette
-  // for newly created tabs.
+  // to recolor the current graph while keeping new-tab defaults immutable.
   namespace.applyToPayload = function applyToPayload(type, payload, schemeId){
     const scheme = getScheme(schemeId);
     const src = cloneValue(payload) || { type, config: {} };
@@ -2182,6 +2181,22 @@
     }
   };
 
+  namespace.applyDefaultToPayload = function applyDefaultToPayload(type, payload){
+    const src = cloneValue(payload) || { type, config: {} };
+    const srcType = type || src.type || null;
+    if(!srcType){
+      debugLog('Debug: colorSchemes.applyDefaultToPayload skipped', { reason: 'missing-type' });
+      return src;
+    }
+    const scheme = getScheme(getDefaultSchemeIdForType(srcType));
+    try{
+      return applySchemeToPayload(srcType, src, scheme, { forceColors: true });
+    }catch(err){
+      console.error('colorSchemes.applyDefaultToPayload error', { type: srcType, scheme: scheme?.id || null, err });
+      return src;
+    }
+  };
+
   namespace.init = function init(){
     if(state.initialized){
       debugLog('Debug: colorSchemes.init skipped - already initialized');
@@ -2189,9 +2204,14 @@
     }
     Object.keys(TYPE_TO_PAGE).forEach(type => {
       renderControlForType(type, TYPE_TO_PAGE[type]);
-      const initialScheme = getScheme(readActiveSchemeForType(type) || state.preferredByType[type] || getDefaultSchemeIdForType(type));
-      state.preferredByType[type] = initialScheme.id;
-      setDefaultForNewTabs(type, initialScheme);
+      const initialScheme = getScheme(readActiveSchemeForType(type) || getDefaultSchemeIdForType(type));
+      const controlState = state.controlsByType[type] || {};
+      if(controlState.select){
+        controlState.select.value = initialScheme.id;
+      }
+      if(typeof controlState.syncPicker === 'function'){
+        controlState.syncPicker(initialScheme.id);
+      }
     });
     attachManualColorListeners();
     startActiveMonitor();

@@ -3606,7 +3606,7 @@
     evaluateAutoDrawThresholds({ reason: reason || 'data-draw' });
     updateAutoDrawUi({ reason: reason || 'data-draw' });
     if(typeof scheduleDrawPcaRaw === 'function'){
-      scheduleDrawPcaRaw();
+      scheduleDrawPcaRaw(pendingDrawOptions);
     }
   }
   function mergePendingDrawOptions(opts){
@@ -3636,6 +3636,7 @@
   }
   function scheduleDrawPcaWrapper(options){
     const opts = normalizeDrawOptions(options);
+    opts.__workspaceSessionMeta = opts.__workspaceSessionMeta || Shared.workspaceTabs?.buildSessionMeta?.('pca', opts) || null;
     if(!opts.force
       && !Object.prototype.hasOwnProperty.call(opts, 'viewOnly')
       && !pcaState.dataDirty){
@@ -3648,7 +3649,7 @@
         pcaDataDrawTimer = null;
       }
       if(typeof scheduleDrawPcaRaw === 'function'){
-        scheduleDrawPcaRaw();
+        scheduleDrawPcaRaw(pendingDrawOptions);
       }
       return;
     }
@@ -3669,7 +3670,13 @@
       flushCoalescedPcaDataDraw(opts.reason || 'data-draw');
     }, debounceMs);
   }
-  let scheduleDrawPca = scheduleDrawPcaWrapper;
+  let scheduleDrawPca = Shared.workspaceTabs?.createTabScopedScheduler
+    ? Shared.workspaceTabs.createTabScopedScheduler({
+        componentKey: 'pca',
+        debugLabel: 'pca',
+        scheduleRaw: scheduleDrawPcaWrapper
+      })
+    : scheduleDrawPcaWrapper;
   let lastPcaStats = null;
   const pcaState = {
     axisSelection: { x: 1, y: 2, z: 3 },
@@ -10547,12 +10554,7 @@
       if(emptyPayloadTemplate){
         return;
       }
-      const configSnapshot = snapshotPcaConfig();
-      const safeConfig = cloneSimple(configSnapshot) || configSnapshot || {};
-      emptyPayloadTemplate = {
-        type: 'pca',
-        config: safeConfig
-      };
+      emptyPayloadTemplate = { type: 'pca', config: {} };
     }
       let pcaFileHandle=null, pcaFileName='pca.graph';
       async function savePcaFile(){
@@ -11000,7 +11002,13 @@
       }
       runSchedule();
     };
-    scheduleDrawPcaRaw = schedulePcaInstrumented;
+    scheduleDrawPcaRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'pca',
+          debugLabel: 'pca-draw-raw',
+          scheduleRaw: schedulePcaInstrumented
+        })
+      : schedulePcaInstrumented;
     pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
     ensurePcaFontEventListener();
     debugLog('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
@@ -11022,8 +11030,7 @@
     };
     pca.getPayload = getPcaGraphPayload;
     pca.captureEmptyPayloadTemplate = function capturePcaEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = pca.createEmptyPayload();
     console.debug('Debug: pca empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -11038,8 +11045,7 @@
   };
   pca.createEmptyPayload = function createEmptyPcaPayload(){
       pca.ensure();
-      ensureEmptyPayloadTemplate();
-      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pca', config: {} };
+      const payload = { type: 'pca', config: {} };
       payload.type = 'pca';
       const createEmpty = Shared.createEmptyData;
       const emptyData = typeof createEmpty === 'function'

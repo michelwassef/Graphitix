@@ -735,6 +735,107 @@
     return true;
   }
 
+  function normalizeBoxCacheColorSchemeId(value, tableFormat){
+    const raw = typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : '';
+    if(raw){
+      return raw;
+    }
+    return getBoxDefaultColorSchemeId(normalizeBoxTableFormat(tableFormat || state.tableFormat));
+  }
+
+  function resolveBoxPayloadColorSchemeForCache(payload){
+    const cfg = payload?.config && typeof payload.config === 'object' ? payload.config : {};
+    return normalizeBoxCacheColorSchemeId(cfg.colorScheme, cfg.tableFormat);
+  }
+
+  function captureBoxRenderCacheMetadata(meta = {}){
+    const tab = meta?.tab || global.Main?.session?.getActiveTab?.() || null;
+    const payload = tab?.payload || null;
+    const svg = resolveBoxPlotSvgRoot();
+    const backgroundRect = svg?.querySelector?.('[data-color-scheme-background="1"]') || null;
+    const payloadScheme = resolveBoxPayloadColorSchemeForCache(payload);
+    const liveScheme = normalizeBoxCacheColorSchemeId(getBoxSelectedColorSchemeId(), state.tableFormat);
+    return {
+      tabId: meta?.tabId || tab?.id || null,
+      type: 'box',
+      colorScheme: payloadScheme || liveScheme,
+      liveColorScheme: liveScheme,
+      svgColorScheme: normalizeBoxCacheColorSchemeId(svg?.getAttribute?.('data-color-scheme'), state.tableFormat),
+      hasColorSchemeBackground: !!backgroundRect,
+      backgroundFill: backgroundRect?.getAttribute?.('fill') || '',
+      svgBoxBackgroundColor: els?.svgBox?.style?.backgroundColor || '',
+      plotBackgroundColor: els?.plotDiv?.style?.backgroundColor || ''
+    };
+  }
+
+  function isBoxRenderCacheVisiblyDark(cacheMeta){
+    if(!cacheMeta || typeof cacheMeta !== 'object'){
+      return false;
+    }
+    const values = [
+      cacheMeta.colorScheme,
+      cacheMeta.liveColorScheme,
+      cacheMeta.svgColorScheme,
+      cacheMeta.backgroundFill,
+      cacheMeta.svgBoxBackgroundColor,
+      cacheMeta.plotBackgroundColor
+    ].map(value => String(value || '').trim().toLowerCase());
+    return values.some(value => value === 'dark' || value === '#000000' || value === 'black' || value === 'rgb(0, 0, 0)');
+  }
+
+  function getBoxRenderCacheMetadata(cache){
+    return cache?.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+  }
+
+  function canRestoreBoxRenderCache(cache, meta = {}){
+    if(!cache || !Object.prototype.hasOwnProperty.call(cache, 'statsControls')){
+      return false;
+    }
+    const cacheMeta = getBoxRenderCacheMetadata(cache);
+    if(!cacheMeta){
+      return !meta?.payload;
+    }
+    if(meta?.payload){
+      console.debug('Debug: box render cache restore rejected', {
+        reason: 'incomplete-live-runtime',
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
+    const targetPayload = meta?.payload || meta?.tab?.payload || null;
+    const targetScheme = targetPayload ? resolveBoxPayloadColorSchemeForCache(targetPayload) : null;
+    const cacheScheme = normalizeBoxCacheColorSchemeId(cacheMeta.colorScheme || cacheMeta.liveColorScheme || cacheMeta.svgColorScheme, state.tableFormat);
+    if(targetScheme && cacheScheme && targetScheme !== cacheScheme){
+      console.debug('Debug: box render cache restore rejected', {
+        reason: 'color-scheme-mismatch',
+        targetScheme,
+        cacheScheme,
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
+    if(targetScheme && targetScheme !== 'dark' && isBoxRenderCacheVisiblyDark(cacheMeta)){
+      console.debug('Debug: box render cache restore rejected', {
+        reason: 'dark-visual-cache-for-light-tab',
+        targetScheme,
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
+    if(targetScheme === 'dark' && cacheScheme !== 'dark'){
+      console.debug('Debug: box render cache restore rejected', {
+        reason: 'light-visual-cache-for-dark-tab',
+        targetScheme,
+        cacheScheme,
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
+    return true;
+  }
+
   function syncBoxDefaultColorSchemeForFormat(tableFormat, options = {}){
     const nextFormat = normalizeBoxTableFormat(tableFormat);
     const desiredScheme = getBoxDefaultColorSchemeId(nextFormat);
@@ -10423,7 +10524,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   state.scheduleResizePreview = function(){};
@@ -10459,6 +10560,19 @@
   }
 
   function buildBoxSessionMeta(options = {}){
+    if(options?.__workspaceSessionMeta && typeof options.__workspaceSessionMeta === 'object'){
+      return {
+        tabId: options.__workspaceSessionMeta.tabId || null,
+        sessionGeneration: Number(options.__workspaceSessionMeta.sessionGeneration) || 0
+      };
+    }
+    if(Shared.workspaceTabs?.buildSessionMeta){
+      const sharedMeta = Shared.workspaceTabs.buildSessionMeta('box', options || {});
+      return {
+        tabId: sharedMeta?.tabId || null,
+        sessionGeneration: Number(sharedMeta?.sessionGeneration) || 0
+      };
+    }
     const active = getActiveBoxSessionInfo();
     const explicitTabId = typeof options?.tabId === 'string' && options.tabId.trim() ? options.tabId.trim() : null;
     const explicitGeneration = Number(options?.sessionGeneration);
@@ -10471,7 +10585,17 @@
   }
 
   function isCurrentBoxSessionMeta(meta){
-    if(!meta || !Shared.workspaceTabs?.isSessionCurrent){
+    if(!meta){
+      return true;
+    }
+    if(Shared.workspaceTabs?.isSessionMetaCurrent){
+      return Shared.workspaceTabs.isSessionMetaCurrent('box', {
+        tabId: meta.tabId || null,
+        sessionGeneration: Number(meta.sessionGeneration) || 0,
+        componentKey: 'box'
+      });
+    }
+    if(!Shared.workspaceTabs?.isSessionCurrent){
       return true;
     }
     const generation = Number(meta.sessionGeneration);
@@ -10528,6 +10652,10 @@
     state.statsLastSignificanceEnabled = !!statsRuntime?.lastSignificanceEnabled;
     state.statsRestoredNeedsSignificanceReapply = !!statsRuntime?.restoredNeedsSignificanceReapply;
     state.suppressNextStatsSvgReapply = !!statsRuntime?.suppressNextStatsSvgReapply;
+    state.statsComputationPending = false;
+    state.statsComputationOwnerTabId = null;
+    state.pendingAutoShowSignificance = false;
+    state.authoritativeRenderRestoreActive = false;
     if(statsRuntime){
       state.significanceViewportExtensionPx = Number.isFinite(Number(statsRuntime.significanceViewportExtensionPx)) ? Number(statsRuntime.significanceViewportExtensionPx) : 0;
       state.bottomViewportExtensionPx = Number.isFinite(Number(statsRuntime.bottomViewportExtensionPx)) ? Number(statsRuntime.bottomViewportExtensionPx) : 0;
@@ -10551,13 +10679,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'box', config: {} };
   }
   function resetBoxViewportRuntimeState(reason){
     state.significanceViewportExtensionPx = 0;
@@ -23310,6 +23435,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsLastRunVersion = 0;
     state.statsLastAnnotationModel = null;
     state.statsComputationPending = false;
+    state.statsComputationOwnerTabId = null;
     state.pendingAutoShowSignificance = false;
     state.suppressNextStatsSvgReapply = false;
     state.statsRestoredNeedsSignificanceReapply = false;
@@ -24411,7 +24537,22 @@ Technical analysis record (advanced)
 
   function handleStatsComputeClick(evt){
     if(state.statsComputationPending){
-      return;
+      const activeTabId = getActiveBoxWorkspaceTabId();
+      const ownerTabId = state.statsComputationOwnerTabId || null;
+      if(ownerTabId && activeTabId && String(ownerTabId) !== String(activeTabId)){
+        console.debug('Debug: box stale stats pending lock cleared', {
+          ownerTabId,
+          activeTabId
+        });
+        state.statsComputationPending = false;
+        state.statsComputationOwnerTabId = null;
+      }else{
+        console.debug('Debug: box stats compute ignored while pending', {
+          ownerTabId,
+          activeTabId
+        });
+        return;
+      }
     }
     const userInitiated = !!(evt && evt.isTrusted);
     const autoSvgReapply = !!state.statsAutoSvgReapplyPending;
@@ -24457,6 +24598,12 @@ Technical analysis record (advanced)
       ? Number(state.significanceMaxLevel)
       : null;
     state.statsComputationPending = true;
+    state.statsComputationOwnerTabId = getActiveBoxWorkspaceTabId();
+    const computationOwnerTabId = state.statsComputationOwnerTabId || null;
+    const isCurrentStatsComputationOwner = () => {
+      const activeTabId = getActiveBoxWorkspaceTabId();
+      return !computationOwnerTabId || !activeTabId || String(computationOwnerTabId) === String(activeTabId);
+    };
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
     const perfApi = Shared.Performance;
@@ -24466,7 +24613,19 @@ Technical analysis record (advanced)
     let statsValueCount = 0;
     const statsMode = state.tableFormat;
     const finalizeStatsComputation = () => {
-      state.statsComputationPending = false;
+      const activeTabId = getActiveBoxWorkspaceTabId();
+      const ownerTabId = state.statsComputationOwnerTabId || null;
+      const ownerMatchesActive = !ownerTabId || !activeTabId || String(ownerTabId) === String(activeTabId);
+      if(ownerMatchesActive){
+        state.statsComputationPending = false;
+        state.statsComputationOwnerTabId = null;
+      }else{
+        console.debug('Debug: box stats finalize skipped for inactive tab', {
+          ownerTabId,
+          activeTabId
+        });
+        return;
+      }
       const stillCurrent = state.statsContext === context && state.statsContextSignature === context.signature;
       const label = stillCurrent && state.statsLastRunVersion === context.version
         ? 'Recalculate statistics'
@@ -24579,6 +24738,14 @@ Technical analysis record (advanced)
       const contextVersion = context.version;
       runBoxStatsWorker(payload)
         .then(model => {
+          if(!isCurrentStatsComputationOwner()){
+            console.debug('Debug: box stats worker result ignored', {
+              reason: 'inactive-tab',
+              ownerTabId: computationOwnerTabId,
+              activeTabId: getActiveBoxWorkspaceTabId()
+            });
+            return;
+          }
           if(state.statsContext !== context || state.statsContextVersion !== contextVersion){
             console.debug('Debug: box stats worker result ignored',{ reason: 'stale-context', contextVersion, current: state.statsContextVersion });
             return;
@@ -24591,6 +24758,14 @@ Technical analysis record (advanced)
           applyStatsSuccess();
         })
         .catch(err => {
+          if(!isCurrentStatsComputationOwner()){
+            console.debug('Debug: box stats worker failure ignored', {
+              reason: 'inactive-tab',
+              ownerTabId: computationOwnerTabId,
+              activeTabId: getActiveBoxWorkspaceTabId()
+            });
+            return;
+          }
           console.error('box stats worker failed', err);
           statsOutcome = 'worker-failed';
           try{
@@ -32038,8 +32213,7 @@ Technical analysis record (advanced)
   }
   box.getPayload = getPayload;
   box.captureEmptyPayloadTemplate = function captureBoxEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = box.createEmptyPayload();
     console.debug('Debug: box empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -32054,8 +32228,7 @@ Technical analysis record (advanced)
   };
   box.createEmptyPayload = function createEmptyBoxPayload(){
     box.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'box', config: {} };
+    const payload = { type: 'box', config: {} };
     payload.type = 'box';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'
@@ -32066,7 +32239,7 @@ Technical analysis record (advanced)
     payload.exclusions = [];
     payload.filters = null;
     payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
-    const tableFormat = normalizeBoxTableFormat(payload.config.tableFormat || state.tableFormat);
+    const tableFormat = normalizeBoxTableFormat(payload.config.tableFormat || 'single');
     payload.config.tableFormat = tableFormat;
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
       payload.config.colorScheme = getBoxDefaultColorSchemeId(tableFormat);
@@ -32870,6 +33043,7 @@ Technical analysis record (advanced)
           });
           state.statsContext = null;
           state.statsComputationPending = false;
+          state.statsComputationOwnerTabId = null;
           state.statsRestoredNeedsSignificanceReapply = false;
           if(c.stats.viewportGeometry){
             restoreBoxSignificanceGeometryFromSaved(c.stats.viewportGeometry, authoritativeRenderRestore ? 'payload-load-authoritative' : 'payload-load');
@@ -32904,10 +33078,16 @@ Technical analysis record (advanced)
       }
     }
     if(!suppressDraw && scheduleOriginal){
+      const scheduleMeta = {
+        tabId: meta?.tabId || null,
+        sessionGeneration: meta?.sessionGeneration || 0,
+        __workspaceSessionMeta: meta?.__workspaceSessionMeta || null
+      };
       if(styleOnly){
         const shouldForceStyleRedraw = !!state.showSignificanceBars;
         if(!stylePayloadAppliedLive || shouldForceStyleRedraw){
           scheduleOriginal({
+            ...scheduleMeta,
             viewOnly: true,
             reason: meta?.reason || 'box-style-payload'
           });
@@ -32918,6 +33098,7 @@ Technical analysis record (advanced)
         }
       }else{
         scheduleOriginal({
+          ...scheduleMeta,
           reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
         });
       }
@@ -33215,9 +33396,15 @@ Technical analysis record (advanced)
       }
       runSchedule();
     };
-    scheduleDrawBoxRaw = scheduleBoxDrawInstrumented;
+    scheduleDrawBoxRaw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'box',
+          debugLabel: 'box',
+          scheduleRaw: scheduleBoxDrawInstrumented
+        })
+      : scheduleBoxDrawInstrumented;
     state.scheduleDraw = scheduleDrawBoxRaw;
-    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: false }); // Debug: scheduler setup
+    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: true }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     ensureBoxFontEventListener();
     syncBoxDefaultColorSchemeForFormat(state.tableFormat);
@@ -33374,7 +33561,7 @@ Technical analysis record (advanced)
     return resolveBoxPreviewSourceSvg(tab);
   };
 
-  box.captureRenderCache = function captureRenderCache(){
+  box.captureRenderCache = function captureRenderCache(meta = {}){
     const plotCache = detachChildren(els.plotDiv);
     const controlsCache = detachChildren(els.statsControls);
     const resultsCache = detachChildren(els.statsResults);
@@ -33389,13 +33576,31 @@ Technical analysis record (advanced)
       reportNodes: reportCache?.count || 0,
       total
     });
-    return { plot: plotCache, statsControls: controlsCache, statsResults: resultsCache, statsTable: tableCache, statsReport: reportCache };
+    return {
+      plot: plotCache,
+      statsControls: controlsCache,
+      statsResults: resultsCache,
+      statsTable: tableCache,
+      statsReport: reportCache,
+      __graphitixRenderCache: captureBoxRenderCacheMetadata(meta)
+    };
   };
 
-  box.restoreRenderCache = function restoreRenderCache(cache){
+  box.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return canRestoreBoxRenderCache(cache, meta);
+  };
+
+  box.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
     if(!Object.prototype.hasOwnProperty.call(cache, 'statsControls')){
       console.debug('Debug: box render cache restore skipped', { reason: 'missing-stats-controls-cache' });
+      return false;
+    }
+    if(!canRestoreBoxRenderCache(cache, meta)){
+      console.debug('Debug: box render cache restore skipped', {
+        reason: 'cache-validation-failed',
+        tabId: meta?.tabId || null
+      });
       return false;
     }
     const restoredPlot = restoreChildren(els.plotDiv, cache.plot);
@@ -33412,6 +33617,11 @@ Technical analysis record (advanced)
       table: restoredTable,
       report: restoredReport
     });
+    const targetPayload = meta?.payload || meta?.tab?.payload || null;
+    const targetScheme = targetPayload ? resolveBoxPayloadColorSchemeForCache(targetPayload) : null;
+    if(targetScheme){
+      syncBoxThemeSurfaceForCurrentScheme(targetScheme);
+    }
     return restored;
   };
   box.ensure = function(){ if(!box.ready) box.init(); };

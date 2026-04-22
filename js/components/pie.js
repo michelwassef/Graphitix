@@ -139,13 +139,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'pie', config: {} };
   }
   const DEFAULT_AXIS_COLOR = '#000000';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
@@ -3047,8 +3044,7 @@
     }
     pie.getPayload = getPayload;
     pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = pie.createEmptyPayload();
     pieDebug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -3063,8 +3059,7 @@
   };
   pie.createEmptyPayload = function createEmptyPiePayload(){
       pie.ensure();
-      ensureEmptyPayloadTemplate();
-      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pie', config: {} };
+      const payload = { type: 'pie', config: {} };
       payload.type = 'pie';
       const createEmpty = Shared.createEmptyData;
       const emptyData = typeof createEmpty === 'function'
@@ -4393,7 +4388,14 @@
     initControls();
     initNotes();
     primePieStatsComputation({ matrix: getPieStatsDataMatrix(), reason: 'init' });
-    state.scheduleDraw = Shared.debounceFrame(draw);
+    const schedulePieBase = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'pie',
+          debugLabel: 'pie',
+          scheduleRaw: schedulePieBase
+        })
+      : schedulePieBase;
     ensurePieFontEventListener();
     pieDebug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);

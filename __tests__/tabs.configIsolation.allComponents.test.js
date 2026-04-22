@@ -486,4 +486,129 @@ describe('Cross-tab graph config isolation (all components)', () => {
 
     expect(failures).toEqual([]);
   });
+
+  test('empty payload factories are not derived from live component state', async () => {
+    const Main = window.Main;
+    const registry = Main.components.registry;
+    const failures = [];
+
+    for (let i = 0; i < WORKSPACE_TYPES.length; i += 1) {
+      const type = WORKSPACE_TYPES[i];
+      const workspace = registry[type];
+      if (!workspace || typeof workspace.createEmptyPayload !== 'function') {
+        failures.push(`${type}: missing createEmptyPayload`);
+        continue;
+      }
+
+      try {
+        if (i > 0) {
+          Main.tabs.handleAddTabClick();
+          await flush();
+        }
+        await handleGraphSelection(Main, type);
+
+        const baseline = workspace.createEmptyPayload();
+        const contaminated = deepClone(baseline);
+        const targetKey = isPlainObject(contaminated.config) ? 'config' : null;
+        const target = targetKey ? contaminated.config : contaminated;
+        const paths = collectMutationPaths(target, 'B', 16);
+        if (!paths.length) {
+          paths.push(...applyFallbackMutations(target, 'B'));
+        }
+        if (!paths.length) {
+          failures.push(`${type}: no mutable default paths to contaminate`);
+          continue;
+        }
+
+        workspace.loadFromPayload?.(contaminated, { source: 'test-default-factory-contamination' });
+        await flush();
+
+        const afterLiveMutation = workspace.createEmptyPayload();
+        if (!valueEquals(afterLiveMutation, baseline)) {
+          failures.push(`${type}: createEmptyPayload changed after live payload mutation`);
+        }
+
+        const captured = workspace.captureEmptyPayloadTemplate?.();
+        if (captured && !valueEquals(captured, baseline)) {
+          failures.push(`${type}: captureEmptyPayloadTemplate returned live-derived defaults`);
+        }
+      } catch (err) {
+        failures.push(`${type}: ${err?.message || String(err)}`);
+      }
+    }
+
+    expect(failures).toEqual([]);
+  });
+
+  test('new empty histogram tab is not seeded from a previous density-fit histogram tab', async () => {
+    const Main = window.Main;
+    const session = Main.session;
+    const registry = Main.components.registry;
+    const workspace = registry.hist;
+    expect(workspace).toBeTruthy();
+
+    await handleGraphSelection(Main, 'hist');
+    const tabA = Main.tabs.getActiveTab();
+    expect(tabA?.type).toBe('hist');
+
+    const densityPayload = workspace.createEmptyPayload();
+    densityPayload.data = [
+      ['Values'],
+      [38],
+      [42],
+      [45],
+      [50],
+      [52],
+      [55],
+      [57],
+      [60],
+      [62],
+      [65],
+      [70]
+    ];
+    densityPayload.config = {
+      ...densityPayload.config,
+      plotMode: 'density',
+      title: 'Density plot',
+      yLabel: 'Density',
+      distributions: {
+        ...(densityPayload.config?.distributions || {}),
+        selected: ['normal'],
+        showPdf: true,
+        showCdf: false
+      }
+    };
+
+    workspace.loadFromPayload?.(densityPayload, { source: 'test-hist-density-fit' });
+    await flush();
+    window.Components?.hist?.draw?.();
+    await flush();
+
+    expect(document.querySelector('#histSvg .hist-overlay--pdf')).toBeTruthy();
+
+    session.persistActiveTabState(tabA, {
+      workspaces: registry,
+      previews: Main.previews,
+      reason: 'test-hist-density-fit-persist'
+    });
+    await flush();
+
+    const directEmpty = workspace.createEmptyPayload();
+    expect(directEmpty?.config?.plotMode).toBe('histogram');
+    expect(directEmpty?.config?.title).toBe('Histogram');
+    expect(directEmpty?.config?.distributions?.showPdf).toBe(true);
+    expect(directEmpty?.config?.distributions?.selected).toEqual(expect.arrayContaining(['normal']));
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'hist');
+
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB?.type).toBe('hist');
+    expect(tabB?.id).not.toBe(tabA.id);
+    expect(tabB?.payload?.config?.plotMode).toBe('histogram');
+    expect(tabB?.payload?.config?.title).toBe('Histogram');
+    expect(tabB?.payload?.config?.distributions?.showPdf).toBe(true);
+    expect(tabB?.payload?.config?.distributions?.selected).toEqual(expect.arrayContaining(['normal']));
+  });
 });

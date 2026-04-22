@@ -162,33 +162,41 @@
     });
   };
 
-  const scheduleDrawBoxplot = Shared.debounceFrame(() => {
-    if (window.Components?.box?.draw) window.Components.box.draw();
-  });
-  const scheduleDrawScatter = Shared.debounceFrame(() => {
-    if (window.Components?.scatter?.draw) window.Components.scatter.draw();
-  });
-  const scheduleDrawPca = Shared.debounceFrame(() => {
-    if (window.Components?.pca?.draw) window.Components.pca.draw();
-  });
-  const scheduleDrawLine = Shared.debounceFrame(() => {
-    if (window.Components?.line?.draw) window.Components.line.draw();
-  });
-  const scheduleDrawHeatmap = Shared.debounceFrame(() => {
-    if (window.Components?.heatmap?.draw) window.Components.heatmap.draw();
-  });
-  const scheduleDrawSurface = Shared.debounceFrame(() => {
-    if (window.Components?.surface?.draw) window.Components.surface.draw();
-  });
-  const scheduleDrawHist = Shared.debounceFrame(() => {
-    if (window.Components?.hist?.draw) window.Components.hist.draw();
-  });
-  const scheduleDrawPie = Shared.debounceFrame(() => {
-    if (window.Components?.pie?.draw) window.Components.pie.draw();
-  });
-  const scheduleDrawSurvival = Shared.debounceFrame(() => {
-    if (window.Components?.survival?.draw) window.Components.survival.draw();
-  });
+  function createRegistryDrawScheduler(componentKey, componentName = componentKey) {
+    const raw = Shared.debounceFrame((options = {}) => {
+      const meta = options?.__workspaceSessionMeta || null;
+      if (Shared.workspaceTabs?.isSessionMetaCurrent && !Shared.workspaceTabs.isSessionMetaCurrent(componentKey, meta)) {
+        console.debug('Debug: registry draw skipped stale tab session', {
+          componentKey,
+          tabId: meta?.tabId || null,
+          sessionGeneration: meta?.sessionGeneration || 0,
+          reason: options?.reason || null
+        });
+        return;
+      }
+      const draw = window.Components?.[componentName]?.draw;
+      if (typeof draw === 'function') {
+        draw(options || {});
+      }
+    });
+    return Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey,
+          debugLabel: `registry-${componentKey}`,
+          scheduleRaw: raw
+        })
+      : raw;
+  }
+
+  const scheduleDrawBoxplot = createRegistryDrawScheduler('box', 'box');
+  const scheduleDrawScatter = createRegistryDrawScheduler('scatter', 'scatter');
+  const scheduleDrawPca = createRegistryDrawScheduler('pca', 'pca');
+  const scheduleDrawLine = createRegistryDrawScheduler('line', 'line');
+  const scheduleDrawHeatmap = createRegistryDrawScheduler('heatmap', 'heatmap');
+  const scheduleDrawSurface = createRegistryDrawScheduler('surface', 'surface');
+  const scheduleDrawHist = createRegistryDrawScheduler('hist', 'hist');
+  const scheduleDrawPie = createRegistryDrawScheduler('pie', 'pie');
+  const scheduleDrawSurvival = createRegistryDrawScheduler('survival', 'survival');
   const scheduleDraw = {
     boxplot: scheduleDrawBoxplot,
     scatter: scheduleDrawScatter,
@@ -223,7 +231,7 @@
       tabLabel: 'Box Plot',
       element: document.getElementById('boxPage'),
       ensure: () => ensureComponent('box'),
-      draw: () => scheduleDrawBoxplot(),
+      draw: meta => window.Components?.box?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.box?.getThumbnailSvg?.(tab) || window.Components?.box?.getPreviewSvg?.(tab),
       getPayload: () => window.Components?.box?.getPayload?.(),
       loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
@@ -232,6 +240,7 @@
       createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.box?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.box?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
       getLayoutState: () => componentLayout.captureStateFor?.('box'),
       getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('box'),
@@ -242,7 +251,7 @@
       tabLabel: 'Scatter',
       element: document.getElementById('scatterPage'),
       ensure: () => ensureComponent('scatter'),
-      draw: () => scheduleDrawScatter(),
+      draw: meta => window.Components?.scatter?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.scatter?.getThumbnailSvg?.(tab),
       getPayload: () => window.Components?.scatter?.getPayload?.(),
       loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
@@ -261,7 +270,7 @@
       tabLabel: 'PCA / MDS',
       element: document.getElementById('pcaPage'),
       ensure: () => ensureComponent('pca'),
-      draw: () => scheduleDrawPca(),
+      draw: meta => scheduleDrawPca(meta || {}),
       getPayload: () => window.Components?.pca?.getPayload?.(),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
@@ -279,7 +288,7 @@
       tabLabel: 'Line Graph',
       element: document.getElementById('linePage'),
       ensure: () => ensureComponent('line'),
-      draw: () => scheduleDrawLine(),
+      draw: meta => scheduleDrawLine(meta || {}),
       getPayload: () => window.Components?.line?.getPayload?.(),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
@@ -296,7 +305,7 @@
       tabLabel: 'Heatmap',
       element: document.getElementById('heatmapPage'),
       ensure: () => ensureComponent('heatmap'),
-      draw: () => scheduleDrawHeatmap(),
+      draw: meta => scheduleDrawHeatmap(meta || {}),
       getPayload: () => window.Components?.heatmap?.getPayload?.(),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
@@ -313,7 +322,7 @@
       tabLabel: 'Surface Plot',
       element: document.getElementById('surfacePage'),
       ensure: () => ensureComponent('surface'),
-      draw: () => scheduleDrawSurface(),
+      draw: meta => scheduleDrawSurface(meta || {}),
       getPayload: () => window.Components?.surface?.getPayload?.(),
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
@@ -347,7 +356,7 @@
       tabLabel: 'Survival',
       element: document.getElementById('survivalPage'),
       ensure: () => ensureComponent('survival'),
-      draw: () => scheduleDrawSurvival(),
+      draw: meta => scheduleDrawSurvival(meta || {}),
       getPayload: () => window.Components?.survival?.getPayload?.(),
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
@@ -364,7 +373,7 @@
       tabLabel: 'Histogram',
       element: document.getElementById('histPage'),
       ensure: () => ensureComponent('hist'),
-      draw: () => scheduleDrawHist(),
+      draw: meta => scheduleDrawHist(meta || {}),
       getPayload: () => window.Components?.hist?.getPayload?.(),
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
@@ -381,7 +390,7 @@
       tabLabel: 'Proportion',
       element: document.getElementById('piePage'),
       ensure: () => ensureComponent('pie'),
-      draw: () => scheduleDrawPie(),
+      draw: meta => scheduleDrawPie(meta || {}),
       getPayload: () => window.Components?.pie?.getPayload?.(),
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),

@@ -132,6 +132,33 @@
     return `${tab.id}::${tab.type}`;
   }
 
+  function isActiveTabForType(type, tabId){
+    const active = getActiveTab();
+    return !!active
+      && !active.isWelcome
+      && active.type === type
+      && String(active.id || '') === String(tabId || '');
+  }
+
+  function runForActivePublicationTab(type, tabId, reason, fn){
+    if(!isActiveTabForType(type, tabId)){
+      const active = getActiveTab();
+      debugLog('Debug: publicationStyles deferred mutation skipped', {
+        type,
+        tabId: tabId || null,
+        activeTabId: active?.id || null,
+        activeType: active?.type || null,
+        reason: reason || 'inactive-tab'
+      });
+      return false;
+    }
+    if(typeof fn === 'function'){
+      fn();
+      return true;
+    }
+    return false;
+  }
+
   function findPanelForType(type){
     const descriptor = TYPE_TO_PAGE[type];
     if(!descriptor) return null;
@@ -770,8 +797,12 @@
       }
 
       restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
-      global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred'), 0);
-      global.setTimeout(() => restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize'), 180);
+      global.setTimeout(() => runForActivePublicationTab(type, tab.id, 'publication-style-post-deferred', () => {
+        restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred');
+      }), 0);
+      global.setTimeout(() => runForActivePublicationTab(type, tab.id, 'publication-style-post-stabilize', () => {
+        restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize');
+      }), 180);
 
       try{
         if(typeof session.persistActiveTabState === 'function'){
@@ -809,14 +840,17 @@
         });
       }
       global.setTimeout(() => {
-        applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
-          reason: `publication-style-${type}-zoom-post-final`,
-          deferred: true
+        runForActivePublicationTab(type, tab.id, `publication-style-${type}-zoom-post-final`, () => {
+          applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
+            reason: `publication-style-${type}-zoom-post-final`,
+            deferred: true
+          });
         });
+        const restoreVisibility = () => restoreGraphVisibility();
         if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(() => restoreGraphVisibility());
+          global.requestAnimationFrame(restoreVisibility);
         }else{
-          restoreGraphVisibility();
+          restoreVisibility();
         }
       }, 0);
 

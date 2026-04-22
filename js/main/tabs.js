@@ -559,7 +559,10 @@
       }
       workspaceState.pendingDuplicateSource = null;
       workspaceState.lastActiveGraphId = target.id;
-      const result = showWorkspaceForTab(target, { skipApply: !!options.skipApplyPayload });
+      const result = showWorkspaceForTab(target, {
+        ...options,
+        skipApply: !!options.skipApplyPayload
+      });
       if (window.Shared?.undoManager?.refreshState) {
         window.Shared.undoManager.refreshState(target.id, options.reason || 'tab-activated');
       }

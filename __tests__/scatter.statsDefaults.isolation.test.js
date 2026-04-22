@@ -96,6 +96,28 @@ function createSeedPayload(scatterComponent){
   return payload;
 }
 
+function createVolcanoPayload(scatterComponent){
+  const payload = scatterComponent.createEmptyPayload();
+  payload.data = [
+    ['Gene', 'log2FoldChange', 'pValue', '', ''],
+    ['Gene A', 2.4, 0.001, '', ''],
+    ['Gene B', -1.8, 0.004, '', ''],
+    ['Gene C', 0.2, 0.68, '', ''],
+    ['Gene D', 1.1, 0.03, '', '']
+  ];
+  payload.config = payload.config || {};
+  payload.config.graphType = 'volcano';
+  payload.config.viewMode = '2d';
+  payload.config.title = 'Volcano plot';
+  payload.config.xLabel = 'log2FoldChange';
+  payload.config.yLabel = 'pValue';
+  payload.config.showLine = false;
+  payload.config.showSignificantLabels = true;
+  payload.config.log2fcThreshold = '1';
+  payload.config.negLogPThreshold = '1.3';
+  return payload;
+}
+
 describe('Scatter stats defaults isolation', () => {
   jest.setTimeout(30000);
   let restoreJStat;
@@ -254,5 +276,178 @@ describe('Scatter stats defaults isolation', () => {
 
     expect(document.getElementById('scatterStatType').value).toBe('auto');
     expect((document.getElementById('scatterComputeStats')?.textContent || '').trim()).toBe('Calculate statistics');
+  });
+
+  test('same-component scatter tabs preserve independent trendline toggles', async () => {
+    await activateWorkspace('scatter');
+
+    const scatterComponent = window.Components?.scatter;
+    const main = window.Main;
+    expect(scatterComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    const payloadA = createSeedPayload(scatterComponent);
+    payloadA.config = payloadA.config || {};
+    payloadA.config.graphType = 'scatter';
+    payloadA.config.viewMode = '2d';
+    payloadA.config.showLine = false;
+    scatterComponent.loadFromPayload(payloadA, { source: 'test-trendline-a' });
+    await flushAsyncWork(20);
+
+    const tabA = main.session.getActiveTab();
+    expect(tabA?.type).toBe('scatter');
+
+    const showLine = document.getElementById('scatterShowLine');
+    expect(showLine).toBeTruthy();
+    expect(showLine.disabled).toBe(false);
+    showLine.checked = true;
+    showLine.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await flushAsyncWork(25);
+    expect(document.getElementById('scatterShowLine').checked).toBe(true);
+    const livePayloadBeforePersist = scatterComponent.getPayload();
+    expect(livePayloadBeforePersist?.config?.showLine).toBe(true);
+    main.session.persistActiveTabState(tabA, {
+      workspaces: main.components.registry,
+      previews: main.previews,
+      reason: 'test-trendline-persist-a'
+    });
+    expect(tabA.payload?.config?.showLine).toBe(true);
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('scatter');
+
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const emptyButton = document.getElementById('duplicateEmpty');
+      expect(emptyButton).toBeTruthy();
+      emptyButton.click();
+      await flushAsyncWork(25);
+    }
+
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.type).toBe('scatter');
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    const payloadB = createSeedPayload(scatterComponent);
+    payloadB.config = payloadB.config || {};
+    payloadB.config.graphType = 'scatter';
+    payloadB.config.viewMode = '2d';
+    payloadB.config.showLine = false;
+    scatterComponent.loadFromPayload(payloadB, { source: 'test-trendline-b' });
+    await flushAsyncWork(25);
+    expect(document.getElementById('scatterShowLine').checked).toBe(false);
+    main.session.persistActiveTabState(tabB, {
+      workspaces: main.components.registry,
+      previews: main.previews,
+      reason: 'test-trendline-persist-b'
+    });
+    expect(tabB.payload?.config?.showLine).toBe(false);
+
+    const switchToA = main.tabs.activateTab(tabA.id, { reason: 'test-trendline-switch-a' });
+    if(switchToA && typeof switchToA.then === 'function'){
+      await switchToA;
+    }
+    await flushAsyncWork(25);
+    expect(document.getElementById('scatterShowLine').checked).toBe(true);
+    expect(scatterComponent.getPayload()?.config?.showLine).toBe(true);
+
+    const switchToB = main.tabs.activateTab(tabB.id, { reason: 'test-trendline-switch-b' });
+    if(switchToB && typeof switchToB.then === 'function'){
+      await switchToB;
+    }
+    await flushAsyncWork(25);
+    expect(document.getElementById('scatterShowLine').checked).toBe(false);
+    expect(scatterComponent.getPayload()?.config?.showLine).toBe(false);
+  });
+
+  test('same-component scatter tabs preserve independent graph types', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try{
+      await activateWorkspace('scatter');
+
+      const scatterComponent = window.Components?.scatter;
+      const main = window.Main;
+      expect(scatterComponent).toBeTruthy();
+      expect(main?.tabs).toBeTruthy();
+
+      const payloadA = createSeedPayload(scatterComponent);
+      payloadA.config = payloadA.config || {};
+      payloadA.config.graphType = 'scatter';
+      payloadA.config.viewMode = '2d';
+      payloadA.config.title = 'Scatter plot';
+      payloadA.config.xLabel = 'X title';
+      payloadA.config.yLabel = 'Y title';
+      payloadA.config.showLine = true;
+      payloadA.config.showSignificantLabels = false;
+      scatterComponent.loadFromPayload(payloadA, { source: 'test-graph-type-scatter' });
+      await flushAsyncWork(25);
+
+      const tabA = main.session.getActiveTab();
+      expect(tabA?.type).toBe('scatter');
+      expect(document.getElementById('scatterGraphType').value).toBe('scatter');
+      expect(document.getElementById('scatterShowLine').checked).toBe(true);
+      main.session.persistActiveTabState(tabA, {
+        workspaces: main.components.registry,
+        previews: main.previews,
+        reason: 'test-graph-type-persist-scatter'
+      });
+      expect(tabA.payload?.config?.graphType).toBe('scatter');
+      expect(tabA.payload?.config?.showLine).toBe(true);
+
+      main.tabs.handleAddTabClick();
+      await flushAsyncWork(10);
+      await activateWorkspace('scatter');
+
+      const duplicatePrompt = document.getElementById('duplicatePrompt');
+      if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+        const emptyButton = document.getElementById('duplicateEmpty');
+        expect(emptyButton).toBeTruthy();
+        emptyButton.click();
+        await flushAsyncWork(25);
+      }
+
+      const tabB = main.session.getActiveTab();
+      expect(tabB?.type).toBe('scatter');
+      expect(tabB?.id).not.toBe(tabA.id);
+
+      scatterComponent.loadFromPayload(createVolcanoPayload(scatterComponent), { source: 'test-graph-type-volcano' });
+      await flushAsyncWork(30);
+      expect(document.getElementById('scatterGraphType').value).toBe('volcano');
+      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('flex');
+      expect(document.getElementById('scatterShowSignificantLabels').disabled).toBe(false);
+      main.session.persistActiveTabState(tabB, {
+        workspaces: main.components.registry,
+        previews: main.previews,
+        reason: 'test-graph-type-persist-volcano'
+      });
+      expect(tabB.payload?.config?.graphType).toBe('volcano');
+
+      const switchToA = main.tabs.activateTab(tabA.id, { reason: 'test-graph-type-switch-scatter' });
+      if(switchToA && typeof switchToA.then === 'function'){
+        await switchToA;
+      }
+      await flushAsyncWork(35);
+      expect(tabA.payload?.config?.showLine).toBe(true);
+      expect(document.getElementById('scatterGraphType').value).toBe('scatter');
+      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('none');
+      expect(document.getElementById('scatterShowLine').checked).toBe(true);
+      expect(scatterComponent.getPayload()?.config?.graphType).toBe('scatter');
+      expect(scatterComponent.getPayload()?.config?.showLine).toBe(true);
+
+      const switchToB = main.tabs.activateTab(tabB.id, { reason: 'test-graph-type-switch-volcano' });
+      if(switchToB && typeof switchToB.then === 'function'){
+        await switchToB;
+      }
+      await flushAsyncWork(35);
+      expect(document.getElementById('scatterGraphType').value).toBe('volcano');
+      expect(document.getElementById('scatterSignificantOptions').style.display).toBe('flex');
+      expect(scatterComponent.getPayload()?.config?.graphType).toBe('volcano');
+
+      const hookErrors = consoleErrorSpy.mock.calls.filter(call => String(call[0] || '').includes('workspaceTabs hook error'));
+      expect(hookErrors).toHaveLength(0);
+    }finally{
+      consoleErrorSpy.mockRestore();
+    }
   });
 });

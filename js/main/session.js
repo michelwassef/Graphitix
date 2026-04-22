@@ -798,6 +798,8 @@
     const capturedAt = Date.now();
     tab.renderCache = {
       cache,
+      tabId: tab.id,
+      type: tab.type || null,
       payloadSignature,
       layoutSignature,
       capturedAt,
@@ -805,6 +807,7 @@
     };
     tab.renderCacheSignature = payloadSignature;
     tab.renderCacheLayoutSignature = layoutSignature;
+    tab.renderCacheTabId = tab.id;
     console.debug('Debug: archive render cache consumed', {
       tabId: tab.id,
       type: tab.type || null,
@@ -840,10 +843,11 @@
     if (!tab) {
       return false;
     }
-    const hadCache = !!(tab.renderCache || tab.renderCacheSignature || tab.renderCacheLayoutSignature);
+    const hadCache = !!(tab.renderCache || tab.renderCacheSignature || tab.renderCacheLayoutSignature || tab.renderCacheTabId);
     tab.renderCache = null;
     tab.renderCacheSignature = null;
     tab.renderCacheLayoutSignature = null;
+    tab.renderCacheTabId = null;
     if (hadCache) {
       console.debug('Debug: workspace render cache cleared', {
         tabId: tab.id,
@@ -1064,6 +1068,7 @@
       renderCache: null,
       renderCacheSignature: null,
       renderCacheLayoutSignature: null,
+      renderCacheTabId: null,
       archiveRenderCache: options.archiveRenderCache || null,
       archiveRenderCacheSignature: options.archiveRenderCacheSignature || null,
       archiveRenderCacheLayoutSignature: options.archiveRenderCacheLayoutSignature || null,
@@ -1411,6 +1416,8 @@
             const capturedAt = Date.now();
             tab.renderCache = {
               cache: captured,
+              tabId: tab.id,
+              type: tab.type || null,
               payloadSignature: tab.payloadSignature || null,
               layoutSignature: tab.layoutSignature || null,
               capturedAt,
@@ -1418,6 +1425,7 @@
             };
             tab.renderCacheSignature = tab.payloadSignature || null;
             tab.renderCacheLayoutSignature = tab.layoutSignature || null;
+            tab.renderCacheTabId = tab.id;
             if (tab.previewMeta && tab.previewSignature === (tab.payloadSignature || null)) {
               tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
               tab.previewMeta.renderCacheCapturedAt = capturedAt;

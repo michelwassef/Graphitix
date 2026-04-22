@@ -327,13 +327,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'survival', config: {} };
   }
   const BASE_COLUMN_COUNT = 4; // group, time, event, entry time
   const SURVIVAL_COL_HEADERS = [
@@ -4593,8 +4590,7 @@
   }
   survival.getPayload = getGraphPayload;
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = survival.createEmptyPayload();
     survivalDebug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -4609,8 +4605,7 @@
   };
   survival.createEmptyPayload = function createEmptySurvivalPayload(){
     survival.ensure();
-    ensureEmptyPayloadTemplate();
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'survival', config: {} };
+    const payload = { type: 'survival', config: {} };
     payload.type = 'survival';
     const createEmpty = Shared.createEmptyData;
     const emptyData = typeof createEmpty === 'function'
@@ -5154,7 +5149,14 @@
       console.warn('Survival component init skipped: required elements missing');
       return;
     }
-    state.scheduleDraw = Shared.debounceFrame ? Shared.debounceFrame(() => drawSurvival()) : (() => drawSurvival());
+    const scheduleSurvivalBase = Shared.debounceFrame ? Shared.debounceFrame(() => drawSurvival()) : (() => drawSurvival());
+    state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'survival',
+          debugLabel: 'survival',
+          scheduleRaw: scheduleSurvivalBase
+        })
+      : scheduleSurvivalBase;
     logDebug('scheduleDraw configured', { hasDebounce: typeof Shared.debounceFrame === 'function' });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'survival',

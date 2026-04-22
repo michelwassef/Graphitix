@@ -651,13 +651,10 @@
   }
 
   function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getVennGraphPayload !== 'function'){
+    if(emptyPayloadTemplate){
       return;
     }
-    const snapshot = getVennGraphPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
+    emptyPayloadTemplate = { type: 'venn' };
   }
 
   const vennUndoManager = Shared.undoManager || null;
@@ -5680,8 +5677,7 @@
   }
   venn.getPayload = getVennGraphPayload;
   venn.captureEmptyPayloadTemplate = function captureVennEmptyPayloadTemplate(){
-    ensureEmptyPayloadTemplate();
-    const snapshot = cloneSimple(emptyPayloadTemplate);
+    const snapshot = venn.createEmptyPayload();
     console.debug('Debug: venn empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -5696,10 +5692,7 @@
   };
 
   venn.createEmptyPayload = function createEmptyVennPayload(){
-    if(venn.ready && !emptyPayloadTemplate){
-      ensureEmptyPayloadTemplate();
-    }
-    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
+    const payload = { type: 'venn' };
     payload.type = 'venn';
     payload.data = {
       labelA: DEFAULT_VENN_LABEL_MAP.A,
@@ -6681,7 +6674,14 @@
     Object.assign(state.persistence, freshState.persistence);
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
-    state.ui.scheduleDraw = Shared.debounceFrame(refreshDiagram);
+    const scheduleVennBase = Shared.debounceFrame ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
+    state.ui.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
+      ? Shared.workspaceTabs.createTabScopedScheduler({
+          componentKey: 'venn',
+          debugLabel: 'venn',
+          scheduleRaw: scheduleVennBase
+        })
+      : scheduleVennBase;
     debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     initLayout();
     state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
