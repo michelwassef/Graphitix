@@ -494,7 +494,15 @@
   };
 
   graphSizing.mergePayloadSizingIntoLayout = function mergePayloadSizingIntoLayout(layoutState, payload, options = {}){
-    const record = graphSizing.getPayloadSizing(payload, { context: options.context || 'merge-payload-into-layout' });
+    const context = options.context || 'merge-payload-into-layout';
+    if((options?.type || payload?.type || '').toLowerCase() === 'box'){
+      debug('Debug: graphSizing.mergePayloadSizingIntoLayout skipped', {
+        context,
+        reason: 'box-layout-state-authoritative'
+      });
+      return cloneValue(layoutState) || null;
+    }
+    const record = graphSizing.getPayloadSizing(payload, { context });
     if(!record){
       return cloneValue(layoutState) || null;
     }
@@ -503,23 +511,68 @@
     nextLayout.svgBox.style = ensureObject(nextLayout.svgBox.style);
     nextLayout.svgBox.dataset = ensureObject(nextLayout.svgBox.dataset);
 
+    const mergedRecord = cloneValue(record) || buildNormalizedSizingRecord({}, { context: context + '-fallback' });
+    const existingRecord = graphSizing.captureLayoutSizing(nextLayout, { context: context + '-existing-layout' });
+    const existingStyle = nextLayout?.svgBox?.style || null;
+    const existingDataset = nextLayout?.svgBox?.dataset || null;
+    const hasExplicitLayoutSizing = !!(
+      parsePxLike(existingStyle?.width)
+      || parsePxLike(existingStyle?.height)
+      || parsePxLike(existingDataset?.graphWidthPx)
+      || parsePxLike(existingDataset?.graphHeightPx)
+      || parsePxLike(existingDataset?.resizerWidth)
+      || parsePxLike(existingDataset?.resizerHeight)
+      || parsePxLike(existingDataset?.resizerDefaultWidth)
+      || parsePxLike(existingDataset?.resizerDefaultHeight)
+    );
+    const preferExistingLayout = options.preferPayload !== true && hasExplicitLayoutSizing && existingRecord && existingRecord.display;
+    if(preferExistingLayout){
+      mergedRecord.display = ensureObject(mergedRecord.display);
+      mergedRecord.export = ensureObject(mergedRecord.export);
+      const src = existingRecord.display;
+      mergedRecord.display.widthPx = toPositiveNumber(src.widthPx) || mergedRecord.display.widthPx;
+      mergedRecord.display.heightPx = toPositiveNumber(src.heightPx) || mergedRecord.display.heightPx;
+      mergedRecord.display.defaultWidthPx = toPositiveNumber(src.defaultWidthPx) || mergedRecord.display.defaultWidthPx || mergedRecord.display.widthPx;
+      mergedRecord.display.defaultHeightPx = toPositiveNumber(src.defaultHeightPx) || mergedRecord.display.defaultHeightPx || mergedRecord.display.heightPx;
+      mergedRecord.display.minWidthPx = toPositiveNumber(src.minWidthPx) || mergedRecord.display.minWidthPx;
+      mergedRecord.display.minHeightPx = toPositiveNumber(src.minHeightPx) || mergedRecord.display.minHeightPx;
+      mergedRecord.display.maxWidthPx = toPositiveNumber(src.maxWidthPx) || mergedRecord.display.maxWidthPx;
+      mergedRecord.display.maxHeightPx = toPositiveNumber(src.maxHeightPx) || mergedRecord.display.maxHeightPx;
+      mergedRecord.display.aspectRatio = toPositiveNumber(src.aspectRatio) || mergedRecord.display.aspectRatio;
+      if(src.aspectLocked === false){
+        mergedRecord.display.aspectLocked = false;
+      }
+      if(src.allowUnlimitedWidth === true){
+        mergedRecord.display.allowUnlimitedWidth = true;
+      }
+    }
+
     applySizingRecordToElement({
       style: nextLayout.svgBox.style,
       dataset: nextLayout.svgBox.dataset
-    }, record, {
-      context: options.context || 'merge-payload-into-layout',
+    }, mergedRecord, {
+      context,
       updateDefaults: options.updateDefaults === true
     });
 
     debug('Debug: graphSizing.mergePayloadSizingIntoLayout', {
       context: options.context || null,
-      widthPx: record.display.widthPx,
-      heightPx: record.display.heightPx
+      widthPx: mergedRecord.display.widthPx,
+      heightPx: mergedRecord.display.heightPx,
+      preferExistingLayout
     });
     return nextLayout;
   };
 
   graphSizing.enrichPayloadWithLayout = function enrichPayloadWithLayout(type, payload, layoutState, options = {}){
+    if(String(type || '').toLowerCase() === 'box'){
+      debug('Debug: graphSizing.enrichPayloadWithLayout skipped', {
+        type,
+        context: options.context || null,
+        reason: 'box-layout-state-authoritative'
+      });
+      return cloneValue(payload);
+    }
     let record = graphSizing.captureLayoutSizing(layoutState, {
       context: options.context || `${type || 'graph'}-layout-capture`
     });
@@ -569,7 +622,16 @@
   };
 
   graphSizing.applyPayloadSizingForType = function applyPayloadSizingForType(type, payload, options = {}){
-    const record = graphSizing.getPayloadSizing(payload, { context: options.context || `${type || 'graph'}-apply` });
+    const context = options.context || `${type || 'graph'}-apply`;
+    if(type === 'box'){
+      debug('Debug: graphSizing.applyPayloadSizingForType skipped', {
+        type,
+        context,
+        reason: 'box-layout-state-authoritative'
+      });
+      return false;
+    }
+    const record = graphSizing.getPayloadSizing(payload, { context });
     if(!record){
       return false;
     }

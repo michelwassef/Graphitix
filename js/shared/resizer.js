@@ -1114,6 +1114,7 @@
       const preserveAspectLock = options.preserveAspectLock !== false;
       const forceExact = options.forceExact !== false;
       const reason = options.reason || 'programmatic';
+      const authorityMode = options.authorityMode === 'transient' ? 'transient' : 'authoritative';
       const originalAspectLocked = aspectLocked;
       const hadAspectLock = aspectLocked;
       if(hasSimulatedAspectLock){
@@ -1170,6 +1171,7 @@
       console.debug('Debug: resizer applyProgrammaticResize', {
         container: containerLabel,
         reason,
+        authorityMode,
         requestedAxis,
         requestedWidth,
         requestedHeight,

@@ -79,7 +79,48 @@
     if(!sharedState.metadata || typeof sharedState.metadata !== 'object'){
       sharedState.metadata = {};
     }
+    if(!sharedState.sessions || typeof sharedState.sessions !== 'object'){
+      sharedState.sessions = {};
+    }
     return sharedState;
+  }
+
+  function ensureSessionRecord(tabLike, componentKey){
+    const tab = resolveTab(tabLike);
+    const sharedState = ensureRecordShape(tab);
+    const key = String(componentKey || '').trim() || '__default__';
+    if(!sharedState){
+      return null;
+    }
+    if(!sharedState.sessions[key] || typeof sharedState.sessions[key] !== 'object'){
+      sharedState.sessions[key] = {
+        componentKey: key,
+        tabId: tab?.id || null,
+        generation: 0,
+        mounted: false,
+        runtime: {},
+        async: {},
+        metadata: {},
+        activatedAt: null,
+        deactivatedAt: null
+      };
+    }
+    const record = sharedState.sessions[key];
+    if(!record.runtime || typeof record.runtime !== 'object'){
+      record.runtime = {};
+    }
+    if(!record.async || typeof record.async !== 'object'){
+      record.async = {};
+    }
+    if(!record.metadata || typeof record.metadata !== 'object'){
+      record.metadata = {};
+    }
+    record.componentKey = key;
+    record.tabId = tab?.id || record.tabId || null;
+    if(!Number.isFinite(Number(record.generation))){
+      record.generation = 0;
+    }
+    return record;
   }
 
   function readPath(source, path){
@@ -194,6 +235,103 @@
       return undefined;
     }
   }
+
+
+  namespace.ensureSessionRecord = ensureSessionRecord;
+
+  namespace.getSessionRecord = function getSessionRecord(tabLike, componentKey){
+    const tab = resolveTab(tabLike);
+    const sharedState = ensureRecordShape(tab);
+    const key = String(componentKey || '').trim() || '__default__';
+    return sharedState?.sessions?.[key] || null;
+  };
+
+  namespace.activateSession = function activateSession(tabLike, componentKey, meta = {}){
+    const tab = resolveTab(tabLike);
+    const record = ensureSessionRecord(tab, componentKey);
+    if(!record || !tab){
+      return null;
+    }
+    record.generation = (Number(record.generation) || 0) + 1;
+    record.mounted = true;
+    record.activatedAt = Date.now();
+    record.metadata.lastReason = meta.reason || 'activate-session';
+    const componentKeyText = String(componentKey || '').trim() || '__default__';
+    namespace.__activeSessions = namespace.__activeSessions || {};
+    namespace.__activeSessions[componentKeyText] = {
+      tabId: tab.id,
+      generation: record.generation,
+      activatedAt: record.activatedAt,
+      reason: record.metadata.lastReason
+    };
+    debugLog('Debug: workspaceTabs session activated', {
+      tabId: tab.id,
+      componentKey: componentKeyText,
+      generation: record.generation,
+      reason: record.metadata.lastReason
+    });
+    return record;
+  };
+
+  namespace.deactivateSession = function deactivateSession(tabLike, componentKey, meta = {}){
+    const tab = resolveTab(tabLike);
+    const record = ensureSessionRecord(tab, componentKey);
+    const componentKeyText = String(componentKey || '').trim() || '__default__';
+    if(!record || !tab){
+      return null;
+    }
+    record.mounted = false;
+    record.deactivatedAt = Date.now();
+    record.metadata.lastReason = meta.reason || 'deactivate-session';
+    if(namespace.__activeSessions && namespace.__activeSessions[componentKeyText]?.tabId === tab.id){
+      delete namespace.__activeSessions[componentKeyText];
+    }
+    debugLog('Debug: workspaceTabs session deactivated', {
+      tabId: tab.id,
+      componentKey: componentKeyText,
+      generation: record.generation,
+      reason: record.metadata.lastReason
+    });
+    return record;
+  };
+
+  namespace.isSessionCurrent = function isSessionCurrent(componentKey, tabId, generation){
+    const componentKeyText = String(componentKey || '').trim() || '__default__';
+    const active = namespace.__activeSessions?.[componentKeyText] || null;
+    if(!active){
+      return false;
+    }
+    if(tabId && String(active.tabId || '') !== String(tabId || '')){
+      return false;
+    }
+    if(Number.isFinite(Number(generation)) && Number(active.generation) !== Number(generation)){
+      return false;
+    }
+    return true;
+  };
+
+  namespace.getActiveSessionInfo = function getActiveSessionInfo(componentKey){
+    const componentKeyText = String(componentKey || '').trim() || '__default__';
+    return namespace.__activeSessions?.[componentKeyText] || null;
+  };
+
+  namespace.getSessionRuntime = function getSessionRuntime(tabLike, componentKey){
+    return ensureSessionRecord(tabLike, componentKey)?.runtime || null;
+  };
+
+  namespace.replaceSessionRuntime = function replaceSessionRuntime(tabLike, componentKey, runtime, meta = {}){
+    const record = ensureSessionRecord(tabLike, componentKey);
+    if(!record){
+      return null;
+    }
+    record.runtime = runtime && typeof runtime === 'object' ? runtime : {};
+    debugLog('Debug: workspaceTabs session runtime replaced', {
+      tabId: record.tabId || null,
+      componentKey: String(componentKey || '').trim() || '__default__',
+      reason: meta.reason || 'replace-session-runtime'
+    });
+    return record.runtime;
+  };
 
   namespace.resolveTab = resolveTab;
 
@@ -357,8 +495,12 @@
       return null;
     }
     const sharedState = ensureRecordShape(tab);
+    const sessionRecord = namespace.activateSession(tab, resolvedType, {
+      reason: meta.reason || 'activate-workspace'
+    });
     sharedState.metadata.active = true;
     sharedState.metadata.lastActivatedAt = Date.now();
+    sharedState.metadata.activeSessionGeneration = sessionRecord?.generation || 0;
     stampWorkspaceScope(config?.element || null, tab.id);
     if(config?.element && typeof config.element.querySelectorAll === 'function'){
       const scopedNodes = config.element.querySelectorAll('[data-font-scope], .svgbox, svg');
@@ -370,7 +512,9 @@
       reason: meta.reason || 'activate-workspace'
     });
     invokeWorkspaceHook(resolvedConfig, 'activateTab', [tab, {
-      reason: meta.reason || 'activate-workspace'
+      reason: meta.reason || 'activate-workspace',
+      sessionGeneration: sessionRecord?.generation || 0,
+      sessionRecord: sessionRecord || null
     }], meta);
     debugLog('Debug: workspaceTabs activated workspace', {
       tabId: tab.id,
@@ -388,10 +532,15 @@
       return false;
     }
     const sharedState = ensureRecordShape(tab);
+    const sessionRecord = namespace.deactivateSession(tab, resolvedType, {
+      reason: meta.reason || 'deactivate-workspace'
+    });
     sharedState.metadata.active = false;
     sharedState.metadata.lastDeactivatedAt = Date.now();
     invokeWorkspaceHook(resolvedConfig, 'deactivateTab', [tab, {
-      reason: meta.reason || 'deactivate-workspace'
+      reason: meta.reason || 'deactivate-workspace',
+      sessionGeneration: sessionRecord?.generation || 0,
+      sessionRecord: sessionRecord || null
     }], meta);
     namespace.captureRuntimeState(tab, resolvedType, resolvedConfig, {
       reason: meta.reason || 'deactivate-workspace'

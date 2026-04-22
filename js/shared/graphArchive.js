@@ -5,7 +5,7 @@
   const graphArchive = Shared.graphArchive = Shared.graphArchive || {};
 
   const ARCHIVE_FORMAT = 'venn-graph-archive';
-  const ARCHIVE_VERSION = 2;
+  const ARCHIVE_VERSION = 3;
   const DEFAULT_TAB_TITLE = 'Workspace';
   const ZIP_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
   const GRAPH_ARCHIVE_WORKER_URL = 'js/workers/graphArchive.worker.js';
@@ -590,6 +590,8 @@
       '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
       '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
       '- tabs/<Tab Name>/layout.json: panel/layout state.',
+      '- tabs/<Tab Name>/preview.json: cached tab preview markup (when available).',
+      '- tabs/<Tab Name>/render-cache.json: serialized one-shot render snapshot for redraw-free restore (when available).',
       '',
       `Archive format: ${manifest.format}`,
       `Archive version: ${manifest.version}`,
@@ -811,6 +813,8 @@
       const exclusions = rawPayload && Object.prototype.hasOwnProperty.call(rawPayload, 'exclusions')
         ? payload.exclusions
         : undefined;
+      const hasPreview = typeof tab?.previewMarkup === 'string' && tab.previewMarkup.trim().length > 0;
+      const hasArchiveRenderCache = !!(tab?.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
 
       const tabManifest = {
         index,
@@ -825,7 +829,9 @@
           rawCsv: `${folderPath}/raw/data.csv`,
           config: `${folderPath}/graph-config.json`,
           layout: `${folderPath}/layout.json`,
-          exclusions: `${folderPath}/raw/exclusions.json`
+          exclusions: `${folderPath}/raw/exclusions.json`,
+          preview: hasPreview ? `${folderPath}/preview.json` : null,
+          renderCache: hasArchiveRenderCache ? `${folderPath}/render-cache.json` : null
         }
       };
 
@@ -856,6 +862,28 @@
       zip.file(tabManifest.files.layout, JSON.stringify(layout));
       if (typeof exclusions !== 'undefined') {
         zip.file(tabManifest.files.exclusions, JSON.stringify(exclusions));
+      }
+      if (hasPreview && tabManifest.files.preview) {
+        const previewPayload = {
+          markup: tab.previewMarkup,
+          signature: tab.previewSignature || null,
+          meta: tab.previewMeta || null
+        };
+        zip.file(tabManifest.files.preview, JSON.stringify(previewPayload), {
+          compression: 'DEFLATE',
+          compressionOptions: { level: 1 }
+        });
+      }
+      if (hasArchiveRenderCache && tabManifest.files.renderCache) {
+        const renderCachePayload = {
+          cache: tab.archiveRenderCache,
+          payloadSignature: tab.archiveRenderCacheSignature || null,
+          layoutSignature: tab.archiveRenderCacheLayoutSignature || null
+        };
+        zip.file(tabManifest.files.renderCache, JSON.stringify(renderCachePayload), {
+          compression: 'DEFLATE',
+          compressionOptions: { level: 1 }
+        });
       }
       manifest.tabs.push(tabManifest);
     }
@@ -1025,11 +1053,19 @@
         payload = hydratePayloadDataViews(payload);
       }
       const layout = await readJsonFileFromZip(zip, files.layout);
+      const previewData = files.preview ? await readJsonFileFromZip(zip, files.preview) : null;
+      const renderCacheData = files.renderCache ? await readJsonFileFromZip(zip, files.renderCache) : null;
       sessionTabs.push({
         title: entry.title || `${DEFAULT_TAB_TITLE} ${i + 1}`,
         type: entry.type || payload?.type || null,
         payload: payload || null,
-        layout: layout || null
+        layout: layout || null,
+        previewMarkup: typeof previewData?.markup === 'string' ? previewData.markup : null,
+        previewSignature: previewData?.signature || null,
+        previewMeta: previewData?.meta && typeof previewData.meta === 'object' ? previewData.meta : null,
+        archiveRenderCache: renderCacheData?.cache && typeof renderCacheData.cache === 'object' ? renderCacheData.cache : null,
+        archiveRenderCacheSignature: renderCacheData?.payloadSignature || null,
+        archiveRenderCacheLayoutSignature: renderCacheData?.layoutSignature || null
       });
     }
 

@@ -565,68 +565,15 @@
       return Object.keys(result).length ? result : null;
     };
 
-    const normalizeLiveResizableSnapshot = (element, snapshot, contextLabel) => {
-      if(!element || !snapshot || typeof snapshot !== 'object'){
-        return snapshot;
-      }
-      const dataset = snapshot.dataset && typeof snapshot.dataset === 'object'
-        ? { ...snapshot.dataset }
-        : {};
-      const style = snapshot.style && typeof snapshot.style === 'object'
-        ? { ...snapshot.style }
-        : {};
-      const rect = element.getBoundingClientRect?.() || null;
-      const zoomScaleRaw = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
-      const zoomScale = Number.isFinite(zoomScaleRaw) && zoomScaleRaw > 0 ? zoomScaleRaw : 1;
-      const liveWidth = Number(rect?.width);
-      const liveHeight = Number(rect?.height);
-      const widthPx = Number.isFinite(liveWidth) && liveWidth > 0 ? Math.round(liveWidth) : NaN;
-      const heightPx = Number.isFinite(liveHeight) && liveHeight > 0 ? Math.round(liveHeight) : NaN;
-      const baseWidthPx = Number.isFinite(widthPx) && widthPx > 0 ? Math.max(1, Math.round(widthPx / zoomScale)) : NaN;
-      const baseHeightPx = Number.isFinite(heightPx) && heightPx > 0 ? Math.max(1, Math.round(heightPx / zoomScale)) : NaN;
-      if(Number.isFinite(widthPx) && widthPx > 0){
-        style.width = `${widthPx}px`;
-        dataset.resizerWidth = style.width;
-      }
-      if(Number.isFinite(heightPx) && heightPx > 0){
-        style.height = `${heightPx}px`;
-        dataset.resizerHeight = style.height;
-      }
-      if(Number.isFinite(baseWidthPx) && baseWidthPx > 0){
-        dataset.resizerBaseWidth = String(baseWidthPx);
-      }
-      if(Number.isFinite(baseHeightPx) && baseHeightPx > 0){
-        dataset.resizerBaseHeight = String(baseHeightPx);
-      }
-      if(dataset.resizerAspectLocked === 'true' && Number.isFinite(baseWidthPx) && baseWidthPx > 0 && Number.isFinite(baseHeightPx) && baseHeightPx > 0){
-        dataset.resizerAspectRatio = String(baseWidthPx / baseHeightPx);
-      }
-      console.debug('Debug: componentLayout live resizable snapshot normalized', {
-        component: componentName,
-        context: contextLabel,
-        widthPx: Number.isFinite(widthPx) ? widthPx : null,
-        heightPx: Number.isFinite(heightPx) ? heightPx : null,
-        baseWidthPx: Number.isFinite(baseWidthPx) ? baseWidthPx : null,
-        baseHeightPx: Number.isFinite(baseHeightPx) ? baseHeightPx : null,
-        aspectLocked: dataset.resizerAspectLocked === 'true',
-        aspectRatio: dataset.resizerAspectRatio || null
-      });
-      return {
-        style: Object.keys(style).length ? style : null,
-        dataset: Object.keys(dataset).length ? dataset : null
-      };
-    };
-
     const captureState = () => {
-      const normalizedSvgSnapshot = normalizeLiveResizableSnapshot(elements.svgBox, {
-        style: cloneStyle(elements.svgBox),
-        dataset: cloneDataset(elements.svgBox)
-      }, 'svgBox');
       const state = {
         version: 1,
         component: componentName,
         minSvgWidth: Number.isFinite(panelState.minSvgWidth) ? panelState.minSvgWidth : null,
-        svgBox: normalizedSvgSnapshot,
+        svgBox: {
+          style: cloneStyle(elements.svgBox),
+          dataset: cloneDataset(elements.svgBox)
+        },
         tablePanel: {
           style: cloneStyle(elements.tablePanel),
           dataset: cloneDataset(elements.tablePanel)
@@ -734,29 +681,6 @@
       applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config', { reset: resetStyles });
       applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg', { reset: resetStyles });
       applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg', { reset: resetDataset });
-      if(elements.svgBox?.dataset?.resizerAspectLocked === 'true'){
-        const appliedWidth = Number.parseFloat(elements.svgBox.style?.width || elements.svgBox.dataset?.resizerWidth || '');
-        const appliedHeight = Number.parseFloat(elements.svgBox.style?.height || elements.svgBox.dataset?.resizerHeight || '');
-        const zoomCandidate = Number(elements.svgBox.dataset?.resizerZoomLevel || elements.svgBox.dataset?.resizerZoom);
-        const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
-        const baseWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? Math.max(1, Math.round(appliedWidth / zoomScale)) : NaN;
-        const baseHeight = Number.isFinite(appliedHeight) && appliedHeight > 0 ? Math.max(1, Math.round(appliedHeight / zoomScale)) : NaN;
-        if(Number.isFinite(baseWidth) && baseWidth > 0 && Number.isFinite(baseHeight) && baseHeight > 0){
-          elements.svgBox.dataset.resizerAspectRatio = String(baseWidth / baseHeight);
-          elements.svgBox.dataset.resizerBaseWidth = String(baseWidth);
-          elements.svgBox.dataset.resizerBaseHeight = String(baseHeight);
-          elements.svgBox.dataset.resizerWidth = `${Math.round(appliedWidth)}px`;
-          elements.svgBox.dataset.resizerHeight = `${Math.round(appliedHeight)}px`;
-          console.debug('Debug: componentLayout applyState normalized svg sizing authority', {
-            component: componentName,
-            widthPx: Math.round(appliedWidth),
-            heightPx: Math.round(appliedHeight),
-            baseWidth,
-            baseHeight,
-            aspectRatio: elements.svgBox.dataset.resizerAspectRatio
-          });
-        }
-      }
       const zoomApi = elements.svgBox?.__sharedResizableBoxApi;
       if(zoomApi && typeof zoomApi.setZoomLevel === 'function'){
         const requestedZoom = Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);

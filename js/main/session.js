@@ -441,6 +441,401 @@
     }
   }
 
+  const RENDER_CACHE_ARCHIVE_VERSION = 1;
+  const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+  function isPlainSerializableObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  }
+
+  function isDocumentFragmentLike(value) {
+    return !!value && typeof value === 'object' && Number(value.nodeType) === 11;
+  }
+
+  function isFragmentPayloadLike(value) {
+    return !!value
+      && typeof value === 'object'
+      && Object.prototype.hasOwnProperty.call(value, 'fragment')
+      && isDocumentFragmentLike(value.fragment);
+  }
+
+  function syncFormStateIntoClone(sourceNode, cloneNode) {
+    if (!sourceNode || !cloneNode || Number(sourceNode.nodeType) !== 1 || Number(cloneNode.nodeType) !== 1) {
+      return;
+    }
+    const sourceElements = [sourceNode];
+    const cloneElements = [cloneNode];
+    if (typeof sourceNode.querySelectorAll === 'function') {
+      sourceElements.push(...sourceNode.querySelectorAll('*'));
+    }
+    if (typeof cloneNode.querySelectorAll === 'function') {
+      cloneElements.push(...cloneNode.querySelectorAll('*'));
+    }
+    const count = Math.min(sourceElements.length, cloneElements.length);
+    for (let i = 0; i < count; i += 1) {
+      const sourceEl = sourceElements[i];
+      const cloneEl = cloneElements[i];
+      const tagName = String(sourceEl.tagName || '').toLowerCase();
+      if (tagName === 'input') {
+        try {
+          cloneEl.value = sourceEl.value;
+          cloneEl.setAttribute('value', sourceEl.value);
+        } catch (err) {
+          console.debug('Debug: archive render cache input sync skipped', { message: err?.message || String(err) });
+        }
+        const inputType = String(sourceEl.getAttribute?.('type') || sourceEl.type || '').toLowerCase();
+        if (inputType === 'checkbox' || inputType === 'radio') {
+          cloneEl.checked = !!sourceEl.checked;
+          if (sourceEl.checked) {
+            cloneEl.setAttribute('checked', '');
+          } else {
+            cloneEl.removeAttribute('checked');
+          }
+        }
+      } else if (tagName === 'textarea') {
+        cloneEl.value = sourceEl.value;
+        cloneEl.textContent = sourceEl.value;
+      } else if (tagName === 'select') {
+        const sourceOptions = sourceEl.options || [];
+        const cloneOptions = cloneEl.options || [];
+        const optionCount = Math.min(sourceOptions.length, cloneOptions.length);
+        for (let optionIndex = 0; optionIndex < optionCount; optionIndex += 1) {
+          cloneOptions[optionIndex].selected = !!sourceOptions[optionIndex].selected;
+          if (sourceOptions[optionIndex].selected) {
+            cloneOptions[optionIndex].setAttribute('selected', '');
+          } else {
+            cloneOptions[optionIndex].removeAttribute('selected');
+          }
+        }
+        cloneEl.selectedIndex = sourceEl.selectedIndex;
+      }
+    }
+  }
+
+  function serializeDomNode(node) {
+    if (!node) {
+      return null;
+    }
+    const nodeType = Number(node.nodeType) || 0;
+    if (nodeType === 3) {
+      return { kind: 'text', text: node.textContent || '' };
+    }
+    if (nodeType === 8) {
+      return { kind: 'comment', text: node.textContent || '' };
+    }
+    if (nodeType !== 1) {
+      return { kind: 'text', text: node.textContent || '' };
+    }
+    const clone = typeof node.cloneNode === 'function' ? node.cloneNode(true) : null;
+    if (!clone) {
+      return { kind: 'text', text: node.textContent || '' };
+    }
+    syncFormStateIntoClone(node, clone);
+    const namespaceUri = String(node.namespaceURI || '').trim() || null;
+    let markup = '';
+    try {
+      if (namespaceUri === SVG_NAMESPACE && typeof XMLSerializer !== 'undefined') {
+        markup = new XMLSerializer().serializeToString(clone);
+      } else {
+        markup = typeof clone.outerHTML === 'string'
+          ? clone.outerHTML
+          : (typeof XMLSerializer !== 'undefined' ? new XMLSerializer().serializeToString(clone) : '');
+      }
+    } catch (err) {
+      console.error('serializeDomNode markup error', err);
+      markup = typeof clone.outerHTML === 'string' ? clone.outerHTML : '';
+    }
+    return {
+      kind: 'element',
+      namespaceUri,
+      tagName: String(node.tagName || clone.tagName || '').toLowerCase(),
+      markup
+    };
+  }
+
+  function serializeFragmentPayload(value) {
+    const fragment = value?.fragment;
+    if (!isDocumentFragmentLike(fragment)) {
+      return null;
+    }
+    const childNodes = Array.from(fragment.childNodes || []);
+    return {
+      __graphitixKind: 'fragment-payload',
+      version: RENDER_CACHE_ARCHIVE_VERSION,
+      count: Number(value?.count) || childNodes.length,
+      nodes: childNodes.map(serializeDomNode).filter(Boolean)
+    };
+  }
+
+  function serializeRenderCacheValue(value, seen = new WeakMap()) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'bigint') {
+      return { __graphitixKind: 'bigint', value: value.toString() };
+    }
+    if (value instanceof Date) {
+      return { __graphitixKind: 'date', value: value.toISOString() };
+    }
+    if (value instanceof RegExp) {
+      return { __graphitixKind: 'regexp', source: value.source, flags: value.flags };
+    }
+    if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+      return { __graphitixKind: 'array-buffer', values: Array.from(new Uint8Array(value)) };
+    }
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
+      return {
+        __graphitixKind: 'typed-array',
+        ctor: value.constructor?.name || 'Uint8Array',
+        values: Array.from(value)
+      };
+    }
+    if (isFragmentPayloadLike(value)) {
+      return serializeFragmentPayload(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map(item => serializeRenderCacheValue(item, seen));
+    }
+    if (typeof value !== 'object') {
+      return value;
+    }
+    if (seen.has(value)) {
+      return { __graphitixKind: 'circular-ref' };
+    }
+    seen.set(value, true);
+    if (!isPlainSerializableObject(value)) {
+      const cloned = clonePayload(value);
+      if (cloned === value) {
+        return null;
+      }
+      return serializeRenderCacheValue(cloned, seen);
+    }
+    const result = {};
+    Object.keys(value).forEach(key => {
+      result[key] = serializeRenderCacheValue(value[key], seen);
+    });
+    seen.delete(value);
+    return result;
+  }
+
+  function deserializeNodeSpec(spec, doc) {
+    if (!spec || typeof spec !== 'object') {
+      return null;
+    }
+    if (spec.kind === 'text') {
+      return doc.createTextNode(String(spec.text || ''));
+    }
+    if (spec.kind === 'comment') {
+      return doc.createComment(String(spec.text || ''));
+    }
+    if (spec.kind !== 'element') {
+      return null;
+    }
+    const markup = String(spec.markup || '').trim();
+    if (!markup) {
+      return null;
+    }
+    try {
+      if (spec.namespaceUri === SVG_NAMESPACE && typeof DOMParser !== 'undefined') {
+        const parser = new DOMParser();
+        const isSvgRoot = /^<svg[\s>]/i.test(markup);
+        const source = isSvgRoot
+          ? markup
+          : `<svg xmlns="${SVG_NAMESPACE}">${markup}</svg>`;
+        const parsed = parser.parseFromString(source, 'image/svg+xml');
+        const root = parsed?.documentElement || null;
+        if (!root) {
+          return null;
+        }
+        if (isSvgRoot) {
+          return doc.importNode(root, true);
+        }
+        const fragment = doc.createDocumentFragment();
+        Array.from(root.childNodes || []).forEach(child => {
+          fragment.appendChild(doc.importNode(child, true));
+        });
+        return fragment;
+      }
+      const template = doc.createElement('template');
+      template.innerHTML = markup;
+      if (template.content.childNodes.length === 1) {
+        return template.content.firstChild;
+      }
+      return template.content;
+    } catch (err) {
+      console.error('deserializeNodeSpec error', err);
+      return null;
+    }
+  }
+
+  function deserializeFragmentPayload(value, doc = document) {
+    if (!value || value.__graphitixKind !== 'fragment-payload' || !doc) {
+      return null;
+    }
+    const fragment = doc.createDocumentFragment();
+    const nodes = Array.isArray(value.nodes) ? value.nodes : [];
+    nodes.forEach(spec => {
+      const node = deserializeNodeSpec(spec, doc);
+      if (!node) {
+        return;
+      }
+      if (node.nodeType === 11) {
+        fragment.appendChild(node);
+      } else {
+        fragment.appendChild(node);
+      }
+    });
+    return {
+      fragment,
+      count: Number(value.count) || fragment.childNodes.length
+    };
+  }
+
+  function reviveTypedArray(value) {
+    const ctorName = String(value?.ctor || 'Uint8Array');
+    const values = Array.isArray(value?.values) ? value.values : [];
+    const ctor = typeof window !== 'undefined' && window[ctorName]
+      ? window[ctorName]
+      : globalThis?.[ctorName];
+    if (typeof ctor !== 'function') {
+      return Uint8Array.from(values);
+    }
+    try {
+      return new ctor(values);
+    } catch (err) {
+      console.debug('Debug: reviveTypedArray fallback', { ctorName, message: err?.message || String(err) });
+      return Uint8Array.from(values);
+    }
+  }
+
+  function deserializeRenderCacheValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value !== 'object') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(deserializeRenderCacheValue);
+    }
+    const kind = value.__graphitixKind;
+    if (kind === 'fragment-payload') {
+      return deserializeFragmentPayload(value, document);
+    }
+    if (kind === 'typed-array') {
+      return reviveTypedArray(value);
+    }
+    if (kind === 'array-buffer') {
+      return new Uint8Array(Array.isArray(value.values) ? value.values : []).buffer;
+    }
+    if (kind === 'date') {
+      return new Date(value.value);
+    }
+    if (kind === 'regexp') {
+      return new RegExp(String(value.source || ''), String(value.flags || ''));
+    }
+    if (kind === 'bigint') {
+      try {
+        return BigInt(String(value.value || '0'));
+      } catch (err) {
+        return 0n;
+      }
+    }
+    if (kind === 'circular-ref') {
+      return null;
+    }
+    const result = {};
+    Object.keys(value).forEach(key => {
+      result[key] = deserializeRenderCacheValue(value[key]);
+    });
+    return result;
+  }
+
+  function clearTabArchiveRenderCache(tab, meta = {}) {
+    if (!tab) {
+      return false;
+    }
+    const hadCache = !!(tab.archiveRenderCache || tab.archiveRenderCacheSignature || tab.archiveRenderCacheLayoutSignature);
+    tab.archiveRenderCache = null;
+    tab.archiveRenderCacheSignature = null;
+    tab.archiveRenderCacheLayoutSignature = null;
+    if (hadCache) {
+      console.debug('Debug: archive render cache cleared', {
+        tabId: tab.id,
+        type: tab.type || null,
+        reason: meta.reason || 'clear-archive-render-cache'
+      });
+    }
+    return hadCache;
+  }
+
+  function consumeArchiveRenderCache(tab, meta = {}) {
+    if (!tab || tab.renderCache) {
+      return tab?.renderCache || null;
+    }
+    if (!tab.archiveRenderCache) {
+      return null;
+    }
+    const cache = deserializeRenderCacheValue(tab.archiveRenderCache);
+    const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
+    const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
+    clearTabArchiveRenderCache(tab, { reason: meta.reason || 'archive-render-cache-consumed' });
+    if (!cache) {
+      console.debug('Debug: archive render cache consume skipped', {
+        tabId: tab?.id || null,
+        reason: 'empty-cache',
+        meta
+      });
+      return null;
+    }
+    const capturedAt = Date.now();
+    tab.renderCache = {
+      cache,
+      payloadSignature,
+      layoutSignature,
+      capturedAt,
+      captureSequence: ++renderCacheCaptureSequence
+    };
+    tab.renderCacheSignature = payloadSignature;
+    tab.renderCacheLayoutSignature = layoutSignature;
+    console.debug('Debug: archive render cache consumed', {
+      tabId: tab.id,
+      type: tab.type || null,
+      reason: meta.reason || 'archive-render-cache-consumed'
+    });
+    return tab.renderCache;
+  }
+
+  function serializeRenderCacheForArchive(cache) {
+    return serializeRenderCacheValue(cache);
+  }
+
+
+  function markTabAuthoritativeRenderRestore(tab, isActive, meta = {}) {
+    if (!tab) {
+      return false;
+    }
+    const next = !!isActive;
+    const previous = !!tab.authoritativeRenderRestore;
+    tab.authoritativeRenderRestore = next;
+    if (previous !== next) {
+      console.debug('Debug: authoritative render restore flag updated', {
+        tabId: tab.id,
+        type: tab.type || null,
+        active: next,
+        reason: meta.reason || 'authoritative-render-restore'
+      });
+    }
+    return next;
+  }
+
   function clearTabRenderCache(tab, meta = {}) {
     if (!tab) {
       return false;
@@ -558,10 +953,16 @@
       tab.previewSignature = null;
       tab.previewMeta = null;
       clearTabRenderCache(tab, { reason: meta.reason || 'payload-null' });
+      clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-null' });
+      markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-null' });
       notifyPreviewIndicator(tab);
       console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
     }
     const changed = previousSignature !== nextSignature;
+    if (changed) {
+      clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-changed' });
+    }
     try{
       const statsTest = payload && payload.config && payload.config.stats ? payload.config.stats.test : null;
       console.debug('Debug: assignTabPayload applied', {
@@ -663,6 +1064,9 @@
       renderCache: null,
       renderCacheSignature: null,
       renderCacheLayoutSignature: null,
+      archiveRenderCache: options.archiveRenderCache || null,
+      archiveRenderCacheSignature: options.archiveRenderCacheSignature || null,
+      archiveRenderCacheLayoutSignature: options.archiveRenderCacheLayoutSignature || null,
       layoutState: options.layoutState || null,
       layoutSignature: options.layoutSignature !== undefined
         ? options.layoutSignature
@@ -944,7 +1348,7 @@
         ? Shared.componentLayout.captureStateFor(tab.type)
         : null;
       let layoutClone = clonePayload(layoutState);
-      if (Shared.graphSizing?.enrichPayloadWithLayout) {
+      if (tab.type !== 'box' && Shared.graphSizing?.enrichPayloadWithLayout) {
         try {
           payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
             context: `persist-${tab.type}`
@@ -952,8 +1356,14 @@
         } catch (err) {
           console.error('persistActiveTabState graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
         }
+      } else if (tab.type === 'box') {
+        console.debug('Debug: session graph sizing enrich skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: 'box-layout-state-authoritative'
+        });
       }
-      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+      if (tab.type !== 'box' && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
         try {
           layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
             context: `persist-layout-${tab.type}`
@@ -961,12 +1371,22 @@
         } catch (err) {
           console.error('persistActiveTabState graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
         }
+      } else if (tab.type === 'box') {
+        console.debug('Debug: session graph sizing layout merge skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: 'box-layout-state-authoritative'
+        });
       }
       const previousLayoutSignature = tab.layoutSignature || null;
       const changed = assignTabPayload(tab, payloadClone, { reason: options.reason || 'persist-active' });
       tab.layoutState = layoutClone;
       tab.layoutSignature = serializePayloadSignature(layoutClone);
       const layoutChanged = previousLayoutSignature !== tab.layoutSignature;
+      if (layoutChanged) {
+        clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed' });
+        markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed' });
+      }
       const previewNeedsCapture = options.forcePreviewCapture === true || changed || (tab.previewSignature !== tab.payloadSignature);
       let previewChanged = false;
       if (previews && typeof previews.updateTabPreviewFromWorkspace === 'function') {
@@ -1069,7 +1489,7 @@
     const tabsPayload = graphTabs.map((tab, index) => {
       let payloadClone = clonePayload(tab.payload);
       let layoutClone = clonePayload(tab.layoutState);
-      if (Shared.graphSizing?.enrichPayloadWithLayout) {
+      if (tab.type !== 'box' && Shared.graphSizing?.enrichPayloadWithLayout) {
         try {
           payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
             context: `build-session-${tab.type}`
@@ -1077,8 +1497,14 @@
         } catch (err) {
           console.error('buildSessionPayload graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
         }
+      } else if (tab.type === 'box') {
+        console.debug('Debug: session build graph sizing enrich skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: 'box-layout-state-authoritative'
+        });
       }
-      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+      if (tab.type !== 'box' && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
         try {
           layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
             context: `build-session-layout-${tab.type}`
@@ -1086,6 +1512,12 @@
         } catch (err) {
           console.error('buildSessionPayload graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
         }
+      } else if (tab.type === 'box') {
+        console.debug('Debug: session build graph sizing layout merge skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: 'box-layout-state-authoritative'
+        });
       }
       console.debug('Debug: session tab snapshot', {
         tabId: tab.id,
@@ -1186,7 +1618,17 @@
         title: tabData.title || `Workspace ${index + 1}`,
         type: tabData.type,
         payload: clonedPayload,
-        layoutState: clonedLayout
+        layoutState: clonedLayout,
+        previewMarkup: typeof tabData.previewMarkup === 'string' ? tabData.previewMarkup : null,
+        previewSignature: tabData.previewSignature || null,
+        previewMeta: tabData.previewMeta && typeof tabData.previewMeta === 'object'
+          ? clonePayload(tabData.previewMeta)
+          : null,
+        archiveRenderCache: tabData.archiveRenderCache && typeof tabData.archiveRenderCache === 'object'
+          ? clonePayload(tabData.archiveRenderCache)
+          : null,
+        archiveRenderCacheSignature: tabData.archiveRenderCacheSignature || null,
+        archiveRenderCacheLayoutSignature: tabData.archiveRenderCacheLayoutSignature || null
       });
       graphTabs.push(newTab);
       workspaceState.tabs.push(newTab);
@@ -1240,6 +1682,10 @@
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.assignTabPayload = assignTabPayload;
   namespace.clearTabRenderCache = clearTabRenderCache;
+  namespace.clearTabArchiveRenderCache = clearTabArchiveRenderCache;
+  namespace.consumeArchiveRenderCache = consumeArchiveRenderCache;
+  namespace.serializeRenderCacheForArchive = serializeRenderCacheForArchive;
+  namespace.markTabAuthoritativeRenderRestore = markTabAuthoritativeRenderRestore;
   namespace.pruneWarmRenderCaches = pruneWarmRenderCaches;
   namespace.getActiveTab = getActiveTab;
   namespace.generateUniqueTabTitle = generateUniqueTabTitle;

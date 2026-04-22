@@ -11115,18 +11115,46 @@
 
       const SCATTER_STATS_CACHE_LIMIT = 24;
 
-      function readScatterStatsCache(signature){
-        if(!signature || !(scatterState.statsCacheBySignature instanceof Map)){
+      function resolveScatterStatsCacheTabId(context){
+        const raw = context?.tabId
+          || scatterState.statsContext?.tabId
+          || resolveScatterTabId(scatterHot)
+          || Shared.hot?.resolveActiveTabId?.()
+          || null;
+        if(raw == null){
           return null;
         }
-        const cached = scatterState.statsCacheBySignature.get(signature);
+        const text = String(raw).trim();
+        return text || null;
+      }
+
+      function buildScatterStatsCacheKey(signature, context){
+        if(!signature){
+          return null;
+        }
+        const tabId = resolveScatterStatsCacheTabId(context);
+        if(!tabId){
+          return null;
+        }
+        return `${tabId}::${signature}`;
+      }
+
+      function readScatterStatsCache(signature, context){
+        if(!(scatterState.statsCacheBySignature instanceof Map)){
+          return null;
+        }
+        const cacheKey = buildScatterStatsCacheKey(signature, context);
+        if(!cacheKey){
+          return null;
+        }
+        const cached = scatterState.statsCacheBySignature.get(cacheKey);
         if(!cached || !cached.stats){
           return null;
         }
         return cached;
       }
 
-      function writeScatterStatsCache(signature, stats, controlSignature){
+      function writeScatterStatsCache(signature, stats, controlSignature, context){
         if(!signature || !stats){
           return;
         }
@@ -11134,12 +11162,18 @@
           scatterState.statsCacheBySignature = new Map();
         }
         const cacheMap = scatterState.statsCacheBySignature;
-        if(cacheMap.has(signature)){
-          cacheMap.delete(signature);
+        const cacheKey = buildScatterStatsCacheKey(signature, context);
+        if(!cacheKey){
+          scatterDebug('Debug: scatter stats cache skipped', { reason: 'missing-tab-id', signature });
+          return;
         }
-        cacheMap.set(signature, {
+        if(cacheMap.has(cacheKey)){
+          cacheMap.delete(cacheKey);
+        }
+        cacheMap.set(cacheKey, {
           stats,
           controlSignature: controlSignature || null,
+          tabId: resolveScatterStatsCacheTabId(context),
           savedAt: Date.now()
         });
         while(cacheMap.size > SCATTER_STATS_CACHE_LIMIT){
@@ -11168,7 +11202,7 @@
         let stats = context?.precomputedStats || null;
         let controlSignature = context?.precomputedSignature || null;
         if(!stats && scatterState.statsContextSignature){
-          const cached = readScatterStatsCache(scatterState.statsContextSignature);
+          const cached = readScatterStatsCache(scatterState.statsContextSignature, context);
           if(cached?.stats){
             stats = cached.stats;
             controlSignature = cached.controlSignature || controlSignature;
@@ -11266,7 +11300,7 @@
             controlSignature: cachedContext.precomputedSignature || getScatterStatsControlSignature()
           };
         }
-        const signatureCache = readScatterStatsCache(signature);
+        const signatureCache = readScatterStatsCache(signature, context);
         if(signatureCache?.stats){
           return {
             signature,
@@ -11436,7 +11470,7 @@
               precomputedStats: pendingRestore.precomputedStats,
               precomputedSignature
             };
-            writeScatterStatsCache(signature, pendingRestore.precomputedStats, precomputedSignature);
+            writeScatterStatsCache(signature, pendingRestore.precomputedStats, precomputedSignature, context);
             redrawRestoredStats = true;
             scatterDebug('Debug: scatter stats restored model adopted', {
               savedSignature: pendingRestore.contextSignature || null,
@@ -11607,7 +11641,7 @@
         scatterState.statsContext = context;
         const signature = buildScatterStatsSignature(context);
         if(signature && stats){
-          writeScatterStatsCache(signature, stats, controlSignature);
+          writeScatterStatsCache(signature, stats, controlSignature, context);
         }
       }
 
@@ -16259,6 +16293,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             : [];
           const statsPayloadBase = {
             graphType: 'scatter',
+            tabId: resolveScatterTabId(scatterHot),
             points: statsPoints,
             pointSummary: summarizeScatterPoints(statsPoints),
             domain: { minX: xMin, maxX: xMax },
@@ -19892,6 +19927,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             : '';
           const statsPayloadBase={
             graphType:'scatter',
+            tabId: resolveScatterTabId(scatterHot),
             points:statsPoints,
             pointSummary:statsPointSummary,
             domain:{ minX:xMin, maxX:xMax },
@@ -20213,6 +20249,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const negLabel=scatterCurrentGraphType==='ma' ? (extraLabelRaw && String(extraLabelRaw).trim() ? `-log10(${String(extraLabelRaw).trim()})` : '-log10(p-value)') : scatterYLabelText;
           statsContextPayload={
             graphType:scatterCurrentGraphType,
+            tabId: resolveScatterTabId(scatterHot),
             points:[],
             pointSummary:null,
             domain:null,
@@ -21268,6 +21305,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.config.showGroupedReplicatePoints = true;
       if(Object.prototype.hasOwnProperty.call(payload, 'stats')){
         delete payload.stats;
+      }
+      if(payload.meta && typeof payload.meta === 'object' && Object.prototype.hasOwnProperty.call(payload.meta, 'graphSizing')){
+        delete payload.meta.graphSizing;
+        if(!Object.keys(payload.meta).length){
+          delete payload.meta;
+        }
       }
       return payload;
     };

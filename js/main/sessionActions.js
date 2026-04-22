@@ -79,7 +79,102 @@
     if (!active || active.isWelcome || !active.type) {
       return;
     }
-    session.persistActiveTabState(active, withSessionContext({ reason: reason || 'archive-save' }));
+    session.persistActiveTabState(active, withSessionContext({
+      reason: reason || 'archive-save',
+      forcePreviewCapture: true
+    }));
+  }
+
+  function buildArchiveTabSnapshot(context, tab) {
+    const { session, workspaces } = context || {};
+    if (!tab || tab.isWelcome || !tab.type) {
+      return null;
+    }
+    const payload = cloneWithSession(session, tab.payload || null);
+    const layout = cloneWithSession(session, tab.layoutState || null);
+    let archiveRenderCache = tab.renderCache?.cache
+      ? (typeof session?.serializeRenderCacheForArchive === 'function'
+          ? session.serializeRenderCacheForArchive(tab.renderCache.cache)
+          : null)
+      : (tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object'
+          ? cloneWithSession(session, tab.archiveRenderCache)
+          : null);
+    let archiveRenderCacheSignature = tab.renderCache?.payloadSignature
+      ?? tab.renderCacheSignature
+      ?? tab.archiveRenderCacheSignature
+      ?? null;
+    let archiveRenderCacheLayoutSignature = tab.renderCache?.layoutSignature
+      ?? tab.renderCacheLayoutSignature
+      ?? tab.archiveRenderCacheLayoutSignature
+      ?? null;
+
+    const activeId = session?.getActiveTab?.()?.id || null;
+    if (!archiveRenderCache && activeId && tab.id === activeId) {
+      const config = workspaces?.[tab.type] || null;
+      if (config && typeof config.captureRenderCache === 'function') {
+        let captured = null;
+        try {
+          captured = config.captureRenderCache({
+            tabId: tab.id,
+            type: tab.type,
+            reason: 'archive-save-active'
+          });
+          if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
+            archiveRenderCache = session.serializeRenderCacheForArchive(captured);
+            archiveRenderCacheSignature = tab.payloadSignature || null;
+            archiveRenderCacheLayoutSignature = tab.layoutSignature || null;
+          }
+        } catch (err) {
+          console.error('buildArchiveTabSnapshot captureRenderCache error', {
+            tabId: tab.id,
+            type: tab.type,
+            err
+          });
+        }
+        if (captured) {
+          let restored = false;
+          if (typeof config.restoreRenderCache === 'function') {
+            try {
+              restored = !!config.restoreRenderCache(captured, {
+                tabId: tab.id,
+                type: tab.type,
+                reason: 'archive-save-active-restore'
+              });
+            } catch (err) {
+              console.error('buildArchiveTabSnapshot restoreRenderCache error', {
+                tabId: tab.id,
+                type: tab.type,
+                err
+              });
+            }
+          }
+          if (!restored && typeof config.draw === 'function') {
+            try {
+              config.draw();
+            } catch (err) {
+              console.error('buildArchiveTabSnapshot draw recovery error', {
+                tabId: tab.id,
+                type: tab.type,
+                err
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      title: tab.title || 'Workspace',
+      type: tab.type || tab?.payload?.type || null,
+      payload,
+      layout,
+      previewMarkup: typeof tab.previewMarkup === 'string' ? tab.previewMarkup : null,
+      previewSignature: tab.previewSignature || null,
+      previewMeta: cloneWithSession(session, tab.previewMeta || null),
+      archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object' ? archiveRenderCache : null,
+      archiveRenderCacheSignature: archiveRenderCache ? archiveRenderCacheSignature : null,
+      archiveRenderCacheLayoutSignature: archiveRenderCache ? archiveRenderCacheLayoutSignature : null
+    };
   }
 
   function buildScopeSnapshot(context, scope, options = {}) {
@@ -88,33 +183,26 @@
       return null;
     }
     persistActiveTabIfNeeded(context, options.reason || 'archive-save');
+
     if (scope === 'workspace') {
-      const payload = session.buildSessionPayload(withSessionContext({ reason: options.reason || 'archive-save-workspace' }));
-      const tabs = Array.isArray(payload?.tabs) ? payload.tabs : [];
+      const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
+      const activeId = session.getActiveTab?.()?.id || null;
+      const activeIndex = graphTabs.findIndex(tab => tab.id === activeId);
       return {
-        activeIndex: Number.isFinite(payload?.activeIndex) ? payload.activeIndex : (tabs.length ? 0 : -1),
-        tabs: tabs.map(tab => ({
-          title: tab?.title || 'Workspace',
-          type: tab?.type || tab?.payload?.type || null,
-          payload: cloneWithSession(session, tab?.payload || null),
-          layout: cloneWithSession(session, tab?.layout || null)
-        }))
+        activeIndex: activeIndex >= 0 ? activeIndex : (graphTabs.length ? 0 : -1),
+        tabs: graphTabs.map(tab => buildArchiveTabSnapshot(context, tab)).filter(Boolean)
       };
     }
 
     const targetTabId = options.targetTabId || session.getActiveTab?.()?.id || null;
     const tab = findTabById(workspaceState, targetTabId);
-    if (!tab || tab.isWelcome || !tab.type) {
+    const snapshot = buildArchiveTabSnapshot(context, tab);
+    if (!snapshot) {
       return null;
     }
     return {
       activeIndex: 0,
-      tabs: [{
-        title: tab.title || 'Workspace',
-        type: tab.type || tab?.payload?.type || null,
-        payload: cloneWithSession(session, tab.payload || null),
-        layout: cloneWithSession(session, tab.layoutState || null)
-      }]
+      tabs: [snapshot]
     };
   }
 
@@ -180,10 +268,10 @@
     let addedTabCount = sessionPayload.tabs.length;
 
     if (loadMode === 'append') {
-      const existingPayload = session.buildSessionPayload(withSessionContext({
+      const existingSnapshot = buildScopeSnapshot(context, 'workspace', {
         reason: meta.reason || 'graph-load-append-existing'
-      }));
-      const existingTabs = Array.isArray(existingPayload?.tabs) ? existingPayload.tabs : [];
+      });
+      const existingTabs = Array.isArray(existingSnapshot?.tabs) ? existingSnapshot.tabs : [];
       existingTabCount = existingTabs.length;
       const incomingTabs = Array.isArray(sessionPayload.tabs) ? sessionPayload.tabs : [];
       const incomingActiveIndex = Number.isFinite(sessionPayload?.activeIndex)
@@ -198,7 +286,13 @@
           title: tab?.title || 'Workspace',
           type: tab?.type || tab?.payload?.type || null,
           payload: cloneWithSession(session, tab?.payload || null),
-          layout: cloneWithSession(session, tab?.layout || null)
+          layout: cloneWithSession(session, tab?.layout || null),
+          previewMarkup: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup : null,
+          previewSignature: tab?.previewSignature || null,
+          previewMeta: cloneWithSession(session, tab?.previewMeta || null),
+          archiveRenderCache: cloneWithSession(session, tab?.archiveRenderCache || null),
+          archiveRenderCacheSignature: tab?.archiveRenderCacheSignature || null,
+          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null
         });
       });
       incomingTabs.forEach(tab => {
@@ -206,7 +300,13 @@
           title: tab?.title || 'Workspace',
           type: tab?.type || tab?.payload?.type || null,
           payload: cloneWithSession(session, tab?.payload || null),
-          layout: cloneWithSession(session, tab?.layout || null)
+          layout: cloneWithSession(session, tab?.layout || null),
+          previewMarkup: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup : null,
+          previewSignature: tab?.previewSignature || null,
+          previewMeta: cloneWithSession(session, tab?.previewMeta || null),
+          archiveRenderCache: cloneWithSession(session, tab?.archiveRenderCache || null),
+          archiveRenderCacheSignature: tab?.archiveRenderCacheSignature || null,
+          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null
         });
       });
       payloadToApply = {

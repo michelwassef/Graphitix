@@ -395,27 +395,58 @@
   }
 
   function sanitizeDefaultPayloadVolatileState(type, payload, baseline, cloneFn) {
-    if (!payload || typeof payload !== 'object' || !baseline || typeof baseline !== 'object') {
+    if (!payload || typeof payload !== 'object') {
       return payload;
     }
     const next = cloneValue(payload, cloneFn) || payload;
     const nextConfig = isPlainObject(next.config) ? next.config : {};
     next.config = nextConfig;
-    const baselineConfig = isPlainObject(baseline.config) ? baseline.config : {};
+    const baselineConfig = isPlainObject(baseline?.config) ? baseline.config : {};
     const baselineStats = isPlainObject(baselineConfig.stats) ? baselineConfig.stats : null;
+    const baselineRegression = isPlainObject(baselineConfig.regression) ? baselineConfig.regression : null;
+    let strippedGraphSizing = false;
+
     if (baselineStats) {
       nextConfig.stats = cloneValue(baselineStats, cloneFn);
     } else if (Object.prototype.hasOwnProperty.call(nextConfig, 'stats')) {
       delete nextConfig.stats;
     }
-    if (Object.prototype.hasOwnProperty.call(baseline, 'stats')) {
+
+    if (baselineRegression) {
+      nextConfig.regression = cloneValue(baselineRegression, cloneFn);
+    } else if (Object.prototype.hasOwnProperty.call(nextConfig, 'regression')) {
+      const regression = nextConfig.regression;
+      if (isPlainObject(regression)) {
+        delete regression.summary;
+        delete regression.resultsHtml;
+        delete regression.reportHtml;
+        delete regression.lastRunVersion;
+        delete regression.contextSignature;
+        delete regression.contextVersion;
+        delete regression.precomputedStats;
+        delete regression.precomputedSignature;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(baseline || {}, 'stats')) {
       next.stats = cloneValue(baseline.stats, cloneFn);
     } else if (Object.prototype.hasOwnProperty.call(next, 'stats')) {
       delete next.stats;
     }
+
+    if (isPlainObject(next.meta) && Object.prototype.hasOwnProperty.call(next.meta, 'graphSizing')) {
+      delete next.meta.graphSizing;
+      strippedGraphSizing = true;
+      if (!Object.keys(next.meta).length) {
+        delete next.meta;
+      }
+    }
+
     console.debug('Debug: sanitizeDefaultPayloadVolatileState applied', {
       type,
-      hasBaselineStats: !!baselineStats
+      hasBaselineStats: !!baselineStats,
+      hasBaselineRegression: !!baselineRegression,
+      strippedGraphSizing
     });
     return next;
   }
@@ -478,16 +509,6 @@
       return null;
     }
     const resolveEmptyPayload = () => {
-      let templatePayload = null;
-      if (typeof config.captureEmptyPayloadTemplate === 'function') {
-        try {
-          templatePayload = config.captureEmptyPayloadTemplate();
-          console.debug('Debug: ensureDefaultPayload using captureEmptyPayloadTemplate', { type, hasPayload: !!templatePayload });
-        } catch (err) {
-          console.error('ensureDefaultPayload captureEmptyPayloadTemplate error', { type, err });
-          templatePayload = null;
-        }
-      }
       let emptyPayload = null;
       if (typeof config.createEmptyPayload === 'function') {
         try {
@@ -498,26 +519,19 @@
           emptyPayload = null;
         }
       }
-      if (templatePayload && emptyPayload) {
-        try {
-          // Structural isolation guard: empty payload values are authoritative.
-          // Template payloads only fill missing structure.
-          const merged = mergePayloadWithDefaults(emptyPayload, templatePayload, cloneFn);
-          console.debug('Debug: ensureDefaultPayload merged template with empty payload', {
-            type,
-            hasMerged: !!merged
-          });
-          return merged;
-        } catch (err) {
-          console.error('ensureDefaultPayload template-empty merge error', { type, err });
-          return templatePayload || emptyPayload;
-        }
-      }
-      if (templatePayload) {
-        return templatePayload;
-      }
       if (emptyPayload) {
         return emptyPayload;
+      }
+      if (typeof config.captureEmptyPayloadTemplate === 'function') {
+        try {
+          const templatePayload = config.captureEmptyPayloadTemplate();
+          console.debug('Debug: ensureDefaultPayload using captureEmptyPayloadTemplate fallback', { type, hasPayload: !!templatePayload });
+          if (templatePayload) {
+            return templatePayload;
+          }
+        } catch (err) {
+          console.error('ensureDefaultPayload captureEmptyPayloadTemplate error', { type, err });
+        }
       }
       if (typeof config.getPayload === 'function') {
         try {
@@ -613,13 +627,24 @@
       return;
     }
     const label = config.type || 'workspace';
+    const skipManagedBoxPayloadSizing = label === 'box'
+      && typeof config.applyLayoutState === 'function';
+    const shouldApplyPayloadSizing = !options?.skipPayloadSizing
+      && !skipManagedBoxPayloadSizing
+      && !!Shared.graphSizing?.applyPayloadSizingForType;
+    if (skipManagedBoxPayloadSizing) {
+      console.debug('Debug: workspace payload sizing skipped', {
+        type: label,
+        reason: 'managed-layout-box'
+      });
+    }
     if (typeof config.loadFromPayload === 'function') {
       try {
         const result = config.loadFromPayload(payload, options || {});
         if (result && typeof result.then === 'function') {
           result
             .then(() => {
-              if (!options?.skipPayloadSizing && Shared.graphSizing?.applyPayloadSizingForType) {
+              if (shouldApplyPayloadSizing) {
                 Shared.graphSizing.applyPayloadSizingForType(label, payload, {
                   context: `workspace-payload-${label}`,
                   ...(options?.payloadSizingOptions || {})
@@ -627,7 +652,7 @@
               }
             })
             .catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
-        } else if (!options?.skipPayloadSizing && Shared.graphSizing?.applyPayloadSizingForType) {
+        } else if (shouldApplyPayloadSizing) {
           Shared.graphSizing.applyPayloadSizingForType(label, payload, {
             context: `workspace-payload-${label}`,
             ...(options?.payloadSizingOptions || {})
@@ -648,7 +673,7 @@
           Shared.fileIO.registerPayloadBlob(blob, payload);
         }
         config.loadFromFile(blob, options || {});
-        if (Shared.graphSizing?.applyPayloadSizingForType) {
+        if (Shared.graphSizing?.applyPayloadSizingForType && !(label === 'box' && typeof config.applyLayoutState === 'function')) {
           Shared.graphSizing.applyPayloadSizingForType(label, payload, {
             context: `workspace-blob-${label}`
           });
@@ -693,15 +718,49 @@
     const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
-    const renderCache = tab.renderCache || null;
-    const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? null;
-    const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? null;
+    const hadArchiveRenderCache = !!tab.archiveRenderCache;
+    const renderCache = (typeof session?.consumeArchiveRenderCache === 'function')
+      ? (session.consumeArchiveRenderCache(tab, {
+          reason: options.reason || 'workspace-view',
+          type: tab.type,
+          payloadSignature: targetPayloadSignature,
+          layoutSignature: targetLayoutSignature
+        }) || tab.renderCache || null)
+      : (tab.renderCache || null);
+    const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
+    const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? tab.archiveRenderCacheLayoutSignature ?? null;
+    const isSameComponentTabSwitch = !!(renderedTabForType && renderedTabForType !== tab.id);
     const canRestoreRender = !options.forceReload
       && renderCache
       && renderCache.cache
       && renderPayloadSignature === targetPayloadSignature
       && renderLayoutSignature === targetLayoutSignature
       && typeof config.restoreRenderCache === 'function';
+    if (isSameComponentTabSwitch && canRestoreRender) {
+      console.debug('Debug: workspace same-component render cache restore allowed', {
+        tabId: tab.id,
+        type: tab.type,
+        renderedTabForType,
+        payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
+        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature
+      });
+    } else if (isSameComponentTabSwitch && !canRestoreRender) {
+      console.debug('Debug: workspace same-component render cache unavailable', {
+        tabId: tab.id,
+        type: tab.type,
+        renderedTabForType,
+        hasRenderCache: !!(renderCache && renderCache.cache),
+        payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
+        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
+        hasRestoreHook: typeof config.restoreRenderCache === 'function'
+      });
+    }
+    const authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
+    if (typeof session?.markTabAuthoritativeRenderRestore === 'function') {
+      session.markTabAuthoritativeRenderRestore(tab, authoritativeRenderRestore, {
+        reason: authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view'
+      });
+    }
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
@@ -728,11 +787,71 @@
       && renderedTabForType === tab.id;
 
     const applyWorkspaceState = () => {
+      let sessionRecord = null;
       if (Shared.workspaceTabs?.activateWorkspace) {
         Shared.workspaceTabs.activateWorkspace(tab, config, {
           reason: options.reason || 'workspace-view'
         });
+        sessionRecord = Shared.workspaceTabs.getSessionRecord?.(tab, tab.type) || null;
       }
+      const sessionGeneration = Number(sessionRecord?.generation) || 0;
+      const isCurrentWorkspaceSession = () => {
+        if (!Shared.workspaceTabs?.isSessionCurrent || !sessionGeneration) {
+          return true;
+        }
+        return !!Shared.workspaceTabs.isSessionCurrent(tab.type, tab.id, sessionGeneration);
+      };
+      const drawMeta = {
+        tabId: tab.id,
+        sessionGeneration,
+        componentType: tab.type,
+        reason: options.reason || 'workspace-view'
+      };
+      const guardWorkspaceMutation = label => {
+        if (isCurrentWorkspaceSession()) {
+          return true;
+        }
+        console.debug('Debug: workspace mutation skipped (stale session)', {
+          tabId: tab.id,
+          type: tab.type,
+          label,
+          sessionGeneration
+        });
+        return false;
+      };
+
+      const resolveBaselineResetPayload = () => {
+        if (typeof config.createEmptyPayload === 'function') {
+          try {
+            const freshPayload = config.createEmptyPayload();
+            if (freshPayload && typeof freshPayload === 'object') {
+              console.debug('Debug: workspace baseline reset payload created from empty payload', {
+                tabId: tab.id,
+                type: tab.type,
+                reason: options.reason || 'workspace-view'
+              });
+              return cloneWorkspaceApplyValue(freshPayload, cloneFn);
+            }
+          } catch (err) {
+            console.error('workspace baseline reset createEmptyPayload error', { type: tab.type, err });
+          }
+        }
+        const ensuredDefaults = namespace.ensureDefaultPayload(session, tab.type, config);
+        if (ensuredDefaults) {
+          console.debug('Debug: workspace baseline reset payload using ensured defaults', {
+            tabId: tab.id,
+            type: tab.type,
+            reason: options.reason || 'workspace-view'
+          });
+          return cloneWorkspaceApplyValue(ensuredDefaults, cloneFn);
+        }
+        console.debug('Debug: workspace baseline reset payload unavailable', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: options.reason || 'workspace-view'
+        });
+        return null;
+      };
       if (canReuseWorkspace) {
         loadedWorkspaces[tab.id] = {
           tabId: tab.id,
@@ -749,14 +868,16 @@
           if (Shared.componentLayout?.suppressNextScheduleFor) {
             Shared.componentLayout.suppressNextScheduleFor(tab.type, {
               reason: 'render-cache-restore-reuse',
-              delayMs: 400,
-              count: 3
+              delayMs: authoritativeRenderRestore ? 5000 : 400,
+              count: authoritativeRenderRestore ? 24 : 3
             });
           }
           try {
-            restored = !!config.restoreRenderCache(renderCache.cache, {
+            restored = guardWorkspaceMutation('restore-render-cache-reuse') && !!config.restoreRenderCache(renderCache.cache, {
               tabId: tab.id,
-              type: tab.type
+              type: tab.type,
+              authoritativeRenderRestore,
+              sessionGeneration
             });
             if (restored && typeof session?.clearTabRenderCache === 'function') {
               session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
@@ -767,7 +888,7 @@
           }
           if (!restored && typeof config.draw === 'function') {
             try {
-              config.draw();
+              config.draw(drawMeta);
             } catch (err) {
               console.error('workspace draw error', { type: tab.type, err });
             }
@@ -782,11 +903,35 @@
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+      const shouldResetSharedComponentState = false;
+      if (isSameComponentTabSwitch && !options.skipApply) {
+        console.debug('Debug: workspace baseline reset skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: tab.payload ? 'authoritative-box-payload-switch' : 'same-component-authoritative-switch'
+        });
+      } else if (shouldResetSharedComponentState) {
+        const baselineResetPayload = resolveBaselineResetPayload();
+        if (baselineResetPayload && guardWorkspaceMutation('baseline-reset')) {
+          namespace.applyWorkspacePayload(config, baselineResetPayload, {
+            skipDraw: true,
+            skipDataLoad: true,
+            skipPayloadSizing: true,
+            reason: 'workspace-baseline-reset',
+            baselineReset: true
+          });
+          console.debug('Debug: workspace shared state baseline reset applied', {
+            tabId: tab.id,
+            type: tab.type,
+            reason: options.reason || 'workspace-view'
+          });
+        }
+      }
       if(canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor){
         Shared.componentLayout.suppressNextScheduleFor(tab.type, {
           reason: 'render-cache-restore',
-          delayMs: 400,
-          count: 3
+          delayMs: authoritativeRenderRestore ? 5000 : 400,
+          count: authoritativeRenderRestore ? 24 : 3
         });
       }
       if (!options.skipApply) {
@@ -811,11 +956,15 @@
             reason: options.reason || 'workspace-view'
           });
         }
-        namespace.applyWorkspacePayload(config, payload, {
-          skipDraw: canRestoreRender,
-          restoreRenderCache: canRestoreRender,
-          skipPayloadSizing: canRestoreRender
-        });
+        if (guardWorkspaceMutation('apply-payload')) {
+          namespace.applyWorkspacePayload(config, payload, {
+            skipDraw: canRestoreRender,
+            restoreRenderCache: canRestoreRender,
+            skipPayloadSizing: canRestoreRender,
+            authoritativeRenderRestore,
+            ...drawMeta
+          });
+        }
       }
       if (typeof config.applyLayoutState === 'function') {
         let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;
@@ -829,24 +978,37 @@
             console.error('workspace layout default fallback error', { type: tab.type, err });
           }
         }
-        let layoutSource = tab.layoutState
+        const hasAuthoritativeLayoutState = !!tab.layoutState;
+        let layoutSource = hasAuthoritativeLayoutState
           ? cloneFn?.(tab.layoutState)
           : (defaultLayout ? cloneFn?.(defaultLayout) : null);
         if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
-          try {
-            layoutSource = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutSource, tab.payload, {
-              context: `workspace-layout-${tab.type}`
+          if (hasAuthoritativeLayoutState) {
+            console.debug('Debug: workspace layout graph sizing merge skipped', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: 'authoritative-layout-state'
             });
-          } catch (err) {
-            console.error('workspace layout graph sizing merge error', { tabId: tab.id, type: tab.type, err });
+          } else {
+            try {
+              layoutSource = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutSource, tab.payload, {
+                context: `workspace-layout-${tab.type}`
+              });
+            } catch (err) {
+              console.error('workspace layout graph sizing merge error', { tabId: tab.id, type: tab.type, err });
+            }
           }
         }
-        const applied = config.applyLayoutState(layoutSource, {
-          reason: options.reason || 'workspace-view',
-          resetStyles: true,
-          resetDataset: true,
-          skipSchedule: canRestoreRender
-        });
+        const applied = guardWorkspaceMutation('apply-layout')
+          ? config.applyLayoutState(layoutSource, {
+              reason: options.reason || 'workspace-view',
+              resetStyles: true,
+              resetDataset: true,
+              skipSchedule: canRestoreRender,
+              authoritativeRenderRestore,
+              ...drawMeta
+            })
+          : false;
         console.debug('Debug: workspace layout applied', {
           tabId: tab.id,
           type: tab.type,
@@ -857,9 +1019,11 @@
       let restored = false;
       if (canRestoreRender) {
         try {
-          restored = !!config.restoreRenderCache(renderCache.cache, {
+          restored = guardWorkspaceMutation('restore-render-cache') && !!config.restoreRenderCache(renderCache.cache, {
             tabId: tab.id,
-            type: tab.type
+            type: tab.type,
+            authoritativeRenderRestore,
+            sessionGeneration
           });
           if (restored && typeof session?.clearTabRenderCache === 'function') {
             session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
@@ -872,7 +1036,7 @@
       if (!restored) {
         try {
           if (typeof config.draw === 'function') {
-            config.draw();
+            config.draw(drawMeta);
           }
         } catch (err) {
           console.error('workspace draw error', { type: tab.type, err });

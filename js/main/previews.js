@@ -1048,18 +1048,25 @@
     }
     console.debug('Debug: preview hover enter', { tabId: tab.id, type: tab.type });
     const isActive = tab.id === workspaceState?.activeTabId;
-    if (isActive) {
-      const config = components?.registry?.[tab.type];
-      if (config) {
-        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-active', forceCapture: true });
-      }
-      hideTabPreviewTooltip('active-tab');
-      console.debug('Debug: preview hover suppressed for active tab', { tabId: tab.id });
-      return;
-    }
     const config = components?.registry?.[tab.type];
-    if (config) {
-      updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
+    if (isActive) {
+      const shouldRefreshActivePreview = !!config && (!tab.previewMarkup || isPreviewPlaceholderMarkup(tab.previewMarkup));
+      if (shouldRefreshActivePreview) {
+        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-active', forceCapture: true });
+      } else {
+        console.debug('Debug: preview hover using stored active preview', {
+          tabId: tab.id,
+          hasPreview: !!tab.previewMarkup
+        });
+      }
+    } else {
+      // Never capture an inactive tab preview from the currently displayed workspace.
+      // Inactive tabs must reuse only their own stored preview to avoid cross-tab leakage
+      // between tabs of the same component.
+      console.debug('Debug: preview hover using stored inactive preview', {
+        tabId: tab.id,
+        hasPreview: !!tab.previewMarkup
+      });
     }
     if (!tab.previewMarkup) {
       hideTabPreviewTooltip('no-preview');
