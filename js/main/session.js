@@ -603,6 +603,21 @@
     if (Array.isArray(value)) {
       return value.map(item => serializeRenderCacheValue(item, seen));
     }
+    if (value instanceof Set) {
+      return {
+        __graphitixKind: 'set',
+        values: Array.from(value).map(item => serializeRenderCacheValue(item, seen))
+      };
+    }
+    if (value instanceof Map) {
+      return {
+        __graphitixKind: 'map',
+        entries: Array.from(value.entries()).map(([key, entryValue]) => ([
+          serializeRenderCacheValue(key, seen),
+          serializeRenderCacheValue(entryValue, seen)
+        ]))
+      };
+    }
     if (typeof value !== 'object') {
       return value;
     }
@@ -747,6 +762,22 @@
       } catch (err) {
         return 0n;
       }
+    }
+    if (kind === 'set') {
+      const values = Array.isArray(value.values) ? value.values : [];
+      return new Set(values.map(deserializeRenderCacheValue));
+    }
+    if (kind === 'map') {
+      const entries = Array.isArray(value.entries) ? value.entries : [];
+      return new Map(entries.map(entry => {
+        if (!Array.isArray(entry) || entry.length < 2) {
+          return [null, null];
+        }
+        return [
+          deserializeRenderCacheValue(entry[0]),
+          deserializeRenderCacheValue(entry[1])
+        ];
+      }));
     }
     if (kind === 'circular-ref') {
       return null;

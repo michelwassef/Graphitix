@@ -62,7 +62,8 @@
     initialized: false,
     controlsByType: {},
     monitorTimer: null,
-    lastActiveSignature: null
+    lastActiveSignature: null,
+    controlListenersBound: false
   };
 
   function isDebugEnabled(){
@@ -889,6 +890,7 @@
 
     const select = global.document.createElement('select');
     select.dataset.publicationStyleSelect = '1';
+    select.dataset.componentType = type;
     Object.values(PRESETS).forEach(p => {
       const opt = global.document.createElement('option');
       opt.value = p.id;
@@ -900,12 +902,8 @@
     applyBtn.type = 'button';
     applyBtn.className = 'btn btn-secondary';
     applyBtn.textContent = 'Apply style';
-
-    applyBtn.addEventListener('click', () => {
-      const presetId = String(select.value || PRESETS.npg_single.id);
-      const ok = applyPresetToActiveTab(type, presetId);
-      debugLog('Debug: publicationStyles apply click', { type, presetId, ok });
-    });
+    applyBtn.dataset.publicationStyleApply = '1';
+    applyBtn.dataset.componentType = type;
 
     label.appendChild(select);
     row.appendChild(label);
@@ -925,15 +923,58 @@
     debugLog('Debug: publicationStyles control mounted', { type, pageId: descriptor.pageId });
   }
 
+  function attachPublicationStyleControlListeners(){
+    if(state.controlListenersBound){
+      return;
+    }
+    const doc = global.document;
+    if(!doc){
+      return;
+    }
+    doc.addEventListener('click', evt => {
+      const button = evt.target instanceof global.Element
+        ? evt.target.closest('[data-publication-style-apply="1"]')
+        : null;
+      if(!button){
+        return;
+      }
+      const type = String(button.dataset?.componentType || '').trim();
+      if(!type){
+        return;
+      }
+      const row = button.closest('.config-panel__line');
+      const select = row?.querySelector?.('select[data-publication-style-select="1"]') || null;
+      const presetId = String(select?.value || PRESETS.npg_single.id);
+      const ok = applyPresetToActiveTab(type, presetId);
+      debugLog('Debug: publicationStyles apply click', { type, presetId, ok });
+    });
+    state.controlListenersBound = true;
+  }
+
   function syncActiveTabVisuals(reason){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return;
-    const control = state.controlsByType[tab.type]?.select || null;
-    if(!control) return;
-    // Currently we do not persist the selected preset per-tab. Keep default.
-    if(!control.value){
-      control.value = PRESETS.npg_single.id;
+    const descriptor = TYPE_TO_PAGE[tab.type];
+    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
+    const controls = page && typeof page.querySelectorAll === 'function'
+      ? Array.from(page.querySelectorAll(`select[data-publication-style-select="1"][data-component-type="${tab.type}"]`))
+      : [];
+    if(!controls.length){
+      const fallback = state.controlsByType[tab.type]?.select || null;
+      if(!fallback){
+        return;
+      }
+      if(!fallback.value){
+        fallback.value = PRESETS.npg_single.id;
+      }
+      debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
+      return;
     }
+    controls.forEach(control => {
+      if(!control.value){
+        control.value = PRESETS.npg_single.id;
+      }
+    });
     debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
   }
 
@@ -958,6 +999,7 @@
     Object.keys(TYPE_TO_PAGE).forEach(type => {
       renderControlForType(type, TYPE_TO_PAGE[type]);
     });
+    attachPublicationStyleControlListeners();
     startActiveMonitor();
     syncActiveTabVisuals('init');
     state.initialized = true;

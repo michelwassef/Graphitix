@@ -618,6 +618,9 @@
 
   const state = createInitialState();
   let emptyPayloadTemplate = null;
+  const vennBoundRoots = new WeakSet();
+  const vennTableBindingsByRoot = new WeakMap();
+  let vennDocumentHandlersBound = false;
 
   function createDefaultVennStyleState(){
     return {
@@ -6427,6 +6430,16 @@
 
   function initVennTable(root) {
     const queryRoot = root && typeof root.querySelector === 'function' ? root : document;
+    const existing = vennTableBindingsByRoot.get(queryRoot);
+    if (existing && existing.hot) {
+      state.ui.hotWrapper = existing.hotWrapper || null;
+      state.ui.hotContainer = existing.hotContainer || null;
+      state.ui.hot = existing.hot;
+      state.ui.syncTableFromInputs = syncVennTableFromInputs;
+      state.ui.syncInputsFromTable = syncVennInputsFromTable;
+      ensureVennDefaultTableHeaders(state.ui.hot);
+      return;
+    }
     const wrapper = queryRoot.querySelector('#vennHotWrapper');
     const container = queryRoot.querySelector('#vennHot');
     state.ui.hotWrapper = wrapper;
@@ -6485,11 +6498,16 @@
     state.ui.syncTableFromInputs = syncVennTableFromInputs;
     state.ui.syncInputsFromTable = syncVennInputsFromTable;
     syncVennInputsFromTable({ scheduleDraw: false, scheduleSpecies: false });
+    vennTableBindingsByRoot.set(queryRoot, {
+      hotWrapper: wrapper,
+      hotContainer: container,
+      hot: state.ui.hot
+    });
   }
 
   function registerEventHandlers() {
     const inputs = state.ui.inputs;
-    bindEventHandlers([
+    const eventBindings = [
       { elements: [inputs.A, inputs.B, inputs.C], type: 'paste', handler: handlePlainPaste, label: 'plain-paste' },
       { elements: inputs.opacity, type: 'input', handler: handleOpacityInput, label: 'opacity' },
       { elements: inputs.fontsize, type: 'input', handler: handleFontsizeInput, label: 'fontsize' },
@@ -6508,7 +6526,6 @@
       { elements: state.ui.upset?.useSetColors, type: 'change', handler: handleUpSetControlChange, label: 'upset-use-set-colors' },
       { elements: [state.ui.upset?.barColor, state.ui.upset?.setBarColor, state.ui.upset?.dotColor, state.ui.upset?.inactiveDotColor, state.ui.upset?.gridColor], type: 'input', handler: handleUpSetControlChange, label: 'upset-colors' },
       { elements: state.ui.regionSelect, type: 'change', handler: handleRegionSelectChange, label: 'region-select' },
-      { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
       { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
       { elements: state.ui.goBtn, type: 'click', handler: handleGoButtonClick, label: 'go-run' },
       { elements: state.ui.detectSpeciesBtn, type: 'click', handler: handleDetectSpeciesClick, label: 'detect-species' },
@@ -6519,13 +6536,20 @@
       { elements: state.ui.goBtn, type: 'mouseleave', handler: handleGoBtnTooltipLeave, label: 'go-tooltip-leave' },
       { elements: state.ui.goResults, type: 'click', handler: handleGoResultsClick, label: 'go-results' },
       { elements: state.ui.calcSignificanceBtn, type: 'click', handler: handleCalcSignificanceClick, label: 'significance' },
-      { selector: '#useNumeric', type: 'click', handler: handleUseNumericClick, label: 'use-numeric' },
-      { selector: '#openVennGraph', type: 'click', handler: venn.open, label: 'open-venn' },
-      { selector: '#saveVennGraph', type: 'click', handler: venn.save, label: 'save-venn' },
-      { selector: '#saveAsVenn', type: 'click', handler: venn.saveAs, label: 'saveas-venn' },
-      { selector: '#vennGraphFile', type: 'change', handler: handleGraphFileChange, label: 'graph-file' },
-      { selector: '#sample', type: 'click', handler: handleSampleClick, label: 'sample' }
-    ]);
+      { elements: state.ui.useNumericBtn, type: 'click', handler: handleUseNumericClick, label: 'use-numeric' },
+      { elements: state.ui.openVennGraphBtn, type: 'click', handler: venn.open, label: 'open-venn' },
+      { elements: state.ui.saveVennGraphBtn, type: 'click', handler: venn.save, label: 'save-venn' },
+      { elements: state.ui.saveAsVennBtn, type: 'click', handler: venn.saveAs, label: 'saveas-venn' },
+      { elements: state.ui.vennGraphFileInput, type: 'change', handler: handleGraphFileChange, label: 'graph-file' },
+      { elements: state.ui.sampleBtn, type: 'click', handler: handleSampleClick, label: 'sample' }
+    ];
+    bindEventHandlers(eventBindings);
+    if(!vennDocumentHandlersBound){
+      bindEventHandlers([
+        { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' }
+      ]);
+      vennDocumentHandlersBound = true;
+    }
 
     attachUndoLifecycle(inputs.A, 'venn:list-A');
     attachUndoLifecycle(inputs.B, 'venn:list-B');
@@ -6595,14 +6619,131 @@
     debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
-  function initNotes(){
-    const diagramArea = global.document?.querySelector('#vennGraphPanel .diagram-area');
-    const graphPanel = global.document?.querySelector('#vennGraphPanel');
-    let stack = global.document?.querySelector('#vennGraphPanel .venn-plot-stack');
+  function bindUiToRoot(mountedRoot){
+    const root = mountedRoot && typeof mountedRoot.querySelector === 'function'
+      ? mountedRoot
+      : (document.getElementById('vennPage') || document);
+    const $root = selector => {
+      if(!selector){
+        return null;
+      }
+      if(root && typeof root.querySelector === 'function'){
+        return root.querySelector(selector);
+      }
+      return document.querySelector(selector);
+    };
+    state.ui.root = root;
+    state.ui.stage = $root('#stage');
+    state.ui.inputs = {
+      A: $root('#listA'),
+      B: $root('#listB'),
+      C: $root('#listC'),
+      labelA: $root('#labelA'),
+      labelB: $root('#labelB'),
+      labelC: $root('#labelC'),
+      colorA: $root('#colorA'),
+      colorB: $root('#colorB'),
+      colorC: $root('#colorC'),
+      opacity: $root('#opacity'),
+      fontsize: $root('#fontsize'),
+      borderColor: $root('#borderColor'),
+      borderWidth: $root('#borderWidth'),
+      opacityVal: $root('#opacityVal'),
+      fontsizeVal: $root('#fontsizeVal'),
+      borderWidthVal: $root('#borderWidthVal'),
+      caseSensitive: $root('#caseSensitive'),
+      counts: {
+        nA: $root('#nA'),
+        nB: $root('#nB'),
+        nC: $root('#nC'),
+        nAB: $root('#nAB'),
+        nAC: $root('#nAC'),
+        nBC: $root('#nBC'),
+        nABC: $root('#nABC')
+      }
+    };
+    state.ui.countsUI = {
+      A: $root('#countA'),
+      B: $root('#countB'),
+      C: $root('#countC'),
+      AB: $root('#countAB'),
+      AC: $root('#countAC'),
+      BC: $root('#countBC'),
+      ABC: $root('#countABC')
+    };
+    state.ui.regionSelect = $root('#regionSelect');
+    state.ui.regionList = $root('#regionList');
+    state.ui.copyRegionBtn = $root('#copyRegionBtn');
+    state.ui.goBtn = $root('#goBtn');
+    state.ui.detectSpeciesBtn = $root('#detectSpeciesBtn');
+    state.ui.stringBtn = $root('#stringBtn');
+    state.ui.analysisResultsTabs = $root('#analysisResultsTabs');
+    state.ui.analysisTabGo = $root('#analysisTabGo');
+    state.ui.analysisTabString = $root('#analysisTabString');
+    state.ui.plotType = $root('#vennPlotType');
+    state.ui.upset = {
+      sort: $root('#upsetSort'),
+      max: $root('#upsetMax'),
+      showEmpty: $root('#upsetShowEmpty'),
+      showCounts: $root('#upsetShowCounts'),
+      showSetCounts: $root('#upsetShowSetCounts'),
+      showGrid: $root('#upsetShowGrid'),
+      dotSize: $root('#upsetDotSize'),
+      dotSizeVal: $root('#upsetDotSizeVal'),
+      useSetColors: $root('#upsetUseSetColors'),
+      barColor: $root('#upsetBarColor'),
+      setBarColor: $root('#upsetSetBarColor'),
+      dotColor: $root('#upsetDotColor'),
+      inactiveDotColor: $root('#upsetInactiveDotColor'),
+      gridColor: $root('#upsetGridColor')
+    };
+    state.ui.goResults = $root('#goResults');
+    state.ui.stringResults = $root('#stringResults');
+    state.ui.stringNetwork = $root('#stringNetwork');
+    state.ui.analysisPanelGo = $root('#analysisPanelGo');
+    state.ui.analysisPanelString = $root('#analysisPanelString');
+    state.ui.goChartExport = $root('#goChartExport');
+    state.ui.stringNetworkExport = $root('#stringNetworkExport');
+    state.ui.tooltip = $root('#tooltip');
+    state.ui.speciesSelect = $root('#speciesSelect');
+    state.ui.totalGenesInput = $root('#totalGenes');
+    state.ui.calcSignificanceBtn = $root('#calcSignificance');
+    state.ui.significanceResults = $root('#significanceResults');
+    state.ui.goCategoryChecks = Array.from(root?.querySelectorAll?.('.goCategory') || []);
+    state.ui.goOptsBtn = $root('#goOptsBtn');
+    state.ui.goOptions = $root('#goOptions');
+    state.ui.goUseAllBackground = $root('#goUseAllBackground');
+    state.ui.stringOptsBtn = $root('#stringOptsBtn');
+    state.ui.stringOptions = $root('#stringOptions');
+    state.ui.useNumericBtn = $root('#useNumeric');
+    state.ui.openVennGraphBtn = $root('#openVennGraph');
+    state.ui.saveVennGraphBtn = $root('#saveVennGraph');
+    state.ui.saveAsVennBtn = $root('#saveAsVenn');
+    state.ui.vennGraphFileInput = $root('#vennGraphFile');
+    state.ui.sampleBtn = $root('#sample');
+    [state.ui.regionSelect, state.ui.speciesSelect, state.ui.plotType, state.ui.upset?.sort]
+      .filter(Boolean)
+      .forEach(select => attachVennSelectAutoSize(select, 'venn'));
+    initNotes(root);
+    initVennTable(root);
+    if(!vennBoundRoots.has(root)){
+      registerEventHandlers();
+      vennBoundRoots.add(root);
+    }
+  }
+
+  function initNotes(root){
+    const queryRoot = root && typeof root.querySelector === 'function'
+      ? root
+      : global.document;
+    const documentRef = queryRoot?.ownerDocument || global.document;
+    const diagramArea = queryRoot?.querySelector?.('#vennGraphPanel .diagram-area') || null;
+    const graphPanel = queryRoot?.querySelector?.('#vennGraphPanel') || null;
+    let stack = queryRoot?.querySelector?.('#vennGraphPanel .venn-plot-stack') || null;
     if(!stack && diagramArea){
       const svgBox = diagramArea.querySelector('.svgbox');
       if(svgBox){
-        stack = global.document.createElement('div');
+        stack = documentRef.createElement('div');
         stack.className = 'venn-plot-stack';
         const configOptions = diagramArea.querySelector('.config-panel');
         if(configOptions){
@@ -6655,22 +6796,6 @@
     });
   }
 
-  function removeLegacyGraphControlSections(root){
-    const queryRoot = root && typeof root.querySelectorAll === 'function' ? root : document;
-    const legacyNodes = Array.from(queryRoot.querySelectorAll('[data-legacy-graph-controls="1"]'));
-    const removedFieldsets = new Set();
-    legacyNodes.forEach(node => {
-      const fieldset = node?.closest?.('fieldset') || node;
-      if(fieldset && fieldset.parentElement){
-        removedFieldsets.add(fieldset);
-      }
-    });
-    removedFieldsets.forEach(fieldset => {
-      fieldset.remove();
-    });
-    debug('Debug: venn removed legacy graph control sections', { removedCount: removedFieldsets.size });
-  }
-
   venn.init = function init(options = {}) {
     if (venn.ready) { debugLog('init skipped'); return; }
     const freshState = createInitialState();
@@ -6681,16 +6806,6 @@
       || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'venn')
       || document.getElementById('vennPage')
       || document;
-    const $root = selector => {
-      if(!selector){
-        return null;
-      }
-      if(mountedRoot && typeof mountedRoot.querySelector === 'function'){
-        return mountedRoot.querySelector(selector);
-      }
-      return document.querySelector(selector);
-    };
-    state.ui.root = mountedRoot;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     const scheduleVennBase = Shared.debounceFrame ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
@@ -6713,100 +6828,7 @@
     } else {
       debugLog('goChart.defaults.defer', { hasChart: !!global.Chart }); // Debug: defer locale until lazy load
     }
-    state.ui.stage = $root('#stage');
-    state.ui.inputs = {
-      A: $root('#listA'),
-      B: $root('#listB'),
-      C: $root('#listC'),
-      labelA: $root('#labelA'),
-      labelB: $root('#labelB'),
-      labelC: $root('#labelC'),
-      colorA: $root('#colorA'),
-      colorB: $root('#colorB'),
-      colorC: $root('#colorC'),
-      opacity: $root('#opacity'),
-      fontsize: $root('#fontsize'),
-      borderColor: $root('#borderColor'),
-      borderWidth: $root('#borderWidth'),
-      opacityVal: $root('#opacityVal'),
-      fontsizeVal: $root('#fontsizeVal'),
-      borderWidthVal: $root('#borderWidthVal'),
-      caseSensitive: $root('#caseSensitive'),
-      counts: {
-        nA: $root('#nA'),
-        nB: $root('#nB'),
-        nC: $root('#nC'),
-        nAB: $root('#nAB'),
-        nAC: $root('#nAC'),
-        nBC: $root('#nBC'),
-        nABC: $root('#nABC')
-      }
-    };
-    removeLegacyGraphControlSections(mountedRoot);
-    state.ui.countsUI = {
-      A: $root('#countA'),
-      B: $root('#countB'),
-      C: $root('#countC'),
-      AB: $root('#countAB'),
-      AC: $root('#countAC'),
-      BC: $root('#countBC'),
-      ABC: $root('#countABC')
-    };
-    state.ui.regionSelect = $root('#regionSelect');
-    state.ui.regionList = $root('#regionList');
-    state.ui.copyRegionBtn = $root('#copyRegionBtn');
-    state.ui.goBtn = $root('#goBtn');
-    state.ui.detectSpeciesBtn = $root('#detectSpeciesBtn');
-    state.ui.stringBtn = $root('#stringBtn');
-    state.ui.analysisResultsTabs = $root('#analysisResultsTabs');
-    state.ui.analysisTabGo = $root('#analysisTabGo');
-    state.ui.analysisTabString = $root('#analysisTabString');
-    state.ui.plotType = $root('#vennPlotType');
-    state.ui.upset = {
-      sort: $root('#upsetSort'),
-      max: $root('#upsetMax'),
-      showEmpty: $root('#upsetShowEmpty'),
-      showCounts: $root('#upsetShowCounts'),
-      showSetCounts: $root('#upsetShowSetCounts'),
-      showGrid: $root('#upsetShowGrid'),
-      dotSize: $root('#upsetDotSize'),
-      dotSizeVal: $root('#upsetDotSizeVal'),
-      useSetColors: $root('#upsetUseSetColors'),
-      barColor: $root('#upsetBarColor'),
-      setBarColor: $root('#upsetSetBarColor'),
-      dotColor: $root('#upsetDotColor'),
-      inactiveDotColor: $root('#upsetInactiveDotColor'),
-      gridColor: $root('#upsetGridColor')
-    };
-    state.ui.goResults = $root('#goResults');
-    state.ui.stringResults = $root('#stringResults');
-    state.ui.stringNetwork = $root('#stringNetwork');
-    state.ui.analysisPanelGo = $root('#analysisPanelGo');
-    state.ui.analysisPanelString = $root('#analysisPanelString');
-    state.ui.goChartExport = $root('#goChartExport');
-    state.ui.stringNetworkExport = $root('#stringNetworkExport');
-    state.ui.tooltip = $root('#tooltip');
-    state.ui.speciesSelect = $root('#speciesSelect');
-    state.ui.totalGenesInput = $root('#totalGenes');
-    state.ui.calcSignificanceBtn = $root('#calcSignificance');
-    state.ui.significanceResults = $root('#significanceResults');
-    const vennAutoSizeTargets = [
-      state.ui.regionSelect,
-      state.ui.speciesSelect,
-      state.ui.plotType,
-      state.ui.upset?.sort
-    ];
-    vennAutoSizeTargets.filter(Boolean).forEach(select => {
-      attachVennSelectAutoSize(select, 'venn');
-    });
-    state.ui.goCategoryChecks = Array.from(mountedRoot?.querySelectorAll?.('.goCategory') || []);
-    state.ui.goOptsBtn = $root('#goOptsBtn');
-    state.ui.goOptions = $root('#goOptions');
-    state.ui.goUseAllBackground = $root('#goUseAllBackground');
-    state.ui.stringOptsBtn = $root('#stringOptsBtn');
-    state.ui.stringOptions = $root('#stringOptions');
-    initNotes();
-    initVennTable(mountedRoot);
+    bindUiToRoot(mountedRoot);
     const exporter = Shared.exporter;
     if (exporter && typeof exporter.mountSvgControls === 'function') {
       exporter.mountSvgControls({
@@ -6845,7 +6867,6 @@
     syncPlotMode(state.ui.plotType?.value || DEFAULT_PLOT_TYPE, { updateTitle: false });
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     updateUpSetDotSizeOutput(state.ui.upset?.dotSize?.value);
-    registerEventHandlers();
     initializeLabelState();
     ensureEmptyPayloadTemplate();
     venn.ready = true;
@@ -6899,7 +6920,12 @@
 
   venn.activateTab = function activateTab(_tab, meta = {}){
     if(!venn.ready){
-      venn.init();
+      venn.init({ tabId: _tab?.id || null });
+    }else{
+      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(_tab?.id || null, 'venn')
+        || document.getElementById('vennPage')
+        || document;
+      bindUiToRoot(mountedRoot);
     }
     if(typeof state.ui.syncPanels === 'function'){
       state.ui.syncPanels({ skipSchedule: true });

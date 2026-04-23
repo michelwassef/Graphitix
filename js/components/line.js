@@ -12558,16 +12558,43 @@
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
     initNotes();
     ensureEmptyPayloadTemplate();
+    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || global.document?.getElementById?.('lineHot') || null;
     line.ready = true;
     scheduleLineDraw();
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
   }
 
-  function ensureReady(){ if(!line.ready) setup(); }
+  function ensureLineDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const result = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'line',
+      tabLike: tabLike || null,
+      sentinelSelector: '#lineHot',
+      getCurrentRoot: () => refs.root || null,
+      getCurrentSentinel: () => line.__domSentinel || refs.hotContainer || null,
+      rebind: ({ root, tab }) => {
+        line.ready = false;
+        setup({ root: root || undefined, tabId: tab?.id || null });
+      }
+    });
+    return !!result?.rebound;
+  }
+
+  function ensureReady(){
+    if(ensureLineDomBindings()){
+      return;
+    }
+    if(!line.ready) setup();
+  }
 
   line.init = setup;
   line.ensure = ensureReady;
   line.activateTab = function activateTab(){
+    if(ensureLineDomBindings()){
+      return;
+    }
     if(!line.ready){
       line.init();
       return;
@@ -12582,6 +12609,7 @@
         syncLineActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || global.document?.getElementById?.('lineHot') || null;
   };
 
   function detachChildren(node){

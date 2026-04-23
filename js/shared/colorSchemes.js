@@ -274,7 +274,8 @@
     controlsByType: {},
     monitorTimer: null,
     lastActiveSignature: null,
-    pendingSyncTimer: null
+    pendingSyncTimer: null,
+    controlListenersBound: false
   };
   let openPaletteMenu = null;
 
@@ -495,6 +496,165 @@
         button.setAttribute('aria-expanded', 'false');
       }
     }
+  }
+
+  function syncPickerElement(select, displayedSchemeId){
+    if(!select || typeof select.closest !== 'function'){
+      return;
+    }
+    const type = String(select.dataset?.componentType || '').trim();
+    if(!type){
+      return;
+    }
+    const safeDisplayed = (type === 'surface')
+      ? normalizeSurfaceSchemeId(displayedSchemeId || select.value)
+      : String(displayedSchemeId || select.value || '').trim();
+    const value = safeDisplayed === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(safeDisplayed).id;
+    const picker = select.closest('.config-panel__label')?.querySelector?.('.color-scheme-picker')
+      || select.parentElement?.querySelector?.('.color-scheme-picker')
+      || null;
+    if(!picker){
+      return;
+    }
+    const buttonLabel = picker.querySelector('.color-scheme-picker__label');
+    const buttonSwatches = picker.querySelector('.color-scheme-picker__current-swatches');
+    const menu = picker.querySelector('.color-scheme-picker__menu');
+    const scheme = value === CUSTOM_SCHEME_ID ? null : SCHEMES[value];
+    if(buttonLabel){
+      buttonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
+    }
+    if(buttonSwatches && buttonSwatches.ownerDocument){
+      buttonSwatches.replaceChildren(renderSchemeSwatches(buttonSwatches.ownerDocument, value, { limit: 4 }));
+    }
+    if(menu){
+      menu.querySelectorAll('.color-scheme-picker__option').forEach(node => {
+        const selected = node.dataset?.schemeId === value;
+        if(selected){
+          node.setAttribute('aria-selected', 'true');
+          node.classList.add('is-selected');
+        }else{
+          node.setAttribute('aria-selected', 'false');
+          node.classList.remove('is-selected');
+        }
+      });
+    }
+  }
+
+  function openPickerMenu(menu){
+    if(!menu){
+      return;
+    }
+    if(openPaletteMenu && openPaletteMenu !== menu){
+      closePaletteMenu();
+    }
+    openPaletteMenu = menu;
+    const owner = menu.__pickerOwner || menu.closest?.('.color-scheme-picker') || null;
+    if(owner){
+      owner.classList.add('is-open');
+      const button = owner.querySelector('.color-scheme-picker__button');
+      if(button){
+        button.setAttribute('aria-expanded', 'true');
+      }
+    }
+    menu.hidden = false;
+  }
+
+  function togglePickerMenu(button){
+    const picker = button?.closest?.('.color-scheme-picker');
+    const menu = picker?.querySelector?.('.color-scheme-picker__menu') || null;
+    if(!menu){
+      return;
+    }
+    if(menu.hidden){
+      openPickerMenu(menu);
+    }else{
+      closePaletteMenu();
+    }
+  }
+
+  function attachColorSchemeControlListeners(){
+    if(state.controlListenersBound){
+      return;
+    }
+    const doc = global.document;
+    if(!doc){
+      return;
+    }
+    doc.addEventListener('click', evt => {
+      const target = evt.target instanceof global.Element ? evt.target : null;
+      if(!target){
+        closePaletteMenu();
+        return;
+      }
+      const optionButton = target.closest('.color-scheme-picker__option');
+      if(optionButton){
+        if(optionButton.disabled){
+          closePaletteMenu();
+          return;
+        }
+        const nextScheme = String(optionButton.dataset?.schemeId || '').trim();
+        if(!nextScheme || nextScheme === CUSTOM_SCHEME_ID){
+          closePaletteMenu();
+          return;
+        }
+        const menu = optionButton.closest('.color-scheme-picker__menu');
+        const owner = menu?.__pickerOwner || menu?.closest?.('.color-scheme-picker') || null;
+        const select = owner?.parentElement?.querySelector?.('select[data-color-scheme-select="1"]') || null;
+        if(select){
+          select.value = nextScheme;
+          syncPickerElement(select, nextScheme);
+          select.dispatchEvent(new global.Event('change', { bubbles: true }));
+        }
+        closePaletteMenu();
+        return;
+      }
+      const toggleButton = target.closest('[data-color-scheme-toggle="1"]');
+      if(toggleButton){
+        togglePickerMenu(toggleButton);
+        return;
+      }
+      if(openPaletteMenu && (!target.closest || !target.closest('.color-scheme-picker'))){
+        closePaletteMenu();
+      }
+    });
+
+    doc.addEventListener('keydown', evt => {
+      if(evt.key === 'Escape' && openPaletteMenu){
+        closePaletteMenu();
+      }
+    });
+
+    doc.addEventListener('change', evt => {
+      const select = evt.target instanceof global.Element
+        ? evt.target.closest('select[data-color-scheme-select="1"]')
+        : null;
+      if(!select){
+        return;
+      }
+      const type = String(select.dataset?.componentType || '').trim();
+      if(!type){
+        return;
+      }
+      if(type === 'surface'){
+        const selectedSurface = normalizeSurfaceSchemeId(select.value);
+        select.value = selectedSurface;
+        syncPickerElement(select, selectedSurface);
+        applySchemeToActiveTab(type, selectedSurface);
+        return;
+      }
+      if(select.value === CUSTOM_SCHEME_ID){
+        const displayed = resolveDisplayedSchemeIdForType(type);
+        select.value = displayed;
+        syncPickerElement(select, displayed);
+        return;
+      }
+      const selected = getScheme(select.value).id;
+      select.value = selected;
+      syncPickerElement(select, selected);
+      applySchemeToActiveTab(type, selected);
+    });
+
+    state.controlListenersBound = true;
   }
 
   function uniqueStrings(values){
@@ -1818,13 +1978,26 @@
     if(!tab || !tab.type || tab.isWelcome) return;
     const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
     const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type, options) || schemeId;
-    const controlState = state.controlsByType[tab.type] || {};
-    const control = controlState.select || null;
-    if(control && control.value !== displayedSchemeId){
-      control.value = displayedSchemeId;
-    }
-    if(typeof controlState.syncPicker === 'function'){
-      controlState.syncPicker(displayedSchemeId);
+    const descriptor = TYPE_TO_PAGE[tab.type];
+    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
+    const controls = page && typeof page.querySelectorAll === 'function'
+      ? Array.from(page.querySelectorAll(`select[data-color-scheme-select="1"][data-component-type="${tab.type}"]`))
+      : [];
+    controls.forEach(control => {
+      if(control.value !== displayedSchemeId){
+        control.value = displayedSchemeId;
+      }
+      syncPickerElement(control, displayedSchemeId);
+    });
+    if(!controls.length){
+      const controlState = state.controlsByType[tab.type] || {};
+      const fallbackControl = controlState.select || null;
+      if(fallbackControl){
+        if(fallbackControl.value !== displayedSchemeId){
+          fallbackControl.value = displayedSchemeId;
+        }
+        syncPickerElement(fallbackControl, displayedSchemeId);
+      }
     }
     syncSharedScatterPalette(tab.type, getScheme(schemeId));
     applyRenderedTheme(tab.type, schemeId);
@@ -1891,6 +2064,8 @@
 
     const select = doc.createElement('select');
     select.id = `${type}ColorSchemeSelect`;
+    select.dataset.colorSchemeSelect = '1';
+    select.dataset.componentType = type;
     const schemeIds = (type === 'surface')
       ? SURFACE_SCHEME_OPTION_IDS
       : BASE_SCHEME_OPTION_IDS;
@@ -1918,6 +2093,8 @@
     const pickerButton = doc.createElement('button');
     pickerButton.type = 'button';
     pickerButton.className = 'color-scheme-picker__button';
+    pickerButton.dataset.colorSchemeToggle = '1';
+    pickerButton.dataset.componentType = type;
     pickerButton.setAttribute('aria-haspopup', 'listbox');
     pickerButton.setAttribute('aria-expanded', 'false');
 
@@ -1938,6 +2115,8 @@
     const pickerMenu = doc.createElement('div');
     pickerMenu.className = 'color-scheme-picker__menu';
     pickerMenu.setAttribute('role', 'listbox');
+    pickerMenu.dataset.colorSchemeMenu = '1';
+    pickerMenu.dataset.componentType = type;
     pickerMenu.hidden = true;
     pickerMenu.__pickerOwner = picker;
 
@@ -1947,6 +2126,7 @@
       optionButton.className = 'color-scheme-picker__option';
       optionButton.setAttribute('role', 'option');
       optionButton.dataset.schemeId = id;
+      optionButton.dataset.componentType = type;
       optionButton.appendChild(renderSchemeSwatches(doc, id, { limit: 4 }));
       const optionLabel = doc.createElement('span');
       optionLabel.className = 'color-scheme-picker__option-label';
@@ -1960,6 +2140,7 @@
       customButton.className = 'color-scheme-picker__option';
       customButton.setAttribute('role', 'option');
       customButton.dataset.schemeId = CUSTOM_SCHEME_ID;
+      customButton.dataset.componentType = type;
       customButton.disabled = true;
       customButton.appendChild(renderSchemeSwatches(doc, CUSTOM_SCHEME_ID, { limit: 4 }));
       const customLabel = doc.createElement('span');
@@ -1972,73 +2153,7 @@
     picker.appendChild(pickerButton);
     picker.appendChild(pickerMenu);
 
-    function syncPicker(displayedSchemeId){
-      const safeDisplayed = (type === 'surface')
-        ? normalizeSurfaceSchemeId(displayedSchemeId)
-        : displayedSchemeId;
-      const value = safeDisplayed === CUSTOM_SCHEME_ID ? CUSTOM_SCHEME_ID : getScheme(safeDisplayed).id;
-      const scheme = value === CUSTOM_SCHEME_ID ? null : SCHEMES[value];
-      pickerButtonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
-      pickerButtonSwatches.replaceChildren(renderSchemeSwatches(doc, value, { limit: 4 }));
-      pickerMenu.querySelectorAll('.color-scheme-picker__option').forEach(node => {
-        const selected = node.dataset?.schemeId === value;
-        if(selected){
-          node.setAttribute('aria-selected', 'true');
-          node.classList.add('is-selected');
-        }else{
-          node.setAttribute('aria-selected', 'false');
-          node.classList.remove('is-selected');
-        }
-      });
-    }
-
-    function openMenu(){
-      if(openPaletteMenu && openPaletteMenu !== pickerMenu){
-        closePaletteMenu();
-      }
-      openPaletteMenu = pickerMenu;
-      picker.classList.add('is-open');
-      pickerButton.setAttribute('aria-expanded', 'true');
-      pickerMenu.hidden = false;
-    }
-
-    function toggleMenu(){
-      if(pickerMenu.hidden){
-        openMenu();
-      }else{
-        closePaletteMenu();
-      }
-    }
-
-    pickerButton.addEventListener('click', toggleMenu);
-    pickerMenu.addEventListener('click', evt => {
-      const target = evt.target instanceof global.Element
-        ? evt.target.closest('.color-scheme-picker__option')
-        : null;
-      if(!target || target.disabled) return;
-      const nextScheme = target.dataset?.schemeId || '';
-      if(!nextScheme || nextScheme === CUSTOM_SCHEME_ID){
-        closePaletteMenu();
-        return;
-      }
-      select.value = nextScheme;
-      select.dispatchEvent(new global.Event('change', { bubbles: true }));
-      syncPicker(resolveDisplayedSchemeIdForType(type));
-      closePaletteMenu();
-    });
-    doc.addEventListener('click', evt => {
-      if(!(evt.target instanceof global.Element)) return;
-      if(picker.contains(evt.target)) return;
-      if(openPaletteMenu === pickerMenu){
-        closePaletteMenu();
-      }
-    });
-    doc.addEventListener('keydown', evt => {
-      if(evt.key === 'Escape' && openPaletteMenu === pickerMenu){
-        closePaletteMenu();
-      }
-    });
-    syncPicker(initialDisplayedSchemeId);
+    syncPickerElement(select, initialDisplayedSchemeId);
 
     label.appendChild(select);
     label.appendChild(picker);
@@ -2119,30 +2234,7 @@
       Shared.formControls.autoSizeSelect(select);
     }
 
-    select.addEventListener('focus', () => {
-      select.value = resolveDisplayedSchemeIdForType(type);
-      syncPicker(select.value);
-    });
-
-    select.addEventListener('change', () => {
-      if(type === 'surface'){
-        const selectedSurface = normalizeSurfaceSchemeId(select.value);
-        select.value = selectedSurface;
-        syncPicker(selectedSurface);
-        applySchemeToActiveTab(type, selectedSurface);
-        return;
-      }
-      if(select.value === CUSTOM_SCHEME_ID){
-        select.value = resolveDisplayedSchemeIdForType(type);
-        return;
-      }
-      const selected = getScheme(select.value).id;
-      select.value = selected;
-      syncPicker(selected);
-      applySchemeToActiveTab(type, selected);
-    });
-
-    state.controlsByType[type] = { select, syncPicker };
+    state.controlsByType[type] = { select };
     debugLog('Debug: colorSchemes control mounted', { type, pageId: descriptor.pageId });
   }
 
@@ -2208,11 +2300,10 @@
       const controlState = state.controlsByType[type] || {};
       if(controlState.select){
         controlState.select.value = initialScheme.id;
-      }
-      if(typeof controlState.syncPicker === 'function'){
-        controlState.syncPicker(initialScheme.id);
+        syncPickerElement(controlState.select, initialScheme.id);
       }
     });
+    attachColorSchemeControlListeners();
     attachManualColorListeners();
     startActiveMonitor();
     syncActiveTabVisuals('init');

@@ -5206,6 +5206,7 @@
       logRank: { available: false }
     });
     ensureEmptyPayloadTemplate();
+    survival.__domSentinel = global.document?.getElementById?.('survivalHot') || null;
     survival.ready = true;
     state.scheduleDraw?.();
     logDebug('component initialized', { ready: survival.ready });
@@ -5214,11 +5215,40 @@
 
   survival.init = init;
   survival.ensure = function ensure(){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'survival',
+        sentinelSelector: '#survivalHot',
+        getCurrentSentinel: () => survival.__domSentinel || null,
+        rebind: () => {
+          survival.ready = false;
+          init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     if(!survival.ready){
       init();
     }
   };
-  survival.activateTab = function activateTab(){
+  survival.activateTab = function activateTab(tab){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'survival',
+        tabLike: tab || null,
+        sentinelSelector: '#survivalHot',
+        getCurrentSentinel: () => survival.__domSentinel || null,
+        rebind: () => {
+          survival.ready = false;
+          init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     if(!survival.ready){
       init();
       return;
@@ -5226,6 +5256,7 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+    survival.__domSentinel = global.document?.getElementById?.('survivalHot') || null;
   };
 
   function detachChildren(node){

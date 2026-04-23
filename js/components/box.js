@@ -33747,6 +33747,9 @@ Technical analysis record (advanced)
       table: !!cache.statsTable,
       report: !!cache.statsReport
     });
+    if(restored){
+      activateAuthoritativeBoxRenderRestore('render-cache-restore');
+    }
     const targetPayload = meta?.payload || meta?.tab?.payload || null;
     const targetScheme = targetPayload ? resolveBoxPayloadColorSchemeForCache(targetPayload) : null;
     if(targetScheme){

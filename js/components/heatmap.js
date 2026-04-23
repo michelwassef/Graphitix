@@ -8431,16 +8431,27 @@
     state.layout?.syncPanels?.();
     evaluateHeatmapDataShape();
     ensureEmptyPayloadTemplate();
+    heatmap.__domSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
     heatmap.ready = true;
     state.scheduleDraw();
   };
 
   heatmap.ensure = function ensure(){
+    const currentSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
+    if(heatmap.ready && heatmap.__domSentinel && currentSentinel && heatmap.__domSentinel !== currentSentinel){
+      debugLog('Debug: heatmap.ensure refreshing stale DOM bindings');
+      heatmap.ready = false;
+    }
     if(!heatmap.ready){
       heatmap.init();
     }
   };
   heatmap.activateTab = function activateTab(){
+    const currentSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
+    if(heatmap.ready && heatmap.__domSentinel && currentSentinel && heatmap.__domSentinel !== currentSentinel){
+      debugLog('Debug: heatmap.activateTab refreshing stale DOM bindings');
+      heatmap.ready = false;
+    }
     if(!heatmap.ready){
       heatmap.init();
     }
@@ -8462,6 +8473,7 @@
       }
     }
     scheduleDeferredHiddenDrawFlush('activate-tab');
+    heatmap.__domSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
   };
 
   heatmap.captureRuntimeState = function captureRuntimeState(){

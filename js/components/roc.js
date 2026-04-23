@@ -3639,6 +3639,7 @@
     initExportsAndFiles();
     state.scheduleDraw?.();
     ensureEmptyPayloadTemplate();
+    roc.__domSentinel = global.document?.getElementById?.('rocHot') || null;
     roc.ready = true;
     console.debug('Debug: ROC component initialized');
     global.scheduleDrawRoc = () => state.scheduleDraw?.();
@@ -3646,12 +3647,42 @@
 
   roc.init = init;
   roc.ensure = function ensure(){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'roc',
+        sentinelSelector: '#rocHot',
+        getCurrentSentinel: () => roc.__domSentinel || null,
+        rebind: () => {
+          roc.ready = false;
+          init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     if(!roc.ready){
       init();
     }
   };
-  roc.activateTab = function activateTab(_tab){
+  roc.activateTab = function activateTab(tab){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'roc',
+        tabLike: tab || null,
+        sentinelSelector: '#rocHot',
+        getCurrentSentinel: () => roc.__domSentinel || null,
+        rebind: () => {
+          roc.ready = false;
+          init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     ensureHotForActiveTab();
+    roc.__domSentinel = global.document?.getElementById?.('rocHot') || null;
   };
   roc.draw = () => { void runRocDrawCycle(); };
   roc.scheduleDraw = () => state.scheduleDraw?.();

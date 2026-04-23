@@ -422,6 +422,73 @@
     return selector ? global.document?.querySelector?.(selector) || null : root;
   };
 
+  namespace.ensureActiveDomBindings = function ensureActiveDomBindings(config = {}){
+    const componentKey = String(config.componentKey || config.type || '').trim() || '__default__';
+    const tab = resolveTab(config.tabLike || config.tabId || null) || resolveSession()?.getActiveTab?.() || null;
+    const mountedRoot = namespace.getMountedRoot(tab, componentKey) || null;
+    const currentRoot = typeof config.getCurrentRoot === 'function'
+      ? (config.getCurrentRoot() || null)
+      : (config.currentRoot || null);
+    const sentinelSelector = typeof config.sentinelSelector === 'string' ? config.sentinelSelector.trim() : '';
+    const currentSentinel = typeof config.getCurrentSentinel === 'function'
+      ? (config.getCurrentSentinel() || null)
+      : (config.currentSentinel || null);
+    const mountedSentinel = sentinelSelector && mountedRoot && typeof mountedRoot.querySelector === 'function'
+      ? (mountedRoot.querySelector(sentinelSelector) || null)
+      : null;
+    const rootMismatch = !!mountedRoot && !!currentRoot && mountedRoot !== currentRoot;
+    const sentinelMismatch = !!mountedSentinel && !!currentSentinel && mountedSentinel !== currentSentinel;
+    const missingCurrentRoot = !!mountedRoot && !currentRoot;
+    const missingCurrentSentinel = !!sentinelSelector && !!mountedSentinel && !currentSentinel;
+    const requiresRebind = rootMismatch || sentinelMismatch || missingCurrentRoot || missingCurrentSentinel;
+    let rebound = false;
+    if(requiresRebind && typeof config.rebind === 'function'){
+      try{
+        config.rebind({
+          tab,
+          tabId: tab?.id || null,
+          componentKey,
+          root: mountedRoot,
+          currentRoot,
+          sentinelSelector: sentinelSelector || null,
+          currentSentinel,
+          mountedSentinel
+        });
+        rebound = true;
+      }catch(err){
+        console.error('workspaceTabs ensureActiveDomBindings rebind error', {
+          componentKey,
+          tabId: tab?.id || null,
+          err
+        });
+      }
+    }
+    if(requiresRebind){
+      debugLog('Debug: workspaceTabs dom binding check', {
+        componentKey,
+        tabId: tab?.id || null,
+        rootMismatch,
+        sentinelMismatch,
+        missingCurrentRoot,
+        missingCurrentSentinel,
+        rebound
+      });
+    }
+    return {
+      tab,
+      root: mountedRoot,
+      currentRoot,
+      currentSentinel,
+      mountedSentinel,
+      rootMismatch,
+      sentinelMismatch,
+      missingCurrentRoot,
+      missingCurrentSentinel,
+      requiresRebind,
+      rebound
+    };
+  };
+
   namespace.getSessionRecord = function getSessionRecord(tabLike, componentKey){
     const tab = resolveTab(tabLike);
     const sharedState = ensureRecordShape(tab);

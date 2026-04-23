@@ -11085,6 +11085,21 @@
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
     pca.activateTab = function activateTab(tab){
+      if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+        const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+          componentKey: 'pca',
+          tabLike: tab || null,
+          sentinelSelector: '#pcaHot',
+          getCurrentSentinel: () => pca.__domSentinel || null,
+          rebind: () => {
+            pca.ready = false;
+            setup();
+          }
+        });
+        if(rebound?.rebound){
+          return;
+        }
+      }
       const payloadConfig = tab && tab.payload && tab.payload.config ? tab.payload.config : null;
       applyPcaMethodUiPreActivation(payloadConfig || {});
       const hot = ensurePcaHotForActiveTab();
@@ -11095,6 +11110,7 @@
         });
         syncPcaActiveDataViewFromHot(hot, 'prepare-tab');
       }
+      pca.__domSentinel = global.document?.getElementById?.('pcaHot') || null;
     };
 
     function detachChildren(node){
@@ -11241,11 +11257,28 @@
     pca.__state = pcaState;
     initNotes();
     ensureEmptyPayloadTemplate();
+    pca.__domSentinel = global.document?.getElementById?.('pcaHot') || null;
     pca.ready = true;
     console.debug('Debug: Components.pca.setup complete');
   }
 
-  function ensureReady(){ if(!pca.ready) setup(); }
+  function ensureReady(){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'pca',
+        sentinelSelector: '#pcaHot',
+        getCurrentSentinel: () => pca.__domSentinel || null,
+        rebind: () => {
+          pca.ready = false;
+          setup();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
+    if(!pca.ready) setup();
+  }
 
   pca.init = setup;
   pca.ensure = ensureReady;

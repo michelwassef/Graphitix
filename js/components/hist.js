@@ -5261,6 +5261,23 @@
 
   // Public API
   hist.draw = draw;
+  function ensureHistDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const result = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'hist',
+      tabLike: tabLike || null,
+      sentinelSelector: '#histHot',
+      getCurrentSentinel: () => hist.__domSentinel || null,
+      rebind: () => {
+        hist.ready = false;
+        hist.init();
+      }
+    });
+    return !!result?.rebound;
+  }
+
   hist.init = function init(){
     if (hist.ready) { histDebug('Debug: Components.hist.init skipped (already ready)'); return; }
     histDebug('Debug: Components.hist.init');
@@ -5395,11 +5412,20 @@
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
+    hist.__domSentinel = global.document?.getElementById?.('histHot') || null;
     hist.ready = true;
   };
 
-  hist.ensure = function ensure(){ if (!hist.ready) hist.init(); };
-  hist.activateTab = function activateTab(){
+  hist.ensure = function ensure(){
+    if(ensureHistDomBindings()){
+      return;
+    }
+    if (!hist.ready) hist.init();
+  };
+  hist.activateTab = function activateTab(tab){
+    if(ensureHistDomBindings(tab)){
+      return;
+    }
     if(!hist.ready){
       hist.init();
       return;
@@ -5414,6 +5440,7 @@
         syncHistActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    hist.__domSentinel = global.document?.getElementById?.('histHot') || null;
   };
 
   function detachChildren(node){

@@ -2658,14 +2658,44 @@
     syncSurfaceAutoDrawNoticeWidth('panel-resync');
     updateAxisOptions();
     ensureEmptyPayloadTemplate();
+    surface.__domSentinel = global.document?.getElementById?.('surfaceHot') || null;
     surface.ready = true;
     state.scheduleDraw();
   };
 
   surface.ensure = function ensure(){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'surface',
+        sentinelSelector: '#surfaceHot',
+        getCurrentSentinel: () => surface.__domSentinel || null,
+        rebind: () => {
+          surface.ready = false;
+          surface.init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     if(!surface.ready){ surface.init(); }
   };
   surface.activateTab = function activateTab(tab){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'surface',
+        tabLike: tab || null,
+        sentinelSelector: '#surfaceHot',
+        getCurrentSentinel: () => surface.__domSentinel || null,
+        rebind: () => {
+          surface.ready = false;
+          surface.init();
+        }
+      });
+      if(rebound?.rebound){
+        return;
+      }
+    }
     if(!surface.ready){
       surface.init();
     }
@@ -2712,6 +2742,7 @@
     }catch(e){ debugLog('Debug: surface activateTab clear failed', { message: e?.message || String(e) }); }
     // schedule a fresh draw for the active tab
     state.scheduleDraw?.();
+    surface.__domSentinel = global.document?.getElementById?.('surfaceHot') || null;
   };
 
   surface.captureRuntimeState = function captureRuntimeState(){

@@ -4310,6 +4310,23 @@
     }
   }
   pie.draw = draw;
+  function ensurePieDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const result = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'pie',
+      tabLike: tabLike || null,
+      sentinelSelector: '#pieHot',
+      getCurrentSentinel: () => pie.__domSentinel || null,
+      rebind: () => {
+        pie.ready = false;
+        pie.init();
+      }
+    });
+    return !!result?.rebound;
+  }
+
   function initNotes(){
     const diagramArea = document.querySelector('#pieGraphPanel .diagram-area');
     const graphPanel = document.querySelector('#pieGraphPanel');
@@ -4455,11 +4472,20 @@
       state.scheduleDraw();
     }
     ensureEmptyPayloadTemplate();
+    pie.__domSentinel = global.document?.getElementById?.('pieHot') || null;
     pie.ready = true;
   };
 
-  pie.ensure = function ensure(){ if (!pie.ready) pie.init(); };
-  pie.activateTab = function activateTab(){
+  pie.ensure = function ensure(){
+    if(ensurePieDomBindings()){
+      return;
+    }
+    if (!pie.ready) pie.init();
+  };
+  pie.activateTab = function activateTab(tab){
+    if(ensurePieDomBindings(tab)){
+      return;
+    }
     if(!pie.ready){
       pie.init();
       return;
@@ -4467,6 +4493,7 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+    pie.__domSentinel = global.document?.getElementById?.('pieHot') || null;
   };
 
   function detachChildren(node){
