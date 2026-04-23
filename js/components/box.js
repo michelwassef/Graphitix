@@ -758,6 +758,7 @@
     return {
       tabId: meta?.tabId || tab?.id || null,
       type: 'box',
+      complete: false,
       colorScheme: payloadScheme || liveScheme,
       liveColorScheme: liveScheme,
       svgColorScheme: normalizeBoxCacheColorSchemeId(svg?.getAttribute?.('data-color-scheme'), state.tableFormat),
@@ -789,18 +790,48 @@
       : null;
   }
 
-  function canRestoreBoxRenderCache(cache, meta = {}){
-    if(!cache || !Object.prototype.hasOwnProperty.call(cache, 'statsControls')){
+  function isCompleteBoxRenderCache(cache){
+    if(!cache || typeof cache !== 'object'){
+      return false;
+    }
+    const requiredKeys = ['plot', 'statsControls', 'statsResults', 'statsTable', 'statsReport'];
+    const hasSections = requiredKeys.every(key => !!cache[key]?.fragment);
+    if(!hasSections){
+      return false;
+    }
+    const plotFragment = cache.plot?.fragment || null;
+    const hasPlotSvg = !!(
+      plotFragment
+      && typeof plotFragment.querySelector === 'function'
+      && plotFragment.querySelector('svg')
+    );
+    if(!hasPlotSvg){
       return false;
     }
     const cacheMeta = getBoxRenderCacheMetadata(cache);
-    if(!cacheMeta){
-      return !meta?.payload;
+    return cacheMeta?.complete === true;
+  }
+
+  function resolveBoxRenderCacheStabilityFailure(){
+    if(state.statsComputationPending){
+      return 'stats-computation-pending';
     }
-    if(meta?.payload){
+    if(state.authoritativeRenderRestoreActive){
+      return 'authoritative-restore-active';
+    }
+    return null;
+  }
+
+  function canRestoreBoxRenderCache(cache, meta = {}){
+    if(!isCompleteBoxRenderCache(cache)){
+      return false;
+    }
+    const cacheMeta = getBoxRenderCacheMetadata(cache);
+    if(cacheMeta?.tabId && meta?.tabId && String(cacheMeta.tabId) !== String(meta.tabId)){
       console.debug('Debug: box render cache restore rejected', {
-        reason: 'incomplete-live-runtime',
-        tabId: meta?.tabId || null
+        reason: 'cache-tab-mismatch',
+        cacheTabId: cacheMeta.tabId,
+        tabId: meta.tabId
       });
       return false;
     }
@@ -31661,7 +31692,7 @@ Technical analysis record (advanced)
 
     const orientationResult = isFlipped ? await renderHorizontal() : await renderVertical();
     if(!orientationResult){
-      applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'orientation-missing', resizeContainer: true });
+      applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'orientation-missing', resizeContainer: false });
       ensureBoxViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
       return;
@@ -32292,6 +32323,14 @@ Technical analysis record (advanced)
     payload.config.stats.contextSignature = null;
     payload.config.showSignificanceBars = false;
     payload.config.significanceLabelMode = 'stars';
+    payload.config.connectPointsAcrossDatasets = false;
+    payload.config.connectionLineStyle = null;
+    payload.config.shapeStyles = null;
+    payload.config.shapeGlobalStyle = null;
+    payload.config.pointStyles = null;
+    payload.config.pointGlobalStyle = null;
+    payload.config.summaryStyles = null;
+    payload.config.summaryGlobalStyle = null;
     if(payload.meta && typeof payload.meta === 'object' && Object.prototype.hasOwnProperty.call(payload.meta, 'graphSizing')){
       delete payload.meta.graphSizing;
       if(!Object.keys(payload.meta).length){
@@ -32566,7 +32605,7 @@ Technical analysis record (advanced)
     if(Object.prototype.hasOwnProperty.call(c, 'connectPointsAcrossDatasets')){
       state.connectPointsAcrossDatasets = !!c.connectPointsAcrossDatasets;
     }else{
-      state.connectPointsAcrossDatasets = !!state.connectPointsAcrossDatasets;
+      state.connectPointsAcrossDatasets = false;
     }
     if(els.boxConnectPointsAcrossDatasets){
       els.boxConnectPointsAcrossDatasets.checked = !!state.connectPointsAcrossDatasets;
@@ -33429,25 +33468,68 @@ Technical analysis record (advanced)
     }
   };
 
-  function detachChildren(node){
-    if(!node){ return null; }
+  function prepareBoxRenderCacheSection(key, node, options = {}){
+    if(!node){
+      return { ok: false, key, reason: 'missing-host' };
+    }
+    if(options.requireSvg && !node.querySelector?.('svg')){
+      return { ok: false, key, reason: 'missing-svg' };
+    }
     const doc = node.ownerDocument || global.document;
     const fragment = doc?.createDocumentFragment ? doc.createDocumentFragment() : null;
-    if(!fragment){ return null; }
-    let count = 0;
-    while(node.firstChild){
-      fragment.appendChild(node.firstChild);
-      count += 1;
+    if(!fragment){
+      return { ok: false, key, reason: 'missing-fragment' };
     }
-    return { fragment, count };
+    return { ok: true, key, node, fragment, count: 0 };
   }
 
-  function restoreChildren(node, payload){
-    if(!node || !payload || !payload.fragment){ return false; }
-    while(node.firstChild){
-      node.removeChild(node.firstChild);
+  function detachPreparedBoxRenderCacheSections(sections){
+    const detached = [];
+    try{
+      sections.forEach(section => {
+        while(section.node.firstChild){
+          section.fragment.appendChild(section.node.firstChild);
+          section.count += 1;
+        }
+        detached.push(section);
+      });
+      return true;
+    }catch(err){
+      detached.forEach(section => {
+        while(section.fragment.firstChild){
+          section.node.appendChild(section.fragment.firstChild);
+        }
+        section.count = 0;
+      });
+      console.error('box render cache detach error', err);
+      return false;
     }
-    node.appendChild(payload.fragment);
+  }
+
+  function restoreBoxRenderCacheSections(cache){
+    const sections = [
+      { key: 'plot', node: els.plotDiv, payload: cache?.plot },
+      { key: 'statsControls', node: els.statsControls, payload: cache?.statsControls },
+      { key: 'statsResults', node: els.statsResults, payload: cache?.statsResults },
+      { key: 'statsTable', node: els.statsTable, payload: cache?.statsTable },
+      { key: 'statsReport', node: els.statsReportHost, payload: cache?.statsReport }
+    ];
+    const invalid = sections.find(section => !section.node || !section.payload?.fragment);
+    if(invalid){
+      console.debug('Debug: box render cache restore skipped', {
+        reason: 'incomplete-target-runtime',
+        section: invalid.key
+      });
+      return false;
+    }
+    sections.forEach(section => {
+      while(section.node.firstChild){
+        section.node.removeChild(section.node.firstChild);
+      }
+    });
+    sections.forEach(section => {
+      section.node.appendChild(section.payload.fragment);
+    });
     return true;
   }
 
@@ -33562,27 +33644,68 @@ Technical analysis record (advanced)
   };
 
   box.captureRenderCache = function captureRenderCache(meta = {}){
-    const plotCache = detachChildren(els.plotDiv);
-    const controlsCache = detachChildren(els.statsControls);
-    const resultsCache = detachChildren(els.statsResults);
-    const tableCache = detachChildren(els.statsTable);
-    const reportCache = detachChildren(els.statsReportHost);
-    const total = (plotCache?.count || 0) + (controlsCache?.count || 0) + (resultsCache?.count || 0) + (tableCache?.count || 0) + (reportCache?.count || 0);
+    const unstableReason = resolveBoxRenderCacheStabilityFailure();
+    if(unstableReason){
+      console.debug('Debug: box render cache capture skipped', {
+        reason: unstableReason,
+        tabId: meta?.tabId || null
+      });
+      return null;
+    }
+    const prepared = [
+      prepareBoxRenderCacheSection('plot', els.plotDiv, { requireSvg: true }),
+      prepareBoxRenderCacheSection('statsControls', els.statsControls),
+      prepareBoxRenderCacheSection('statsResults', els.statsResults),
+      prepareBoxRenderCacheSection('statsTable', els.statsTable),
+      prepareBoxRenderCacheSection('statsReport', els.statsReportHost)
+    ];
+    const invalid = prepared.find(section => !section.ok);
+    if(invalid){
+      console.debug('Debug: box render cache capture skipped', {
+        reason: invalid.reason || 'incomplete-runtime',
+        section: invalid.key || null,
+        tabId: meta?.tabId || null
+      });
+      return null;
+    }
+    const sections = prepared;
+    if(!detachPreparedBoxRenderCacheSections(sections)){
+      return null;
+    }
+    const byKey = new Map(sections.map(section => [section.key, {
+      fragment: section.fragment,
+      count: section.count
+    }]));
+    const total = sections.reduce((sum, section) => sum + (section.count || 0), 0);
+    if(total <= 0){
+      sections.forEach(section => {
+        while(section.fragment.firstChild){
+          section.node.appendChild(section.fragment.firstChild);
+        }
+      });
+      console.debug('Debug: box render cache capture skipped', {
+        reason: 'empty-runtime',
+        tabId: meta?.tabId || null
+      });
+      return null;
+    }
+    const cacheMeta = captureBoxRenderCacheMetadata(meta);
+    cacheMeta.complete = true;
     console.debug('Debug: box render cache captured', {
-      plotNodes: plotCache?.count || 0,
-      controlsNodes: controlsCache?.count || 0,
-      resultsNodes: resultsCache?.count || 0,
-      tableNodes: tableCache?.count || 0,
-      reportNodes: reportCache?.count || 0,
+      plotNodes: byKey.get('plot')?.count || 0,
+      controlsNodes: byKey.get('statsControls')?.count || 0,
+      resultsNodes: byKey.get('statsResults')?.count || 0,
+      tableNodes: byKey.get('statsTable')?.count || 0,
+      reportNodes: byKey.get('statsReport')?.count || 0,
       total
     });
     return {
-      plot: plotCache,
-      statsControls: controlsCache,
-      statsResults: resultsCache,
-      statsTable: tableCache,
-      statsReport: reportCache,
-      __graphitixRenderCache: captureBoxRenderCacheMetadata(meta)
+      plot: byKey.get('plot'),
+      statsControls: byKey.get('statsControls'),
+      statsResults: byKey.get('statsResults'),
+      statsTable: byKey.get('statsTable'),
+      statsReport: byKey.get('statsReport'),
+      __graphitixRenderCache: cacheMeta
     };
   };
 
@@ -33592,8 +33715,8 @@ Technical analysis record (advanced)
 
   box.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
-    if(!Object.prototype.hasOwnProperty.call(cache, 'statsControls')){
-      console.debug('Debug: box render cache restore skipped', { reason: 'missing-stats-controls-cache' });
+    if(!isCompleteBoxRenderCache(cache)){
+      console.debug('Debug: box render cache restore skipped', { reason: 'incomplete-cache' });
       return false;
     }
     if(!canRestoreBoxRenderCache(cache, meta)){
@@ -33603,19 +33726,26 @@ Technical analysis record (advanced)
       });
       return false;
     }
-    const restoredPlot = restoreChildren(els.plotDiv, cache.plot);
-    const restoredControls = restoreChildren(els.statsControls, cache.statsControls);
-    const restoredResults = restoreChildren(els.statsResults, cache.statsResults);
-    const restoredTable = restoreChildren(els.statsTable, cache.statsTable);
-    const restoredReport = restoreChildren(els.statsReportHost, cache.statsReport);
-    const restored = restoredPlot || restoredControls || restoredResults || restoredTable || restoredReport;
+    const restored = restoreBoxRenderCacheSections(cache);
+    if(restored && els.plotDiv?.dataset){
+      const restoredTabId = meta?.tabId || getBoxRenderCacheMetadata(cache)?.tabId || null;
+      if(restoredTabId){
+        els.plotDiv.dataset.boxRenderedTabId = restoredTabId;
+      }else{
+        delete els.plotDiv.dataset.boxRenderedTabId;
+      }
+      const restoredSvg = els.plotDiv.querySelector?.('svg') || null;
+      if(restoredSvg?.dataset && restoredTabId){
+        restoredSvg.dataset.boxTabId = restoredTabId;
+      }
+    }
     console.debug('Debug: box render cache restored', {
       restored,
-      plot: restoredPlot,
-      controls: restoredControls,
-      results: restoredResults,
-      table: restoredTable,
-      report: restoredReport
+      plot: !!cache.plot,
+      controls: !!cache.statsControls,
+      results: !!cache.statsResults,
+      table: !!cache.statsTable,
+      report: !!cache.statsReport
     });
     const targetPayload = meta?.payload || meta?.tab?.payload || null;
     const targetScheme = targetPayload ? resolveBoxPayloadColorSchemeForCache(targetPayload) : null;

@@ -1396,10 +1396,24 @@
     hot.loadData(nextData, options.loadOptions || undefined);
     syncHeatmapHotExclusions(hot, null, 'dataset-replace');
     if(options.scheduleDraw !== false){
-      state.scheduleDraw({
+      const drawOptions = {
         force: options.force !== false,
         reason: options.reason || 'dataset-replace'
-      });
+      };
+      let drewImmediately = false;
+      if(drawOptions.force && options.immediateDraw !== false){
+        try{
+          pendingDrawOptions = { ...drawOptions };
+          const result = draw();
+          drewImmediately = !(result && typeof result.then === 'function');
+        }catch(err){
+          pendingDrawOptions = {};
+          console.error('heatmap immediate dataset draw error', err);
+        }
+      }
+      if(!drewImmediately){
+        state.scheduleDraw(drawOptions);
+      }
     }
     debugLog('Debug: heatmap dataset replaced', {
       reason: options.reason || 'dataset-replace',

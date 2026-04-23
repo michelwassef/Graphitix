@@ -216,6 +216,92 @@
     }
   }
 
+  function stampWorkspaceScopeDeep(element, tabId){
+    stampWorkspaceScope(element, tabId);
+    if(!element || typeof element.querySelectorAll !== 'function'){
+      return;
+    }
+    const scopedNodes = element.querySelectorAll('[data-font-scope], .svgbox, svg');
+    for(let i = 0; i < scopedNodes.length; i += 1){
+      stampWorkspaceScope(scopedNodes[i], tabId);
+    }
+  }
+
+  function ensureRootTemplate(type, config){
+    if(!config?.element){
+      return null;
+    }
+    const key = String(type || config.type || '').trim();
+    if(!key){
+      return null;
+    }
+    namespace.__rootTemplates = namespace.__rootTemplates || {};
+    let template = namespace.__rootTemplates[key] || null;
+    if(template?.template && template?.host){
+      return template;
+    }
+    const element = config.element;
+    const host = config.instanceHost || element.parentNode || null;
+    if(!host){
+      return null;
+    }
+    const marker = element.ownerDocument?.createComment
+      ? element.ownerDocument.createComment(`graphitix-${key}-workspace-root`)
+      : null;
+    if(marker && element.parentNode === host){
+      host.insertBefore(marker, element);
+    }
+    template = {
+      type: key,
+      template: element.cloneNode(true),
+      original: element,
+      host,
+      marker,
+      activeTabId: null
+    };
+    namespace.__rootTemplates[key] = template;
+    return template;
+  }
+
+  function detachRoot(root){
+    if(root?.parentNode){
+      root.parentNode.removeChild(root);
+    }
+  }
+
+  function mountRootAtTemplate(root, template){
+    if(!root || !template?.host){
+      return false;
+    }
+    if(root.parentNode && root.parentNode !== template.host){
+      root.parentNode.removeChild(root);
+    }
+    if(root.parentNode === template.host){
+      return true;
+    }
+    if(template.marker && template.marker.parentNode === template.host){
+      template.host.insertBefore(root, template.marker.nextSibling);
+    }else{
+      template.host.appendChild(root);
+    }
+    return true;
+  }
+
+  function createRootClone(tab, type, config, template){
+    const source = template?.template || config?.element || null;
+    if(!source || typeof source.cloneNode !== 'function'){
+      return null;
+    }
+    const root = source.cloneNode(true);
+    if(root.dataset){
+      root.dataset.workspaceComponent = type;
+      root.dataset.workspaceTabId = tab?.id || '';
+      root.dataset.tabId = tab?.id || '';
+      root.dataset.workspaceInstanceRoot = 'true';
+    }
+    return root;
+  }
+
   function invokeWorkspaceHook(config, hookName, args = [], meta = {}){
     const handler = config && typeof config[hookName] === 'function'
       ? config[hookName]
@@ -238,6 +324,103 @@
 
 
   namespace.ensureSessionRecord = ensureSessionRecord;
+
+  namespace.ensureComponentInstance = function ensureComponentInstance(tabLike, componentKey, factory, meta = {}){
+    const tab = resolveTab(tabLike);
+    const record = ensureSessionRecord(tab, componentKey);
+    if(!record || !tab){
+      return null;
+    }
+    if(!record.instance || typeof record.instance !== 'object'){
+      record.instance = {};
+    }
+    if(!record.instance.value && typeof factory === 'function'){
+      try{
+        record.instance.value = factory({
+          tab,
+          tabId: tab.id,
+          componentKey: String(componentKey || '').trim() || '__default__',
+          root: record.dom?.root || null,
+          reason: meta.reason || 'ensure-component-instance'
+        }) || null;
+      }catch(err){
+        console.error('workspaceTabs component instance factory error', {
+          tabId: tab.id,
+          componentKey,
+          err
+        });
+        record.instance.value = null;
+      }
+    }
+    debugLog('Debug: workspaceTabs component instance ensured', {
+      tabId: tab.id,
+      componentKey: String(componentKey || '').trim() || '__default__',
+      hasInstance: !!record.instance.value,
+      reason: meta.reason || 'ensure-component-instance'
+    });
+    return record.instance.value || null;
+  };
+
+  namespace.getComponentInstance = function getComponentInstance(tabLike, componentKey){
+    return namespace.getSessionRecord(tabLike, componentKey)?.instance?.value || null;
+  };
+
+  namespace.ensureMountedRoot = function ensureMountedRoot(tabLike, config, meta = {}){
+    const tab = resolveTab(tabLike);
+    const type = String(tab?.type || config?.type || '').trim();
+    if(!tab || !type || !config?.element){
+      return config?.element || null;
+    }
+    if(config.perTabDomInstances !== true){
+      stampWorkspaceScopeDeep(config.element, tab.id);
+      return config.element;
+    }
+    const template = ensureRootTemplate(type, config);
+    if(!template){
+      stampWorkspaceScopeDeep(config.element, tab.id);
+      return config.element;
+    }
+    const record = ensureSessionRecord(tab, type);
+    if(!record.dom || typeof record.dom !== 'object'){
+      record.dom = {};
+    }
+    if(!record.dom.root){
+      record.dom.root = createRootClone(tab, type, config, template);
+      record.dom.createdAt = Date.now();
+    }
+    const activeRoot = template.activeTabId
+      ? namespace.getSessionRecord(template.activeTabId, type)?.dom?.root
+      : null;
+    if(activeRoot && activeRoot !== record.dom.root){
+      detachRoot(activeRoot);
+    }
+    if(template.original && template.original !== record.dom.root){
+      detachRoot(template.original);
+    }
+    mountRootAtTemplate(record.dom.root, template);
+    template.activeTabId = tab.id;
+    stampWorkspaceScopeDeep(record.dom.root, tab.id);
+    debugLog('Debug: workspaceTabs mounted per-tab root', {
+      tabId: tab.id,
+      type,
+      reason: meta.reason || 'mount-root'
+    });
+    return record.dom.root || config.element;
+  };
+
+  namespace.getMountedRoot = function getMountedRoot(tabLike, componentKey){
+    const tab = resolveTab(tabLike);
+    const key = String(componentKey || tab?.type || '').trim();
+    return namespace.getSessionRecord(tab, key)?.dom?.root || null;
+  };
+
+  namespace.queryRoot = function queryRoot(tabLike, componentKey, selector){
+    const root = namespace.getMountedRoot(tabLike, componentKey);
+    if(root && selector && typeof root.querySelector === 'function'){
+      return root.querySelector(selector);
+    }
+    return selector ? global.document?.querySelector?.(selector) || null : root;
+  };
 
   namespace.getSessionRecord = function getSessionRecord(tabLike, componentKey){
     const tab = resolveTab(tabLike);
@@ -271,6 +454,30 @@
       reason: record.metadata.lastReason
     });
     return record;
+  };
+
+  namespace.ensureActiveSession = function ensureActiveSession(tabLike, componentKey, meta = {}){
+    const tab = resolveTab(tabLike);
+    const componentKeyText = String(componentKey || '').trim() || '__default__';
+    if(!tab){
+      return null;
+    }
+    const active = namespace.__activeSessions?.[componentKeyText] || null;
+    if(active && String(active.tabId || '') === String(tab.id || '')){
+      const record = ensureSessionRecord(tab, componentKeyText);
+      if(record){
+        record.mounted = true;
+        record.metadata.lastReason = meta.reason || record.metadata.lastReason || 'ensure-active-session';
+        debugLog('Debug: workspaceTabs active session reused', {
+          tabId: tab.id,
+          componentKey: componentKeyText,
+          generation: record.generation,
+          reason: record.metadata.lastReason
+        });
+      }
+      return record;
+    }
+    return namespace.activateSession(tab, componentKeyText, meta);
   };
 
   namespace.deactivateSession = function deactivateSession(tabLike, componentKey, meta = {}){
@@ -565,19 +772,19 @@
       return null;
     }
     const sharedState = ensureRecordShape(tab);
-    const sessionRecord = namespace.activateSession(tab, resolvedType, {
+    const sessionRecord = namespace.ensureActiveSession(tab, resolvedType, {
       reason: meta.reason || 'activate-workspace'
     });
     sharedState.metadata.active = true;
     sharedState.metadata.lastActivatedAt = Date.now();
     sharedState.metadata.activeSessionGeneration = sessionRecord?.generation || 0;
-    stampWorkspaceScope(config?.element || null, tab.id);
-    if(config?.element && typeof config.element.querySelectorAll === 'function'){
-      const scopedNodes = config.element.querySelectorAll('[data-font-scope], .svgbox, svg');
-      for(let i = 0; i < scopedNodes.length; i += 1){
-        stampWorkspaceScope(scopedNodes[i], tab.id);
-      }
+    const activeRoot = namespace.ensureMountedRoot(tab, resolvedConfig || config, {
+      reason: meta.reason || 'activate-workspace'
+    });
+    if(activeRoot && resolvedConfig && resolvedConfig.perTabDomInstances === true){
+      resolvedConfig.activeElement = activeRoot;
     }
+    stampWorkspaceScopeDeep(activeRoot || config?.element || null, tab.id);
     namespace.applyRuntimeState(tab, resolvedType, resolvedConfig, {
       reason: meta.reason || 'activate-workspace'
     });
@@ -615,6 +822,10 @@
     namespace.captureRuntimeState(tab, resolvedType, resolvedConfig, {
       reason: meta.reason || 'deactivate-workspace'
     });
+    if(resolvedConfig?.perTabDomInstances === true){
+      const root = namespace.getMountedRoot(tab, resolvedType);
+      detachRoot(root);
+    }
     debugLog('Debug: workspaceTabs deactivated workspace', {
       tabId: tab.id,
       type: resolvedType || null,
@@ -633,6 +844,8 @@
     invokeWorkspaceHook(resolvedConfig, 'disposeTab', [tab, {
       reason: meta.reason || 'dispose-tab'
     }], meta);
+    const record = namespace.getSessionRecord(tab, resolvedType);
+    detachRoot(record?.dom?.root || null);
     delete tab.sharedState;
     debugLog('Debug: workspaceTabs disposed tab shared state', {
       tabId: tab.id,

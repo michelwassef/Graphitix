@@ -213,6 +213,7 @@
     venn: {
       type: 'venn',
       tabLabel: 'Venn',
+      perTabDomInstances: true,
       element: document.getElementById('vennPage'),
       ensure: () => ensureComponent('venn'),
       draw: () => window.Components?.venn?.draw?.(),
@@ -229,6 +230,7 @@
     box: {
       type: 'box',
       tabLabel: 'Box Plot',
+      perTabDomInstances: true,
       element: document.getElementById('boxPage'),
       ensure: () => ensureComponent('box'),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
@@ -249,6 +251,7 @@
     scatter: {
       type: 'scatter',
       tabLabel: 'Scatter',
+      perTabDomInstances: true,
       element: document.getElementById('scatterPage'),
       ensure: () => ensureComponent('scatter'),
       draw: meta => window.Components?.scatter?.draw?.(meta || {}),
@@ -268,6 +271,7 @@
     pca: {
       type: 'pca',
       tabLabel: 'PCA / MDS',
+      perTabDomInstances: true,
       element: document.getElementById('pcaPage'),
       ensure: () => ensureComponent('pca'),
       draw: meta => scheduleDrawPca(meta || {}),
@@ -286,6 +290,7 @@
     line: {
       type: 'line',
       tabLabel: 'Line Graph',
+      perTabDomInstances: true,
       element: document.getElementById('linePage'),
       ensure: () => ensureComponent('line'),
       draw: meta => scheduleDrawLine(meta || {}),
@@ -303,6 +308,7 @@
     heatmap: {
       type: 'heatmap',
       tabLabel: 'Heatmap',
+      perTabDomInstances: true,
       element: document.getElementById('heatmapPage'),
       ensure: () => ensureComponent('heatmap'),
       draw: meta => scheduleDrawHeatmap(meta || {}),
@@ -320,6 +326,7 @@
     surface: {
       type: 'surface',
       tabLabel: 'Surface Plot',
+      perTabDomInstances: true,
       element: document.getElementById('surfacePage'),
       ensure: () => ensureComponent('surface'),
       draw: meta => scheduleDrawSurface(meta || {}),
@@ -337,6 +344,7 @@
     roc: {
       type: 'roc',
       tabLabel: 'ROC / PR',
+      perTabDomInstances: true,
       element: document.getElementById('rocPage'),
       ensure: () => ensureComponent('roc'),
       draw: () => window.Components?.roc?.draw?.(),
@@ -354,6 +362,7 @@
     survival: {
       type: 'survival',
       tabLabel: 'Survival',
+      perTabDomInstances: true,
       element: document.getElementById('survivalPage'),
       ensure: () => ensureComponent('survival'),
       draw: meta => scheduleDrawSurvival(meta || {}),
@@ -371,6 +380,7 @@
     hist: {
       type: 'hist',
       tabLabel: 'Histogram',
+      perTabDomInstances: true,
       element: document.getElementById('histPage'),
       ensure: () => ensureComponent('hist'),
       draw: meta => scheduleDrawHist(meta || {}),
@@ -388,6 +398,7 @@
     pie: {
       type: 'pie',
       tabLabel: 'Proportion',
+      perTabDomInstances: true,
       element: document.getElementById('piePage'),
       ensure: () => ensureComponent('pie'),
       draw: meta => scheduleDrawPie(meta || {}),

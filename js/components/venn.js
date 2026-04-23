@@ -339,7 +339,10 @@
       return [];
     }
     if (typeof target === 'string') {
-      const nodes = Array.from(document.querySelectorAll(target));
+      const queryRoot = state.ui?.root && typeof state.ui.root.querySelectorAll === 'function'
+        ? state.ui.root
+        : document;
+      const nodes = Array.from(queryRoot.querySelectorAll(target));
       debug('Debug: venn resolveBindingTargets selector', { selector: target, count: nodes.length }); // Debug: selector resolution
       return nodes;
     }
@@ -5537,21 +5540,21 @@
     }
   }
 
-  function initLayout() {
+  function initLayout(root) {
     const layoutFactory = Shared.componentLayout?.createStandardPanels;
     if (typeof layoutFactory !== 'function') {
       debugLog('initLayout skipped - missing factory', { hasFactory: typeof layoutFactory === 'function' });
       return;
     }
-    const doc = global.document;
+    const queryRoot = root && typeof root.querySelector === 'function' ? root : global.document;
     const layout = layoutFactory({
       componentName: 'venn',
       selectors: {
         tablePanel: '#vennInputPanel',
         graphPanel: '#vennGraphPanel',
         panelResizer: '#vennPanelResizer',
-        svgBox: () => doc?.querySelector('#vennGraphPanel .svgbox'),
-        resizeTarget: () => doc?.querySelector('#vennGraphPanel .svgbox')
+        svgBox: () => queryRoot?.querySelector('#vennGraphPanel .svgbox'),
+        resizeTarget: () => queryRoot?.querySelector('#vennGraphPanel .svgbox')
       },
       scheduleDraw: () => { state.ui.scheduleDraw?.(); },
       preserveGraphContent: false,
@@ -6422,9 +6425,10 @@
     debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
   }
 
-  function initVennTable() {
-    const wrapper = document.getElementById('vennHotWrapper');
-    const container = document.getElementById('vennHot');
+  function initVennTable(root) {
+    const queryRoot = root && typeof root.querySelector === 'function' ? root : document;
+    const wrapper = queryRoot.querySelector('#vennHotWrapper');
+    const container = queryRoot.querySelector('#vennHot');
     state.ui.hotWrapper = wrapper;
     state.ui.hotContainer = container;
     if (!wrapper || !container || typeof Shared.hot?.createStandardTable !== 'function') {
@@ -6651,8 +6655,9 @@
     });
   }
 
-  function removeLegacyGraphControlSections(){
-    const legacyNodes = Array.from(document.querySelectorAll('[data-legacy-graph-controls="1"]'));
+  function removeLegacyGraphControlSections(root){
+    const queryRoot = root && typeof root.querySelectorAll === 'function' ? root : document;
+    const legacyNodes = Array.from(queryRoot.querySelectorAll('[data-legacy-graph-controls="1"]'));
     const removedFieldsets = new Set();
     legacyNodes.forEach(node => {
       const fieldset = node?.closest?.('fieldset') || node;
@@ -6666,12 +6671,26 @@
     debug('Debug: venn removed legacy graph control sections', { removedCount: removedFieldsets.size });
   }
 
-  venn.init = function init() {
+  venn.init = function init(options = {}) {
     if (venn.ready) { debugLog('init skipped'); return; }
     const freshState = createInitialState();
     Object.assign(state.ui, freshState.ui);
     Object.assign(state.analysis, freshState.analysis);
     Object.assign(state.persistence, freshState.persistence);
+    const mountedRoot = options?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'venn')
+      || document.getElementById('vennPage')
+      || document;
+    const $root = selector => {
+      if(!selector){
+        return null;
+      }
+      if(mountedRoot && typeof mountedRoot.querySelector === 'function'){
+        return mountedRoot.querySelector(selector);
+      }
+      return document.querySelector(selector);
+    };
+    state.ui.root = mountedRoot;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     const scheduleVennBase = Shared.debounceFrame ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
@@ -6683,7 +6702,7 @@
         })
       : scheduleVennBase;
     debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    initLayout();
+    initLayout(mountedRoot);
     state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
     if (typeof state.ui.syncPanels === 'function') {
       debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
@@ -6694,84 +6713,83 @@
     } else {
       debugLog('goChart.defaults.defer', { hasChart: !!global.Chart }); // Debug: defer locale until lazy load
     }
-    const $ = global.$;
-    state.ui.stage = document.getElementById('stage');
+    state.ui.stage = $root('#stage');
     state.ui.inputs = {
-      A: $('#listA'),
-      B: $('#listB'),
-      C: $('#listC'),
-      labelA: $('#labelA'),
-      labelB: $('#labelB'),
-      labelC: $('#labelC'),
-      colorA: $('#colorA'),
-      colorB: $('#colorB'),
-      colorC: $('#colorC'),
-      opacity: $('#opacity'),
-      fontsize: $('#fontsize'),
-      borderColor: $('#borderColor'),
-      borderWidth: $('#borderWidth'),
-      opacityVal: $('#opacityVal'),
-      fontsizeVal: $('#fontsizeVal'),
-      borderWidthVal: $('#borderWidthVal'),
-      caseSensitive: $('#caseSensitive'),
+      A: $root('#listA'),
+      B: $root('#listB'),
+      C: $root('#listC'),
+      labelA: $root('#labelA'),
+      labelB: $root('#labelB'),
+      labelC: $root('#labelC'),
+      colorA: $root('#colorA'),
+      colorB: $root('#colorB'),
+      colorC: $root('#colorC'),
+      opacity: $root('#opacity'),
+      fontsize: $root('#fontsize'),
+      borderColor: $root('#borderColor'),
+      borderWidth: $root('#borderWidth'),
+      opacityVal: $root('#opacityVal'),
+      fontsizeVal: $root('#fontsizeVal'),
+      borderWidthVal: $root('#borderWidthVal'),
+      caseSensitive: $root('#caseSensitive'),
       counts: {
-        nA: $('#nA'),
-        nB: $('#nB'),
-        nC: $('#nC'),
-        nAB: $('#nAB'),
-        nAC: $('#nAC'),
-        nBC: $('#nBC'),
-        nABC: $('#nABC')
+        nA: $root('#nA'),
+        nB: $root('#nB'),
+        nC: $root('#nC'),
+        nAB: $root('#nAB'),
+        nAC: $root('#nAC'),
+        nBC: $root('#nBC'),
+        nABC: $root('#nABC')
       }
     };
-    removeLegacyGraphControlSections();
+    removeLegacyGraphControlSections(mountedRoot);
     state.ui.countsUI = {
-      A: $('#countA'),
-      B: $('#countB'),
-      C: $('#countC'),
-      AB: $('#countAB'),
-      AC: $('#countAC'),
-      BC: $('#countBC'),
-      ABC: $('#countABC')
+      A: $root('#countA'),
+      B: $root('#countB'),
+      C: $root('#countC'),
+      AB: $root('#countAB'),
+      AC: $root('#countAC'),
+      BC: $root('#countBC'),
+      ABC: $root('#countABC')
     };
-    state.ui.regionSelect = $('#regionSelect');
-    state.ui.regionList = $('#regionList');
-    state.ui.copyRegionBtn = $('#copyRegionBtn');
-    state.ui.goBtn = $('#goBtn');
-    state.ui.detectSpeciesBtn = $('#detectSpeciesBtn');
-    state.ui.stringBtn = $('#stringBtn');
-    state.ui.analysisResultsTabs = $('#analysisResultsTabs');
-    state.ui.analysisTabGo = $('#analysisTabGo');
-    state.ui.analysisTabString = $('#analysisTabString');
-    state.ui.plotType = $('#vennPlotType');
+    state.ui.regionSelect = $root('#regionSelect');
+    state.ui.regionList = $root('#regionList');
+    state.ui.copyRegionBtn = $root('#copyRegionBtn');
+    state.ui.goBtn = $root('#goBtn');
+    state.ui.detectSpeciesBtn = $root('#detectSpeciesBtn');
+    state.ui.stringBtn = $root('#stringBtn');
+    state.ui.analysisResultsTabs = $root('#analysisResultsTabs');
+    state.ui.analysisTabGo = $root('#analysisTabGo');
+    state.ui.analysisTabString = $root('#analysisTabString');
+    state.ui.plotType = $root('#vennPlotType');
     state.ui.upset = {
-      sort: $('#upsetSort'),
-      max: $('#upsetMax'),
-      showEmpty: $('#upsetShowEmpty'),
-      showCounts: $('#upsetShowCounts'),
-      showSetCounts: $('#upsetShowSetCounts'),
-      showGrid: $('#upsetShowGrid'),
-      dotSize: $('#upsetDotSize'),
-      dotSizeVal: $('#upsetDotSizeVal'),
-      useSetColors: $('#upsetUseSetColors'),
-      barColor: $('#upsetBarColor'),
-      setBarColor: $('#upsetSetBarColor'),
-      dotColor: $('#upsetDotColor'),
-      inactiveDotColor: $('#upsetInactiveDotColor'),
-      gridColor: $('#upsetGridColor')
+      sort: $root('#upsetSort'),
+      max: $root('#upsetMax'),
+      showEmpty: $root('#upsetShowEmpty'),
+      showCounts: $root('#upsetShowCounts'),
+      showSetCounts: $root('#upsetShowSetCounts'),
+      showGrid: $root('#upsetShowGrid'),
+      dotSize: $root('#upsetDotSize'),
+      dotSizeVal: $root('#upsetDotSizeVal'),
+      useSetColors: $root('#upsetUseSetColors'),
+      barColor: $root('#upsetBarColor'),
+      setBarColor: $root('#upsetSetBarColor'),
+      dotColor: $root('#upsetDotColor'),
+      inactiveDotColor: $root('#upsetInactiveDotColor'),
+      gridColor: $root('#upsetGridColor')
     };
-    state.ui.goResults = $('#goResults');
-    state.ui.stringResults = $('#stringResults');
-    state.ui.stringNetwork = $('#stringNetwork');
-    state.ui.analysisPanelGo = $('#analysisPanelGo');
-    state.ui.analysisPanelString = $('#analysisPanelString');
-    state.ui.goChartExport = $('#goChartExport');
-    state.ui.stringNetworkExport = $('#stringNetworkExport');
-    state.ui.tooltip = $('#tooltip');
-    state.ui.speciesSelect = $('#speciesSelect');
-    state.ui.totalGenesInput = $('#totalGenes');
-    state.ui.calcSignificanceBtn = $('#calcSignificance');
-    state.ui.significanceResults = $('#significanceResults');
+    state.ui.goResults = $root('#goResults');
+    state.ui.stringResults = $root('#stringResults');
+    state.ui.stringNetwork = $root('#stringNetwork');
+    state.ui.analysisPanelGo = $root('#analysisPanelGo');
+    state.ui.analysisPanelString = $root('#analysisPanelString');
+    state.ui.goChartExport = $root('#goChartExport');
+    state.ui.stringNetworkExport = $root('#stringNetworkExport');
+    state.ui.tooltip = $root('#tooltip');
+    state.ui.speciesSelect = $root('#speciesSelect');
+    state.ui.totalGenesInput = $root('#totalGenes');
+    state.ui.calcSignificanceBtn = $root('#calcSignificance');
+    state.ui.significanceResults = $root('#significanceResults');
     const vennAutoSizeTargets = [
       state.ui.regionSelect,
       state.ui.speciesSelect,
@@ -6781,14 +6799,14 @@
     vennAutoSizeTargets.filter(Boolean).forEach(select => {
       attachVennSelectAutoSize(select, 'venn');
     });
-    state.ui.goCategoryChecks = Array.from(document.querySelectorAll('.goCategory'));
-    state.ui.goOptsBtn = $('#goOptsBtn');
-    state.ui.goOptions = $('#goOptions');
-    state.ui.goUseAllBackground = $('#goUseAllBackground');
-    state.ui.stringOptsBtn = $('#stringOptsBtn');
-    state.ui.stringOptions = $('#stringOptions');
+    state.ui.goCategoryChecks = Array.from(mountedRoot?.querySelectorAll?.('.goCategory') || []);
+    state.ui.goOptsBtn = $root('#goOptsBtn');
+    state.ui.goOptions = $root('#goOptions');
+    state.ui.goUseAllBackground = $root('#goUseAllBackground');
+    state.ui.stringOptsBtn = $root('#stringOptsBtn');
+    state.ui.stringOptions = $root('#stringOptions');
     initNotes();
-    initVennTable();
+    initVennTable(mountedRoot);
     const exporter = Shared.exporter;
     if (exporter && typeof exporter.mountSvgControls === 'function') {
       exporter.mountSvgControls({

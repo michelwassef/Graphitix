@@ -1,6 +1,14 @@
 describe('workspace tab-scoped scheduler isolation', () => {
   beforeEach(() => {
     jest.resetModules();
+    document.body.innerHTML = '';
+    window.Main = {
+      session: {
+        workspaceState: {
+          tabs: []
+        }
+      }
+    };
     require('../js/shared/debounce.js');
     require('../js/shared/workspaceTabs.js');
   });
@@ -47,5 +55,46 @@ describe('workspace tab-scoped scheduler isolation', () => {
     }));
 
     Shared.workspaceTabs.isSessionMetaCurrent = original;
+  });
+
+  test('per-tab mounted roots are distinct and only the active root is attached', () => {
+    document.body.innerHTML = `
+      <main id="workspacePages">
+        <section id="demoPage" class="workspace-page">
+          <div id="demoGraphPanel"><div class="svgbox"><svg id="demoSvg"></svg></div></div>
+        </section>
+      </main>
+    `;
+    const Shared = window.Shared;
+    const workspaceState = window.Main.session.workspaceState;
+    const tabA = { id: 'workspace-1', type: 'demo' };
+    const tabB = { id: 'workspace-2', type: 'demo' };
+    workspaceState.tabs.push(tabA, tabB);
+    const config = {
+      type: 'demo',
+      perTabDomInstances: true,
+      element: document.getElementById('demoPage')
+    };
+
+    const rootA = Shared.workspaceTabs.ensureMountedRoot(tabA, config, { reason: 'test-a' });
+    expect(rootA).toBeTruthy();
+    expect(rootA.dataset.workspaceTabId).toBe(tabA.id);
+    expect(rootA.querySelector('svg').dataset.workspaceTabId).toBe(tabA.id);
+    expect(document.querySelectorAll('#demoPage')).toHaveLength(1);
+    expect(document.getElementById('demoPage')).toBe(rootA);
+
+    const rootB = Shared.workspaceTabs.ensureMountedRoot(tabB, config, { reason: 'test-b' });
+    expect(rootB).toBeTruthy();
+    expect(rootB).not.toBe(rootA);
+    expect(rootB.dataset.workspaceTabId).toBe(tabB.id);
+    expect(rootA.parentNode).toBeNull();
+    expect(document.querySelectorAll('#demoPage')).toHaveLength(1);
+    expect(document.getElementById('demoPage')).toBe(rootB);
+
+    const rootAAgain = Shared.workspaceTabs.ensureMountedRoot(tabA, config, { reason: 'test-a-again' });
+    expect(rootAAgain).toBe(rootA);
+    expect(rootB.parentNode).toBeNull();
+    expect(document.querySelectorAll('#demoPage')).toHaveLength(1);
+    expect(document.getElementById('demoPage')).toBe(rootA);
   });
 });

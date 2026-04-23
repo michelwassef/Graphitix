@@ -719,7 +719,11 @@
       return entry;
     }
     let container = null;
-    if(!pool.initialClaimed && templateContainer && templateContainer.parentNode){
+    const templateContainerOwned = !!(templateContainer && Object.keys(pool.byTab).some(key => {
+      const ownedEntry = pool.byTab[key];
+      return ownedEntry && ownedEntry.container === templateContainer;
+    }));
+    if(templateContainer && templateContainer.parentNode === wrapper && !templateContainerOwned){
       container = templateContainer;
       pool.initialClaimed = true;
     }else if(pool.template){
@@ -4790,6 +4794,13 @@
     };
 
     // --- Undo/redo support for AG Grid path (Community) ---
+    if(!Shared.undoManager && typeof require === 'function'){
+      try{
+        require('./undo.js');
+      }catch(_err){
+        // Runtime builds load undo.js before hot.js; CommonJS tests may load hot.js directly.
+      }
+    }
     const undoManager = Shared.undoManager || null;
     const undoScope = (()=>{
       if(container?.closest){

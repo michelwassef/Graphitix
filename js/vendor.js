@@ -22,4 +22,10 @@
     if (!window.$$) {
         window.$$ = function(selector, root){ return Array.from((root||document).querySelectorAll(selector)); };
     }
+    if (!window.Components) {
+        window.Components = {};
+    }
+    if (typeof globalThis !== 'undefined' && globalThis.Components !== window.Components) {
+        globalThis.Components = window.Components;
+    }
 })();

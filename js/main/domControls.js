@@ -447,9 +447,10 @@
   };
 
   namespace.hideWorkspaceElement = function hideWorkspaceElement(config) {
-    if (!config?.element) return;
-    config.element.setAttribute('hidden', 'hidden');
-    config.element.style.display = 'none';
+    const element = config?.activeElement || config?.element;
+    if (!element) return;
+    element.setAttribute('hidden', 'hidden');
+    element.style.display = 'none';
   };
 
   namespace.hideAllWorkspaces = function hideAllWorkspaces(workspaces) {
@@ -750,32 +751,130 @@
         reason: authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view'
       });
     }
+    const activeWorkspaceElement = Shared.workspaceTabs?.ensureMountedRoot
+      ? (Shared.workspaceTabs.ensureMountedRoot(tab, config, {
+          reason: options.reason || 'workspace-view-prepare'
+        }) || config.element)
+      : config.element;
+    if (config.perTabDomInstances === true) {
+      config.activeElement = activeWorkspaceElement;
+    }
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
     }
     namespace.setAppHeaderVisibility(dom, false, { reason: 'workspace-view', tabId: tab.id, type: tab.type });
     namespace.hideWorkspaceElement(config);
-    if (config.element) {
-      config.element.removeAttribute('hidden');
-      config.element.style.display = '';
+    const visibleWorkspaceElement = config.activeElement || config.element;
+    if (visibleWorkspaceElement) {
+      visibleWorkspaceElement.removeAttribute('hidden');
+      visibleWorkspaceElement.style.display = '';
+    }
+    if (Shared.workspaceTabs?.ensureActiveSession) {
+      Shared.workspaceTabs.ensureActiveSession(tab, tab.type, {
+        reason: options.reason || 'workspace-view-prepare-session'
+      });
     }
     const alreadyInitialized = namespace.isWorkspaceInitialized(config.type);
     const markInitialized = reason => {
       namespace.markWorkspaceInitialized(config.type, { reason, tabId: tab.id });
     };
+    const getWorkspaceSessionRecord = () => Shared.workspaceTabs?.getSessionRecord?.(tab, tab.type) || null;
+    const getWorkspaceComponent = () => window.Components?.[tab.type] || null;
+    let didRuntimeRebindForActivation = false;
+    const bindPerTabRootIfNeeded = reason => {
+      if (config.perTabDomInstances !== true || !activeWorkspaceElement) {
+        return false;
+      }
+      const record = getWorkspaceSessionRecord();
+      const component = getWorkspaceComponent();
+      if (!component || typeof component.init !== 'function') {
+        return false;
+      }
+      if (record?.dom?.bound && config.__activeRuntimeTabId && String(config.__activeRuntimeTabId) === String(tab.id)) {
+        console.debug('Debug: workspace per-tab root already active', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || options.reason || 'bind-per-tab-root'
+        });
+        return false;
+      }
+      let currentComponentRoot = null;
+      if (typeof component.__getState === 'function') {
+        try {
+          const componentState = component.__getState();
+          currentComponentRoot = componentState?.ui?.root || componentState?.root || null;
+        } catch (err) {
+          currentComponentRoot = null;
+        }
+      }
+      if (component.ready && currentComponentRoot === activeWorkspaceElement) {
+        if (record) {
+          record.dom = record.dom || {};
+          record.dom.bound = true;
+          record.dom.boundAt = Date.now();
+        }
+        config.__activeRuntimeTabId = tab.id;
+        didRuntimeRebindForActivation = false;
+        console.debug('Debug: workspace per-tab root already bound', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || options.reason || 'bind-per-tab-root'
+        });
+        return true;
+      }
+      const previousReady = component.ready;
+      try {
+        component.ready = false;
+        component.init({
+          root: activeWorkspaceElement,
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || options.reason || 'bind-per-tab-root'
+        });
+        const nextRecord = getWorkspaceSessionRecord();
+        if (nextRecord) {
+          nextRecord.dom = nextRecord.dom || {};
+          nextRecord.dom.bound = true;
+          nextRecord.dom.boundAt = Date.now();
+        }
+        config.__activeRuntimeTabId = tab.id;
+        didRuntimeRebindForActivation = true;
+        console.debug('Debug: workspace per-tab root bound', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || options.reason || 'bind-per-tab-root'
+        });
+        return true;
+      } catch (err) {
+        component.ready = previousReady;
+        console.error('workspace per-tab root bind error', { tabId: tab.id, type: tab.type, err });
+        return false;
+      }
+    };
     const cloneFn = session?.fastClonePayload
       ? value => session.fastClonePayload(value)
       : (session?.clonePayload ? value => session.clonePayload(value) : null);
-    const canReuseWorkspace = !options.forceReload
-      && cachedWorkspace
-      && cachedWorkspace.tabId === tab.id
-      && cachedWorkspace.payloadSignature === targetPayloadSignature
-      && cachedWorkspace.layoutSignature === targetLayoutSignature
-      && alreadyInitialized
-      && renderedTabForType === tab.id;
+    const canReuseWorkspaceForActivation = () => {
+      if (config.perTabDomInstances === true) {
+        return false;
+      }
+      const runtimeAlreadyBoundToTarget = config.perTabDomInstances !== true
+        || !config.__activeRuntimeTabId
+        || String(config.__activeRuntimeTabId) === String(tab.id);
+      return !didRuntimeRebindForActivation
+        && runtimeAlreadyBoundToTarget
+        && !options.forceReload
+        && cachedWorkspace
+        && cachedWorkspace.tabId === tab.id
+        && cachedWorkspace.payloadSignature === targetPayloadSignature
+        && cachedWorkspace.layoutSignature === targetLayoutSignature
+        && alreadyInitialized
+        && renderedTabForType === tab.id;
+    };
 
     const applyWorkspaceState = () => {
+      const canReuseWorkspace = canReuseWorkspaceForActivation();
       let sessionRecord = null;
       if (Shared.workspaceTabs?.activateWorkspace) {
         Shared.workspaceTabs.activateWorkspace(tab, config, {
@@ -896,14 +995,8 @@
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
-      const shouldResetSharedComponentState = false;
-      if (isSameComponentTabSwitch && !options.skipApply) {
-        console.debug('Debug: workspace baseline reset skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: tab.payload ? 'authoritative-box-payload-switch' : 'same-component-authoritative-switch'
-        });
-      } else if (shouldResetSharedComponentState) {
+      const shouldResetSharedComponentState = isSameComponentTabSwitch && !options.skipApply;
+      if (shouldResetSharedComponentState) {
         const baselineResetPayload = resolveBaselineResetPayload();
         if (baselineResetPayload && guardWorkspaceMutation('baseline-reset')) {
           namespace.applyWorkspacePayload(config, baselineResetPayload, {
@@ -919,6 +1012,12 @@
             reason: options.reason || 'workspace-view'
           });
         }
+      } else if (isSameComponentTabSwitch && !options.skipApply) {
+        console.debug('Debug: workspace baseline reset skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: 'same-component-reset-not-required'
+        });
       }
       if(canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor){
         Shared.componentLayout.suppressNextScheduleFor(tab.type, {
@@ -1061,12 +1160,14 @@
           if (ensureResult && typeof ensureResult.then === 'function') {
             ensurePromise = ensureResult.then(() => {
               markInitialized('tab-activation');
+              bindPerTabRootIfNeeded('tab-activation-async');
               console.debug('Debug: workspace ensure resolved (async)', { tabId: tab.id, type: tab.type });
             }).catch(err => {
               console.error('workspace ensure async error', { type: tab.type, err });
             });
           } else {
             markInitialized('tab-activation');
+            bindPerTabRootIfNeeded('tab-activation');
             console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
           }
         } catch (err) {
@@ -1078,7 +1179,9 @@
       }
     } else {
       console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
-      if (typeof config.ensure === 'function') {
+      if (bindPerTabRootIfNeeded('cached-workspace-bind')) {
+        // The tab-specific root has just been initialized.
+      } else if (typeof config.ensure === 'function') {
         try {
           const maybePromise = config.ensure();
           if (maybePromise && typeof maybePromise.then === 'function') {

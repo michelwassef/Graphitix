@@ -72,10 +72,9 @@
     }
 
     if (!initialConfig) {
-      initialConfig = registry[0] || null;
-      if (initialConfig) {
-        debug('Debug: runComponentBootstrap default workspace selected', { type: initialConfig.type });
-      }
+      debug('Debug: runComponentBootstrap initial workspace skipped', {
+        reason: activeTab?.isWelcome ? 'welcome-tab-active' : 'no-visible-workspace'
+      });
     }
 
     const initializedTypes = [];

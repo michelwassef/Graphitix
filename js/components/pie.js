@@ -188,6 +188,62 @@
     };
   }
 
+  function createImmutablePieDefaultStatsPayload(){
+    return {
+      scope: PIE_STATS_DEFAULT_SCOPE,
+      test: PIE_STATS_DEFAULT_TEST,
+      correction: PIE_STATS_DEFAULT_CORRECTION,
+      alpha: PIE_STATS_DEFAULT_ALPHA,
+      sparseThreshold: PIE_STATS_DEFAULT_SPARSE_THRESHOLD,
+      yatesCorrection: true,
+      referenceColumn: null,
+      valueColumn: null,
+      expectedColumn: null,
+      selectedColumns: [],
+      customPairs: [],
+      advancedOpen: false,
+      resultsTab: 'overall',
+      advisor: {
+        open: false,
+        activated: false,
+        answers: {}
+      },
+      resultsHtml: null,
+      reportHtml: null,
+      contextSignature: null,
+      lastRunSignature: null
+    };
+  }
+
+  function createImmutablePieDefaultConfig(){
+    return {
+      title: 'Proportion graph',
+      chartType: 'pie',
+      showPercents: false,
+      showFrame: false,
+      showLegend: true,
+      startAngle: '0',
+      borderColor: '#ffffff',
+      borderWidth: 0,
+      fontSize: String(DEFAULT_PIE_FONT_SIZE_PT),
+      fontStyles: null,
+      valueColumn: '',
+      expectedColumn: '',
+      stats: createImmutablePieDefaultStatsPayload(),
+      colors: {},
+      colorScheme: Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'scientific',
+      axis: createDefaultAxisSettings(),
+      notes: {
+        text: '',
+        open: false
+      },
+      labelPositions: {
+        title: null,
+        legend: null
+      }
+    };
+  }
+
   function clampMinorTickSubdivisions(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -3059,7 +3115,7 @@
   };
   pie.createEmptyPayload = function createEmptyPiePayload(){
       pie.ensure();
-      const payload = { type: 'pie', config: {} };
+      const payload = { type: 'pie', config: createImmutablePieDefaultConfig() };
       payload.type = 'pie';
       const createEmpty = Shared.createEmptyData;
       const emptyData = typeof createEmpty === 'function'
@@ -3069,10 +3125,6 @@
       payload.data = emptyData;
       payload.exclusions = [];
       payload.filters = null;
-      payload.config = payload.config && typeof payload.config === 'object' ? payload.config : {};
-      if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
-        payload.config.colorScheme = Shared.colorSchemes?.getDefaultSchemeId?.('pie') || 'scientific';
-      }
       return payload;
     };
     function applyPiePayload(payload, meta){
@@ -3144,9 +3196,9 @@
         notesState.control.setOpen(notesState.open);
       }
       importFontStyles('pie', config.fontStyles || null);
-      state.titleText = config.title || state.titleText;
+      state.titleText = typeof config.title === 'string' ? config.title : 'Proportion graph';
       const chartTypeInput = document.getElementById('pieChartType');
-      if(chartTypeInput){ chartTypeInput.value = config.chartType || chartTypeInput.value; }
+      if(chartTypeInput){ chartTypeInput.value = config.chartType || 'pie'; }
       const showPercentsInput = document.getElementById('pieShowPercents');
       if(showPercentsInput){ showPercentsInput.checked = !!config.showPercents; }
       const showFrameInput = document.getElementById('pieShowFrame');
@@ -3176,7 +3228,7 @@
         valueColumn: config.valueColumn ?? config.stats?.valueColumn,
         expectedColumn: config.expectedColumn ?? config.stats?.expectedColumn
       });
-      state.colors = config.colors || state.colors;
+      state.colors = (config.colors && typeof config.colors === 'object') ? { ...config.colors } : {};
       const axisConfig = config.axis || config.axisSettings;
       if(axisConfig){
         applyAxisSettings(axisConfig);

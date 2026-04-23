@@ -4513,7 +4513,7 @@
   }
 
   function renderLineStatsAdvisor(series, options, providedContext){
-    const container=document.getElementById('lineStatsAdvisor');
+    const container=refs.statsAdvisor || refs.root?.querySelector?.('#lineStatsAdvisor') || document.getElementById('lineStatsAdvisor');
     if(!container){
       return;
     }
@@ -5393,6 +5393,7 @@
     const hotRoot = lineHot.rootElement
       || lineHot.__lineHostContainer
       || refs.hotContainer
+      || refs.root?.querySelector?.('#lineHot')
       || document.getElementById('lineHot');
     if(hotRoot && hotRoot.classList){
       hotRoot.classList.toggle('line-grouped-header-merge', !!groupedActive);
@@ -8070,7 +8071,9 @@
   }
 
   function buildLineExportSvg(){
-    const svgEl=document.getElementById('lineSvg');
+    const svgEl=refs.plot?.querySelector?.('#lineSvg')
+      || refs.root?.querySelector?.('#lineSvg')
+      || document.getElementById('lineSvg');
     if(!svgEl) return null;
     const clone=svgEl.cloneNode(true);
     const viewBox = svgEl.viewBox?.baseVal;
@@ -11173,7 +11176,11 @@
   }
 
   function initNotes(){
-    const stack = global.document.querySelector('#lineGraphPanel .line-plot-stack')
+    const stack = refs.graphPanel?.querySelector?.('.line-plot-stack')
+      || refs.graphPanel?.querySelector?.('.diagram-area')
+      || refs.root?.querySelector?.('#lineGraphPanel .line-plot-stack')
+      || refs.root?.querySelector?.('#lineGraphPanel .diagram-area')
+      || global.document.querySelector('#lineGraphPanel .line-plot-stack')
       || global.document.querySelector('#lineGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -11210,7 +11217,7 @@
     });
   }
 
-  function setup(){
+  function setup(options = {}){
     if(line.ready){ console.debug('Debug: Components.line.setup skipped'); return; }
     console.debug('Debug: Components.line.setup start'); // Debug: setup entry
     const document = global.document;
@@ -11218,21 +11225,31 @@
       console.error('Line component dependencies missing');
       return;
     }
+    const activeRoot = options?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'line')
+      || document.getElementById('linePage')
+      || document;
+    refs.root = activeRoot;
+    const byId = id => (
+      activeRoot && typeof activeRoot.querySelector === 'function'
+        ? activeRoot.querySelector(`#${id}`)
+        : null
+    ) || document.getElementById(id);
     ensureLineAxisSettings();
     ensureLineGridStyle(getLineAxisStrokeWidth());
-    const $ = global.$ || (sel=>document.querySelector(sel));
-    refs.tablePanel=document.getElementById('lineTablePanel');
-    refs.graphPanel=document.getElementById('lineGraphPanel');
-    refs.panelResizer=document.getElementById('linePanelResizer');
+    const $ = global.$ || (sel=>(activeRoot?.querySelector?.(sel) || document.querySelector(sel)));
+    refs.tablePanel=byId('lineTablePanel');
+    refs.graphPanel=byId('lineGraphPanel');
+    refs.panelResizer=byId('linePanelResizer');
     refs.svgBox=refs.graphPanel?.querySelector('.svgbox');
     lineSvgBoxRef = refs.svgBox;
     refs.configPanel=refs.graphPanel?.querySelector('.config-panel');
-    refs.renderRow=document.getElementById('lineRenderRow');
-    refs.renderButton=document.getElementById('lineRenderButton');
-    refs.autoDrawNotice=document.getElementById('lineAutoDrawNotice');
-    refs.hotContainer=document.getElementById('lineHot');
-    refs.hotWrapper=document.getElementById('lineHotWrapper');
-    refs.plot=document.getElementById('linePlot');
+    refs.renderRow=byId('lineRenderRow');
+    refs.renderButton=byId('lineRenderButton');
+    refs.autoDrawNotice=byId('lineAutoDrawNotice');
+    refs.hotContainer=byId('lineHot');
+    refs.hotWrapper=byId('lineHotWrapper');
+    refs.plot=byId('linePlot');
     if(refs.plot && !refs.plot.__lineAxesLengthCloseHandler){
       const onPlotPointerDown = () => {
         closeLineAxesLengthMenu('plot-pointer');
@@ -11240,18 +11257,19 @@
       refs.plot.addEventListener('pointerdown', onPlotPointerDown);
       refs.plot.__lineAxesLengthCloseHandler = onPlotPointerDown;
     }
-    refs.tooltip=document.getElementById('tooltip');
-    refs.statType=document.getElementById('lineStatType');
-    refs.statsResults=document.getElementById('lineStatsResults');
+    refs.tooltip=byId('tooltip');
+    refs.statType=byId('lineStatType');
+    refs.statsResults=byId('lineStatsResults');
+    refs.statsAdvisor=byId('lineStatsAdvisor');
     ensureLineStatsReportHost();
-    refs.statsButton=document.getElementById('lineComputeStats');
-    refs.statsStatus=document.getElementById('lineStatsStatus');
-    refs.regressionMode=document.getElementById('lineRegressionMode');
+    refs.statsButton=byId('lineComputeStats');
+    refs.statsStatus=byId('lineStatsStatus');
+    refs.regressionMode=byId('lineRegressionMode');
     ensureLineRegressionSelection();
-    refs.showTrendLine=document.getElementById('lineShowTrendLine');
-    refs.showIntervals=document.getElementById('lineShowIntervals');
-    refs.showPredictionIntervals=document.getElementById('lineShowPredictionIntervals');
-    refs.showLegend=document.getElementById('lineShowLegend');
+    refs.showTrendLine=byId('lineShowTrendLine');
+    refs.showIntervals=byId('lineShowIntervals');
+    refs.showPredictionIntervals=byId('lineShowPredictionIntervals');
+    refs.showLegend=byId('lineShowLegend');
     if(refs.showLegend){
       const legendHost=refs.showLegend.closest('label');
       if(legendHost){
@@ -11266,30 +11284,30 @@
     if(refs.statsButton){
       refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
     }
-    refs.forecastFieldset=document.getElementById('lineForecastControls');
-    refs.forecastHorizon=document.getElementById('lineForecastHorizon');
-    refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');
-    refs.forecastAuto=document.getElementById('lineForecastAuto');
-      refs.forecastCriterion=document.getElementById('lineForecastCriterion');
-      refs.replicateMode=document.getElementById('lineTableFormat');
-      refs.replicatesContainer=document.getElementById('lineGroupedControls');
-      refs.replicatesInput=document.getElementById('lineReplicates');
-    refs.threeDControls=document.getElementById('line3dControls');
-    refs.threeDList=document.getElementById('line3dList');
-    refs.threeDAdd=document.getElementById('line3dAdd');
-    refs.threeDRemove=document.getElementById('line3dRemove');
-    refs.viewMode=document.getElementById('lineViewMode');
-    refs.fill=document.getElementById('lineFill');
-    refs.border=document.getElementById('lineBorder');
-    refs.borderWidth=document.getElementById('lineBorderWidth');
-    refs.errorBarWidth=document.getElementById('lineErrorBarWidth');
+    refs.forecastFieldset=byId('lineForecastControls');
+    refs.forecastHorizon=byId('lineForecastHorizon');
+    refs.forecastSeasonLength=byId('lineForecastSeasonLength');
+    refs.forecastAuto=byId('lineForecastAuto');
+      refs.forecastCriterion=byId('lineForecastCriterion');
+      refs.replicateMode=byId('lineTableFormat');
+      refs.replicatesContainer=byId('lineGroupedControls');
+      refs.replicatesInput=byId('lineReplicates');
+    refs.threeDControls=byId('line3dControls');
+    refs.threeDList=byId('line3dList');
+    refs.threeDAdd=byId('line3dAdd');
+    refs.threeDRemove=byId('line3dRemove');
+    refs.viewMode=byId('lineViewMode');
+    refs.fill=byId('lineFill');
+    refs.border=byId('lineBorder');
+    refs.borderWidth=byId('lineBorderWidth');
+    refs.errorBarWidth=byId('lineErrorBarWidth');
     syncLineErrorBarToolbarValue();
-    refs.dotSize=document.getElementById('lineDotSize');
-    refs.displayMode=document.getElementById('lineDisplayMode');
-    refs.alpha=document.getElementById('lineAlpha');
-    refs.alphaVal=document.getElementById('lineAlphaVal');
-    refs.fontSize=document.getElementById('lineFontSize');
-    refs.fontSizeVal=document.getElementById('lineFontSizeVal');
+    refs.dotSize=byId('lineDotSize');
+    refs.displayMode=byId('lineDisplayMode');
+    refs.alpha=byId('lineAlpha');
+    refs.alphaVal=byId('lineAlphaVal');
+    refs.fontSize=byId('lineFontSize');
+    refs.fontSizeVal=byId('lineFontSizeVal');
     if(refs.fontSize && refs.fontSizeVal){
       if(refs.fontSize.dataset){
         refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -11396,17 +11414,17 @@
         scheduleLineDraw();
       });
     }
-    refs.showGrid=document.getElementById('lineShowGrid');
-    refs.showFrame=document.getElementById('lineShowFrame');
-    refs.logX=document.getElementById('lineLogX');
-    refs.logY=document.getElementById('lineLogY');
-    refs.xMin=document.getElementById('lineXMin');
-    refs.xMax=document.getElementById('lineXMax');
-    refs.yMin=document.getElementById('lineYMin');
-    refs.yMax=document.getElementById('lineYMax');
-    refs.originMode=document.getElementById('lineOriginMode');
-    refs.originX=document.getElementById('lineOriginX');
-    refs.originY=document.getElementById('lineOriginY');
+    refs.showGrid=byId('lineShowGrid');
+    refs.showFrame=byId('lineShowFrame');
+    refs.logX=byId('lineLogX');
+    refs.logY=byId('lineLogY');
+    refs.xMin=byId('lineXMin');
+    refs.xMax=byId('lineXMax');
+    refs.yMin=byId('lineYMin');
+    refs.yMax=byId('lineYMax');
+    refs.originMode=byId('lineOriginMode');
+    refs.originX=byId('lineOriginX');
+    refs.originY=byId('lineOriginY');
     let lineLogWarningEl=null;
     const lineDebugEnabled=()=>typeof Shared.isDebugEnabled==='function'&&Shared.isDebugEnabled();
     function ensureLineLogWarningElement(){
@@ -11645,13 +11663,13 @@
     lineAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachLineSelectAutoSize(select, 'line');
     });
-    refs.loadExample=document.getElementById('lineLoadExample');
-    refs.importBtn=document.getElementById('lineImport');
-    refs.fileInput=document.getElementById('lineFile');
+    refs.loadExample=byId('lineLoadExample');
+    refs.importBtn=byId('lineImport');
+    refs.fileInput=byId('lineFile');
     refs.openBtn=document.getElementById('openLineGraph');
     refs.saveBtn=document.getElementById('saveLineGraph');
     refs.saveAsBtn=document.getElementById('saveAsLine');
-    refs.graphFileInput=document.getElementById('lineGraphFile');
+    refs.graphFileInput=byId('lineGraphFile');
 
     if(typeof global.lineStatType === 'undefined') global.lineStatType = refs.statType; // legacy compatibility (guarded)
     if(typeof global.lineStatsResults === 'undefined') global.lineStatsResults = refs.statsResults; // legacy compatibility (guarded)
@@ -11978,8 +11996,8 @@
       return instance;
     };
     const ensureLineHotForActiveTab = () => {
-      const wrapper = refs.hotWrapper || document.getElementById('lineHotWrapper');
-      const baseContainer = refs.hotContainer || document.getElementById('lineHot');
+      const wrapper = refs.hotWrapper || refs.root?.querySelector?.('#lineHotWrapper') || document.getElementById('lineHotWrapper');
+      const baseContainer = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || document.getElementById('lineHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!lineHot){
           lineHot = createLineTable(baseContainer);
@@ -12589,8 +12607,8 @@
   }
 
   line.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('linePlot');
-    const stats = document.getElementById('lineStatsResults');
+    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || document.getElementById('linePlot');
+    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || document.getElementById('lineStatsResults');
     const svg = plot ? plot.querySelector('#lineSvg') : null;
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
@@ -12614,8 +12632,8 @@
 
   line.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = document.getElementById('linePlot');
-    const stats = document.getElementById('lineStatsResults');
+    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || document.getElementById('linePlot');
+    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || document.getElementById('lineStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     if(plot && typeof cache.plotStyle === 'string' && cache.plotStyle){
@@ -12732,6 +12750,10 @@
     const headerRow = Array.isArray(lineHot?.getData?.()) ? lineHot.getData()[0] : null;
     const inferredEntryCount = lineLegendLayoutInfo.entryCount || (Array.isArray(headerRow) ? Math.max(0, Math.floor(((headerRow.length || 1) - 1) / Math.max(lineReplicates || 1, 1))) : 0);
     return {
+      ui: {
+        root: refs.root || null
+      },
+      root: refs.root || null,
       hot: lineHot,
       layout: lineLayout,
       legendItems: lineLegendItems.slice(),

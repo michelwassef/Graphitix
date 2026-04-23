@@ -540,6 +540,82 @@ describe('Cross-tab graph config isolation (all components)', () => {
     expect(failures).toEqual([]);
   });
 
+  test('new empty tabs do not inherit live parameters from previous tabs', async () => {
+    const Main = window.Main;
+    const registry = Main.components.registry;
+    const failures = [];
+
+    for (let i = 0; i < WORKSPACE_TYPES.length; i += 1) {
+      const type = WORKSPACE_TYPES[i];
+      const workspace = registry[type];
+      if (!workspace || typeof workspace.createEmptyPayload !== 'function') {
+        failures.push(`${type}: missing createEmptyPayload`);
+        continue;
+      }
+
+      try {
+        if (i > 0) {
+          Main.tabs.handleAddTabClick();
+          await flush();
+        }
+        await handleGraphSelection(Main, type);
+        const tabA = Main.tabs.getActiveTab();
+        const baseline = workspace.createEmptyPayload();
+        const contaminated = deepClone(baseline);
+        const targetKey = isPlainObject(contaminated.config) ? 'config' : null;
+        const target = targetKey ? contaminated.config : contaminated;
+        const mutationPaths = collectMutationPaths(target, 'B', 20);
+        if (!mutationPaths.length) {
+          mutationPaths.push(...applyFallbackMutations(target, 'B'));
+        }
+        if (!mutationPaths.length) {
+          failures.push(`${type}: no mutable paths to contaminate`);
+          continue;
+        }
+        if (type === 'box') {
+          contaminated.config = contaminated.config || {};
+          contaminated.config.connectPointsAcrossDatasets = true;
+          mutationPaths.push(['connectPointsAcrossDatasets']);
+        }
+
+        workspace.loadFromPayload?.(contaminated, { source: 'test-new-empty-contaminated' });
+        await flush();
+        Main.session.persistActiveTabState(tabA, {
+          workspaces: registry,
+          previews: Main.previews,
+          reason: `test-new-empty-${type}-persist-contaminated`
+        });
+        await flush();
+
+        Main.tabs.handleAddTabClick();
+        await flush();
+        await handleGraphSelection(Main, type);
+        const tabB = Main.tabs.getActiveTab();
+        if (!tabB || tabB.id === tabA.id || tabB.type !== type) {
+          failures.push(`${type}: failed to create second empty tab`);
+          continue;
+        }
+
+        const observed = workspace.getPayload?.();
+        const observedTarget = targetKey ? observed?.config : observed;
+        const baselineTarget = targetKey ? baseline?.config : baseline;
+        const contaminatedTarget = targetKey ? contaminated?.config : contaminated;
+        mutationPaths.forEach(path => {
+          const actual = getAtPath(observedTarget, path);
+          const clean = getAtPath(baselineTarget, path);
+          const dirty = getAtPath(contaminatedTarget, path);
+          if (!valueEquals(actual, clean) && valueEquals(actual, dirty)) {
+            failures.push(`${type}: new empty tab inherited ${pathToKey(path)}=${JSON.stringify(actual)}`);
+          }
+        });
+      } catch (err) {
+        failures.push(`${type}: ${err?.message || String(err)}`);
+      }
+    }
+
+    expect(failures).toEqual([]);
+  });
+
   test('new empty histogram tab is not seeded from a previous density-fit histogram tab', async () => {
     const Main = window.Main;
     const session = Main.session;

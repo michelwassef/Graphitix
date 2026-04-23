@@ -76,6 +76,17 @@ async function flushAsyncWork(iterations = 10){
   }
 }
 
+async function waitForBoxSvg(iterations = 80){
+  for(let i = 0; i < iterations; i += 1){
+    const svg = document.querySelector('#boxPlot svg');
+    if(svg){
+      return svg;
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  return null;
+}
+
 async function activateWorkspace(type){
   const result = window.Main?.tabs?.handleGraphSelection?.(type, { reason: 'test-select' });
   if(result && typeof result.then === 'function'){
@@ -120,6 +131,19 @@ function createSeedPayload(boxComponent){
 
 function getBoxStatsButton(){
   return document.getElementById('boxComputeStats');
+}
+
+function debugArgsContain(args, text){
+  return args.some(arg => {
+    if(typeof arg === 'string'){
+      return arg.includes(text);
+    }
+    try{
+      return JSON.stringify(arg).includes(text);
+    }catch(_err){
+      return false;
+    }
+  });
 }
 
 describe('Box stats controls tab isolation with render cache', () => {
@@ -392,5 +416,95 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(svgBoxBg).not.toMatch(/rgb\(0,\s*0,\s*0\)|#000|black/i);
     expect(plotBg).not.toMatch(/rgb\(0,\s*0,\s*0\)|#000|black/i);
     expect(svgScheme).not.toBe('dark');
+  });
+
+  test('box-to-box switch restores only complete owner cache without stale tab tokens or redraw churn', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    expect(boxComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-cache-owner-a' });
+    await flushAsyncWork(30);
+    expect(await waitForBoxSvg()).toBeTruthy();
+    const tabA = main.session.getActiveTab();
+    expect(tabA?.type).toBe('box');
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const emptyButton = document.getElementById('duplicateEmpty');
+      expect(emptyButton).toBeTruthy();
+      emptyButton.click();
+      await flushAsyncWork(25);
+    }
+
+    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-cache-owner-b' });
+    await flushAsyncWork(30);
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.type).toBe('box');
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    await activateTabById(tabA.id, 'test-cache-owner-prime-a');
+    expect(await waitForBoxSvg()).toBeTruthy();
+    await activateTabById(tabB.id, 'test-cache-owner-capture-a');
+    await flushAsyncWork(20);
+
+    const tabAWithCache = main.session.workspaceState.tabs.find(tab => tab.id === tabA.id);
+    expect(tabAWithCache?.renderCache?.tabId).toBe(tabA.id);
+    expect(tabAWithCache?.renderCache?.cache?.__graphitixRenderCache?.complete).toBe(true);
+    expect(tabAWithCache?.renderCache?.cache?.__graphitixRenderCache?.tabId).toBe(tabA.id);
+
+    const debugCalls = [];
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation((...args) => {
+      debugCalls.push(args);
+    });
+    const originalDraw = boxComponent.draw;
+    let drawCalls = 0;
+    boxComponent.draw = function countedBoxDraw(...args){
+      drawCalls += 1;
+      return originalDraw.apply(this, args);
+    };
+    const resizeCalls = [];
+    const originalApplyResizableBoxSize = window.Shared?.applyResizableBoxSize;
+    let resizeSpy = null;
+    if(typeof originalApplyResizableBoxSize === 'function'){
+      resizeSpy = jest.spyOn(window.Shared, 'applyResizableBoxSize').mockImplementation(function countedResize(node, options){
+        resizeCalls.push(options || {});
+        return originalApplyResizableBoxSize.call(this, node, options);
+      });
+    }
+
+    try{
+      await activateTabById(tabA.id, 'test-cache-owner-switch-a');
+      await flushAsyncWork(40);
+    }finally{
+      boxComponent.draw = originalDraw;
+      if(resizeSpy){
+        resizeSpy.mockRestore();
+      }
+      debugSpy.mockRestore();
+    }
+
+    expect(main.session.getActiveTab()?.id).toBe(tabA.id);
+    expect(debugCalls.some(args => args[0] === 'Debug: box render cache restored' && args[1]?.restored === true)).toBe(true);
+    expect(debugCalls.some(args => debugArgsContain(args, 'incomplete-live-runtime'))).toBe(false);
+    expect(debugCalls.some(args => debugArgsContain(args, 'cache-validation-failed'))).toBe(false);
+    expect(debugCalls.some(args => debugArgsContain(args, 'incomplete-cache'))).toBe(false);
+    expect(drawCalls).toBeLessThanOrEqual(1);
+    const fullDrawPasses = debugCalls.filter(args => args[0] === 'Debug: box axis settings current').length;
+    expect(fullDrawPasses).toBeLessThanOrEqual(1);
+    expect(resizeCalls.some(options => options?.reason === 'orientation-missing')).toBe(false);
+
+    const plot = document.getElementById('boxPlot');
+    expect(plot?.dataset?.boxRenderedTabId).toBe(tabA.id);
+    const wrongFontNodes = Array.from(document.querySelectorAll('#boxPlot [data-font-tab-id]'))
+      .filter(node => node.dataset.fontTabId && node.dataset.fontTabId !== tabA.id);
+    expect(wrongFontNodes).toHaveLength(0);
   });
 });
