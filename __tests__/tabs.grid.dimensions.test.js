@@ -210,4 +210,44 @@ describe('Workspace tab grid defaults', () => {
 
     expect(boxState.lastAxisLabels.length).toBe(0);
   });
+
+  test('ROC duplicate tab does not inherit runtime table container offsets from source tab', async () => {
+    await activateWorkspace('roc');
+    const loadBtn = document.getElementById('rocLoadExample');
+    expect(loadBtn).not.toBeNull();
+    loadBtn.click();
+    await flushAsyncWork(12);
+
+    const sourceTabId = window.Main.session.getActiveTab()?.id;
+    expect(typeof sourceTabId).toBe('string');
+    const rocPool = window.Shared?.hot?.__tabTablePools?.roc;
+    expect(rocPool).toBeTruthy();
+    const sourceEntry = rocPool.byTab?.[sourceTabId];
+    expect(sourceEntry?.container).toBeTruthy();
+
+    // Simulate runtime DOM mutations that previously leaked via duplicated roots.
+    sourceEntry.container.style.paddingTop = '37px';
+    sourceEntry.container.style.marginTop = '11px';
+    const staleNode = document.createElement('div');
+    staleNode.className = 'stale-grid-node';
+    sourceEntry.container.appendChild(staleNode);
+
+    window.Main.tabs.handleAddTabClick();
+    await flushAsyncWork(6);
+    await activateWorkspace('roc');
+    const duplicateEmptyBtn = document.getElementById('duplicateEmpty');
+    expect(duplicateEmptyBtn).not.toBeNull();
+    duplicateEmptyBtn.click();
+    await flushAsyncWork(20);
+
+    const newTab = window.Main.session.getActiveTab();
+    expect(newTab?.type).toBe('roc');
+    expect(newTab?.id).not.toBe(sourceTabId);
+
+    const newEntry = rocPool.byTab?.[newTab.id];
+    expect(newEntry?.container).toBeTruthy();
+    expect(newEntry.container.style.paddingTop).toBe('');
+    expect(newEntry.container.style.marginTop).toBe('');
+    expect(newEntry.container.querySelector('.stale-grid-node')).toBeNull();
+  }, 30000);
 });

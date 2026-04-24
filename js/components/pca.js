@@ -794,10 +794,41 @@
   let schedulePcaNoticeWidth = () => {};
   let pcaHotInstance = null;
   let pcaDataViewsManager = null;
+  let pcaRoot = null;
   let pcaDataToolbarBound = false;
   let pcaDataToolbarLastActivation = 0;
   let pcaAxesLengthLockRatioPrevious = null;
   let pcaAspectSyncing = false;
+
+  function resolvePcaRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'pca')
+      || pcaRoot
+      || global.document?.getElementById?.('pcaPage')
+      || global.document
+      || null;
+  }
+
+  function queryPcaRoot(selector, tabLike){
+    const root = resolvePcaRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+
+  function getPcaNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolvePcaRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
 
   function ensurePcaGroupedDefaults(){
     if(!pcaState.grouped || typeof pcaState.grouped !== 'object'){
@@ -1066,7 +1097,7 @@
     }
     const hotRoot = pcaHot.rootElement
       || pcaHot.__pcaHostContainer
-      || global.document?.getElementById?.('pcaHot');
+      || getPcaNodeById('pcaHot');
     if(hotRoot?.classList){
       hotRoot.classList.remove('pca-grouped-nested-only');
     }
@@ -1597,8 +1628,8 @@
     return pcaHot;
   }
   function ensurePcaHotForActiveTab(){
-    const wrapper = document.getElementById('pcaHotWrapper');
-    const baseContainer = document.getElementById('pcaHot');
+    const wrapper = getPcaNodeById('pcaHotWrapper');
+    const baseContainer = getPcaNodeById('pcaHot');
     const tabId = resolveActiveTabId() || 'pca-default';
     if(!Shared.hot?.mountTableForTab || !wrapper){
       if(!pcaHotInstance && baseContainer && typeof Shared.hot?.createStandardTable === 'function'){
@@ -1700,8 +1731,8 @@
       });
     }
     const manager = hotInstance.__pcaDataViewsManager;
-    const hostWrapper = options.wrapper || global.document?.getElementById?.('pcaHotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null;
+    const hostWrapper = options.wrapper || getPcaNodeById('pcaHotWrapper');
+    const hostContainer = options.container || hotInstance.__pcaHostContainer || getPcaNodeById('pcaHot');
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -1736,8 +1767,8 @@
       return false;
     }
     const manager = ensurePcaDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
-      container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+      wrapper: getPcaNodeById('pcaHotWrapper'),
+      container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('pca data transform skipped: Shared.dataViews unavailable');
@@ -1828,8 +1859,8 @@
       return false;
     }
     const manager = ensurePcaDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
-      container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+      wrapper: getPcaNodeById('pcaHotWrapper'),
+      container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
     });
     if(!manager || typeof manager.applyPipeline !== 'function'){
       console.warn('pca data transform pipeline skipped: Shared.dataViews unavailable');
@@ -1975,7 +2006,7 @@
         applyPcaTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
-    const wrapper = global.document?.getElementById?.('pcaHotWrapper');
+    const wrapper = getPcaNodeById('pcaHotWrapper');
     if(wrapper && !wrapper.__pcaDataToolbarFocusBound){
       wrapper.addEventListener('mousedown', () => {
         activatePcaDataToolbar('table-mousedown');
@@ -4555,6 +4586,7 @@
   function setup(){
     if(pca.ready){ console.debug('Debug: Components.pca.setup skipped'); return; }
     console.debug('Debug: Components.pca.setup start');
+    pcaRoot = resolvePcaRoot();
     const $ = global.$;
     const document = global.document;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
@@ -4584,12 +4616,12 @@
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
     };
       // PCA plot setup
-      const pcaHotContainer=document.getElementById('pcaHot');
-      const pcaHotWrapper=document.getElementById('pcaHotWrapper');
-      const pcaTablePanel=document.getElementById('pcaTablePanel');
-      const pcaGraphPanel=document.getElementById('pcaGraphPanel');
-      const pcaPanelResizer=document.getElementById('pcaPanelResizer');
-      const pcaPlotDiv=document.getElementById('pcaPlot');
+      const pcaHotContainer=getPcaNodeById('pcaHot');
+      const pcaHotWrapper=getPcaNodeById('pcaHotWrapper');
+      const pcaTablePanel=getPcaNodeById('pcaTablePanel');
+      const pcaGraphPanel=getPcaNodeById('pcaGraphPanel');
+      const pcaPanelResizer=getPcaNodeById('pcaPanelResizer');
+      const pcaPlotDiv=getPcaNodeById('pcaPlot');
       let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-panel');
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
@@ -4614,8 +4646,8 @@
           panelResizer: '#pcaPanelResizer',
           hotWrapper: '#pcaHotWrapper',
           hotContainer: '#pcaHot',
-          svgBox: () => pcaGraphPanel?.querySelector('.svgbox'),
-          resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
+          svgBox: () => queryPcaRoot('#pcaGraphPanel .svgbox'),
+          resizeTarget: () => queryPcaRoot('#pcaGraphPanel .svgbox')
         },
         scheduleDraw: () => scheduleDrawPca(),
         preserveGraphContent: false,
@@ -4658,7 +4690,6 @@
         pcaPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
         pcaPlotDiv.__pcaAxesLengthCloseHandler = onPlotPointerDown;
       }
-      ensurePcaHotForActiveTab();
       ensurePcaHotForActiveTab();
       bindPcaDataToolbar();
       updateAutoDrawUi();
@@ -10399,8 +10430,8 @@
       const activeHot = ensurePcaHotForActiveTab();
       const activeManager = activeHot
         ? ensurePcaDataViewsForHot(activeHot, {
-            wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
-            container: activeHot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+            wrapper: getPcaNodeById('pcaHotWrapper'),
+            container: activeHot.__pcaHostContainer || getPcaNodeById('pcaHot')
           })
         : (pcaDataViewsManager || null);
       if(activeHot){
@@ -10639,8 +10670,8 @@
         const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
         const dataManager = hot
           ? ensurePcaDataViewsForHot(hot, {
-              wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
-              container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+              wrapper: getPcaNodeById('pcaHotWrapper'),
+              container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
             })
           : null;
         if(dataManager){
@@ -11085,13 +11116,16 @@
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
     pca.activateTab = function activateTab(tab){
+      pcaRoot = resolvePcaRoot(tab || null);
       if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
         const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
           componentKey: 'pca',
           tabLike: tab || null,
           sentinelSelector: '#pcaHot',
+          getCurrentRoot: () => pcaRoot || null,
           getCurrentSentinel: () => pca.__domSentinel || null,
-          rebind: () => {
+          rebind: info => {
+            pcaRoot = info?.root || resolvePcaRoot(tab || null);
             pca.ready = false;
             setup();
           }
@@ -11105,12 +11139,12 @@
       const hot = ensurePcaHotForActiveTab();
       if(hot){
         ensurePcaDataViewsForHot(hot, {
-          wrapper: global.document?.getElementById?.('pcaHotWrapper') || null,
-          container: hot.__pcaHostContainer || global.document?.getElementById?.('pcaHot') || null
+          wrapper: getPcaNodeById('pcaHotWrapper'),
+          container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
         });
         syncPcaActiveDataViewFromHot(hot, 'prepare-tab');
       }
-      pca.__domSentinel = global.document?.getElementById?.('pcaHot') || null;
+      pca.__domSentinel = getPcaNodeById('pcaHot');
     };
 
     function detachChildren(node){
@@ -11257,18 +11291,21 @@
     pca.__state = pcaState;
     initNotes();
     ensureEmptyPayloadTemplate();
-    pca.__domSentinel = global.document?.getElementById?.('pcaHot') || null;
+    pca.__domSentinel = getPcaNodeById('pcaHot');
     pca.ready = true;
     console.debug('Debug: Components.pca.setup complete');
   }
 
   function ensureReady(){
+    pcaRoot = resolvePcaRoot();
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'pca',
         sentinelSelector: '#pcaHot',
+        getCurrentRoot: () => pcaRoot || null,
         getCurrentSentinel: () => pca.__domSentinel || null,
-        rebind: () => {
+        rebind: info => {
+          pcaRoot = info?.root || resolvePcaRoot();
           pca.ready = false;
           setup();
         }

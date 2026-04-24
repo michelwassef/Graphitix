@@ -21483,12 +21483,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   }
 
   function ensureReady(){
-    const currentSentinel = global.document?.getElementById?.('scatterShowLine') || null;
-    if(scatter.ready && scatter.__domSentinel && currentSentinel && scatter.__domSentinel !== currentSentinel){
-      console.debug('Debug: Components.scatter.setup refreshing stale DOM bindings');
-      scatter.ready = false;
+    if(ensureScatterDomBindings()){
+      return;
     }
     if(!scatter.ready) setup();
+  }
+
+  function ensureScatterDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'scatter',
+      tabLike: tabLike || null,
+      sentinelSelector: '#scatterShowLine',
+      getCurrentSentinel: () => scatter.__domSentinel || null,
+      rebind: () => {
+        console.debug('Debug: Components.scatter.setup refreshing stale DOM bindings');
+        scatter.ready = false;
+        setup();
+      }
+    });
+    return !!rebound?.rebound;
   }
 
   scatter.init = setup;
@@ -21521,6 +21537,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
   };
   scatter.activateTab = function activateTab(tab, meta = {}){
+    if(ensureScatterDomBindings(tab)){
+      applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      return;
+    }
     applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
     if(!scatter.ready){
       scatter.init();

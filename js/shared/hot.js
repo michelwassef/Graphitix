@@ -736,6 +736,24 @@
     if(!container){
       container = document.createElement('div');
     }
+    const normalizeContainerForMount = (target, baseline)=>{
+      if(!target){
+        return;
+      }
+      const safeBaseline = baseline && baseline !== target ? baseline : null;
+      if(safeBaseline && typeof safeBaseline.className === 'string'){
+        target.className = safeBaseline.className;
+      }
+      // Strip runtime inline sizing/offset mutations copied from duplicated tab roots.
+      if(target.hasAttribute('style')){
+        target.removeAttribute('style');
+      }
+      // Ensure a fresh host for AG Grid when the source tab DOM was duplicated.
+      while(target.firstChild){
+        target.removeChild(target.firstChild);
+      }
+    };
+    normalizeContainerForMount(container, pool.template || templateContainer || null);
     if(!container.id && templateContainer?.id){
       container.id = templateContainer.id;
     }

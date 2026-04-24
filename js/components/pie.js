@@ -445,8 +445,9 @@
     pieDebug('Debug: pie axis settings applied',{ settings: state.axisSettings });
   }
 
-  let state = {
+let state = {
     hot: null,
+    root: null,
     scheduleDraw: null,
     fileHandle: null,
     fileName: 'pie.graph',
@@ -467,6 +468,36 @@
       phase: null
     }
   };
+
+  function resolvePieRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'pie')
+      || state.root
+      || global.document?.getElementById?.('piePage')
+      || global.document
+      || null;
+  }
+
+  function queryPieRoot(selector, tabLike){
+    const root = resolvePieRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+
+  function getPieNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolvePieRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
   function ensurePieStatsReportHost(target){
     const reporting = Shared.statsReporting;
     if(!target || !reporting || typeof reporting.ensureReportHost !== 'function'){
@@ -2804,8 +2835,8 @@
       }
     });
     const ensurePieHotForActiveTab = () => {
-      const wrapper = document.getElementById('pieHotWrapper');
-      const baseContainer = document.getElementById('pieHot');
+      const wrapper = getPieNodeById('pieHotWrapper');
+      const baseContainer = getPieNodeById('pieHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createPieTable(baseContainer);
@@ -2842,8 +2873,8 @@
     state.hot = ensurePieHotForActiveTab();
     state.ensureHotForActiveTab = ensurePieHotForActiveTab;
     ensurePieDataViewsForHot(state.hot, {
-      wrapper: document.getElementById('pieHotWrapper'),
-      container: state.hot?.__pieHostContainer || document.getElementById('pieHot')
+      wrapper: getPieNodeById('pieHotWrapper'),
+      container: state.hot?.__pieHostContainer || getPieNodeById('pieHot')
     });
   }
 
@@ -2881,8 +2912,8 @@
       pieDebug('Debug: pie data views manager created');
     }
     const manager = hotInstance.__pieDataViewsManager;
-    const hostWrapper = options.wrapper || document.getElementById('pieHotWrapper');
-    const hostContainer = options.container || hotInstance.__pieHostContainer || document.getElementById('pieHot');
+    const hostWrapper = options.wrapper || getPieNodeById('pieHotWrapper');
+    const hostContainer = options.container || hotInstance.__pieHostContainer || getPieNodeById('pieHot');
     if(hostWrapper && hostContainer){
       manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
       manager.refresh?.();
@@ -3068,8 +3099,8 @@
       notesState.open = notesOpen;
       const activeHot = state.hot || state.ensureHotForActiveTab?.();
       const activeManager = ensurePieDataViewsForHot(activeHot, {
-        wrapper: document.getElementById('pieHotWrapper'),
-        container: activeHot?.__pieHostContainer || document.getElementById('pieHot')
+        wrapper: getPieNodeById('pieHotWrapper'),
+        container: activeHot?.__pieHostContainer || getPieNodeById('pieHot')
       });
       syncPieActiveDataViewFromHot(activeHot, 'payload');
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
@@ -3150,8 +3181,8 @@
       const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
       const dataManager = state.hot
         ? ensurePieDataViewsForHot(state.hot, {
-            wrapper: document.getElementById('pieHotWrapper'),
-            container: state.hot.__pieHostContainer || document.getElementById('pieHot')
+            wrapper: getPieNodeById('pieHotWrapper'),
+            container: state.hot.__pieHostContainer || getPieNodeById('pieHot')
           })
         : null;
       if(dataManager){
@@ -4318,8 +4349,10 @@
       componentKey: 'pie',
       tabLike: tabLike || null,
       sentinelSelector: '#pieHot',
+      getCurrentRoot: () => state.root || null,
       getCurrentSentinel: () => pie.__domSentinel || null,
-      rebind: () => {
+      rebind: info => {
+        state.root = info?.root || resolvePieRoot(tabLike || null);
         pie.ready = false;
         pie.init();
       }
@@ -4328,9 +4361,9 @@
   }
 
   function initNotes(){
-    const diagramArea = document.querySelector('#pieGraphPanel .diagram-area');
-    const graphPanel = document.querySelector('#pieGraphPanel');
-    let stack = document.querySelector('#pieGraphPanel .pie-plot-stack');
+    const diagramArea = queryPieRoot('#pieGraphPanel .diagram-area');
+    const graphPanel = getPieNodeById('pieGraphPanel');
+    let stack = queryPieRoot('#pieGraphPanel .pie-plot-stack');
     if(!stack && diagramArea){
       const svgBox = diagramArea.querySelector('.svgbox');
       if(svgBox){
@@ -4389,6 +4422,7 @@
   pie.init = function init(){
     if (pie.ready) { pieDebug('Debug: Components.pie.init skipped (already ready)'); return; }
     pieDebug('Debug: Components.pie.init');
+    state.root = resolvePieRoot();
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     const schedulePieLayoutDraw = () => {
@@ -4421,8 +4455,8 @@
           panelResizer: '#piePanelResizer',
           hotWrapper: '#pieHotWrapper',
           hotContainer: '#pieHot',
-          svgBox: () => document.querySelector('#pieGraphPanel .svgbox'),
-          resizeTarget: () => document.querySelector('#pieGraphPanel .svgbox')
+          svgBox: () => queryPieRoot('#pieGraphPanel .svgbox'),
+          resizeTarget: () => queryPieRoot('#pieGraphPanel .svgbox')
         },
         scheduleDraw: schedulePieLayoutDraw,
         preserveGraphContent: false,
@@ -4472,7 +4506,7 @@
       state.scheduleDraw();
     }
     ensureEmptyPayloadTemplate();
-    pie.__domSentinel = global.document?.getElementById?.('pieHot') || null;
+    pie.__domSentinel = getPieNodeById('pieHot');
     pie.ready = true;
   };
 
@@ -4483,6 +4517,7 @@
     if (!pie.ready) pie.init();
   };
   pie.activateTab = function activateTab(tab){
+    state.root = resolvePieRoot(tab || null);
     if(ensurePieDomBindings(tab)){
       return;
     }
@@ -4493,7 +4528,7 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
-    pie.__domSentinel = global.document?.getElementById?.('pieHot') || null;
+    pie.__domSentinel = getPieNodeById('pieHot');
   };
 
   function detachChildren(node){

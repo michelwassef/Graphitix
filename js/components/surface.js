@@ -133,6 +133,7 @@
 
   const state = {
     hot: null,
+    root: null,
     layout: null,
     svg: null,
     svgBox: null,
@@ -173,6 +174,36 @@
   let surfaceDataToolbarBound = false;
   let surfaceDataToolbarLastActivation = 0;
   let surfaceFontEventBound = false;
+
+  function resolveSurfaceRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface')
+      || state.root
+      || global.document?.getElementById?.('surfacePage')
+      || global.document
+      || null;
+  }
+
+  function querySurfaceRoot(selector, tabLike){
+    const root = resolveSurfaceRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+
+  function getSurfaceNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveSurfaceRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
 
   function createDefaultSurfaceSettings(){
     return { ...DEFAULT_SURFACE_SETTINGS };
@@ -455,8 +486,8 @@
       });
     }
     const manager = hotInstance.__surfaceDataViewsManager;
-    const hostWrapper = options.wrapper || global.document?.getElementById?.('surfaceHotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null;
+    const hostWrapper = options.wrapper || getSurfaceNodeById('surfaceHotWrapper');
+    const hostContainer = options.container || hotInstance.__surfaceHostContainer || getSurfaceNodeById('surfaceHot');
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -491,8 +522,8 @@
       return false;
     }
     const manager = ensureSurfaceDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
-      container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+      wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+      container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('surface data transform skipped: Shared.dataViews unavailable');
@@ -578,8 +609,8 @@
       return false;
     }
     const manager = ensureSurfaceDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
-      container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+      wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+      container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
     });
     if(!manager || typeof manager.applyPipeline !== 'function'){
       console.warn('surface data transform pipeline skipped: Shared.dataViews unavailable');
@@ -720,7 +751,7 @@
         applySurfaceTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
-    const wrapper = global.document?.getElementById?.('surfaceHotWrapper');
+    const wrapper = getSurfaceNodeById('surfaceHotWrapper');
     if(wrapper && !wrapper.__surfaceDataToolbarFocusBound){
       wrapper.addEventListener('mousedown', () => {
         activateSurfaceDataToolbar('table-mousedown');
@@ -799,7 +830,7 @@
   let surfaceNoticeBoundWidth = null;
   const syncSurfaceAutoDrawNoticeWidth = (reason) => {
     const svgBox = state.svgBox || state.layout?.elements?.svgBox || global.document.querySelector('#surfaceGraphPanel .svgbox');
-    const renderRow = state.renderRow || global.document.getElementById('surfaceRenderRow');
+    const renderRow = state.renderRow || getSurfaceNodeById('surfaceRenderRow');
     if(!svgBox || !renderRow){
       return;
     }
@@ -993,32 +1024,30 @@
   }
 
   function cacheDom(){
-    const doc = global.document;
-    if(!doc){ return; }
-    state.svg = doc.getElementById('surfaceSvg') || state.svg;
-    state.svgBox = state.layout?.elements?.svgBox || doc.querySelector('#surfaceGraphPanel .svgbox') || state.svgBox;
-    state.statsEl = doc.getElementById('surfaceStatsSummary') || state.statsEl;
-    state.messageEl = doc.getElementById('surfaceMessage') || state.messageEl;
-    state.exportContainer = doc.getElementById('surfaceExportControls') || state.exportContainer;
-    state.renderRow = doc.getElementById('surfaceRenderRow') || state.renderRow;
-    state.renderButton = doc.getElementById('surfaceRenderButton') || state.renderButton;
-    state.autoDrawNotice = doc.getElementById('surfaceAutoDrawNotice') || state.autoDrawNotice;
-    state.axisSelects.x = doc.getElementById('surfaceXAxis') || state.axisSelects.x;
-    state.axisSelects.y = doc.getElementById('surfaceYAxis') || state.axisSelects.y;
-    state.axisSelects.z = doc.getElementById('surfaceZAxis') || state.axisSelects.z;
-    state.controls.interpolation = doc.getElementById('surfaceInterpolation') || state.controls.interpolation;
-    state.controls.fontSize = doc.getElementById('surfaceFontSize') || state.controls.fontSize;
-    state.controls.fontSizeVal = doc.getElementById('surfaceFontSizeVal') || state.controls.fontSizeVal;
-    state.controls.axisStroke = doc.getElementById('surfaceAxisStroke') || state.controls.axisStroke;
-    state.controls.axisStrokeVal = doc.getElementById('surfaceAxisStrokeVal') || state.controls.axisStrokeVal;
-    state.controls.axisColor = doc.getElementById('surfaceAxisColor') || state.controls.axisColor;
-    state.controls.showGrid = doc.getElementById('surfaceShowGrid') || state.controls.showGrid;
-    state.controls.showFrame = doc.getElementById('surfaceShowFrame') || state.controls.showFrame;
-    state.controls.showPoints = doc.getElementById('surfaceShowPoints') || state.controls.showPoints;
-    state.controls.loadExample = doc.getElementById('surfaceLoadExample') || state.controls.loadExample;
-    state.controls.importBtn = doc.getElementById('surfaceImport') || state.controls.importBtn;
-    state.controls.importFile = doc.getElementById('surfaceFile') || state.controls.importFile;
-    state.controls.graphFileInput = doc.getElementById('surfaceGraphFile') || state.controls.graphFileInput;
+    state.svg = getSurfaceNodeById('surfaceSvg') || state.svg;
+    state.svgBox = state.layout?.elements?.svgBox || querySurfaceRoot('#surfaceGraphPanel .svgbox') || state.svgBox;
+    state.statsEl = getSurfaceNodeById('surfaceStatsSummary') || state.statsEl;
+    state.messageEl = getSurfaceNodeById('surfaceMessage') || state.messageEl;
+    state.exportContainer = getSurfaceNodeById('surfaceExportControls') || state.exportContainer;
+    state.renderRow = getSurfaceNodeById('surfaceRenderRow') || state.renderRow;
+    state.renderButton = getSurfaceNodeById('surfaceRenderButton') || state.renderButton;
+    state.autoDrawNotice = getSurfaceNodeById('surfaceAutoDrawNotice') || state.autoDrawNotice;
+    state.axisSelects.x = getSurfaceNodeById('surfaceXAxis') || state.axisSelects.x;
+    state.axisSelects.y = getSurfaceNodeById('surfaceYAxis') || state.axisSelects.y;
+    state.axisSelects.z = getSurfaceNodeById('surfaceZAxis') || state.axisSelects.z;
+    state.controls.interpolation = getSurfaceNodeById('surfaceInterpolation') || state.controls.interpolation;
+    state.controls.fontSize = getSurfaceNodeById('surfaceFontSize') || state.controls.fontSize;
+    state.controls.fontSizeVal = getSurfaceNodeById('surfaceFontSizeVal') || state.controls.fontSizeVal;
+    state.controls.axisStroke = getSurfaceNodeById('surfaceAxisStroke') || state.controls.axisStroke;
+    state.controls.axisStrokeVal = getSurfaceNodeById('surfaceAxisStrokeVal') || state.controls.axisStrokeVal;
+    state.controls.axisColor = getSurfaceNodeById('surfaceAxisColor') || state.controls.axisColor;
+    state.controls.showGrid = getSurfaceNodeById('surfaceShowGrid') || state.controls.showGrid;
+    state.controls.showFrame = getSurfaceNodeById('surfaceShowFrame') || state.controls.showFrame;
+    state.controls.showPoints = getSurfaceNodeById('surfaceShowPoints') || state.controls.showPoints;
+    state.controls.loadExample = getSurfaceNodeById('surfaceLoadExample') || state.controls.loadExample;
+    state.controls.importBtn = getSurfaceNodeById('surfaceImport') || state.controls.importBtn;
+    state.controls.importFile = getSurfaceNodeById('surfaceFile') || state.controls.importFile;
+    state.controls.graphFileInput = getSurfaceNodeById('surfaceGraphFile') || state.controls.graphFileInput;
   }
 
   function updateAxisOptions(){
@@ -1181,8 +1210,8 @@
       return instance;
     };
     const ensureSurfaceHotForActiveTab = () => {
-      const wrapper = global.document && global.document.getElementById('surfaceHotWrapper');
-      const baseContainer = global.document && global.document.getElementById('surfaceHot');
+      const wrapper = getSurfaceNodeById('surfaceHotWrapper');
+      const baseContainer = getSurfaceNodeById('surfaceHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createSurfaceTable(baseContainer);
@@ -1880,11 +1909,11 @@
         contextLabel: 'surface-export'
       });
     }
-    const saveBtn = global.document.getElementById('saveSurfaceGraph');
+    const saveBtn = getSurfaceNodeById('saveSurfaceGraph');
     if(saveBtn){ attachListener(saveBtn, 'click', () => surface.save()); }
-    const saveAsBtn = global.document.getElementById('saveAsSurface');
+    const saveAsBtn = getSurfaceNodeById('saveAsSurface');
     if(saveAsBtn){ attachListener(saveAsBtn, 'click', () => surface.saveAs()); }
-    const openBtn = global.document.getElementById('openSurfaceGraph');
+    const openBtn = getSurfaceNodeById('openSurfaceGraph');
     if(openBtn){ attachListener(openBtn, 'click', () => surface.open()); }
   }
   function draw(){
@@ -2528,6 +2557,7 @@
       debugLog('Debug: surface.init skipped', { reason: 'ready' });
       return;
     }
+    state.root = resolveSurfaceRoot();
     cacheDom();
     state.scheduleDraw = () => {};
     if(state.renderButton){
@@ -2548,8 +2578,8 @@
         panelResizer: '#surfacePanelResizer',
         hotWrapper: '#surfaceHotWrapper',
         hotContainer: '#surfaceHot',
-        svgBox: () => global.document.querySelector('#surfaceGraphPanel .svgbox'),
-        resizeTarget: () => global.document.querySelector('#surfaceGraphPanel .svgbox')
+        svgBox: () => querySurfaceRoot('#surfaceGraphPanel .svgbox'),
+        resizeTarget: () => querySurfaceRoot('#surfaceGraphPanel .svgbox')
       },
         scheduleDraw: state.scheduleDraw,
         preserveGraphContent: false,
@@ -2658,7 +2688,7 @@
     syncSurfaceAutoDrawNoticeWidth('panel-resync');
     updateAxisOptions();
     ensureEmptyPayloadTemplate();
-    surface.__domSentinel = global.document?.getElementById?.('surfaceHot') || null;
+    surface.__domSentinel = getSurfaceNodeById('surfaceHot');
     surface.ready = true;
     state.scheduleDraw();
   };
@@ -2668,8 +2698,10 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
         sentinelSelector: '#surfaceHot',
+        getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          state.root = info?.root || resolveSurfaceRoot();
           surface.ready = false;
           surface.init();
         }
@@ -2681,13 +2713,16 @@
     if(!surface.ready){ surface.init(); }
   };
   surface.activateTab = function activateTab(tab){
+    state.root = resolveSurfaceRoot(tab || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
         tabLike: tab || null,
         sentinelSelector: '#surfaceHot',
+        getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          state.root = info?.root || resolveSurfaceRoot(tab || null);
           surface.ready = false;
           surface.init();
         }
@@ -2707,8 +2742,8 @@
       const hot = state.ensureHotForActiveTab();
       if(hot){
         ensureSurfaceDataViewsForHot(hot, {
-          wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
-          container: hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+          wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+          container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
         });
         syncSurfaceActiveDataViewFromHot(hot, 'activate-tab');
       }
@@ -2742,7 +2777,7 @@
     }catch(e){ debugLog('Debug: surface activateTab clear failed', { message: e?.message || String(e) }); }
     // schedule a fresh draw for the active tab
     state.scheduleDraw?.();
-    surface.__domSentinel = global.document?.getElementById?.('surfaceHot') || null;
+    surface.__domSentinel = getSurfaceNodeById('surfaceHot');
   };
 
   surface.captureRuntimeState = function captureRuntimeState(){
@@ -2777,8 +2812,8 @@
     const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = state.hot
       ? ensureSurfaceDataViewsForHot(state.hot, {
-          wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
-          container: state.hot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+          wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+          container: state.hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
         })
       : null;
     if(dataManager){
@@ -2957,8 +2992,8 @@
       }
     };
     const activeManager = ensureSurfaceDataViewsForHot(activeHot, {
-      wrapper: global.document?.getElementById?.('surfaceHotWrapper') || null,
-      container: activeHot.__surfaceHostContainer || global.document?.getElementById?.('surfaceHot') || null
+        wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+        container: activeHot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
     });
     syncSurfaceActiveDataViewFromHot(activeHot, 'payload');
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;

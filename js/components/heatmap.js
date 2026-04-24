@@ -8431,26 +8431,45 @@
     state.layout?.syncPanels?.();
     evaluateHeatmapDataShape();
     ensureEmptyPayloadTemplate();
-    heatmap.__domSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(null, 'heatmap')
+      || global.document?.getElementById?.('heatmapPage')
+      || global.document;
+    heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
+      || global.document?.getElementById?.('heatmapLoadExample')
+      || null;
     heatmap.ready = true;
     state.scheduleDraw();
   };
 
+  function ensureHeatmapDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'heatmap',
+      tabLike: tabLike || null,
+      sentinelSelector: '#heatmapLoadExample',
+      getCurrentSentinel: () => heatmap.__domSentinel || null,
+      rebind: () => {
+        debugLog('Debug: heatmap DOM bindings rebind requested');
+        heatmap.ready = false;
+        heatmap.init();
+      }
+    });
+    return !!rebound?.rebound;
+  }
+
   heatmap.ensure = function ensure(){
-    const currentSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
-    if(heatmap.ready && heatmap.__domSentinel && currentSentinel && heatmap.__domSentinel !== currentSentinel){
-      debugLog('Debug: heatmap.ensure refreshing stale DOM bindings');
-      heatmap.ready = false;
+    if(ensureHeatmapDomBindings()){
+      return;
     }
     if(!heatmap.ready){
       heatmap.init();
     }
   };
-  heatmap.activateTab = function activateTab(){
-    const currentSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
-    if(heatmap.ready && heatmap.__domSentinel && currentSentinel && heatmap.__domSentinel !== currentSentinel){
-      debugLog('Debug: heatmap.activateTab refreshing stale DOM bindings');
-      heatmap.ready = false;
+  heatmap.activateTab = function activateTab(tab){
+    if(ensureHeatmapDomBindings(tab)){
+      return;
     }
     if(!heatmap.ready){
       heatmap.init();
@@ -8473,7 +8492,12 @@
       }
     }
     scheduleDeferredHiddenDrawFlush('activate-tab');
-    heatmap.__domSentinel = global.document?.getElementById?.('heatmapLoadExample') || null;
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'heatmap')
+      || global.document?.getElementById?.('heatmapPage')
+      || global.document;
+    heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
+      || global.document?.getElementById?.('heatmapLoadExample')
+      || null;
   };
 
   heatmap.captureRuntimeState = function captureRuntimeState(){

@@ -780,7 +780,16 @@
     }
   });
 
-  window.addEventListener('scroll', () => MainPreviews.hideTabPreviewTooltip('scroll'), true);
+  window.addEventListener('scroll', event => {
+    const target = event?.target;
+    const isViewportScroll = target === window
+      || target === document
+      || target === document.documentElement
+      || target === document.body;
+    if (isViewportScroll) {
+      MainPreviews.hideTabPreviewTooltip('scroll');
+    }
+  }, true);
   window.addEventListener('resize', () => MainPreviews.hideTabPreviewTooltip('resize'));
 
 })();

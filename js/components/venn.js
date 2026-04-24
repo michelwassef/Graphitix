@@ -622,6 +622,60 @@
   const vennTableBindingsByRoot = new WeakMap();
   let vennDocumentHandlersBound = false;
 
+  function getVennSchemeId() {
+    const active = global.Main?.session?.getActiveTab?.();
+    if (active?.type === 'venn') {
+      const payloadScheme = String(active.payload?.style?.colorScheme || '').trim().toLowerCase();
+      if (payloadScheme) {
+        return payloadScheme;
+      }
+    }
+    const uiScheme = String(state.ui?.activeColorScheme || '').trim().toLowerCase();
+    return uiScheme || 'scientific';
+  }
+
+  function isVennDarkScheme() {
+    return getVennSchemeId() === 'dark';
+  }
+
+  function applyVennStageTheme(stage) {
+    if (!stage) return;
+    const dark = isVennDarkScheme();
+    const backgroundColor = dark ? '#000000' : '#ffffff';
+    stage.setAttribute('data-color-scheme', dark ? 'dark' : 'scientific');
+    if (state.ui?.svgBox?.style) {
+      if (dark) {
+        state.ui.svgBox.style.backgroundColor = backgroundColor;
+      } else {
+        state.ui.svgBox.style.removeProperty('background-color');
+      }
+    }
+    let backgroundRect = stage.querySelector('[data-color-scheme-background="1"]');
+    if (dark) {
+      if (!backgroundRect) {
+        backgroundRect = document.createElementNS(NS, 'rect');
+        backgroundRect.setAttribute('data-color-scheme-background', '1');
+        backgroundRect.setAttribute('pointer-events', 'none');
+      }
+      const viewBox = String(stage.getAttribute('viewBox') || '').trim();
+      const parts = viewBox.split(/[\s,]+/).map(v => Number(v)).filter(Number.isFinite);
+      const x = parts.length === 4 ? parts[0] : 0;
+      const y = parts.length === 4 ? parts[1] : 0;
+      const width = parts.length === 4 ? parts[2] : Number(stage.getAttribute('width')) || DEFAULT_STAGE_WIDTH;
+      const height = parts.length === 4 ? parts[3] : Number(stage.getAttribute('height')) || DEFAULT_STAGE_HEIGHT;
+      backgroundRect.setAttribute('x', String(x));
+      backgroundRect.setAttribute('y', String(y));
+      backgroundRect.setAttribute('width', String(width));
+      backgroundRect.setAttribute('height', String(height));
+      backgroundRect.setAttribute('fill', backgroundColor);
+      if (stage.firstChild !== backgroundRect) {
+        stage.insertBefore(backgroundRect, stage.firstChild || null);
+      }
+    } else if (backgroundRect && backgroundRect.parentNode) {
+      backgroundRect.parentNode.removeChild(backgroundRect);
+    }
+  }
+
   function createDefaultVennStyleState(){
     return {
       plotType: normalizePlotType(DEFAULT_PLOT_TYPE),
@@ -1750,7 +1804,7 @@
         el.setAttribute('font-family', fontFamily);
       }
       if (!el.hasAttribute('fill')) {
-        const textColor = chartStyle.TEXT_COLOR || '#000000';
+        const textColor = isVennDarkScheme() ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000');
         el.setAttribute('fill', textColor);
       }
     }
@@ -4040,6 +4094,7 @@
     stage.setAttribute('viewBox', `0 0 ${stageWidth} ${stageHeight}`);
     stage.setAttribute('width', String(stageWidth));
     stage.setAttribute('height', String(stageHeight));
+    applyVennStageTheme(stage);
     debug('Debug: venn stage sizing resolved', {
       stageWidth,
       stageHeight,
@@ -4052,7 +4107,7 @@
       aspectRatio
     });
     const fontFamily = chartStyle.FONT_FAMILY || stage.getAttribute('font-family') || 'Arial, Helvetica, sans-serif';
-    const textColor = chartStyle.TEXT_COLOR || '#000000';
+    const textColor = isVennDarkScheme() ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000');
     stage.setAttribute('font-family', fontFamily);
     stage.setAttribute('color', textColor);
     stage.setAttribute('font-size', String(style.fontSizePx));
@@ -5642,6 +5697,7 @@
       },
       style: {
         plotType: getActivePlotType(),
+        colorScheme: getVennSchemeId(),
         colorA: getVennInputValue(inputs, 'colorA', defaultStyle.colorA),
         colorB: getVennInputValue(inputs, 'colorB', defaultStyle.colorB),
         colorC: getVennInputValue(inputs, 'colorC', defaultStyle.colorC),
@@ -5838,6 +5894,7 @@
     const s = obj.style && typeof obj.style === 'object'
       ? { ...defaultStyle, ...obj.style }
       : defaultStyle;
+    state.ui.activeColorScheme = String(s.colorScheme || '').trim().toLowerCase() || 'scientific';
     const notesConfig = (obj.notes && typeof obj.notes === 'object')
       ? obj.notes
       : (s.notes && typeof s.notes === 'object' ? s.notes : null);
@@ -7235,6 +7292,7 @@
       try{ state.analysis.goChart.destroy(); }catch(e){}
       state.analysis.goChart = null;
     }
+    applyVennStageTheme(state.ui.stage);
     const goChartRestored = restoreCanvasSnapshot(document.getElementById('goChart'), cache.goChart);
     const restored = restoredStage || restoredRegion || restoredSignificance || restoredGo || restoredString || restoredNetwork || restoredRegionOptions || goChartRestored;
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
@@ -7261,6 +7319,22 @@
     } catch (e) {
       console.error('venn.draw error', e);
     }
+  };
+
+  function resolveVennPreviewSourceSvg(tab){
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'venn')
+      || state.ui.root
+      || document.getElementById('vennPage')
+      || document;
+    return mountedRoot?.querySelector?.('#stage') || state.ui.stage || null;
+  }
+
+  venn.getThumbnailSvg = function getThumbnailSvg(tab){
+    return resolveVennPreviewSourceSvg(tab);
+  };
+
+  venn.getPreviewSvg = function getPreviewSvg(tab){
+    return resolveVennPreviewSourceSvg(tab);
   };
 
   venn.ensure = function ensure() {

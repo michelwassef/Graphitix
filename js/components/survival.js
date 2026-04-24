@@ -858,6 +858,27 @@
   }
 
   const refs = {};
+  function resolveSurvivalRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'survival')
+      || refs.root
+      || global.document?.getElementById?.('survivalPage')
+      || global.document
+      || null;
+  }
+
+  function getSurvivalNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveSurvivalRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
   function ensureSurvivalCoxReportHost(){
     const reporting = Shared.statsReporting;
     if(!refs.statsCox || !reporting || typeof reporting.ensureReportHost !== 'function'){
@@ -902,7 +923,7 @@
   };
 
   function $(selector){
-    return document.querySelector(selector);
+    return resolveSurvivalRoot()?.querySelector?.(selector) || null;
   }
 
   function logDebug(message, payload){
@@ -5145,6 +5166,7 @@
     if(survival.ready){
       return;
     }
+    refs.root = resolveSurvivalRoot();
     if(!ensureElements()){
       console.warn('Survival component init skipped: required elements missing');
       return;
@@ -5206,7 +5228,7 @@
       logRank: { available: false }
     });
     ensureEmptyPayloadTemplate();
-    survival.__domSentinel = global.document?.getElementById?.('survivalHot') || null;
+    survival.__domSentinel = getSurvivalNodeById('survivalHot');
     survival.ready = true;
     state.scheduleDraw?.();
     logDebug('component initialized', { ready: survival.ready });
@@ -5219,8 +5241,10 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
         sentinelSelector: '#survivalHot',
+        getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          refs.root = info?.root || resolveSurvivalRoot();
           survival.ready = false;
           init();
         }
@@ -5234,13 +5258,16 @@
     }
   };
   survival.activateTab = function activateTab(tab){
+    refs.root = resolveSurvivalRoot(tab || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
         tabLike: tab || null,
         sentinelSelector: '#survivalHot',
+        getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          refs.root = info?.root || resolveSurvivalRoot(tab || null);
           survival.ready = false;
           init();
         }
@@ -5256,7 +5283,7 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
-    survival.__domSentinel = global.document?.getElementById?.('survivalHot') || null;
+    survival.__domSentinel = getSurvivalNodeById('survivalHot');
   };
 
   function detachChildren(node){

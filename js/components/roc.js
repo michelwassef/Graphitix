@@ -390,6 +390,23 @@
     }
   }
 
+  function resolveRocTextLockScope(){
+    const tabId = resolveActiveTabId();
+    return tabId ? `rocGraphPanel::@tab:${tabId}` : 'rocGraphPanel';
+  }
+
+  function applyRocTextLockScope(){
+    const scopeId = resolveRocTextLockScope();
+    if(refs.svgBox?.dataset){
+      refs.svgBox.dataset.resizerTextLockScope = scopeId;
+      refs.svgBox.dataset.textLockScope = scopeId;
+    }
+    if(refs.fontSize?.dataset){
+      refs.fontSize.dataset.textLockScope = scopeId;
+    }
+    return scopeId;
+  }
+
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -458,6 +475,7 @@
 
   const state = {
     hot: null,
+    root: null,
     scheduleDraw: null,
     borderWidth: DEFAULT_ROC_BORDER_WIDTH,
     labelColors: {},
@@ -488,6 +506,36 @@
   let scheduleDrawRocRaw = () => {};
   let rocFontEventBound = false;
   let rocDataViewsManager = null;
+
+  function resolveRocRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'roc')
+      || state.root
+      || global.document?.getElementById?.('rocPage')
+      || global.document
+      || null;
+  }
+
+  function queryRocRoot(selector, tabLike){
+    const root = resolveRocRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+
+  function getRocNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveRocRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
 
   function scheduleRocViewRefresh(reason){
     if(typeof state.scheduleDraw !== 'function'){
@@ -624,7 +672,7 @@
 
   const syncRocAutoDrawNoticeWidth = (reason) => {
     const svgBox = refs.svgBox || refs.graphPanel?.querySelector?.('.svgbox');
-    const renderRow = refs.renderRow || document.getElementById('rocRenderRow');
+    const renderRow = refs.renderRow || getRocNodeById('rocRenderRow');
     if(!svgBox || !renderRow){
       return;
     }
@@ -966,29 +1014,29 @@
   };
 
   function $(selector){
-    return document.querySelector(selector);
+    return queryRocRoot(selector);
   }
 
   function ensureElements(){
-    refs.tablePanel = document.getElementById('rocTablePanel');
-    refs.graphPanel = document.getElementById('rocGraphPanel');
-    refs.panelResizer = document.getElementById('rocPanelResizer');
+    refs.tablePanel = getRocNodeById('rocTablePanel');
+    refs.graphPanel = getRocNodeById('rocGraphPanel');
+    refs.panelResizer = getRocNodeById('rocPanelResizer');
     refs.svgBox = refs.graphPanel?.querySelector('.svgbox');
     refs.configPanel = refs.graphPanel?.querySelector('.config-panel');
-    refs.hotContainer = document.getElementById('rocHot');
-    refs.hotWrapper = document.getElementById('rocHotWrapper');
-    refs.plotDiv = document.getElementById('rocPlot');
-    refs.statsResults = document.getElementById('rocStatsResults');
+    refs.hotContainer = getRocNodeById('rocHot');
+    refs.hotWrapper = getRocNodeById('rocHotWrapper');
+    refs.plotDiv = getRocNodeById('rocPlot');
+    refs.statsResults = getRocNodeById('rocStatsResults');
     ensureRocStatsReportHost();
-    refs.statsControls = document.getElementById('rocStatsControls');
-    refs.renderRow = document.getElementById('rocRenderRow');
-    refs.renderButton = document.getElementById('rocRenderButton');
-    refs.autoDrawNotice = document.getElementById('rocAutoDrawNotice');
-    refs.showGrid = document.getElementById('rocShowGrid');
-    refs.showFrame = document.getElementById('rocShowFrame');
-    refs.fontSize = document.getElementById('rocFontSize');
-    refs.fontSizeVal = document.getElementById('rocFontSizeVal');
-    refs.showLegend = document.getElementById('rocShowLegend');
+    refs.statsControls = getRocNodeById('rocStatsControls');
+    refs.renderRow = getRocNodeById('rocRenderRow');
+    refs.renderButton = getRocNodeById('rocRenderButton');
+    refs.autoDrawNotice = getRocNodeById('rocAutoDrawNotice');
+    refs.showGrid = getRocNodeById('rocShowGrid');
+    refs.showFrame = getRocNodeById('rocShowFrame');
+    refs.fontSize = getRocNodeById('rocFontSize');
+    refs.fontSizeVal = getRocNodeById('rocFontSizeVal');
+    refs.showLegend = getRocNodeById('rocShowLegend');
     if(refs.showLegend){
       const legendHost = refs.showLegend.closest('label');
       if(legendHost){
@@ -996,15 +1044,15 @@
         ensureRocLegendControlPlacement();
       }
     }
-      refs.graphType = document.getElementById('rocGraphType');
+      refs.graphType = getRocNodeById('rocGraphType');
       attachRocSelectAutoSize(refs.graphType, 'roc');
-    refs.loadExampleBtn = document.getElementById('rocLoadExample');
-    refs.importBtn = document.getElementById('rocImport');
-    refs.fileInput = document.getElementById('rocFile');
-    refs.openBtn = document.getElementById('openRocGraph');
-    refs.saveBtn = document.getElementById('saveRocGraph');
-    refs.saveAsBtn = document.getElementById('saveAsRoc');
-    refs.graphFileInput = document.getElementById('rocGraphFile');
+    refs.loadExampleBtn = getRocNodeById('rocLoadExample');
+    refs.importBtn = getRocNodeById('rocImport');
+    refs.fileInput = getRocNodeById('rocFile');
+    refs.openBtn = getRocNodeById('openRocGraph');
+    refs.saveBtn = getRocNodeById('saveRocGraph');
+    refs.saveAsBtn = getRocNodeById('saveAsRoc');
+    refs.graphFileInput = getRocNodeById('rocGraphFile');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
 
@@ -1051,8 +1099,8 @@
   }
 
   function ensureHotForActiveTab(){
-    const wrapper = refs.hotWrapper || document.getElementById('rocHotWrapper');
-    const baseContainer = refs.hotContainer || document.getElementById('rocHot');
+    const wrapper = refs.hotWrapper || getRocNodeById('rocHotWrapper');
+    const baseContainer = refs.hotContainer || getRocNodeById('rocHot');
     const tabId = resolveActiveTabId() || 'roc-default';
     if(!Shared.hot?.mountTableForTab || !wrapper){
       if(!state.hot && baseContainer){
@@ -1117,8 +1165,8 @@
       console.debug('Debug: roc data views manager created');
     }
     const manager = hotInstance.__rocDataViewsManager;
-    const hostWrapper = options.wrapper || refs.hotWrapper || document.getElementById('rocHotWrapper');
-    const hostContainer = options.container || hotInstance.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot');
+    const hostWrapper = options.wrapper || refs.hotWrapper || getRocNodeById('rocHotWrapper');
+    const hostContainer = options.container || hotInstance.__rocHostContainer || refs.hotContainer || getRocNodeById('rocHot');
     if(hostWrapper && hostContainer){
       manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
       manager.refresh?.();
@@ -1286,7 +1334,7 @@
   }
 
   function renderRocStatsAdvisor(rawContext){
-    const container=document.getElementById('rocStatsAdvisor');
+    const container = getRocNodeById('rocStatsAdvisor');
     if(!container){
       return;
     }
@@ -2259,6 +2307,7 @@
     const showGrid = !!refs.showGrid?.checked;
     const showFrame = !!refs.showFrame?.checked;
     console.debug('Debug: roc showFrame state',{showFrame});
+    const textLockScope = applyRocTextLockScope();
     const containerRect=refs.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: refs.fontSize?.value,
@@ -2267,6 +2316,9 @@
       svgBox: refs.svgBox,
       input: refs.fontSize
     });
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: roc draw text lock scope enforced', { scope: textLockScope });
+    }
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
@@ -3093,8 +3145,8 @@
   function getPayload(){
     const activeHot = ensureHotForActiveTab();
     const activeManager = ensureRocDataViewsForHot(activeHot, {
-      wrapper: refs.hotWrapper || document.getElementById('rocHotWrapper'),
-      container: activeHot?.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot')
+      wrapper: refs.hotWrapper || getRocNodeById('rocHotWrapper'),
+      container: activeHot?.__rocHostContainer || refs.hotContainer || getRocNodeById('rocHot')
     });
     syncRocActiveDataViewFromHot(activeHot, 'payload');
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
@@ -3214,8 +3266,8 @@
     const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = state.hot
       ? ensureRocDataViewsForHot(state.hot, {
-          wrapper: refs.hotWrapper || document.getElementById('rocHotWrapper'),
-          container: state.hot.__rocHostContainer || refs.hotContainer || document.getElementById('rocHot')
+          wrapper: refs.hotWrapper || getRocNodeById('rocHotWrapper'),
+          container: state.hot.__rocHostContainer || refs.hotContainer || getRocNodeById('rocHot')
         })
       : null;
     if(dataManager){
@@ -3512,6 +3564,7 @@
     if(roc.ready){
       return;
     }
+    state.root = resolveRocRoot();
     if(!ensureElements()){
       console.warn('ROC component init skipped: required elements missing');
       return;
@@ -3590,8 +3643,8 @@
         panelResizer: '#rocPanelResizer',
         hotWrapper: '#rocHotWrapper',
         hotContainer: '#rocHot',
-        svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
-        resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
+        svgBox: () => queryRocRoot('#rocGraphPanel .svgbox'),
+        resizeTarget: () => queryRocRoot('#rocGraphPanel .svgbox')
       },
         scheduleDraw: state.scheduleDraw,
         preserveGraphContent: false,
@@ -3608,6 +3661,7 @@
         console.debug('Debug: roc layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
+        textLockScope: resolveRocTextLockScope(),
         onResize: () => {
           console.debug('Debug: roc layout onResize schedule trigger');
           ensureRocLegendControlPlacement();
@@ -3633,13 +3687,14 @@
     state.layout?.syncPanels?.();
     scheduleRocNoticeWidth('init');
     ensureHotForActiveTab();
+    applyRocTextLockScope();
     initControls();
     initNotes();
     initExampleAndImport();
     initExportsAndFiles();
     state.scheduleDraw?.();
     ensureEmptyPayloadTemplate();
-    roc.__domSentinel = global.document?.getElementById?.('rocHot') || null;
+    roc.__domSentinel = getRocNodeById('rocHot');
     roc.ready = true;
     console.debug('Debug: ROC component initialized');
     global.scheduleDrawRoc = () => state.scheduleDraw?.();
@@ -3651,8 +3706,10 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'roc',
         sentinelSelector: '#rocHot',
+        getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => roc.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          state.root = info?.root || resolveRocRoot();
           roc.ready = false;
           init();
         }
@@ -3666,13 +3723,16 @@
     }
   };
   roc.activateTab = function activateTab(tab){
+    state.root = resolveRocRoot(tab || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'roc',
         tabLike: tab || null,
         sentinelSelector: '#rocHot',
+        getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => roc.__domSentinel || null,
-        rebind: () => {
+        rebind: (info) => {
+          state.root = info?.root || resolveRocRoot(tab || null);
           roc.ready = false;
           init();
         }
@@ -3682,7 +3742,8 @@
       }
     }
     ensureHotForActiveTab();
-    roc.__domSentinel = global.document?.getElementById?.('rocHot') || null;
+    applyRocTextLockScope();
+    roc.__domSentinel = getRocNodeById('rocHot');
   };
   roc.draw = () => { void runRocDrawCycle(); };
   roc.scheduleDraw = () => state.scheduleDraw?.();
@@ -3719,8 +3780,8 @@
   }
 
   roc.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('rocPlot');
-    const stats = document.getElementById('rocStatsResults');
+    const plot = getRocNodeById('rocPlot');
+    const stats = getRocNodeById('rocStatsResults');
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -3734,8 +3795,8 @@
 
   roc.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = document.getElementById('rocPlot');
-    const stats = document.getElementById('rocStatsResults');
+    const plot = getRocNodeById('rocPlot');
+    const stats = getRocNodeById('rocStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;

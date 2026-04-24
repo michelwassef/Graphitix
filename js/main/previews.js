@@ -17,6 +17,21 @@
   let tabPreviewLastAnchorRect = null;
   const tabPreviewHybridRequests = new Map();
 
+  function resolvePreviewRoot(config, tab) {
+    const type = String(tab?.type || config?.type || '').trim();
+    const mounted = window.Shared?.workspaceTabs?.getMountedRoot?.(tab || null, type) || null;
+    if (mounted && typeof mounted.querySelector === 'function') {
+      return mounted;
+    }
+    if (config?.activeElement && typeof config.activeElement.querySelector === 'function') {
+      return config.activeElement;
+    }
+    if (config?.element && typeof config.element.querySelector === 'function') {
+      return config.element;
+    }
+    return null;
+  }
+
   function buildPreviewPlaceholder(width, height, meta = {}) {
     if (!document) {
       return null;
@@ -624,14 +639,17 @@
   }
 
   function captureWorkspacePreview(config, tab) {
-    if (!config || !config.element) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
+    const previewRoot = resolvePreviewRoot(config, tab);
+    if (!config || !previewRoot) {
+      console.debug('Debug: preview capture skipped', { reason: 'no-preview-root', type: config?.type || null, tabId: tab?.id || null });
       return null;
     }
     let svg = null;
+    let svgFromGetter = false;
     if (typeof config.getPreviewSvg === 'function') {
       try {
         svg = config.getPreviewSvg(tab) || null;
+        svgFromGetter = !!svg;
       } catch (err) {
         console.debug('Debug: preview getPreviewSvg failed', {
           type: config.type,
@@ -640,15 +658,16 @@
         });
       }
     }
-    if (!svg) {
-      svg = config.element.querySelector('.svgbox svg');
+    const rootContainsSvg = node => !!(node && previewRoot && typeof previewRoot.contains === 'function' && previewRoot.contains(node));
+    if (!svg || (!svgFromGetter && !rootContainsSvg(svg))) {
+      svg = previewRoot.querySelector('.svgbox svg');
     }
     if (!svg) {
-      const tagged = config.element.querySelector('svg[data-preview-source="true"]');
+      const tagged = previewRoot.querySelector('svg[data-preview-source="true"]');
       if (tagged) {
         svg = tagged;
       } else {
-        const candidates = Array.from(config.element.querySelectorAll('svg'));
+        const candidates = Array.from(previewRoot.querySelectorAll('svg'));
         svg = candidates.find(node => !node.closest('.workspace-toolbar')) || candidates[0] || null;
       }
     }
@@ -832,8 +851,10 @@
           }
         })()
       : null;
+    const previewRoot = resolvePreviewRoot(config, tab);
+    const rootSvg = previewRoot?.querySelector?.('.svgbox svg') || null;
     const renderCacheSequence = getRenderCacheSequence(tab);
-    const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || config.element?.querySelector?.('.svgbox svg') || null, config.type)
+    const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || rootSvg || null, config.type)
       && !tab.previewMeta?.hybrid
       && !tab.previewMeta?.canvasBitmap
       && !tab.previewMeta?.canvasSimplified;
@@ -1060,9 +1081,9 @@
         });
       }
     } else {
-      // Never capture an inactive tab preview from the currently displayed workspace.
-      // Inactive tabs must reuse only their own stored preview to avoid cross-tab leakage
-      // between tabs of the same component.
+      if (config) {
+        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
+      }
       console.debug('Debug: preview hover using stored inactive preview', {
         tabId: tab.id,
         hasPreview: !!tab.previewMarkup

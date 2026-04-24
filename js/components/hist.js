@@ -536,8 +536,28 @@
       xLabel: null,
       yLabel: null,
       legend: null
-    }
+    },
+    root: null
   };
+
+  function resolveHistRoot(){
+    return state.root
+      || Shared.workspaceTabs?.getMountedRoot?.(null, 'hist')
+      || global.document?.getElementById?.('histPage')
+      || global.document;
+  }
+
+  function queryHistRoot(selector){
+    const root = resolveHistRoot();
+    return root?.querySelector?.(selector) || null;
+  }
+
+  function getHistNodeById(id){
+    if(!id){
+      return null;
+    }
+    return queryHistRoot(`#${id}`) || global.document?.getElementById?.(id) || null;
+  }
 
   function createImmutableHistDefaultConfig(){
     const defaultPlotMode = HIST_PLOT_MODE_HISTOGRAM;
@@ -664,8 +684,8 @@
     message: 'Rendering histogram...',
     getHost: () => (
       state.svgBox
-      || document.querySelector('#histGraphPanel .svgbox')
-      || document.getElementById('histGraphPanel')
+      || queryHistRoot('#histGraphPanel .svgbox')
+      || getHistNodeById('histGraphPanel')
     )
   });
 
@@ -5270,7 +5290,12 @@
       tabLike: tabLike || null,
       sentinelSelector: '#histHot',
       getCurrentSentinel: () => hist.__domSentinel || null,
-      rebind: () => {
+      rebind: info => {
+        state.root = info?.root
+          || Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'hist')
+          || state.root
+          || global.document?.getElementById?.('histPage')
+          || global.document;
         hist.ready = false;
         hist.init();
       }
@@ -5281,6 +5306,9 @@
   hist.init = function init(){
     if (hist.ready) { histDebug('Debug: Components.hist.init skipped (already ready)'); return; }
     histDebug('Debug: Components.hist.init');
+    state.root = Shared.workspaceTabs?.getMountedRoot?.(null, 'hist')
+      || global.document?.getElementById?.('histPage')
+      || global.document;
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
@@ -5291,8 +5319,8 @@
           panelResizer: '#histPanelResizer',
           hotWrapper: '#histHotWrapper',
           hotContainer: '#histHot',
-          svgBox: () => document.querySelector('#histGraphPanel .svgbox'),
-          resizeTarget: () => document.querySelector('#histGraphPanel .svgbox')
+          svgBox: () => queryHistRoot('#histGraphPanel .svgbox'),
+          resizeTarget: () => queryHistRoot('#histGraphPanel .svgbox')
         },
         scheduleDraw: state.scheduleDraw,
         preserveGraphContent: false,
@@ -5316,9 +5344,9 @@
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
-    histRenderRowEl = document.getElementById('histRenderRow');
-    histRenderButtonEl = document.getElementById('histRenderButton');
-    histAutoDrawNoticeEl = document.getElementById('histAutoDrawNotice');
+    histRenderRowEl = getHistNodeById('histRenderRow');
+    histRenderButtonEl = getHistNodeById('histRenderButton');
+    histAutoDrawNoticeEl = getHistNodeById('histAutoDrawNotice');
     if(histRenderButtonEl){
       histRenderButtonEl.addEventListener('click', () => {
         histDebug('Debug: hist manual render button');
@@ -5412,7 +5440,7 @@
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
-    hist.__domSentinel = global.document?.getElementById?.('histHot') || null;
+    hist.__domSentinel = getHistNodeById('histHot');
     hist.ready = true;
   };
 
@@ -5423,6 +5451,10 @@
     if (!hist.ready) hist.init();
   };
   hist.activateTab = function activateTab(tab){
+    state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'hist')
+      || state.root
+      || global.document?.getElementById?.('histPage')
+      || global.document;
     if(ensureHistDomBindings(tab)){
       return;
     }
@@ -5434,13 +5466,13 @@
       const hot = state.ensureHotForActiveTab();
       if(hot){
         ensureHistDataViewsForHot(hot, {
-          wrapper: document.getElementById('histHotWrapper'),
-          container: hot.__histHostContainer || document.getElementById('histHot')
+          wrapper: getHistNodeById('histHotWrapper'),
+          container: hot.__histHostContainer || getHistNodeById('histHot')
         });
         syncHistActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
-    hist.__domSentinel = global.document?.getElementById?.('histHot') || null;
+    hist.__domSentinel = getHistNodeById('histHot');
   };
 
   function detachChildren(node){
@@ -5466,8 +5498,8 @@
   }
 
   hist.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('histPlot');
-    const stats = document.getElementById('histStatsResults');
+    const plot = getHistNodeById('histPlot');
+    const stats = getHistNodeById('histStatsResults');
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -5481,8 +5513,8 @@
 
   hist.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = document.getElementById('histPlot');
-    const stats = document.getElementById('histStatsResults');
+    const plot = getHistNodeById('histPlot');
+    const stats = getHistNodeById('histStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;

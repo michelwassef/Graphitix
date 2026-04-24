@@ -217,6 +217,7 @@
       element: document.getElementById('vennPage'),
       ensure: () => ensureComponent('venn'),
       draw: () => window.Components?.venn?.draw?.(),
+      getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
       getPayload: () => window.Components?.venn?.getPayload?.(),
       loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),

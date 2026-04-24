@@ -10590,6 +10590,45 @@
     return Shared.workspaceTabs?.getActiveSessionInfo?.('box') || null;
   }
 
+  function resolveBoxRoot(tabLike = null){
+    const resolver = Shared.workspaceTabs?.resolveComponentRoot;
+    if(typeof resolver === 'function'){
+      const resolved = resolver('box', tabLike || null);
+      if(resolved){
+        return resolved;
+      }
+    }
+    return global.document?.getElementById?.('boxPage') || null;
+  }
+
+  function getBoxNodeById(id, options = {}){
+    if(!id){
+      return null;
+    }
+    const root = options.root || resolveBoxRoot(options.tabLike || null);
+    if(root && typeof root.querySelector === 'function'){
+      const scoped = root.querySelector(`#${id}`);
+      if(scoped){
+        return scoped;
+      }
+    }
+    return global.document?.getElementById?.(id) || null;
+  }
+
+  function queryBoxNode(selector, options = {}){
+    if(typeof selector !== 'string' || !selector.trim()){
+      return null;
+    }
+    const root = options.root || resolveBoxRoot(options.tabLike || null);
+    if(root && typeof root.querySelector === 'function'){
+      const scoped = root.querySelector(selector);
+      if(scoped){
+        return scoped;
+      }
+    }
+    return global.document?.querySelector?.(selector) || null;
+  }
+
   function buildBoxSessionMeta(options = {}){
     if(options?.__workspaceSessionMeta && typeof options.__workspaceSessionMeta === 'object'){
       return {
@@ -11868,8 +11907,8 @@
     getHost: () => (
       els.svgBox
       || els.graphPanel?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('boxGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('boxGraphPanel')
+      || getBoxNodeById('boxGraphPanel')?.querySelector?.('.svgbox')
+      || getBoxNodeById('boxGraphPanel')
     )
   });
 
@@ -12503,7 +12542,7 @@
   }
 
   function updateStatsCorrectionSummary(count){
-    const noteEl=global.document.getElementById('statsCorrectionNote');
+    const noteEl = els.statsCorrectionNote || getBoxNodeById('statsCorrectionNote');
     if(!noteEl){
       console.debug('Debug: box updateStatsCorrectionSummary missing element');
       return;
@@ -12582,17 +12621,18 @@
 
   // PART: CACHE_ELS
   function cacheEls(){
-    els.tablePanel = global.document.getElementById('boxTablePanel');
-    els.graphPanel = global.document.getElementById('boxGraphPanel');
-    els.panelResizer = global.document.getElementById('boxPanelResizer');
+    const root = resolveBoxRoot();
+    els.tablePanel = getBoxNodeById('boxTablePanel', { root });
+    els.graphPanel = getBoxNodeById('boxGraphPanel', { root });
+    els.panelResizer = getBoxNodeById('boxPanelResizer', { root });
     els.svgBox = els.graphPanel?.querySelector('.svgbox');
     els.configPanel = els.graphPanel?.querySelector('.config-panel');
-      els.hotContainer = global.document.getElementById('hot');
-      els.hotWrapper = global.document.getElementById('hotWrapper');
-      els.plotDiv = global.document.getElementById('boxPlot');
-      els.tableFormat = global.document.getElementById('boxTableFormat');
-      els.groupedControls = global.document.getElementById('boxGroupedControls');
-    els.groupedReplicates = global.document.getElementById('boxGroupedReplicates');
+      els.hotContainer = getBoxNodeById('hot', { root });
+      els.hotWrapper = getBoxNodeById('hotWrapper', { root });
+      els.plotDiv = getBoxNodeById('boxPlot', { root });
+      els.tableFormat = getBoxNodeById('boxTableFormat', { root });
+      els.groupedControls = getBoxNodeById('boxGroupedControls', { root });
+    els.groupedReplicates = getBoxNodeById('boxGroupedReplicates', { root });
     // Controls
     els.boxColorUnified=global.$('#boxColorUnified');
     els.boxColorIndividual=global.$('#boxColorIndividual');
@@ -12715,16 +12755,19 @@
     els.boxColorPerBox=global.$('#boxColorPerBox');
     els.boxYMin=global.$('#boxYMin');
     els.boxYMax=global.$('#boxYMax');
-    els.statsControls=global.document.getElementById('statsControls');
-    els.statsResults=global.document.getElementById('statsResults');
+    els.statsControls = getBoxNodeById('statsControls', { root });
+    els.statsResults = getBoxNodeById('statsResults', { root });
     attachBoxStatsExtraControlFactory();
-    els.statsTable=global.document.getElementById('statsTable');
-    els.statsReportHost=global.document.getElementById('boxStatsReportHost');
+    els.statsTable = getBoxNodeById('statsTable', { root });
+    els.statsReportHost = getBoxNodeById('boxStatsReportHost', { root });
+    els.statsCorrectionNote = getBoxNodeById('statsCorrectionNote', { root });
+    els.statsPostHocHelp = getBoxNodeById('statsPostHocHelp', { root });
+    els.statsActionRow = getBoxNodeById('boxStatsActionRow', { root });
     if(els.statsResults){
       els.statsResults.__statsReportHost = els.statsReportHost || null;
     }
-    els.statsButton=global.document.getElementById('boxComputeStats');
-    els.statsStatus=global.document.getElementById('boxStatsStatus');
+    els.statsButton = getBoxNodeById('boxComputeStats', { root });
+    els.statsStatus = getBoxNodeById('boxStatsStatus', { root });
     ensureBoxStatsActionRowPlacement();
     if(els.statsButton && !els.statsButton.dataset?.boxHandlerAttached){
       els.statsButton.addEventListener('click', handleStatsComputeClick);
@@ -13183,7 +13226,7 @@
   }
 
   function resolveBoxPlotSvgRoot(){
-    const plot = global.document?.getElementById?.('boxPlot');
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
     if(!plot || typeof plot.querySelectorAll !== 'function'){
       return null;
     }
@@ -13225,7 +13268,7 @@
   }
 
   function resolveBoxPointNodesForLiveStyle(){
-    const plot = global.document?.getElementById?.('boxPlot');
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
     if(!plot || typeof plot.querySelectorAll !== 'function'){
       return [];
     }
@@ -13235,7 +13278,7 @@
   }
 
   function resolveBoxPointGroupsForLiveStyle(traceIndex){
-    const plot = global.document?.getElementById?.('boxPlot');
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
     if(!plot || typeof plot.querySelectorAll !== 'function'){
       return [];
     }
@@ -14941,8 +14984,8 @@
       return instance;
     };
     const ensureBoxHotForActiveTab = () => {
-      const wrapper = global.document.getElementById('hotWrapper');
-      const baseContainer = global.document.getElementById('hot');
+      const wrapper = els.hotWrapper || getBoxNodeById('hotWrapper');
+      const baseContainer = els.hotContainer || getBoxNodeById('hot');
       if(!baseContainer){
         if(Shared.isDebugEnabled?.()){
           console.debug('Debug: box ensure table skipped (missing container)');
@@ -19642,7 +19685,7 @@
     return button;
   }
   function attachBoxStatsExtraControlFactory(){
-    const statsDiv=global.document.getElementById('statsResults');
+    const statsDiv = els.statsResults || getBoxNodeById('statsResults');
     if(!statsDiv){
       return;
     }
@@ -19673,7 +19716,7 @@
   let statsResultsPValueInterval=null;
   let statsSummaryTabIdCounter=0;
   function refreshStatsResultsPValueObserver(){
-    const statsDiv=global.document.getElementById('statsResults');
+    const statsDiv = els.statsResults || getBoxNodeById('statsResults');
     if(statsResultsPValueObserver){
       try{
         statsResultsPValueObserver.disconnect();
@@ -21469,7 +21512,7 @@
   }
 
   function renderStatsControls(traces){
-  const controls=document.getElementById('statsControls');
+  const controls = els.statsControls || getBoxNodeById('statsControls');
   if(!controls){
     return;
   }
@@ -22216,7 +22259,7 @@
   });
   appendInline(nonParamEffectLabel, nonParamEffectSel, true, advancedBody);
 
-  const postHocHelp=document.getElementById('statsPostHocHelp');
+  const postHocHelp = els.statsPostHocHelp || getBoxNodeById('statsPostHocHelp');
   if(postHocHelp){
     if(oneSampleMode){
       postHocHelp.textContent='One-sample mode compares each selected group with the null value above.';
@@ -23367,7 +23410,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box annotateOverall scaling',{baseOffset,levelGap,fontSize,orientation,color});
   }
   function renderStatsTable(traces){
-    const tableDiv=document.getElementById('statsTable');
+    const tableDiv = els.statsTable || getBoxNodeById('statsTable');
     if(!tableDiv) return;
     const tableRows=traces.map(t=>{
       const summary = (t.summary && Number.isFinite(t.summary.count))
@@ -23558,12 +23601,12 @@ Technical analysis record (advanced)
   }
 
   function ensureBoxStatsActionRowPlacement(){
-    const actionRow = global.document.getElementById('boxStatsActionRow');
-    const results = global.document.getElementById('statsResults');
-    const table = global.document.getElementById('statsTable');
-    const note = global.document.getElementById('statsCorrectionNote');
-    const help = global.document.getElementById('statsPostHocHelp');
-    const controls = global.document.getElementById('statsControls');
+    const actionRow = els.statsActionRow || getBoxNodeById('boxStatsActionRow');
+    const results = els.statsResults || getBoxNodeById('statsResults');
+    const table = els.statsTable || getBoxNodeById('statsTable');
+    const note = els.statsCorrectionNote || getBoxNodeById('statsCorrectionNote');
+    const help = els.statsPostHocHelp || getBoxNodeById('statsPostHocHelp');
+    const controls = els.statsControls || getBoxNodeById('statsControls');
     if(!actionRow || !actionRow.parentNode){
       return false;
     }
@@ -23586,7 +23629,7 @@ Technical analysis record (advanced)
 
   function getBoxStatsReportHost(){
     return els.statsReportHost
-      || global.document.getElementById('boxStatsReportHost')
+      || getBoxNodeById('boxStatsReportHost')
       || null;
   }
 
@@ -23935,7 +23978,7 @@ Technical analysis record (advanced)
   }
 
   function renderBoxStatsFromModel(model, context){
-    const statsDiv = global.document.getElementById('statsResults');
+    const statsDiv = els.statsResults || getBoxNodeById('statsResults');
     if(!statsDiv){
       console.warn('Debug: statsResults element not found');
       return false;
@@ -24890,7 +24933,7 @@ Technical analysis record (advanced)
 
   // Compute and render statistics and p-value annotations
   function computeStats(traces,svg,helpers){
-    const statsDiv=document.getElementById('statsResults');
+    const statsDiv = els.statsResults || getBoxNodeById('statsResults');
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
     statsDiv.innerHTML='';
     if(svg && typeof svg.querySelectorAll==='function'){
@@ -26959,7 +27002,7 @@ Technical analysis record (advanced)
       if(els.boxColorPerBox){
         els.boxColorPerBox.innerHTML='';
       }
-      const boxPlotEl = global.document.getElementById('boxPlot');
+      const boxPlotEl = els.plotDiv || getBoxNodeById('boxPlot');
       if(typeof Shared.renderPlotNotice === 'function'){
         Shared.renderPlotNotice(boxPlotEl, Shared.getEmptyPlotNoticeMessage ? Shared.getEmptyPlotNoticeMessage() : null, { resetAspect: true, show: true });
       }else if(boxPlotEl){
@@ -27021,10 +27064,19 @@ Technical analysis record (advanced)
       const hasNonPos = hasNonPositiveRaw === true
         || traces.some(t => Array.isArray(t?.rawY) && t.rawY.some(v => Number.isFinite(v) && v <= 0));
       if(hasNonPos && !logPlusOne){
-        global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
-        global.document.getElementById('statsResults').innerHTML='';
+        const plotEl = els.plotDiv || getBoxNodeById('boxPlot');
+        const statsEl = els.statsResults || getBoxNodeById('statsResults');
+        const tableEl = els.statsTable || getBoxNodeById('statsTable');
+        if(plotEl){
+          plotEl.innerHTML='<i>Log scale requires positive values.</i>';
+        }
+        if(statsEl){
+          statsEl.innerHTML='';
+        }
         clearBoxStatsReportHost();
-        global.document.getElementById('statsTable').innerHTML='';
+        if(tableEl){
+          tableEl.innerHTML='';
+        }
         applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'log-scale-invalid', resizeContainer: true });
         return;
       }
@@ -32384,7 +32436,7 @@ Technical analysis record (advanced)
       setFileName: name => { state.fileName = name; },
       loadFromFile: file => box.loadFromFile(file),
       triggerInput: () => {
-        const input = global.document.getElementById('boxGraphFile');
+        const input = getBoxNodeById('boxGraphFile');
         if(input){
           input.value='';
           input.click();
@@ -33236,8 +33288,11 @@ Technical analysis record (advanced)
   };
 
   function initNotes(){
-    const stack = global.document.querySelector('#boxGraphPanel .box-plot-stack')
-      || global.document.querySelector('#boxGraphPanel .diagram-area');
+    const graphPanel = els.graphPanel || getBoxNodeById('boxGraphPanel');
+    const stack = graphPanel?.querySelector?.('.box-plot-stack')
+      || graphPanel?.querySelector?.('.diagram-area')
+      || queryBoxNode('#boxGraphPanel .box-plot-stack')
+      || queryBoxNode('#boxGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: box notes mount skipped (missing stack)');
@@ -33791,8 +33846,8 @@ Technical analysis record (advanced)
       const hot = state.ensureHotForActiveTab();
       if(hot){
         ensureBoxDataViewsForHot(hot, {
-          wrapper: global.document?.getElementById?.('hotWrapper') || null,
-          container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+          wrapper: els.hotWrapper || getBoxNodeById('hotWrapper') || null,
+          container: hot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
         });
         syncBoxActiveDataViewFromHot(hot, 'prepare-tab');
       }
