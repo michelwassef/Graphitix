@@ -492,6 +492,7 @@
     barBorder: HIST_DEFAULT_BORDER,
     barBorderWidth: HIST_DEFAULT_BORDER_WIDTH,
     svgBox: null,
+    resizeMarginLock: null,
     layout: null,
     minSvgWidth: 0,
     autoDrawEnabled: true,
@@ -539,6 +540,37 @@
     },
     root: null
   };
+
+  function stabilizeHistMarginForAxisResize(margin){
+    if(!margin || typeof margin !== 'object'){
+      return margin;
+    }
+    const locked = {
+      top: Number(margin.top) || 0,
+      right: Number(margin.right) || 0,
+      bottom: Number(margin.bottom) || 0,
+      left: Number(margin.left) || 0
+    };
+    const dataset = state.svgBox?.dataset || null;
+    if(!dataset || dataset.resizerAspectLocked === 'true'){
+      state.resizeMarginLock = locked;
+      return locked;
+    }
+    const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+      ? dataset.resizerLastAxis
+      : 'both';
+    if(state.resizeMarginLock){
+      if(axis === 'y'){
+        locked.left = state.resizeMarginLock.left;
+        locked.right = state.resizeMarginLock.right;
+      }else if(axis === 'x'){
+        locked.top = state.resizeMarginLock.top;
+        locked.bottom = state.resizeMarginLock.bottom;
+      }
+    }
+    state.resizeMarginLock = { ...locked };
+    return locked;
+  }
 
   function resolveHistRoot(){
     const activeTabId = Shared.hot?.resolveActiveTabId?.()
@@ -4648,7 +4680,9 @@
     const legendRenderer = legendVisible && legendLayout?.renderer
       ? legendLayout.renderer
       : { entries: [], width: 0, height: 0, draw(){ return null; } };
-    let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
+    let margin=stabilizeHistMarginForAxisResize(
+      chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics})
+    );
     let plotW=Math.max(20,W-margin.left-margin.right);
     let plotH=Math.max(20,H-margin.top-margin.bottom);
     let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
@@ -4824,7 +4858,9 @@
       yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
-      margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
+      margin=stabilizeHistMarginForAxisResize(
+        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics})
+      );
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
       bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});

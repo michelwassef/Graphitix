@@ -450,11 +450,20 @@
     const defaultHeight = Number(options?.defaultHeight) || DEFAULT_HEIGHT;
     const rawWidth = Number(options?.width);
     const rawHeight = Number(options?.height);
+    const dataset = options?.svgBox && options.svgBox.dataset ? options.svgBox.dataset : null;
     const safeWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : defaultWidth;
     const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
     const scaleX = safeWidth / (defaultWidth || 1);
     const scaleY = safeHeight / (defaultHeight || 1);
-    const styleUnclamped = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
+    const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y') ? dataset.resizerLastAxis : 'both';
+    const unlockedStyleScaleBase = dataset ? Number(dataset.resizerUnlockedStyleScaleBase) : NaN;
+    let styleUnclamped = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    // Keep typography/margins stable in unlocked manual resize flows so
+    // one-axis drag changes only the corresponding axis length.
+    if(!aspectLocked && Number.isFinite(unlockedStyleScaleBase) && unlockedStyleScaleBase > 0){
+      styleUnclamped = unlockedStyleScaleBase;
+    }
     const styleScale = clampScale(styleUnclamped);
     const radiusScale = Math.sqrt(styleScale);
     const payload = {
@@ -470,6 +479,9 @@
       styleScale,
       radiusScale,
       strokeScale: radiusScale,
+      aspectLocked,
+      resizeAxis,
+      unlockedStyleScaleBase: Number.isFinite(unlockedStyleScaleBase) ? unlockedStyleScaleBase : null,
       legacyMinScale: Math.min(scaleX, scaleY),
       scale: styleScale
     };
@@ -528,7 +540,8 @@
       width: effectiveWidth,
       height: effectiveHeight,
       defaultWidth: opts.defaultWidth,
-      defaultHeight: opts.defaultHeight
+      defaultHeight: opts.defaultHeight,
+      svgBox
     });
     const scopeId = resolveScopeKey({ scopeId: opts.scopeId, svgBox, input: inputEl });
     const isManualResize = dataset ? dataset.resizerResized === 'true' : null;
@@ -2895,5 +2908,3 @@
     return Math.max(4, safeBase * scale);
   };
 })(window);
-
-

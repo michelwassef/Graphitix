@@ -9220,8 +9220,39 @@
       const scatterGraphPanel=getScatterNodeById('scatterGraphPanel');
       const scatterPanelResizer=getScatterNodeById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
+      let scatterResizeMarginLock = null;
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
+      const stabilizeScatterMarginForAxisResize = (margin) => {
+        if(!margin || typeof margin !== 'object'){
+          return margin;
+        }
+        const locked = {
+          top: Number(margin.top) || 0,
+          right: Number(margin.right) || 0,
+          bottom: Number(margin.bottom) || 0,
+          left: Number(margin.left) || 0
+        };
+        const dataset = scatterSvgBox?.dataset || null;
+        if(!dataset || dataset.resizerAspectLocked === 'true'){
+          scatterResizeMarginLock = locked;
+          return locked;
+        }
+        const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+          ? dataset.resizerLastAxis
+          : 'both';
+        if(scatterResizeMarginLock){
+          if(axis === 'y'){
+            locked.left = scatterResizeMarginLock.left;
+            locked.right = scatterResizeMarginLock.right;
+          }else if(axis === 'x'){
+            locked.top = scatterResizeMarginLock.top;
+            locked.bottom = scatterResizeMarginLock.bottom;
+          }
+        }
+        scatterResizeMarginLock = { ...locked };
+        return locked;
+      };
 
       const activateScatterDataToolbar = (reason) => {
         const now = Date.now();
@@ -9578,9 +9609,11 @@
           lockGraphPanelWidth: false
         },
         resizableBoxOptions: {
-          onResize: () => {
-            console.debug('Debug: scatter layout onResize schedule trigger');
-            scheduleDrawScatter({ viewOnly: true, reason: 'resize' });
+          onResize: (phase) => {
+            const resizePhase = typeof phase === 'string' ? phase : '';
+            const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
+            console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            scheduleDrawScatter({ viewOnly: true, reason: 'resize', resizePhase: resizePhase || null });
           }
         }
       });
@@ -17792,7 +17825,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const yTitleWidthBase=chartStyle.measureText(scatterYLabelText,axisLabelFont);
         const tickLen=axisMetrics.tickLength;
         const tickGap=axisMetrics.tickLabelGap;
-        let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize});
+        let margin=stabilizeScatterMarginForAxisResize(
+          chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize})
+        );
         margin.left=Math.max(margin.left,yTickFontSize*0.5);
         let plotW=Math.max(20,W-margin.left-margin.right);
         let plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -17871,7 +17906,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           maxYLabelWidth=Math.max(...yLabelWidths,0);
           const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,xTickMeasureFont));
           maxXLabelWidth=Math.max(...xLabelWidths,0);
-          margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize});
+          margin=stabilizeScatterMarginForAxisResize(
+            chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics,xTickFontSize,yTickFontSize})
+          );
           margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+yTitleSeparation);
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);

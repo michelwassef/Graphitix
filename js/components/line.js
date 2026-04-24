@@ -378,7 +378,39 @@
   let lineLast2dShowTrendLine = false;
   let lineLast2dShowIntervals = false;
   let lineLast2dShowPredictionIntervals = false;
+  let lineResizeMarginLock = null;
   const lineUndoManager = Shared.undoManager || null;
+  function stabilizeLineMarginForAxisResize(margin){
+    if(!margin || typeof margin !== 'object'){
+      return margin;
+    }
+    const locked = {
+      top: Number(margin.top) || 0,
+      right: Number(margin.right) || 0,
+      bottom: Number(margin.bottom) || 0,
+      left: Number(margin.left) || 0
+    };
+    const svgBox = lineSvgBoxRef || refs.svgBox || null;
+    const dataset = svgBox?.dataset || null;
+    if(!dataset || dataset.resizerAspectLocked === 'true'){
+      lineResizeMarginLock = locked;
+      return locked;
+    }
+    const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+      ? dataset.resizerLastAxis
+      : 'both';
+    if(lineResizeMarginLock){
+      if(axis === 'y'){
+        locked.left = lineResizeMarginLock.left;
+        locked.right = lineResizeMarginLock.right;
+      }else if(axis === 'x'){
+        locked.top = lineResizeMarginLock.top;
+        locked.bottom = lineResizeMarginLock.bottom;
+      }
+    }
+    lineResizeMarginLock = { ...locked };
+    return locked;
+  }
   function isLine3dMode(){
     return lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d';
   }
@@ -9574,7 +9606,9 @@
       const yTitleWidthBase=chartStyle.measureText(lineYLabelText,axisLabelFont);
       const tickLen=axisMetrics.tickLength;
       const tickGap=axisMetrics.tickLabelGap;
-      let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
+      let margin=stabilizeLineMarginForAxisResize(
+        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics})
+      );
       margin.left=Math.max(margin.left,fs*0.5);
       let plotW=Math.max(20,W-margin.left-margin.right);
       let plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -9673,7 +9707,9 @@
         maxYLabelWidth=Math.max(...yLabelWidths,0);
         const xLabelWidths=xTickLabels.map(lbl=>chartStyle.measureText(lbl,xTickMeasureFont));
         maxXLabelWidth=Math.max(...xLabelWidths,0);
-        margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
+        margin=stabilizeLineMarginForAxisResize(
+          chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics})
+        );
         margin.left=Math.max(margin.left,maxYLabelWidth+tickLen+tickGap+fs*0.5);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);

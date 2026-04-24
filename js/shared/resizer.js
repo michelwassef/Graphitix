@@ -1068,6 +1068,14 @@
         container.dataset.resizerHeight = container.style.height;
         container.dataset.resizerBaseHeight = String(Math.round(finalBaseHeight));
       }
+      container.dataset.resizerLastAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
+      // Aspect-lock flows can temporarily impose tight max-size constraints.
+      // When unlocked, always restore the configured bounds so axis-length edits
+      // are not blocked by stale maxHeight/maxWidth values.
+      if(!effectiveAspectLocked){
+        container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W * zoomScale) : 'none';
+        container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * zoomScale) : 'none';
+      }
       syncZoomPresentation(finalBaseWidth, finalBaseHeight);
       console.debug('Debug: resizer applyResize helper', {
         container: containerLabel,
@@ -1101,6 +1109,30 @@
       }
     }
 
+    function syncUnlockedStyleScaleBase(reason){
+      if(aspectLocked){
+        delete data.resizerUnlockedStyleScaleBase;
+        return;
+      }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const rect = container.getBoundingClientRect();
+      const baseWidth = parsePositive(rect.width) ? (rect.width / zoomScale) : parsePositive(data.resizerBaseWidth) || defaultWidth;
+      const baseHeight = parsePositive(rect.height) ? (rect.height / zoomScale) : parsePositive(data.resizerBaseHeight) || defaultHeight;
+      const scaleX = baseWidth / (defaultWidth || 1);
+      const scaleY = baseHeight / (defaultHeight || 1);
+      const styleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
+      if(Number.isFinite(styleScaleBase) && styleScaleBase > 0){
+        data.resizerUnlockedStyleScaleBase = String(styleScaleBase);
+        console.debug('Debug: resizer unlocked style scale base synced', {
+          container: containerLabel,
+          reason: reason || 'sync',
+          styleScaleBase,
+          baseWidth,
+          baseHeight
+        });
+      }
+    }
+
     function applyProgrammaticResize(options = {}){
       const requestedWidth = parsePositive(options.width);
       const requestedHeight = parsePositive(options.height);
@@ -1120,6 +1152,11 @@
       if(hasSimulatedAspectLock){
         aspectLocked = !!simulateAspectLock;
         data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+        if(aspectLocked){
+          delete data.resizerUnlockedStyleScaleBase;
+        }else{
+          syncUnlockedStyleScaleBase('programmatic-simulated-unlock');
+        }
         syncAspectCheckboxState();
         console.debug('Debug: resizer programmatic simulated aspect lock', {
           container: containerLabel,
@@ -1166,6 +1203,7 @@
       if(!hasSimulatedAspectLock && forceExact && preserveAspectLock && hadAspectLock){
         aspectLocked = true;
         data.resizerAspectLocked = 'true';
+        delete data.resizerUnlockedStyleScaleBase;
       }
       syncAspectCheckboxState();
       console.debug('Debug: resizer applyProgrammaticResize', {
@@ -1219,7 +1257,7 @@
       container.style.minWidth = px(MIN_W * scale);
       container.style.minHeight = px(MIN_H * scale);
       container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W * scale) : 'none';
-      container.style.maxHeight = px(MAX_H * scale);
+      container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * scale) : 'none';
     }
 
     function ensureZoomElements(){
@@ -1446,6 +1484,7 @@
           data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
           console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
           if(aspectLocked){
+            delete data.resizerUnlockedStyleScaleBase;
             const updatedRatio = readRectRatio();
             setAspectRatio(updatedRatio);
             const liveRect = container.getBoundingClientRect();
@@ -1458,6 +1497,8 @@
               fallbackHeight: defaultHeight * zoomScale,
               reason: 'aspect-toggle'
             });
+          }else{
+            syncUnlockedStyleScaleBase('aspect-toggle-unlock');
           }
           if(typeof opts.onResize === 'function'){
             try { opts.onResize('aspect-toggle'); } catch(e){ console.error('resizer onResize error', e); }
@@ -1687,6 +1728,10 @@
       }
     }
 
+    if(!aspectLocked){
+      syncUnlockedStyleScaleBase('init-unlocked');
+    }
+
     if(aspectLocked){
       const liveRect = container.getBoundingClientRect();
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
@@ -1820,6 +1865,16 @@
 
     function attachDrag(handle, axis){
       if(!handle) return;
+      const dragBindingStore = handle.__resizerDragBindings || (handle.__resizerDragBindings = {});
+      const existingBinding = dragBindingStore[axis];
+      if(existingBinding){
+        if(typeof existingBinding.pointerdown === 'function'){
+          handle.removeEventListener('pointerdown', existingBinding.pointerdown);
+        }
+        if(typeof existingBinding.dblclick === 'function'){
+          handle.removeEventListener('dblclick', existingBinding.dblclick);
+        }
+      }
       let startX=0, startY=0, startW=0, startH=0, pointerId=null;
       let startSnapshot = null;
       const onPointerDown = (e) => {
@@ -1894,7 +1949,7 @@
         document.addEventListener('pointerup', onPointerUp);
       };
       handle.addEventListener('pointerdown', onPointerDown);
-      handle.addEventListener('dblclick', (ev) => {
+      const onDoubleClick = (ev) => {
         ev.preventDefault();
         const beforeReset = makeResizeSnapshot('dblclick-before');
         container.style.flex = '0 0 auto';
@@ -1920,7 +1975,12 @@
         if (typeof opts.onResize === 'function') {
           try { opts.onResize('reset'); } catch(e) { console.error('resizer onResize error', e); }
         }
-      });
+      };
+      handle.addEventListener('dblclick', onDoubleClick);
+      dragBindingStore[axis] = {
+        pointerdown: onPointerDown,
+        dblclick: onDoubleClick
+      };
     }
 
     attachDrag(vHandle, 'x');

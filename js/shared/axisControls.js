@@ -2956,6 +2956,88 @@
     }
   }
 
+  function resolveAxisDisplayLength(axisElement, axis){
+    if(!axisElement){
+      return null;
+    }
+    const axisKey = axis === 'y' ? 'y' : 'x';
+    try{
+      const rect = typeof axisElement.getBoundingClientRect === 'function'
+        ? axisElement.getBoundingClientRect()
+        : null;
+      const rectLength = sanitizeAxisLengthValue(axisKey === 'y' ? rect && rect.height : rect && rect.width);
+      if(rectLength != null && rectLength > 0){
+        return rectLength;
+      }
+    }catch(err){
+      logDebug('axis display length from rect failed', {
+        axis: axisKey,
+        error: err && err.message
+      });
+    }
+    try{
+      const x1 = Number(axisElement.getAttribute && axisElement.getAttribute('x1'));
+      const x2 = Number(axisElement.getAttribute && axisElement.getAttribute('x2'));
+      const y1 = Number(axisElement.getAttribute && axisElement.getAttribute('y1'));
+      const y2 = Number(axisElement.getAttribute && axisElement.getAttribute('y2'));
+      const rawLength = axisKey === 'y'
+        ? (Number.isFinite(y1) && Number.isFinite(y2) ? Math.abs(y2 - y1) : NaN)
+        : (Number.isFinite(x1) && Number.isFinite(x2) ? Math.abs(x2 - x1) : NaN);
+      if(!Number.isFinite(rawLength) || rawLength <= 0){
+        return null;
+      }
+      const svg = axisElement.ownerSVGElement || null;
+      if(!svg || typeof svg.getBoundingClientRect !== 'function'){
+        return rawLength;
+      }
+      const svgRect = svg.getBoundingClientRect();
+      const vb = (svg.getAttribute && svg.getAttribute('viewBox')) ? String(svg.getAttribute('viewBox')).trim().split(/\s+/).map(Number) : null;
+      const vbWidth = vb && vb.length >= 4 ? sanitizeAxisLengthValue(vb[2]) : null;
+      const vbHeight = vb && vb.length >= 4 ? sanitizeAxisLengthValue(vb[3]) : null;
+      const scale = axisKey === 'y'
+        ? ((sanitizeAxisLengthValue(svgRect && svgRect.height) || 0) / (vbHeight || 0))
+        : ((sanitizeAxisLengthValue(svgRect && svgRect.width) || 0) / (vbWidth || 0));
+      return Number.isFinite(scale) && scale > 0 ? rawLength * scale : rawLength;
+    }catch(err){
+      logDebug('axis display length from geometry failed', {
+        axis: axisKey,
+        error: err && err.message
+      });
+    }
+    return null;
+  }
+
+  function resolveAxisControlElementFromTarget(target, axis){
+    if(!target || typeof target.querySelectorAll !== 'function'){
+      return null;
+    }
+    const axisKey = axis === 'y' ? 'y' : 'x';
+    const lines = Array.from(target.querySelectorAll('line[data-axis-control="1"]'));
+    if(!lines.length){
+      return null;
+    }
+    const scored = lines.map(line => {
+      const x1 = Number(line.getAttribute && line.getAttribute('x1'));
+      const x2 = Number(line.getAttribute && line.getAttribute('x2'));
+      const y1 = Number(line.getAttribute && line.getAttribute('y1'));
+      const y2 = Number(line.getAttribute && line.getAttribute('y2'));
+      const dx = Number.isFinite(x1) && Number.isFinite(x2) ? Math.abs(x2 - x1) : NaN;
+      const dy = Number.isFinite(y1) && Number.isFinite(y2) ? Math.abs(y2 - y1) : NaN;
+      return { line, dx, dy };
+    }).filter(entry => Number.isFinite(entry.dx) && Number.isFinite(entry.dy));
+    if(!scored.length){
+      return null;
+    }
+    if(axisKey === 'y'){
+      return scored
+        .filter(entry => entry.dx <= Math.max(2, entry.dy * 0.05))
+        .sort((a, b) => b.dy - a.dy)[0]?.line || null;
+    }
+    return scored
+      .filter(entry => entry.dy <= Math.max(2, entry.dx * 0.05))
+      .sort((a, b) => b.dx - a.dx)[0]?.line || null;
+  }
+
   function resolveAxisLengthBoundsFromTarget(target, axis){
     const api = target && target.__sharedResizableBoxApi;
     if(!api || typeof api.getState !== 'function'){
@@ -3015,20 +3097,47 @@
         return cachedResizeTarget;
       };
       const fallbackGetAxisLength = axisName => {
+        const axisKey = axisName === 'y' ? 'y' : 'x';
         const target = resolveResizeTarget();
+        const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
+        const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
+        const desiredLength = sanitizeAxisLengthValue(target?.dataset ? target.dataset[desiredDatasetKey] : null);
+        const desiredTimestamp = Number(target?.dataset ? target.dataset[desiredTimestampKey] : NaN);
+        const desiredIsFresh = desiredLength != null && Number.isFinite(desiredTimestamp) && (Date.now() - desiredTimestamp) < 10000;
+        if(desiredIsFresh){
+          return desiredLength;
+        }
+        const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
+        const axisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        if(axisLength != null){
+          return axisLength;
+        }
         const size = resolveResizeTargetGraphSize(target);
         if(!size){
           return null;
         }
-        return axisName === 'y' ? size.height : size.width;
+        return axisKey === 'y' ? size.height : size.width;
       };
       const fallbackGetAxisLengthBounds = axisName => {
+        const axisKey = axisName === 'y' ? 'y' : 'x';
         const target = resolveResizeTarget();
         const bounds = resolveAxisLengthBoundsFromTarget(target, axisName);
         if(!bounds){
           return null;
         }
-        return bounds;
+        const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
+        const size = resolveResizeTargetGraphSize(target);
+        const axisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        const basis = size ? sanitizeAxisLengthValue(axisKey === 'y' ? size.height : size.width) : null;
+        const axisOffset = (axisLength != null && basis != null) ? Math.max(0, basis - axisLength) : 0;
+        const min = sanitizeAxisLengthValue(bounds.min);
+        const max = sanitizeAxisLengthValue(bounds.max);
+        const step = sanitizeAxisLengthValue(bounds.step);
+        return {
+          min: min == null ? null : Math.max(1, min - axisOffset),
+          max: max == null ? null : Math.max(1, max - axisOffset),
+          step: step == null ? 1 : Math.max(1, step)
+        };
       };
       const fallbackGetGraphSize = () => {
         const target = resolveResizeTarget();
@@ -3050,10 +3159,31 @@
           return null;
         }
         const axisKey = axisName === 'y' ? 'y' : 'x';
+        const desiredDatasetKey = axisKey === 'y' ? 'axisDesiredLengthY' : 'axisDesiredLengthX';
+        const desiredTimestampKey = axisKey === 'y' ? 'axisDesiredLengthYTs' : 'axisDesiredLengthXTs';
+        const desiredTimestamp = Date.now();
+        if(target.dataset){
+          target.dataset[desiredDatasetKey] = String(numericLength);
+          target.dataset[desiredTimestampKey] = String(desiredTimestamp);
+        }
+        const currentAxisElement = resolveAxisControlElementFromTarget(target, axisKey) || element;
+        const currentSize = resolveResizeTargetGraphSize(target);
+        const currentAxisLength = resolveAxisDisplayLength(currentAxisElement, axisKey);
+        const currentBasis = currentSize ? sanitizeAxisLengthValue(axisKey === 'y' ? currentSize.height : currentSize.width) : null;
+        const currentAxisOffset = (currentBasis != null && currentAxisLength != null)
+          ? Math.max(0, currentBasis - currentAxisLength)
+          : 0;
+        const nextBasis = (
+          currentBasis != null
+          && currentAxisLength != null
+          && currentAxisLength >= 0
+        )
+          ? (numericLength + currentAxisOffset)
+          : numericLength;
         const request = {
           axis: axisKey,
-          width: axisKey === 'x' ? numericLength : undefined,
-          height: axisKey === 'y' ? numericLength : undefined,
+          width: axisKey === 'x' ? nextBasis : undefined,
+          height: axisKey === 'y' ? nextBasis : undefined,
           reason: options.reason || `axis-length-${axisKey}`,
           updateDefaults: false,
           updateAspectRatio: false,
@@ -3064,9 +3194,66 @@
         logDebug('axis length apply request', {
           axis: axisKey,
           scopeId: config.scopeId || null,
+          currentAxisLength,
+          currentBasis,
+          requestedAxisLength: numericLength,
           request
         });
-        return Shared.applyResizableBoxSize(target, request);
+        const firstApply = Shared.applyResizableBoxSize(target, request);
+        const scheduleRefine = (typeof global.requestAnimationFrame === 'function')
+          ? global.requestAnimationFrame.bind(global)
+          : (cb => global.setTimeout(cb, 0));
+        const runRefine = (pass = 0) => {
+          if(pass >= 6){
+            return;
+          }
+          scheduleRefine(() => {
+            global.setTimeout(() => {
+            const latestTarget = resolveResizeTarget();
+            if(!latestTarget || typeof Shared.applyResizableBoxSize !== 'function'){
+              return;
+            }
+            const latestSize = resolveResizeTargetGraphSize(latestTarget);
+            if(!latestSize){
+              return;
+            }
+            const latestAxisElement = resolveAxisControlElementFromTarget(latestTarget, axisKey);
+            const measuredLength = resolveAxisDisplayLength(latestAxisElement, axisKey);
+            const latestBasis = sanitizeAxisLengthValue(axisKey === 'y' ? latestSize.height : latestSize.width);
+            if(measuredLength == null || latestBasis == null){
+              return;
+            }
+            const delta = numericLength - measuredLength;
+            if(Math.abs(delta) < 0.25){
+              return;
+            }
+            const correctedBasis = Math.max(1, latestBasis + delta);
+            const refineRequest = {
+              axis: axisKey,
+              width: axisKey === 'x' ? correctedBasis : undefined,
+              height: axisKey === 'y' ? correctedBasis : undefined,
+              reason: `${options.reason || `axis-length-${axisKey}`}-refine`,
+              updateDefaults: false,
+              updateAspectRatio: false,
+              preserveAspectLock: true,
+              forceExact: true,
+              simulateAspectLock: options.preserveProportions === true
+            };
+            logDebug('axis length refine request', {
+              axis: axisKey,
+              scopeId: config.scopeId || null,
+              requestedAxisLength: numericLength,
+              measuredLength,
+              delta,
+              refineRequest
+            });
+            Shared.applyResizableBoxSize(latestTarget, refineRequest);
+            runRefine(pass + 1);
+          }, 90);
+        });
+        };
+        runRefine(0);
+        return firstApply;
       };
       const fallbackOnGraphSizeChange = (nextSize, axisName, options = {}) => {
         const safeSize = sanitizeGraphSizeSnapshot(nextSize);
