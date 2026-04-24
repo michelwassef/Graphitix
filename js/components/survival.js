@@ -1339,7 +1339,7 @@
   }
 
   function renderSurvivalStatsAdvisor(summary, providedContext){
-    const container = document.getElementById('survivalStatsAdvisor');
+    const container = getSurvivalNodeById('survivalStatsAdvisor');
     if(!container){
       return;
     }
@@ -4754,7 +4754,7 @@
     if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
     if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
     state.pairwiseCorrection = typeof config.pairwiseCorrection === 'string' ? config.pairwiseCorrection : (state.pairwiseCorrection || 'holm-sidak');
-    const pairwiseCorrectionSelect = document.getElementById('survivalPairwiseCorrection');
+    const pairwiseCorrectionSelect = getSurvivalNodeById('survivalPairwiseCorrection');
     if(pairwiseCorrectionSelect){
       pairwiseCorrectionSelect.value = state.pairwiseCorrection;
     }
@@ -4972,8 +4972,8 @@
   }
 
   function ensureSurvivalStatsConfigControls(){
-    const host = document.getElementById('survivalStatsToggleRow');
-    if(!host || document.getElementById('survivalPairwiseCorrection')){
+    const host = getSurvivalNodeById('survivalStatsToggleRow');
+    if(!host || getSurvivalNodeById('survivalPairwiseCorrection')){
       return;
     }
     const label = document.createElement('label');
@@ -5005,8 +5005,8 @@
   }
 
   function initNotes(){
-    const stack = global.document.querySelector('#survivalGraphPanel .survival-plot-stack')
-      || global.document.querySelector('#survivalGraphPanel');
+    const stack = resolveSurvivalRoot()?.querySelector('#survivalGraphPanel .survival-plot-stack')
+      || resolveSurvivalRoot()?.querySelector('#survivalGraphPanel');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         logDebug('notes mount skipped', { reason: 'missing-stack' });
@@ -5309,11 +5309,11 @@
   }
 
   survival.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('survivalPlot');
-    const summary = document.getElementById('survivalStatsSummary');
-    const logRank = document.getElementById('survivalStatsLogRank');
-    const hazard = document.getElementById('survivalStatsHazardRatios');
-    const cox = document.getElementById('survivalStatsCox');
+    const plot = getSurvivalNodeById('survivalPlot');
+    const summary = getSurvivalNodeById('survivalStatsSummary');
+    const logRank = getSurvivalNodeById('survivalStatsLogRank');
+    const hazard = getSurvivalNodeById('survivalStatsHazardRatios');
+    const cox = getSurvivalNodeById('survivalStatsCox');
     const plotCache = detachChildren(plot);
     const summaryCache = detachChildren(summary);
     const logRankCache = detachChildren(logRank);
@@ -5339,11 +5339,11 @@
 
   survival.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = document.getElementById('survivalPlot');
-    const summary = document.getElementById('survivalStatsSummary');
-    const logRank = document.getElementById('survivalStatsLogRank');
-    const hazard = document.getElementById('survivalStatsHazardRatios');
-    const cox = document.getElementById('survivalStatsCox');
+    const plot = getSurvivalNodeById('survivalPlot');
+    const summary = getSurvivalNodeById('survivalStatsSummary');
+    const logRank = getSurvivalNodeById('survivalStatsLogRank');
+    const hazard = getSurvivalNodeById('survivalStatsHazardRatios');
+    const cox = getSurvivalNodeById('survivalStatsCox');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredSummary = restoreChildren(summary, cache.summary);
     const restoredLogRank = restoreChildren(logRank, cache.logRank);
@@ -5385,3 +5385,4 @@
     evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared)
   });
 })(window);
+

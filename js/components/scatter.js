@@ -285,6 +285,46 @@
     significantLabelsUserModified: false,
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
   };
+  let scatterRoot = null;
+  function resolveScatterRoot(tabLike){
+    const activeTabId = tabLike
+      || Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
+    return Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'scatter')
+      || scatterRoot
+      || global.document?.getElementById?.('scatterPage')
+      || global.document
+      || null;
+  }
+  function queryScatterRoot(selector, tabLike){
+    const root = resolveScatterRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+  function getScatterNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveScatterRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId && byId.isConnected){
+        return byId;
+      }
+    }
+    const scoped = root?.querySelector?.(`#${id}`) || null;
+    if(scoped && scoped.isConnected){
+      return scoped;
+    }
+    const docNode = global.document?.getElementById?.(id) || null;
+    if(docNode && docNode.isConnected){
+      return docNode;
+    }
+    return scoped || docNode || null;
+  }
   let scatterDrawToken = 0;
   function normalizeScatterAxisLabelMode(value){
     return String(value || '').toLowerCase() === 'manual' ? 'manual' : 'auto';
@@ -813,9 +853,7 @@
     sync();
   }
   function isScatterTrendLineEnabled(){
-    const doc = global.document;
-    if(!doc){ return false; }
-    const toggle = doc.getElementById('scatterShowLine');
+    const toggle = getScatterNodeById('scatterShowLine');
     return !!(toggle && toggle.checked);
   }
   function getScatterLabelStyle(label){
@@ -3388,7 +3426,7 @@
       scatterDebug('Debug: scatter threshold selection skipped', { reason: 'missing-api' });
       return false;
     }
-    const graphTypeRaw = global.document?.getElementById('scatterGraphType')?.value
+    const graphTypeRaw = getScatterNodeById('scatterGraphType')?.value
       || scatterCurrentGraphType
       || 'scatter';
     const graphType = String(graphTypeRaw).toLowerCase();
@@ -5382,7 +5420,7 @@
     const doc = global.document;
     if(!doc){ return; }
     syncScatterSymbolToolbarDotToggles = null;
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const scatterFillInput = doc.getElementById('scatterFill');
       const scatterBorderInput = doc.getElementById('scatterBorder');
@@ -6589,19 +6627,43 @@
 
     return { summaryRows, advancedRows };
   }
-  function setup(){
+  function setup(initOptions = {}){
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
     ensureScatterAxisSettings();
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
-    const $ = global.$;
+    const legacyDollar = global.$;
+    const $ = (selector) => {
+      if(typeof selector !== 'string'){
+        return null;
+      }
+      const trimmed = selector.trim();
+      if(!trimmed){
+        return null;
+      }
+      if(trimmed.startsWith('#') && /^#[A-Za-z0-9_-]+$/.test(trimmed)){
+        return getScatterNodeById(trimmed.slice(1));
+      }
+      const scopedNode = queryScatterRoot(trimmed);
+      if(scopedNode){
+        return scopedNode;
+      }
+      if(typeof legacyDollar === 'function'){
+        return legacyDollar(trimmed);
+      }
+      return null;
+    };
     const document = global.document;
     let scatterTableFormatSelect = null;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.error('Table factory missing for scatter component');
       return;
     }
+    const requestedRoot = initOptions && typeof initOptions === 'object'
+      ? (initOptions.root || null)
+      : null;
+    scatterRoot = requestedRoot || resolveScatterRoot(initOptions?.tabId || null);
     const makeEditableLocal = (el,onChange,options) => {
       const fn = Shared.makeEditable || global.makeEditable;
       if (typeof fn === 'function') {
@@ -9152,11 +9214,11 @@
   let scatterDataToolbarLastActivation = 0;
   let scatterLegendChangeInternal = false;
       // Scatter plot setup
-      const scatterHotContainer=document.getElementById('scatterHot');
-      const scatterHotWrapper=document.getElementById('scatterHotWrapper');
-      const scatterTablePanel=document.getElementById('scatterTablePanel');
-      const scatterGraphPanel=document.getElementById('scatterGraphPanel');
-      const scatterPanelResizer=document.getElementById('scatterPanelResizer');
+      const scatterHotContainer=getScatterNodeById('scatterHot');
+      const scatterHotWrapper=getScatterNodeById('scatterHotWrapper');
+      const scatterTablePanel=getScatterNodeById('scatterTablePanel');
+      const scatterGraphPanel=getScatterNodeById('scatterGraphPanel');
+      const scatterPanelResizer=getScatterNodeById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
@@ -9221,8 +9283,8 @@
           });
         }
         const manager = hotInstance.__scatterDataViewsManager;
-        const hostWrapper = options.wrapper || scatterHotWrapper || document.getElementById('scatterHotWrapper');
-        const hostContainer = options.container || hotInstance.__scatterHostContainer || scatterHotContainer || document.getElementById('scatterHot');
+        const hostWrapper = options.wrapper || scatterHotWrapper || getScatterNodeById('scatterHotWrapper');
+        const hostContainer = options.container || hotInstance.__scatterHostContainer || scatterHotContainer || getScatterNodeById('scatterHot');
         if(hostWrapper && hostContainer){
           manager.mount({
             wrapper: hostWrapper,
@@ -9257,8 +9319,8 @@
           return false;
         }
         const manager = ensureScatterDataViewsForHot(hot, {
-          wrapper: scatterHotWrapper || global.document?.getElementById?.('scatterHotWrapper') || null,
-          container: hot.__scatterHostContainer || scatterHotContainer || global.document?.getElementById?.('scatterHot') || null
+          wrapper: scatterHotWrapper || getScatterNodeById('scatterHotWrapper') || null,
+          container: hot.__scatterHostContainer || scatterHotContainer || getScatterNodeById('scatterHot') || null
         });
         if(!manager || typeof manager.applyTransform !== 'function'){
           console.warn('scatter data transform skipped: Shared.dataViews unavailable');
@@ -9830,8 +9892,8 @@
         return hotInstance;
       };
       const ensureScatterHotForActiveTab = () => {
-        const wrapper = scatterHotWrapper || document.getElementById('scatterHotWrapper');
-        const baseContainer = scatterHotContainer || document.getElementById('scatterHot');
+        const wrapper = scatterHotWrapper || getScatterNodeById('scatterHotWrapper');
+        const baseContainer = scatterHotContainer || getScatterNodeById('scatterHot');
         if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
           if(!scatterHot){
             scatterHot = createScatterTable(baseContainer);
@@ -9980,7 +10042,7 @@
         ]
       };
       if(global.DEBUG_SCATTER) scatterLog('scatter example dataset map', scatterExamples);
-      document.getElementById('scatterLoadExample').addEventListener('click',()=>{
+      getScatterNodeById('scatterLoadExample').addEventListener('click',()=>{
         const type=scatterGraphTypeSelect?.value || 'scatter';
         const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
         const viewMode = type==='scatter'
@@ -10042,8 +10104,8 @@
         syncScatterAspectControls('payload');
         scheduleDrawScatter();
       });
-      const scatterImportBtn=document.getElementById('scatterImport');
-      const scatterFileInput=document.getElementById('scatterFile');
+      const scatterImportBtn=getScatterNodeById('scatterImport');
+      const scatterFileInput=getScatterNodeById('scatterFile');
       const tableImport = Shared.tableImport;
       scatterImportBtn.addEventListener('click',()=>{ scatterFileInput.value=''; scatterFileInput.click(); });
       scatterFileInput.addEventListener('change',()=>{
@@ -10239,7 +10301,7 @@
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowCI = $('#scatterShowCI');
       const scatterShowPI = $('#scatterShowPI');
-      const scatterStatsRegressionOptionsRow=document.getElementById('scatterGraphRegressionOptionsGrid')
+      const scatterStatsRegressionOptionsRow=getScatterNodeById('scatterGraphRegressionOptionsGrid')
         || (scatterShowLine)?.closest('.config-panel__line--checkboxes')
         || null;
       const isScatterDiagnosticsEnabled = () => true;
@@ -10275,12 +10337,12 @@
       const scatterInitialValuesJsonError=$('#scatterInitialValuesJsonError');
       const scatterParameterConstraintsJsonError=$('#scatterParameterConstraintsJsonError');
       function ensureScatterGlobalFitControls(){
-        const existingTextarea = document.getElementById('scatterGlobalFitJson');
-        const existingError = document.getElementById('scatterGlobalFitJsonError');
+        const existingTextarea = getScatterNodeById('scatterGlobalFitJson');
+        const existingError = getScatterNodeById('scatterGlobalFitJsonError');
         if(existingTextarea || existingError){
           return { textarea: existingTextarea, error: existingError };
         }
-        const fitBody = document.querySelector('#scatterFitSpecControls .fit-specification-body');
+        const fitBody = queryScatterRoot('#scatterFitSpecControls .fit-specification-body');
         if(!fitBody){
           return { textarea: null, error: null };
         }
@@ -10300,7 +10362,7 @@
         error.id = 'scatterGlobalFitJsonError';
         error.className = 'fit-spec-status fit-spec-status--inline';
         error.setAttribute('aria-live', 'polite');
-        const constraintsError = document.getElementById('scatterParameterConstraintsJsonError');
+        const constraintsError = getScatterNodeById('scatterParameterConstraintsJsonError');
         if(constraintsError && constraintsError.parentNode === fitBody){
           fitBody.insertBefore(line, constraintsError.nextSibling);
           fitBody.insertBefore(error, line.nextSibling);
@@ -10316,9 +10378,9 @@
       const scatterViewMode=$('#scatterViewMode');
       const scatterViewControls=$('#scatterViewControls');
       scatterViewModeInput = scatterViewMode;
-      const scatterStatsResults=document.getElementById('scatterStatsResults');
-      const scatterStatsButton=document.getElementById('scatterComputeStats');
-      const scatterStatsStatus=document.getElementById('scatterStatsStatus');
+      const scatterStatsResults=getScatterNodeById('scatterStatsResults');
+      const scatterStatsButton=getScatterNodeById('scatterComputeStats');
+      const scatterStatsStatus=getScatterNodeById('scatterStatsStatus');
       const scatterStatsPlaceholder='Statistics will appear after calculation.';
       function ensureScatterStatsReportHost(){
         const reporting = Shared.statsReporting;
@@ -10472,7 +10534,7 @@
         const hotRoot = hot.rootElement
           || hot.__scatterHostContainer
           || scatterHotContainer
-          || document.getElementById('scatterHot');
+          || getScatterNodeById('scatterHot');
         if(hotRoot && hotRoot.classList){
           hotRoot.classList.toggle('scatter-grouped-header-merge', !!groupedActive);
         }
@@ -13508,9 +13570,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
       }
       function syncScatterGraphTypeUI(){
-        const type=scatterGraphTypeSelect?.value || 'scatter';
+        const graphTypeControl = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
+        const showLineControl = getScatterNodeById('scatterShowLine') || scatterShowLine;
+        const showPlotStatsControl = getScatterNodeById('scatterShowPlotStats') || scatterShowPlotStats;
+        const showCIControl = getScatterNodeById('scatterShowCI') || scatterShowCI;
+        const showPIControl = getScatterNodeById('scatterShowPI') || scatterShowPI;
+        const statTypeControl = getScatterNodeById('scatterStatType') || scatterStatType;
+        const regressionModeControl = getScatterNodeById('scatterRegressionMode') || scatterRegressionMode;
+        const type=graphTypeControl?.value || 'scatter';
         scatterCurrentGraphType=type;
-        const requestedTableFormat = normalizeScatterTableFormat(scatterTableFormatSelect?.value || scatterTableFormat);
+        const requestedTableFormat = normalizeScatterTableFormat((getScatterNodeById('scatterTableFormat') || scatterTableFormatSelect)?.value || scatterTableFormat);
         const effectiveTableFormat = type === 'scatter' ? requestedTableFormat : SCATTER_TABLE_FORMAT_SINGLE;
         if(scatterTableFormat !== effectiveTableFormat){
           applyScatterTableFormatMode(effectiveTableFormat, { graphType: type, skipDraw: true, keepCollapsed: true });
@@ -13551,29 +13620,29 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             el.checked=false;
           }
         });
-        if(scatterStatType){
-          scatterStatType.disabled=type!=='scatter';
+        if(statTypeControl){
+          statTypeControl.disabled=type!=='scatter';
         }
-        if(scatterRegressionMode){
-          scatterRegressionMode.disabled=type!=='scatter';
+        if(regressionModeControl){
+          regressionModeControl.disabled=type!=='scatter';
         }
         const disableRegressionControls = type !== 'scatter';
-        if(scatterShowLine){
-          scatterShowLine.disabled=disableRegressionControls;
-          if(disableRegressionControls && scatterShowLine.checked){
-            scatterShowLine.checked=false;
+        if(showLineControl){
+          showLineControl.disabled=disableRegressionControls;
+          if(disableRegressionControls && showLineControl.checked){
+            showLineControl.checked=false;
           }
         }
-        if(scatterShowPlotStats){
-          scatterShowPlotStats.disabled=disableRegressionControls;
-          if(disableRegressionControls && scatterShowPlotStats.checked){
-            scatterShowPlotStats.checked=false;
+        if(showPlotStatsControl){
+          showPlotStatsControl.disabled=disableRegressionControls;
+          if(disableRegressionControls && showPlotStatsControl.checked){
+            showPlotStatsControl.checked=false;
           }
         }
         // Update CI/PI enabled state and visual class
         try{ updateCIEnabled(); }catch(e){
-          if(scatterShowCI){ scatterShowCI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; } }
-          if(scatterShowPI){ scatterShowPI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; } }
+          if(showCIControl){ showCIControl.disabled = disableRegressionControls; if(disableRegressionControls && showCIControl.checked){ showCIControl.checked = false; } }
+          if(showPIControl){ showPIControl.disabled = disableRegressionControls; if(disableRegressionControls && showPIControl.checked){ showPIControl.checked = false; } }
         }
         const significanceColors = getScatterSignificanceColors();
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
@@ -14008,7 +14077,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
 
       function renderScatterStatsAdvisor(points, providedContext){
-        const container=document.getElementById('scatterStatsAdvisor');
+        const container=getScatterNodeById('scatterStatsAdvisor');
         if(!container){
           return;
         }
@@ -14398,17 +14467,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       validateScatterFitSpecControls();
       // CI/PI controls depend on the trend line checkbox (scatterShowLine).
       const updateCIEnabled = ()=>{
-        const masterOn = !!(scatterShowLine && scatterShowLine.checked);
-        const regressionDisabled = !!(scatterShowLine && scatterShowLine.disabled);
+        const showLineControl = getScatterNodeById('scatterShowLine') || scatterShowLine;
+        const showCIControl = getScatterNodeById('scatterShowCI') || scatterShowCI;
+        const showPIControl = getScatterNodeById('scatterShowPI') || scatterShowPI;
+        const masterOn = !!(showLineControl && showLineControl.checked);
+        const regressionDisabled = !!(showLineControl && showLineControl.disabled);
         const disabledState = regressionDisabled || !masterOn;
-        if(scatterShowCI){
-          scatterShowCI.disabled = disabledState;
-          const lab = scatterShowCI.closest && scatterShowCI.closest('label');
+        if(showCIControl){
+          showCIControl.disabled = disabledState;
+          const lab = showCIControl.closest && showCIControl.closest('label');
           if(lab){ lab.classList.toggle('config-panel__checkbox--disabled', !!disabledState); }
         }
-        if(scatterShowPI){
-          scatterShowPI.disabled = disabledState;
-          const lab = scatterShowPI.closest && scatterShowPI.closest('label');
+        if(showPIControl){
+          showPIControl.disabled = disabledState;
+          const lab = showPIControl.closest && showPIControl.closest('label');
           if(lab){ lab.classList.toggle('config-panel__checkbox--disabled', !!disabledState); }
         }
       };
@@ -15269,7 +15341,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
 
     
-      const scatterPlotDiv=document.getElementById('scatterPlot');
+      const scatterPlotDiv=getScatterNodeById('scatterPlot');
       if(scatterPlotDiv && !scatterPlotDiv.__scatterAxesLengthCloseHandler){
         const onPlotPointerDown = () => {
           closeScatterAxesLengthMenu('plot-pointer');
@@ -15433,11 +15505,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         debug('Debug: scatter showFrame state',{showFrame});
         let showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
         debug('Debug: scatter legend toggle state',{ showLegend });
-        let showLine=scatterShowLine.checked;
-        let showLineStats = scatterShowPlotStats ? scatterShowPlotStats.checked : false;
-        const showIntervals = !!(showLine && ((scatterShowCI && scatterShowCI.checked) || (scatterShowPI && scatterShowPI.checked)));
+        const showLineControl = getScatterNodeById('scatterShowLine') || scatterShowLine;
+        const showPlotStatsControl = getScatterNodeById('scatterShowPlotStats') || scatterShowPlotStats;
+        const showCIControl = getScatterNodeById('scatterShowCI') || scatterShowCI;
+        const showPIControl = getScatterNodeById('scatterShowPI') || scatterShowPI;
+        const graphTypeControl = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
+        let showLine = !!showLineControl?.checked;
+        let showLineStats = !!showPlotStatsControl?.checked;
+        const showIntervals = !!(showLine && ((showCIControl && showCIControl.checked) || (showPIControl && showPIControl.checked)));
         const showDiagnostics = isScatterDiagnosticsEnabled();
-        const graphType=scatterGraphTypeSelect?.value || 'scatter';
+        const graphType=graphTypeControl?.value || 'scatter';
         scatterCurrentGraphType=graphType;
         const allowLogAxes=graphType==='scatter';
         if(!allowLogAxes){
@@ -15456,16 +15533,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const logX=allowLogAxes && scatterLogX ? scatterLogX.checked : false;
         const logY=allowLogAxes && scatterLogY ? scatterLogY.checked : false;
-        if(scatterShowLine){
-          scatterShowLine.disabled=!allowLogAxes;
-          if(!allowLogAxes && scatterShowLine.checked){
-            scatterShowLine.checked=false;
+        if(showLineControl){
+          showLineControl.disabled=!allowLogAxes;
+          if(!allowLogAxes && showLineControl.checked){
+            showLineControl.checked=false;
           }
         }
-        if(scatterShowPlotStats){
-          scatterShowPlotStats.disabled=!allowLogAxes;
-          if(!allowLogAxes && scatterShowPlotStats.checked){
-            scatterShowPlotStats.checked=false;
+        if(showPlotStatsControl){
+          showPlotStatsControl.disabled=!allowLogAxes;
+          if(!allowLogAxes && showPlotStatsControl.checked){
+            showPlotStatsControl.checked=false;
           }
         }
         debug('Debug: scatter graph type resolved',{graphType,allowLogAxes,logX,logY});
@@ -16141,7 +16218,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         const shouldRenderSignificantLabels = false;
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
-        const plotEl=document.getElementById('scatterPlot');
+        const plotEl=getScatterNodeById('scatterPlot');
         plotEl.style.display='block';
         const clearScatterPlot=()=>{
           if(!plotEl){
@@ -20657,7 +20734,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return stats;
       }
     
-      function getScatterGraphPayload(){
+  function getScatterGraphPayload(){
       const noteControl = notesState.control || null;
       const notesText = noteControl && typeof noteControl.getValue === 'function'
         ? noteControl.getValue()
@@ -20669,11 +20746,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       notesState.open = notesOpen;
       const axisSettings = ensureScatterAxisSettings();
       const fontStyles = exportFontStyles('scatter');
+      const payloadScatterShowLine = getScatterNodeById('scatterShowLine') || scatterShowLine;
+      const payloadScatterShowPlotStats = getScatterNodeById('scatterShowPlotStats') || scatterShowPlotStats;
+      const payloadScatterShowCI = getScatterNodeById('scatterShowCI') || scatterShowCI;
+      const payloadScatterShowPI = getScatterNodeById('scatterShowPI') || scatterShowPI;
+      const payloadScatterGraphType = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
+      const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat') || scatterTableFormatSelect;
+      const payloadScatterHotWrapper = getScatterNodeById('scatterHotWrapper') || scatterHotWrapper;
+      const payloadScatterHotContainer = getScatterNodeById('scatterHot') || scatterHotContainer;
       const activeHot = scatterHot || scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
       const activeManager = activeHot
         ? ensureScatterDataViewsForHot(activeHot, {
-            wrapper: scatterHotWrapper,
-            container: activeHot.__scatterHostContainer || scatterHotContainer
+            wrapper: payloadScatterHotWrapper,
+            container: activeHot.__scatterHostContainer || payloadScatterHotContainer
           })
         : (scatterDataViewsManager || null);
       if(activeHot){
@@ -20733,13 +20818,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             originMode:scatterOriginMode.value,
             originX:scatterOriginX.value,
             originY:scatterOriginY.value,
-            showLine:scatterShowLine.checked,
-            showPlotStats:scatterShowPlotStats ? scatterShowPlotStats.checked : false,
-            showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
-            showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
+            showLine: !!payloadScatterShowLine?.checked,
+            showPlotStats: payloadScatterShowPlotStats ? payloadScatterShowPlotStats.checked : false,
+            showCI: payloadScatterShowCI ? !!payloadScatterShowCI.checked : undefined,
+            showPI: payloadScatterShowPI ? !!payloadScatterShowPI.checked : undefined,
             showDiagnostics:isScatterDiagnosticsEnabled(),
-            graphType:scatterGraphTypeSelect?.value || 'scatter',
-            tableFormat: normalizeScatterTableFormat(scatterTableFormat),
+            graphType:payloadScatterGraphType?.value || scatterCurrentGraphType || 'scatter',
+            tableFormat: normalizeScatterTableFormat(payloadScatterTableFormat?.value || scatterTableFormat),
             replicates: clampScatterReplicateCount(scatterReplicates),
             xReplicates: !!scatterGroupedXReplicates,
             groupLabels: Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [],
@@ -20806,8 +20891,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               regressionMode: scatterRegressionMode ? scatterRegressionMode.value : undefined,
               fitMethod: scatterFitMethod ? scatterFitMethod.value : undefined,
               fitSpec: buildScatterFitSpec(),
-              showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
-              showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
+              showCI: payloadScatterShowCI ? !!payloadScatterShowCI.checked : undefined,
+              showPI: payloadScatterShowPI ? !!payloadScatterShowPI.checked : undefined,
               showDiagnostics: isScatterDiagnosticsEnabled(),
               precomputedStats: persistedStats.precomputedStats,
               precomputedSignature: persistedStats.precomputedSignature
@@ -20865,7 +20950,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           setFileName: name => { scatterFileName = name; },
           loadFromFile: file => loadScatterGraphFile(file),
           triggerInput: () => {
-            const input = document.getElementById('scatterGraphFile');
+            const input = getScatterNodeById('scatterGraphFile');
             if(input){
               input.value='';
               input.click();
@@ -21251,6 +21336,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
+        const postApplyGraphTypeControl = getScatterNodeById('scatterGraphType') || global.document?.getElementById?.('scatterGraphType') || null;
+        const postApplyShowLineControl = getScatterNodeById('scatterShowLine') || global.document?.getElementById?.('scatterShowLine') || null;
+        const postApplyGraphType = String(c.graphType || postApplyGraphTypeControl?.value || 'scatter').toLowerCase();
+        if(postApplyShowLineControl){
+          const shouldShowLine = postApplyGraphType === 'scatter' && !!c.showLine;
+          postApplyShowLineControl.disabled = postApplyGraphType !== 'scatter';
+          postApplyShowLineControl.checked = shouldShowLine;
+        }
         if(scatterHot){
           const selectedRows = Array.isArray(c.selectedRows)
             ? c.selectedRows.map(value => Number(value)).filter(value => Number.isInteger(value) && value >= 0)
@@ -21292,8 +21385,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
 
     function initNotes(){
-      const stack = global.document.querySelector('#scatterGraphPanel .scatter-plot-stack')
-        || global.document.querySelector('#scatterGraphPanel .diagram-area');
+      const stack = queryScatterRoot('#scatterGraphPanel .scatter-plot-stack')
+        || queryScatterRoot('#scatterGraphPanel .diagram-area');
       if(!stack){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: scatter notes mount skipped (missing stack)');
@@ -21365,10 +21458,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }else{
         console.debug('Debug: scatter export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: scatter export fallback
       }
-      document.getElementById('openScatterGraph')?.addEventListener('click',openScatterFile);
-      document.getElementById('saveScatterGraph')?.addEventListener('click',saveScatterFile);
-      document.getElementById('saveAsScatter').addEventListener('click',saveAsScatterFile);
-      document.getElementById('scatterGraphFile').addEventListener('change',e=>{
+      getScatterNodeById('openScatterGraph')?.addEventListener('click',openScatterFile);
+      getScatterNodeById('saveScatterGraph')?.addEventListener('click',saveScatterFile);
+      getScatterNodeById('saveAsScatter').addEventListener('click',saveAsScatterFile);
+      getScatterNodeById('scatterGraphFile').addEventListener('change',e=>{
         const f=e.target.files[0];
         if(f){
           scatterFileName=f.name;
@@ -21478,6 +21571,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     initNotes();
     ensureScatterFontEventListener();
     ensureEmptyPayloadTemplate();
+    scatter.__boundTabId = Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
     scatter.ready = true;
     console.debug('Debug: Components.scatter.setup complete');
   }
@@ -21497,14 +21593,54 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       componentKey: 'scatter',
       tabLike: tabLike || null,
       sentinelSelector: '#scatterShowLine',
+      getCurrentRoot: () => scatterRoot || null,
       getCurrentSentinel: () => scatter.__domSentinel || null,
-      rebind: () => {
+      rebind: (info) => {
+        scatterRoot = info?.root || resolveScatterRoot(tabLike || info?.tabId || null);
         console.debug('Debug: Components.scatter.setup refreshing stale DOM bindings');
         scatter.ready = false;
-        setup();
+        setup({
+          root: scatterRoot,
+          tabId: info?.tabId || null,
+          reason: 'workspace-dom-rebind'
+        });
       }
     });
     return !!rebound?.rebound;
+  }
+
+  function syncScatterActivationControlsFromPayload(tabLike){
+    const tab = (tabLike && typeof tabLike === 'object')
+      ? tabLike
+      : (global.Main?.session?.getActiveTab?.() || null);
+    const payloadConfig = tab?.payload?.config;
+    if(!payloadConfig || typeof payloadConfig !== 'object'){
+      return;
+    }
+    const graphTypeControl = getScatterNodeById('scatterGraphType', tab);
+    const showLineControl = getScatterNodeById('scatterShowLine', tab);
+    const targetGraphType = String(payloadConfig.graphType || graphTypeControl?.value || 'scatter').toLowerCase();
+    if(graphTypeControl && graphTypeControl.value !== targetGraphType){
+      graphTypeControl.value = targetGraphType;
+      graphTypeControl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const docGraphTypeControl = global.document?.getElementById?.('scatterGraphType') || null;
+    if(docGraphTypeControl && docGraphTypeControl !== graphTypeControl && docGraphTypeControl.value !== targetGraphType){
+      docGraphTypeControl.value = targetGraphType;
+    }
+    if(showLineControl){
+      const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
+      if(showLineControl.checked !== shouldShowLine){
+        showLineControl.checked = shouldShowLine;
+        showLineControl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    const docShowLineControl = global.document?.getElementById?.('scatterShowLine') || null;
+    if(docShowLineControl && docShowLineControl !== showLineControl){
+      const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
+      docShowLineControl.checked = shouldShowLine;
+      docShowLineControl.disabled = targetGraphType !== 'scatter';
+    }
   }
 
   scatter.init = setup;
@@ -21537,13 +21673,32 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
   };
   scatter.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (typeof tab === 'string' ? tab : tab?.id)
+      || Shared.hot?.resolveActiveTabId?.()
+      || null;
+    if(targetTabId && scatter.__boundTabId && scatter.__boundTabId !== targetTabId){
+      scatterRoot = resolveScatterRoot(tab || null);
+      scatter.ready = false;
+      setup({
+        root: scatterRoot,
+        tabId: targetTabId,
+        reason: 'activate-tab-rebind'
+      });
+    }
+    scatterRoot = resolveScatterRoot(tab || null);
     if(ensureScatterDomBindings(tab)){
+      syncScatterActivationControlsFromPayload(tab);
       applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
       return;
     }
+    syncScatterActivationControlsFromPayload(tab);
     applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
     if(!scatter.ready){
-      scatter.init();
+      scatter.init({
+        root: scatterRoot,
+        tabId: targetTabId,
+        reason: meta.reason || 'activate-tab'
+      });
       return;
     }
     scatterLayoutWasHidden = true;
@@ -21582,7 +21737,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return cachedSvg;
       }
     }
-    const plot = document.getElementById('scatterPlot');
+    const plot = getScatterNodeById('scatterPlot');
     return plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
   }
 
@@ -21591,8 +21746,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   };
 
   scatter.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('scatterPlot');
-    const stats = document.getElementById('scatterStatsResults');
+    const plot = getScatterNodeById('scatterPlot');
+    const stats = getScatterNodeById('scatterStatsResults');
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -21606,8 +21761,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.restoreRenderCache = function restoreRenderCache(cache, meta){
     if(!cache){ return false; }
-    const plot = document.getElementById('scatterPlot');
-    const stats = document.getElementById('scatterStatsResults');
+    const plot = getScatterNodeById('scatterPlot');
+    const stats = getScatterNodeById('scatterStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
@@ -21718,7 +21873,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     resolveLargeDatasetPolicy: opts => resolveScatterLargeDatasetPolicy(opts || {}),
     resolveColorMode: opts => resolveScatterColorMode(opts || {}),
     getLargeDatasetRenderSummary: () => Object.assign({}, scatter.__lastLargeDatasetRenderSummary || {}, {
-      renderMode: global.document?.querySelector?.('#scatterPlot svg [data-layer="points"]')?.getAttribute?.('data-render-mode')
+      renderMode: getScatterNodeById('scatterPlot')?.querySelector?.('svg [data-layer="points"]')?.getAttribute?.('data-render-mode')
         || scatter.__lastLargeDatasetRenderSummary?.renderMode
         || null
     }),
@@ -21867,3 +22022,4 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   });
 
 })(window);
+

@@ -4626,9 +4626,9 @@
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-panel');
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
         const pcaEls = {
-          tableFormat: document.getElementById('pcaTableFormat'),
-          groupedControls: document.getElementById('pcaGroupedControls'),
-        groupedReplicates: document.getElementById('pcaGroupedReplicates'),
+          tableFormat: getPcaNodeById('pcaTableFormat'),
+          groupedControls: getPcaNodeById('pcaGroupedControls'),
+        groupedReplicates: getPcaNodeById('pcaGroupedReplicates'),
         groupedList: null,
         groupedAdd: null,
         groupedRemove: null
@@ -4974,7 +4974,7 @@
           debugLog('Debug: pca markFontEditable', payload); // Debug: font target tagging summary
         }
       };
-      document.getElementById('pcaLoadExample').addEventListener('click',()=>{
+      getPcaNodeById('pcaLoadExample').addEventListener('click',()=>{
         const selectedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
         const pcaExample = selectedFormat === 'grouped'
           ? [
@@ -5013,8 +5013,8 @@
         evaluateAutoDrawThresholds();
         scheduleDrawPca({ force: true, reason: 'example-load' });
       });
-      const pcaImportBtn=document.getElementById('pcaImport');
-      const pcaFileInput=document.getElementById('pcaFile');
+      const pcaImportBtn=getPcaNodeById('pcaImport');
+      const pcaFileInput=getPcaNodeById('pcaFile');
       const tableImport = Shared.tableImport;
       pcaImportBtn.addEventListener('click',()=>{pcaFileInput.value=''; pcaFileInput.click();});
       pcaFileInput.addEventListener('change',async ()=>{
@@ -5064,11 +5064,11 @@
           console.error('pca import failed', err);
         }
       });
-      const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
-      const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
-      const pcaLoadingsLimitInput=document.getElementById('pcaLoadingsLimit');
-      const pcaLoadingsLimitVal=document.getElementById('pcaLoadingsLimitVal');
-      const pcaLoadingsActions=document.querySelector('#pcaLoadingsContainer .loadings-card__actions');
+      const pcaLoadingsContainer=getPcaNodeById('pcaLoadingsContainer');
+      const pcaLoadingsTable=getPcaNodeById('pcaLoadingsTable');
+      const pcaLoadingsLimitInput=getPcaNodeById('pcaLoadingsLimit');
+      const pcaLoadingsLimitVal=getPcaNodeById('pcaLoadingsLimitVal');
+      const pcaLoadingsActions=queryPcaRoot('#pcaLoadingsContainer .loadings-card__actions');
       const pcaDefaultLoadingsActionsHost=pcaLoadingsActions?.parentElement || null;
       let lastLoadingsRender = null;
       function clampLoadingsLimitValue(value, maxRows = PCA_LOADINGS_ROW_LIMIT){
@@ -5220,31 +5220,31 @@
           }
         });
       }
-      const pcaScreeVarianceRow=document.getElementById('pcaScreeVarianceRow');
-      const pcaVarianceSummary=document.getElementById('pcaVarianceSummary');
-      const pcaVarianceList=document.getElementById('pcaVarianceList');
+      const pcaScreeVarianceRow=getPcaNodeById('pcaScreeVarianceRow');
+      const pcaVarianceSummary=getPcaNodeById('pcaVarianceSummary');
+      const pcaVarianceList=getPcaNodeById('pcaVarianceList');
       const pcaViewMode=$('#pcaViewMode');
       pcaViewModeInput = pcaViewMode;
       const pcaXAxis=$('#pcaXAxis');
       const pcaYAxis=$('#pcaYAxis');
       const pcaZAxis=$('#pcaZAxis');
-      const pcaAxis2DControls=document.getElementById('pcaAxis2DControls');
-      const pcaAxis3DControl=document.getElementById('pcaAxis3DControl');
+      const pcaAxis2DControls=getPcaNodeById('pcaAxis2DControls');
+      const pcaAxis3DControl=getPcaNodeById('pcaAxis3DControl');
       if(pcaAxis3DControl){
         pcaAxis3DControl.hidden = true;
         pcaAxis3DControl.style.display = 'none';
       }
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
-      const pcaTsneControls=document.getElementById('pcaTsneControls');
-      const pcaTsnePerplexity=document.getElementById('pcaTsnePerplexity');
-      const pcaTsneLearningRate=document.getElementById('pcaTsneLearningRate');
-      const pcaTsneIterations=document.getElementById('pcaTsneIterations');
-      const pcaTsneExaggeration=document.getElementById('pcaTsneExaggeration');
-      const pcaUmapControls=document.getElementById('pcaUmapControls');
-      const pcaUmapNeighbors=document.getElementById('pcaUmapNeighbors');
-      const pcaUmapMinDist=document.getElementById('pcaUmapMinDist');
-      const pcaUmapLearningRate=document.getElementById('pcaUmapLearningRate');
-      const pcaUmapEpochs=document.getElementById('pcaUmapEpochs');
+      const pcaTsneControls=getPcaNodeById('pcaTsneControls');
+      const pcaTsnePerplexity=getPcaNodeById('pcaTsnePerplexity');
+      const pcaTsneLearningRate=getPcaNodeById('pcaTsneLearningRate');
+      const pcaTsneIterations=getPcaNodeById('pcaTsneIterations');
+      const pcaTsneExaggeration=getPcaNodeById('pcaTsneExaggeration');
+      const pcaUmapControls=getPcaNodeById('pcaUmapControls');
+      const pcaUmapNeighbors=getPcaNodeById('pcaUmapNeighbors');
+      const pcaUmapMinDist=getPcaNodeById('pcaUmapMinDist');
+      const pcaUmapLearningRate=getPcaNodeById('pcaUmapLearningRate');
+      const pcaUmapEpochs=getPcaNodeById('pcaUmapEpochs');
       const pcaAlphaVal=$('#pcaAlphaVal');
       let pcaComponentRuleInput = null;
       let pcaEigenThresholdInput = null;
@@ -5290,11 +5290,11 @@
         setPcaControlVisibility(pcaMethodAdvancedSection, isPcaMethod);
       }
       function ensurePcaComponentSelectionControls(){
-        const methodFieldset = document.querySelector('#pcaPage .config-panel fieldset[data-graph-selection-fieldset="1"]');
+        const methodFieldset = queryPcaRoot('#pcaPage .config-panel fieldset[data-graph-selection-fieldset="1"]');
         if(!methodFieldset){
           return null;
         }
-        let section = document.getElementById('pcaMethodAdvancedSection');
+        let section = getPcaNodeById('pcaMethodAdvancedSection');
         if(!section){
           section = document.createElement('details');
           section.id = 'pcaMethodAdvancedSection';
@@ -5410,10 +5410,10 @@
             requestPcaDataRefresh('component-selection-axis-retention');
           });
         }else{
-          pcaComponentRuleInput = document.getElementById('pcaComponentRule');
-          pcaEigenThresholdInput = document.getElementById('pcaEigenThreshold');
-          pcaParallelIterationsInput = document.getElementById('pcaParallelIterations');
-          pcaIncludeNonRetainedAxesInput = document.getElementById('pcaIncludeNonRetainedAxes');
+          pcaComponentRuleInput = getPcaNodeById('pcaComponentRule');
+          pcaEigenThresholdInput = getPcaNodeById('pcaEigenThreshold');
+          pcaParallelIterationsInput = getPcaNodeById('pcaParallelIterations');
+          pcaIncludeNonRetainedAxesInput = getPcaNodeById('pcaIncludeNonRetainedAxes');
           pcaEigenThresholdLabel = pcaEigenThresholdInput?.closest('label') || null;
           pcaParallelIterationsLabel = pcaParallelIterationsInput?.closest('label') || null;
           pcaIncludeNonRetainedAxesLabel = pcaIncludeNonRetainedAxesInput?.closest('label') || null;
@@ -5442,7 +5442,7 @@
       chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
       const pcaShowGrid=$('#pcaShowGrid');
       const pcaShowFrame=$('#pcaShowFrame');
-      const pcaShowLegend=document.getElementById('pcaShowLegend');
+      const pcaShowLegend=getPcaNodeById('pcaShowLegend');
       if(pcaShowLegend){
         pcaShowLegendInput = pcaShowLegend;
         const legendHost=pcaShowLegend.closest('label');
@@ -5459,15 +5459,15 @@
       const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
       pcaVarianceAxisScaleInput = pcaVarianceAxisScale;
       const pcaScale=$('#pcaScale');
-      const pcaStatsResults=document.getElementById('pcaStatsResults');
-      const pcaStatsSummary=document.getElementById('pcaStatsSummary');
-      const pcaScreeContainer=document.getElementById('pcaScreeContainer');
-      const pcaScreePlot=document.getElementById('pcaScreePlot') || pcaScreeContainer;
-      const pcaScreeExportControls=document.getElementById('pcaScreeExportControls');
-      const pcaScreeShowParallelInput=document.getElementById('pcaScreeShowParallel');
-      const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
-      const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
-      const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
+      const pcaStatsResults=getPcaNodeById('pcaStatsResults');
+      const pcaStatsSummary=getPcaNodeById('pcaStatsSummary');
+      const pcaScreeContainer=getPcaNodeById('pcaScreeContainer');
+      const pcaScreePlot=getPcaNodeById('pcaScreePlot') || pcaScreeContainer;
+      const pcaScreeExportControls=getPcaNodeById('pcaScreeExportControls');
+      const pcaScreeShowParallelInput=getPcaNodeById('pcaScreeShowParallel');
+      const pcaEigenTableContainer=getPcaNodeById('pcaEigenTableContainer');
+      const pcaEigenTableWrapper=getPcaNodeById('pcaEigenTableWrapper');
+      const pcaExportEigenTableBtn=getPcaNodeById('pcaExportEigenTable');
       const pcaDefaultEigenExportHost = pcaExportEigenTableBtn?.parentElement || null;
       function preservePcaScrollPosition(run){
         const docScroll = global.document?.scrollingElement || global.document?.documentElement || global.document?.body || null;
@@ -5683,7 +5683,7 @@
             migrateLegacyPanels: true
           });
         }
-        let host = document.getElementById('pcaStatsReportHost');
+        let host = getPcaNodeById('pcaStatsReportHost');
         if(host && host.parentNode !== pcaStatsResults){
           host.parentNode?.removeChild?.(host);
           host = null;
@@ -5782,7 +5782,7 @@
           return { card: null, body: null };
         }
         const reportHost = host === pcaStatsResults ? ensurePcaReportHost() : null;
-        let card = document.getElementById(cardId);
+        let card = getPcaNodeById(cardId);
         if(!card){
           card = document.createElement('div');
           card.id = cardId;
@@ -5807,7 +5807,7 @@
         }
         return {
           card,
-          body: document.getElementById(`${cardId}Body`)
+          body: getPcaNodeById(`${cardId}Body`)
         };
       }
       function renderPcaComponentSelectionSummary(summary){
@@ -5960,11 +5960,11 @@
       }
       function renderPcaSupplementalPlots(options = {}){
         const method = String(options.method || '').toLowerCase();
-        const staleComponentSelectionCard = document.getElementById('pcaComponentSelectionSummaryCard');
+        const staleComponentSelectionCard = getPcaNodeById('pcaComponentSelectionSummaryCard');
         if(staleComponentSelectionCard?.parentNode){
           staleComponentSelectionCard.parentNode.removeChild(staleComponentSelectionCard);
         }
-        const staleLoadingsPlotCard = document.getElementById('pcaLoadingsPlotCard');
+        const staleLoadingsPlotCard = getPcaNodeById('pcaLoadingsPlotCard');
         if(staleLoadingsPlotCard?.parentNode){
           staleLoadingsPlotCard.parentNode.removeChild(staleLoadingsPlotCard);
         }
@@ -6128,7 +6128,7 @@
       function updateScreeVarianceRowVisibility(){
         if(!pcaScreeVarianceRow){ return; }
         const screeVisible = !!pcaScreeContainer && !pcaScreeContainer.hidden;
-        const biplotCard = document.getElementById('pcaBiplotCard');
+        const biplotCard = getPcaNodeById('pcaBiplotCard');
         const biplotVisible = !!biplotCard && !biplotCard.hidden;
         pcaScreeVarianceRow.style.display = (screeVisible || biplotVisible) ? 'flex' : 'none';
       }
@@ -6171,8 +6171,8 @@
           delete pcaLoadingsContainer.dataset.sharedStatsTable;
         }
         ['pcaBiplotCard'].forEach(cardId => {
-          const card = document.getElementById(cardId);
-          const body = document.getElementById(`${cardId}Body`);
+          const card = getPcaNodeById(cardId);
+          const body = getPcaNodeById(`${cardId}Body`);
           if(card){
             card.hidden = true;
           }
@@ -6180,7 +6180,7 @@
             body.innerHTML = '';
           }
         });
-        const staleComponentSelectionCard = document.getElementById('pcaComponentSelectionSummaryCard');
+        const staleComponentSelectionCard = getPcaNodeById('pcaComponentSelectionSummaryCard');
         if(staleComponentSelectionCard?.parentNode){
           staleComponentSelectionCard.parentNode.removeChild(staleComponentSelectionCard);
         }
@@ -8640,7 +8640,7 @@
         effectiveLegendWidth
       });
 
-      const plotEl = document.getElementById('pcaPlot');
+      const plotEl = getPcaNodeById('pcaPlot');
       plotEl.style.display = 'block';
       const existingSvg = plotEl.querySelector('#pcaSvg');
       const reuse3dSvg = effectiveViewMode === '3d' && existingSvg && existingSvg.dataset.viewMode === '3d';
@@ -10633,7 +10633,7 @@
           setFileName: name => { pcaFileName = name; },
           loadFromFile: file => loadPcaGraphFile(file),
           triggerInput: () => {
-            const input = document.getElementById('pcaGraphFile');
+            const input = getPcaNodeById('pcaGraphFile');
             if(input){
               input.value='';
               input.click();
@@ -10923,8 +10923,8 @@
       }
 
     function initNotes(){
-      const stack = global.document.querySelector('#pcaGraphPanel .pca-plot-stack')
-        || global.document.querySelector('#pcaGraphPanel .diagram-area');
+      const stack = queryPcaRoot('#pcaGraphPanel .pca-plot-stack')
+        || queryPcaRoot('#pcaGraphPanel .diagram-area');
       if(!stack){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           debugLog('Debug: pca notes mount skipped (missing stack)');
@@ -10991,10 +10991,10 @@
       } else {
         debugLog('Debug: pca export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: pca export fallback
       }
-      document.getElementById('openPcaGraph')?.addEventListener('click',openPcaFile);
-      document.getElementById('savePcaGraph')?.addEventListener('click',savePcaFile);
-      document.getElementById('saveAsPca')?.addEventListener('click',saveAsPcaFile);
-      document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
+      getPcaNodeById('openPcaGraph')?.addEventListener('click',openPcaFile);
+      getPcaNodeById('savePcaGraph')?.addEventListener('click',savePcaFile);
+      getPcaNodeById('saveAsPca')?.addEventListener('click',saveAsPcaFile);
+      getPcaNodeById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     
     const runPcaDrawCycle = async () => {
       let status = 'complete';
@@ -11203,16 +11203,16 @@
     }
 
     pca.captureRenderCache = function captureRenderCache(){
-      const plot = document.getElementById('pcaPlot');
-      const stats = document.getElementById('pcaStatsResults');
-      const summary = document.getElementById('pcaStatsSummary');
-      const scree = document.getElementById('pcaScreePlot');
-      const screeContainer = document.getElementById('pcaScreeContainer');
-      const screeExportControls = document.getElementById('pcaScreeExportControls');
-      const varianceSummary = document.getElementById('pcaVarianceSummary');
-      const eigenTableContainer = document.getElementById('pcaEigenTableContainer');
-      const loadingsContainer = document.getElementById('pcaLoadingsContainer');
-      const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
+      const plot = getPcaNodeById('pcaPlot');
+      const stats = getPcaNodeById('pcaStatsResults');
+      const summary = getPcaNodeById('pcaStatsSummary');
+      const scree = getPcaNodeById('pcaScreePlot');
+      const screeContainer = getPcaNodeById('pcaScreeContainer');
+      const screeExportControls = getPcaNodeById('pcaScreeExportControls');
+      const varianceSummary = getPcaNodeById('pcaVarianceSummary');
+      const eigenTableContainer = getPcaNodeById('pcaEigenTableContainer');
+      const loadingsContainer = getPcaNodeById('pcaLoadingsContainer');
+      const screeVarianceRow = getPcaNodeById('pcaScreeVarianceRow');
       const plotCache = detachChildren(plot);
       const statsCache = detachChildren(stats);
       const summaryCache = detachChildren(summary);
@@ -11240,16 +11240,16 @@
 
     pca.restoreRenderCache = function restoreRenderCache(cache){
       if(!cache){ return false; }
-      const plot = document.getElementById('pcaPlot');
-      const stats = document.getElementById('pcaStatsResults');
-      const summary = document.getElementById('pcaStatsSummary');
-      const scree = document.getElementById('pcaScreePlot');
-      const screeContainer = document.getElementById('pcaScreeContainer');
-      const screeExportControls = document.getElementById('pcaScreeExportControls');
-      const varianceSummary = document.getElementById('pcaVarianceSummary');
-      const eigenTableContainer = document.getElementById('pcaEigenTableContainer');
-      const loadingsContainer = document.getElementById('pcaLoadingsContainer');
-      const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
+      const plot = getPcaNodeById('pcaPlot');
+      const stats = getPcaNodeById('pcaStatsResults');
+      const summary = getPcaNodeById('pcaStatsSummary');
+      const scree = getPcaNodeById('pcaScreePlot');
+      const screeContainer = getPcaNodeById('pcaScreeContainer');
+      const screeExportControls = getPcaNodeById('pcaScreeExportControls');
+      const varianceSummary = getPcaNodeById('pcaVarianceSummary');
+      const eigenTableContainer = getPcaNodeById('pcaEigenTableContainer');
+      const loadingsContainer = getPcaNodeById('pcaLoadingsContainer');
+      const screeVarianceRow = getPcaNodeById('pcaScreeVarianceRow');
       const restoredPlot = restoreChildren(plot, cache.plot);
       const restoredStats = restoreChildren(stats, cache.stats);
       const restoredSummary = restoreChildren(summary, cache.summary);
@@ -11396,3 +11396,4 @@
   });
 
 })(window);
+

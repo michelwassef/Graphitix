@@ -297,6 +297,22 @@
       : (config.hostClass ? [config.hostClass] : []);
     hostClasses.filter(Boolean).forEach(cls => host.classList.add(cls));
     setDockActiveState(host, true);
+    // Ensure the section owning this host is visible immediately.
+    // Relying only on mutation observers can leave an open panel hidden.
+    try{
+      const section = typeof host.closest === 'function'
+        ? host.closest('.workspace-toolbar__section[data-toolbar-section-id]')
+        : null;
+      const toolbar = typeof host.closest === 'function'
+        ? host.closest('.workspace-toolbar')
+        : null;
+      const sectionId = section?.dataset?.toolbarSectionId || '';
+      if(toolbar && sectionId){
+        setToolbarActiveSection(toolbar, sectionId, { context: true });
+      }
+    }catch(err){
+      logDebug('showHost section activation failed', { error: err?.message || String(err) });
+    }
     return host;
   }
 
@@ -314,6 +330,16 @@
     host.style.removeProperty('overflow-y');
     clearToolbarHostSizing(host);
     setDockActiveState(host, false);
+    try{
+      const toolbar = typeof host.closest === 'function'
+        ? host.closest('.workspace-toolbar')
+        : null;
+      if(toolbar){
+        syncToolbarContextSection(toolbar);
+      }
+    }catch(err){
+      logDebug('hideHost context sync failed', { error: err?.message || String(err) });
+    }
   }
 
   function appendSvgChildren(parent, elements){

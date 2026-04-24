@@ -874,7 +874,6 @@
     }
     const gridGroup = (showGrid || showFrame) && doc ? doc.createElementNS(NS, 'g') : null;
     if(gridGroup){
-      gridGroup.setAttribute('data-grid-control', '1');
       gridGroup.setAttribute('fill', 'none');
       gridGroup.setAttribute('stroke', gridColor);
       if(gridDashAttr){
@@ -902,7 +901,7 @@
         }
       }
       const targetNode = target || axisTarget || svg;
-      if(targetNode && typeof targetNode.getAttribute === 'function' && targetNode.getAttribute('data-grid-control') === '1'){
+      if(targetNode === gridGroup || (targetNode && typeof targetNode.getAttribute === 'function' && targetNode.getAttribute('data-grid-control') === '1')){
         line.setAttribute('data-grid-control', '1');
       }
       targetNode.appendChild(line);

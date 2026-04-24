@@ -2351,6 +2351,33 @@
   }); // Debug: group label state bootstrap
 
   const refs = {};
+  function resolveLineRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'line')
+      || refs.root
+      || global.document?.getElementById?.('linePage')
+      || global.document
+      || null;
+  }
+  function queryLineRoot(selector, tabLike){
+    const root = resolveLineRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+  function getLineNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveLineRoot(tabLike);
+    if(root?.getElementById){
+      const node = root.getElementById(id);
+      if(node){
+        return node;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
   function ensureLineStatsReportHost(){
     const reporting = Shared.statsReporting;
     if(!refs.statsResults || !reporting || typeof reporting.ensureReportHost !== 'function'){
@@ -2477,7 +2504,7 @@
   function clearLineErrorBarToolbarControl(host){
     const targetHost = host
       || lineErrorBarToolbarPanel?.parentElement
-      || global.document?.querySelector?.('.font-toolbar-host[data-font-toolbar-scope="line"]')
+      || queryLineRoot('.font-toolbar-host[data-font-toolbar-scope="line"]')
       || null;
     if(targetHost?.querySelectorAll){
       targetHost.querySelectorAll('.line-errorbar-inline-panel').forEach(node => node.remove());
@@ -2489,7 +2516,7 @@
   function syncLineErrorBarToolbarControl(host){
     const targetHost = host
       || lineErrorBarToolbarPanel?.parentElement
-      || global.document?.querySelector?.('.font-toolbar-host[data-font-toolbar-scope="line"]')
+      || queryLineRoot('.font-toolbar-host[data-font-toolbar-scope="line"]')
       || null;
     if(!targetHost){
       return;
@@ -2645,8 +2672,8 @@
       return false;
     }
     const manager = ensureLineDataViewsForHot(hot, {
-      wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
-      container: hot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
+      wrapper: refs.hotWrapper || getLineNodeById('lineHotWrapper') || null,
+      container: hot.__lineHostContainer || refs.hotContainer || getLineNodeById('lineHot') || null
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('line data transform skipped: Shared.dataViews unavailable');
@@ -3104,7 +3131,7 @@
   function showLinePointFormatControls(target){
     const doc = global.document;
     if(!doc){ return; }
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const dotSizeInput = doc.getElementById('lineDotSize');
       const fillInput = doc.getElementById('lineFill');
@@ -4513,7 +4540,7 @@
   }
 
   function renderLineStatsAdvisor(series, options, providedContext){
-    const container=refs.statsAdvisor || refs.root?.querySelector?.('#lineStatsAdvisor') || document.getElementById('lineStatsAdvisor');
+    const container=refs.statsAdvisor || refs.root?.querySelector?.('#lineStatsAdvisor') || getLineNodeById('lineStatsAdvisor');
     if(!container){
       return;
     }
@@ -5394,7 +5421,7 @@
       || lineHot.__lineHostContainer
       || refs.hotContainer
       || refs.root?.querySelector?.('#lineHot')
-      || document.getElementById('lineHot');
+      || getLineNodeById('lineHot');
     if(hotRoot && hotRoot.classList){
       hotRoot.classList.toggle('line-grouped-header-merge', !!groupedActive);
     }
@@ -7518,7 +7545,7 @@
     const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = lineHot
       ? ensureLineDataViewsForHot(lineHot, {
-          wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
+          wrapper: refs.hotWrapper || getLineNodeById('lineHotWrapper') || null,
           container: lineHot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
         })
       : null;
@@ -8073,7 +8100,7 @@
   function buildLineExportSvg(){
     const svgEl=refs.plot?.querySelector?.('#lineSvg')
       || refs.root?.querySelector?.('#lineSvg')
-      || document.getElementById('lineSvg');
+      || getLineNodeById('lineSvg');
     if(!svgEl) return null;
     const clone=svgEl.cloneNode(true);
     const viewBox = svgEl.viewBox?.baseVal;
@@ -11180,8 +11207,8 @@
       || refs.graphPanel?.querySelector?.('.diagram-area')
       || refs.root?.querySelector?.('#lineGraphPanel .line-plot-stack')
       || refs.root?.querySelector?.('#lineGraphPanel .diagram-area')
-      || global.document.querySelector('#lineGraphPanel .line-plot-stack')
-      || global.document.querySelector('#lineGraphPanel .diagram-area');
+      || queryLineRoot('#lineGraphPanel .line-plot-stack')
+      || queryLineRoot('#lineGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: line notes mount skipped (missing stack)');
@@ -11227,17 +11254,17 @@
     }
     const activeRoot = options?.root
       || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'line')
-      || document.getElementById('linePage')
+      || getLineNodeById('linePage')
       || document;
     refs.root = activeRoot;
     const byId = id => (
       activeRoot && typeof activeRoot.querySelector === 'function'
         ? activeRoot.querySelector(`#${id}`)
         : null
-    ) || document.getElementById(id);
+    ) || getLineNodeById(id);
     ensureLineAxisSettings();
     ensureLineGridStyle(getLineAxisStrokeWidth());
-    const $ = global.$ || (sel=>(activeRoot?.querySelector?.(sel) || document.querySelector(sel)));
+    const $ = global.$ || (sel => queryLineRoot(sel));
     refs.tablePanel=byId('lineTablePanel');
     refs.graphPanel=byId('lineGraphPanel');
     refs.panelResizer=byId('linePanelResizer');
@@ -11666,9 +11693,9 @@
     refs.loadExample=byId('lineLoadExample');
     refs.importBtn=byId('lineImport');
     refs.fileInput=byId('lineFile');
-    refs.openBtn=document.getElementById('openLineGraph');
-    refs.saveBtn=document.getElementById('saveLineGraph');
-    refs.saveAsBtn=document.getElementById('saveAsLine');
+    refs.openBtn=getLineNodeById('openLineGraph');
+    refs.saveBtn=getLineNodeById('saveLineGraph');
+    refs.saveAsBtn=getLineNodeById('saveAsLine');
     refs.graphFileInput=byId('lineGraphFile');
 
     if(typeof global.lineStatType === 'undefined') global.lineStatType = refs.statType; // legacy compatibility (guarded)
@@ -11996,8 +12023,8 @@
       return instance;
     };
     const ensureLineHotForActiveTab = () => {
-      const wrapper = refs.hotWrapper || refs.root?.querySelector?.('#lineHotWrapper') || document.getElementById('lineHotWrapper');
-      const baseContainer = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || document.getElementById('lineHot');
+      const wrapper = refs.hotWrapper || refs.root?.querySelector?.('#lineHotWrapper') || getLineNodeById('lineHotWrapper');
+      const baseContainer = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!lineHot){
           lineHot = createLineTable(baseContainer);
@@ -12558,7 +12585,7 @@
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
     initNotes();
     ensureEmptyPayloadTemplate();
-    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || global.document?.getElementById?.('lineHot') || null;
+    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
     line.ready = true;
     scheduleLineDraw();
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
@@ -12603,13 +12630,13 @@
       const hot = line.__ensureHotForActiveTab();
       if(hot){
         ensureLineDataViewsForHot(hot, {
-          wrapper: refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null,
-          container: hot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
+          wrapper: refs.hotWrapper || getLineNodeById('lineHotWrapper') || null,
+          container: hot.__lineHostContainer || refs.hotContainer || getLineNodeById('lineHot') || null
         });
         syncLineActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
-    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || global.document?.getElementById?.('lineHot') || null;
+    line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
   };
 
   function detachChildren(node){
@@ -12635,8 +12662,8 @@
   }
 
   line.captureRenderCache = function captureRenderCache(){
-    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || document.getElementById('linePlot');
-    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || document.getElementById('lineStatsResults');
+    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
+    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
     const svg = plot ? plot.querySelector('#lineSvg') : null;
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
@@ -12660,8 +12687,8 @@
 
   line.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || document.getElementById('linePlot');
-    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || document.getElementById('lineStatsResults');
+    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
+    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     if(plot && typeof cache.plotStyle === 'string' && cache.plotStyle){
@@ -12833,3 +12860,4 @@
   });
 
 })(window);
+

@@ -3523,8 +3523,8 @@
   }
 
   function initNotes(){
-    const stack = global.document.querySelector('#rocGraphPanel .roc-plot-stack')
-      || global.document.querySelector('#rocGraphPanel .diagram-area');
+    const stack = queryRocRoot('#rocGraphPanel .roc-plot-stack')
+      || queryRocRoot('#rocGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: roc notes mount skipped (missing stack)');
@@ -3829,3 +3829,4 @@
     )
   });
 })(window);
+

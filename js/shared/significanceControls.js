@@ -930,7 +930,7 @@
     if(!panelEl){ return; }
     try{
       if(Shared && typeof Shared.hideAllFormatControls === 'function'){
-        try{ Shared.hideAllFormatControls(); }catch(e){}
+        try{ Shared.hideAllFormatControls({ force: true }); }catch(e){}
       }
     }catch(e){}
     try{
@@ -1023,3 +1023,4 @@
   significanceControls.close = closePanel;
   significanceControls.updateOverlayBounds = updateOverlayBounds;
 })(typeof window !== 'undefined' ? window : globalThis);
+

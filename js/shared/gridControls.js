@@ -514,6 +514,10 @@
       return false;
     }
     if(typeof target.closest === 'function'){
+      // Text/font controls win over grid controls when overlays overlap.
+      if(target.closest('text, [data-font-editable="1"], [data-font-key], .inline-edit-overlay, [contenteditable="true"]')){
+        return false;
+      }
       // Axis/symbol selectors must win when overlapping grid hit targets.
       if(target.closest('[data-axis-control="1"], [data-additional-line-control="1"], [data-significance-control="1"], [data-dendrogram-control="1"]')){
         return false;
@@ -1178,6 +1182,7 @@
         }
       }
       if(!allowed){ return; }
+      try{ evt.stopPropagation(); }catch(err){}
       const openCfg = Object.assign({}, liveConfig, { target: evt && evt.target ? evt.target : element });
       const enqueue = typeof global.requestAnimationFrame === 'function'
         ? global.requestAnimationFrame.bind(global)
@@ -1204,3 +1209,4 @@
   gridControls.transparencyToOpacity = transparencyToOpacity;
   gridControls.getStrokeAttributes = buildStrokeAttributes;
 })(typeof window !== 'undefined' ? window : globalThis);
+

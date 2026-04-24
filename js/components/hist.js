@@ -218,17 +218,17 @@
 
   function readHistAxisLimitsFromInputs(){
     return {
-      xMin: readNumericInputValue(document.getElementById('histXMin')),
-      xMax: readNumericInputValue(document.getElementById('histXMax')),
-      yMax: readNumericInputValue(document.getElementById('histYMax'))
+      xMin: readNumericInputValue(getHistNodeById('histXMin')),
+      xMax: readNumericInputValue(getHistNodeById('histXMax')),
+      yMax: readNumericInputValue(getHistNodeById('histYMax'))
     };
   }
 
   function applyHistAxisLimitsToInputs(limits){
     const source = limits && typeof limits === 'object' ? limits : {};
-    writeNumericInputValue(document.getElementById('histXMin'), source.xMin);
-    writeNumericInputValue(document.getElementById('histXMax'), source.xMax);
-    writeNumericInputValue(document.getElementById('histYMax'), source.yMax);
+    writeNumericInputValue(getHistNodeById('histXMin'), source.xMin);
+    writeNumericInputValue(getHistNodeById('histXMax'), source.xMax);
+    writeNumericInputValue(getHistNodeById('histYMax'), source.yMax);
   }
 
   const DEFAULT_DISTRIBUTION_COLORS = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'];
@@ -541,8 +541,11 @@
   };
 
   function resolveHistRoot(){
+    const activeTabId = Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
     return state.root
-      || Shared.workspaceTabs?.getMountedRoot?.(null, 'hist')
+      || Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'hist')
       || global.document?.getElementById?.('histPage')
       || global.document;
   }
@@ -556,7 +559,15 @@
     if(!id){
       return null;
     }
-    return queryHistRoot(`#${id}`) || global.document?.getElementById?.(id) || null;
+    const scopedNode = queryHistRoot(`#${id}`) || null;
+    const documentNode = global.document?.getElementById?.(id) || null;
+    if(scopedNode && scopedNode.isConnected){
+      return scopedNode;
+    }
+    if(documentNode && documentNode.isConnected){
+      return documentNode;
+    }
+    return scopedNode || documentNode || null;
   }
 
   function createImmutableHistDefaultConfig(){
@@ -713,48 +724,48 @@
     const mode = normalizeHistPlotMode(state.plotMode);
     const densityMode = mode === HIST_PLOT_MODE_DENSITY;
     const frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
-    const plotModeSelect = document.getElementById('histPlotMode');
+    const plotModeSelect = getHistNodeById('histPlotMode');
     if(plotModeSelect && plotModeSelect.value !== mode){
       plotModeSelect.value = mode;
     }
-    const binsFieldset = document.getElementById('histBinsFieldset');
+    const binsFieldset = getHistNodeById('histBinsFieldset');
     if(binsFieldset){
       binsFieldset.hidden = densityMode;
       binsFieldset.setAttribute('aria-hidden', densityMode ? 'true' : 'false');
     }
-    const histBinsInput = document.getElementById('histBins');
+    const histBinsInput = getHistNodeById('histBins');
     if(histBinsInput){
       const countMode = frequencySettings.binningMode === HIST_BINNING_MODE.count;
       histBinsInput.disabled = densityMode || !countMode;
     }
-    const binsCountCtl = document.getElementById('histBinsCountCtl');
+    const binsCountCtl = getHistNodeById('histBinsCountCtl');
     if(binsCountCtl){
       binsCountCtl.hidden = frequencySettings.binningMode !== HIST_BINNING_MODE.count;
       binsCountCtl.setAttribute('aria-hidden', binsCountCtl.hidden ? 'true' : 'false');
     }
-    const binWidthCtl = document.getElementById('histBinWidthCtl');
+    const binWidthCtl = getHistNodeById('histBinWidthCtl');
     if(binWidthCtl){
       binWidthCtl.hidden = frequencySettings.binningMode !== HIST_BINNING_MODE.width;
       binWidthCtl.setAttribute('aria-hidden', binWidthCtl.hidden ? 'true' : 'false');
     }
-    const centerRow = document.getElementById('histBinCentersRow');
+    const centerRow = getHistNodeById('histBinCentersRow');
     const showCenters = frequencySettings.binningMode === HIST_BINNING_MODE.width;
     if(centerRow){
       centerRow.hidden = !showCenters || densityMode;
       centerRow.setAttribute('aria-hidden', centerRow.hidden ? 'true' : 'false');
     }
-    const firstCenterInput = document.getElementById('histFirstBinCenter');
-    const firstCenterAuto = document.getElementById('histFirstBinCenterAuto');
+    const firstCenterInput = getHistNodeById('histFirstBinCenter');
+    const firstCenterAuto = getHistNodeById('histFirstBinCenterAuto');
     if(firstCenterInput){
       firstCenterInput.disabled = densityMode || !showCenters || !!firstCenterAuto?.checked;
     }
-    const lastCenterInput = document.getElementById('histLastBinCenter');
-    const lastCenterAuto = document.getElementById('histLastBinCenterAuto');
+    const lastCenterInput = getHistNodeById('histLastBinCenter');
+    const lastCenterAuto = getHistNodeById('histLastBinCenterAuto');
     if(lastCenterInput){
       lastCenterInput.disabled = densityMode || !showCenters || !!lastCenterAuto?.checked;
     }
-    const cdfInput = document.getElementById('histShowCdf');
-    const pdfInput = document.getElementById('histShowPdf');
+    const cdfInput = getHistNodeById('histShowCdf');
+    const pdfInput = getHistNodeById('histShowPdf');
     const cumulativeMode = frequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
     const disablePdf = cumulativeMode;
     if(pdfInput){
@@ -865,8 +876,8 @@
     if(typeof document === 'undefined'){
       return;
     }
-    const diagnosticsSelect = document.getElementById('histStatsDiagnosticsMode');
-    const comparisonSelect = document.getElementById('histStatsComparisonMode');
+    const diagnosticsSelect = getHistNodeById('histStatsDiagnosticsMode');
+    const comparisonSelect = getHistNodeById('histStatsComparisonMode');
     const resolvedDiagnostics = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
     const resolvedComparison = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
     if(diagnosticsSelect && diagnosticsSelect.value !== resolvedDiagnostics){
@@ -889,8 +900,8 @@
 
   let histNoticeBoundWidth = null;
   const syncHistAutoDrawNoticeWidth = (reason) => {
-    const svgBox = state.svgBox || state.layout?.elements?.svgBox || document.querySelector('#histGraphPanel .svgbox');
-    const renderRow = histRenderRowEl || document.getElementById('histRenderRow');
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || queryHistRoot('#histGraphPanel .svgbox');
+    const renderRow = histRenderRowEl || getHistNodeById('histRenderRow');
     if(!svgBox || !renderRow){
       return;
     }
@@ -1004,8 +1015,8 @@
       });
     }
     const manager = hotInstance.__histDataViewsManager;
-    const hostWrapper = options.wrapper || document.getElementById('histHotWrapper');
-    const hostContainer = options.container || hotInstance.__histHostContainer || document.getElementById('histHot');
+    const hostWrapper = options.wrapper || getHistNodeById('histHotWrapper');
+    const hostContainer = options.container || hotInstance.__histHostContainer || getHistNodeById('histHot');
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -1324,8 +1335,8 @@
       return false;
     }
     const manager = ensureHistDataViewsForHot(hot, {
-      wrapper: document.getElementById('histHotWrapper'),
-      container: hot.__histHostContainer || document.getElementById('histHot')
+      wrapper: getHistNodeById('histHotWrapper'),
+      container: hot.__histHostContainer || getHistNodeById('histHot')
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('hist data transform skipped: Shared.dataViews unavailable');
@@ -1411,8 +1422,8 @@
       return false;
     }
     const manager = ensureHistDataViewsForHot(hot, {
-      wrapper: document.getElementById('histHotWrapper'),
-      container: hot.__histHostContainer || document.getElementById('histHot')
+      wrapper: getHistNodeById('histHotWrapper'),
+      container: hot.__histHostContainer || getHistNodeById('histHot')
     });
     if(!manager || typeof manager.applyPipeline !== 'function'){
       console.warn('hist data transform pipeline skipped: Shared.dataViews unavailable');
@@ -1553,7 +1564,7 @@
         applyHistTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
-    const wrapper = document.getElementById('histHotWrapper');
+    const wrapper = getHistNodeById('histHotWrapper');
     if(wrapper && !wrapper.__histDataToolbarFocusBound){
       wrapper.addEventListener('mousedown', () => {
         activateHistDataToolbar('table-mousedown');
@@ -1775,9 +1786,9 @@
     const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
     gridControls.registerGraphElement(target, {
       scopeId: 'hist',
-      getVisible: () => !!document.getElementById('histShowGrid')?.checked,
+      getVisible: () => !!getHistNodeById('histShowGrid')?.checked,
       onVisibleChange: value => {
-        const input = document.getElementById('histShowGrid');
+        const input = getHistNodeById('histShowGrid');
         if(input){
           input.checked = !!value;
         }
@@ -1989,7 +2000,7 @@
   function showHistBarFormatControls(target){
     const doc = global.document;
     if(!doc) return;
-    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const activeSeries = collectHistSeries();
       const seriesIndexByKey = new Map(activeSeries.map((entry, index) => [entry.key, index]));
@@ -2405,16 +2416,22 @@
     const statsHelpers = Shared.stats || {};
     const keys = getActiveDistributionKeys();
     const results = [];
-    if(!keys.length || typeof statsHelpers.fitDistribution !== 'function'){
+    if(!keys.length){
       return results;
     }
+    const canFitViaStats = typeof statsHelpers.fitDistribution === 'function';
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     keys.forEach((key, index) => {
       let fitResult = null;
-      try{
-        fitResult = statsHelpers.fitDistribution(values, { distribution: key });
-      }catch(err){
-        console.error('hist fitDistribution error',{ key, message: err?.message });
+      if(canFitViaStats){
+        try{
+          fitResult = statsHelpers.fitDistribution(values, { distribution: key });
+        }catch(err){
+          console.error('hist fitDistribution error',{ key, message: err?.message });
+        }
+      }
+      if((!fitResult || fitResult.valid === false || typeof fitResult.pdf !== 'function') && key === 'normal'){
+        fitResult = createNormalFallbackFit(values);
       }
       if(!fitResult || typeof fitResult !== 'object'){
         fitResult = { key, label: key, valid: false, message: 'Fit unavailable' };
@@ -2447,6 +2464,49 @@
       }
     });
     return results;
+  }
+
+  function createNormalFallbackFit(numericValues){
+    if(!Array.isArray(numericValues) || numericValues.length < 2){
+      return null;
+    }
+    const mean = numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+    const variance = numericValues.reduce((sum, value) => {
+      const delta = value - mean;
+      return sum + (delta * delta);
+    }, 0) / Math.max(1, numericValues.length - 1);
+    const sd = Math.sqrt(variance);
+    if(!Number.isFinite(mean) || !Number.isFinite(sd) || sd <= 0){
+      return null;
+    }
+    const sqrtTwoPi = Math.sqrt(2 * Math.PI);
+    const sqrtTwo = Math.sqrt(2);
+    const erf = (value) => {
+      const sign = value < 0 ? -1 : 1;
+      const x = Math.abs(value);
+      const a1 = 0.254829592;
+      const a2 = -0.284496736;
+      const a3 = 1.421413741;
+      const a4 = -1.453152027;
+      const a5 = 1.061405429;
+      const p = 0.3275911;
+      const t = 1 / (1 + p * x);
+      const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+      return sign * y;
+    };
+    return {
+      key: 'normal',
+      label: 'Normal',
+      valid: true,
+      params: { mean, sd },
+      pdf(x){
+        const z = (x - mean) / sd;
+        return Math.exp(-0.5 * z * z) / (sd * sqrtTwoPi);
+      },
+      cdf(x){
+        return 0.5 * (1 + erf((x - mean) / (sd * sqrtTwo)));
+      }
+    };
   }
 
   function computeOverlayMetrics(fits, options){
@@ -2604,7 +2664,7 @@
           histDebug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
-      if(document.getElementById('histStatsResults')){
+      if(getHistNodeById('histStatsResults')){
         updateHistStats([]);
       }
       if(typeof state.scheduleDraw === 'function'){
@@ -2649,8 +2709,8 @@
       return instance;
     };
     const ensureHistHotForActiveTab = () => {
-      const wrapper = document.getElementById('histHotWrapper');
-      const baseContainer = document.getElementById('histHot');
+      const wrapper = getHistNodeById('histHotWrapper');
+      const baseContainer = getHistNodeById('histHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createHistTable(baseContainer);
@@ -2726,7 +2786,7 @@
     };
     applyHistPlotMode(histPlotMode?.value || state.plotMode, { schedule: false, syncDefaults: false });
     syncHistFrequencyControls();
-    const distListEl=document.getElementById('histDistributionList');
+    const distListEl=getHistNodeById('histDistributionList');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     if(histPlotMode){
       histPlotMode.value = normalizeHistPlotMode(state.plotMode);
@@ -2793,8 +2853,8 @@
         histDebug('Debug: hist distribution controls initialized',{ options: state.distributionOptions.map(opt=>opt.key) });
       }
     }
-    const histShowPdfInput=document.getElementById('histShowPdf');
-    const histShowCdfInput=document.getElementById('histShowCdf');
+    const histShowPdfInput=getHistNodeById('histShowPdf');
+    const histShowCdfInput=getHistNodeById('histShowCdf');
     if(histShowPdfInput){
       histShowPdfInput.checked=!!state.distributionSettings.showPdf;
       histShowPdfInput.addEventListener('change',()=>{
@@ -2874,7 +2934,7 @@
       [86],[87],[88],[89],[90],[91],[92],[93],[94],[95],
       [96],[97],[98],[99],[100]
     ];
-    const exampleBtn = document.getElementById('histLoadExample');
+    const exampleBtn = getHistNodeById('histLoadExample');
     if(exampleBtn){
       exampleBtn.addEventListener('click',()=>{
         markHistOverlayPending('example-data');
@@ -2889,8 +2949,8 @@
     } else {
       console.warn('hist example button missing');
     }
-    const histImportBtn=document.getElementById('histImport');
-    const histFileInput=document.getElementById('histFile');
+    const histImportBtn=getHistNodeById('histImport');
+    const histFileInput=getHistNodeById('histFile');
     const tableImport = Shared.tableImport;
     if(histImportBtn && histFileInput){
       histImportBtn.addEventListener('click',()=>{histFileInput.value=''; histFileInput.click();});
@@ -2967,8 +3027,8 @@
       state.notes.text = notesText;
       state.notes.open = notesOpen;
       const activeManager = ensureHistDataViewsForHot(activeHot, {
-        wrapper: document.getElementById('histHotWrapper'),
-        container: activeHot.__histHostContainer || document.getElementById('histHot')
+        wrapper: getHistNodeById('histHotWrapper'),
+        container: activeHot.__histHostContainer || getHistNodeById('histHot')
       });
       syncHistActiveDataViewFromHot(activeHot, 'payload');
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
@@ -3072,8 +3132,8 @@
       const requestedActiveViewId = payload.activeDataViewId || serializedViews?.activeViewId || null;
       const dataManager = state.hot
         ? ensureHistDataViewsForHot(state.hot, {
-            wrapper: document.getElementById('histHotWrapper'),
-            container: state.hot.__histHostContainer || document.getElementById('histHot')
+            wrapper: getHistNodeById('histHotWrapper'),
+            container: state.hot.__histHostContainer || getHistNodeById('histHot')
           })
         : null;
       if(dataManager){
@@ -3123,28 +3183,28 @@
       state.barBorderWidth = Number.isFinite(loadedBorderWidth) && loadedBorderWidth >= 0
         ? loadedBorderWidth
         : HIST_DEFAULT_BORDER_WIDTH;
-      const histBinsInput = document.getElementById('histBins');
+      const histBinsInput = getHistNodeById('histBins');
       if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
       syncHistFrequencyControls();
-      const histShowLegendInput = document.getElementById('histShowLegend');
+      const histShowLegendInput = getHistNodeById('histShowLegend');
       state.showLegend = config.showLegend !== false;
       if(histShowLegendInput){ histShowLegendInput.checked = state.showLegend; }
       state.seriesColors = config.seriesColors && typeof config.seriesColors === 'object' ? { ...config.seriesColors } : {};
       state.densityLineColors = config.densityLineColors && typeof config.densityLineColors === 'object' ? { ...config.densityLineColors } : {};
-      const histShowGridInput = document.getElementById('histShowGrid');
+      const histShowGridInput = getHistNodeById('histShowGrid');
       if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
       setGridStyle(config.gridStyle, config.axis?.strokeWidth);
-      const histShowFrameInput = document.getElementById('histShowFrame');
+      const histShowFrameInput = getHistNodeById('histShowFrame');
       if(histShowFrameInput){ histShowFrameInput.checked = !!config.showFrame; }
-      const histLogYInput = document.getElementById('histLogY');
+      const histLogYInput = getHistNodeById('histLogY');
       if(histLogYInput){ histLogYInput.checked = !!config.logY; }
       applyHistAxisLimitsToInputs({
         xMin: config.axisLimits?.xMin ?? config.xMin ?? 0,
         xMax: config.axisLimits?.xMax ?? config.xMax ?? null,
         yMax: config.axisLimits?.yMax ?? config.yMax ?? null
       });
-      const histFontInput = document.getElementById('histFontSize');
-      const histFontSizeVal = document.getElementById('histFontSizeVal');
+      const histFontInput = getHistNodeById('histFontSize');
+      const histFontSizeVal = getHistNodeById('histFontSizeVal');
       if(histFontInput){
         histFontInput.value = config.fontSize || histFontInput.value;
         if(histFontInput.dataset){
@@ -3197,7 +3257,7 @@
           if(input){ input.checked = !!state.distributionSettings.selections[key]; }
         });
       }
-      const distListEl = document.getElementById('histDistributionList');
+      const distListEl = getHistNodeById('histDistributionList');
       if(distListEl){
         const colorByKey = {};
         state.distributionOptions.forEach(option => {
@@ -3324,7 +3384,7 @@
         setFileName: name => { state.fileName = name; },
         loadFromFile: file => hist.loadFromFile(file),
         triggerInput: () => {
-          const input = document.getElementById('histGraphFile');
+          const input = getHistNodeById('histGraphFile');
           if(input){
             input.value='';
             input.click();
@@ -3371,14 +3431,14 @@
       }
     };
     // Wire buttons
-    document.getElementById('openHistGraph')?.addEventListener('click', hist.open);
-    document.getElementById('saveHistGraph')?.addEventListener('click', hist.save);
-    document.getElementById('saveAsHist').addEventListener('click', hist.saveAs);
-    document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
+    getHistNodeById('openHistGraph')?.addEventListener('click', hist.open);
+    getHistNodeById('saveHistGraph')?.addEventListener('click', hist.save);
+    getHistNodeById('saveAsHist').addEventListener('click', hist.saveAs);
+    getHistNodeById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
   }
 
   function initNotes(){
-    const stack = document.querySelector('#histGraphPanel .hist-plot-stack');
+    const stack = queryHistRoot('#histGraphPanel .hist-plot-stack');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         histDebug('Debug: hist notes mount skipped (missing stack)');
@@ -3694,7 +3754,7 @@
   }
 
   function updateHistStats(seriesEntries){
-    const target = document.getElementById('histStatsResults');
+    const target = getHistNodeById('histStatsResults');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const graphLabel = getHistGraphLabel(state.plotMode);
     if(!target){
@@ -4339,7 +4399,7 @@
     const viewContext = resolveHistViewContext();
     const seriesEntries = collectHistSeries({ matrix: viewContext.sourceData });
     const values = seriesEntries.flatMap(entry => entry.values);
-    const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    const plotEl=getHistNodeById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     if(!seriesEntries.length || !values.length){
       applyHistLegendGuardWidth(0);
       syncHistFrequencyTableDataView(null, frequencySettings, {
@@ -4355,9 +4415,19 @@
       return;
     }
     const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
-    const includePdf = frequencySettings.createMode !== HIST_FREQUENCY_CREATE_MODE.cumulative
-      && !!state.distributionSettings.showPdf;
+    // Density mode does not use cumulative frequency tables; do not gate PDF overlays
+    // on histogram-only frequency mode in that case.
+    const includePdf = !!state.distributionSettings.showPdf
+      && (densityMode || frequencySettings.createMode !== HIST_FREQUENCY_CREATE_MODE.cumulative);
     const includeCdf = densityMode ? false : !!state.distributionSettings.showCdf;
+    if(includePdf && !fitSets.some(entry => Array.isArray(entry.fits) && entry.fits.length)){
+      fitSets.forEach(entry => {
+        const fallbackFit = createNormalFallbackFit(entry.values);
+        if(fallbackFit){
+          entry.fits = [fallbackFit];
+        }
+      });
+    }
     const statsHelpers = Shared.stats || {};
     const alpha = Number(state.distributionSettings.alpha) > 0 ? Number(state.distributionSettings.alpha) : 0.05;
     const rawXMin = Math.min(...values);
@@ -5539,3 +5609,5 @@
   });
 
 })(window);
+
+

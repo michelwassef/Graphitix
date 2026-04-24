@@ -286,6 +286,10 @@
   let contentSelectionTrackingHandler = null;
   let activeScopeMode = FONT_SCOPE_SELECTION;
   let placementMonitoringAttached = false;
+  let hideAllSuppressedUntil = 0;
+  let hideAllSuppressedReason = null;
+  let openerClickEventRef = null;
+  let openerClickEventStamp = null;
   let knownFontNames = null;
   let appendFontOption = null;
   let hydrateLocalFonts = null;
@@ -1820,8 +1824,65 @@
     }
   }
 
+  function suppressGenericHideAll(windowMs, reason){
+    const duration = Number(windowMs);
+    const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+    if(safeDuration <= 0){
+      hideAllSuppressedUntil = 0;
+      hideAllSuppressedReason = null;
+      return;
+    }
+    hideAllSuppressedUntil = Date.now() + safeDuration;
+    hideAllSuppressedReason = reason || 'unspecified';
+  }
+
+  function rememberOpenerClickEvent(evt){
+    if(!evt || typeof evt !== 'object'){
+      openerClickEventRef = null;
+      openerClickEventStamp = null;
+      return;
+    }
+    openerClickEventRef = evt;
+    const rawStamp = Number(evt.timeStamp);
+    openerClickEventStamp = Number.isFinite(rawStamp) ? rawStamp : null;
+  }
+
+  function isOpenerClickEvent(evt){
+    if(!evt || typeof evt !== 'object'){
+      return false;
+    }
+    if(openerClickEventRef && evt === openerClickEventRef){
+      openerClickEventRef = null;
+      openerClickEventStamp = null;
+      logDebug('panel click ignored (opener event)', {});
+      return true;
+    }
+    const rawStamp = Number(evt.timeStamp);
+    if(openerClickEventStamp !== null && Number.isFinite(rawStamp) && Math.abs(rawStamp - openerClickEventStamp) < 0.001){
+      openerClickEventRef = null;
+      openerClickEventStamp = null;
+      logDebug('panel click ignored (opener timestamp)', { timeStamp: rawStamp });
+      return true;
+    }
+    return false;
+  }
+
   // Close the singleton font panel and hide component hosts
-  function hideAllFormatControls(){
+  function hideAllFormatControls(options){
+    const opts = (options && typeof options === 'object') ? options : {};
+    const force = options === true || opts.force === true;
+    const now = Date.now();
+    if(!force && panelEl?.dataset?.open === '1' && hideAllSuppressedUntil > now){
+      logDebug('hideAllFormatControls suppressed', {
+        remainingMs: hideAllSuppressedUntil - now,
+        reason: hideAllSuppressedReason || null
+      });
+      return;
+    }
+    if(hideAllSuppressedUntil <= now){
+      hideAllSuppressedUntil = 0;
+      hideAllSuppressedReason = null;
+    }
     try{
       // close the font controls panel
       try{ closePanel('hideAll'); }catch(e){}
@@ -3729,6 +3790,7 @@
 
     doc.addEventListener('click', (evt) => {
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
+      if(isOpenerClickEvent(evt)){ return; }
       const target = evt.target;
       if(panelEl.contains(target)){ return; }
       if(activeHost && target && typeof activeHost.contains === 'function' && activeHost.contains(target)){
@@ -3738,6 +3800,11 @@
         return;
       }
       if(currentTarget && target === currentTarget){ return; }
+      if(currentTarget && target && typeof currentTarget.contains === 'function' && currentTarget.contains(target)){ return; }
+      if(target?.closest?.('[data-font-editable="1"], [data-font-key]')){
+        logDebug('panel click ignored (font editable target)', {});
+        return;
+      }
       if(target?.closest?.('.inline-edit-overlay')){
         logDebug('panel click ignored (inline edit overlay)', {});
         return;
@@ -3807,6 +3874,8 @@
     currentTarget = null;
     currentScope = null;
     currentKey = null;
+    openerClickEventRef = null;
+    openerClickEventStamp = null;
     logDebug('panel closed', { reason });
   }
 
@@ -3820,6 +3889,7 @@
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
+    rememberOpenerClickEvent(options?.triggerEvent || null);
     if(isContentEditableTarget(currentTarget)){
       cacheContentEditableSelection(currentTarget, 'panel-open');
     }
@@ -3838,6 +3908,8 @@
       console.error('fontControls.openPanelForTarget highlight error', highlightErr);
     }
     if(!panelEl){ return; }
+    // Block generic hideAll calls triggered in the same click cycle.
+    suppressGenericHideAll(300, options?.reason || 'font-panel-open');
     // ensure any per-component toolbar hosts are hidden before opening the font panel
     if(!coexistWithComponent){
       try{ hideComponentHosts(); }catch(e){}
@@ -3977,7 +4049,9 @@
     const svg = evt.currentTarget;
     const scope = target.dataset?.fontScope || svgScopeMap.get(svg) || null;
     const key = target.dataset?.fontKey || null;
-    openPanelForTarget(target, { scopeId: scope, key });
+    openPanelForTarget(target, { scopeId: scope, key, triggerEvent: evt });
+    // Ensure editable-text selection is handled by font controls only.
+    try{ evt.stopPropagation(); }catch(e){}
   }
 
   function enableForSvg(svg, options){

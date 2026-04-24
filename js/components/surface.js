@@ -797,8 +797,8 @@
     getHost: () => (
       state.svgBox
       || state.layout?.elements?.svgBox
-      || global.document?.querySelector?.('#surfaceGraphPanel .svgbox')
-      || global.document?.getElementById?.('surfaceGraphPanel')
+      || querySurfaceRoot('#surfaceGraphPanel .svgbox')
+      || getSurfaceNodeById('surfaceGraphPanel')
     )
   });
 
@@ -829,7 +829,7 @@
   let surfaceAutoDrawManager = null;
   let surfaceNoticeBoundWidth = null;
   const syncSurfaceAutoDrawNoticeWidth = (reason) => {
-    const svgBox = state.svgBox || state.layout?.elements?.svgBox || global.document.querySelector('#surfaceGraphPanel .svgbox');
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || querySurfaceRoot('#surfaceGraphPanel .svgbox');
     const renderRow = state.renderRow || getSurfaceNodeById('surfaceRenderRow');
     if(!svgBox || !renderRow){
       return;
@@ -2515,8 +2515,8 @@
   surface.draw = () => { runSurfaceDrawCycle(); };
 
   function initNotes(){
-    const stack = global.document.querySelector('#surfaceGraphPanel .surface-plot-stack')
-      || global.document.querySelector('#surfaceGraphPanel .diagram-area');
+    const stack = querySurfaceRoot('#surfaceGraphPanel .surface-plot-stack')
+      || querySurfaceRoot('#surfaceGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: surface notes mount skipped (missing stack)');
@@ -3421,3 +3421,4 @@
   }
 
 })(window);
+

@@ -186,6 +186,15 @@ async function setBoxSignificanceToggle(page, enabled) {
   }, enabled);
 }
 
+async function setBoxLockRatioToggle(page, enabled) {
+  await page.evaluate((value) => {
+    const el = document.querySelector('#boxGraphPanel .resizer-aspect-checkbox');
+    if (!el) return;
+    el.checked = !!value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, enabled);
+}
+
 test('box significance bars keep plot height while shifting plot downward', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -203,12 +212,8 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   await ensureBoxStatsAndSignificanceReady(page);
 
   const significanceToggle = page.locator('#boxShowSignificance');
-  const lockRatioToggle = page.locator('#boxGraphPanel .resizer-aspect-checkbox');
-  await expect(lockRatioToggle).toBeVisible();
-  if (!(await lockRatioToggle.isChecked())) {
-    await lockRatioToggle.check();
-    await page.waitForTimeout(250);
-  }
+  await setBoxLockRatioToggle(page, true);
+  await page.waitForTimeout(250);
   if (await significanceToggle.isChecked()) {
     await setBoxSignificanceToggle(page, false);
     await page.waitForTimeout(300);
@@ -290,13 +295,15 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
     return !!plot && (plot.innerHTML || '').length > 0;
   }, null, { timeout: 20_000 });
   await page.waitForTimeout(700);
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0
+  );
+  await page.waitForTimeout(600);
 
-  const lockRatioToggle = page.locator('#boxGraphPanel .resizer-aspect-checkbox');
-  await expect(lockRatioToggle).toBeVisible();
-  if (!(await lockRatioToggle.isChecked())) {
-    await lockRatioToggle.check();
-    await page.waitForTimeout(250);
-  }
+  await setBoxLockRatioToggle(page, true);
+  await page.waitForTimeout(250);
 
   const before = await page.evaluate(readVerticalBoxLayoutMetrics);
   if(!before){
@@ -306,6 +313,9 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(before.controlsOverlapPx).not.toBeNull();
   expect(before.controlsOverlapPx).toBeLessThanOrEqual(1.5);
   expect(before.aspectLockMeta).toBe(true);
+  expect(before.aspectRatioMeta).not.toBeNull();
+  expect(before.svgBoxHeightPx).not.toBeNull();
+  expect(before.svgBoxWidthPx).not.toBeNull();
 
   await dragBoxWidthHandle(page, -190);
   await page.waitForTimeout(900);
@@ -317,6 +327,14 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx - 80);
   expect(after.aspectLockMeta).toBe(true);
   expect(after.controlsOverlapPx).toBeLessThanOrEqual(1.5);
+  expect(after.aspectRatioMeta).not.toBeNull();
+  const beforeRatio = before.svgBoxWidthPx / before.svgBoxHeightPx;
+  const afterRatio = after.svgBoxWidthPx / after.svgBoxHeightPx;
+  const widthScale = after.svgBoxWidthPx / before.svgBoxWidthPx;
+  const heightScale = after.svgBoxHeightPx / before.svgBoxHeightPx;
+  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.03);
+  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.03);
+  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.03);
 
   expect(issues.critical).toEqual([]);
 });

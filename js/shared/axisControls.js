@@ -2847,7 +2847,7 @@
     // Close any existing font/per-component FORMAT controls to avoid mixed UI
     try{
       if(Shared && typeof Shared.hideAllFormatControls === 'function'){
-        try{ Shared.hideAllFormatControls(); }catch(e){}
+        try{ Shared.hideAllFormatControls({ force: true }); }catch(e){}
       }
     }catch(e){}
     // Also ensure component hosts are hidden and cleaned again before we attach
@@ -3186,3 +3186,4 @@
   };
   axisControls.close = closePanel;
 })(typeof window !== 'undefined' ? window : globalThis);
+

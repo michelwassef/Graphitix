@@ -1069,26 +1069,19 @@
     }
     console.debug('Debug: preview hover enter', { tabId: tab.id, type: tab.type });
     const isActive = tab.id === workspaceState?.activeTabId;
-    const config = components?.registry?.[tab.type];
     if (isActive) {
-      const shouldRefreshActivePreview = !!config && (!tab.previewMarkup || isPreviewPlaceholderMarkup(tab.previewMarkup));
-      if (shouldRefreshActivePreview) {
-        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-active', forceCapture: true });
-      } else {
-        console.debug('Debug: preview hover using stored active preview', {
-          tabId: tab.id,
-          hasPreview: !!tab.previewMarkup
-        });
-      }
-    } else {
-      if (config) {
-        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
-      }
-      console.debug('Debug: preview hover using stored inactive preview', {
-        tabId: tab.id,
-        hasPreview: !!tab.previewMarkup
-      });
+      hideTabPreviewTooltip('active-tab');
+      console.debug('Debug: preview hover skipped for active tab', { tabId: tab.id, type: tab.type });
+      return;
     }
+    const config = components?.registry?.[tab.type];
+    if (config) {
+      updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
+    }
+    console.debug('Debug: preview hover using stored inactive preview', {
+      tabId: tab.id,
+      hasPreview: !!tab.previewMarkup
+    });
     if (!tab.previewMarkup) {
       hideTabPreviewTooltip('no-preview');
       return;

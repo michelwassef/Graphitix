@@ -245,4 +245,49 @@ describe('preview hybrid capture for canvas-backed layers', () => {
     expect(tab.previewMarkup).toContain('<svg');
     expect(tab.previewMeta.renderCacheSequence).toBe(2);
   });
+
+  test('active tab hover skips preview capture and hides any visible tooltip', () => {
+    const previews = window.Main.previews;
+    const element = document.createElement('div');
+    const cleanSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    cleanSvg.setAttribute('width', '640');
+    cleanSvg.setAttribute('height', '480');
+    cleanSvg.innerHTML = '<g data-export-layer="box-points"><path d="M 10 10 L 40 10" stroke="#000"></path></g>';
+    const getPreviewSvg = jest.fn(() => cleanSvg);
+    window.Main.components = {
+      registry: {
+        box: {
+          type: 'box',
+          element,
+          getPreviewSvg
+        }
+      }
+    };
+    window.Main.session.workspaceState.activeTabId = 'workspace-2';
+    const tab = {
+      id: 'workspace-2',
+      type: 'box',
+      payloadSignature: 'sig-active',
+      previewMarkup: '<svg width="10" height="10"></svg>',
+      previewSignature: 'sig-active',
+      previewMeta: { hybrid: false, width: 10, height: 10, renderCacheSequence: 1 }
+    };
+    const tooltip = previews.ensureTabPreviewTooltipElement();
+    tooltip.style.display = 'block';
+    tooltip.style.opacity = '1';
+    tooltip.innerHTML = '<svg width="10" height="10"></svg>';
+    tooltip.dataset.tabId = tab.id;
+
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () => ({ left: 40, top: 200, width: 120, height: 24, bottom: 224 });
+    document.body.appendChild(anchor);
+
+    previews.handleTabPreviewEnter({ currentTarget: anchor }, tab);
+
+    expect(getPreviewSvg).not.toHaveBeenCalled();
+    expect(tooltip.style.display).toBe('none');
+    expect(tooltip.style.opacity).toBe('0');
+    expect(tooltip.innerHTML).toBe('');
+    expect(tooltip.dataset.tabId).toBe('');
+  });
 });

@@ -2304,7 +2304,7 @@
     const doc = global.document;
     if(!doc){ return; }
     if(opts.skipHideAll !== true){
-      try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+      try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     }
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
@@ -2973,7 +2973,7 @@
     const doc = global.document;
     if(!doc || !target){ return; }
     if(opts.skipHideAll !== true){
-      try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
+      try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     }
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const traceAttrValue = target.getAttribute('data-trace');
@@ -10626,7 +10626,7 @@
         return scoped;
       }
     }
-    return global.document?.querySelector?.(selector) || null;
+    return null;
   }
 
   function buildBoxSessionMeta(options = {}){
@@ -12060,7 +12060,9 @@
             width: targetWidth,
             height: targetHeight,
             updateDefaults: false,
-            updateAspectRatio: true,
+            // Keep the user-selected lock ratio stable during draw-time viewport
+            // extension updates (e.g. significance/bottom reserve adjustments).
+            updateAspectRatio: false,
             preserveAspectLock: true,
             forceExact: true,
             authorityMode: 'authoritative',
@@ -13509,7 +13511,7 @@
         applied = true;
       }
     });
-    const summaryNodes = Array.from(global.document?.querySelectorAll?.('#boxPlot [data-summary-line="1"]') || []);
+    const summaryNodes = Array.from((els.plotDiv || getBoxNodeById('boxPlot'))?.querySelectorAll?.('[data-summary-line="1"]') || []);
     summaryNodes.forEach(node => {
       const summaryGroup = typeof node.closest === 'function'
         ? node.closest('g[data-summary]')
@@ -33954,3 +33956,4 @@ Technical analysis record (advanced)
       isSignificanceLabelFontStyleEvent:(detail)=>isSignificanceLabelFontStyleEvent(detail)
 	  });
 })(window);
+

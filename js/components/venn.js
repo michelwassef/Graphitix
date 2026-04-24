@@ -1821,7 +1821,7 @@
       debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
     }
     const inputs = ensureInputs?.() || state.ui.inputs || {};
-    const fontInput = inputs.fontsize || state.ui.inputs?.fontsize || document.getElementById('fontsize');
+    const fontInput = inputs.fontsize || state.ui.inputs?.fontsize || getVennNodeById('fontsize');
     if(fontInput && fontInput.dataset && typeof fontInput.dataset.fontBasePt === 'undefined'){
       fontInput.dataset.fontBasePt = String(fontInput.value || rawSize || '');
       debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
@@ -2964,13 +2964,13 @@
   }
 
   function updateCountLabels(labels) {
-    const labelA = document.getElementById('labelAName');
-    const labelB = document.getElementById('labelBName');
-    const labelC = document.getElementById('labelCName');
-    const labelAB = document.getElementById('labelABName');
-    const labelAC = document.getElementById('labelACName');
-    const labelBC = document.getElementById('labelBCName');
-    const labelABC = document.getElementById('labelABCName');
+    const labelA = getVennNodeById('labelAName');
+    const labelB = getVennNodeById('labelBName');
+    const labelC = getVennNodeById('labelCName');
+    const labelAB = getVennNodeById('labelABName');
+    const labelAC = getVennNodeById('labelACName');
+    const labelBC = getVennNodeById('labelBCName');
+    const labelABC = getVennNodeById('labelABCName');
     if (labelA) labelA.textContent = labels.A;
     if (labelB) labelB.textContent = labels.B;
     if (labelC) labelC.textContent = labels.C;
@@ -3045,9 +3045,9 @@
   }
 
   function updateColorLabels(labels) {
-    const colorLabelA = document.getElementById('colorLabelA');
-    const colorLabelB = document.getElementById('colorLabelB');
-    const colorLabelC = document.getElementById('colorLabelC');
+    const colorLabelA = getVennNodeById('colorLabelA');
+    const colorLabelB = getVennNodeById('colorLabelB');
+    const colorLabelC = getVennNodeById('colorLabelC');
     if (colorLabelA) colorLabelA.textContent = labels.A;
     if (colorLabelB) colorLabelB.textContent = labels.B;
     if (colorLabelC) colorLabelC.textContent = labels.C;
@@ -3064,7 +3064,7 @@
     state.analysis.lastStringEnrichment = null;
     state.analysis.goPerformed = false;
     state.analysis.stringPerformed = false;
-    const canvas = document.getElementById('goChart');
+    const canvas = getVennNodeById('goChart');
     if (canvas) canvas.style.display = 'none';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
@@ -3322,7 +3322,7 @@
   function renderGOChart(limit = 5) {
     if (!state.ui.goResults) return;
     if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
-      const canvas = document.getElementById('goChart');
+      const canvas = getVennNodeById('goChart');
       if (canvas) canvas.style.display = 'none';
       if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
       if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; }
@@ -3333,7 +3333,7 @@
     const values = data.map(r => -Math.log10(r.p_value));
     const barColor = '#64b5f6';
     if (state.analysis.goChart) { state.analysis.goChart.destroy(); }
-    const canvas = document.getElementById('goChart');
+    const canvas = getVennNodeById('goChart');
     if (!canvas) return;
     canvas.style.display = 'block';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'flex';
@@ -3846,9 +3846,9 @@
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     state.analysis.stringPerformed = true;
     updateAnalysisResultsVisibility();
-    const networkType = document.querySelector('input[name="stringNetworkType"]:checked')?.value || 'functional';
-    const edgeMeaning = document.querySelector('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
-    const sources = [...document.querySelectorAll('.stringSource:checked')].map(el => el.value);
+    const networkType = queryVennRoot('input[name="stringNetworkType"]:checked')?.value || 'functional';
+    const edgeMeaning = queryVennRoot('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
+    const sources = [...(resolveVennRoot()?.querySelectorAll?.('.stringSource:checked') || [])].map(el => el.value);
     const fallbackCode = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string;
     const speciesCode = typeof service.resolveSpeciesCode === 'function'
       ? service.resolveSpeciesCode(org, fallbackCode)
@@ -3936,7 +3936,7 @@
       debugLog('buildGoChartSvgString skipped', { reason: 'no chart' });
       return '';
     }
-    const canvas = document.getElementById('goChart');
+    const canvas = getVennNodeById('goChart');
     if (!canvas) {
       debugLog('buildGoChartSvgString skipped', { reason: 'no canvas' });
       return '';
@@ -3993,7 +3993,7 @@
       return;
     }
     if (format === 'png') {
-      const canvas = document.getElementById('goChart');
+      const canvas = getVennNodeById('goChart');
       if (!canvas) return;
       const blob = await new Promise(resolve => {
         canvas.toBlob(resolve, 'image/png');
@@ -5840,7 +5840,7 @@
       setFileName: name => { state.persistence.fileName = name; },
       loadFromFile: file => venn.loadFromFile(file, { undo: { previous } }),
       triggerInput: () => {
-        const input = document.getElementById('vennGraphFile');
+        const input = getVennNodeById('vennGraphFile');
         if (input) {
           input.value = '';
           input.click();
@@ -6676,10 +6676,39 @@
     debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
+  function resolveVennRoot(tabLike = null){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'venn')
+      || state.ui.root
+      || getVennNodeById('vennPage')
+      || document;
+  }
+
+  function queryVennRoot(selector, tabLike = null){
+    const root = resolveVennRoot(tabLike);
+    if(!selector || !root || typeof root.querySelector !== 'function'){
+      return null;
+    }
+    return root.querySelector(selector);
+  }
+
+  function getVennNodeById(id, tabLike = null){
+    if(!id){
+      return null;
+    }
+    const root = resolveVennRoot(tabLike);
+    if(root && typeof root.getElementById === 'function'){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return queryVennRoot(`#${id}`, tabLike);
+  }
+
   function bindUiToRoot(mountedRoot){
     const root = mountedRoot && typeof mountedRoot.querySelector === 'function'
       ? mountedRoot
-      : (document.getElementById('vennPage') || document);
+      : resolveVennRoot();
     const $root = selector => {
       if(!selector){
         return null;
@@ -6687,7 +6716,7 @@
       if(root && typeof root.querySelector === 'function'){
         return root.querySelector(selector);
       }
-      return document.querySelector(selector);
+      return queryVennRoot(selector);
     };
     state.ui.root = root;
     state.ui.stage = $root('#stage');
@@ -6861,7 +6890,7 @@
     Object.assign(state.persistence, freshState.persistence);
     const mountedRoot = options?.root
       || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'venn')
-      || document.getElementById('vennPage')
+      || getVennNodeById('vennPage')
       || document;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
@@ -6980,7 +7009,7 @@
       venn.init({ tabId: _tab?.id || null });
     }else{
       const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(_tab?.id || null, 'venn')
-        || document.getElementById('vennPage')
+        || getVennNodeById('vennPage')
         || document;
       bindUiToRoot(mountedRoot);
     }
@@ -7190,7 +7219,7 @@
     const stringResultsCache = detachChildren(state.ui.stringResults);
     const stringNetworkCache = detachChildren(state.ui.stringNetwork);
     const regionSelectCache = detachChildren(state.ui.regionSelect);
-    const goChartSnapshot = captureCanvasSnapshot(document.getElementById('goChart'));
+    const goChartSnapshot = captureCanvasSnapshot(getVennNodeById('goChart'));
     const uiState = {
       copyRegionBtnDisplay: state.ui.copyRegionBtn?.style?.display ?? null,
       goChartExportDisplay: state.ui.goChartExport?.style?.display ?? null,
@@ -7293,7 +7322,7 @@
       state.analysis.goChart = null;
     }
     applyVennStageTheme(state.ui.stage);
-    const goChartRestored = restoreCanvasSnapshot(document.getElementById('goChart'), cache.goChart);
+    const goChartRestored = restoreCanvasSnapshot(getVennNodeById('goChart'), cache.goChart);
     const restored = restoredStage || restoredRegion || restoredSignificance || restoredGo || restoredString || restoredNetwork || restoredRegionOptions || goChartRestored;
     setActiveAnalysisResultsTab(state.analysis.activeResultsTab || 'go', { syncPayload: false });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -7324,7 +7353,7 @@
   function resolveVennPreviewSourceSvg(tab){
     const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'venn')
       || state.ui.root
-      || document.getElementById('vennPage')
+      || getVennNodeById('vennPage')
       || document;
     return mountedRoot?.querySelector?.('#stage') || state.ui.stage || null;
   }

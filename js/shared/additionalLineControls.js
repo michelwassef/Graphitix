@@ -994,7 +994,7 @@
     if(config.skipHideAll !== true){
       try{
         if(Shared && typeof Shared.hideAllFormatControls === 'function'){
-          try{ Shared.hideAllFormatControls(); }catch(e){}
+          try{ Shared.hideAllFormatControls({ force: true }); }catch(e){}
         }
       }catch(e){}
     }
@@ -1156,3 +1156,4 @@
   additionalLineControls.refresh = () => syncPanelInputsFromConfig(activeConfig);
   additionalLineControls.setScope = setScope;
 })(typeof window !== 'undefined' ? window : globalThis);
+

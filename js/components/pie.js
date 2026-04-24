@@ -809,7 +809,7 @@ let state = {
   }
 
   function setPieStatsStatus(message){
-    const node = document.getElementById('pieStatsStatus');
+    const node = getPieNodeById('pieStatsStatus');
     if(!node){
       return;
     }
@@ -817,7 +817,7 @@ let state = {
   }
 
   function updatePieStatsButtonState(options = {}){
-    const button = document.getElementById('pieComputeStats');
+    const button = getPieNodeById('pieComputeStats');
     if(!button){
       return;
     }
@@ -830,7 +830,7 @@ let state = {
   }
 
   function clearPieStatsOutputs(message){
-    const out = document.getElementById('pieStatsResults');
+    const out = getPieNodeById('pieStatsResults');
     if(!out){
       return;
     }
@@ -843,7 +843,7 @@ let state = {
   }
 
   function pieStatsPanelHasRenderedResults(){
-    const out = document.getElementById('pieStatsResults');
+    const out = getPieNodeById('pieStatsResults');
     if(!out || typeof out.querySelector !== 'function'){
       return false;
     }
@@ -1177,7 +1177,7 @@ let state = {
   }
 
   function updatePieStatsCorrectionSummary(testCount){
-    const note = document.getElementById('pieStatsCorrectionNote');
+    const note = getPieNodeById('pieStatsCorrectionNote');
     if(!note){
       return;
     }
@@ -1271,7 +1271,7 @@ let state = {
       const restored = stats.restorePending;
       stats.restorePending = null;
       if(!pieStatsPanelHasRenderedResults() && (restored.resultsHtml != null || restored.reportHtml != null)){
-        const out = document.getElementById('pieStatsResults');
+        const out = getPieNodeById('pieStatsResults');
         if(out){
           if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
             Shared.statsReporting.restorePanelHtml(out, restored, {
@@ -1875,7 +1875,7 @@ let state = {
   }
 
   function renderPieStatsModel(model){
-    const out = document.getElementById('pieStatsResults');
+    const out = getPieNodeById('pieStatsResults');
     if(!out){
       return;
     }
@@ -2134,9 +2134,9 @@ let state = {
         updatePieStatsCorrectionSummary(pairResults.length);
       }
       renderPieStatsModel(renderedModel);
-      ensurePieStatsReportHost(document.getElementById('pieStatsResults'));
+      ensurePieStatsReportHost(getPieNodeById('pieStatsResults'));
       if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
-        Shared.statsReporting.appendReportPanel(document.getElementById('pieStatsResults'), {
+        Shared.statsReporting.appendReportPanel(getPieNodeById('pieStatsResults'), {
           methodsText: renderedModel.summary.testLabel,
           resultsText: `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = ${renderedModel.summary.pValue}.`,
           analysisSpec: {
@@ -2166,7 +2166,7 @@ let state = {
   }
 
   function renderPieStatsControls(dataModel, options = {}){
-    const controls = document.getElementById('pieStatsControls');
+    const controls = getPieNodeById('pieStatsControls');
     if(!controls){
       return;
     }
@@ -2484,7 +2484,7 @@ let state = {
 
   function exportPieStatsConfig(){
     const stats = getPieStatsConfig();
-    const out = document.getElementById('pieStatsResults');
+    const out = getPieNodeById('pieStatsResults');
     const panelHtml = Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
       ? Shared.statsReporting.capturePanelHtml(out)
       : { resultsHtml: out ? (out.innerHTML || null) : null, reportHtml: null };
@@ -2561,7 +2561,7 @@ let state = {
     stats.controlsSignature = null;
     let restoredResults = false;
     if(input.resultsHtml != null || input.reportHtml != null){
-      const out = document.getElementById('pieStatsResults');
+      const out = getPieNodeById('pieStatsResults');
       if(out){
         if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
           Shared.statsReporting.restorePanelHtml(out, input, {
@@ -2945,9 +2945,9 @@ let state = {
     const pieFontSize=$('#pieFontSize');
     const pieFontSizeVal=$('#pieFontSizeVal');
     const pieChartType=$('#pieChartType');
-    const pieShowLegendInput=document.getElementById('pieShowLegend');
-    const pieBorderColor=document.getElementById('pieBorderColor');
-    const pieBorderWidth=document.getElementById('pieBorderWidth');
+    const pieShowLegendInput=getPieNodeById('pieShowLegend');
+    const pieBorderColor=getPieNodeById('pieBorderColor');
+    const pieBorderWidth=getPieNodeById('pieBorderWidth');
     const pieAutoSizeTargets=[pieChartType];
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
@@ -2987,7 +2987,7 @@ let state = {
     if(pieBorderWidth){
       pieBorderWidth.addEventListener('input',()=>{ pieDebug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
     }
-    const pieComputeStatsButton = document.getElementById('pieComputeStats');
+    const pieComputeStatsButton = getPieNodeById('pieComputeStats');
     if(pieComputeStatsButton){
       pieComputeStatsButton.addEventListener('click',handlePieStatsComputeClick);
     }
@@ -2996,7 +2996,7 @@ let state = {
     updatePieStatsButtonState({ disabled: true, label: 'Calculate statistics' });
 
     const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
-    document.getElementById('pieLoadExample').addEventListener('click',()=>{
+    getPieNodeById('pieLoadExample').addEventListener('click',()=>{
       state.hot.loadData(example, {
         source: 'example-load',
         recordUndo: true,
@@ -3005,8 +3005,8 @@ let state = {
       pieDebug('pie example loaded with expected values');
       state.scheduleDraw();
     });
-    const pieImportBtn=document.getElementById('pieImport');
-    const pieFileInput=document.getElementById('pieFile');
+    const pieImportBtn=getPieNodeById('pieImport');
+    const pieFileInput=getPieNodeById('pieFile');
     pieImportBtn.addEventListener('click',()=>{ pieFileInput.value=''; pieFileInput.click(); });
     pieFileInput.addEventListener('change',async ()=>{
       const tableImport = Shared.tableImport;
@@ -3029,8 +3029,8 @@ let state = {
           if(title){
             state.titleText = title;
           }
-          const pieFontInput = document.getElementById('pieFontSize');
-          const pieFontSizeVal = document.getElementById('pieFontSizeVal');
+          const pieFontInput = getPieNodeById('pieFontSize');
+          const pieFontSizeVal = getPieNodeById('pieFontSizeVal');
           if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && pieFontInput){
             pieFontInput.value = String(fontSizeValue);
             if(pieFontInput.dataset){
@@ -3228,24 +3228,24 @@ let state = {
       }
       importFontStyles('pie', config.fontStyles || null);
       state.titleText = typeof config.title === 'string' ? config.title : 'Proportion graph';
-      const chartTypeInput = document.getElementById('pieChartType');
+      const chartTypeInput = getPieNodeById('pieChartType');
       if(chartTypeInput){ chartTypeInput.value = config.chartType || 'pie'; }
-      const showPercentsInput = document.getElementById('pieShowPercents');
+      const showPercentsInput = getPieNodeById('pieShowPercents');
       if(showPercentsInput){ showPercentsInput.checked = !!config.showPercents; }
-      const showFrameInput = document.getElementById('pieShowFrame');
+      const showFrameInput = getPieNodeById('pieShowFrame');
       if(showFrameInput){ showFrameInput.checked = !!config.showFrame; }
-      const borderColorInput = document.getElementById('pieBorderColor');
+      const borderColorInput = getPieNodeById('pieBorderColor');
       if(borderColorInput){ borderColorInput.value = config.borderColor || borderColorInput.value || '#ffffff'; }
-      const borderWidthInput = document.getElementById('pieBorderWidth');
+      const borderWidthInput = getPieNodeById('pieBorderWidth');
       if(borderWidthInput){ borderWidthInput.value = config.borderWidth != null ? config.borderWidth : (borderWidthInput.value || 0); }
       if(pieShowLegendInput){
         pieShowLegendInput.checked = config.showLegend !== false;
         ensurePieLegendControlPlacement();
       }
-      const startAngleInput = document.getElementById('pieStartAngle');
+      const startAngleInput = getPieNodeById('pieStartAngle');
       if(startAngleInput){ startAngleInput.value = config.startAngle || startAngleInput.value; }
-      const pieFontInput = document.getElementById('pieFontSize');
-      const pieFontSizeVal = document.getElementById('pieFontSizeVal');
+      const pieFontInput = getPieNodeById('pieFontSize');
+      const pieFontSizeVal = getPieNodeById('pieFontSizeVal');
       if(pieFontInput){
         pieFontInput.value = config.fontSize || pieFontInput.value || String(DEFAULT_PIE_FONT_SIZE_PT);
         if(pieFontInput.dataset){
@@ -3362,7 +3362,7 @@ let state = {
         setFileName: name => { state.fileName = name; },
         loadFromFile: file => pie.loadFromFile(file),
         triggerInput: () => {
-          const input = document.getElementById('pieGraphFile');
+          const input = getPieNodeById('pieGraphFile');
           if(input){
             input.value='';
             input.click();
@@ -3408,10 +3408,10 @@ let state = {
         console.warn('pie payload application failed', { source: 'payload' });
       }
     };
-    document.getElementById('openPieGraph')?.addEventListener('click',pie.open);
-    document.getElementById('savePieGraph')?.addEventListener('click',pie.save);
-    document.getElementById('saveAsPie').addEventListener('click',pie.saveAs);
-    document.getElementById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; pie.loadFromFile(f); }});
+    getPieNodeById('openPieGraph')?.addEventListener('click',pie.open);
+    getPieNodeById('savePieGraph')?.addEventListener('click',pie.save);
+    getPieNodeById('saveAsPie').addEventListener('click',pie.saveAs);
+    getPieNodeById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; pie.loadFromFile(f); }});
   }
 
   function ensurePieColors(labels){
@@ -3465,7 +3465,7 @@ let state = {
   // Compute and render Chi-square statistics for proportion graphs
   function updatePieStats(labels, observed, expected){
     try{
-      const out=document.getElementById('pieStatsResults');
+      const out=getPieNodeById('pieStatsResults');
       if(!out){ console.warn('Debug: pieStatsResults element not found'); return; }
       ensurePieStatsReportHost(out);
       clearPieStatsReportHost(out);
@@ -3563,7 +3563,7 @@ let state = {
   }
 
   function draw(){
-    const plotEl=document.getElementById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    const plotEl=getPieNodeById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
     const isResizePreview = !!state.resizeState?.active;
     const containerRect=state.svgBox?.getBoundingClientRect?.();
@@ -3599,7 +3599,7 @@ let state = {
     const showFrame=$('#pieShowFrame').checked;
     pieDebug('Debug: pie showFrame state',{showFrame, chartType:type});
     ensurePieLegendControlPlacement();
-    const showLegendInput=document.getElementById('pieShowLegend');
+    const showLegendInput=getPieNodeById('pieShowLegend');
     const showLegend=showLegendInput ? !!showLegendInput.checked : true;
     pieDebug('Debug: pie showLegend state',{showLegend, chartType:type});
     const startDeg=parseFloat($('#pieStartAngle').value)||0;
@@ -4554,8 +4554,8 @@ let state = {
   }
 
   pie.captureRenderCache = function captureRenderCache(){
-    const plot = document.getElementById('piePlot');
-    const stats = document.getElementById('pieStatsResults');
+    const plot = getPieNodeById('piePlot');
+    const stats = getPieNodeById('pieStatsResults');
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -4569,8 +4569,8 @@ let state = {
 
   pie.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
-    const plot = document.getElementById('piePlot');
-    const stats = document.getElementById('pieStatsResults');
+    const plot = getPieNodeById('piePlot');
+    const stats = getPieNodeById('pieStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
@@ -4593,3 +4593,4 @@ let state = {
   });
 
 })(window);
+

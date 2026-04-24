@@ -405,6 +405,7 @@
   let heatmapDataViewsManager = null;
 
   const state = {
+    root: null,
     hot: null,
     scheduleDraw: () => {},
     fileHandle: null,
@@ -443,6 +444,36 @@
     suppressClusterTouchTracking: false,
     suspendAutoClusterDefaults: false
   };
+
+  function resolveHeatmapRoot(tabLike){
+    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'heatmap')
+      || state.root
+      || global.document?.getElementById?.('heatmapPage')
+      || global.document
+      || null;
+  }
+
+  function queryHeatmapRoot(selector, tabLike){
+    const root = resolveHeatmapRoot(tabLike);
+    if(!root || !selector){
+      return null;
+    }
+    return root.querySelector?.(selector) || null;
+  }
+
+  function getHeatmapNodeById(id, tabLike){
+    if(!id){
+      return null;
+    }
+    const root = resolveHeatmapRoot(tabLike);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId){
+        return byId;
+      }
+    }
+    return root?.querySelector?.(`#${id}`) || null;
+  }
 
   function createDefaultHeatmapTabContext(){
     return {
@@ -537,7 +568,7 @@
     notesState.text = source.notes?.text == null ? '' : String(source.notes.text);
     notesState.open = !!source.notes?.open;
     if(options.syncUi !== false){
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
       if(notesState.control){
         notesState.control.setValue(notesState.text);
         notesState.control.setOpen(notesState.open);
@@ -902,7 +933,7 @@
     const appendToHost = options.appendToHost === true;
     if(!appendToHost && options.skipHideAll !== true && typeof Shared.hideAllFormatControls === 'function'){
       try{
-        Shared.hideAllFormatControls();
+        Shared.hideAllFormatControls({ force: true });
       }catch(err){
         debugLog('Debug: heatmap palette hideAllFormatControls failed', { error: err?.message || String(err) });
       }
@@ -1682,7 +1713,7 @@
         applyHeatmapToolbarTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
-    const wrapper = global.document.getElementById('heatmapHotWrapper');
+    const wrapper = getHeatmapNodeById('heatmapHotWrapper');
     if(wrapper && !wrapper.__heatmapDataToolbarFocusBound){
       wrapper.addEventListener('mousedown', () => {
         activateHeatmapDataToolbar('table-mousedown');
@@ -2214,7 +2245,7 @@
   };
 
   function $(id){
-    return global.document.getElementById(id);
+    return getHeatmapNodeById(id);
   }
 
   function initHot(){
@@ -2318,10 +2349,10 @@
       return hot;
     };
     const ensureHeatmapHotForActiveTab = () => {
-      let wrapper = document.getElementById('heatmapHotWrapper');
-      let baseContainer = document.getElementById('heatmapHot');
+      let wrapper = getHeatmapNodeById('heatmapHotWrapper');
+      let baseContainer = getHeatmapNodeById('heatmapHot');
       if(!wrapper){
-        wrapper = baseContainer?.parentNode || document.getElementById('heatmapPage') || document.body || document.documentElement;
+        wrapper = baseContainer?.parentNode || getHeatmapNodeById('heatmapPage') || global.document?.body || global.document?.documentElement;
       }
       if(!baseContainer){
         baseContainer = document.createElement('div');
@@ -2405,7 +2436,7 @@
   }
 
   function getHeatmapSignificanceThreshold(){
-    const liveInput = global.document?.querySelector?.('#heatmapStats .stats-significance-controls__input');
+    const liveInput = queryHeatmapRoot('#heatmapStats .stats-significance-controls__input');
     if(liveInput){
       const liveThreshold = Number(liveInput.value);
       if(Number.isFinite(liveThreshold) && liveThreshold > 0 && liveThreshold < 1){
@@ -2434,7 +2465,7 @@
   }
 
   function getCheckedRadioValue(name){
-    const checked = global.document.querySelector(`input[name="${name}"]:checked`);
+    const checked = queryHeatmapRoot(`input[name="${name}"]:checked`);
     if(checked){
       debugLog('Debug: heatmap radio value read', { name, value: checked.value });
       return checked.value;
@@ -2514,7 +2545,7 @@
     });
     state.valueScale = normalizeHeatmapValueScale(state.valueScale);
     state.legendHeightMode = normalizeHeatmapLegendHeightMode(state.legendHeightMode);
-    syncHeatmapPaletteInputs(global.document);
+    syncHeatmapPaletteInputs(resolveHeatmapRoot());
 
     const schedule = () => {
       if(state.suspendControlSchedule){
@@ -2554,7 +2585,7 @@
       const isCorrelationColumns = view === 'corr-columns';
       const isCorrelationRows = view === 'corr-rows';
       syncCorrelationClusteringControls(view);
-      const correlationOnlyRows = global.document?.querySelectorAll?.('#heatmapPage .heatmap-correlation-only') || [];
+      const correlationOnlyRows = resolveHeatmapRoot()?.querySelectorAll?.('.heatmap-correlation-only') || [];
       correlationOnlyRows.forEach(row => {
         if(row){
           row.hidden = !isCorrelation;
@@ -2631,7 +2662,7 @@
       // Disable the resizer "Lock ratio" control when showing Data values
       try {
         const svgBox = state.svgBox
-          || (global.document.getElementById && global.document.getElementById('heatmapGraphPanel')?.querySelector('.svgbox'))
+          || getHeatmapNodeById('heatmapGraphPanel')?.querySelector('.svgbox')
           || (state.svg && state.svg.closest && state.svg.closest('.svgbox'));
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
@@ -2663,7 +2694,7 @@
         hideRowDendrogram,
         hideColumnDendrogram
       });
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
     };
 
     const registerFilter = (enableEl, valueEls = []) => {
@@ -2700,7 +2731,7 @@
 
     const registerCenter = (checkbox, radioName) => {
       if(!checkbox) return;
-      const radios = Array.from(global.document.querySelectorAll(`input[name="${radioName}"]`));
+      const radios = Array.from(resolveHeatmapRoot()?.querySelectorAll?.(`input[name="${radioName}"]`) || []);
       const toggle = () => {
         const disabled = !checkbox.checked;
         radios.forEach(radio => {
@@ -4452,10 +4483,10 @@
         if(refs.filterAbsValue){ refs.filterAbsValue.value = String(normalized.filters.absValue); }
         if(refs.filterRangeValue){ refs.filterRangeValue.value = String(normalized.filters.rangeThreshold); }
         const rowMode = normalized.adjust.centerRowsMode || 'mean';
-        const rowRadio = global.document?.querySelector?.(`input[name="heatmapCenterGenesMode"][value="${rowMode}"]`);
+        const rowRadio = queryHeatmapRoot(`input[name="heatmapCenterGenesMode"][value="${rowMode}"]`);
         if(rowRadio){ rowRadio.checked = true; }
         const colMode = normalized.adjust.centerColumnsMode || 'mean';
-        const colRadio = global.document?.querySelector?.(`input[name="heatmapCenterArraysMode"][value="${colMode}"]`);
+        const colRadio = queryHeatmapRoot(`input[name="heatmapCenterArraysMode"][value="${colMode}"]`);
         if(colRadio){ colRadio.checked = true; }
         state.logPlusOne = !!normalized.adjust.logPlusOne;
       }else{
@@ -5980,7 +6011,7 @@
   function renderEmpty(message){
     clearCachedRenderState();
     state.lastResolvedValueScale = null;
-    syncHeatmapPaletteInputs(global.document);
+    syncHeatmapPaletteInputs(resolveHeatmapRoot());
     if(!state.svg) return;
     if(state.emptyPlotNoticeEl && state.emptyPlotNoticeEl.parentNode){
       state.emptyPlotNoticeEl.parentNode.removeChild(state.emptyPlotNoticeEl);
@@ -7230,7 +7261,7 @@
 
   function renderCorrelationHeatmap(processed, settings, drawToken){
     state.lastResolvedValueScale = null;
-    syncHeatmapPaletteInputs(global.document);
+    syncHeatmapPaletteInputs(resolveHeatmapRoot());
     const viewContext = resolveHeatmapViewContext();
     const axis = settings.view === 'corr-columns' ? 'columns' : 'rows';
     const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
@@ -7378,7 +7409,7 @@
       const max = processed.stats.max;
       const resolvedValueScale = resolveHeatmapValueScaleStats(processed.stats, settings.valueScale);
       state.lastResolvedValueScale = resolvedValueScale;
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
       const showRowDendrogram = !!(resolvedRow && settings.clustering.rows.showDendrogram);
       const showColumnDendrogram = !!(resolvedColumn && settings.clustering.columns.showDendrogram);
       const model = {
@@ -7635,10 +7666,10 @@
     }
     if(model?.type === 'values'){
       state.lastResolvedValueScale = payload.resolvedValueScale || resolveHeatmapModelValueScale(model, viewOptions);
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
     }else{
       state.lastResolvedValueScale = null;
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
     }
     drawHeatmap(payload);
     state.lastRenderModel = model;
@@ -7655,7 +7686,7 @@
     if(stats.type === 'correlation'){
       stats.useAbs = !!viewOptions?.useAbsolute;
       state.lastResolvedValueScale = null;
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
     }
     if(stats.type === 'values'){
       const resolvedScale = resolveHeatmapModelValueScale(state.lastRenderModel, viewOptions);
@@ -7663,7 +7694,7 @@
       stats.scaleMin = resolvedScale?.min;
       stats.scaleMax = resolvedScale?.max;
       stats.scaleCustomized = !!resolvedScale?.customized;
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
     }
     updateStats(stats);
   }
@@ -7923,7 +7954,7 @@
       state.valueScale = normalizeHeatmapValueScale(config.valueScale);
       state.legendHeightMode = normalizeHeatmapLegendHeightMode(config.legendHeightMode);
       state.lastResolvedValueScale = null;
-      syncHeatmapPaletteInputs(global.document);
+      syncHeatmapPaletteInputs(resolveHeatmapRoot());
       if(refs.cellSize){
         refs.cellSize.value = String(config.cellSize || 60);
         if(refs.cellSizeVal){ refs.cellSizeVal.textContent = refs.cellSize.value; }
@@ -7960,14 +7991,14 @@
       if(refs.centerGenes){
         refs.centerGenes.checked = !!config.adjust?.centerRows;
         const mode = config.adjust?.centerRows || 'mean';
-        const radio = global.document.querySelector(`input[name="heatmapCenterGenesMode"][value="${mode}"]`);
+        const radio = queryHeatmapRoot(`input[name="heatmapCenterGenesMode"][value="${mode}"]`);
         if(radio) radio.checked = true;
         refs.centerGenes.dispatchEvent(new Event('change'));
       }
       if(refs.centerArrays){
         refs.centerArrays.checked = !!config.adjust?.centerColumns;
         const mode = config.adjust?.centerColumns || 'mean';
-        const radio = global.document.querySelector(`input[name="heatmapCenterArraysMode"][value="${mode}"]`);
+        const radio = queryHeatmapRoot(`input[name="heatmapCenterArraysMode"][value="${mode}"]`);
         if(radio) radio.checked = true;
         refs.centerArrays.dispatchEvent(new Event('change'));
       }
@@ -8271,8 +8302,8 @@
   heatmap.draw = draw;
 
   function initNotes(){
-    const stack = global.document.querySelector('#heatmapGraphPanel .heatmap-plot-stack')
-      || global.document.querySelector('#heatmapGraphPanel .diagram-area');
+    const stack = queryHeatmapRoot('#heatmapGraphPanel .heatmap-plot-stack')
+      || queryHeatmapRoot('#heatmapGraphPanel .diagram-area');
     if(!stack){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: heatmap notes mount skipped (missing stack)');
@@ -8746,3 +8777,4 @@
   });
 
 })(window);
+

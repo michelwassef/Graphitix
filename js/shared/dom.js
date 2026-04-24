@@ -1431,7 +1431,7 @@
           const scopeId = el?.dataset?.fontScope || null;
           const key = el?.dataset?.fontKey || null;
           try {
-            fontControlsApi.openForElement(el, { scopeId, key });
+            fontControlsApi.openForElement(el, { scopeId, key, triggerEvent: event });
             logDebug('makeEditable font controls reopened', { scopeId, key });
           } catch (fontErr) {
             console.error('Shared.makeEditable fontControls.openForElement error', fontErr);

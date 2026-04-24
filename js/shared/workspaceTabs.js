@@ -397,6 +397,27 @@
     if(template.original && template.original !== record.dom.root){
       detachRoot(template.original);
     }
+    // Keep exactly one connected workspace root per component type to avoid duplicate IDs
+    // leaking through document-level queries during tab switches.
+    if(template.host && typeof template.host.querySelectorAll === 'function'){
+      const duplicateRoots = template.host.querySelectorAll(`[data-workspace-component="${type}"][data-workspace-instance-root="true"]`);
+      for(let i = 0; i < duplicateRoots.length; i += 1){
+        const node = duplicateRoots[i];
+        if(node !== record.dom.root){
+          detachRoot(node);
+        }
+      }
+      const rootId = String(config.element?.id || '').trim();
+      if(rootId){
+        const duplicateById = template.host.querySelectorAll(`#${rootId}`);
+        for(let i = 0; i < duplicateById.length; i += 1){
+          const node = duplicateById[i];
+          if(node !== record.dom.root){
+            detachRoot(node);
+          }
+        }
+      }
+    }
     mountRootAtTemplate(record.dom.root, template);
     template.activeTabId = tab.id;
     stampWorkspaceScopeDeep(record.dom.root, tab.id);
