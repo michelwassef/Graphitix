@@ -158,11 +158,14 @@
     if(directTabId){
       return directTabId;
     }
+    if(options.allowGlobal === true){
+      return '';
+    }
     const activeTabId = resolveActiveTabId();
     if(activeTabId){
       return activeTabId;
     }
-    return options.allowGlobal === true ? '' : '';
+    return '';
   }
 
   function getHistoryKey(tabId){
@@ -593,7 +596,7 @@
         return normalizeTabId(tab.id);
       }
     }
-    return resolveActiveTabId();
+    return '';
   }
 
   function pushEntryToBucket(entry){
@@ -982,25 +985,28 @@
       undoDebug('Debug: undo stack empty on undo', { tabId: tabId || null });
       return false;
     }
-    const currentIndex = bucket.pointer;
-    const entry = bucket.stack[currentIndex];
-    bucket.pointer -= 1;
-    let result = true;
-    try{
-      undoDebug('Debug: undo executing', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
-      result = entry.undo();
-    }catch(err){
-      console.error('Shared.undoManager undo error', err);
-      result = false;
+    while(bucket.pointer >= 0){
+      const currentIndex = bucket.pointer;
+      const entry = bucket.stack[currentIndex];
+      bucket.pointer -= 1;
+      let result = true;
+      try{
+        undoDebug('Debug: undo executing', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
+        result = entry.undo();
+      }catch(err){
+        console.error('Shared.undoManager undo error', err);
+        result = false;
+      }
+      if(result === false){
+        undoDebug('Debug: undo entry reported failure and was skipped', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
+        continue;
+      }
+      bucket.updatedAt = Date.now();
+      notifyChange('undo', { tabId, viewTabId: tabId });
+      return true;
     }
-    if(result === false){
-      bucket.pointer = currentIndex;
-      undoDebug('Debug: undo entry reported failure', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
-      return false;
-    }
-    bucket.updatedAt = Date.now();
-    notifyChange('undo', { tabId, viewTabId: tabId });
-    return true;
+    undoDebug('Debug: undo stack exhausted after skipping failed entries', { tabId: tabId || null });
+    return false;
   };
 
   undoNamespace.redo = function redo(options = {}){
@@ -1015,30 +1021,32 @@
       undoDebug('Debug: undo stack empty on redo', { tabId: tabId || null });
       return false;
     }
-    const previousPointer = bucket.pointer;
-    bucket.pointer += 1;
-    const entry = bucket.stack[bucket.pointer];
-    let result = true;
-    try{
-      if(typeof entry.redo === 'function'){
-        undoDebug('Debug: undo executing redo', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
-        result = entry.redo();
-      }else if(typeof entry.undo === 'function'){
-        undoDebug('Debug: undo fallback redo using undo()', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
-        result = entry.undo();
+    while(bucket.pointer + 1 < bucket.stack.length){
+      bucket.pointer += 1;
+      const entry = bucket.stack[bucket.pointer];
+      let result = true;
+      try{
+        if(typeof entry.redo === 'function'){
+          undoDebug('Debug: undo executing redo', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
+          result = entry.redo();
+        }else if(typeof entry.undo === 'function'){
+          undoDebug('Debug: undo fallback redo using undo()', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
+          result = entry.undo();
+        }
+      }catch(err){
+        console.error('Shared.undoManager redo error', err);
+        result = false;
       }
-    }catch(err){
-      console.error('Shared.undoManager redo error', err);
-      result = false;
+      if(result === false){
+        undoDebug('Debug: redo entry reported failure and was skipped', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
+        continue;
+      }
+      bucket.updatedAt = Date.now();
+      notifyChange('redo', { tabId, viewTabId: tabId });
+      return true;
     }
-    if(result === false){
-      bucket.pointer = previousPointer;
-      undoDebug('Debug: redo entry reported failure', { label: entry.label, tabId: tabId || null, pointer: bucket.pointer });
-      return false;
-    }
-    bucket.updatedAt = Date.now();
-    notifyChange('redo', { tabId, viewTabId: tabId });
-    return true;
+    undoDebug('Debug: redo stack exhausted after skipping failed entries', { tabId: tabId || null });
+    return false;
   };
 
   function clearAllHistories(reason){

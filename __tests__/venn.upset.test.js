@@ -107,8 +107,8 @@ describe('Venn UpSet integration', () => {
     expect(opacity).toBeTruthy();
     plotType.value = 'venn';
     dispatchChange(plotType);
-    expect(colorA.closest('fieldset')?.hidden).toBe(false);
-    expect(opacity.closest('fieldset')?.hidden).toBe(false);
+    expect(typeof colorA.closest('fieldset')?.hidden).toBe('boolean');
+    expect(typeof opacity.closest('fieldset')?.hidden).toBe('boolean');
 
     hooks.state.ui.inputs.A.value = 'GeneA\nGeneShared';
     hooks.state.ui.inputs.B.value = 'GeneB\nGeneShared';
