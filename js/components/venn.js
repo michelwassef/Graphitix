@@ -6679,7 +6679,7 @@
   function resolveVennRoot(tabLike = null){
     return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'venn')
       || state.ui.root
-      || getVennNodeById('vennPage')
+      || document.getElementById('vennPage')
       || document;
   }
 
