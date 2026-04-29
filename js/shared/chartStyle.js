@@ -2088,7 +2088,70 @@
       right,
       bottom
     }); // Debug: margin base computation
-    return {top, right, bottom, left};
+    return chartStyle.stabilizeAxisResizeMargins({top, right, bottom, left}, options);
+  };
+
+  const axisResizeMarginLocks = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+
+  function normalizeMarginLock(margin){
+    if(!margin || typeof margin !== 'object'){
+      return null;
+    }
+    return {
+      top: Number(margin.top) || 0,
+      right: Number(margin.right) || 0,
+      bottom: Number(margin.bottom) || 0,
+      left: Number(margin.left) || 0
+    };
+  }
+
+  chartStyle.stabilizeAxisResizeMargins = function stabilizeAxisResizeMargins(margin, options){
+    const locked = normalizeMarginLock(margin);
+    if(!locked){
+      return margin;
+    }
+    const svgBox = options?.svgBox || options?.container || options?.resizeTarget || null;
+    const dataset = svgBox?.dataset || null;
+    if(!dataset){
+      return locked;
+    }
+    const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+      ? dataset.resizerLastAxis
+      : 'both';
+    const aspectLocked = dataset.resizerAspectLocked === 'true';
+    const markedAxis = dataset.resizerAxisViewportLockAxis;
+    const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
+    const lockActive = !aspectLocked
+      && (axis === 'x' || axis === 'y')
+      && markedAxis === axis
+      && Number.isFinite(lockUntil)
+      && Date.now() <= lockUntil;
+    const previous = axisResizeMarginLocks ? axisResizeMarginLocks.get(svgBox) : svgBox.__chartStyleAxisResizeMarginLock;
+    if(lockActive && previous){
+      if(axis === 'y'){
+        locked.left = previous.left;
+        locked.right = previous.right;
+      }else if(axis === 'x'){
+        locked.top = previous.top;
+        locked.bottom = previous.bottom;
+      }
+    }
+    if(axisResizeMarginLocks){
+      axisResizeMarginLocks.set(svgBox, { ...locked });
+    }else{
+      svgBox.__chartStyleAxisResizeMarginLock = { ...locked };
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: chartStyle.stabilizeAxisResizeMargins', {
+        scope: options?.scopeId || options?.scope || svgBox.id || null,
+        axis,
+        aspectLocked,
+        lockActive,
+        previous: previous || null,
+        margin: locked
+      });
+    }
+    return locked;
   };
 
   chartStyle.ensureSquarePlot = function ensureSquarePlot(totalWidth, totalHeight, margin){

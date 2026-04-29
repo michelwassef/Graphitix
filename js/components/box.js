@@ -11901,6 +11901,11 @@
     return state.violin;
   }
   const els = {};
+  function stabilizeBoxMarginForAxisResize(margin){
+    return chartStyle.stabilizeAxisResizeMargins
+      ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: els.svgBox, scopeId: 'box' })
+      : margin;
+  }
   const boxOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'box',
     message: 'Rendering box plot...',
@@ -30063,6 +30068,7 @@ Technical analysis record (advanced)
       let bottomViewportExtension = bottomLayoutResult.bottomViewportExtension;
       let unresolvedDownShift = bottomLayoutResult.unresolvedDownShift;
       marginLocal.bottom = bottomLayout.bottom;
+      marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
       // Keep the plot height stable when extra bottom room is reserved for long or rotated x labels.
       canvasHeightLocal = baseCanvasHeight + unresolvedDownShift + bottomViewportExtension;
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
@@ -30122,6 +30128,7 @@ Technical analysis record (advanced)
         bottomViewportExtension = bottomLayoutResult.bottomViewportExtension;
         unresolvedDownShift = bottomLayoutResult.unresolvedDownShift;
         marginLocal.bottom = bottomLayout.bottom;
+        marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
         canvasHeightLocal = baseCanvasHeight + unresolvedDownShift + bottomViewportExtension;
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
         plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
@@ -30974,6 +30981,7 @@ Technical analysis record (advanced)
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
       marginLocal.right = Math.max(baseMarginRight, rightExtra + fs);
       marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
+      marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
       const xIntervalSetting = getAxisTickInterval('x');
@@ -31011,6 +31019,7 @@ Technical analysis record (advanced)
           const adjustedRightMargin = Math.max(baseMarginRight, reducedRightExtra + fs);
           if(adjustedRightMargin + 0.5 < marginLocal.right){
             marginLocal.right = adjustedRightMargin;
+            marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
             plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
             plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
             yScale = buildHorizontalValueScale();

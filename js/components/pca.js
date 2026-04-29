@@ -9547,6 +9547,9 @@
       let plotH = Math.max(20, H - margin.top - margin.bottom);
       let bottomLayout = chartStyle.computeBottomLayout({labels: [], fontSize: fs, labelMeasureFont: xTickMeasureFont, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
       margin.bottom = bottomLayout.bottom;
+      margin = chartStyle.stabilizeAxisResizeMargins
+        ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: pcaSvgBox, scopeId: 'pca' })
+        : margin;
       plotW = Math.max(20, W - margin.left - margin.right);
       plotH = Math.max(20, H - margin.top - margin.bottom);
       const manualIntervalX = getAxisTickInterval('x');
@@ -9590,6 +9593,9 @@
         plotH = Math.max(20, H - margin.top - margin.bottom);
         bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, labelMeasureFont: xTickMeasureFont, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
         margin.bottom = bottomLayout.bottom;
+        margin = chartStyle.stabilizeAxisResizeMargins
+          ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: pcaSvgBox, scopeId: 'pca' })
+          : margin;
         plotW = Math.max(20, W - margin.left - margin.right);
         plotH = Math.max(20, H - margin.top - margin.bottom);
         const refinedX = manualIntervalX ? xTickTarget : chartStyle.estimateTickCount(plotW, { axis: 'x', fallback: xTickTarget });

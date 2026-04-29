@@ -1068,7 +1068,9 @@
         container.dataset.resizerHeight = container.style.height;
         container.dataset.resizerBaseHeight = String(Math.round(finalBaseHeight));
       }
-      container.dataset.resizerLastAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
+      const normalizedAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
+      container.dataset.resizerLastAxis = normalizedAxis;
+      markOrthogonalViewportLock(normalizedAxis, reason || 'resize-apply', { capture: false });
       // Aspect-lock flows can temporarily impose tight max-size constraints.
       // When unlocked, always restore the configured bounds so axis-length edits
       // are not blocked by stale maxHeight/maxWidth values.
@@ -1131,6 +1133,37 @@
           baseHeight
         });
       }
+    }
+
+    function markOrthogonalViewportLock(axis, reason, options = {}){
+      const normalizedAxis = axis === 'x' || axis === 'y' ? axis : 'both';
+      const isOneAxisUnlockedResize = !aspectLocked && (normalizedAxis === 'x' || normalizedAxis === 'y');
+      if(!isOneAxisUnlockedResize){
+        delete data.resizerAxisViewportLockAxis;
+        delete data.resizerAxisViewportLockUntil;
+        return;
+      }
+      const durationMs = Number.isFinite(options.durationMs) && options.durationMs > 0
+        ? options.durationMs
+        : 6000;
+      data.resizerAxisViewportLockAxis = normalizedAxis;
+      data.resizerAxisViewportLockUntil = String(Date.now() + durationMs);
+      if(options.capture !== false && Shared.graphViewport && typeof Shared.graphViewport.captureStableAxes === 'function'){
+        try{
+          Shared.graphViewport.captureStableAxes(container, {
+            axis: normalizedAxis,
+            reason: reason || 'resizer-axis-lock'
+          });
+        }catch(err){
+          console.error('resizer graph viewport stable capture error', err);
+        }
+      }
+      console.debug('Debug: resizer orthogonal viewport lock marked', {
+        container: containerLabel,
+        axis: normalizedAxis,
+        reason: reason || null,
+        until: data.resizerAxisViewportLockUntil
+      });
     }
 
     function applyProgrammaticResize(options = {}){
@@ -1475,16 +1508,20 @@
         aspectCheckbox = aspectControl.querySelector('input[type="checkbox"]');
       }
       if(aspectCheckbox){
+        aspectCheckbox.setAttribute('data-undo-ignore', '1');
         aspectCheckbox.checked = aspectLocked;
         if(aspectCheckbox.__resizerAspectHandler){
           aspectCheckbox.removeEventListener('change', aspectCheckbox.__resizerAspectHandler);
         }
         const onAspectChange = () => {
+          const beforeAspect = makeResizeSnapshot('aspect-toggle-before');
           aspectLocked = !!aspectCheckbox.checked;
           data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
           console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
           if(aspectLocked){
             delete data.resizerUnlockedStyleScaleBase;
+            delete data.resizerAxisViewportLockAxis;
+            delete data.resizerAxisViewportLockUntil;
             const updatedRatio = readRectRatio();
             setAspectRatio(updatedRatio);
             const liveRect = container.getBoundingClientRect();
@@ -1499,10 +1536,22 @@
             });
           }else{
             syncUnlockedStyleScaleBase('aspect-toggle-unlock');
+            if(Shared.graphViewport && typeof Shared.graphViewport.captureStableAxes === 'function'){
+              try{
+                Shared.graphViewport.captureStableAxes(container, {
+                  axis: 'both',
+                  reason: 'aspect-toggle-unlock'
+                });
+              }catch(err){
+                console.error('resizer aspect-toggle viewport capture error', err);
+              }
+            }
           }
           if(typeof opts.onResize === 'function'){
             try { opts.onResize('aspect-toggle'); } catch(e){ console.error('resizer onResize error', e); }
           }
+          const afterAspect = makeResizeSnapshot('aspect-toggle-after');
+          notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
         };
         aspectCheckbox.addEventListener('change', onAspectChange);
         aspectCheckbox.__resizerAspectHandler = onAspectChange;
@@ -1759,6 +1808,47 @@
       return Number.isFinite(num) ? num : NaN;
     };
 
+    const RESIZE_SNAPSHOT_DATA_KEYS = [
+      'resizerWidth',
+      'resizerHeight',
+      'resizerBaseWidth',
+      'resizerBaseHeight',
+      'resizerAspectLocked',
+      'resizerAspectRatio',
+      'resizerLastAxis',
+      'resizerResized',
+      'resizerUnlockedStyleScaleBase',
+      'resizerZoom',
+      'resizerZoomLevel',
+      'graphViewportStableMinX',
+      'graphViewportStableMinY',
+      'graphViewportStableWidth',
+      'graphViewportStableHeight',
+      'graphViewportStableRenderedWidth',
+      'graphViewportStableRenderedHeight',
+      'graphViewportStableReason'
+    ];
+
+    const captureResizeDataset = () => {
+      const snapshot = {};
+      RESIZE_SNAPSHOT_DATA_KEYS.forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(data, key)){
+          snapshot[key] = data[key];
+        }
+      });
+      return snapshot;
+    };
+
+    const restoreResizeDataset = (snapshot = {}) => {
+      RESIZE_SNAPSHOT_DATA_KEYS.forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(snapshot, key)){
+          data[key] = snapshot[key];
+        }else{
+          delete data[key];
+        }
+      });
+    };
+
     const makeResizeSnapshot = (tag) => {
       const liveRect = container.getBoundingClientRect();
       const rectWidth = parsePositive(liveRect.width);
@@ -1773,13 +1863,20 @@
         minHeightStyle: container.style.minHeight,
         maxWidthStyle: container.style.maxWidth,
         maxHeightStyle: container.style.maxHeight,
-        flexStyle: container.style.flex
+        flexStyle: container.style.flex,
+        boxSizingStyle: container.style.boxSizing,
+        aspectLocked: !!aspectLocked,
+        aspectChecked: !!aspectLocked,
+        aspectRatio: Number.isFinite(aspectRatio) ? aspectRatio : Number(data.resizerAspectRatio),
+        zoomLevel,
+        dataset: captureResizeDataset()
       };
       console.debug('Debug: resizer snapshot captured', {
         container: containerLabel,
         tag,
         width: snapshot.width,
-        height: snapshot.height
+        height: snapshot.height,
+        aspectLocked: snapshot.aspectLocked
       });
       return snapshot;
     };
@@ -1805,10 +1902,23 @@
         }
         return false;
       })();
-      if(!widthChanged && !heightChanged) return;
+      const aspectChanged = before.aspectLocked !== after.aspectLocked
+        || before.aspectChecked !== after.aspectChecked
+        || (Number.isFinite(before.aspectRatio) && Number.isFinite(after.aspectRatio) && Math.abs(before.aspectRatio - after.aspectRatio) > 1e-9);
+      const zoomChanged = Number.isFinite(before.zoomLevel)
+        && Number.isFinite(after.zoomLevel)
+        && Math.abs(before.zoomLevel - after.zoomLevel) > RESIZER_ZOOM_EPSILON;
+      const datasetChanged = (() => {
+        const beforeDataset = before.dataset || {};
+        const afterDataset = after.dataset || {};
+        return RESIZE_SNAPSHOT_DATA_KEYS.some(key => (beforeDataset[key] || '') !== (afterDataset[key] || ''));
+      })();
+      if(!widthChanged && !heightChanged && !aspectChanged && !zoomChanged && !datasetChanged) return;
       undoManager.record({
         label: `resize:${containerLabel}:${mode}`,
         scope: containerLabel,
+        target: container,
+        element: container,
         undo: () => {
           console.debug('Debug: resizer undo snapshot apply', { container: containerLabel, mode, trigger });
           applySnapshot(before, 'undo');
@@ -1828,6 +1938,28 @@
 
     function applySnapshot(snapshot, reason){
       if(!snapshot) return;
+      const snapshotDataset = snapshot.dataset && typeof snapshot.dataset === 'object' ? snapshot.dataset : {};
+      const snapshotAspectLocked = typeof snapshot.aspectLocked === 'boolean'
+        ? snapshot.aspectLocked
+        : snapshotDataset.resizerAspectLocked === 'true';
+      aspectLocked = !!snapshotAspectLocked;
+      data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+      if(aspectCheckbox){
+        aspectCheckbox.checked = aspectLocked;
+      }
+      const snapshotRatio = Number(snapshot.aspectRatio);
+      if(Number.isFinite(snapshotRatio) && snapshotRatio > 0){
+        setAspectRatio(snapshotRatio);
+      }else if(Number.isFinite(Number(snapshotDataset.resizerAspectRatio)) && Number(snapshotDataset.resizerAspectRatio) > 0){
+        setAspectRatio(Number(snapshotDataset.resizerAspectRatio));
+      }
+      delete data.resizerAxisViewportLockAxis;
+      delete data.resizerAxisViewportLockUntil;
+      if(Number.isFinite(Number(snapshot.zoomLevel)) && snapshot.zoomLevel > 0){
+        zoomLevel = normalizeZoomLevel(snapshot.zoomLevel, zoomBounds);
+        data.resizerZoom = String(zoomLevel);
+        data.resizerZoomLevel = String(zoomLevel);
+      }
       const widthTarget = Number.isFinite(snapshot.width) ? snapshot.width : parseStylePx(snapshot.styleWidth);
       const heightTarget = Number.isFinite(snapshot.height) ? snapshot.height : parseStylePx(snapshot.styleHeight);
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
@@ -1837,29 +1969,59 @@
         height: heightTarget,
         fallbackWidth: Number.isFinite(widthTarget) ? widthTarget : (defaultWidth * zoomScale),
         fallbackHeight: Number.isFinite(heightTarget) ? heightTarget : (defaultHeight * zoomScale),
-        reason: reason || 'snapshot'
+        reason: reason || 'snapshot',
+        aspectLockedOverride: aspectLocked
       });
+      if(typeof snapshot.styleWidth === 'string' && snapshot.styleWidth.length){
+        container.style.width = snapshot.styleWidth;
+      }
+      if(typeof snapshot.styleHeight === 'string' && snapshot.styleHeight.length){
+        container.style.height = snapshot.styleHeight;
+      }
       if(typeof snapshot.flexStyle === 'string' && snapshot.flexStyle.length){
         container.style.flex = snapshot.flexStyle;
       }
+      if(typeof snapshot.boxSizingStyle === 'string' && snapshot.boxSizingStyle.length){
+        container.style.boxSizing = snapshot.boxSizingStyle;
+      }
       if(typeof snapshot.maxWidthStyle === 'string' && snapshot.maxWidthStyle.length){
         container.style.maxWidth = snapshot.maxWidthStyle;
+      }else{
+        container.style.maxWidth = '';
       }
       if(typeof snapshot.maxHeightStyle === 'string' && snapshot.maxHeightStyle.length){
         container.style.maxHeight = snapshot.maxHeightStyle;
+      }else{
+        container.style.maxHeight = '';
       }
       if(typeof snapshot.minWidthStyle === 'string' && snapshot.minWidthStyle.length){
         container.style.minWidth = snapshot.minWidthStyle;
+      }else{
+        container.style.minWidth = '';
       }
       if(typeof snapshot.minHeightStyle === 'string' && snapshot.minHeightStyle.length){
         container.style.minHeight = snapshot.minHeightStyle;
+      }else{
+        container.style.minHeight = '';
       }
-      container.dataset.resizerResized = 'true';
+      restoreResizeDataset(snapshotDataset);
+      data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+      if(Number.isFinite(aspectRatio) && aspectRatio > 0){
+        data.resizerAspectRatio = String(aspectRatio);
+      }
+      if(Number.isFinite(zoomLevel) && zoomLevel > 0){
+        data.resizerZoom = String(zoomLevel);
+        data.resizerZoomLevel = String(zoomLevel);
+      }
+      data.resizerLastAxis = 'both';
+      syncZoomPresentation(applied.baseWidth, applied.baseHeight);
+      syncZoomControls();
       console.debug('Debug: resizer applySnapshot complete', {
         container: containerLabel,
         reason,
         widthApplied: applied.width,
-        heightApplied: applied.height
+        heightApplied: applied.height,
+        aspectLocked
       });
     }
 
@@ -1890,6 +2052,7 @@
         startX = e.clientX;
         startY = e.clientY;
         startSnapshot = makeResizeSnapshot('pointer-start');
+        markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
         container.style.boxSizing = 'border-box';
         container.style.width = px(startW);
         container.style.height = px(startH);
@@ -1936,6 +2099,7 @@
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
           console.debug('Debug: resizer drag end'); // Debug: resizer drag end
+          markOrthogonalViewportLock(axis, 'pointer-end', { capture: false, durationMs: 6000 });
           if(startSnapshot){
             const endSnapshot = makeResizeSnapshot('pointer-end');
             notifyUndoableResize(`drag-${axis}`, startSnapshot, endSnapshot, 'pointer');

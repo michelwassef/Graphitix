@@ -17833,6 +17833,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let plotH=Math.max(20,H-margin.top-margin.bottom);
         let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
         margin.bottom=bottomLayout.bottom;
+        margin=stabilizeScatterMarginForAxisResize(margin);
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
         const storedManualIntervalX = getScatterAxisTickInterval('x');
@@ -17914,6 +17915,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           plotH=Math.max(20,H-margin.top-margin.bottom);
           bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
           margin.bottom=bottomLayout.bottom;
+          margin=stabilizeScatterMarginForAxisResize(margin);
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);
           const refinedX=clampScatterTickTarget(chartStyle.estimateTickCount(plotW,{...xTickEstimateOptions,fallback:xTickTarget}));

@@ -4687,6 +4687,7 @@
     let plotH=Math.max(20,H-margin.top-margin.bottom);
     let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
     margin.bottom=bottomLayout.bottom;
+    margin=stabilizeHistMarginForAxisResize(margin);
     plotW=Math.max(20,W-margin.left-margin.right);
     plotH=Math.max(20,H-margin.top-margin.bottom);
     let xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
@@ -4865,6 +4866,7 @@
       plotH=Math.max(20,H-margin.top-margin.bottom);
       bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
+      margin=stabilizeHistMarginForAxisResize(margin);
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
       const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});

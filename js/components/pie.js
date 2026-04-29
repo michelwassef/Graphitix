@@ -3745,6 +3745,9 @@ let state = {
       let chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
       const bottomLayout=chartStyle.computeBottomLayout({labels:barHeaders,fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:chartWidth,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
+      margin = chartStyle.stabilizeAxisResizeMargins
+        ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: state.svgBox, scopeId: 'pie' })
+        : margin;
       chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
       const tickLen=axisMetrics.tickLength;

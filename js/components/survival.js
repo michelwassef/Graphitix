@@ -3653,6 +3653,9 @@
       axisMetrics
     }) : { bottom: margin.bottom, shouldRotate: false, titleOffset: fs * 2, labelOffset: fs, tickLength: tickLen, tickLabelGap: tickGap };
     margin.bottom = bottomLayout.bottom;
+    margin = chartStyle.stabilizeAxisResizeMargins
+      ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'survival' })
+      : margin;
 
     let xScale;
     let yScale;
@@ -3719,6 +3722,9 @@
         axisMetrics
       }) : bottomLayout;
       margin.bottom = bottomLayout.bottom;
+      margin = chartStyle.stabilizeAxisResizeMargins
+        ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'survival' })
+        : margin;
     }
     logDebug('tick targets finalized', { manualIntervalX, manualIntervalY, xTickCount: xScale?.ticks?.length, yTickCount: yScale?.ticks?.length });
 

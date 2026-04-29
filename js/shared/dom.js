@@ -30,6 +30,193 @@
     { key: 'baselineShift', attr: 'baseline-shift' },
   ];
 
+  const VIEWBOX_DATASET_KEYS = {
+    minX: 'graphViewportStableMinX',
+    minY: 'graphViewportStableMinY',
+    width: 'graphViewportStableWidth',
+    height: 'graphViewportStableHeight',
+    renderedWidth: 'graphViewportStableRenderedWidth',
+    renderedHeight: 'graphViewportStableRenderedHeight'
+  };
+
+  const parseFiniteNumber = value => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  };
+
+  const normalizeViewBox = candidate => {
+    if(!candidate || typeof candidate !== 'object'){
+      return null;
+    }
+    const minX = parseFiniteNumber(candidate.minX ?? candidate.x);
+    const minY = parseFiniteNumber(candidate.minY ?? candidate.y);
+    const width = parseFiniteNumber(candidate.viewW ?? candidate.width);
+    const height = parseFiniteNumber(candidate.viewH ?? candidate.height);
+    if(!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0){
+      return null;
+    }
+    return { minX, minY, viewW: width, viewH: height };
+  };
+
+  const parseViewBoxAttribute = value => {
+    if(typeof value !== 'string' || !value.trim()){
+      return null;
+    }
+    const parts = value.trim().split(/[\s,]+/).map(Number);
+    if(parts.length < 4){
+      return null;
+    }
+    return normalizeViewBox({
+      minX: parts[0],
+      minY: parts[1],
+      width: parts[2],
+      height: parts[3]
+    });
+  };
+
+  const readSvgViewBox = svg => {
+    if(!svg){
+      return null;
+    }
+    try{
+      const base = svg.viewBox?.baseVal;
+      const fromBase = normalizeViewBox(base);
+      if(fromBase){
+        return fromBase;
+      }
+    }catch(err){
+      logDebug('readSvgViewBox baseVal failed', { error: err?.message || String(err) });
+    }
+    return parseViewBoxAttribute(svg.getAttribute?.('viewBox'));
+  };
+
+  const resolveSvgBox = target => {
+    if(!target){
+      return null;
+    }
+    if(target.classList?.contains?.('svgbox')){
+      return target;
+    }
+    return target.closest?.('.svgbox') || null;
+  };
+
+  const readStableViewBox = svgBox => {
+    const dataset = svgBox?.dataset || null;
+    if(!dataset){
+      return null;
+    }
+    return normalizeViewBox({
+      minX: dataset[VIEWBOX_DATASET_KEYS.minX],
+      minY: dataset[VIEWBOX_DATASET_KEYS.minY],
+      width: dataset[VIEWBOX_DATASET_KEYS.width],
+      height: dataset[VIEWBOX_DATASET_KEYS.height]
+    });
+  };
+
+  const readStableRenderedSize = svgBox => {
+    const dataset = svgBox?.dataset || null;
+    if(!dataset){
+      return null;
+    }
+    const width = parseFiniteNumber(dataset[VIEWBOX_DATASET_KEYS.renderedWidth]);
+    const height = parseFiniteNumber(dataset[VIEWBOX_DATASET_KEYS.renderedHeight]);
+    if(!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0){
+      return null;
+    }
+    return { width, height };
+  };
+
+  const readSvgRenderedSize = svg => {
+    if(!svg || typeof svg.getBoundingClientRect !== 'function'){
+      return null;
+    }
+    const rect = svg.getBoundingClientRect();
+    const width = parseFiniteNumber(rect?.width);
+    const height = parseFiniteNumber(rect?.height);
+    if(!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0){
+      return null;
+    }
+    return { width, height };
+  };
+
+  const writeStableViewBox = (svgBox, viewBox, reason, renderedSize) => {
+    const normalized = normalizeViewBox(viewBox);
+    const dataset = svgBox?.dataset || null;
+    if(!dataset || !normalized){
+      return null;
+    }
+    dataset[VIEWBOX_DATASET_KEYS.minX] = String(normalized.minX);
+    dataset[VIEWBOX_DATASET_KEYS.minY] = String(normalized.minY);
+    dataset[VIEWBOX_DATASET_KEYS.width] = String(normalized.viewW);
+    dataset[VIEWBOX_DATASET_KEYS.height] = String(normalized.viewH);
+    if(reason){
+      dataset.graphViewportStableReason = String(reason);
+    }
+    const rendered = renderedSize && Number.isFinite(renderedSize.width) && Number.isFinite(renderedSize.height)
+      ? renderedSize
+      : null;
+    if(rendered && rendered.width > 0 && rendered.height > 0){
+      dataset[VIEWBOX_DATASET_KEYS.renderedWidth] = String(rendered.width);
+      dataset[VIEWBOX_DATASET_KEYS.renderedHeight] = String(rendered.height);
+    }
+    return normalized;
+  };
+
+  function captureGraphViewportStableAxes(target, options = {}) {
+    const svgBox = resolveSvgBox(target);
+    const svg = options.svg
+      || (target && String(target.tagName || '').toLowerCase() === 'svg' ? target : null)
+      || svgBox?.querySelector?.('svg')
+      || null;
+    let viewBox = readSvgViewBox(svg);
+    if(!svgBox || !viewBox){
+      logDebug('graphViewport stable capture skipped', {
+        reason: options.reason || null,
+        hasSvgBox: !!svgBox,
+        hasSvg: !!svg,
+        hasViewBox: !!viewBox
+      });
+      return null;
+    }
+    const priorStableViewBox = readStableViewBox(svgBox);
+    const axis = options.axis === 'x' || options.axis === 'y' ? options.axis : null;
+    if(priorStableViewBox && axis === 'y'){
+      viewBox = {
+        ...viewBox,
+        minX: priorStableViewBox.minX,
+        viewW: priorStableViewBox.viewW
+      };
+    }else if(priorStableViewBox && axis === 'x'){
+      viewBox = {
+        ...viewBox,
+        minY: priorStableViewBox.minY,
+        viewH: priorStableViewBox.viewH
+      };
+    }
+    const renderedSize = readSvgRenderedSize(svg);
+    const stored = writeStableViewBox(svgBox, viewBox, options.reason || 'capture', renderedSize);
+    logDebug('graphViewport stable axes captured', {
+      reason: options.reason || null,
+      axis,
+      reusedOrthogonalAxis: !!priorStableViewBox && !!axis,
+      renderedSize,
+      viewBox: stored
+    });
+    return stored;
+  }
+
+  const isOrthogonalViewportLockActive = (dataset, axis) => {
+    if(!dataset || (axis !== 'x' && axis !== 'y')){
+      return false;
+    }
+    const markedAxis = dataset.resizerAxisViewportLockAxis;
+    if(markedAxis !== axis){
+      return false;
+    }
+    const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
+    return Number.isFinite(lockUntil) && Date.now() <= lockUntil;
+  };
+
   const stylesEqual = (a, b) => {
     if (!a && !b) return true;
     if (!a || !b) return false;
@@ -2118,20 +2305,74 @@
           };
         }
         const effectivePadding = Number.isFinite(padding) ? padding : 0;
-        const minX = Math.min(0, bbox.x - effectivePadding);
-        const minY = Math.min(0, bbox.y - effectivePadding);
-        const viewW = Math.max(minWidth, bbox.x + bbox.width + effectivePadding - minX);
-        const viewH = Math.max(minHeight, bbox.y + bbox.height + effectivePadding - minY);
+        let minX = Math.min(0, bbox.x - effectivePadding);
+        let minY = Math.min(0, bbox.y - effectivePadding);
+        let viewW = Math.max(minWidth, bbox.x + bbox.width + effectivePadding - minX);
+        let viewH = Math.max(minHeight, bbox.y + bbox.height + effectivePadding - minY);
+        const box = svg.closest?.('.svgbox');
+        const dataset = box?.dataset || null;
+        const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
+        const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y')
+          ? dataset.resizerLastAxis
+          : 'both';
+        const stableViewBox = readStableViewBox(box);
+        const stableRenderedSize = readStableRenderedSize(box);
+        const lockActive = !aspectLocked && isOrthogonalViewportLockActive(dataset, resizeAxis);
+        const frozenAxes = { x: false, y: false };
+        const frozenRenderedSize = { width: false, height: false };
+        if(lockActive && resizeAxis === 'y' && stableViewBox){
+          minX = stableViewBox.minX;
+          viewW = stableViewBox.viewW;
+          frozenAxes.x = true;
+        }else if(lockActive && resizeAxis === 'x' && stableViewBox){
+          minY = stableViewBox.minY;
+          viewH = stableViewBox.viewH;
+          frozenAxes.y = true;
+        }
         svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         if (fill) {
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
+          if(lockActive && resizeAxis === 'y' && stableRenderedSize?.width > 0){
+            svg.style.width = `${stableRenderedSize.width}px`;
+            frozenRenderedSize.width = true;
+          }else{
+            svg.style.width = '100%';
+          }
+          if(lockActive && resizeAxis === 'x' && stableRenderedSize?.height > 0){
+            svg.style.height = `${stableRenderedSize.height}px`;
+            frozenRenderedSize.height = true;
+          }else{
+            svg.style.height = '100%';
+          }
+          svg.style.minWidth = '0';
+          svg.style.minHeight = '0';
+          svg.style.display = 'block';
+        }
+        if(dataset){
+          const preserve = aspectLocked ? 'xMidYMid meet' : 'none';
+          svg.setAttribute('preserveAspectRatio', preserve);
+          writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
         }
         const parent = svg.parentElement;
         if (parent) parent.style.overflow = 'visible';
-        const box = svg.closest?.('.svgbox');
         if (box) box.style.overflow = 'visible';
-        logDebug('autoResizeSvg applied', { debugLabel, bbox, minX, minY, viewW, viewH, fill });
+        logDebug('autoResizeSvg applied', {
+          debugLabel,
+          bbox,
+          minX,
+          minY,
+          viewW,
+          viewH,
+          fill,
+          aspectLocked,
+          resizeAxis,
+          lockActive,
+          frozenAxes,
+          frozenRenderedSize,
+          stableRenderedSize,
+          preserveAspectRatio: svg.getAttribute('preserveAspectRatio')
+        });
         if (typeof onResize === 'function') {
           safeCall(onResize, [{ svg, bbox, viewBox: { minX, minY, viewW, viewH } }], 'Shared.autoResizeSvg onResize error');
         }
@@ -2288,6 +2529,7 @@
   Shared.graphViewport = Shared.graphViewport || {};
   Shared.graphViewport.ensure = ensureGraphViewport;
   Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
+  Shared.graphViewport.captureStableAxes = captureGraphViewportStableAxes;
   Shared.serializeCleanSVG = serializeCleanSVG;
   Shared.DEFAULT_EMPTY_PLOT_NOTICE = DEFAULT_EMPTY_PLOT_NOTICE;
   Shared.getEmptyPlotNoticeMessage = getEmptyPlotNoticeMessage;

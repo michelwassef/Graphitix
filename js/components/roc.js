@@ -2569,6 +2569,9 @@
     let plotHeight = Math.max(20, height - margin.top - margin.bottom);
     let bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth, baseBottom: margin.bottom, axisMetrics});
     margin.bottom = bottomLayout.bottom;
+    margin = chartStyle.stabilizeAxisResizeMargins
+      ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'roc' })
+      : margin;
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
     for(let pass=0; pass<2; pass++){
@@ -2589,6 +2592,9 @@
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
       bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth, baseBottom: margin.bottom, axisMetrics});
       margin.bottom = bottomLayout.bottom;
+      margin = chartStyle.stabilizeAxisResizeMargins
+        ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: refs.svgBox, scopeId: 'roc' })
+        : margin;
       plotWidth = Math.max(20, width - margin.left - margin.right);
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
     }
