@@ -65,5 +65,32 @@ describe('chartStyle text lock behavior', () => {
     expect(Number(fontInput.dataset.fontBasePt)).toBeCloseTo(unlockedScaledPt, 5);
     expect(Number(svgBox.dataset.fontBasePt)).toBeCloseTo(unlockedScaledPt, 5);
   });
+
+  test('aspect lock style baseline preserves current visual scale', () => {
+    const { chartStyle } = window.Shared;
+    const svgBox = document.getElementById('testSvg');
+
+    svgBox.dataset.resizerAspectLocked = 'true';
+    svgBox.dataset.resizerLockedStyleScaleBase = String(Math.sqrt((566 / 427) * (340 / 427)));
+
+    const initial = chartStyle.computeResizeScale({
+      width: 566,
+      height: 340,
+      defaultWidth: 427,
+      defaultHeight: 427,
+      svgBox
+    });
+    const tinyResize = chartStyle.computeResizeScale({
+      width: 563,
+      height: 338,
+      defaultWidth: 427,
+      defaultHeight: 427,
+      svgBox
+    });
+
+    expect(initial.styleScale).toBeCloseTo(1, 5);
+    expect(tinyResize.styleScale).toBeGreaterThan(0.98);
+    expect(tinyResize.styleScale).toBeLessThan(1.01);
+  });
 });
 

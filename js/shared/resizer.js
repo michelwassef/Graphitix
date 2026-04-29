@@ -1058,6 +1058,8 @@
       }
       const finalWidth = Number.isFinite(finalBaseWidth) ? finalBaseWidth * zoomScale : NaN;
       const finalHeight = Number.isFinite(finalBaseHeight) ? finalBaseHeight * zoomScale : NaN;
+      const previousWidth = container.style.width;
+      const previousHeight = container.style.height;
       if(Number.isFinite(finalWidth)){
         container.style.width = px(finalWidth);
         container.dataset.resizerWidth = container.style.width;
@@ -1079,6 +1081,8 @@
         container.style.maxHeight = Number.isFinite(MAX_H) ? px(MAX_H * zoomScale) : 'none';
       }
       syncZoomPresentation(finalBaseWidth, finalBaseHeight);
+      const changed = (Number.isFinite(finalWidth) && container.style.width !== previousWidth)
+        || (Number.isFinite(finalHeight) && container.style.height !== previousHeight);
       console.debug('Debug: resizer applyResize helper', {
         container: containerLabel,
         reason,
@@ -1089,13 +1093,15 @@
         finalBaseWidth,
         finalBaseHeight,
         finalWidth,
-        finalHeight
+        finalHeight,
+        changed
       }); // Debug: apply resize helper
       return {
         width: finalWidth,
         height: finalHeight,
         baseWidth: finalBaseWidth,
-        baseHeight: finalBaseHeight
+        baseHeight: finalBaseHeight,
+        changed
       };
     }
 
@@ -1122,13 +1128,45 @@
       const baseHeight = parsePositive(rect.height) ? (rect.height / zoomScale) : parsePositive(data.resizerBaseHeight) || defaultHeight;
       const scaleX = baseWidth / (defaultWidth || 1);
       const scaleY = baseHeight / (defaultHeight || 1);
-      const styleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
+      const rawStyleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
+      const lockedStyleScaleBase = parsePositive(data.resizerLockedStyleScaleBase);
+      const styleScaleBase = Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0
+        ? rawStyleScaleBase / lockedStyleScaleBase
+        : rawStyleScaleBase;
       if(Number.isFinite(styleScaleBase) && styleScaleBase > 0){
         data.resizerUnlockedStyleScaleBase = String(styleScaleBase);
         console.debug('Debug: resizer unlocked style scale base synced', {
           container: containerLabel,
           reason: reason || 'sync',
           styleScaleBase,
+          rawStyleScaleBase,
+          lockedStyleScaleBase: Number.isFinite(lockedStyleScaleBase) ? lockedStyleScaleBase : null,
+          baseWidth,
+          baseHeight
+        });
+      }
+    }
+
+    function syncLockedStyleScaleBase(reason){
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const rect = container.getBoundingClientRect();
+      const baseWidth = parsePositive(rect.width) ? (rect.width / zoomScale) : parsePositive(data.resizerBaseWidth) || defaultWidth;
+      const baseHeight = parsePositive(rect.height) ? (rect.height / zoomScale) : parsePositive(data.resizerBaseHeight) || defaultHeight;
+      const scaleX = baseWidth / (defaultWidth || 1);
+      const scaleY = baseHeight / (defaultHeight || 1);
+      const rawStyleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
+      const currentStyleScale = parsePositive(data.resizerUnlockedStyleScaleBase) || rawStyleScaleBase;
+      const lockedStyleScaleBase = Number.isFinite(rawStyleScaleBase) && rawStyleScaleBase > 0 && Number.isFinite(currentStyleScale) && currentStyleScale > 0
+        ? rawStyleScaleBase / currentStyleScale
+        : NaN;
+      if(Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0){
+        data.resizerLockedStyleScaleBase = String(lockedStyleScaleBase);
+        console.debug('Debug: resizer locked style scale base synced', {
+          container: containerLabel,
+          reason: reason || 'sync',
+          lockedStyleScaleBase,
+          rawStyleScaleBase,
+          currentStyleScale,
           baseWidth,
           baseHeight
         });
@@ -1519,23 +1557,13 @@
           data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
           console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
           if(aspectLocked){
-            delete data.resizerUnlockedStyleScaleBase;
             delete data.resizerAxisViewportLockAxis;
             delete data.resizerAxisViewportLockUntil;
-            const updatedRatio = readRectRatio();
-            setAspectRatio(updatedRatio);
-            const liveRect = container.getBoundingClientRect();
-            const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-            applyResize({
-              axis: 'both',
-              width: liveRect.width,
-              height: liveRect.height,
-              fallbackWidth: defaultWidth * zoomScale,
-              fallbackHeight: defaultHeight * zoomScale,
-              reason: 'aspect-toggle'
-            });
+            readRectRatio();
+            syncLockedStyleScaleBase('aspect-toggle-lock');
           }else{
             syncUnlockedStyleScaleBase('aspect-toggle-unlock');
+            delete data.resizerLockedStyleScaleBase;
             if(Shared.graphViewport && typeof Shared.graphViewport.captureStableAxes === 'function'){
               try{
                 Shared.graphViewport.captureStableAxes(container, {
@@ -1546,9 +1574,6 @@
                 console.error('resizer aspect-toggle viewport capture error', err);
               }
             }
-          }
-          if(typeof opts.onResize === 'function'){
-            try { opts.onResize('aspect-toggle'); } catch(e){ console.error('resizer onResize error', e); }
           }
           const afterAspect = makeResizeSnapshot('aspect-toggle-after');
           notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
@@ -2071,7 +2096,7 @@
           const dy = ev.clientY - startY;
           const tentativeWidth = startW + dx;
           const tentativeHeight = startH + dy;
-          applyResize({
+          const applied = applyResize({
             axis,
             width: axis === 'y' ? startW : tentativeWidth,
             height: axis === 'x' ? startH : tentativeHeight,
@@ -2088,6 +2113,9 @@
             height: container.style.height,
             limits: { MIN_W, MAX_W, MIN_H, MAX_H }
           }); // Debug: resizer drag move
+          if(!applied.changed){
+            return;
+          }
           if (typeof opts.onResize === 'function') {
             try { opts.onResize('move'); } catch(e) { console.error('resizer onResize error', e); }
           }

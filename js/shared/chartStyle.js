@@ -458,11 +458,14 @@
     const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
     const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y') ? dataset.resizerLastAxis : 'both';
     const unlockedStyleScaleBase = dataset ? Number(dataset.resizerUnlockedStyleScaleBase) : NaN;
+    const lockedStyleScaleBase = dataset ? Number(dataset.resizerLockedStyleScaleBase) : NaN;
     let styleUnclamped = Math.sqrt(Math.max(scaleX * scaleY, 0));
     // Keep typography/margins stable in unlocked manual resize flows so
     // one-axis drag changes only the corresponding axis length.
     if(!aspectLocked && Number.isFinite(unlockedStyleScaleBase) && unlockedStyleScaleBase > 0){
       styleUnclamped = unlockedStyleScaleBase;
+    }else if(aspectLocked && Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0){
+      styleUnclamped = styleUnclamped / lockedStyleScaleBase;
     }
     const styleScale = clampScale(styleUnclamped);
     const radiusScale = Math.sqrt(styleScale);
@@ -482,6 +485,7 @@
       aspectLocked,
       resizeAxis,
       unlockedStyleScaleBase: Number.isFinite(unlockedStyleScaleBase) ? unlockedStyleScaleBase : null,
+      lockedStyleScaleBase: Number.isFinite(lockedStyleScaleBase) ? lockedStyleScaleBase : null,
       legacyMinScale: Math.min(scaleX, scaleY),
       scale: styleScale
     };

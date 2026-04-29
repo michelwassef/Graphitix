@@ -9238,9 +9238,16 @@
           scatterResizeMarginLock = locked;
           return locked;
         }
-        const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
-          ? dataset.resizerLastAxis
-          : 'both';
+        const markedAxis = dataset.resizerAxisViewportLockAxis === 'x' || dataset.resizerAxisViewportLockAxis === 'y'
+          ? dataset.resizerAxisViewportLockAxis
+          : null;
+        const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
+        const lockActive = !!markedAxis && Number.isFinite(lockUntil) && Date.now() <= lockUntil;
+        const axis = lockActive
+          ? markedAxis
+          : (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+            ? dataset.resizerLastAxis
+            : 'both');
         if(scatterResizeMarginLock){
           if(axis === 'y'){
             locked.left = scatterResizeMarginLock.left;

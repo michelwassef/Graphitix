@@ -67,6 +67,31 @@ async function collectViewportMetrics(page, pageId) {
     if(!svgBox || !svg || !boxRect || !svgRect || !vb || vb.width <= 0 || vb.height <= 0){
       return null;
     }
+    const scaleX = svgRect.width / vb.width;
+    const scaleY = svgRect.height / vb.height;
+    const lines = Array.from(svg.querySelectorAll('line'));
+    const horizontalSpans = lines
+      .map(line => {
+        const x1 = Number(line.getAttribute('x1'));
+        const x2 = Number(line.getAttribute('x2'));
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        return Number.isFinite(x1) && Number.isFinite(x2) && Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y1 - y2) < 0.5
+          ? Math.abs(x2 - x1) * scaleX
+          : 0;
+      })
+      .filter(length => length > 20);
+    const verticalSpans = lines
+      .map(line => {
+        const x1 = Number(line.getAttribute('x1'));
+        const x2 = Number(line.getAttribute('x2'));
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        return Number.isFinite(x1) && Number.isFinite(x2) && Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(x1 - x2) < 0.5
+          ? Math.abs(y2 - y1) * scaleY
+          : 0;
+      })
+      .filter(length => length > 20);
     return {
       boxWidth: boxRect.width,
       boxHeight: boxRect.height,
@@ -93,8 +118,10 @@ async function collectViewportMetrics(page, pageId) {
         lastAxis: svgBox.dataset.resizerLastAxis || '',
         aspectLocked: svgBox.dataset.resizerAspectLocked || ''
       },
-      scaleX: svgRect.width / vb.width,
-      scaleY: svgRect.height / vb.height,
+      scaleX,
+      scaleY,
+      maxHorizontalLineLength: horizontalSpans.length ? Math.max(...horizontalSpans) : null,
+      maxVerticalLineLength: verticalSpans.length ? Math.max(...verticalSpans) : null,
       preserveAspectRatio: svg.getAttribute('preserveAspectRatio') || ''
     };
   }, { pageId });
@@ -154,6 +181,9 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
       expectClose(afterVertical.scaleX, before.scaleX, 0.015, `${component.type} x scale after vertical resize`);
       expectClose(afterVertical.viewBox.minX, before.viewBox.minX, 1, `${component.type} viewBox minX after vertical resize`);
       expectClose(afterVertical.viewBox.width, before.viewBox.width, 1, `${component.type} viewBox width after vertical resize`);
+      if(before.maxHorizontalLineLength && afterVertical.maxHorizontalLineLength){
+        expectClose(afterVertical.maxHorizontalLineLength, before.maxHorizontalLineLength, 2.5, `${component.type} drawn horizontal axis length after vertical resize`);
+      }
 
       await dragSvgBoxHandle(page, component.pageId, '.resizer-vertical', 96, 0);
       await waitForGraphSvg(page, component.pageId);
@@ -163,6 +193,9 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
       expectClose(afterHorizontal.scaleY, afterVertical.scaleY, 0.015, `${component.type} y scale after horizontal resize`);
       expectClose(afterHorizontal.viewBox.minY, afterVertical.viewBox.minY, 1, `${component.type} viewBox minY after horizontal resize`);
       expectClose(afterHorizontal.viewBox.height, afterVertical.viewBox.height, 1, `${component.type} viewBox height after horizontal resize`);
+      if(afterVertical.maxVerticalLineLength && afterHorizontal.maxVerticalLineLength){
+        expectClose(afterHorizontal.maxVerticalLineLength, afterVertical.maxVerticalLineLength, 2.5, `${component.type} drawn vertical axis length after horizontal resize`);
+      }
 
       report.push({
         component: component.type,

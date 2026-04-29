@@ -55,6 +55,50 @@ describe('Shared resizer graph options menu', () => {
     expect(tray.querySelector(':scope > .resizer-textlock-control')).toBeNull();
   });
 
+  test('lock ratio toggle is geometry-neutral and does not request redraw', () => {
+    const box = createSvgBox();
+    const onResize = jest.fn();
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      aspectLocked: true,
+      onResize
+    });
+
+    const checkbox = box.querySelector('.resizer-aspect-checkbox');
+    expect(checkbox).toBeTruthy();
+    expect(checkbox.checked).toBe(true);
+
+    const before = {
+      width: box.style.width,
+      height: box.style.height,
+      aspectRatio: box.dataset.resizerAspectRatio
+    };
+    onResize.mockClear();
+
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(onResize).not.toHaveBeenCalled();
+    expect(box.style.width).toBe(before.width);
+    expect(box.style.height).toBe(before.height);
+    expect(box.dataset.resizerAspectLocked).toBe('false');
+    expect(box.dataset.resizerUnlockedStyleScaleBase).toBeTruthy();
+
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(onResize).not.toHaveBeenCalled();
+    expect(box.style.width).toBe(before.width);
+    expect(box.style.height).toBe(before.height);
+    expect(box.dataset.resizerAspectLocked).toBe('true');
+    expect(Number(box.dataset.resizerAspectRatio)).toBeCloseTo(420 / 320, 6);
+    expect(Number(box.dataset.resizerAspectRatio)).toBeCloseTo(Number(before.aspectRatio), 6);
+  });
+
   test('places component graph options in the shared menu', async () => {
     const box = createSvgBox();
 
