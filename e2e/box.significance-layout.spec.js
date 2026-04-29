@@ -85,6 +85,7 @@ function readVerticalBoxLayoutMetrics() {
   const bottomTray = document.querySelector('#boxGraphPanel .resizer-bottom-tray');
   const exportControls = document.getElementById('boxExportControls');
   const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+  const boxState = window.Components?.box?.__getState?.() || null;
   const svgBoxRect = svgBox ? svgBox.getBoundingClientRect() : null;
   const aspectRatioMeta = svgBox && svgBox.dataset
     ? Number(svgBox.dataset.resizerAspectRatio)
@@ -118,7 +119,17 @@ function readVerticalBoxLayoutMetrics() {
     svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
     svgBoxHeightPx: Number.isFinite(Number(svgBoxRect?.height)) ? Number(svgBoxRect.height) : null,
     aspectRatioMeta: Number.isFinite(aspectRatioMeta) ? aspectRatioMeta : null,
-    aspectLockMeta
+    aspectLockMeta,
+    showSignificanceBars: !!boxState?.showSignificanceBars,
+    significanceViewportExtensionPx: Number.isFinite(Number(boxState?.significanceViewportExtensionPx))
+      ? Number(boxState.significanceViewportExtensionPx)
+      : null,
+    bottomViewportExtensionPx: Number.isFinite(Number(boxState?.bottomViewportExtensionPx))
+      ? Number(boxState.bottomViewportExtensionPx)
+      : null,
+    significanceBasePlotHeightPx: Number.isFinite(Number(boxState?.significanceBasePlotHeightPx))
+      ? Number(boxState.significanceBasePlotHeightPx)
+      : null
   };
 }
 
@@ -176,6 +187,7 @@ async function setBoxSignificanceToggle(page, enabled) {
     } else {
       await toggle.uncheck();
     }
+    await page.waitForTimeout(250);
     return;
   }
   await page.evaluate((value) => {
@@ -193,7 +205,202 @@ async function setBoxLockRatioToggle(page, enabled) {
     el.checked = !!value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }, enabled);
+  await page.waitForTimeout(250);
 }
+
+async function readBoxDrawToken(page) {
+  return page.evaluate(() => Number(window.Components?.box?.__getState?.()?.drawToken) || 0);
+}
+
+async function expectBoxDrawsToSettle(page, maxDelta = 2) {
+  const before = await readBoxDrawToken(page);
+  await page.waitForTimeout(1_400);
+  const after = await readBoxDrawToken(page);
+  expect(after - before).toBeLessThanOrEqual(maxDelta);
+}
+
+async function getActiveWorkspaceTabId(page) {
+  return page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
+}
+
+async function activateWelcomeTab(page) {
+  await page.evaluate(() => {
+    const welcomeTab = window.Main?.session?.workspaceState?.tabs?.find(tab => tab?.isWelcome);
+    if (!welcomeTab?.id || typeof window.Main?.tabs?.activateTab !== 'function') {
+      throw new Error('Welcome tab is not available');
+    }
+    window.Main.tabs.activateTab(welcomeTab.id, { reason: 'e2e-box-pairwise-away' });
+  });
+  await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
+}
+
+async function activateWorkspaceTab(page, tabId) {
+  await page.evaluate((id) => {
+    if (!id || typeof window.Main?.tabs?.activateTab !== 'function') {
+      throw new Error('Workspace tab is not available');
+    }
+    window.Main.tabs.activateTab(id, { reason: 'e2e-box-pairwise-back' });
+  }, tabId);
+  await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
+}
+
+async function openAdditionalEmptyComponentTab(page, component) {
+  await page.locator('#addWorkspaceTab').click();
+  const duplicatePrompt = page.locator('#duplicatePrompt:not([hidden])');
+  await page.waitForFunction(() => {
+    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
+    const grid = document.querySelector('#graphSelectionGrid');
+    return !!prompt || !!grid;
+  }, null, { timeout: 20_000 });
+  if (await duplicatePrompt.isVisible().catch(() => false)) {
+    await page.locator('#duplicateEmpty').click();
+    await page.waitForTimeout(250);
+  }
+  const selector = `#graphSelectionGrid [data-graph-type="${component.type}"]`;
+  await page.waitForSelector(selector, { timeout: 20_000 });
+  await page.locator(selector).click({ force: true });
+  await page.waitForFunction((pageId) => {
+    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
+    const el = document.getElementById(pageId);
+    return !!prompt || (!!el && !el.hidden && window.getComputedStyle(el).display !== 'none');
+  }, component.pageId, { timeout: 20_000 });
+  if (await duplicatePrompt.isVisible().catch(() => false)) {
+    await page.locator('#duplicateEmpty').click();
+    await page.waitForTimeout(250);
+  }
+  await page.waitForFunction((pageId) => {
+    const el = document.getElementById(pageId);
+    return !!el && !el.hidden && window.getComputedStyle(el).display !== 'none';
+  }, component.pageId, { timeout: 20_000 });
+}
+
+async function waitForVerticalSignificanceAnnotations(page) {
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0,
+    null,
+    { timeout: 20_000 }
+  );
+}
+
+test('box pairwise significance stays stable without manual resize and after tab restore', async ({ page }) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  const boxTabId = await getActiveWorkspaceTabId(page);
+  expect(boxTabId).toBeTruthy();
+
+  await page.locator('#boxLoadExample').click();
+  await page.waitForTimeout(700);
+  await page.locator('#boxGraphType').selectOption('strip');
+  await page.waitForTimeout(350);
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await page.waitForTimeout(250);
+  await waitForVerticalSignificanceAnnotations(page);
+  await page.waitForTimeout(900);
+  await expectBoxDrawsToSettle(page, 2);
+  await expect.poll(
+    () => page.locator('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').count(),
+    { timeout: 20_000 }
+  ).toBeGreaterThan(0);
+
+  await activateWelcomeTab(page);
+  await page.waitForTimeout(300);
+  await activateWorkspaceTab(page, boxTabId);
+  await page.waitForFunction(
+    () => document.querySelector('#boxPlot svg')
+      && document.querySelectorAll('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').length > 0,
+    null,
+    { timeout: 20_000 }
+  );
+  await page.waitForTimeout(900);
+  await expectBoxDrawsToSettle(page, 2);
+  await expect.poll(
+    () => page.locator('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').count(),
+    { timeout: 20_000 }
+  ).toBeGreaterThan(0);
+
+  expect(issues.critical).toEqual([]);
+});
+
+test('box pairwise layout remains isolated after switching between box tabs', async ({ page }) => {
+  test.setTimeout(150_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  const firstTabId = await getActiveWorkspaceTabId(page);
+  expect(firstTabId).toBeTruthy();
+
+  await page.locator('#boxLoadExample').click();
+  await page.waitForTimeout(700);
+  await page.locator('#boxGraphType').selectOption('strip');
+  await page.waitForTimeout(350);
+  await setBoxLockRatioToggle(page, true);
+  await ensureBoxStatsAndSignificanceReady(page);
+  await setBoxSignificanceToggle(page, true);
+  await waitForVerticalSignificanceAnnotations(page);
+  await page.waitForTimeout(700);
+
+  await dragBoxVerticalHandle(page, 90);
+  await page.waitForTimeout(2_200);
+  await expectBoxDrawsToSettle(page, 3);
+  const firstPairwise = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(firstPairwise).not.toBeNull();
+  expect(firstPairwise.significancePathCount).toBeGreaterThan(0);
+  expect(firstPairwise.svgBoxWidthPx).not.toBeNull();
+  expect(firstPairwise.svgBoxHeightPx).not.toBeNull();
+  expect(firstPairwise.yAxisSpan).not.toBeNull();
+  expect(firstPairwise.significanceViewportExtensionPx).toBeGreaterThan(0);
+
+  await openAdditionalEmptyComponentTab(page, { type: 'box', pageId: 'boxPage' });
+  const secondTabId = await getActiveWorkspaceTabId(page);
+  expect(secondTabId).toBeTruthy();
+  expect(secondTabId).not.toBe(firstTabId);
+  await page.locator('#boxLoadExample').click();
+  await page.waitForTimeout(700);
+  await page.locator('#boxGraphType').selectOption('box');
+  await page.waitForTimeout(350);
+  await dragBoxVerticalHandle(page, -55);
+  await page.waitForTimeout(600);
+
+  await activateWorkspaceTab(page, firstTabId);
+  await waitForVerticalSignificanceAnnotations(page);
+  await page.waitForTimeout(900);
+  await expectBoxDrawsToSettle(page, 3);
+
+  await setBoxSignificanceToggle(page, false);
+  await page.waitForFunction(
+    () => document.querySelectorAll('#boxPlot .box-significance-annotation').length === 0,
+    null,
+    { timeout: 20_000 }
+  );
+  await page.waitForTimeout(900);
+
+  await setBoxSignificanceToggle(page, true);
+  await waitForVerticalSignificanceAnnotations(page);
+  await page.waitForTimeout(1_200);
+  await expectBoxDrawsToSettle(page, 3);
+  const restoredPairwise = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(restoredPairwise).not.toBeNull();
+  expect(restoredPairwise.significancePathCount).toBeGreaterThan(0);
+  expect(restoredPairwise.svgBoxWidthPx).not.toBeNull();
+  expect(restoredPairwise.svgBoxHeightPx).not.toBeNull();
+  expect(restoredPairwise.yAxisSpan).not.toBeNull();
+  expect(restoredPairwise.showSignificanceBars).toBe(true);
+
+  expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(10);
+  expect(Math.abs(restoredPairwise.svgBoxHeightPx - firstPairwise.svgBoxHeightPx)).toBeLessThanOrEqual(10);
+  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(Math.max(10, firstPairwise.yAxisSpan * 0.12));
+
+  expect(issues.critical).toEqual([]);
+});
 
 test('box significance bars keep plot height while shifting plot downward', async ({ page }) => {
   test.setTimeout(120_000);

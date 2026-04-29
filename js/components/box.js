@@ -10560,6 +10560,8 @@
   state.cachedDrawInput = null;
   state.scheduleResizePreview = function(){};
   state.resizeObserveDrawMutedUntil = 0;
+  state.viewportExtensionResizeInProgress = false;
+  state.lastViewportExtensionRedrawSignature = null;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -12047,35 +12049,59 @@
     let resizeApplied = null;
     if(svgBox){
       const currentSize = resolveBoxSvgBoxBaseSize(svgBox);
-      const targetWidth = Number.isFinite(currentSize.width) && currentSize.width > 0
+      let targetWidth = Number.isFinite(currentSize.width) && currentSize.width > 0
         ? currentSize.width
         : Math.max(50, Math.round(svgBox.clientWidth || 50));
       const targetHeightBase = Number.isFinite(currentSize.height) && currentSize.height > 0
         ? currentSize.height
         : Math.max(40, Math.round(svgBox.clientHeight || 40));
       // Preserve the user-controlled geometry and apply only additive viewport reserve.
-      // Keep width stable for auto-extension so significance / x-label spacing does not
-      // consume horizontal room and hide the resize handle in constrained panels.
       const baseHeightWithoutViewportExtensions = Math.max(40, targetHeightBase - previousExtension);
       const targetHeight = Math.max(40, baseHeightWithoutViewportExtensions + nextExtension);
+      const aspectLocked = svgBox.dataset?.resizerAspectLocked === 'true';
+      const aspectRatioCandidate = Number(svgBox.dataset?.resizerAspectRatio);
+      const aspectRatio = Number.isFinite(aspectRatioCandidate) && aspectRatioCandidate > 0
+        ? aspectRatioCandidate
+        : (targetHeightBase > 0 ? targetWidth / targetHeightBase : 1);
+      if(nextExtension + 0.5 < previousExtension && aspectLocked && Number.isFinite(aspectRatio) && aspectRatio > 0){
+        targetWidth = Math.max(50, targetHeight * aspectRatio);
+      }
       if(shouldResizeContainer){
+        const shouldMuteResizeCallback = Math.abs(targetHeight - targetHeightBase) >= 1;
+        if(shouldMuteResizeCallback){
+          state.viewportExtensionResizeInProgress = true;
+          state.resizeObserveDrawMutedUntil = Math.max(Number(state.resizeObserveDrawMutedUntil) || 0, Date.now() + 300);
+        }
         if(typeof Shared.applyResizableBoxSize === 'function'){
-          resizeApplied = Shared.applyResizableBoxSize(svgBox, {
-            axis: 'both',
-            width: targetWidth,
-            height: targetHeight,
-            updateDefaults: false,
-            // Keep the user-selected lock ratio stable during draw-time viewport
-            // extension updates (e.g. significance/bottom reserve adjustments).
-            updateAspectRatio: false,
-            preserveAspectLock: true,
-            forceExact: true,
-            authorityMode: 'authoritative',
-            reason: options.reason || 'box-significance-viewport'
-          });
+          try{
+            resizeApplied = Shared.applyResizableBoxSize(svgBox, {
+              axis: 'both',
+              width: targetWidth,
+              height: targetHeight,
+              updateDefaults: false,
+              // Keep the user-selected lock ratio stable during draw-time viewport
+              // extension updates (e.g. significance/bottom reserve adjustments).
+              updateAspectRatio: false,
+              preserveAspectLock: true,
+              forceExact: true,
+              authorityMode: 'authoritative',
+              reason: options.reason || 'box-significance-viewport'
+            });
+          }finally{
+            if(shouldMuteResizeCallback){
+              state.viewportExtensionResizeInProgress = false;
+              state.resizeObserveDrawMutedUntil = Math.max(Number(state.resizeObserveDrawMutedUntil) || 0, Date.now() + 300);
+            }
+          }
         }else if(svgBox.style){
           svgBox.style.height = `${Math.round(targetHeight)}px`;
           resizeApplied = { height: targetHeight };
+          if(shouldMuteResizeCallback){
+            state.viewportExtensionResizeInProgress = false;
+            state.resizeObserveDrawMutedUntil = Math.max(Number(state.resizeObserveDrawMutedUntil) || 0, Date.now() + 300);
+          }
+        }else if(shouldMuteResizeCallback){
+          state.viewportExtensionResizeInProgress = false;
         }
       }
       if(debugLogging){
@@ -12088,7 +12114,10 @@
           previousBottomExtension,
           nextBottomExtension,
           baseHeightWithoutViewportExtensions,
+          aspectLocked,
+          aspectRatio,
           targetHeight,
+          targetWidth,
           reason: options.reason || null,
           resizeApplied: !!resizeApplied,
           resizeContainer: shouldResizeContainer
@@ -12113,6 +12142,85 @@
       delta,
       applied: !!resizeApplied
     };
+  }
+
+  function ensureBoxExportControlsClearance(svg, options = {}){
+    if(!svg || typeof svg.getBoundingClientRect !== 'function'){
+      return false;
+    }
+    if(state.restoredSignificanceGeometryLock){
+      if(boxDebugEnabled()){
+        console.debug('Debug: box export controls clearance skipped during restored geometry lock', {
+          reason: options.reason || null
+        });
+      }
+      return false;
+    }
+    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
+    const controls = els.boxExportControls || getBoxNodeById('boxExportControls') || null;
+    if(!svgBox || !controls || typeof controls.getBoundingClientRect !== 'function'){
+      return false;
+    }
+    const svgRect = svg.getBoundingClientRect();
+    const controlsRect = controls.getBoundingClientRect();
+    const overlap = Number(svgRect?.bottom) - Number(controlsRect?.top);
+    if(!Number.isFinite(overlap) || overlap <= 1.5){
+      return false;
+    }
+    const liveRect = svgBox.getBoundingClientRect?.() || null;
+    const zoomCandidate = Number(svgBox.dataset?.resizerZoomLevel || svgBox.dataset?.resizerZoom);
+    const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const currentWidth = Number.isFinite(Number(liveRect?.width)) && Number(liveRect.width) > 0
+      ? Number(liveRect.width) / zoomScale
+      : Math.max(50, Math.round(svgBox.clientWidth || 50));
+    const currentHeight = Number.isFinite(Number(liveRect?.height)) && Number(liveRect.height) > 0
+      ? Number(liveRect.height) / zoomScale
+      : Math.max(40, Math.round(svgBox.clientHeight || 40));
+    const targetHeight = Math.max(40, currentHeight + Math.ceil(overlap) + 4);
+    const aspectLocked = svgBox.dataset?.resizerAspectLocked === 'true';
+    const aspectRatioCandidate = Number(svgBox.dataset?.resizerAspectRatio);
+    const aspectRatio = Number.isFinite(aspectRatioCandidate) && aspectRatioCandidate > 0
+      ? aspectRatioCandidate
+      : (currentHeight > 0 ? currentWidth / currentHeight : 1);
+    const targetWidth = aspectLocked
+      ? Math.max(currentWidth, targetHeight * aspectRatio)
+      : currentWidth;
+    let resizeApplied = null;
+    state.viewportExtensionResizeInProgress = true;
+    state.resizeObserveDrawMutedUntil = Math.max(Number(state.resizeObserveDrawMutedUntil) || 0, Date.now() + 300);
+    try{
+      if(typeof Shared.applyResizableBoxSize === 'function'){
+        resizeApplied = Shared.applyResizableBoxSize(svgBox, {
+          axis: 'both',
+          width: targetWidth,
+          height: targetHeight,
+          updateDefaults: false,
+          updateAspectRatio: false,
+          preserveAspectLock: true,
+          forceExact: true,
+          authorityMode: 'authoritative',
+          reason: options.reason || 'box-export-clearance'
+        });
+      }else if(svgBox.style){
+        svgBox.style.height = `${Math.round(targetHeight)}px`;
+        resizeApplied = { height: targetHeight };
+      }
+    }finally{
+      state.viewportExtensionResizeInProgress = false;
+      state.resizeObserveDrawMutedUntil = Math.max(Number(state.resizeObserveDrawMutedUntil) || 0, Date.now() + 300);
+    }
+    if(boxDebugEnabled()){
+      console.debug('Debug: box export controls clearance applied', {
+        overlap,
+        currentWidth,
+        targetWidth,
+        currentHeight,
+        targetHeight,
+        resizeApplied: !!resizeApplied,
+        reason: options.reason || null
+      });
+    }
+    return !!resizeApplied;
   }
   function ensureBoxSignificanceControlPlacement(){
     const controls = els.boxSignificanceControls
@@ -23864,7 +23972,16 @@ Technical analysis record (advanced)
     }
     const suppressSvgReapply = !!state.suppressNextStatsSvgReapply;
     const requestedReason = typeof options?.reason === 'string' ? options.reason : '';
+    const hasLiveSignificanceAnnotations = !!svg?.querySelector?.('.box-significance-annotation');
     const needsSvgReapply = svgChanged && (state.showSignificanceBars || state.statsLastSignificanceEnabled) && !state.statsComputationPending && !suppressSvgReapply;
+    const needsMissingStoredAnnotationReapply = !svgChanged
+      && !!state.showSignificanceBars
+      && !!state.statsLastAnnotationModel
+      && !hasLiveSignificanceAnnotations
+      && !state.statsComputationPending
+      && !state.authoritativeRenderRestoreActive
+      && state.statsLastRunVersion === version
+      && hasResults;
     const needsViewRedrawAnnotationReapply = !svgChanged
       && options?.viewOnly === true
       && !!state.showSignificanceBars
@@ -23894,10 +24011,11 @@ Technical analysis record (advanced)
         state.statsAutoSvgReapplyPending = true;
         handleStatsComputeClick();
       }
-    }else if(needsViewRedrawAnnotationReapply){
-      if(tryApplyStoredBoxStatsAnnotations(state.statsContext, { reason: requestedReason || 'view-redraw-reapply' })){
+    }else if(needsViewRedrawAnnotationReapply || needsMissingStoredAnnotationReapply){
+      const reapplyReason = requestedReason || (needsMissingStoredAnnotationReapply ? 'missing-annotation-reapply' : 'view-redraw-reapply');
+      if(tryApplyStoredBoxStatsAnnotations(state.statsContext, { reason: reapplyReason })){
         console.debug('Debug: box stats annotations restored for same svg redraw', {
-          reason: requestedReason || null,
+          reason: reapplyReason || null,
           significance: state.showSignificanceBars,
           version
         });
@@ -23906,7 +24024,7 @@ Technical analysis record (advanced)
         updateSignificanceControlState({ statsReady: true });
       }else{
         console.debug('Debug: box stats recompute for same svg redraw', {
-          reason: requestedReason || null,
+          reason: reapplyReason || null,
           significance: state.showSignificanceBars,
           version
         });
@@ -26341,12 +26459,15 @@ Technical analysis record (advanced)
     const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
     const showSignificance = isPairwiseSignificanceSupported() && !!state.showSignificanceBars;
     const containerRect = els.svgBox?.getBoundingClientRect?.();
-    const previousSignificanceViewportExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
+    const storedSignificanceViewportExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
       ? Math.max(0, Number(state.significanceViewportExtensionPx))
       : 0;
-    const previousBottomViewportExtension = Number.isFinite(Number(state.bottomViewportExtensionPx))
+    const storedBottomViewportExtension = Number.isFinite(Number(state.bottomViewportExtensionPx))
       ? Math.max(0, Number(state.bottomViewportExtensionPx))
       : 0;
+    const previousSignificanceViewportExtension = showSignificance ? storedSignificanceViewportExtension : 0;
+    const previousBottomViewportExtension = storedBottomViewportExtension;
+    const geometrySignificanceViewportExtension = storedSignificanceViewportExtension;
     const viewportExtensionForScale = previousSignificanceViewportExtension + previousBottomViewportExtension;
     const effectiveContainerHeightForScale = Number.isFinite(Number(containerRect?.height))
       ? Math.max(40, Number(containerRect.height) - viewportExtensionForScale)
@@ -27138,11 +27259,18 @@ Technical analysis record (advanced)
     const H = Math.max(40, Math.floor(els.plotDiv.clientHeight || 40));
     const storedSignificanceBaseHeight = Number(state.significanceBasePlotHeightPx);
     const hasStoredSignificanceBaseHeight = Number.isFinite(storedSignificanceBaseHeight) && storedSignificanceBaseHeight > 0;
-    const inferredBaseHeightFromGeometry = H - previousSignificanceViewportExtension - previousBottomViewportExtension;
-    let significanceBasePlotHeight = Number.isFinite(inferredBaseHeightFromGeometry) && inferredBaseHeightFromGeometry > 0
+    const inferredBaseHeightFromGeometry = H - geometrySignificanceViewportExtension - previousBottomViewportExtension;
+    const useRestoredSignificanceBaseHeight = !!(
+      showSignificance
+      && state.restoredSignificanceGeometryLock
+      && hasStoredSignificanceBaseHeight
+    );
+    let significanceBasePlotHeight = useRestoredSignificanceBaseHeight
+      ? Math.max(40, storedSignificanceBaseHeight)
+      : Number.isFinite(inferredBaseHeightFromGeometry) && inferredBaseHeightFromGeometry > 0
       ? Math.max(40, inferredBaseHeightFromGeometry)
       : (hasStoredSignificanceBaseHeight ? Math.max(40, storedSignificanceBaseHeight) : H);
-    if(!showSignificance && previousSignificanceViewportExtension <= 0.5 && previousBottomViewportExtension <= 0.5){
+    if(!showSignificance && geometrySignificanceViewportExtension <= 0.5 && previousBottomViewportExtension <= 0.5){
       significanceBasePlotHeight = H;
     }
     state.significanceBasePlotHeightPx = significanceBasePlotHeight;
@@ -27153,10 +27281,14 @@ Technical analysis record (advanced)
       console.debug('Debug: box significance baseline height', {
         showSignificance,
         storedBase: hasStoredSignificanceBaseHeight ? storedSignificanceBaseHeight : null,
+        useRestoredSignificanceBaseHeight,
         resolvedBase: significanceBasePlotHeight,
         plotHeight: H,
         previousExtension: previousSignificanceViewportExtension,
         previousBottomViewportExtension,
+        storedSignificanceViewportExtension,
+        storedBottomViewportExtension,
+        geometrySignificanceViewportExtension,
         actualExtension: actualSignificanceViewportExtension,
         inferredBaseHeightFromGeometry
       });
@@ -27174,6 +27306,7 @@ Technical analysis record (advanced)
     svg.setAttribute('data-box-base-height', String(H));
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    svg.style.display = 'block';
     chartStyle.applySvgDefaults(svg);
     svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
     els.plotDiv.appendChild(svg);
@@ -31846,6 +31979,7 @@ Technical analysis record (advanced)
     if(useFillParentViewport){
       if(els.plotDiv?.style){
         els.plotDiv.style.removeProperty('overflow');
+        els.plotDiv.style.removeProperty('min-height');
       }
       if(zoomViewport?.style){
         zoomViewport.style.removeProperty('overflow');
@@ -31856,6 +31990,7 @@ Technical analysis record (advanced)
     }else{
       if(els.plotDiv?.style){
         els.plotDiv.style.overflow = 'visible';
+        els.plotDiv.style.minHeight = `${Math.ceil(viewportHeight)}px`;
       }
       if(zoomViewport?.style){
         zoomViewport.style.overflow = 'visible';
@@ -31869,7 +32004,29 @@ Technical analysis record (advanced)
       svg.setAttribute('height', String(viewportHeight));
     }
     if(extensionChanged){
-      state.scheduleDraw?.({ viewOnly: true, reason: 'significance-viewport-extension' });
+      const viewportExtensionRedrawSignature = [
+        isFlipped ? 'horizontal' : 'vertical',
+        requiredSignificanceViewportExtension,
+        requiredBottomViewportExtension,
+        Math.round(viewportBaseHeight),
+        Math.round(viewportWidth),
+        Math.round(viewportHeight)
+      ].join('|');
+      const shouldScheduleViewportExtensionRedraw = resizeDrawReason !== 'significance-viewport-extension'
+        && !resizeDrawReason.startsWith('resize')
+        && state.lastViewportExtensionRedrawSignature !== viewportExtensionRedrawSignature;
+      if(shouldScheduleViewportExtensionRedraw){
+        state.lastViewportExtensionRedrawSignature = viewportExtensionRedrawSignature;
+        state.scheduleDraw?.({ viewOnly: true, reason: 'significance-viewport-extension' });
+      }else if(boxDebugEnabled()){
+        console.debug('Debug: box significance viewport redraw suppressed', {
+          reason: resizeDrawReason || null,
+          signature: viewportExtensionRedrawSignature,
+          previousSignature: state.lastViewportExtensionRedrawSignature || null
+        });
+      }
+    }else{
+      state.lastViewportExtensionRedrawSignature = null;
     }
     const defaultTitleX = orientationResult.titleX;
     const defaultTitleY = orientationResult.titleY;
@@ -32040,6 +32197,7 @@ Technical analysis record (advanced)
       fillParent: useFillParentViewport,
       preserveBaseAspect: !disableViewportAspectNormalization
     });
+    ensureBoxExportControlsClearance(svg, { reason: drawOpts?.reason || 'draw-layout' });
     commitPendingPlotFrame();
     state.layout?.syncPanels?.({ skipSchedule: true });
     traceCount = traces.length;
@@ -33233,6 +33391,15 @@ Technical analysis record (advanced)
       return false;
     }
     drawOptions.__boxSessionMeta = sessionMeta;
+    const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
+    if(state.authoritativeRenderRestoreActive && !drawOptions.force){
+      if(shouldSuppressAuthoritativeBoxRestoreDraw(drawReason)){
+        console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: drawReason || null });
+        resolveBoxLoading('authoritative-render-restore');
+        return false;
+      }
+      releaseAuthoritativeBoxRenderRestore(drawReason || 'draw-cycle');
+    }
     let status = 'complete';
     try{
       const result = draw(drawOptions);
@@ -33370,6 +33537,17 @@ Technical analysis record (advanced)
       resizableBoxOptions: {
         onResize: phase => {
           const currentPhase = typeof phase === 'string' ? phase : '';
+          const muteResizeObserverUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
+          const isViewportExtensionPhase = currentPhase === 'programmatic' || currentPhase === 'observe';
+          if(isViewportExtensionPhase && state.viewportExtensionResizeInProgress){
+            state.resizeObserveDrawMutedUntil = Math.max(muteResizeObserverUntil, Date.now() + 300);
+            boxDebug('Debug: box viewport extension resize callback suppressed', { phase: currentPhase || null });
+            return;
+          }
+          if(isViewportExtensionPhase && Date.now() <= muteResizeObserverUntil){
+            boxDebug('Debug: box viewport extension resize draw muted', { phase: currentPhase || null });
+            return;
+          }
           if(phase === 'move'){
             state.resizeInteractionActive = true;
             state.scheduleResizePreview?.({ reason: 'resize-live', resizePhase: currentPhase || null });
@@ -33378,10 +33556,6 @@ Technical analysis record (advanced)
           if(phase === 'observe'){
             if(state.resizeInteractionActive){
               state.scheduleResizePreview?.({ reason: 'resize-observe', resizePhase: currentPhase || null });
-              return;
-            }
-            if(Date.now() <= (Number(state.resizeObserveDrawMutedUntil) || 0)){
-              boxDebug('Debug: box resize observe draw muted');
               return;
             }
             state.scheduleDraw?.({
