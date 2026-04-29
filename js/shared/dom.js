@@ -2329,7 +2329,6 @@
           viewH = stableViewBox.viewH;
           frozenAxes.y = true;
         }
-        svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         if (fill) {
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
@@ -2349,8 +2348,9 @@
           svg.style.minHeight = '0';
           svg.style.display = 'block';
         }
+        svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         if(dataset){
-          const preserve = aspectLocked ? 'xMidYMid meet' : 'none';
+          const preserve = 'none';
           svg.setAttribute('preserveAspectRatio', preserve);
           writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
         }
