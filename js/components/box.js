@@ -10569,6 +10569,7 @@
   let boxSignificanceFontRefreshDebounced = null;
   let boxFontEventBound = false;
   let emptyPayloadTemplate = null;
+  let boxRoot = null;
 
   function cloneSimple(value){
     if(!value) return null;
@@ -10592,13 +10593,40 @@
     return Shared.workspaceTabs?.getActiveSessionInfo?.('box') || null;
   }
 
+  function resolveBoxTabId(tabLike = null){
+    if(typeof tabLike === 'string' && tabLike.trim()){
+      return tabLike.trim();
+    }
+    if(tabLike && typeof tabLike === 'object' && typeof tabLike.id === 'string' && tabLike.id.trim()){
+      return tabLike.id.trim();
+    }
+    return Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || global.Main?.session?.workspaceState?.activeTabId
+      || null;
+  }
+
+  function resolveBoxWorkspaceTab(tabLike = null){
+    if(tabLike && typeof tabLike === 'object' && typeof tabLike.id === 'string'){
+      return tabLike;
+    }
+    const tabId = resolveBoxTabId(tabLike);
+    const tabs = global.Main?.session?.workspaceState?.tabs;
+    if(tabId && Array.isArray(tabs)){
+      return tabs.find(tab => tab && tab.id === tabId) || null;
+    }
+    return global.Main?.tabs?.getActiveTab?.() || null;
+  }
+
   function resolveBoxRoot(tabLike = null){
-    const resolver = Shared.workspaceTabs?.resolveComponentRoot;
-    if(typeof resolver === 'function'){
-      const resolved = resolver('box', tabLike || null);
-      if(resolved){
-        return resolved;
-      }
+    const tabId = resolveBoxTabId(tabLike);
+    const mounted = Shared.workspaceTabs?.getMountedRoot?.(tabLike || tabId || null, 'box')
+      || (tabId ? Shared.workspaceTabs?.getMountedRoot?.(tabId, 'box') : null);
+    if(mounted){
+      return mounted;
+    }
+    if(!tabLike && boxRoot?.isConnected){
+      return boxRoot;
     }
     return global.document?.getElementById?.('boxPage') || null;
   }
@@ -10613,6 +10641,7 @@
       if(scoped){
         return scoped;
       }
+      return null;
     }
     return global.document?.getElementById?.(id) || null;
   }
@@ -12735,8 +12764,12 @@
   }
 
   // PART: CACHE_ELS
-  function cacheEls(){
-    const root = resolveBoxRoot();
+  function cacheEls(options = {}){
+    const root = options.root || resolveBoxRoot(options.tabId || null);
+    if(root){
+      boxRoot = root;
+    }
+    const byId = id => getBoxNodeById(id, { root });
     els.tablePanel = getBoxNodeById('boxTablePanel', { root });
     els.graphPanel = getBoxNodeById('boxGraphPanel', { root });
     els.panelResizer = getBoxNodeById('boxPanelResizer', { root });
@@ -12749,25 +12782,25 @@
       els.groupedControls = getBoxNodeById('boxGroupedControls', { root });
     els.groupedReplicates = getBoxNodeById('boxGroupedReplicates', { root });
     // Controls
-    els.boxColorUnified=global.$('#boxColorUnified');
-    els.boxColorIndividual=global.$('#boxColorIndividual');
-    els.boxUnifiedColors=global.$('#boxUnifiedColors');
-    els.boxFill=global.$('#boxFill');
-    els.boxBorder=global.$('#boxBorder');
-    els.boxBorderWidth=global.$('#boxBorderWidth');
-    els.boxErrorBarWidth=global.$('#boxErrorBarWidth');
-    els.boxErrorBarWidthCtl=global.$('#boxErrorBarWidthCtl');
-    els.boxFontSize=global.$('#boxFontSize');
-    els.boxFontSizeVal=global.$('#boxFontSizeVal');
-    els.violinBandwidthCtl=global.$('#boxViolinBandwidthCtl');
-    els.violinBandwidth=global.$('#boxViolinBandwidth');
-    els.violinBandwidthValue=global.$('#boxViolinBandwidthValue');
-    els.violinBandwidthVal=global.$('#boxViolinBandwidthVal');
-    els.violinBandwidthAuto=global.$('#boxViolinBandwidthAuto');
-    els.violinSamplesCtl=global.$('#boxViolinSamplesCtl');
-    els.violinSamples=global.$('#boxViolinSamples');
-    els.violinSamplesValue=global.$('#boxViolinSamplesValue');
-    els.violinSamplesVal=global.$('#boxViolinSamplesVal');
+    els.boxColorUnified=byId('boxColorUnified');
+    els.boxColorIndividual=byId('boxColorIndividual');
+    els.boxUnifiedColors=byId('boxUnifiedColors');
+    els.boxFill=byId('boxFill');
+    els.boxBorder=byId('boxBorder');
+    els.boxBorderWidth=byId('boxBorderWidth');
+    els.boxErrorBarWidth=byId('boxErrorBarWidth');
+    els.boxErrorBarWidthCtl=byId('boxErrorBarWidthCtl');
+    els.boxFontSize=byId('boxFontSize');
+    els.boxFontSizeVal=byId('boxFontSizeVal');
+    els.violinBandwidthCtl=byId('boxViolinBandwidthCtl');
+    els.violinBandwidth=byId('boxViolinBandwidth');
+    els.violinBandwidthValue=byId('boxViolinBandwidthValue');
+    els.violinBandwidthVal=byId('boxViolinBandwidthVal');
+    els.violinBandwidthAuto=byId('boxViolinBandwidthAuto');
+    els.violinSamplesCtl=byId('boxViolinSamplesCtl');
+    els.violinSamples=byId('boxViolinSamples');
+    els.violinSamplesValue=byId('boxViolinSamplesValue');
+    els.violinSamplesVal=byId('boxViolinSamplesVal');
     if (typeof chartStyle.renderFontSizeLabel === 'function') {
       if(els.boxFontSize?.dataset){
         els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
@@ -12777,21 +12810,21 @@
     } else {
       console.debug('Debug: box renderFontSizeLabel missing helper'); // Debug: chartStyle guard
     }
-    els.boxShowGrid=global.$('#boxShowGrid');
-    els.boxShowFrame=global.$('#boxShowFrame');
-    els.boxLogScale=global.$('#boxLogScale');
-    els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
+    els.boxShowGrid=byId('boxShowGrid');
+    els.boxShowFrame=byId('boxShowFrame');
+    els.boxLogScale=byId('boxLogScale');
+    els.boxLogScaleLabel=byId('boxLogScaleLabel');
     clearBoxLogWarning();
-    els.boxFlipAxes=global.$('#boxFlipAxes');
-    els.boxWhiskerRuleCtl=global.$('#boxWhiskerRuleCtl');
-    els.boxWhiskerRule=global.$('#boxWhiskerRule');
-    els.boxWhiskerCustom=global.$('#boxWhiskerCustomMultiplier');
-    els.boxWhiskerCustomLabel=global.$('#boxWhiskerCustomLabel');
-    els.boxGraphWhiskerRow=global.$('#boxGraphWhiskerRow');
-    els.boxGraphSignificanceRow=global.$('#boxGraphSignificanceRow');
-    els.boxGraphType=global.$('#boxGraphType');
-    els.boxLayoutModeCtl=global.$('#boxLayoutModeCtl');
-    els.boxLayoutMode=global.$('#boxLayoutMode');
+    els.boxFlipAxes=byId('boxFlipAxes');
+    els.boxWhiskerRuleCtl=byId('boxWhiskerRuleCtl');
+    els.boxWhiskerRule=byId('boxWhiskerRule');
+    els.boxWhiskerCustom=byId('boxWhiskerCustomMultiplier');
+    els.boxWhiskerCustomLabel=byId('boxWhiskerCustomLabel');
+    els.boxGraphWhiskerRow=byId('boxGraphWhiskerRow');
+    els.boxGraphSignificanceRow=byId('boxGraphSignificanceRow');
+    els.boxGraphType=byId('boxGraphType');
+    els.boxLayoutModeCtl=byId('boxLayoutModeCtl');
+    els.boxLayoutMode=byId('boxLayoutMode');
     if(els.boxLayoutMode){
       const allowedLayouts = new Set(['interleaved','separated','stacked']);
       const fallbackLayout = allowedLayouts.has(state.groupLayout) ? state.groupLayout : 'interleaved';
@@ -12799,9 +12832,9 @@
       els.boxLayoutMode.value = fallbackLayout;
       console.debug('Debug: box layout mode initialised',{ value: fallbackLayout });
     }
-    els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
-    els.boxIndividualSummary=global.$('#boxIndividualSummary');
-    els.boxSignificanceControls=global.$('#boxSignificanceControls');
+    els.boxIndividualSummaryCtl=byId('boxIndividualSummaryCtl');
+    els.boxIndividualSummary=byId('boxIndividualSummary');
+    els.boxSignificanceControls=byId('boxSignificanceControls');
     ensureBoxSignificanceControlPlacement();
     if(els.boxIndividualSummary){
       populateIndividualSummarySelect(els.boxIndividualSummary);
@@ -12814,18 +12847,18 @@
     }
     ensureBoxBorderWidthState();
     syncBoxBorderWidthControlForGraphType(els.boxGraphType?.value || 'box');
-    els.boxPointMode=global.$('#boxPointMode');
+    els.boxPointMode=byId('boxPointMode');
     els.boxPointModeCtl=els.boxPointMode?.closest('.control') || null;
-    els.boxConnectPointsCtl=global.$('#boxConnectPointsCtl');
-    els.boxConnectPointsAcrossDatasets=global.$('#boxConnectPointsAcrossDatasets');
+    els.boxConnectPointsCtl=byId('boxConnectPointsCtl');
+    els.boxConnectPointsAcrossDatasets=byId('boxConnectPointsAcrossDatasets');
     if(els.boxConnectPointsAcrossDatasets){
       els.boxConnectPointsAcrossDatasets.checked = !!state.connectPointsAcrossDatasets;
     }
-    els.boxShowCapsCtl=global.$('#boxShowCapsCtl');
-    els.boxShowCaps=global.$('#boxShowCaps');
-    els.boxShowSignificance=global.$('#boxShowSignificance');
-    els.boxSignificanceLabelCtl=global.$('#boxSignificanceLabelCtl');
-    els.boxSignificanceLabelMode=global.$('#boxSignificanceLabelMode');
+    els.boxShowCapsCtl=byId('boxShowCapsCtl');
+    els.boxShowCaps=byId('boxShowCaps');
+    els.boxShowSignificance=byId('boxShowSignificance');
+    els.boxSignificanceLabelCtl=byId('boxSignificanceLabelCtl');
+    els.boxSignificanceLabelMode=byId('boxSignificanceLabelMode');
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       if(!els.boxShowSignificance.dataset?.boxHandlerAttached){
@@ -12865,11 +12898,11 @@
       els.boxSignificanceLabelMode.value = mode;
     }
     syncBoxPointConnectionControlState();
-    els.boxErrorMode=global.$('#boxErrorMode');
-    els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
-    els.boxColorPerBox=global.$('#boxColorPerBox');
-    els.boxYMin=global.$('#boxYMin');
-    els.boxYMax=global.$('#boxYMax');
+    els.boxErrorMode=byId('boxErrorMode');
+    els.boxErrorModeCtl=byId('boxErrorModeCtl');
+    els.boxColorPerBox=byId('boxColorPerBox');
+    els.boxYMin=byId('boxYMin');
+    els.boxYMax=byId('boxYMax');
     els.statsControls = getBoxNodeById('statsControls', { root });
     els.statsResults = getBoxNodeById('statsResults', { root });
     attachBoxStatsExtraControlFactory();
@@ -12989,10 +13022,10 @@
 
   function ensureBoxColorModeControls(){
     if(!els.boxColorUnified){
-      els.boxColorUnified = global.$('#boxColorUnified');
+      els.boxColorUnified = getBoxNodeById('boxColorUnified');
     }
     if(!els.boxColorIndividual){
-      els.boxColorIndividual = global.$('#boxColorIndividual');
+      els.boxColorIndividual = getBoxNodeById('boxColorIndividual');
     }
   }
 
@@ -13273,8 +13306,6 @@
       || value.includes('reapply')
       || value.includes('payload')
       || value.includes('viewport')
-      || value.includes('resize')
-      || value.includes('observe')
       || value.includes('programmatic')
       || value.includes('render-cache');
   }
@@ -15163,7 +15194,9 @@
     state.ensureHotForActiveTab = ensureBoxHotForActiveTab;
     bindBoxDataToolbar();
   
-    const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
+    const loadExampleBtn=getBoxNodeById('boxLoadExample');
+    const importBtn=getBoxNodeById('boxImport');
+    const fileInput=getBoxNodeById('boxFile');
     const exampleSingle=[
       ['Control','Treatment A','Treatment B'],
       [12,15,14],
@@ -15187,7 +15220,7 @@
       [22,26,24,88,30,67]
     ];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
-    loadExampleBtn.addEventListener('click',()=>{
+    loadExampleBtn?.addEventListener('click',()=>{
       const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(!hot){
         console.warn('boxplot example load skipped: table instance unavailable');
@@ -15852,7 +15885,7 @@
     }
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
       Shared.exporter.mountSvgControls({
-        container: '#boxExportControls',
+        container: getBoxNodeById('boxExportControls'),
         svgSelector: '#boxSvg',
         getSvg: () => box.getPreviewSvg?.() || resolveBoxPlotSvgRoot(),
         fileName: 'boxplot',
@@ -15874,10 +15907,10 @@
     } else {
       console.debug('Debug: box export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: box export fallback
     }
-    const openBoxGraphBtn = global.$('#openBoxGraph');
-    const saveBoxGraphBtn = global.$('#saveBoxGraph');
-    const saveAsBoxBtn = global.$('#saveAsBox');
-    const boxGraphFileInput = global.$('#boxGraphFile');
+    const openBoxGraphBtn = getBoxNodeById('openBoxGraph');
+    const saveBoxGraphBtn = getBoxNodeById('saveBoxGraph');
+    const saveAsBoxBtn = getBoxNodeById('saveAsBox');
+    const boxGraphFileInput = getBoxNodeById('boxGraphFile');
     openBoxGraphBtn?.addEventListener('click', box.open);
     saveBoxGraphBtn?.addEventListener('click', box.save);
     saveAsBoxBtn?.addEventListener('click', box.saveAs);
@@ -23634,6 +23667,55 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     setStatsStatus('');
     updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
     updateSignificanceControlState({ statsReady: false });
+  }
+
+  function hydrateBoxStatsSurfaceFromTabPayload(tabLike, reason){
+    const tab = resolveBoxWorkspaceTab(tabLike);
+    const stats = tab?.payload?.config?.stats;
+    const savedVersionRaw = Number(stats?.lastRunVersion);
+    const savedVersion = Number.isFinite(savedVersionRaw) && savedVersionRaw > 0 ? savedVersionRaw : 0;
+    const savedHtml = typeof stats?.resultsHtml === 'string' ? stats.resultsHtml : '';
+    const hasSavedResults = !!(stats && savedVersion > 0 && savedHtml);
+    state.statsComputationPending = false;
+    state.statsComputationOwnerTabId = null;
+    if(hasSavedResults){
+      if(els.statsResults){
+        els.statsResults.innerHTML = savedHtml;
+      }
+      if(els.statsReportHost){
+        els.statsReportHost.innerHTML = typeof stats.reportHtml === 'string' ? stats.reportHtml : '';
+      }
+      state.statsLastRunVersion = savedVersion;
+      state.statsContextVersion = Math.max(Number(state.statsContextVersion) || 0, savedVersion);
+      state.statsContextSignature = typeof stats.contextSignature === 'string' ? stats.contextSignature : state.statsContextSignature;
+      state.statsLastAnnotationModel = normalizeBoxStatsAnnotationModel(stats.annotationModel, {
+        signature: state.statsContextSignature,
+        version: savedVersion
+      });
+      setStatsStatus('Statistics up to date.');
+      updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updateSignificanceControlState({ statsReady: true });
+      console.debug('Debug: box stats surface hydrated from tab payload', {
+        tabId: tab?.id || null,
+        reason: reason || 'activate-tab',
+        savedVersion
+      });
+      return true;
+    }
+    state.authoritativeRenderRestoreActive = false;
+    resetStatsComputationState({
+      placeholder: 'Statistics will appear after calculation.',
+      clearOutputs: true
+    });
+    if(state.statsContext?.traces?.length){
+      updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      setStatsStatus('Statistics ready to calculate.');
+    }
+    console.debug('Debug: box stats surface reset from tab payload', {
+      tabId: tab?.id || null,
+      reason: reason || 'activate-tab'
+    });
+    return false;
   }
 
   function buildStatsAnalysisSpec(extra){
@@ -33506,25 +33588,43 @@ Technical analysis record (advanced)
     });
   }
 
-  box.init = function init(){
-    if (box.ready) { console.debug('Debug: Components.box.init skipped'); return; }
+  box.init = function init(options = {}){
+    const targetTabId = resolveBoxTabId(options.tabId || null);
+    const targetRoot = options.root || resolveBoxRoot(targetTabId);
+    if (box.ready && (!targetTabId || box.__boundTabId === targetTabId) && (!targetRoot || boxRoot === targetRoot)) {
+      console.debug('Debug: Components.box.init skipped');
+      return;
+    }
+    if(box.ready){
+      console.debug('Debug: Components.box.init rebinding', {
+        previousTabId: box.__boundTabId || null,
+        targetTabId: targetTabId || null,
+        reason: options.reason || 'init'
+      });
+      box.ready = false;
+    }
+    boxRoot = targetRoot || null;
+    box.__boundTabId = targetTabId || null;
     console.debug('Debug: Components.box.init');
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
-    if (typeof cacheEls === 'function') cacheEls();
+    if (typeof cacheEls === 'function') cacheEls({ root: boxRoot, tabId: targetTabId });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'box',
+      tabId: targetTabId || undefined,
       selectors: {
-        tablePanel: '#boxTablePanel',
-        graphPanel: '#boxGraphPanel',
-        panelResizer: '#boxPanelResizer',
-        hotWrapper: '#hotWrapper',
-        hotContainer: '#hot',
-        svgBox: () => els.graphPanel?.querySelector('.svgbox'),
-        resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
+        tablePanel: () => getBoxNodeById('boxTablePanel', { root: boxRoot, tabLike: targetTabId }),
+        graphPanel: () => getBoxNodeById('boxGraphPanel', { root: boxRoot, tabLike: targetTabId }),
+        panelResizer: () => getBoxNodeById('boxPanelResizer', { root: boxRoot, tabLike: targetTabId }),
+        hotWrapper: () => getBoxNodeById('hotWrapper', { root: boxRoot, tabLike: targetTabId }),
+        hotContainer: () => getBoxNodeById('hot', { root: boxRoot, tabLike: targetTabId }),
+        svgBox: () => els.graphPanel?.querySelector('.svgbox')
+          || queryBoxNode('#boxGraphPanel .svgbox', { root: boxRoot, tabLike: targetTabId }),
+        resizeTarget: () => els.plotDiv?.closest('.svgbox')
+          || els.graphPanel?.querySelector('.svgbox')
+          || queryBoxNode('#boxGraphPanel .svgbox', { root: boxRoot, tabLike: targetTabId })
       },
         scheduleDraw: state.scheduleDraw,
-        skipScheduleOnResizePhases: ['move', 'observe', 'end', 'programmatic', 'reset', 'undo', 'redo', 'aspect-toggle'],
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -33548,22 +33648,12 @@ Technical analysis record (advanced)
             boxDebug('Debug: box viewport extension resize draw muted', { phase: currentPhase || null });
             return;
           }
+          let reason = 'resize-settled';
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-            state.scheduleResizePreview?.({ reason: 'resize-live', resizePhase: currentPhase || null });
-            return;
-          }
-          if(phase === 'observe'){
-            if(state.resizeInteractionActive){
-              state.scheduleResizePreview?.({ reason: 'resize-observe', resizePhase: currentPhase || null });
-              return;
-            }
-            state.scheduleDraw?.({
-              viewOnly: true,
-              reason: 'resize-observe',
-              resizePhase: currentPhase || null
-            });
-            return;
+            reason = 'resize-live';
+          }else if(phase === 'observe'){
+            reason = 'resize-observe';
           }
           if(
             phase === 'end'
@@ -33581,7 +33671,7 @@ Technical analysis record (advanced)
           boxDebug('Debug: box layout onResize schedule trigger');
           state.scheduleDraw?.({
             viewOnly: true,
-            reason: 'resize-settled',
+            reason,
             resizePhase: currentPhase || null
           });
         }
@@ -33649,8 +33739,7 @@ Technical analysis record (advanced)
         && state.resizeInteractionActive
         && (nextOpts.reason === 'resize-live' || nextOpts.reason === 'resize-observe' || !nextOpts.reason)
       ){
-        state.scheduleResizePreview?.(nextOpts);
-        return;
+        nextOpts.viewOnly = true;
       }
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
       if(nextOpts.force){
@@ -33694,8 +33783,8 @@ Technical analysis record (advanced)
 
   box.draw = function(options = {}){
     try{
-      box.ensure();
       const nextOptions = options || {};
+      box.ensure(nextOptions);
       const sessionMeta = nextOptions.__boxSessionMeta || buildBoxSessionMeta(nextOptions);
       const guardedOptions = { ...nextOptions, __boxSessionMeta: sessionMeta };
       if(typeof state.scheduleDraw === 'function'){
@@ -33997,7 +34086,36 @@ Technical analysis record (advanced)
     }
     return restored;
   };
-  box.ensure = function(){ if(!box.ready) box.init(); };
+  function ensureBoxDomBindings(tabLike){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'box',
+      tabLike: tabLike || null,
+      sentinelSelector: '#boxGraphType',
+      getCurrentRoot: () => boxRoot || null,
+      getCurrentSentinel: () => els.boxGraphType || null,
+      rebind: (info) => {
+        boxRoot = info?.root || resolveBoxRoot(tabLike || info?.tabId || null);
+        console.debug('Debug: Components.box.init refreshing stale DOM bindings');
+        box.ready = false;
+        box.init({
+          root: boxRoot,
+          tabId: info?.tabId || resolveBoxTabId(tabLike),
+          reason: 'workspace-dom-rebind'
+        });
+      }
+    });
+    return !!rebound?.rebound;
+  }
+
+  box.ensure = function(options = {}){
+    if(ensureBoxDomBindings(options.tabId || null)){
+      return;
+    }
+    if(!box.ready) box.init(options);
+  };
   box.captureRuntimeState = function captureRuntimeState(meta = {}){
     const snapshot = captureBoxRuntimeSnapshot(meta.reason || 'capture-runtime-state');
     const sessionRecord = getBoxSessionRecord(meta.tabId || getActiveBoxWorkspaceTabId(), { create: true });
@@ -34022,9 +34140,39 @@ Technical analysis record (advanced)
     }
   };
   box.activateTab = function activateTab(tab, meta = {}){
-    applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+    const targetTabId = resolveBoxTabId(tab || null);
+    const targetRoot = resolveBoxRoot(tab || targetTabId || null);
+    const needsRebind = !!(
+      targetTabId
+      && (
+        (box.__boundTabId && box.__boundTabId !== targetTabId)
+        || (targetRoot && boxRoot && boxRoot !== targetRoot)
+      )
+    );
+    if(needsRebind){
+      boxRoot = targetRoot || boxRoot;
+      box.ready = false;
+      box.init({
+        root: boxRoot,
+        tabId: targetTabId,
+        reason: 'activate-tab-rebind'
+      });
+    }else if(targetRoot){
+      boxRoot = targetRoot;
+    }
+    if(ensureBoxDomBindings(tab)){
+      applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
+      return;
+    }
+    applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+    hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
     if(!box.ready){
-      box.init();
+      box.init({
+        root: boxRoot || targetRoot || null,
+        tabId: targetTabId,
+        reason: meta.reason || 'activate-tab'
+      });
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
