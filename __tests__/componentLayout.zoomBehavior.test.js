@@ -167,4 +167,62 @@ describe('componentLayout zoom behavior contract', () => {
     const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
+
+  test('layout registry is scoped by component type and tab id', () => {
+    document.body.innerHTML = `
+      <div id="tabA" data-workspace-tab-id="scatter-a">
+        <div id="scatterTablePanel" class="panel"></div>
+        <div id="scatterGraphPanel" class="panel">
+          <div id="scatterSvgBox" class="svgbox" data-resizer-aspect-locked="false"><div></div></div>
+          <div id="scatterConfigPanel" class="config-options"></div>
+        </div>
+      </div>
+      <div id="tabB" data-workspace-tab-id="scatter-b">
+        <div id="scatterTablePanelB" class="panel"></div>
+        <div id="scatterGraphPanelB" class="panel">
+          <div id="scatterSvgBoxB" class="svgbox" data-resizer-aspect-locked="true"><div></div></div>
+          <div id="scatterConfigPanelB" class="config-options"></div>
+        </div>
+      </div>
+    `;
+    const tabA = document.getElementById('tabA');
+    const tabB = document.getElementById('tabB');
+    [tabA, tabB].forEach(root => {
+      root.querySelectorAll('.panel,.svgbox').forEach(setVisible);
+    });
+    const svgA = document.getElementById('scatterSvgBox');
+    const svgB = document.getElementById('scatterSvgBoxB');
+    svgA.getBoundingClientRect = () => ({ width: 400, height: 300 });
+    svgB.getBoundingClientRect = () => ({ width: 500, height: 250 });
+    window.Shared.syncPanelWidths = jest.fn();
+
+    window.Shared.componentLayout.createStandardPanels({
+      componentName: 'scatter',
+      tabId: 'scatter-a',
+      selectors: {
+        tablePanel: '#tabA #scatterTablePanel',
+        graphPanel: '#tabA #scatterGraphPanel',
+        configPanel: '#tabA #scatterConfigPanel',
+        svgBox: '#tabA #scatterSvgBox',
+        resizeTarget: '#tabA #scatterSvgBox'
+      }
+    });
+    window.Shared.componentLayout.createStandardPanels({
+      componentName: 'scatter',
+      tabId: 'scatter-b',
+      selectors: {
+        tablePanel: '#tabB #scatterTablePanelB',
+        graphPanel: '#tabB #scatterGraphPanelB',
+        configPanel: '#tabB #scatterConfigPanelB',
+        svgBox: '#tabB #scatterSvgBoxB',
+        resizeTarget: '#tabB #scatterSvgBoxB'
+      }
+    });
+
+    const stateA = window.Shared.componentLayout.captureStateFor('scatter', { tabId: 'scatter-a' });
+    const stateB = window.Shared.componentLayout.captureStateFor('scatter', { tabId: 'scatter-b' });
+
+    expect(stateA?.svgBox?.dataset?.resizerAspectLocked).toBe('false');
+    expect(stateB?.svgBox?.dataset?.resizerAspectLocked).toBe('true');
+  });
 });

@@ -99,6 +99,37 @@ describe('Shared resizer graph options menu', () => {
     expect(Number(box.dataset.resizerAspectRatio)).toBeCloseTo(Number(before.aspectRatio), 6);
   });
 
+  test('default aspect lock does not overwrite a persisted tab value on reattach', () => {
+    const box = createSvgBox();
+    box.dataset.resizerAspectLocked = 'false';
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      aspectLocked: true,
+      onResize: jest.fn()
+    });
+
+    const checkbox = box.querySelector('.resizer-aspect-checkbox');
+    expect(box.dataset.resizerAspectLocked).toBe('false');
+    expect(checkbox?.checked).toBe(false);
+
+    window.Shared.attachResizableBox(box, {
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90,
+      defaultAspectLocked: true,
+      onResize: jest.fn()
+    });
+
+    const reattachedCheckbox = box.querySelector('.resizer-aspect-checkbox');
+    expect(box.dataset.resizerAspectLocked).toBe('false');
+    expect(reattachedCheckbox?.checked).toBe(false);
+  });
+
   test('places component graph options in the shared menu', async () => {
     const box = createSvgBox();
 

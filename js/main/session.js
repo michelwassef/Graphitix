@@ -1381,9 +1381,23 @@
         });
       }
       const layoutState = Shared.componentLayout?.captureStateFor
-        ? Shared.componentLayout.captureStateFor(tab.type)
+        ? Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id })
         : null;
-      let layoutClone = clonePayload(layoutState);
+      let layoutClone = clonePayload(
+        Shared.componentLayout?.withTabLayoutOverrides
+          ? Shared.componentLayout.withTabLayoutOverrides(layoutState, tab)
+          : layoutState
+      );
+      const capturedAspectLocked = layoutClone?.svgBox?.dataset?.resizerAspectLocked;
+      if (capturedAspectLocked === 'true' || capturedAspectLocked === 'false') {
+        tab.sharedState = tab.sharedState || {};
+        tab.sharedState.layout = tab.sharedState.layout || {};
+        tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
+        tab.sharedState.layout.resizer.aspectLocked = capturedAspectLocked === 'true';
+        if (layoutClone?.svgBox?.dataset?.resizerAspectRatio) {
+          tab.sharedState.layout.resizer.aspectRatio = String(layoutClone.svgBox.dataset.resizerAspectRatio);
+        }
+      }
       if (tab.type !== 'box' && Shared.graphSizing?.enrichPayloadWithLayout) {
         try {
           payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {

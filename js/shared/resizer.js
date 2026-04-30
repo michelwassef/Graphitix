@@ -22,6 +22,66 @@
     return Number.isFinite(num) && num > 0 ? num : NaN;
   }
 
+  function normalizeTabId(value){
+    const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
+    return text || '';
+  }
+
+  function resolveResizerTab(container, opts = {}){
+    const explicitTabId = normalizeTabId(opts.tabId || opts.workspaceTabId || opts.activeTabId);
+    if(explicitTabId){
+      return Shared.workspaceTabs?.resolveTab?.(explicitTabId) || { id: explicitTabId, type: opts.componentName || null };
+    }
+    const dataset = container?.dataset || {};
+    const dataTabId = normalizeTabId(dataset.workspaceTabId || dataset.tabId);
+    if(dataTabId){
+      return Shared.workspaceTabs?.resolveTab?.(dataTabId) || { id: dataTabId, type: opts.componentName || dataset.workspaceComponent || null };
+    }
+    const scopedRoot = container?.closest?.('[data-workspace-tab-id],[data-tab-id]');
+    const scopedTabId = normalizeTabId(scopedRoot?.dataset?.workspaceTabId || scopedRoot?.dataset?.tabId);
+    if(scopedTabId){
+      return Shared.workspaceTabs?.resolveTab?.(scopedTabId) || { id: scopedTabId, type: opts.componentName || scopedRoot?.dataset?.workspaceComponent || null };
+    }
+    return Shared.workspaceTabs?.resolveTab?.(null) || global.Main?.session?.getActiveTab?.() || null;
+  }
+
+  function persistAspectLockToTab(container, opts, aspectLockedValue, reason){
+    const tab = resolveResizerTab(container, opts);
+    const tabId = normalizeTabId(tab?.id);
+    if(!tabId){
+      return false;
+    }
+    if(!tab.sharedState || typeof tab.sharedState !== 'object'){
+      tab.sharedState = {};
+    }
+    if(!tab.sharedState.layout || typeof tab.sharedState.layout !== 'object'){
+      tab.sharedState.layout = {};
+    }
+    if(!tab.sharedState.layout.resizer || typeof tab.sharedState.layout.resizer !== 'object'){
+      tab.sharedState.layout.resizer = {};
+    }
+    tab.sharedState.layout.resizer.aspectLocked = !!aspectLockedValue;
+    tab.sharedState.layout.resizer.updatedAt = Date.now();
+    tab.sharedState.layout.resizer.reason = reason || 'resizer-aspect-lock';
+
+    if(tab.layoutState && typeof tab.layoutState === 'object'){
+      tab.layoutState.svgBox = tab.layoutState.svgBox || {};
+      tab.layoutState.svgBox.dataset = tab.layoutState.svgBox.dataset || {};
+      tab.layoutState.svgBox.dataset.resizerAspectLocked = aspectLockedValue ? 'true' : 'false';
+      if(container?.dataset?.resizerAspectRatio){
+        tab.layoutState.svgBox.dataset.resizerAspectRatio = String(container.dataset.resizerAspectRatio);
+        tab.sharedState.layout.resizer.aspectRatio = String(container.dataset.resizerAspectRatio);
+      }
+    }
+    console.debug('Debug: resizer aspect lock persisted to tab', {
+      tabId,
+      component: opts.componentName || tab.type || null,
+      aspectLocked: !!aspectLockedValue,
+      reason: reason || 'resizer-aspect-lock'
+    });
+    return true;
+  }
+
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
 
@@ -947,13 +1007,22 @@
     if(!Number.isFinite(aspectRatio) || aspectRatio <= 0){
       aspectRatio = Number.isFinite(ratioFromDefaults) ? ratioFromDefaults : 1;
     }
-    let aspectLocked = data.resizerAspectLocked === 'true';
-    if(helperSizing && helperSizing.aspectLocked === false){
+    const hasPersistedAspectLock = Object.prototype.hasOwnProperty.call(data, 'resizerAspectLocked')
+      && (data.resizerAspectLocked === 'true' || data.resizerAspectLocked === 'false');
+    let aspectLocked = hasPersistedAspectLock ? data.resizerAspectLocked === 'true' : true;
+    if(!hasPersistedAspectLock && helperSizing && helperSizing.aspectLocked === false){
       aspectLocked = false;
     }
-    if(typeof opts.aspectLocked === 'boolean'){
-      aspectLocked = opts.aspectLocked;
-      console.debug('Debug: resizer aspect lock override', { container: containerLabel, aspectLocked }); // Debug: aspect lock override applied
+    const defaultAspectLocked = typeof opts.defaultAspectLocked === 'boolean'
+      ? opts.defaultAspectLocked
+      : (typeof opts.aspectLocked === 'boolean' ? opts.aspectLocked : undefined);
+    if(!hasPersistedAspectLock && typeof defaultAspectLocked === 'boolean'){
+      aspectLocked = defaultAspectLocked;
+      console.debug('Debug: resizer aspect lock default applied', { container: containerLabel, aspectLocked }); // Debug: aspect lock default applied
+    }
+    if(typeof opts.forceAspectLocked === 'boolean'){
+      aspectLocked = opts.forceAspectLocked;
+      console.debug('Debug: resizer aspect lock forced', { container: containerLabel, aspectLocked }); // Debug: aspect lock forced
     }
     if(aspectLocked && (!Number.isFinite(aspectRatio) || aspectRatio <= 0)){
       aspectLocked = false;
@@ -1555,6 +1624,7 @@
           const beforeAspect = makeResizeSnapshot('aspect-toggle-before');
           aspectLocked = !!aspectCheckbox.checked;
           data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+          persistAspectLockToTab(container, opts, aspectLocked, 'checkbox-change');
           console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
           if(aspectLocked){
             delete data.resizerAxisViewportLockAxis;

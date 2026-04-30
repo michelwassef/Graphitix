@@ -759,6 +759,15 @@
     if (config.perTabDomInstances === true) {
       config.activeElement = activeWorkspaceElement;
     }
+    const preparedLayoutState = Shared.componentLayout?.withTabLayoutOverrides
+      ? Shared.componentLayout.withTabLayoutOverrides(tab.layoutState, tab)
+      : tab.layoutState;
+    if (config.perTabDomInstances === true && activeWorkspaceElement && preparedLayoutState && Shared.componentLayout?.hydrateRootFromState) {
+      Shared.componentLayout.hydrateRootFromState(tab.type, activeWorkspaceElement, preparedLayoutState, {
+        tabId: tab.id,
+        reason: options.reason || 'workspace-view-prepare'
+      });
+    }
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
@@ -955,6 +964,7 @@
         if (canRestoreRender) {
           if (Shared.componentLayout?.suppressNextScheduleFor) {
             Shared.componentLayout.suppressNextScheduleFor(tab.type, {
+              tabId: tab.id,
               reason: 'render-cache-restore-reuse',
               delayMs: authoritativeRenderRestore ? 5000 : 400,
               count: authoritativeRenderRestore ? 24 : 3
@@ -1021,6 +1031,7 @@
       }
       if(canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor){
         Shared.componentLayout.suppressNextScheduleFor(tab.type, {
+          tabId: tab.id,
           reason: 'render-cache-restore',
           delayMs: authoritativeRenderRestore ? 5000 : 400,
           count: authoritativeRenderRestore ? 24 : 3
@@ -1061,7 +1072,7 @@
         let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;
         if (!defaultLayout && typeof config.getDefaultLayoutState === 'function') {
           try {
-            defaultLayout = config.getDefaultLayoutState();
+            defaultLayout = config.getDefaultLayoutState({ tabId: tab.id });
             if (defaultLayout) {
               cacheWorkspaceDefaultLayout(tab.type, defaultLayout, cloneFn);
             }
@@ -1073,6 +1084,9 @@
         let layoutSource = hasAuthoritativeLayoutState
           ? cloneFn?.(tab.layoutState)
           : (defaultLayout ? cloneFn?.(defaultLayout) : null);
+        if (Shared.componentLayout?.withTabLayoutOverrides) {
+          layoutSource = Shared.componentLayout.withTabLayoutOverrides(layoutSource, tab);
+        }
         if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
           if (hasAuthoritativeLayoutState) {
             console.debug('Debug: workspace layout graph sizing merge skipped', {
@@ -1092,6 +1106,7 @@
         }
         const applied = guardWorkspaceMutation('apply-layout')
           ? config.applyLayoutState(layoutSource, {
+              tabId: tab.id,
               reason: options.reason || 'workspace-view',
               resetStyles: true,
               resetDataset: true,
@@ -1138,6 +1153,12 @@
         }
       } else {
         console.debug('Debug: workspace render cache restored', { tabId: tab.id, type: tab.type });
+      }
+      if (Shared.componentLayout?.syncTabStateToControlsFor) {
+        Shared.componentLayout.syncTabStateToControlsFor(tab.type, {
+          tabId: tab.id,
+          reason: options.reason || 'workspace-view'
+        });
       }
       if (workspaceState) {
         workspaceState.lastActiveGraphId = tab.id;

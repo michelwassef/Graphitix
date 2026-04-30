@@ -599,7 +599,7 @@
       try{
         const workspace = options.workspace || global.Main?.components?.get?.(type) || null;
         if(workspace && typeof workspace.getLayoutState === 'function'){
-          layoutState = workspace.getLayoutState();
+          layoutState = workspace.getLayoutState({ tabId: options.tabId || options.workspaceTabId || null });
         }
       }catch(err){
         console.error('Shared.graphSizing.enrichPayloadForType workspace layout error', err);

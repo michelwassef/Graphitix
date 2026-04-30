@@ -469,12 +469,14 @@
         if(config && typeof config.applyLayoutState === 'function'){
           config.applyLayoutState(cloneValue(layoutClone), {
             reason,
+            tabId: tab?.id || null,
             resetStyles: true,
             resetDataset: true
           });
         }else if(Shared.componentLayout?.applyStateFor && type){
           Shared.componentLayout.applyStateFor(type, cloneValue(layoutClone), {
             reason,
+            tabId: tab?.id || null,
             resetStyles: true,
             resetDataset: true
           });

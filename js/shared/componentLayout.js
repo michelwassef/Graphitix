@@ -10,6 +10,187 @@
 
   const layoutRegistry = componentLayout.__registry = componentLayout.__registry || {};
 
+  function normalizeTabId(value){
+    const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
+    return text || '';
+  }
+
+  function ensureRegistryBucket(componentName){
+    const key = String(componentName || '').trim();
+    if(!key){
+      return null;
+    }
+    const existing = layoutRegistry[key];
+    if(existing && existing.__isTabScopedBucket === true){
+      return existing;
+    }
+    const bucket = { __isTabScopedBucket: true, __default: null, tabs: {} };
+    if(existing){
+      bucket.__default = existing;
+    }
+    layoutRegistry[key] = bucket;
+    return bucket;
+  }
+
+  function resolveRegistryEntry(componentName, options = {}){
+    const key = String(componentName || '').trim();
+    if(!key){
+      return null;
+    }
+    const entry = layoutRegistry[key];
+    const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    if(entry && entry.__isTabScopedBucket === true){
+      if(tabId && entry.tabs?.[tabId]){
+        return entry.tabs[tabId];
+      }
+      const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+      if(activeTabId && entry.tabs?.[activeTabId]){
+        return entry.tabs[activeTabId];
+      }
+      return entry.__default || null;
+    }
+    return entry || null;
+  }
+
+  function resolveElementTabId(elements, config){
+    const explicit = normalizeTabId(config?.tabId || config?.workspaceTabId || config?.activeTabId);
+    if(explicit){
+      return explicit;
+    }
+    const roots = [
+      elements?.resizeTarget,
+      elements?.svgBox,
+      elements?.graphPanel,
+      elements?.tablePanel
+    ];
+    for(let i = 0; i < roots.length; i += 1){
+      const node = roots[i];
+      const direct = normalizeTabId(node?.dataset?.workspaceTabId || node?.dataset?.tabId);
+      if(direct){
+        return direct;
+      }
+      const scopedRoot = node?.closest?.('[data-workspace-tab-id],[data-tab-id]');
+      const scoped = normalizeTabId(scopedRoot?.dataset?.workspaceTabId || scopedRoot?.dataset?.tabId);
+      if(scoped){
+        return scoped;
+      }
+    }
+    return normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+  }
+
+  function getRootScopedElement(root, id, fallbackSelector){
+    if(!root){
+      return null;
+    }
+    if(id && typeof root.querySelector === 'function'){
+      try{
+        const byId = root.querySelector(`#${id}`);
+        if(byId){
+          return byId;
+        }
+      }catch(err){
+        console.error('Shared.componentLayout hydrate query by id error', { id, err });
+      }
+    }
+    return fallbackSelector && typeof root.querySelector === 'function'
+      ? (root.querySelector(fallbackSelector) || null)
+      : null;
+  }
+
+  function applySnapshotStyle(element, map){
+    if(!element?.style || !map || typeof map !== 'object'){
+      return;
+    }
+    Object.entries(map).forEach(([prop, value]) => {
+      try{
+        element.style[prop] = value || '';
+      }catch(err){
+        console.error('Shared.componentLayout hydrate style error', { prop, err });
+      }
+    });
+  }
+
+  function applySnapshotDataset(element, map){
+    if(!element?.dataset || !map || typeof map !== 'object'){
+      return;
+    }
+    Object.entries(map).forEach(([key, value]) => {
+      try{
+        if(value === undefined || value === null || value === ''){
+          delete element.dataset[key];
+        }else{
+          element.dataset[key] = String(value);
+        }
+      }catch(err){
+        console.error('Shared.componentLayout hydrate dataset error', { key, err });
+      }
+    });
+  }
+
+  function applyAspectLockToSvgBox(svgBox, aspectLocked){
+    if(!svgBox?.dataset || typeof aspectLocked !== 'boolean'){
+      return false;
+    }
+    svgBox.dataset.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+    const checkbox = svgBox.querySelector?.('.resizer-aspect-checkbox') || null;
+    if(checkbox){
+      checkbox.checked = !!aspectLocked;
+    }
+    return true;
+  }
+
+  componentLayout.hydrateRootFromState = function hydrateRootFromState(componentName, root, state, options = {}){
+    if(!root || !state || typeof state !== 'object'){
+      return false;
+    }
+    const name = String(componentName || state.component || '').trim();
+    const lower = name.toLowerCase();
+    const nodes = {
+      svgBox: getRootScopedElement(root, `${lower}SvgBox`, '.svgbox'),
+      tablePanel: getRootScopedElement(root, `${lower}TablePanel`, '[id$="TablePanel"], .panel:first-child'),
+      graphPanel: getRootScopedElement(root, `${lower}GraphPanel`, '[id$="GraphPanel"], .panel:last-child'),
+      configPanel: getRootScopedElement(root, `${lower}ConfigPanel`, '[id$="ConfigPanel"], .config-panel, .config-options')
+    };
+    Object.entries(nodes).forEach(([key, node]) => {
+      applySnapshotStyle(node, state[key]?.style);
+      applySnapshotDataset(node, state[key]?.dataset);
+    });
+    console.debug('Debug: componentLayout root hydrated', {
+      component: name || null,
+      tabId: options.tabId || root?.dataset?.workspaceTabId || null,
+      hasSvgBox: !!nodes.svgBox,
+      aspectLocked: nodes.svgBox?.dataset?.resizerAspectLocked || null
+    });
+    return true;
+  };
+
+  componentLayout.withTabLayoutOverrides = function withTabLayoutOverrides(state, tabLike){
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike) || tabLike || null;
+    const resizer = tab?.sharedState?.layout?.resizer || null;
+    if(!resizer || typeof resizer.aspectLocked !== 'boolean'){
+      return state || null;
+    }
+    const nextState = state && typeof state === 'object'
+      ? { ...state }
+      : { version: 1, component: tab?.type || null };
+    nextState.svgBox = nextState.svgBox && typeof nextState.svgBox === 'object'
+      ? { ...nextState.svgBox }
+      : {};
+    nextState.svgBox.dataset = nextState.svgBox.dataset && typeof nextState.svgBox.dataset === 'object'
+      ? { ...nextState.svgBox.dataset }
+      : {};
+    nextState.svgBox.dataset.resizerAspectLocked = resizer.aspectLocked ? 'true' : 'false';
+    if(resizer.aspectRatio !== undefined && resizer.aspectRatio !== null){
+      nextState.svgBox.dataset.resizerAspectRatio = String(resizer.aspectRatio);
+    }
+    console.debug('Debug: componentLayout tab layout override merged', {
+      tabId: tab?.id || null,
+      component: tab?.type || nextState.component || null,
+      aspectLocked: resizer.aspectLocked
+    });
+    return nextState;
+  };
+
   function resolveElement({ selector, label, documentRef, componentName }){
     if(!selector){
       console.debug('Debug: componentLayout resolveElement missing selector', { component: componentName, label });
@@ -78,6 +259,7 @@
       documentRef,
       componentName
     });
+    const layoutTabId = resolveElementTabId(elements, config);
 
     if(elements.hotWrapper && typeof Shared.ensureHotWrapperStyles === 'function'){
       console.debug('Debug: componentLayout applying wrapper styles', { component: componentName, wrapperId: elements.hotWrapper.id || null });
@@ -497,10 +679,12 @@
         minHeight: sizing.minHeight,
         maxWidth: sizing.maxWidth,
         maxHeight: sizing.maxHeight,
-        aspectLocked: sizing.aspectLocked !== false,
+        defaultAspectLocked: sizing.aspectLocked !== false,
         aspectRatio: Number.isFinite(sizing.aspectRatio) ? sizing.aspectRatio : 1,
         allowUnlimitedWidth: true,
         allowUnlimitedHeight: true,
+        componentName,
+        tabId: layoutTabId || undefined,
         ...userResizeOptions,
         onResize
       });
@@ -618,6 +802,17 @@
     };
 
     const captureState = () => {
+      const aspectCheckbox = elements.svgBox?.querySelector?.('.resizer-aspect-checkbox') || null;
+      if(aspectCheckbox && elements.svgBox?.dataset){
+        elements.svgBox.dataset.resizerAspectLocked = aspectCheckbox.checked ? 'true' : 'false';
+        const tab = layoutTabId ? Shared.workspaceTabs?.resolveTab?.(layoutTabId) : null;
+        if(tab){
+          tab.sharedState = tab.sharedState || {};
+          tab.sharedState.layout = tab.sharedState.layout || {};
+          tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
+          tab.sharedState.layout.resizer.aspectLocked = !!aspectCheckbox.checked;
+        }
+      }
       const normalizedSvgSnapshot = normalizeLiveResizableSnapshot(elements.svgBox, {
         style: cloneStyle(elements.svgBox),
         dataset: cloneDataset(elements.svgBox)
@@ -757,6 +952,11 @@
           });
         }
       }
+      const overrideTab = options.tabId ? Shared.workspaceTabs?.resolveTab?.(options.tabId) : null;
+      const overrideAspectLocked = overrideTab?.sharedState?.layout?.resizer?.aspectLocked;
+      if(typeof overrideAspectLocked === 'boolean'){
+        applyAspectLockToSvgBox(elements.svgBox, overrideAspectLocked);
+      }
       const zoomApi = elements.svgBox?.__sharedResizableBoxApi;
       if(zoomApi && typeof zoomApi.setZoomLevel === 'function'){
         const requestedZoom = Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);
@@ -778,6 +978,8 @@
 
     const defaultState = captureState();
     const layoutApi = {
+      componentName,
+      tabId: layoutTabId || null,
       elements,
       syncPanels,
       setScheduleDraw(fn){
@@ -820,22 +1022,40 @@
           panelState.resizeObserver = null;
           console.debug('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
         }
-        if(layoutRegistry[componentName] === layoutApi){
+        const bucket = layoutRegistry[componentName];
+        if(bucket && bucket.__isTabScopedBucket === true){
+          if(layoutTabId && bucket.tabs?.[layoutTabId] === layoutApi){
+            delete bucket.tabs[layoutTabId];
+          }
+          if(bucket.__default === layoutApi){
+            bucket.__default = null;
+          }
+          console.debug('Debug: componentLayout registry entry removed', { component: componentName });
+        }else if(layoutRegistry[componentName] === layoutApi){
           delete layoutRegistry[componentName];
           console.debug('Debug: componentLayout registry entry removed', { component: componentName });
         }
       }
     };
 
-    layoutRegistry[componentName] = layoutApi;
-    console.debug('Debug: componentLayout registry updated', { component: componentName, hasCapture: true, hasApply: true });
+    const bucket = ensureRegistryBucket(componentName);
+    if(bucket){
+      if(layoutTabId){
+        bucket.tabs[layoutTabId] = layoutApi;
+      }else{
+        bucket.__default = layoutApi;
+      }
+    }else{
+      layoutRegistry[componentName] = layoutApi;
+    }
+    console.debug('Debug: componentLayout registry updated', { component: componentName, tabId: layoutTabId || null, hasCapture: true, hasApply: true });
 
     return layoutApi;
   };
 
-  componentLayout.captureStateFor = function captureStateFor(componentName){
+  componentLayout.captureStateFor = function captureStateFor(componentName, options = {}){
     if(!componentName){ return null; }
-    const entry = layoutRegistry[componentName];
+    const entry = resolveRegistryEntry(componentName, options);
     if(entry && typeof entry.captureState === 'function'){
       try{
         return entry.captureState();
@@ -843,13 +1063,13 @@
         console.error('Shared.componentLayout.captureStateFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.captureStateFor skipped', { component: componentName, hasEntry: !!entry });
+    console.debug('Debug: componentLayout.captureStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return null;
   };
 
   componentLayout.applyStateFor = function applyStateFor(componentName, state, options = {}){
     if(!componentName){ return false; }
-    const entry = layoutRegistry[componentName];
+    const entry = resolveRegistryEntry(componentName, options);
     if(entry && typeof entry.applyState === 'function'){
       try{
         return entry.applyState(state, options);
@@ -857,23 +1077,23 @@
         console.error('Shared.componentLayout.applyStateFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.applyStateFor skipped', { component: componentName, hasEntry: !!entry });
+    console.debug('Debug: componentLayout.applyStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return false;
   };
 
-  componentLayout.getDefaultStateFor = function getDefaultStateFor(componentName){
+  componentLayout.getDefaultStateFor = function getDefaultStateFor(componentName, options = {}){
     if(!componentName){ return null; }
-    const entry = layoutRegistry[componentName];
+    const entry = resolveRegistryEntry(componentName, options);
     if(entry && entry.defaultState){
       return entry.defaultState;
     }
-    console.debug('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, hasEntry: !!entry });
+    console.debug('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return null;
   };
 
   componentLayout.suppressNextScheduleFor = function suppressNextScheduleFor(componentName, options = {}){
     if(!componentName){ return false; }
-    const entry = layoutRegistry[componentName];
+    const entry = resolveRegistryEntry(componentName, options);
     if(entry && typeof entry.suppressNextSchedule === 'function'){
       try{
         entry.suppressNextSchedule(options);
@@ -882,7 +1102,25 @@
         console.error('Shared.componentLayout.suppressNextScheduleFor error', { component: componentName, err });
       }
     }
-    console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, hasEntry: !!entry });
+    console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return false;
+  };
+
+  componentLayout.syncTabStateToControlsFor = function syncTabStateToControlsFor(componentName, options = {}){
+    const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    const entry = resolveRegistryEntry(componentName, { tabId });
+    const tab = tabId ? Shared.workspaceTabs?.resolveTab?.(tabId) : Shared.workspaceTabs?.resolveTab?.(null);
+    const aspectLocked = tab?.sharedState?.layout?.resizer?.aspectLocked;
+    if(!entry?.elements?.svgBox || typeof aspectLocked !== 'boolean'){
+      return false;
+    }
+    const synced = applyAspectLockToSvgBox(entry.elements.svgBox, aspectLocked);
+    console.debug('Debug: componentLayout tab controls synced', {
+      component: componentName || null,
+      tabId: tab?.id || tabId || null,
+      aspectLocked,
+      synced
+    });
+    return synced;
   };
 })(window);
