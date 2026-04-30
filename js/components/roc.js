@@ -390,23 +390,6 @@
     }
   }
 
-  function resolveRocTextLockScope(){
-    const tabId = resolveActiveTabId();
-    return tabId ? `rocGraphPanel::@tab:${tabId}` : 'rocGraphPanel';
-  }
-
-  function applyRocTextLockScope(){
-    const scopeId = resolveRocTextLockScope();
-    if(refs.svgBox?.dataset){
-      refs.svgBox.dataset.resizerTextLockScope = scopeId;
-      refs.svgBox.dataset.textLockScope = scopeId;
-    }
-    if(refs.fontSize?.dataset){
-      refs.fontSize.dataset.textLockScope = scopeId;
-    }
-    return scopeId;
-  }
-
   function cloneSimple(value){
     if(!value) return null;
     try{
@@ -2307,7 +2290,6 @@
     const showGrid = !!refs.showGrid?.checked;
     const showFrame = !!refs.showFrame?.checked;
     console.debug('Debug: roc showFrame state',{showFrame});
-    const textLockScope = applyRocTextLockScope();
     const containerRect=refs.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: refs.fontSize?.value,
@@ -2316,9 +2298,6 @@
       svgBox: refs.svgBox,
       input: refs.fontSize
     });
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: roc draw text lock scope enforced', { scope: textLockScope });
-    }
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
@@ -3667,7 +3646,6 @@
         console.debug('Debug: roc layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
-        textLockScope: resolveRocTextLockScope(),
         onResize: () => {
           console.debug('Debug: roc layout onResize schedule trigger');
           ensureRocLegendControlPlacement();
@@ -3693,7 +3671,6 @@
     state.layout?.syncPanels?.();
     scheduleRocNoticeWidth('init');
     ensureHotForActiveTab();
-    applyRocTextLockScope();
     initControls();
     initNotes();
     initExampleAndImport();
@@ -3748,7 +3725,6 @@
       }
     }
     ensureHotForActiveTab();
-    applyRocTextLockScope();
     roc.__domSentinel = getRocNodeById('rocHot');
   };
   roc.draw = () => { void runRocDrawCycle(); };

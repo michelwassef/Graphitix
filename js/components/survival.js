@@ -5203,9 +5203,18 @@
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
+        onAfterSync: () => {
+          ensureSurvivalLegendControlPlacement();
+        },
         onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         logDebug('layout onMinSvgWidth', { value: state.minSvgWidth });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          ensureSurvivalLegendControlPlacement();
+          scheduleSurvivalViewRefresh('resize');
+        }
       }
     });
     if(state.layout?.elements?.svgBox){
