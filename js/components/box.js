@@ -10807,7 +10807,8 @@
       force: !!(prev.force || next.force),
       viewOnly: prevView && nextView,
       reason: next.reason || prev.reason,
-      resizePhase: next.resizePhase || prev.resizePhase
+      resizePhase: next.resizePhase || prev.resizePhase,
+      forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
     };
   }
 
@@ -23703,6 +23704,53 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     return false;
   }
 
+  function tryReuseBoxCanvasPointGroupDuringResizeMove(options = {}){
+    const targetGroup = options.targetGroup || null;
+    const previousSvg = options.previousSvg || null;
+    const traceIndex = options.traceIndex;
+    const nextMargin = options.nextMargin || null;
+    const nextPlotW = Number(options.nextPlotW);
+    const nextPlotH = Number(options.nextPlotH);
+    if(!targetGroup || !previousSvg || !nextMargin || traceIndex == null){
+      return false;
+    }
+    const sourceGroup = previousSvg.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"]`);
+    if(!sourceGroup){
+      return false;
+    }
+    const sourceForeign = sourceGroup.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
+    if(!sourceForeign){
+      return false;
+    }
+    const prevLeft = Number(previousSvg.dataset?.boxPlotLeft);
+    const prevTop = Number(previousSvg.dataset?.boxPlotTop);
+    const prevPlotW = Number(previousSvg.dataset?.boxPlotW);
+    const prevPlotH = Number(previousSvg.dataset?.boxPlotH);
+    if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(prevPlotW) || !Number.isFinite(prevPlotH) || prevPlotW <= 0 || prevPlotH <= 0){
+      return false;
+    }
+    if(!Number.isFinite(nextPlotW) || !Number.isFinite(nextPlotH) || nextPlotW <= 0 || nextPlotH <= 0){
+      return false;
+    }
+    const sx = nextPlotW / prevPlotW;
+    const sy = nextPlotH / prevPlotH;
+    if(!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0){
+      return false;
+    }
+    const tx = Number(nextMargin.left) - (sx * prevLeft);
+    const ty = Number(nextMargin.top) - (sy * prevTop);
+    const clone = sourceGroup.cloneNode(true);
+    clone.setAttribute('data-render-mode', 'canvas-resize-reused');
+    clone.setAttribute('pointer-events', 'none');
+    clone.setAttribute('transform', `matrix(${sx} 0 0 ${sy} ${tx} ${ty})`);
+    while(clone.firstChild){
+      targetGroup.appendChild(clone.firstChild);
+    }
+    targetGroup.setAttribute('data-render-mode', 'canvas-resize-reused');
+    targetGroup.setAttribute('pointer-events', 'none');
+    return true;
+  }
+
   function buildStatsAnalysisSpec(extra){
     const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
     return {
@@ -27314,6 +27362,14 @@ Technical analysis record (advanced)
     syncBoxThemeSurfaceForCurrentScheme();
     const retainPreviousPlotFrame = shouldRetainPreviousBoxFrame(drawOpts) && !!els.plotDiv?.firstChild;
     const retainedPlotNodes = retainPreviousPlotFrame ? Array.from(els.plotDiv.childNodes || []) : null;
+    const previousBoxSvg2d = retainPreviousPlotFrame && Array.isArray(retainedPlotNodes)
+      ? (retainedPlotNodes.find(node =>
+        node
+        && String(node.nodeName || '').toLowerCase() === 'svg'
+        && node.getAttribute
+        && node.getAttribute('id') === 'boxSvg'
+      ) || null)
+      : null;
     if(!retainPreviousPlotFrame){
       while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
     }else if(debugEnabled){
@@ -28624,7 +28680,11 @@ Technical analysis record (advanced)
         orientation = 'vertical',
         cacheAxisKey = orientation,
         coordProjector = value => value,
-        scaleSignature = ''
+        scaleSignature = '',
+        nextMarginLeft = NaN,
+        nextMarginTop = NaN,
+        nextPlotW = NaN,
+        nextPlotH = NaN
       } = config || {};
       const pointLayout = prepareSwarmPointLayoutConfig({
         valueList,
@@ -28818,6 +28878,29 @@ Technical analysis record (advanced)
       };
       const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
       const group = add('g', groupAttributes);
+      const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
+      const isResizeMovePhase = drawOpts?.reason === 'resize' && resizePhase === 'move';
+      const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
+      if(
+        isResizeMovePhase
+        && !forceCanvasRecompute
+        && canvasPointLayerEnabled
+        && tryReuseBoxCanvasPointGroupDuringResizeMove({
+          targetGroup: group,
+          previousSvg: previousBoxSvg2d,
+          traceIndex,
+          nextMargin: { left: Number(nextMarginLeft) || 0, top: Number(nextMarginTop) || 0 },
+          nextPlotW: Number(nextPlotW),
+          nextPlotH: Number(nextPlotH)
+        })
+      ){
+        return {
+          swarm: null,
+          maxOffsetUsed: 0,
+          effectiveRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
+          collectPointsByRow
+        };
+      }
       const pointSelectionData = {
         seriesName: tooltipSeriesName,
         categoryName: tooltipCategoryName,
@@ -29434,13 +29517,21 @@ Technical analysis record (advanced)
         ? config.scaleSignatureParts
         : [];
       const scaleSignature = scaleSignatureParts.map(value => String(value ?? '')).join('|');
+      const nextMarginLeft = Number(config?.nextMarginLeft);
+      const nextMarginTop = Number(config?.nextMarginTop);
+      const nextPlotW = Number(config?.nextPlotW);
+      const nextPlotH = Number(config?.nextPlotH);
       return async params => renderSwarmPointsShared({
         ...params,
         centerCoord: params?.[centerCoordKey],
         orientation,
         cacheAxisKey,
         coordProjector,
-        scaleSignature
+        scaleSignature,
+        nextMarginLeft,
+        nextMarginTop,
+        nextPlotW,
+        nextPlotH
       });
     };
     const resolveDisplayedPointRadiusFallback = (profile, mode) => {
@@ -30793,6 +30884,10 @@ Technical analysis record (advanced)
       const renderSwarmPointsVertical = createOrientationSwarmRenderer({
         orientation: 'vertical',
         coordProjector: value => y2px(value),
+        nextMarginLeft: marginLocal.left,
+        nextMarginTop: marginLocal.top,
+        nextPlotW: plotWLocal,
+        nextPlotH: plotHLocal,
         scaleSignatureParts: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
@@ -31284,6 +31379,10 @@ Technical analysis record (advanced)
       const renderSwarmPointsHorizontal = createOrientationSwarmRenderer({
         orientation: 'horizontal',
         coordProjector: value => valueToX(value),
+        nextMarginLeft: marginLocal.left,
+        nextMarginTop: marginLocal.top,
+        nextPlotW: plotWLocal,
+        nextPlotH: plotHLocal,
         scaleSignatureParts: [
           Number(yScale?.min).toFixed(6),
           Number(yScale?.max).toFixed(6),
@@ -32039,6 +32138,10 @@ Technical analysis record (advanced)
       }
     }
     const extensionChanged = !!extensionUpdate?.changed && !!extensionUpdate?.applied;
+    svg.dataset.boxPlotLeft = String(Number(orientationResult?.margin?.left) || 0);
+    svg.dataset.boxPlotTop = String(Number(orientationResult?.margin?.top) || 0);
+    svg.dataset.boxPlotW = String(Number(orientationResult?.plotW) || 0);
+    svg.dataset.boxPlotH = String(Number(orientationResult?.plotH) || 0);
     svg.setAttribute('data-box-base-width', String(viewportWidth));
     svg.setAttribute('data-box-base-height', String(viewportHeight));
     const zoomViewport = els.svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
@@ -33626,7 +33729,6 @@ Technical analysis record (advanced)
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
-        skipScheduleOnResizePhases: phase => phase === 'move' || phase === 'observe',
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });
@@ -33670,11 +33772,23 @@ Technical analysis record (advanced)
             state.resizeInteractionActive = false;
           }
           boxDebug('Debug: box layout onResize schedule trigger');
-          state.scheduleDraw?.({
+          const isResizeFinalize = currentPhase === 'end'
+            || currentPhase === 'reset'
+            || currentPhase === 'undo'
+            || currentPhase === 'redo'
+            || currentPhase === 'programmatic'
+            || currentPhase === 'aspect-toggle';
+          const resizeDrawOptions = {
             viewOnly: true,
             reason,
-            resizePhase: currentPhase || null
-          });
+            resizePhase: currentPhase || null,
+            forceCanvasRecompute: isResizeFinalize
+          };
+          if(currentPhase === 'move'){
+            runBoxDrawCycle(resizeDrawOptions);
+            return;
+          }
+          state.scheduleDraw?.(resizeDrawOptions);
         }
       }
     });
@@ -33740,8 +33854,9 @@ Technical analysis record (advanced)
           ? global.performance.now()
           : Date.now();
         const cachedPointCount = countCachedBoxPoints();
+        const isResizeMoveDraw = nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move';
         const cooldownMs = nextOpts.viewOnly
-          ? (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0)
+          ? (isResizeMoveDraw ? 0 : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0))
           : 80;
         const elapsed = now - state.lastDrawAt;
         if(cooldownMs > 0 && elapsed < cooldownMs){

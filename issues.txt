@@ -1,0 +1,1 @@
+[2026-05-01] Resize-flow duplication: box.js and scatter.js each implement bespoke resizer phase gating logic. This should be centralized in a shared helper (e.g., Shared.componentLayout/Shared.resizer) to keep behavior homogeneous across components and reduce regression risk.

@@ -1,0 +1,577 @@
+resizer.js:1996 Debug: resizer snapshot captured {container: 'boxGraphPanel', tag: 'pointer-start', width: 499, height: 499, aspectLocked: true}
+resizer.js:2187 Debug: resizer drag start {axis: 'x', startW: 499, startH: 499, MIN_W: 128, MIN_H: 128}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -6.66668701171875, dy: -0.66668701171875, aspectLocked: true, width: '492px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 492, heightToApply: 492, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 492, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: true}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -14.66668701171875, dy: -0.66668701171875, aspectLocked: true, width: '484px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 484, heightToApply: 484, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 484, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'box', source: 'resize'}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: true}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -24, dy: -2, aspectLocked: true, width: '475px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 475, heightToApply: 475, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 475, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'box', source: 'resize'}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: true}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+ Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 475, height: 401, defaultWidth: 427, defaultHeight: 427, scaleX: 1.1124121779859484, …}
+ Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'boxFontSize', scaledPt: 12, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'boxGraphPanel::@tab:workspace-2', scaledPt: 12, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+ Debug: box axis settings current {strokeWidth: 1, color: '#000000', tickIntervalX: null, tickIntervalY: null, datasetSpacingX: 1, …}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1.0109869694896394, context: 'box-grid'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1.0109869694896394, context: 'box-border'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1.0109869694896394, context: 'box-errorbar'}
+ Debug: chartStyle.scaleLength {base: 5, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0.5, max: Infinity, result: 1.0109869694896394, context: 'box-annotation'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#000000', percent: -30, newColor: '#000000'}
+ Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
+ Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
+ Debug: chartStyle.scaleLength {base: 25, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 25, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 12, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+box.js:26727 Debug: box showSignificance flag {showSignificance: false}
+chartStyle.js:2259 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'boxFontSize', displayPt: 12, min: 6, max: 24}
+chartStyle.js:2276 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'boxFontSize', manualUpdate: false}
+box.js:26729 Debug: box font scaling applied {input: '12', fontSizePt: 12, baseFontPx: 16, scaledFontPx: 16, scale: 1.022094652477845, …}
+box.js:26740 Debug: box style scaling applied {borderWidthRaw: 1, borderWidthPx: 1.0109869694896394, errorBarWidthRaw: 1, errorBarWidthPx: 1.0109869694896394, axisStrokeWidth: 1, …}
+chartStyle.js:1393 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1.022094652477845, resizeScale: 1.022094652477845, baseMetrics: {…}, …}
+box.js:26760 Debug: box axis metrics {tickLength: 6, tickLabelGap: 6.132567914867069, axisTitleGap: 12.265135829734138, outerPadding: 10.22094652477845, yTitleGap: 8.17675721982276}
+box.js:26763 Debug: box showFrame state {showFrame: false}
+box.js:26765 Debug: box showLegend state {showLegend: false}
+box.js:26808 Debug: box summary selector mode {graphTypeRaw: 'strip', individualSummaryMode: 'median-point'}
+box.js:26829 Debug: box draw orientation {isFlipped: false}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
+chartStyle.js:2342 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
+box.js:26833 Debug: box legend initial state {legendWidthForMargin: 0, legendGapPx: 0, entryCount: 0}
+box.js:26963 Debug: box data collect skipped (view cache) {traces: 2, labels: 2, reason: 'resize'}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
+box.js:27275 Debug: box trace colors primed {traceCount: 2, sample: Array(2)}
+box.js:27277 Debug: box color picker labels resolved {isGroupedMode: false, labelCount: 2, labels: Array(2)}
+fontControls.js:1424 Debug: fontControls enableForSvg attached {scopeId: 'boxSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+chartStyle.js:2190 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'boxSvg'}
+chartStyle.js:2196 Debug: chartStyle.applySvgDefaults {hasSvg: true}
+box.js:27535 Debug: box fontControls enableForSvg invoked {width: 444, height: 417}
+box.js:27564 Debug: box distribution cache reused {traces: 2, mode: 'linear:unsorted', reason: 'resize'}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
+chartStyle.js:2342 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
+box.js:27904 Debug: box legend disabled {grouped: false, groupCount: 0, showLegend: false}
+fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Value', font: '16px Arial, Helvetica, sans-serif', width: 39.734375}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 0, yTitleWidth: 39.734375, xTickFontSize: 16, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 364, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 238.38134973062034, baseSpacing: 80, rawEstimate: 2.979766871632754, rounded: 3, minTicks: 3, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 35.59375, yTitleWidth: 39.734375, xTickFontSize: 16, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 340.0085462553988, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 238.38134973062034, baseSpacing: 80, rawEstimate: 2.979766871632754, rounded: 3, minTicks: 3, …}
+box.js:30432 Debug: box tick target evaluation {pass: 0, plotH: 238.38134973062034, tickTargetHeight: 238.38134973062034, yTickTarget: 3, refinedTickTarget: 3}
+box.js:30438 Debug: box layout {margin: {…}, plotW: 340.0085462553988, plotH: 238.38134973062034, rotate: false, yTickTarget: 3, …}
+box.js:29269 Debug: box broken axis {axis: 'y', enabled: false, segments: Array(0), isBroken: undefined}
+box.js:30528 Debug: box grid stroke scaled {horizontal: 6, gridStrokeStyle: {…}, visible: false}
+box.js:30538 Debug: box axis join span {axisYStart: 38, axisYEnd: 276.38134973062034, xAxisY: 276.38134973062034, yAxisX: 79.9914537446012}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'box::@tab:workspace-2::yTick', remaining: 20}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '250'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '500'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '750'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1000'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1250'}
+box.js:30754 Debug: box x-axis span {axisXStart: 79.9914537446012, axisXEnd: 420, yAxisX: 79.9914537446012, frameXMax: 420, plotWUsed: 340.0085462553988}
+box.js:30759 Debug: box axes stroke scaled {axisStrokeWidth: 1}
+box.js:29103 Debug: box frame request {stroke: '#000000', showFrame: false, axisStrokeWidth: 1}
+chartStyle.js:2582 Debug: chartStyle.drawPlotFrame applied {sides: Array(2), stroke: '#000000', plotW: 340.0085462553988, plotH: 238.38134973062034, strokeWidth: 1}
+ Debug: box frame stroke scaled {axisStrokeWidth: 1, visible: false}
+ Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: 'Libraryrep1'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: 'Libraryrep2'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: box font tick binding {xTickFontCount: 2, yTickFontCount: 6}
+ Debug: box ticks stroke scaled {yTickCount: 6, xTickCount: 2, axisStrokeWidth: 1}
+ Debug: chartStyle.applyLabelOrientation result {count: 2, rotated: false, angle: -45, disableAuto: false}
+ Debug: fontControls registerNodeForKey cleanup {storeKey: 'box::@tab:workspace-2::__graph__', remaining: 40}
+ Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Value'}
+ Debug: box markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Value'}
+ Debug: makeEditable bound {hasOnChange: true}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
+ Debug: componentLayout ResizeObserver triggered {component: 'box', nextSize: {…}}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 475, heightToApply: 475, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 475, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'box', source: 'observer'}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 475, heightToApply: 475, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 475, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -95.3333740234375, dy: -4, aspectLocked: true, width: '404px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 404, heightToApply: 404, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 404, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'box', source: 'resize'}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: true}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -104.66668701171875, dy: -4.66668701171875, aspectLocked: true, width: '394px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 394, heightToApply: 394, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 394, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 3}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: componentLayout ResizeObserver triggered {component: 'box', nextSize: {…}}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 394, heightToApply: 394, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 394, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'box', source: 'observer'}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 394, heightToApply: 394, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 394, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -116, dy: -5.333343505859375, aspectLocked: true, width: '383px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 383, heightToApply: 383, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 383, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -118, dy: -5.333343505859375, aspectLocked: true, width: '381px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 381, heightToApply: 381, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 381, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -121.3333740234375, dy: -5.333343505859375, aspectLocked: true, width: '378px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 378, heightToApply: 378, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 378, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -124, dy: -5.333343505859375, aspectLocked: true, width: '375px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 375, heightToApply: 375, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 375, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -126, dy: -5.333343505859375, aspectLocked: true, width: '373px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 373, heightToApply: 373, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 373, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 6}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 5}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 4}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 3}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 373, heightToApply: 373, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 373, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -131.3333740234375, dy: -5.333343505859375, aspectLocked: true, width: '368px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 368, heightToApply: 368, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 368, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -133.3333740234375, dy: -5.333343505859375, aspectLocked: true, width: '366px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 366, heightToApply: 366, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 366, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 366, heightToApply: 366, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 366, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -138.66668701171875, dy: -5.333343505859375, aspectLocked: true, width: '360px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 360, heightToApply: 360, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 360, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -140, dy: -5.333343505859375, aspectLocked: true, width: '359px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 359, heightToApply: 359, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 359, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 359, heightToApply: 359, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 359, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -142.66668701171875, dy: -5.333343505859375, aspectLocked: true, width: '356px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 356, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -144, dy: -5.333343505859375, aspectLocked: true, width: '355px', …}
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 355, heightToApply: 355, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 355, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 355, heightToApply: 355, ratio: 1, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 355, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'x', dx: -144.66668701171875, dy: -6, aspectLocked: true, width: '354px', …}
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 354, heightToApply: 354, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 354, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1165 Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -145.3333740234375, dy: -6, aspectLocked: true, width: '354px', …}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:2284 Debug: resizer observer triggered
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 354, heightToApply: 354, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 354, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1165 Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -146, dy: -6, aspectLocked: true, width: '353px', …}
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 353, heightToApply: 353, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 353, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:2284 Debug: resizer observer triggered
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 353, heightToApply: 353, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 353, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1165 Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -146.66668701171875, dy: -6, aspectLocked: true, width: '352px', …}
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:2284 Debug: resizer observer triggered
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'boxGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1165 Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -147.3333740234375, dy: -6, aspectLocked: true, width: '352px', …}
+resizer.js:2226 Debug: resizer drag end
+resizer.js:1996 Debug: resizer snapshot captured {container: 'boxGraphPanel', tag: 'pointer-end', width: 352, height: 352, aspectLocked: true}
+componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'box', phase: 'end', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 1.022094652477845, resizeOnlyScale: 1.022094652477845, lengthScale: 1.0109869694896394, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
+box.js:8987 Debug: box markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+box.js:32326 Debug: box annotation style forwarded {annotationStyle: {…}, significance: {…}}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+ Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 352, height: 278, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8243559718969555, …}
+ Debug: chartStyle.pxToPt {input: 12, numeric: 12, pt: 9}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'boxFontSize', scaledPt: 9, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'boxGraphPanel::@tab:workspace-2', scaledPt: 9, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 12, scaledPt: 9, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+ Debug: box axis settings current {strokeWidth: 1, color: '#000000', tickIntervalX: null, tickIntervalY: null, datasetSpacingX: 1, …}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8559195128615364, context: 'box-grid'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8559195128615364, context: 'box-border'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8559195128615364, context: 'box-errorbar'}
+ Debug: chartStyle.scaleLength {base: 5, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0.5, max: Infinity, result: 0.8559195128615364, context: 'box-annotation'}
+ Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+ Debug: shadeColor {color: '#000000', percent: -30, newColor: '#000000'}
+ Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
+ Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
+ Debug: chartStyle.scaleLength {base: 25, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 25, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 12, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+ Debug: box showSignificance flag {showSignificance: false}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'boxFontSize', displayPt: 9, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 9, px: 12, label: '9 pt (12px)', inputId: 'boxFontSize', manualUpdate: false}
+ Debug: box font scaling applied {input: '12', fontSizePt: 12, baseFontPx: 16, scaledFontPx: 12, scale: 0.7325982124971299, …}
+ Debug: box style scaling applied {borderWidthRaw: 1, borderWidthPx: 0.8559195128615364, errorBarWidthRaw: 1, errorBarWidthPx: 0.8559195128615364, axisStrokeWidth: 1, …}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.7325982124971299, resizeScale: 0.7325982124971299, baseMetrics: {…}, …}
+ Debug: box axis metrics {tickLength: 4, tickLabelGap: 4.395589274982779, axisTitleGap: 8.791178549965558, outerPadding: 7.325982124971299, yTitleGap: 5.860785699977039}
+ Debug: box showFrame state {showFrame: false}
+ Debug: box showLegend state {showLegend: false}
+ Debug: box summary selector mode {graphTypeRaw: 'strip', individualSummaryMode: 'median-point'}
+box.js:26829 Debug: box draw orientation {isFlipped: false}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 12, font: '12px Arial, Helvetica, sans-serif'}
+chartStyle.js:2342 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 12, rowGap: 4, swatchSize: 7, swatchGap: 8, …}
+box.js:26833 Debug: box legend initial state {legendWidthForMargin: 0, legendGapPx: 0, entryCount: 0}
+box.js:26963 Debug: box data collect skipped (view cache) {traces: 2, labels: 2, reason: 'resize'}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
+box.js:27275 Debug: box trace colors primed {traceCount: 2, sample: Array(2)}
+box.js:27277 Debug: box color picker labels resolved {isGroupedMode: false, labelCount: 2, labels: Array(2)}
+fontControls.js:1424 Debug: fontControls enableForSvg attached {scopeId: 'boxSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+chartStyle.js:2190 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'boxSvg'}
+chartStyle.js:2196 Debug: chartStyle.applySvgDefaults {hasSvg: true}
+box.js:27535 Debug: box fontControls enableForSvg invoked {width: 321, height: 260}
+box.js:27564 Debug: box distribution cache reused {traces: 2, mode: 'linear:unsorted', reason: 'resize'}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 12, font: '12px Arial, Helvetica, sans-serif'}
+chartStyle.js:2342 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 12, rowGap: 4, swatchSize: 7, swatchGap: 8, …}
+box.js:27904 Debug: box legend disabled {grouped: false, groupCount: 0, showLegend: false}
+fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 12, font: '12px Arial, Helvetica, sans-serif'}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Value', font: '12px Arial, Helvetica, sans-serif', width: 29.80078125}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 12, legendWidth: 0, maxYLabelWidth: 0, yTitleWidth: 29.80078125, xTickFontSize: 12, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '12px Arial, Helvetica, sans-serif', width: 60.697265625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '12px Arial, Helvetica, sans-serif', width: 60.697265625}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 12, plotWidth: 241, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 101.48725005008038, baseSpacing: 80, rawEstimate: 1.2685906256260047, rounded: 1, minTicks: 3, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 12, legendWidth: 0, maxYLabelWidth: 26.6953125, yTitleWidth: 29.80078125, xTickFontSize: 12, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '12px Arial, Helvetica, sans-serif', width: 60.697265625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '12px Arial, Helvetica, sans-serif', width: 60.697265625}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 12, plotWidth: 238.11791967505167, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 101.48725005008038, baseSpacing: 80, rawEstimate: 1.2685906256260047, rounded: 1, minTicks: 3, …}
+box.js:30432 Debug: box tick target evaluation {pass: 0, plotH: 101.48725005008038, tickTargetHeight: 101.48725005008038, yTickTarget: 3, refinedTickTarget: 3}
+box.js:30438 Debug: box layout {margin: {…}, plotW: 238.11791967505167, plotH: 101.48725005008038, rotate: false, yTickTarget: 3, …}
+box.js:29269 Debug: box broken axis {axis: 'y', enabled: false, segments: Array(0), isBroken: undefined}
+box.js:30528 Debug: box grid stroke scaled {horizontal: 6, gridStrokeStyle: {…}, visible: false}
+box.js:30538 Debug: box axis join span {axisYStart: 36, axisYEnd: 137.48725005008038, xAxisY: 137.48725005008038, yAxisX: 58.88208032494834}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '250'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '500'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '750'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1000'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1250'}
+box.js:30754 Debug: box x-axis span {axisXStart: 58.88208032494834, axisXEnd: 297, yAxisX: 58.88208032494834, frameXMax: 297, plotWUsed: 238.11791967505167}
+box.js:30759 Debug: box axes stroke scaled {axisStrokeWidth: 1}
+box.js:29103 Debug: box frame request {stroke: '#000000', showFrame: false, axisStrokeWidth: 1}
+chartStyle.js:2582 Debug: chartStyle.drawPlotFrame applied {sides: Array(2), stroke: '#000000', plotW: 238.11791967505167, plotH: 101.48725005008038, strokeWidth: 1}
+box.js:29117 Debug: box frame stroke scaled {axisStrokeWidth: 1, visible: false}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: 'Libraryrep1'}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: 'Libraryrep2'}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+box.js:30816 Debug: box font tick binding {xTickFontCount: 2, yTickFontCount: 6}
+box.js:30817 Debug: box ticks stroke scaled {yTickCount: 6, xTickCount: 2, axisStrokeWidth: 1}
+chartStyle.js:1538 Debug: chartStyle.applyLabelOrientation result {count: 2, rotated: false, angle: -45, disableAuto: false}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Value'}
+box.js:8987 Debug: box markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Value'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
+box.js:26842 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 0.7325982124971299, resizeOnlyScale: 0.7325982124971299, lengthScale: 0.8559195128615364, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
+box.js:8987 Debug: box markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+box.js:32326 Debug: box annotation style forwarded {annotationStyle: {…}, significance: {…}}
+resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
+resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'box sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'box', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
+resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 394.1145935058594, …}
+componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}

@@ -9620,7 +9620,18 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
-            scheduleDrawScatter({ viewOnly: true, reason: 'resize', resizePhase: resizePhase || null });
+            const isResizeFinalize = resizePhase === 'end'
+              || resizePhase === 'reset'
+              || resizePhase === 'undo'
+              || resizePhase === 'redo'
+              || resizePhase === 'programmatic'
+              || resizePhase === 'aspect-toggle';
+            scheduleDrawScatter({
+              viewOnly: true,
+              reason: 'resize',
+              resizePhase: resizePhase || null,
+              forceCanvasRecompute: isResizeFinalize
+            });
           }
         }
       });
@@ -15342,6 +15353,56 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return appended;
       }
 
+      function tryReuseScatterCanvasPointLayerDuringResizeMove(options = {}){
+        const targetLayer = options.targetLayer || null;
+        const previousSvg = options.previousSvg || null;
+        const nextMargin = options.nextMargin || null;
+        const nextPlotW = Number(options.nextPlotW);
+        const nextPlotH = Number(options.nextPlotH);
+        if(!targetLayer || !previousSvg || !nextMargin){
+          return false;
+        }
+        const sourceLayer = previousSvg.querySelector('g[data-layer="points"]');
+        if(!sourceLayer){
+          return false;
+        }
+        const sourceRenderMode = String(sourceLayer.getAttribute('data-render-mode') || '');
+        if(sourceRenderMode !== 'canvas'){
+          return false;
+        }
+        const sourceForeign = sourceLayer.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
+        if(!sourceForeign){
+          return false;
+        }
+        const prevLeft = Number(previousSvg.dataset?.scatterPlotLeft);
+        const prevTop = Number(previousSvg.dataset?.scatterPlotTop);
+        const prevPlotW = Number(previousSvg.dataset?.scatterPlotW);
+        const prevPlotH = Number(previousSvg.dataset?.scatterPlotH);
+        if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(prevPlotW) || !Number.isFinite(prevPlotH) || prevPlotW <= 0 || prevPlotH <= 0){
+          return false;
+        }
+        if(!Number.isFinite(nextPlotW) || !Number.isFinite(nextPlotH) || nextPlotW <= 0 || nextPlotH <= 0){
+          return false;
+        }
+        const sx = nextPlotW / prevPlotW;
+        const sy = nextPlotH / prevPlotH;
+        if(!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0){
+          return false;
+        }
+        const tx = Number(nextMargin.left) - (sx * prevLeft);
+        const ty = Number(nextMargin.top) - (sy * prevTop);
+        const clone = sourceLayer.cloneNode(true);
+        clone.setAttribute('data-render-mode', 'canvas-resize-reused');
+        clone.setAttribute('pointer-events', 'none');
+        clone.setAttribute('transform', `matrix(${sx} 0 0 ${sy} ${tx} ${ty})`);
+        while(clone.firstChild){
+          targetLayer.appendChild(clone.firstChild);
+        }
+        targetLayer.setAttribute('data-render-mode', 'canvas-resize-reused');
+        targetLayer.setAttribute('pointer-events', 'none');
+        return true;
+      }
+
       function createBubbleRadiusScaler(points, baseRadius){
         const safeBase = Math.max(1, Number(baseRadius) || 1);
         let minValue = Infinity;
@@ -17723,6 +17784,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           return;
         }
         const previousPlotChildren = Array.from(plotEl.childNodes || []);
+        const previousScatterSvg2d = previousPlotChildren.find(node =>
+          node
+          && String(node.nodeName || '').toLowerCase() === 'svg'
+          && node.getAttribute
+          && node.getAttribute('id') === 'scatterSvg'
+        ) || null;
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
         const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
@@ -18926,6 +18993,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const canvasPointBuckets = useCanvasPointRender ? new Map() : null;
         let canvasPointBounds = null;
         const batchedCircleBuckets = useBatchedCircleRender ? new Map() : null;
+        const resizePhase = typeof drawOptions?.resizePhase === 'string' ? drawOptions.resizePhase : '';
+        const isResizeMovePhase = drawOptions?.reason === 'resize' && resizePhase === 'move';
+        const forceCanvasRecompute = !!drawOptions?.forceCanvasRecompute;
+        const canReuseCanvasLayerOnMove = !!(
+          isResizeMovePhase
+          && !forceCanvasRecompute
+          && useCanvasPointRender
+          && previousScatterSvg2d
+          && previousScatterSvg2d.querySelector('g[data-layer="points"][data-render-mode="canvas"]')
+        );
         if(largePointMode){
           debug('Debug: scatter large point render mode', {
             pointCount: points.length,
@@ -18936,6 +19013,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             isBubbleView
           });
         }
+        let pointLayer = null;
+        if(!canReuseCanvasLayerOnMove){
         for(const p of points){
           const xv = pointXv ? pointXv[pointIndex] : (logX ? Math.log10(p.x) : p.x);
           const yv = pointYv ? pointYv[pointIndex] : (logY ? Math.log10(p.y) : p.y);
@@ -19213,11 +19292,39 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const errorLayer=add('g',{'data-export-layer':'scatter-error-bars','data-layer':'error-bars'});
           errorLayer.appendChild(errorBarFrag);
         }
-        const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
+        pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
         pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas-pending' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
         if(!enablePointInteractivity){
           pointLayer.setAttribute('pointer-events', 'none');
           hideScatterTooltip('point-interaction-disabled-large-dataset');
+        }
+        }
+        if(!pointLayer){
+          pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
+          pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas-pending' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
+          if(!enablePointInteractivity){
+            pointLayer.setAttribute('pointer-events', 'none');
+            hideScatterTooltip('point-interaction-disabled-large-dataset');
+          }
+        }
+        let reusedCanvasPointLayerOnMove = false;
+        if(canReuseCanvasLayerOnMove){
+          const reused = tryReuseScatterCanvasPointLayerDuringResizeMove({
+            targetLayer: pointLayer,
+            previousSvg: previousScatterSvg2d,
+            nextMargin: margin,
+            nextPlotW: plotW,
+            nextPlotH: plotH
+          });
+          if(reused){
+            reusedCanvasPointLayerOnMove = true;
+            if(frag.childNodes.length){
+              pointLayer.appendChild(frag);
+            }
+            if(scatter.__lastLargeDatasetRenderSummary){
+              scatter.__lastLargeDatasetRenderSummary.renderMode = pointLayer.getAttribute('data-render-mode') || null;
+            }
+          }
         }
         const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
           component: 'scatter',
@@ -19225,7 +19332,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           points: points.length
         });
         let canvasPointLayerRendered = false;
-        if(useCanvasPointRender){
+        if(useCanvasPointRender && !reusedCanvasPointLayerOnMove){
           canvasPointLayerRendered = await renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, {
             doc: global.document,
             shouldCancel: () => token !== scatterDrawToken
@@ -19252,7 +19359,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           pointLayer.appendChild(frag);
         }
         if(perfApi && pointAttachPerf){
-          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: canvasPointLayerRendered });
+          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: (canvasPointLayerRendered || reusedCanvasPointLayerOnMove) });
         }
         if(scatter.__lastLargeDatasetRenderSummary){
           scatter.__lastLargeDatasetRenderSummary.renderMode = pointLayer.getAttribute('data-render-mode') || null;
@@ -19260,6 +19367,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(scatterState.useDelegatedPointEvents && enablePointInteractivity){
           ensureScatterPointDelegation(pointLayer);
         }
+        svg.dataset.scatterPlotLeft = String(margin.left);
+        svg.dataset.scatterPlotTop = String(margin.top);
+        svg.dataset.scatterPlotW = String(plotW);
+        svg.dataset.scatterPlotH = String(plotH);
         const annotationPerf = annotationRequests.length
           ? perfApi?.start('scatter.annotations.layout', {
               component: 'scatter',
@@ -20567,7 +20678,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ...next,
           force: !!(prev.force || next.force),
           viewOnly: prevView && nextView,
-          reason: next.reason || prev.reason
+          reason: next.reason || prev.reason,
+          resizePhase: next.resizePhase || prev.resizePhase,
+          forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
         };
       };
 
