@@ -5163,6 +5163,25 @@
     }, true);
   }
 
+  function bindScatterControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
+      return false;
+    }
+    const eventKey = String(eventName || '').trim();
+    if(!eventKey){
+      return false;
+    }
+    const storeKey = `${eventKey}:${String(key || 'handler')}`;
+    const store = node.__scatterControlHandlers || (node.__scatterControlHandlers = {});
+    const previous = store[storeKey];
+    if(previous && typeof node.removeEventListener === 'function'){
+      node.removeEventListener(eventKey, previous);
+    }
+    node.addEventListener(eventKey, handler);
+    store[storeKey] = handler;
+    return true;
+  }
+
   function attachScatterPointTooltip(el, data){
     if(!el || !data){ return; }
     el.__scatterPointData = data;
@@ -10175,8 +10194,8 @@
       const scatterImportBtn=getScatterNodeById('scatterImport');
       const scatterFileInput=getScatterNodeById('scatterFile');
       const tableImport = Shared.tableImport;
-      scatterImportBtn.addEventListener('click',()=>{ scatterFileInput.value=''; scatterFileInput.click(); });
-      scatterFileInput.addEventListener('change',()=>{
+      bindScatterControlHandler(scatterImportBtn, 'click', 'import-table', ()=>{ scatterFileInput.value=''; scatterFileInput.click(); });
+      bindScatterControlHandler(scatterFileInput, 'change', 'import-file', ()=>{
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('scatter import skipped: Shared.tableImport.openFile unavailable');
           return;

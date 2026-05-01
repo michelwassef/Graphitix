@@ -2281,6 +2281,7 @@
       onResize,
       debugLabel = 'sharedAutoResize',
       remeasure = true,
+      preserveAspectRatio = null,
     } = opts;
 
     const raf = typeof global.requestAnimationFrame === 'function'
@@ -2350,7 +2351,7 @@
         }
         svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         if(dataset){
-          const preserve = 'none';
+          const preserve = preserveAspectRatio != null ? preserveAspectRatio : 'none';
           svg.setAttribute('preserveAspectRatio', preserve);
           writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
         }

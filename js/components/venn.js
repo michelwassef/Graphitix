@@ -4401,7 +4401,12 @@
         syncActiveVennPayload('venn-region-hit');
       }
     };
-    ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'venn-diagram' });
+    ensureGraphViewport(stage, {
+      padding: Math.max(style.fontSizePx || 12, 20),
+      debugLabel: 'venn-diagram',
+      preserveAspectRatio: 'xMidYMid meet'
+    });
+    stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
       chartStyle.applyTextAspectCorrection({
         svg: stage,

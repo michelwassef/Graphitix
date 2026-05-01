@@ -1943,6 +1943,25 @@
     return ok;
   }
 
+  function bindPcaControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
+      return false;
+    }
+    const eventKey = String(eventName || '').trim();
+    if(!eventKey){
+      return false;
+    }
+    const storeKey = `${eventKey}:${String(key || 'handler')}`;
+    const store = node.__pcaControlHandlers || (node.__pcaControlHandlers = {});
+    const previous = store[storeKey];
+    if(previous && typeof node.removeEventListener === 'function'){
+      node.removeEventListener(eventKey, previous);
+    }
+    node.addEventListener(eventKey, handler);
+    store[storeKey] = handler;
+    return true;
+  }
+
   function bindPcaDataToolbar(){
     if(pcaDataToolbarBound || !global.document){
       return;
@@ -5016,8 +5035,8 @@
       const pcaImportBtn=getPcaNodeById('pcaImport');
       const pcaFileInput=getPcaNodeById('pcaFile');
       const tableImport = Shared.tableImport;
-      pcaImportBtn.addEventListener('click',()=>{pcaFileInput.value=''; pcaFileInput.click();});
-      pcaFileInput.addEventListener('change',async ()=>{
+      bindPcaControlHandler(pcaImportBtn, 'click', 'import-table', ()=>{pcaFileInput.value=''; pcaFileInput.click();});
+      bindPcaControlHandler(pcaFileInput, 'change', 'import-file', async ()=>{
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('pca import skipped: Shared.tableImport.openFile unavailable');
           return;
