@@ -4984,9 +4984,7 @@
       return false;
     }
     const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
-    return reason === 'resize-live'
-      || reason === 'resize-observe'
-      || reason === 'resize';
+    return reason === 'resize';
   }
 
   function getActiveBoxWorkspaceTabId(){
@@ -4999,10 +4997,7 @@
     }
     const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     const retainReasons = new Set([
-      'resize-live',
-      'resize-observe',
       'resize',
-      'resize-settled',
       'significance-viewport-extension',
       'font-style-change'
     ]);
@@ -10558,7 +10553,10 @@
   const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
-  state.scheduleResizePreview = function(){};
+  state.drawInProgress = false;
+  state.pendingDrawOpts = null;
+  state.lastDrawAt = 0;
+  state.drawCooldownTimer = null;
   state.resizeObserveDrawMutedUntil = 0;
   state.viewportExtensionResizeInProgress = false;
   state.lastViewportExtensionRedrawSignature = null;
@@ -10740,10 +10738,13 @@
 
   function applyBoxRuntimeSnapshot(snapshot, reason){
     const runtime = snapshot && typeof snapshot === 'object' ? snapshot : null;
+    clearBoxScheduledDraw(reason || 'apply-runtime-state');
     state.dataDirty = runtime ? runtime.dataDirty !== false : true;
     state.cachedDrawInput = runtime ? (cloneSimple(runtime.cachedDrawInput) || null) : null;
     state.resizeObserveDrawMutedUntil = 0;
     state.resizeInteractionActive = false;
+    state.drawInProgress = false;
+    state.lastDrawAt = 0;
     if(runtime?.notes){
       notesState.text = typeof runtime.notes.text === 'string' ? runtime.notes.text : '';
       notesState.open = !!runtime.notes.open;
@@ -10779,6 +10780,47 @@
     return !!runtime;
   }
 
+  function clearBoxScheduledDraw(reason){
+    if(state.drawCooldownTimer){
+      try{
+        (global.clearTimeout || clearTimeout)(state.drawCooldownTimer);
+      }catch(err){
+        console.debug('Debug: box draw cooldown clear failed', { reason: reason || 'unspecified', message: err?.message || String(err) });
+      }
+      state.drawCooldownTimer = null;
+    }
+    state.pendingDrawOpts = null;
+  }
+
+  function mergeBoxDrawOptions(prev, next){
+    if(!prev){
+      return next ? { ...next } : {};
+    }
+    if(!next){
+      return { ...prev };
+    }
+    const prevView = !!prev.viewOnly;
+    const nextView = !!next.viewOnly;
+    return {
+      ...prev,
+      ...next,
+      force: !!(prev.force || next.force),
+      viewOnly: prevView && nextView,
+      reason: next.reason || prev.reason,
+      resizePhase: next.resizePhase || prev.resizePhase
+    };
+  }
+
+  function countCachedBoxPoints(){
+    const traces = Array.isArray(state.cachedDrawInput?.traces) ? state.cachedDrawInput.traces : [];
+    return traces.reduce((total, trace) => {
+      const values = Array.isArray(trace?.rawY)
+        ? trace.rawY
+        : (Array.isArray(trace?.y) ? trace.y : []);
+      return total + values.length;
+    }, 0);
+  }
+
   function ensureEmptyPayloadTemplate(){
     if(emptyPayloadTemplate){
       return;
@@ -10790,11 +10832,11 @@
     if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
       return false;
     }
-    const storeKey = String(key || eventName || 'handler');
     const eventKey = String(eventName || '').trim();
     if(!eventKey){
       return false;
     }
+    const storeKey = `${eventKey}:${String(key || 'handler')}`;
     const store = node.__boxControlHandlers || (node.__boxControlHandlers = {});
     const previous = store[storeKey];
     if(previous && typeof node.removeEventListener === 'function'){
@@ -12011,69 +12053,6 @@
     return { width, height, zoomScale };
   }
 
-  function applyBoxLiveResizePreview(options = {}){
-    const sessionMeta = options.__boxSessionMeta || buildBoxSessionMeta(options);
-    if(!isCurrentBoxSessionMeta(sessionMeta)){
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: box live resize preview skipped (stale session)', {
-          tabId: sessionMeta?.tabId || null,
-          sessionGeneration: sessionMeta?.sessionGeneration || 0,
-          reason: options.reason || null
-        });
-      }
-      return false;
-    }
-    const svg = els.plotDiv?.querySelector?.('svg') || els.svgBox?.querySelector?.('svg') || null;
-    const plotHost = els.plotDiv || null;
-    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
-    if(!svg || !plotHost){
-      return false;
-    }
-    const rect = plotHost.getBoundingClientRect?.() || null;
-    const fallbackBaseSize = resolveBoxSvgBoxBaseSize(svgBox);
-    const width = Math.max(
-      50,
-      Math.round(rect?.width || plotHost.clientWidth || fallbackBaseSize.width || svg.clientWidth || 50)
-    );
-    const height = Math.max(
-      40,
-      Math.round(rect?.height || plotHost.clientHeight || fallbackBaseSize.height || svg.clientHeight || 40)
-    );
-    if(!svg.getAttribute('viewBox')){
-      const baseViewport = resolveBoxBaseViewportSize(svg);
-      svg.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
-    }
-    svg.setAttribute('width', String(width));
-    svg.setAttribute('height', String(height));
-    svg.setAttribute('preserveAspectRatio', svgBox?.dataset?.resizerAspectLocked === 'true' ? 'xMidYMid meet' : 'none');
-    svg.setAttribute('data-box-live-resize-preview', 'true');
-    if(svg.style){
-      svg.style.display = 'block';
-      svg.style.overflow = 'visible';
-    }
-    if(plotHost.style){
-      plotHost.style.overflow = 'visible';
-    }
-    const zoomViewport = svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
-    const zoomContent = svgBox?.querySelector?.('.resizer-zoom-content') || null;
-    if(zoomViewport?.style){
-      zoomViewport.style.overflow = 'visible';
-    }
-    if(zoomContent?.style){
-      zoomContent.style.overflow = 'visible';
-    }
-    if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box live resize preview applied', {
-        reason: options.reason || null,
-        phase: options.resizePhase || null,
-        width,
-        height,
-        aspectLocked: svgBox?.dataset?.resizerAspectLocked === 'true'
-      });
-    }
-    return true;
-  }
-
   function applyBoxViewportExtensions(nextExtensions, options = {}){
     const debugLogging = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const shouldResizeContainer = options.resizeContainer === true;
@@ -12195,6 +12174,15 @@
 
   function ensureBoxExportControlsClearance(svg, options = {}){
     if(!svg || typeof svg.getBoundingClientRect !== 'function'){
+      return false;
+    }
+    if(options.deferContainerResize === true){
+      if(boxDebugEnabled()){
+        console.debug('Debug: box export controls clearance deferred', {
+          reason: options.reason || null,
+          resizePhase: options.resizePhase || null
+        });
+      }
       return false;
     }
     if(state.restoredSignificanceGeometryLock){
@@ -15206,7 +15194,7 @@
       [22,26,24,88,30,67]
     ];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
-    loadExampleBtn?.addEventListener('click',()=>{
+    bindBoxControlHandler(loadExampleBtn, 'click', 'load-example', ()=>{
       const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(!hot){
         console.warn('boxplot example load skipped: table instance unavailable');
@@ -15245,7 +15233,7 @@
       console.debug('Debug: box axis settings reset from example load');
       state.scheduleDraw();
     });
-    importBtn.addEventListener('click',()=>{ fileInput.value=''; fileInput.click(); });
+    bindBoxControlHandler(importBtn, 'click', 'import-table', ()=>{ fileInput.value=''; fileInput.click(); });
     const tableImport = Shared.tableImport;
     const applyBoxPrismStyle = style => {
       if(!style || typeof style !== 'object'){
@@ -15288,7 +15276,7 @@
       }
       state.scheduleDraw({ force: true, reason: 'import-prism-style' });
     };
-    fileInput.addEventListener('change',()=>{
+    bindBoxControlHandler(fileInput, 'change', 'import-file', ()=>{
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('boxplot import skipped: Shared.tableImport.openFile unavailable');
         return;
@@ -15407,13 +15395,13 @@
     ensureViolinState();
     syncViolinControlsFromState();
     if(els.tableFormat){
-      els.tableFormat.addEventListener('change', e=>{
+      bindBoxControlHandler(els.tableFormat, 'change', 'table-format', e=>{
         console.debug('Debug: tableFormat select change',{ value: e.target.value });
         setTableFormat(e.target.value);
       });
     }
     if(els.groupedReplicates){
-      els.groupedReplicates.addEventListener('change', e=>{
+      bindBoxControlHandler(els.groupedReplicates, 'change', 'grouped-replicates', e=>{
         const raw = Number(e.target.value);
         const resolved = Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : state.grouped.replicatesPerGroup;
         state.grouped.replicatesPerGroup = resolved;
@@ -15424,10 +15412,10 @@
     }
     ensureBoxColorModeControls();
     if(els.boxColorUnified){
-      els.boxColorUnified.addEventListener('change',toggleColorMode);
+      bindBoxControlHandler(els.boxColorUnified, 'change', 'color-unified', toggleColorMode);
     }
     if(els.boxColorIndividual){
-      els.boxColorIndividual.addEventListener('change',toggleColorMode);
+      bindBoxControlHandler(els.boxColorIndividual, 'change', 'color-individual', toggleColorMode);
     }
     toggleColorMode();
     const applyViolinBandwidthChange = value => {
@@ -15447,7 +15435,7 @@
       return true;
     };
     if(els.violinBandwidth){
-      els.violinBandwidth.addEventListener('input',()=>{
+      bindBoxControlHandler(els.violinBandwidth, 'input', 'violin-bandwidth', ()=>{
         applyViolinBandwidthChange(els.violinBandwidth.value);
       });
     }
@@ -15455,9 +15443,9 @@
       const handleBandwidthInput = ()=>{
         applyViolinBandwidthChange(els.violinBandwidthValue.value);
       };
-      els.violinBandwidthValue.addEventListener('change',handleBandwidthInput);
-      els.violinBandwidthValue.addEventListener('blur',handleBandwidthInput);
-      els.violinBandwidthValue.addEventListener('input',()=>{
+      bindBoxControlHandler(els.violinBandwidthValue, 'change', 'violin-bandwidth-value', handleBandwidthInput);
+      bindBoxControlHandler(els.violinBandwidthValue, 'blur', 'violin-bandwidth-value', handleBandwidthInput);
+      bindBoxControlHandler(els.violinBandwidthValue, 'input', 'violin-bandwidth-value-preview', ()=>{
         const numeric = Number(els.violinBandwidthValue.value);
         if(Number.isFinite(numeric) && numeric > 0){
           updateViolinBandwidthDisplays(numeric);
@@ -15465,7 +15453,7 @@
       });
     }
     if(els.violinBandwidthAuto){
-      els.violinBandwidthAuto.addEventListener('change',()=>{
+      bindBoxControlHandler(els.violinBandwidthAuto, 'change', 'violin-bandwidth-auto', ()=>{
         const violinState = ensureViolinState();
         violinState.autoBandwidth = !!els.violinBandwidthAuto.checked;
         if(violinState.autoBandwidth){
@@ -15496,7 +15484,7 @@
       }
     };
     if(els.violinSamples){
-      els.violinSamples.addEventListener('input',()=>{
+      bindBoxControlHandler(els.violinSamples, 'input', 'violin-samples', ()=>{
         applyViolinSampleChange(els.violinSamples.value);
       });
     }
@@ -15504,16 +15492,16 @@
       const handleSampleInput = ()=>{
         applyViolinSampleChange(els.violinSamplesValue.value);
       };
-      els.violinSamplesValue.addEventListener('change',handleSampleInput);
-      els.violinSamplesValue.addEventListener('blur',handleSampleInput);
-      els.violinSamplesValue.addEventListener('input',()=>{
+      bindBoxControlHandler(els.violinSamplesValue, 'change', 'violin-samples-value', handleSampleInput);
+      bindBoxControlHandler(els.violinSamplesValue, 'blur', 'violin-samples-value', handleSampleInput);
+      bindBoxControlHandler(els.violinSamplesValue, 'input', 'violin-samples-value-preview', ()=>{
         const numeric = Number(els.violinSamplesValue.value);
         if(Number.isFinite(numeric) && els.violinSamplesVal){
           els.violinSamplesVal.textContent = String(clampViolinSampleCount(numeric));
         }
       });
     }
-    els.boxFontSize.addEventListener('input',()=>{
+    bindBoxControlHandler(els.boxFontSize, 'input', 'font-size', ()=>{
       if(els.boxFontSize.dataset){
         els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
         console.debug('Debug: box font size input manual set',{ value: els.boxFontSize.value }); // Debug: manual slider update
@@ -15521,7 +15509,7 @@
       chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
       scheduleBoxViewRefresh('font-size-change');
     });
-    els.boxShowGrid.addEventListener('change',()=>{
+    bindBoxControlHandler(els.boxShowGrid, 'change', 'show-grid', ()=>{
       const checked = !!els.boxShowGrid.checked;
       boxLog('boxShowGrid changed', checked);
       if(tryToggleBoxGridVisibility(checked)){
@@ -15529,7 +15517,7 @@
       }
       scheduleBoxViewRefresh('grid-toggle');
     });
-    els.boxShowFrame?.addEventListener('change',()=>{
+    bindBoxControlHandler(els.boxShowFrame, 'change', 'show-frame', ()=>{
       const checked = !!els.boxShowFrame.checked;
       console.debug('Debug: box showFrame change',{checked});
       if(tryToggleBoxFrameVisibility(checked)){
@@ -15537,7 +15525,7 @@
       }
       scheduleBoxViewRefresh('frame-toggle');
     });
-    els.boxLogScale.addEventListener('change',()=>{
+    bindBoxControlHandler(els.boxLogScale, 'change', 'log-scale', ()=>{
       const enabling=!!els.boxLogScale.checked;
       if(enabling){
         const validation=validateBoxLogScale();
@@ -15656,7 +15644,7 @@
     if(shouldAutoSyncBoxGraphTitle(state.titleText)){
       state.titleText = getDefaultBoxGraphTitle(state.currentGraphType);
     }
-    els.boxGraphType.addEventListener('change',()=>{
+    bindBoxControlHandler(els.boxGraphType, 'change', 'graph-type', ()=>{
       const nextGraphType = normalizeBoxGraphType(els.boxGraphType.value);
       boxLog('boxGraphType changed', nextGraphType);
       if(nextGraphType === 'bar' && els.boxErrorMode && els.boxErrorMode.value !== 'upper'){
@@ -15672,7 +15660,7 @@
       state.scheduleDraw();
     });
     if(els.boxLayoutMode){
-      els.boxLayoutMode.addEventListener('change',()=>{
+      bindBoxControlHandler(els.boxLayoutMode, 'change', 'layout-mode', ()=>{
         const requested = els.boxLayoutMode.value;
         let normalized = 'interleaved';
         if(requested === 'separated'){ normalized = 'separated'; }
@@ -15689,7 +15677,7 @@
     }
     updateGraphTypeControls();
     if(els.boxWhiskerRule){
-      els.boxWhiskerRule.addEventListener('change',()=>{
+      bindBoxControlHandler(els.boxWhiskerRule, 'change', 'whisker-rule', ()=>{
         const meta=ensureWhiskerState(els.boxWhiskerRule.value);
         state.whiskerRule=meta.key;
         syncWhiskerControlsFromState();
@@ -15712,11 +15700,11 @@
           state.scheduleDraw();
         }
       };
-      els.boxWhiskerCustom.addEventListener('change',handleCustomMultiplier);
-      els.boxWhiskerCustom.addEventListener('blur',handleCustomMultiplier);
+      bindBoxControlHandler(els.boxWhiskerCustom, 'change', 'whisker-custom', handleCustomMultiplier);
+      bindBoxControlHandler(els.boxWhiskerCustom, 'blur', 'whisker-custom', handleCustomMultiplier);
     }
     if(els.boxIndividualSummary){
-      els.boxIndividualSummary.addEventListener('change',()=>{
+      bindBoxControlHandler(els.boxIndividualSummary, 'change', 'individual-summary', ()=>{
         const summaryValue = normalizeIndividualSummaryValue(els.boxIndividualSummary.value);
         const activeGraphType = els.boxGraphType?.value;
         if(activeGraphType === 'bar'){
@@ -15728,7 +15716,7 @@
         scheduleBoxViewRefresh('individual-summary-change');
       });
     }
-    els.boxPointMode.addEventListener('change',()=>{
+    bindBoxControlHandler(els.boxPointMode, 'change', 'point-mode', ()=>{
       boxLog('boxPointMode changed', els.boxPointMode.value);
       syncBoxPointConnectionControlState({
         graphType: els.boxGraphType?.value,
@@ -15737,7 +15725,7 @@
       scheduleBoxViewRefresh('point-mode-change');
     });
     if(els.boxConnectPointsAcrossDatasets){
-      els.boxConnectPointsAcrossDatasets.addEventListener('change',()=>{
+      bindBoxControlHandler(els.boxConnectPointsAcrossDatasets, 'change', 'connect-points-across-datasets', ()=>{
         state.connectPointsAcrossDatasets = !!els.boxConnectPointsAcrossDatasets.checked;
         if(boxDebugEnabled()){
           console.debug('Debug: box connect points toggle', {
@@ -15747,7 +15735,7 @@
         scheduleBoxViewRefresh('connect-points-toggle');
       });
     }
-    els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); scheduleBoxViewRefresh('show-caps-change'); });
+    bindBoxControlHandler(els.boxShowCaps, 'change', 'show-caps', ()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); scheduleBoxViewRefresh('show-caps-change'); });
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
       bindBoxControlHandler(els.boxShowSignificance, 'change', 'show-significance', ()=>{
@@ -15778,7 +15766,7 @@
       });
     }
     bindBoxControlHandler(els.statsButton, 'click', 'compute-stats', handleStatsComputeClick);
-    els.boxErrorMode.addEventListener('change',()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); scheduleBoxViewRefresh('error-mode-change'); });
+    bindBoxControlHandler(els.boxErrorMode, 'change', 'error-mode', ()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); scheduleBoxViewRefresh('error-mode-change'); });
     const handleBoxAxisLimitInput=(event)=>{
       const target=event?.target;
       if(target===els.boxYMin){
@@ -15814,13 +15802,13 @@
       }
       scheduleBoxViewRefresh('axis-limit-change');
     };
-    els.boxYMin.addEventListener('input',handleBoxAxisLimitInput);
-    els.boxYMax.addEventListener('input',handleBoxAxisLimitInput);
-    els.boxYMin.addEventListener('change',handleBoxAxisLimitInput);
-    els.boxYMax.addEventListener('change',handleBoxAxisLimitInput);
+    bindBoxControlHandler(els.boxYMin, 'input', 'axis-min', handleBoxAxisLimitInput);
+    bindBoxControlHandler(els.boxYMax, 'input', 'axis-max', handleBoxAxisLimitInput);
+    bindBoxControlHandler(els.boxYMin, 'change', 'axis-min', handleBoxAxisLimitInput);
+    bindBoxControlHandler(els.boxYMax, 'change', 'axis-max', handleBoxAxisLimitInput);
     if(els.boxFlipAxes){
       state.flipAxes = !!els.boxFlipAxes.checked;
-      els.boxFlipAxes.addEventListener('change',()=>{
+      bindBoxControlHandler(els.boxFlipAxes, 'change', 'flip-axes', ()=>{
         const previousFlip = !!state.flipAxes;
         const nextFlip = !!els.boxFlipAxes.checked;
         syncDatasetSpacingAcrossFlip(previousFlip, nextFlip);
@@ -15831,7 +15819,7 @@
     }
     updateGraphTypeControls();
     if(els.boxFill){
-      els.boxFill.addEventListener('input',()=>{
+      bindBoxControlHandler(els.boxFill, 'input', 'fill-color', ()=>{
         const nextColor = els.boxFill.value;
         const oldColor = state.lastDefaultFill;
         boxLog('boxFill changed',{ newColor: nextColor, oldColor });
@@ -15846,7 +15834,7 @@
       console.debug('Debug: box initUI missing #boxFill control');
     }
     if(els.boxBorder){
-      els.boxBorder.addEventListener('input',()=>{
+      bindBoxControlHandler(els.boxBorder, 'input', 'border-color', ()=>{
         const nextBorder = els.boxBorder.value;
         boxLog('boxBorder changed', nextBorder);
         if(tryApplyBoxStripPointStyleLive({ stroke: nextBorder })){
@@ -15858,7 +15846,7 @@
       console.debug('Debug: box initUI missing #boxBorder control');
     }
     if(els.boxBorderWidth){
-      els.boxBorderWidth.addEventListener('input',()=>{
+      bindBoxControlHandler(els.boxBorderWidth, 'input', 'border-width', ()=>{
         const activeGraphType = getCurrentBoxGraphTypeForStyle();
         const numeric = Number(els.boxBorderWidth.value);
         const normalized = Number.isFinite(numeric) && numeric >= 0
@@ -15875,7 +15863,7 @@
       console.debug('Debug: box initUI missing #boxBorderWidth control');
     }
     if(els.boxErrorBarWidth){
-      els.boxErrorBarWidth.addEventListener('input',()=>{
+      bindBoxControlHandler(els.boxErrorBarWidth, 'input', 'error-bar-width', ()=>{
         console.debug('Debug: boxErrorBarWidth changed',{ value: els.boxErrorBarWidth.value });
         scheduleBoxViewRefresh('error-bar-width-change');
       });
@@ -15908,10 +15896,10 @@
     const saveBoxGraphBtn = getBoxNodeById('saveBoxGraph');
     const saveAsBoxBtn = getBoxNodeById('saveAsBox');
     const boxGraphFileInput = getBoxNodeById('boxGraphFile');
-    openBoxGraphBtn?.addEventListener('click', box.open);
-    saveBoxGraphBtn?.addEventListener('click', box.save);
-    saveAsBoxBtn?.addEventListener('click', box.saveAs);
-    boxGraphFileInput?.addEventListener('change', e=>{ const f=e.target.files?.[0]; if(f){ state.fileName=f.name; state.fileHandle=null; box.loadFromFile(f); } });
+    bindBoxControlHandler(openBoxGraphBtn, 'click', 'open-graph', box.open);
+    bindBoxControlHandler(saveBoxGraphBtn, 'click', 'save-graph', box.save);
+    bindBoxControlHandler(saveAsBoxBtn, 'click', 'save-as-graph', box.saveAs);
+    bindBoxControlHandler(boxGraphFileInput, 'change', 'graph-file', e=>{ const f=e.target.files?.[0]; if(f){ state.fileName=f.name; state.fileHandle=null; box.loadFromFile(f); } });
     if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
       if(!saveAsBoxBtn){
         console.debug('Debug: box initUI missing #saveAsBox button');
@@ -24068,8 +24056,7 @@ Technical analysis record (advanced)
       && !state.statsComputationPending
       && !state.authoritativeRenderRestoreActive
       && (
-        requestedReason === 'resize-settled'
-        || requestedReason === 'resize-observe'
+        requestedReason === 'resize'
         || requestedReason === 'show-significance-change'
         || requestedReason === 'significance-viewport-extension'
         || requestedReason === 'box-style-payload'
@@ -26515,6 +26502,7 @@ Technical analysis record (advanced)
     let pendingPlotFrameCommitted = true;
     try{
     boxLog('boxplot draw start',{token, viewOnly, reason: drawOpts?.reason || null});
+    state.layout?.suppressNextSchedule?.({ reason: 'box-draw', count: 2, delayMs: 120 });
     hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     ensureWhiskerState();
@@ -28684,6 +28672,7 @@ Technical analysis record (advanced)
         useApproximateCanvas,
         approximateLayout
       } = pointLayout;
+      const allowAutoSize = !!autoSize && !(typeof hasExplicitPointSize === 'function' && hasExplicitPointSize(traceIndex));
       const cacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
         ? (pointLayoutCache[cacheAxisKey] = pointLayoutCache[cacheAxisKey] || {})
         : null;
@@ -31994,9 +31983,8 @@ Technical analysis record (advanced)
     const requiredViewportExtension = requiredSignificanceViewportExtension + requiredBottomViewportExtension;
     const useFillParentViewport = !(viewportWidth > W + 0.5 || viewportHeight > H + 0.5);
     const resizeDrawReason = typeof drawOpts?.reason === 'string' ? drawOpts.reason : '';
-    const shouldDeferViewportExtensionSync = state.resizeInteractionActive
-      && resizeDrawReason.startsWith('resize')
-      && drawOpts?.resizePhase !== 'end';
+    const shouldDeferViewportExtensionSync = viewOnly
+      && resizeDrawReason.startsWith('resize');
     let extensionUpdate = {
       changed: false,
       previousExtension: (Number(state.significanceViewportExtensionPx) || 0) + (Number(state.bottomViewportExtensionPx) || 0),
@@ -32276,7 +32264,11 @@ Technical analysis record (advanced)
       fillParent: useFillParentViewport,
       preserveBaseAspect: !disableViewportAspectNormalization
     });
-    ensureBoxExportControlsClearance(svg, { reason: drawOpts?.reason || 'draw-layout' });
+    ensureBoxExportControlsClearance(svg, {
+      reason: drawOpts?.reason || 'draw-layout',
+      resizePhase: drawOpts?.resizePhase || null,
+      deferContainerResize: shouldDeferViewportExtensionSync
+    });
     commitPendingPlotFrame();
     state.layout?.syncPanels?.({ skipSchedule: true });
     traceCount = traces.length;
@@ -33455,7 +33447,7 @@ Technical analysis record (advanced)
     }
   }
 
-  function runBoxDrawCycle(options = {}){
+  async function runBoxDrawCycle(options = {}){
     const drawOptions = options || {};
     const sessionMeta = drawOptions.__boxSessionMeta || buildBoxSessionMeta(drawOptions);
     if(!isCurrentBoxSessionMeta(sessionMeta)){
@@ -33470,6 +33462,15 @@ Technical analysis record (advanced)
       return false;
     }
     drawOptions.__boxSessionMeta = sessionMeta;
+    if(state.drawInProgress){
+      state.pendingDrawOpts = mergeBoxDrawOptions(state.pendingDrawOpts, drawOptions);
+      boxDebug('Debug: box draw coalesced', {
+        reason: drawOptions.reason || null,
+        force: !!drawOptions.force,
+        viewOnly: !!drawOptions.viewOnly
+      });
+      return false;
+    }
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     if(state.authoritativeRenderRestoreActive && !drawOptions.force){
       if(shouldSuppressAuthoritativeBoxRestoreDraw(drawReason)){
@@ -33479,29 +33480,26 @@ Technical analysis record (advanced)
       }
       releaseAuthoritativeBoxRenderRestore(drawReason || 'draw-cycle');
     }
+    state.drawInProgress = true;
     let status = 'complete';
     try{
-      const result = draw(drawOptions);
-      if(result && typeof result.then === 'function'){
-        return result
-          .then(() => {
-            resolveBoxLoading(status);
-          })
-          .catch(err => {
-            status = 'error';
-            console.error('box draw error', err);
-            resolveBoxLoading(status);
-          });
-      }
+      await draw(drawOptions);
     }catch(err){
       status = 'error';
-      throw err;
+      console.error('box draw error', err);
     }finally{
-      if(status !== 'complete'){
-        resolveBoxLoading(status);
+      state.drawInProgress = false;
+      state.lastDrawAt = (global.performance && typeof global.performance.now === 'function')
+        ? global.performance.now()
+        : Date.now();
+      resolveBoxLoading(status);
+      const pending = state.pendingDrawOpts;
+      state.pendingDrawOpts = null;
+      if(pending){
+        scheduleDrawBoxRaw(pending);
       }
     }
-    resolveBoxLoading(status);
+    return status === 'complete';
   }
 
   box.loadFromFile = function(file){
@@ -33622,12 +33620,13 @@ Technical analysis record (advanced)
           || els.graphPanel?.querySelector('.svgbox')
           || queryBoxNode('#boxGraphPanel .svgbox', { root: boxRoot, tabLike: targetTabId })
       },
-        scheduleDraw: state.scheduleDraw,
+        scheduleDraw: (...args) => state.scheduleDraw?.(...args),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
+        skipScheduleOnResizePhases: phase => phase === 'move' || phase === 'observe',
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });
@@ -33646,12 +33645,16 @@ Technical analysis record (advanced)
             boxDebug('Debug: box viewport extension resize draw muted', { phase: currentPhase || null });
             return;
           }
-          let reason = 'resize-settled';
+          if(currentPhase === 'observe' && state.resizeInteractionActive){
+            boxDebug('Debug: box resize observer callback ignored during pointer resize');
+            return;
+          }
+          let reason = 'resize';
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-            reason = 'resize-live';
+            reason = 'resize';
           }else if(phase === 'observe'){
-            reason = 'resize-observe';
+            reason = 'resize';
           }
           if(
             phase === 'end'
@@ -33663,7 +33666,7 @@ Technical analysis record (advanced)
           ){
             state.resizeInteractionActive = false;
             state.resizeObserveDrawMutedUntil = Date.now() + 180;
-          }else{
+          }else if(phase !== 'move' && (phase !== 'observe' || !state.resizeInteractionActive)){
             state.resizeInteractionActive = false;
           }
           boxDebug('Debug: box layout onResize schedule trigger');
@@ -33678,33 +33681,11 @@ Technical analysis record (advanced)
     if(state.layout?.elements?.svgBox){
       els.svgBox = state.layout.elements.svgBox;
     }
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
-    state.layout?.syncPanels?.();
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
     ensureSignificanceLabelFontEventListener();
     initNotes();
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
-    const scheduleBoxResizePreview = Shared.debounceFrame
-      ? Shared.debounceFrame(opts => {
-          try{
-            applyBoxLiveResizePreview(opts || {});
-          }catch(err){
-            console.error('box resize preview error', err);
-          }
-        })
-      : opts => {
-          try{
-            applyBoxLiveResizePreview(opts || {});
-          }catch(err){
-            console.error('box resize preview error', err);
-          }
-        };
-    state.scheduleResizePreview = (opts = {}) => {
-      const nextOpts = opts || {};
-      const sessionMeta = buildBoxSessionMeta(nextOpts);
-      scheduleBoxResizePreview({ ...nextOpts, __boxSessionMeta: sessionMeta });
-    };
     const scheduleBoxDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const sessionMeta = nextOpts.__boxSessionMeta || buildBoxSessionMeta(nextOpts);
@@ -33727,15 +33708,10 @@ Technical analysis record (advanced)
         }
         releaseAuthoritativeBoxRenderRestore(nextReason || 'scheduled-draw');
       }
-      const mutedUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
-      if(!nextOpts.reason && mutedUntil > Date.now()){
-        boxDebug('Debug: box post-resize observer draw suppressed');
-        return;
-      }
       if(
         !nextOpts.force
         && state.resizeInteractionActive
-        && (nextOpts.reason === 'resize-live' || nextOpts.reason === 'resize-observe' || !nextOpts.reason)
+        && (nextOpts.reason === 'resize' || !nextOpts.reason)
       ){
         nextOpts.viewOnly = true;
       }
@@ -33746,12 +33722,47 @@ Technical analysis record (advanced)
       }else if(!nextOpts.viewOnly){
         queueBoxLoading(overlayReason);
       }
-      const runSchedule = () => scheduleBoxDrawBase(nextOpts);
+      const runSchedule = runOpts => {
+        const guarded = runOpts || nextOpts;
+        const guardedMeta = guarded.__boxSessionMeta || buildBoxSessionMeta(guarded);
+        if(!isCurrentBoxSessionMeta(guardedMeta)){
+          boxDebug('Debug: box delayed schedule skipped (stale session)', {
+            tabId: guardedMeta?.tabId || null,
+            sessionGeneration: guardedMeta?.sessionGeneration || 0,
+            reason: guarded.reason || null
+          });
+          return;
+        }
+        scheduleBoxDrawBase({ ...guarded, __boxSessionMeta: guardedMeta });
+      };
+      if(!nextOpts.force && state.lastDrawAt){
+        const now = (global.performance && typeof global.performance.now === 'function')
+          ? global.performance.now()
+          : Date.now();
+        const cachedPointCount = countCachedBoxPoints();
+        const cooldownMs = nextOpts.viewOnly
+          ? (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0)
+          : 80;
+        const elapsed = now - state.lastDrawAt;
+        if(cooldownMs > 0 && elapsed < cooldownMs){
+          state.pendingDrawOpts = mergeBoxDrawOptions(state.pendingDrawOpts, nextOpts);
+          if(!state.drawCooldownTimer){
+            const wait = Math.max(0, cooldownMs - elapsed);
+            state.drawCooldownTimer = (global.setTimeout || setTimeout)(() => {
+              state.drawCooldownTimer = null;
+              const pending = state.pendingDrawOpts;
+              state.pendingDrawOpts = null;
+              runSchedule(pending || nextOpts);
+            }, wait);
+          }
+          return;
+        }
+      }
       const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !nextOpts.viewOnly;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           boxDebug('Debug: box draw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
+          runSchedule(nextOpts);
         };
         if(typeof global.requestAnimationFrame === 'function'){
           global.requestAnimationFrame(scheduleAfterPaint);
@@ -33760,7 +33771,7 @@ Technical analysis record (advanced)
         }
         return;
       }
-      runSchedule();
+      runSchedule(nextOpts);
     };
     scheduleDrawBoxRaw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
@@ -33771,7 +33782,22 @@ Technical analysis record (advanced)
       : scheduleBoxDrawInstrumented;
     state.scheduleDraw = scheduleDrawBoxRaw;
     console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: true }); // Debug: scheduler setup
-    state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
+    state.layout?.setScheduleDraw?.((layoutOptions = {}) => {
+      const source = typeof layoutOptions?.source === 'string' ? layoutOptions.source : 'layout';
+      const phase = typeof layoutOptions?.phase === 'string' ? layoutOptions.phase : null;
+      const viewOnly = source === 'resize' || source === 'observer';
+      const mutedUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
+      if(source === 'observer' && (state.resizeInteractionActive || Date.now() <= mutedUntil)){
+        boxDebug('Debug: box layout observer draw suppressed during active resize');
+        return;
+      }
+      state.scheduleDraw({
+        viewOnly,
+        reason: viewOnly ? 'resize' : 'layout-sync',
+        resizePhase: phase
+      });
+    });
+    state.layout?.syncPanels?.();
     ensureBoxFontEventListener();
     syncBoxDefaultColorSchemeForFormat(state.tableFormat);
     ensureEmptyPayloadTemplate();

@@ -274,17 +274,18 @@ describe('Box swarm offset constraints', () => {
     expect(combinedHalfExtent).toBeLessThanOrEqual(Number(halfExtentLimit) + 1e-6);
   });
 
-  test('dense point canvas preview is restricted to resize preview reasons', () => {
+  test('dense point canvas preview is restricted to the unified resize reason', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.shouldUseBoxPointCanvasPreview).toBe('function');
-    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-live' }, { pointCount: 100 })).toBe(true);
-    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-observe' }, { pointCount: 100 })).toBe(true);
-    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize-settled' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize' }, { pointCount: 100 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-live' }, { pointCount: 100 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-observe' }, { pointCount: 100 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'significance-viewport-extension' }, { pointCount: 1800, threshold: 1200 })).toBe(true);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'font-style-change' }, { pointCount: 100, threshold: 1200 })).toBe(false);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize-live' }, { pointCount: 100, threshold: 1200 })).toBe(false);
     expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'canvas' })).toBe(true);
-    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'svg', viewOnly: false, reason: 'resize-settled' }, { pointCount: 1800, threshold: 1200 })).toBe(false);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ pointRenderer: 'svg', viewOnly: false, reason: 'resize' }, { pointCount: 1800, threshold: 1200 })).toBe(false);
   });
 
   test('swarm worker gate only enables for large traces when workers are supported', () => {
@@ -1191,10 +1192,11 @@ describe('Box swarm offset constraints', () => {
   test('previous box frame is retained for view-only redraws', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.shouldRetainPreviousBoxFrame).toBe('function');
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-settled' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-observe' })).toBe(true);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize' })).toBe(true);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-settled' })).toBe(false);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'resize-observe' })).toBe(false);
     expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: true, reason: 'significance-viewport-extension' })).toBe(true);
-    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: false, reason: 'resize-settled' })).toBe(false);
+    expect(hooks.shouldRetainPreviousBoxFrame({ viewOnly: false, reason: 'resize' })).toBe(false);
   });
 
 });

@@ -260,6 +260,28 @@
       componentName
     });
     const layoutTabId = resolveElementTabId(elements, config);
+    const previousLayoutApi = (() => {
+      const bucket = layoutRegistry[componentName];
+      if(bucket && bucket.__isTabScopedBucket === true){
+        return layoutTabId ? (bucket.tabs?.[layoutTabId] || null) : (bucket.__default || null);
+      }
+      return layoutTabId ? null : (bucket || null);
+    })();
+    if(previousLayoutApi && typeof previousLayoutApi.destroy === 'function'){
+      try{
+        previousLayoutApi.destroy({ reason: 'replace-layout-instance' });
+        console.debug('Debug: componentLayout previous instance destroyed', {
+          component: componentName,
+          tabId: layoutTabId || null
+        });
+      }catch(err){
+        console.error('Shared.componentLayout previous instance destroy error', {
+          component: componentName,
+          tabId: layoutTabId || null,
+          err
+        });
+      }
+    }
 
     if(elements.hotWrapper && typeof Shared.ensureHotWrapperStyles === 'function'){
       console.debug('Debug: componentLayout applying wrapper styles', { component: componentName, wrapperId: elements.hotWrapper.id || null });
@@ -442,7 +464,8 @@
           panelState.deferScheduleUntil = 0;
         }
       }
-      const suppressResizeCallback = (visibility.hidden || deferActive || forceDeferActive || forceSkipActive) && !options.forceSchedule;
+      const phase = typeof options?.phase === 'string' ? options.phase : '';
+      const suppressResizeCallback = (visibility.hidden || deferActive || forceDeferActive || (forceSkipActive && phase !== 'end')) && !options.forceSchedule;
       return { skipSchedule, visibility, suppressResizeCallback };
     };
 
@@ -465,7 +488,12 @@
       }
       const scheduleWrapper = (!skipSchedule && scheduleDrawFn) ? () => {
         console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName, source: options.source || 'sync' });
-        scheduleDrawFn();
+        scheduleDrawFn({
+          source: options.source || 'sync',
+          phase: options.phase || null,
+          component: componentName,
+          tabId: layoutTabId || null
+        });
       } : null;
       const syncOptions = Object.assign({ forceDefaultWidth: true }, config?.panelSyncOptions || {});
       Object.assign(syncOptions, {
@@ -1021,6 +1049,14 @@
           }
           panelState.resizeObserver = null;
           console.debug('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
+        }
+        const resizeApi = elements.resizeTarget?.__sharedResizableBoxApi;
+        if(resizeApi && typeof resizeApi.destroy === 'function'){
+          try{
+            resizeApi.destroy({ reason: 'component-layout-destroy' });
+          }catch(err){
+            console.error('Shared.componentLayout destroy resizable box error', err);
+          }
         }
         const bucket = layoutRegistry[componentName];
         if(bucket && bucket.__isTabScopedBucket === true){

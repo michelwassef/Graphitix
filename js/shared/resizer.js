@@ -848,6 +848,15 @@
     const closestPanel = typeof container.closest === 'function' ? container.closest('.panel') : null;
     const panelId = closestPanel && closestPanel.id ? closestPanel.id : null;
     const containerLabel = labelFromOpts || container.id || panelId || container.className || 'svgbox';
+    const previousApi = container.__sharedResizableBoxApi;
+    if(previousApi && typeof previousApi.destroy === 'function'){
+      try{
+        previousApi.destroy({ reason: 'reattach' });
+        console.debug('Debug: resizer previous api destroyed', { container: containerLabel });
+      }catch(err){
+        console.error('Shared.attachResizableBox previous api destroy error', err);
+      }
+    }
     let MIN_W = Number.isFinite(parsedMinWidth) && parsedMinWidth > 0 ? parsedMinWidth : Number(data.resizerMinWidth);
     if(!Number.isFinite(MIN_W) || MIN_W <= 0){
       MIN_W = minFromDefaultWidth;
@@ -958,6 +967,7 @@
     let zoomInButton = null;
     let zoomValue = null;
     let suppressObserveResizeUntil = 0;
+    let resizeObserver = null;
 
     const existingScope = data.resizerTextLockScope || null;
     const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
@@ -1541,7 +1551,24 @@
         allowUnlimitedWidth,
         allowUnlimitedHeight,
         zoomLevel
-      })
+      }),
+      destroy(options = {}){
+        if(resizeObserver){
+          try{
+            resizeObserver.disconnect();
+          }catch(err){
+            console.error('Shared.attachResizableBox observer destroy error', err);
+          }
+          resizeObserver = null;
+        }
+        if(container.__sharedResizableBoxApi === this){
+          delete container.__sharedResizableBoxApi;
+        }
+        console.debug('Debug: resizer api destroyed', {
+          container: containerLabel,
+          reason: options?.reason || null
+        });
+      }
     };
     Shared.applyResizableBoxSize = function applyResizableBoxSize(target, options = {}){
       const api = target && target.__sharedResizableBoxApi;
@@ -2249,7 +2276,7 @@
     attachDrag(hHandle, 'y');
     attachDrag(cHandle, 'both');
     if (global.ResizeObserver) {
-      const obs = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(() => {
         if(Date.now() <= suppressObserveResizeUntil){
           logZoom('observer-skipped', { suppressObserveResizeUntil });
           return;
@@ -2259,7 +2286,7 @@
           try { opts.onResize('observe'); } catch(e) { console.error('resizer onResize error', e); }
         }
       });
-      obs.observe(container);
+      resizeObserver.observe(container);
     }
   };
 
