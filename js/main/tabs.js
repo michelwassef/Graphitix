@@ -292,8 +292,8 @@
               left = Math.max(pad, window.innerWidth - mRect.width - pad);
             }
             if (left < pad) left = pad;
-            // position top so menu bottom equals tab bottom
-            let top = rect.bottom - mRect.height;
+            // position top so menu appears above the tab and does not cover it
+            let top = rect.top - mRect.height;
             // if menu would overflow above viewport, fallback to placing below the tab
             if (top < pad) {
               top = rect.bottom + pad;

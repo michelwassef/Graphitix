@@ -6503,9 +6503,12 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     cursor: pointer;
     font-size: 13px;
 }
-.tab-context-menu__item:hover,
-.tab-context-menu__item:focus {
+.tab-context-menu__item:hover {
     background: var(--ui-menu-item-hover-bg);
+}
+.tab-context-menu__item:focus:not(:hover) {
+    background: transparent;
+    outline: none;
 }
 .tab-context-menu__item:disabled,
 .tab-context-menu__item[aria-disabled="true"] {
