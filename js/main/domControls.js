@@ -839,6 +839,8 @@
           root: activeWorkspaceElement,
           tabId: tab.id,
           type: tab.type,
+          restoreRenderCache: canRestoreRender,
+          skipInitialDraw: canRestoreRender,
           reason: reason || options.reason || 'bind-per-tab-root'
         });
         const nextRecord = getWorkspaceSessionRecord();

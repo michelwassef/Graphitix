@@ -237,10 +237,23 @@
     }
     namespace.__rootTemplates = namespace.__rootTemplates || {};
     let template = namespace.__rootTemplates[key] || null;
+    const element = config.element;
+    const templateHostStale = !!(
+      template
+      && (
+        !template.host
+        || template.host.isConnected === false
+        || template.host.ownerDocument !== element.ownerDocument
+        || (template.original && template.original !== element && template.original.isConnected === false)
+      )
+    );
+    if(templateHostStale){
+      delete namespace.__rootTemplates[key];
+      template = null;
+    }
     if(template?.template && template?.host){
       return template;
     }
-    const element = config.element;
     const host = config.instanceHost || element.parentNode || null;
     if(!host){
       return null;

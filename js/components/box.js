@@ -794,7 +794,7 @@
     if(!cache || typeof cache !== 'object'){
       return false;
     }
-    const requiredKeys = ['plot', 'statsControls', 'statsResults', 'statsTable', 'statsReport'];
+    const requiredKeys = ['plot'];
     const hasSections = requiredKeys.every(key => !!cache[key]?.fragment);
     if(!hasSections){
       return false;
@@ -10785,6 +10785,26 @@
     }
     emptyPayloadTemplate = { type: 'box', config: {} };
   }
+
+  function bindBoxControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
+      return false;
+    }
+    const storeKey = String(key || eventName || 'handler');
+    const eventKey = String(eventName || '').trim();
+    if(!eventKey){
+      return false;
+    }
+    const store = node.__boxControlHandlers || (node.__boxControlHandlers = {});
+    const previous = store[storeKey];
+    if(previous && typeof node.removeEventListener === 'function'){
+      node.removeEventListener(eventKey, previous);
+    }
+    node.addEventListener(eventKey, handler);
+    store[storeKey] = handler;
+    return true;
+  }
+
   function resetBoxViewportRuntimeState(reason){
     state.significanceViewportExtensionPx = 0;
     state.bottomViewportExtensionPx = 0;
@@ -12861,36 +12881,6 @@
     els.boxSignificanceLabelMode=byId('boxSignificanceLabelMode');
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
-      if(!els.boxShowSignificance.dataset?.boxHandlerAttached){
-        els.boxShowSignificance.addEventListener('change',()=>{
-          if(!isPairwiseSignificanceSupported()){
-            els.boxShowSignificance.checked = false;
-            state.showSignificanceBars = false;
-            state.pendingAutoShowSignificance = false;
-            return;
-          }
-          clearRestoredBoxSignificanceGeometryLock('significance-toggle');
-          state.showSignificanceBars = !!els.boxShowSignificance.checked;
-          console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
-          requestStatsContextRefresh('significance-toggle');
-          scheduleBoxViewRefresh('show-significance-change');
-        });
-        els.boxShowSignificance.dataset.boxHandlerAttached = 'true';
-      }
-    }
-    if(els.boxSignificanceLabelMode && !els.boxSignificanceLabelMode.dataset?.boxHandlerAttached){
-      els.boxSignificanceLabelMode.addEventListener('change',()=>{
-        const raw = els.boxSignificanceLabelMode.value === 'p' ? 'p' : 'stars';
-        if(state.significanceLabelMode !== raw){
-          state.significanceLabelMode = raw;
-          console.debug('Debug: box significance label mode changed',{ mode: raw });
-          if(state.showSignificanceBars){
-            requestStatsContextRefresh('significance-label-mode');
-            refreshSignificanceAnnotations('label-mode');
-          }
-        }
-      });
-      els.boxSignificanceLabelMode.dataset.boxHandlerAttached = 'true';
     }
     if(els.boxSignificanceLabelMode){
       const mode = state.significanceLabelMode === 'p' ? 'p' : 'stars';
@@ -12917,10 +12907,6 @@
     els.statsButton = getBoxNodeById('boxComputeStats', { root });
     els.statsStatus = getBoxNodeById('boxStatsStatus', { root });
     ensureBoxStatsActionRowPlacement();
-    if(els.statsButton && !els.statsButton.dataset?.boxHandlerAttached){
-      els.statsButton.addEventListener('click', handleStatsComputeClick);
-      els.statsButton.dataset.boxHandlerAttached='true';
-    }
     ensureWhiskerState();
     if(els.boxWhiskerRule){
       els.boxWhiskerRule.value = state.whiskerRule;
@@ -15764,23 +15750,34 @@
     els.boxShowCaps.addEventListener('change',()=>{ boxLog('boxShowCaps changed', els.boxShowCaps.checked); scheduleBoxViewRefresh('show-caps-change'); });
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
-      if(!els.boxShowSignificance.dataset?.boxHandlerAttached){
-        els.boxShowSignificance.addEventListener('change',()=>{
-          if(!isPairwiseSignificanceSupported()){
-            els.boxShowSignificance.checked = false;
-            state.showSignificanceBars = false;
-            state.pendingAutoShowSignificance = false;
-            return;
-          }
-          clearRestoredBoxSignificanceGeometryLock('significance-toggle');
-          state.showSignificanceBars = !!els.boxShowSignificance.checked;
-          console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
-          requestStatsContextRefresh('significance-toggle');
-          scheduleBoxViewRefresh('show-significance-change');
-        });
-        els.boxShowSignificance.dataset.boxHandlerAttached = 'true';
-      }
+      bindBoxControlHandler(els.boxShowSignificance, 'change', 'show-significance', ()=>{
+        if(!isPairwiseSignificanceSupported()){
+          els.boxShowSignificance.checked = false;
+          state.showSignificanceBars = false;
+          state.pendingAutoShowSignificance = false;
+          return;
+        }
+        clearRestoredBoxSignificanceGeometryLock('significance-toggle');
+        state.showSignificanceBars = !!els.boxShowSignificance.checked;
+        console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
+        requestStatsContextRefresh('significance-toggle');
+        scheduleBoxViewRefresh('show-significance-change');
+      });
     }
+    if(els.boxSignificanceLabelMode){
+      bindBoxControlHandler(els.boxSignificanceLabelMode, 'change', 'significance-label-mode', ()=>{
+        const raw = els.boxSignificanceLabelMode.value === 'p' ? 'p' : 'stars';
+        if(state.significanceLabelMode !== raw){
+          state.significanceLabelMode = raw;
+          console.debug('Debug: box significance label mode changed',{ mode: raw });
+          if(state.showSignificanceBars){
+            requestStatsContextRefresh('significance-label-mode');
+            refreshSignificanceAnnotations('label-mode');
+          }
+        }
+      });
+    }
+    bindBoxControlHandler(els.statsButton, 'click', 'compute-stats', handleStatsComputeClick);
     els.boxErrorMode.addEventListener('change',()=>{ boxLog('boxErrorMode changed', els.boxErrorMode.value); scheduleBoxViewRefresh('error-mode-change'); });
     const handleBoxAxisLimitInput=(event)=>{
       const target=event?.target;
@@ -33609,6 +33606,7 @@ Technical analysis record (advanced)
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls({ root: boxRoot, tabId: targetTabId });
+    hydrateBoxStatsSurfaceFromTabPayload(targetTabId || null, options.reason || 'init-bind');
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'box',
       tabId: targetTabId || undefined,
@@ -33778,7 +33776,14 @@ Technical analysis record (advanced)
     syncBoxDefaultColorSchemeForFormat(state.tableFormat);
     ensureEmptyPayloadTemplate();
     box.ready = true;
-    try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
+    if(options.skipInitialDraw !== true){
+      try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
+    }else{
+      console.debug('Debug: box init initial draw skipped', {
+        reason: options.reason || 'init',
+        restoreRenderCache: options.restoreRenderCache === true
+      });
+    }
   };
 
   box.draw = function(options = {}){
@@ -33837,11 +33842,7 @@ Technical analysis record (advanced)
 
   function restoreBoxRenderCacheSections(cache){
     const sections = [
-      { key: 'plot', node: els.plotDiv, payload: cache?.plot },
-      { key: 'statsControls', node: els.statsControls, payload: cache?.statsControls },
-      { key: 'statsResults', node: els.statsResults, payload: cache?.statsResults },
-      { key: 'statsTable', node: els.statsTable, payload: cache?.statsTable },
-      { key: 'statsReport', node: els.statsReportHost, payload: cache?.statsReport }
+      { key: 'plot', node: els.plotDiv, payload: cache?.plot }
     ];
     const invalid = sections.find(section => !section.node || !section.payload?.fragment);
     if(invalid){
@@ -33982,11 +33983,7 @@ Technical analysis record (advanced)
       return null;
     }
     const prepared = [
-      prepareBoxRenderCacheSection('plot', els.plotDiv, { requireSvg: true }),
-      prepareBoxRenderCacheSection('statsControls', els.statsControls),
-      prepareBoxRenderCacheSection('statsResults', els.statsResults),
-      prepareBoxRenderCacheSection('statsTable', els.statsTable),
-      prepareBoxRenderCacheSection('statsReport', els.statsReportHost)
+      prepareBoxRenderCacheSection('plot', els.plotDiv, { requireSvg: true })
     ];
     const invalid = prepared.find(section => !section.ok);
     if(invalid){
@@ -34022,18 +34019,10 @@ Technical analysis record (advanced)
     cacheMeta.complete = true;
     console.debug('Debug: box render cache captured', {
       plotNodes: byKey.get('plot')?.count || 0,
-      controlsNodes: byKey.get('statsControls')?.count || 0,
-      resultsNodes: byKey.get('statsResults')?.count || 0,
-      tableNodes: byKey.get('statsTable')?.count || 0,
-      reportNodes: byKey.get('statsReport')?.count || 0,
       total
     });
     return {
       plot: byKey.get('plot'),
-      statsControls: byKey.get('statsControls'),
-      statsResults: byKey.get('statsResults'),
-      statsTable: byKey.get('statsTable'),
-      statsReport: byKey.get('statsReport'),
       __graphitixRenderCache: cacheMeta
     };
   };
@@ -34070,14 +34059,11 @@ Technical analysis record (advanced)
     }
     console.debug('Debug: box render cache restored', {
       restored,
-      plot: !!cache.plot,
-      controls: !!cache.statsControls,
-      results: !!cache.statsResults,
-      table: !!cache.statsTable,
-      report: !!cache.statsReport
+      plot: !!cache.plot
     });
     if(restored){
       activateAuthoritativeBoxRenderRestore('render-cache-restore');
+      hydrateBoxStatsSurfaceFromTabPayload(meta?.tab || meta?.tabId || null, 'render-cache-restore');
     }
     const targetPayload = meta?.payload || meta?.tab?.payload || null;
     const targetScheme = targetPayload ? resolveBoxPayloadColorSchemeForCache(targetPayload) : null;
