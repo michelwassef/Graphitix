@@ -1437,7 +1437,11 @@
         clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed' });
         markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed' });
       }
-      const previewNeedsCapture = options.forcePreviewCapture === true || changed || (tab.previewSignature !== tab.payloadSignature);
+      const previewNeedsCapture = options.forcePreviewCapture === true
+        || changed
+        || layoutChanged
+        || (tab.previewSignature !== tab.payloadSignature)
+        || (tab.layoutSignature && tab.previewMeta?.layoutSignature !== tab.layoutSignature);
       let previewChanged = false;
       if (previews && typeof previews.updateTabPreviewFromWorkspace === 'function') {
         previewChanged = previews.updateTabPreviewFromWorkspace(tab, config, {

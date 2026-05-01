@@ -314,6 +314,71 @@ describe('domControls default payload cache isolation', () => {
     expect(session.clearTabRenderCache).toHaveBeenCalledWith(tab, { reason: 'render-cache-consumed' });
   });
 
+  test('showWorkspaceForTab reuses a matching per-tab DOM root without payload redraw', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage"><div class="svgbox"><svg id="scatterSvg"></svg></div></div>';
+    const element = document.getElementById('scatterPage');
+    const tab = {
+      id: 'workspace-3',
+      type: 'scatter',
+      payload: {
+        type: 'scatter',
+        data: [['Gene', 'X', 'Y'], ['A', 1, 2]]
+      },
+      payloadSignature: 'payload-stable',
+      layoutSignature: 'layout-stable'
+    };
+    const config = {
+      type: 'scatter',
+      element,
+      perTabDomInstances: true,
+      __activeRuntimeTabId: 'workspace-3',
+      loadFromPayload: jest.fn(),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value))
+    };
+    const workspaceState = {
+      loadedWorkspaces: {
+        'workspace-3': {
+          tabId: 'workspace-3',
+          type: 'scatter',
+          payloadSignature: 'payload-stable',
+          layoutSignature: 'layout-stable'
+        }
+      },
+      renderedWorkspaceByType: {
+        scatter: 'workspace-3'
+      }
+    };
+
+    window.Shared = window.Shared || {};
+    window.Shared.workspaceTabs = {
+      ensureMountedRoot: jest.fn(() => element),
+      getMountedRoot: jest.fn(() => element),
+      activateWorkspace: jest.fn()
+    };
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test' });
+
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.loadFromPayload).not.toHaveBeenCalled();
+    expect(config.applyLayoutState).not.toHaveBeenCalled();
+    expect(config.draw).not.toHaveBeenCalled();
+    expect(window.Shared.workspaceTabs.activateWorkspace).toHaveBeenCalled();
+    expect(workspaceState.renderedWorkspaceByType.scatter).toBe('workspace-3');
+  });
+
   test('showWorkspaceForTab refuses live render cache restore without component validator', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();

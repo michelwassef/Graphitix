@@ -274,10 +274,10 @@ describe('Box swarm offset constraints', () => {
     expect(combinedHalfExtent).toBeLessThanOrEqual(Number(halfExtentLimit) + 1e-6);
   });
 
-  test('dense point canvas preview is restricted to the unified resize reason', () => {
+  test('dense point canvas preview is restricted to large traces or explicit renderer requests', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.shouldUseBoxPointCanvasPreview).toBe('function');
-    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize' }, { pointCount: 100 })).toBe(true);
+    expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize' }, { pointCount: 100 })).toBe(false);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-live' }, { pointCount: 100 })).toBe(false);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: true, reason: 'resize-observe' }, { pointCount: 100 })).toBe(false);
     expect(hooks.shouldUseBoxPointCanvasPreview({ viewOnly: false, reason: 'resize' }, { pointCount: 1800, threshold: 1200 })).toBe(true);

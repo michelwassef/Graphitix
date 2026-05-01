@@ -80,4 +80,72 @@ describe('Scatter adaptive point sizing', () => {
       expect(size).toBeLessThanOrEqual(3);
     }
   });
+
+  test('render cache is complete and tab-scoped before restore', () => {
+    document.body.innerHTML = `
+      <div id="scatterPage">
+        <div id="scatterPlot">
+          <svg id="scatterSvg" width="320" height="240" viewBox="0 0 320 240">
+            <g data-export-layer="scatter-points"></g>
+          </svg>
+        </div>
+        <div id="scatterStatsResults"><p>stats</p></div>
+      </div>
+    `;
+
+    const cache = scatter.captureRenderCache({ tabId: 'workspace-a' });
+
+    expect(cache).toBeTruthy();
+    expect(cache.__graphitixRenderCache).toEqual(expect.objectContaining({
+      type: 'scatter',
+      tabId: 'workspace-a',
+      complete: true,
+      width: '320',
+      height: '240'
+    }));
+    expect(scatter.canRestoreRenderCache(cache, { tabId: 'workspace-a' })).toBe(true);
+    expect(scatter.canRestoreRenderCache(cache, { tabId: 'workspace-b' })).toBe(false);
+    expect(document.querySelector('#scatterPlot').childElementCount).toBe(0);
+
+    expect(scatter.restoreRenderCache(cache, { tabId: 'workspace-a' })).toBe(true);
+    expect(document.querySelector('#scatterSvg')).toBeTruthy();
+    expect(document.querySelector('#scatterStatsResults p')?.textContent).toBe('stats');
+  });
+
+  test('preview svg normalizes cached scatter dimensions without mutating the source', () => {
+    const fragment = document.createDocumentFragment();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('id', 'scatterSvg');
+    svg.setAttribute('width', '463');
+    svg.setAttribute('height', '427');
+    svg.setAttribute('viewBox', '0 0 463 427');
+    svg.style.position = 'absolute';
+    svg.style.visibility = 'hidden';
+    svg.innerHTML = '<g data-export-layer="scatter-points"></g>';
+    fragment.appendChild(svg);
+
+    window.Main = window.Main || {};
+    window.Main.session = window.Main.session || {};
+    window.Main.session.workspaceState = { activeTabId: 'workspace-active' };
+
+    const previewSvg = scatter.getPreviewSvg({
+      id: 'workspace-inactive',
+      renderCache: {
+        cache: {
+          plot: { fragment, count: 1 }
+        }
+      }
+    });
+
+    expect(previewSvg).toBeTruthy();
+    expect(previewSvg).not.toBe(svg);
+    expect(previewSvg.getAttribute('width')).toBe('463');
+    expect(previewSvg.getAttribute('height')).toBe('427');
+    expect(previewSvg.getAttribute('data-scatter-base-width')).toBe('463');
+    expect(previewSvg.getAttribute('data-scatter-base-height')).toBe('427');
+    expect(previewSvg.style.position).toBe('');
+    expect(previewSvg.style.visibility).toBe('');
+    expect(svg.style.position).toBe('absolute');
+    expect(svg.style.visibility).toBe('hidden');
+  });
 });

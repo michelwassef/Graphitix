@@ -1,1 +1,2 @@
 [2026-05-01] Resize-flow duplication: box.js and scatter.js each implement bespoke resizer phase gating logic. This should be centralized in a shared helper (e.g., Shared.componentLayout/Shared.resizer) to keep behavior homogeneous across components and reduce regression risk.
+[2026-05-01] Legacy backup source: js/shared/componentLayout.js.bak remains in the source tree alongside js/shared/componentLayout.js. It should be removed or moved out of the runtime source area after confirming it is not referenced, to avoid stale-code confusion during searches and maintenance.

@@ -1,514 +1,256 @@
-resizer.js:1996 Debug: resizer snapshot captured {container: 'scatterGraphPanel', tag: 'pointer-start', width: 427, height: 427, aspectLocked: true}
-resizer.js:2187 Debug: resizer drag start {axis: 'x', startW: 427, startH: 427, MIN_W: 128, MIN_H: 128}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: 0, dy: 0, aspectLocked: true, width: '427px', …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -3.33331298828125, dy: 0, aspectLocked: true, width: '424px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.4271240234375, graphContentWidth: 584.4271240234375, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 424, heightToApply: 424, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 424, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -10.6666259765625, dy: -0.666656494140625, aspectLocked: true, width: '416px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 416, heightToApply: 416, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 416, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -16, dy: -0.666656494140625, aspectLocked: true, width: '411px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 411, heightToApply: 411, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 411, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
- Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 411, height: 411, defaultWidth: 427, defaultHeight: 427, scaleX: 0.9625292740046838, …}
-chartStyle.js:417 Debug: chartStyle.pxToPt {input: 15, numeric: 15, pt: 11.25}
-chartStyle.js:605 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 11.25, textLocked: false}
-chartStyle.js:613 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-3', scaledPt: 11.25, textLocked: false}
-chartStyle.js:638 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 15, scaledPt: 11.25, …}
+previews.js:995 Debug: preview tooltip hidden {reason: 'enter-invalid'}
+previews.js:995 Debug: preview tooltip hidden {reason: 'leave'}
+previews.js:1070 Debug: preview hover enter {tabId: 'workspace-3', type: 'scatter'}
+session.js:1303 Debug: tab data detected after header skip {tabId: 'workspace-3', rowIndex: 1, colIndex: 0, type: 'scatter'}
+previews.js:881 Debug: preview reuse {tabId: 'workspace-3', signature: '{"type":"scatter","data":[["guide","Libraryrep1","…:true},"export":{"widthPx":356,"heightPx":356}}}}', meta: {…}}
+previews.js:1081 Debug: preview hover using stored inactive preview {tabId: 'workspace-3', hasPreview: true}
+previews.js:1027 Debug: preview tooltip positioned {tabId: 'workspace-3', left: 23, top: 297, width: 237, height: 237}
+render.js:201 Debug: workspace tab selected {tabId: 'workspace-3'}
+previews.js:995 Debug: preview tooltip hidden {reason: 'render'}
+previews.js:995 Debug: preview tooltip hidden {reason: 'blur'}
+componentLayout.js:186 Debug: componentLayout tab layout override merged {tabId: 'workspace-3', component: 'scatter', aspectLocked: true}
+componentLayout.js:158 Debug: componentLayout root hydrated {component: 'scatter', tabId: 'workspace-3', hasSvgBox: true, aspectLocked: 'true'}
+domControls.js:111 Debug: setAppHeaderVisibility skipped {hasHeader: false, requested: false}
+domControls.js:89 Debug: workspace initialization status {type: 'scatter', initialized: true}
+domControls.js:1204 Debug: workspace ensure skipped (cached) {tabId: 'workspace-3', type: 'scatter'}
+domControls.js:804 Debug: workspace per-tab root already active {tabId: 'workspace-3', type: 'scatter', reason: 'cached-workspace-bind'}
+components.js:138 Debug: ensureComponent resolved {name: 'scatter', ready: true}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+domControls.js:428 Debug: sanitizeDefaultPayloadVolatileState applied {type: 'scatter', hasBaselineStats: true, hasBaselineRegression: true, strippedGraphSizing: false}
+domControls.js:150 Debug: resolveDefaultFontSizeForType resolved {type: 'scatter', inputId: 'scatterFontSize', defaultPt: 12}
+domControls.js:179 Debug: normalizeDefaultPayloadForType applied {type: 'scatter', previousFontSize: 12, normalizedFontSize: 12}
+fontControls.js:1424 Debug: fontControls importScopeStyles complete {scope: 'scatter', tabToken: 'workspace-3', imported: 0, pruned: undefined}
+scatter.js:6251 Debug: scatter axis settings applied {settings: {…}}
+scatter.js:21447 Debug: scatter axis settings restored {axis: {…}}
+scatter.js:13729 Debug: syncScatterGraphTypeUI complete {type: 'scatter', showThresholds: false}
+chartStyle.js:354 Debug: chartStyle.getDefaultGraphSize cached result {context: 'workspace-payload-scatter', current: {…}}
+chartStyle.js:397 Debug: chartStyle.getSquareGraphSizing {context: 'workspace-payload-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+domControls.js:625 Debug: workspace payload applied via custom handler {type: 'scatter'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+componentLayout.js:186 Debug: componentLayout tab layout override merged {tabId: 'workspace-3', component: 'scatter', aspectLocked: true}
+domControls.js:1094 Debug: workspace layout graph sizing merge skipped {tabId: 'workspace-3', type: 'scatter', reason: 'authoritative-layout-state'}
+componentLayout.js:592 Debug: componentLayout minSvgWidth updated {component: 'scatter', value: 0, coerced: 0}
+componentLayout.js:985 Debug: componentLayout applyState normalized svg sizing authority {component: 'scatter', widthPx: 356, heightPx: 356, baseWidth: 356, baseHeight: 356, …}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: true}
+componentLayout.js:1009 Debug: componentLayout applyState {component: 'scatter', applied: true, skipSchedule: false}
+domControls.js:1120 Debug: workspace layout applied {tabId: 'workspace-3', type: 'scatter', hasState: true, applied: true}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:1166 Debug: componentLayout tab controls synced {component: 'scatter', tabId: 'workspace-3', aspectLocked: true, synced: true}
+domControls.js:1175 Debug: workspace displayed {tabId: 'workspace-3', type: 'scatter'}
+previews.js:1070 Debug: preview hover enter {tabId: 'workspace-3', type: 'scatter'}
+previews.js:995 Debug: preview tooltip hidden {reason: 'active-tab'}
+previews.js:1074 Debug: preview hover skipped for active tab {tabId: 'workspace-3', type: 'scatter'}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
+chartStyle.js:410 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:425 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+chartStyle.js:492 Debug: chartStyle.computeResizeScale {width: 356, height: 356, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8337236533957846, …}
+chartStyle.js:417 Debug: chartStyle.pxToPt {input: 13, numeric: 13, pt: 9.75}
+chartStyle.js:605 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 9.75, textLocked: false}
+chartStyle.js:613 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-3', scaledPt: 9.75, textLocked: false}
+chartStyle.js:638 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 13, scaledPt: 9.75, …}
 chartStyle.js:978 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
 chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0.85, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
-chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.8339228983955196, context: 'scatter-annotation'}
-chartStyle.js:2259 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 11.25, min: 6, max: 24}
-chartStyle.js:2276 Debug: chartStyle.renderFontSizeLabel applied {pt: 11.3, px: 15, label: '11.3 pt (15px)', inputId: 'scatterFontSize', manualUpdate: false}
-chartStyle.js:1393 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.9625292740046838, resizeScale: 0.9625292740046838, baseMetrics: {…}, …}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
-chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9810857628182583, context: 'scatter-grid'}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
-chartStyle.js:444 Debug: chartStyle.makeFont {size: 15, font: '15px Arial, Helvetica, sans-serif'}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: 'High density', font: '15px Arial, Helvetica, sans-serif', width: 82.5439453125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Medium', font: '15px Arial, Helvetica, sans-serif', width: 53.349609375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Low density', font: '15px Arial, Helvetica, sans-serif', width: 79.21142578125}
-chartStyle.js:2342 Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 15, rowGap: 5, swatchSize: 9, swatchGap: 8, …}
-chartStyle.js:2531 Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 111.5439453125, minSvgWidth: 455.5439453125, basePlotWidth: 320, …}
-fontControls.js:1424 Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
-chartStyle.js:2190 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
-chartStyle.js:2196 Debug: chartStyle.applySvgDefaults {hasSvg: true}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 380, baseSpacing: 48, rawEstimate: 7.916666666666667, rounded: 8, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 319, baseSpacing: 48, rawEstimate: 6.645833333333333, rounded: 7, minTicks: 4, …}
-fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-3'}
-chartStyle.js:444 Debug: chartStyle.makeFont {size: 15, font: '15px Arial, Helvetica, sans-serif'}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '15px Arial, Helvetica, sans-serif', width: 75.87158203125}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 111.5439453125, maxYLabelWidth: 0, yTitleWidth: 75.87158203125, xTickFontSize: 15, …}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 15, plotWidth: 188.4560546875, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 111.5439453125, maxYLabelWidth: 25.02685546875, yTitleWidth: 75.87158203125, xTickFontSize: 15, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 7, fontSize: 15, plotWidth: 184.02873083467506, shouldRotate: true, shouldRotateRaw: true, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 184.02873083467506, baseSpacing: 48, rawEstimate: 3.8339318923890637, rounded: 4, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 182.04918032786884, baseSpacing: 48, rawEstimate: 3.792691256830601, rounded: 4, minTicks: 4, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
- Debug: chartStyle.measureText {text: '1000', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
- Debug: chartStyle.measureText {text: '1250', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
- Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 111.5439453125, maxYLabelWidth: 25.02685546875, yTitleWidth: 75.87158203125, xTickFontSize: 15, …}
- Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
- Debug: chartStyle.measureText {text: '250', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
- Debug: chartStyle.measureText {text: '500', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
- Debug: chartStyle.measureText {text: '750', font: '15px Arial, Helvetica, sans-serif', width: 25.02685546875}
- Debug: chartStyle.measureText {text: '1000', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
- Debug: chartStyle.measureText {text: '1250', font: '15px Arial, Helvetica, sans-serif', width: 33.369140625}
- Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 15, plotWidth: 184.02873083467506, shouldRotate: true, shouldRotateRaw: true, …}
- Debug: chartStyle.estimateTickCount {spanPx: 184.02873083467506, baseSpacing: 48, rawEstimate: 3.8339318923890637, rounded: 4, minTicks: 4, …}
- Debug: chartStyle.estimateTickCount {spanPx: 182.04918032786884, baseSpacing: 48, rawEstimate: 3.792691256830601, rounded: 4, minTicks: 4, …}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '0'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '250'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '500'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '750'}
- Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::__graph__', remaining: 40}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1000'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1250'}
- Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: true, angle: -45, disableAuto: false}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '200'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '400'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '600'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '800'}
-debounce.js:81 [Violation] 'requestAnimationFrame' handler took 78ms
- Debug: componentLayout ResizeObserver ignored unchanged size {component: 'scatter', lastSize: {…}, nextSize: {…}}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 411, heightToApply: 411, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 411, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -54.6666259765625, dy: -2.666656494140625, aspectLocked: true, width: '372px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 372, heightToApply: 372, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 372, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -56, dy: -3.333343505859375, aspectLocked: true, width: '371px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 371, heightToApply: 371, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 371, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 371, heightToApply: 371, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 371, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -59.33331298828125, dy: -3.333343505859375, aspectLocked: true, width: '368px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 368, heightToApply: 368, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 368, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -60.6666259765625, dy: -3.333343505859375, aspectLocked: true, width: '366px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 366, heightToApply: 366, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 366, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 366, heightToApply: 366, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 366, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -64.6666259765625, dy: -3.333343505859375, aspectLocked: true, width: '362px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 362, heightToApply: 362, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 362, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -66, dy: -3.333343505859375, aspectLocked: true, width: '361px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 361, heightToApply: 361, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 361, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -68, dy: -4, aspectLocked: true, width: '359px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 359, heightToApply: 359, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 359, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 3}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-resizer.js:2284 Debug: resizer observer triggered
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 359, heightToApply: 359, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 359, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -70, dy: -4, aspectLocked: true, width: '357px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 357, heightToApply: 357, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 357, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -71.33331298828125, dy: -4, aspectLocked: true, width: '356px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-resizer.js:2284 Debug: resizer observer triggered
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -75.33331298828125, dy: -4.666656494140625, aspectLocked: true, width: '352px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 352, heightToApply: 352, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 352, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -76.6666259765625, dy: -4.666656494140625, aspectLocked: true, width: '350px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 350, heightToApply: 350, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 350, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 350, heightToApply: 350, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 350, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -78.6666259765625, dy: -4.666656494140625, aspectLocked: true, width: '348px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 348, heightToApply: 348, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 348, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -80.6666259765625, dy: -4.666656494140625, aspectLocked: true, width: '346px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 346, heightToApply: 346, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 346, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -82, dy: -4.666656494140625, aspectLocked: true, width: '345px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 345, heightToApply: 345, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 345, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -82.6666259765625, dy: -4.666656494140625, aspectLocked: true, width: '344px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 344, heightToApply: 344, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 344, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 4}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 3}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 344, heightToApply: 344, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 344, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -84, dy: -4.666656494140625, aspectLocked: true, width: '343px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 343, heightToApply: 343, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 343, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 343, heightToApply: 343, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 343, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -86, dy: -4.666656494140625, aspectLocked: true, width: '341px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 341, heightToApply: 341, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 341, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 341, heightToApply: 341, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 341, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -86.6666259765625, dy: -4.666656494140625, aspectLocked: true, width: '340px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 340, heightToApply: 340, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 340, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -87.33331298828125, dy: -4.666656494140625, aspectLocked: true, width: '340px', …}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 340, heightToApply: 340, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 340, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -87.33331298828125, dy: -5.333343505859375, aspectLocked: true, width: '340px', …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.9625292740046838, resizeOnlyScale: 0.9625292740046838, lengthScale: 0.9810857628182583, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9810857628182583, context: 'scatter-error-bar'}
- Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 256.4560546875, y: 36}
- Debug: enableLegendDrag bound {element: 'g'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-0', text: 'High density'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'High density'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-1', text: 'Medium'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Medium'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-2', text: 'Low density'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Low density'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
- Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
- Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
- Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -23.758395195007324, minY: -11.333333015441895, viewW: 396.2583923339844, …}
- Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 340, heightToApply: 340, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 340, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -88.6666259765625, dy: -5.333343505859375, aspectLocked: true, width: '338px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 338, heightToApply: 338, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 338, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 0.85, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.776121987562815, context: 'scatter-annotation'}
+chartStyle.js:2259 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 9.75, min: 6, max: 24}
+chartStyle.js:2276 Debug: chartStyle.renderFontSizeLabel applied {pt: 9.8, px: 13, label: '9.8 pt (13px)', inputId: 'scatterFontSize', manualUpdate: false}
+chartStyle.js:1393 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.8337236533957846, resizeScale: 0.8337236533957846, baseMetrics: {…}, …}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9130846912503706, context: 'scatter-grid'}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:444 Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'High density', font: '13px Arial, Helvetica, sans-serif', width: 71.5380859375}
+ Debug: chartStyle.measureText {text: 'Medium', font: '13px Arial, Helvetica, sans-serif', width: 46.236328125}
+ Debug: chartStyle.measureText {text: 'Low density', font: '13px Arial, Helvetica, sans-serif', width: 68.64990234375}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 13, rowGap: 4, swatchSize: 8, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 99.5380859375, minSvgWidth: 443.5380859375, basePlotWidth: 320, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.estimateTickCount {spanPx: 325, baseSpacing: 48, rawEstimate: 6.770833333333333, rounded: 7, minTicks: 4, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 264, baseSpacing: 48, rawEstimate: 5.5, rounded: 6, minTicks: 4, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-3'}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Libraryrep2', font: '13px Arial, Helvetica, sans-serif', width: 65.75537109375}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 0, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+ Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 21.68994140625, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 7, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 145.4619140625, baseSpacing: 48, rawEstimate: 3.03045654296875, rounded: 3, minTicks: 4, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 139.655737704918, baseSpacing: 48, rawEstimate: 2.909494535519125, rounded: 3, minTicks: 4, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 21.68994140625, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 145.4619140625, baseSpacing: 48, rawEstimate: 3.03045654296875, rounded: 3, minTicks: 4, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 139.655737704918, baseSpacing: 48, rawEstimate: 2.909494535519125, rounded: 3, minTicks: 4, …}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '0'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '250'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '500'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '750'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1000'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1250'}
+chartStyle.js:1538 Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: true, angle: -45, disableAuto: false}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '200'}
+fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::__graph__', remaining: 55}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '400'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '600'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '800'}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 1038ms
+componentLayout.js:551 Debug: componentLayout ResizeObserver ignored during programmatic sync {component: 'scatter', nextSize: {…}, depth: 1}
+resizer.js:2383 Debug: resizer observer triggered
+componentLayout.js:675 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
+[Violation] 'setTimeout' handler took 2367ms
+previews.js:995 Debug: preview tooltip hidden {reason: 'leave'}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
+resizer.js:1144 Debug: resizer aspect ratio set {container: 'scatterGraphPanel', aspectRatio: 1}
+resizer.js:1264 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'workspace-payload-scatter', axis: 'both', zoomScale: 1, aspectLocked: false, …}
+resizer.js:1458 Debug: resizer applyProgrammaticResize {container: 'scatterGraphPanel', reason: 'workspace-payload-scatter', authorityMode: 'authoritative', requestedAxis: 'both', requestedWidth: 356, …}
+componentLayout.js:675 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'programmatic', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:502 Debug: componentLayout scheduleDraw invoked {component: 'scatter', source: 'resize'}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: true}
+scatter.js:9626 Debug: scatter layout onResize schedule trigger {phase: 'programmatic', aspectLocked: true}
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+[Violation] 'setInterval' handler took <N>ms
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9130846912503706, context: 'scatter-error-bar'}
+[Violation] 'setTimeout' handler took 2950ms
+colorSchemes.js:2015 [Violation] 'setTimeout' handler took 234ms
+chartStyle.js:2497 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 213.4619140625, y: 36}
+dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-0', text: 'High density'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'High density'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-1', text: 'Medium'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Medium'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-2', text: 'Low density'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Low density'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -20.196964740753174, minY: -10, viewW: 338.0303039550781, …}
+dom.js:7 Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: true}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -19.864384174346924, minY: -9.667419910430908, viewW: 337.221923828125, …}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
  Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
  Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 338, height: 338, defaultWidth: 427, defaultHeight: 427, scaleX: 0.7915690866510539, …}
+ Debug: chartStyle.computeResizeScale {width: 356, height: 356, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8337236533957846, …}
  Debug: chartStyle.pxToPt {input: 13, numeric: 13, pt: 9.75}
  Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 9.75, textLocked: false}
  Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-3', scaledPt: 9.75, textLocked: false}
  Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 13, scaledPt: 9.75, …}
  Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
- Debug: chartStyle.scaleLength {base: 0, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+ Debug: chartStyle.scaleLength {base: 0, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
  Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
- Debug: chartStyle.scaleLength {base: 0.85, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.7562464314662162, context: 'scatter-annotation'}
+ Debug: chartStyle.scaleLength {base: 0.85, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.776121987562815, context: 'scatter-annotation'}
  Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 9.75, min: 6, max: 24}
  Debug: chartStyle.renderFontSizeLabel applied {pt: 9.8, px: 13, label: '9.8 pt (13px)', inputId: 'scatterFontSize', manualUpdate: false}
- Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.7915690866510539, resizeScale: 0.7915690866510539, baseMetrics: {…}, …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8897016840779014, context: 'scatter-grid'}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.8337236533957846, resizeScale: 0.8337236533957846, baseMetrics: {…}, …}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9130846912503706, context: 'scatter-grid'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
  Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
  Debug: chartStyle.measureText {text: 'High density', font: '13px Arial, Helvetica, sans-serif', width: 71.5380859375}
  Debug: chartStyle.measureText {text: 'Medium', font: '13px Arial, Helvetica, sans-serif', width: 46.236328125}
@@ -518,13 +260,36 @@ scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe
  Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
  Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
  Debug: chartStyle.applySvgDefaults {hasSvg: true}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 307, baseSpacing: 48, rawEstimate: 6.395833333333333, rounded: 6, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 246, baseSpacing: 48, rawEstimate: 5.125, rounded: 5, minTicks: 4, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 325, baseSpacing: 48, rawEstimate: 6.770833333333333, rounded: 7, minTicks: 4, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 264, baseSpacing: 48, rawEstimate: 5.5, rounded: 6, minTicks: 4, …}
 fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-3'}
 chartStyle.js:444 Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '13px Arial, Helvetica, sans-serif', width: 65.75537109375}
 chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 0, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 127.4619140625, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: false, shouldRotateRaw: false, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 21.68994140625, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1200', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 7, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 145.4619140625, baseSpacing: 48, rawEstimate: 3.03045654296875, rounded: 3, minTicks: 4, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 139.655737704918, baseSpacing: 48, rawEstimate: 2.909494535519125, rounded: 3, minTicks: 4, …}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
@@ -543,476 +308,53 @@ chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '13px Arial
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
 chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 13, plotWidth: 127.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 127.4619140625, baseSpacing: 48, rawEstimate: 2.65545654296875, rounded: 3, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 123.8360655737705, baseSpacing: 48, rawEstimate: 2.5799180327868854, rounded: 3, minTicks: 4, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 99.5380859375, maxYLabelWidth: 21.68994140625, yTitleWidth: 65.75537109375, xTickFontSize: 13, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '13px Arial, Helvetica, sans-serif', width: 21.68994140625}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '13px Arial, Helvetica, sans-serif', width: 28.919921875}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 13, plotWidth: 127.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 127.4619140625, baseSpacing: 48, rawEstimate: 2.65545654296875, rounded: 3, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 123.8360655737705, baseSpacing: 48, rawEstimate: 2.5799180327868854, rounded: 3, minTicks: 4, …}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '0'}
-fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::xTick', remaining: 20}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '250'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '500'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '750'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1000'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1250'}
-chartStyle.js:1538 Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: true, angle: -45, disableAuto: false}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
-fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::__graph__', remaining: 60}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '200'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '400'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '600'}
-fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::yTick', remaining: 20}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '800'}
-debounce.js:81 [Violation] 'requestAnimationFrame' handler took 70ms
- Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -24.282275199890137, minY: -11.857224464416504, viewW: 396.5357666015625, …}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 338, heightToApply: 338, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 338, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -90.6666259765625, dy: -5.333343505859375, aspectLocked: true, width: '336px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 336, heightToApply: 336, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 336, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 336, heightToApply: 336, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 336, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -91.33331298828125, dy: -5.333343505859375, aspectLocked: true, width: '336px', …}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -92, dy: -5.333343505859375, aspectLocked: true, width: '335px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 335, heightToApply: 335, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 335, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 335, heightToApply: 335, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 335, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -92.6666259765625, dy: -6, aspectLocked: true, width: '334px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 334, heightToApply: 334, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 334, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -93.33331298828125, dy: -6, aspectLocked: true, width: '334px', …}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 334, heightToApply: 334, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 334, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -95.33331298828125, dy: -6, aspectLocked: true, width: '332px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 332, heightToApply: 332, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 332, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -96, dy: -6, aspectLocked: true, width: '331px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 331, heightToApply: 331, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 331, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 331, heightToApply: 331, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 331, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -98, dy: -7.333343505859375, aspectLocked: true, width: '329px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 329, heightToApply: 329, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 329, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -98.6666259765625, dy: -7.333343505859375, aspectLocked: true, width: '328px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 328, heightToApply: 328, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 328, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -100, dy: -7.333343505859375, aspectLocked: true, width: '327px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 327, heightToApply: 327, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 327, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 3}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: resizer observer triggered
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 327, heightToApply: 327, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 327, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -101.33331298828125, dy: -7.333343505859375, aspectLocked: true, width: '326px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 326, heightToApply: 326, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 326, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
- Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
- Debug: resizer drag move {axis: 'x', dx: -102, dy: -7.333343505859375, aspectLocked: true, width: '325px', …}
- Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 325, heightToApply: 325, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 325, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-resizer.js:2284 Debug: resizer observer triggered
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 325, heightToApply: 325, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 325, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -104.6666259765625, dy: -8, aspectLocked: true, width: '322px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 322, heightToApply: 322, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 322, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -105.33331298828125, dy: -8, aspectLocked: true, width: '322px', …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -106, dy: -8, aspectLocked: true, width: '321px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 321, heightToApply: 321, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 321, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-resizer.js:2284 Debug: resizer observer triggered
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 321, heightToApply: 321, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 321, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -107.33331298828125, dy: -8, aspectLocked: true, width: '320px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 320, heightToApply: 320, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 320, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7915690866510539, resizeOnlyScale: 0.7915690866510539, lengthScale: 0.8897016840779014, zoomScale: 1, …}
-chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8897016840779014, context: 'scatter-error-bar'}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatterGraphPanel', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:1165 Debug: resizer applyResize helper {container: 'scatterGraphPanel', reason: 'pointer-move', axis: 'x', zoomScale: 1, aspectLocked: true, …}
-resizer.js:2204 Debug: resizer drag move {axis: 'x', dx: -108.6666259765625, dy: -8, aspectLocked: true, width: '318px', …}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 318, heightToApply: 318, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 318, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'move', aspectLocked: true}
-resizer.js:2226 Debug: resizer drag end
-resizer.js:1996 Debug: resizer snapshot captured {container: 'scatterGraphPanel', tag: 'pointer-end', width: 318, height: 318, aspectLocked: true}
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'end', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 318, heightToApply: 318, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 318, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'end', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 3}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 2}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 1}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-resizer.js:2284 Debug: resizer observer triggered
-componentLayout.js:663 Debug: componentLayout resizable onResize {component: 'scatter', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 318, heightToApply: 318, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 318, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-scatter.js:9622 Debug: scatter layout onResize schedule trigger {phase: 'observe', aspectLocked: true}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-chartStyle.js:2497 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 195.4619140625, y: 36}
-dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-0', text: 'High density'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'High density'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-1', text: 'Medium'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Medium'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-2', text: 'Low density'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Low density'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -18.43818736076355, minY: -10, viewW: 318.2715759277344, …}
-dom.js:7 Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 318, heightToApply: 318, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 318, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -18.286659955978394, minY: -9.848477363586426, viewW: 318.1733703613281, …}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
- Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 318, height: 318, defaultWidth: 427, defaultHeight: 427, scaleX: 0.7447306791569087, …}
- Debug: chartStyle.pxToPt {input: 12, numeric: 12, pt: 9}
- Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 9, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-3', scaledPt: 9, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 12, scaledPt: 9, …}
- Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
- Debug: chartStyle.scaleLength {base: 0, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
- Debug: chartStyle.scaleLength {base: 0.85, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.7335311279631332, context: 'scatter-annotation'}
- Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 9, min: 6, max: 24}
- Debug: chartStyle.renderFontSizeLabel applied {pt: 9, px: 12, label: '9 pt (12px)', inputId: 'scatterFontSize', manualUpdate: false}
- Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.7447306791569087, resizeScale: 0.7447306791569087, baseMetrics: {…}, …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8629777976036862, context: 'scatter-grid'}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
- Debug: chartStyle.makeFont {size: 12, font: '12px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'High density', font: '12px Arial, Helvetica, sans-serif', width: 66.03515625}
- Debug: chartStyle.measureText {text: 'Medium', font: '12px Arial, Helvetica, sans-serif', width: 42.6796875}
- Debug: chartStyle.measureText {text: 'Low density', font: '12px Arial, Helvetica, sans-serif', width: 63.369140625}
- Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 12, rowGap: 4, swatchSize: 7, swatchGap: 8, …}
- Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 93.03515625, minSvgWidth: 437.03515625, basePlotWidth: 320, …}
- Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
- Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
-chartStyle.js:2196 Debug: chartStyle.applySvgDefaults {hasSvg: true}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 287, baseSpacing: 48, rawEstimate: 5.979166666666667, rounded: 6, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 226, baseSpacing: 48, rawEstimate: 4.708333333333333, rounded: 5, minTicks: 4, …}
-fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-3'}
-chartStyle.js:444 Debug: chartStyle.makeFont {size: 12, font: '12px Arial, Helvetica, sans-serif'}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '12px Arial, Helvetica, sans-serif', width: 60.697265625}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 12, legendWidth: 93.03515625, maxYLabelWidth: 0, yTitleWidth: 60.697265625, xTickFontSize: 12, …}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 12, plotWidth: 113.96484375, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 12, legendWidth: 93.03515625, maxYLabelWidth: 20.021484375, yTitleWidth: 60.697265625, xTickFontSize: 12, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 12, plotWidth: 113.96484375, shouldRotate: true, shouldRotateRaw: true, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 113.96484375, baseSpacing: 48, rawEstimate: 2.374267578125, rounded: 2, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 110.14754098360655, baseSpacing: 48, rawEstimate: 2.29474043715847, rounded: 2, minTicks: 4, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '200', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '400', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '600', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '800', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 12, legendWidth: 93.03515625, maxYLabelWidth: 20.021484375, yTitleWidth: 60.697265625, xTickFontSize: 12, …}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '12px Arial, Helvetica, sans-serif', width: 6.673828125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '250', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '500', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '750', font: '12px Arial, Helvetica, sans-serif', width: 20.021484375}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1000', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1041 Debug: chartStyle.measureText {text: '1250', font: '12px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 12, plotWidth: 113.96484375, shouldRotate: true, shouldRotateRaw: true, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 113.96484375, baseSpacing: 48, rawEstimate: 2.374267578125, rounded: 2, minTicks: 4, …}
-chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 110.14754098360655, baseSpacing: 48, rawEstimate: 2.29474043715847, rounded: 2, minTicks: 4, …}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 13, plotWidth: 145.4619140625, shouldRotate: true, shouldRotateRaw: true, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 145.4619140625, baseSpacing: 48, rawEstimate: 3.03045654296875, rounded: 3, minTicks: 4, …}
+chartStyle.js:1018 Debug: chartStyle.estimateTickCount {spanPx: 139.655737704918, baseSpacing: 48, rawEstimate: 2.909494535519125, rounded: 3, minTicks: 4, …}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '0'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '250'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '500'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '750'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1000'}
+fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::xTick', remaining: 30}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: '1250'}
 chartStyle.js:1538 Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: true, angle: -45, disableAuto: false}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '200'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '400'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '600'}
-fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::__graph__', remaining: 80}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '800'}
-debounce.js:81 [Violation] 'requestAnimationFrame' handler took 90ms
-chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.7447306791569087, resizeOnlyScale: 0.7447306791569087, lengthScale: 0.8629777976036862, zoomScale: 1, …}
-chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8629777976036862, context: 'scatter-error-bar'}
-chartStyle.js:2497 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 181.96484375, y: 36}
+chartStyle.js:952 Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8337236533957846, resizeOnlyScale: 0.8337236533957846, lengthScale: 0.9130846912503706, zoomScale: 1, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.9130846912503706, context: 'scatter-error-bar'}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 158ms
+chartStyle.js:2497 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 213.4619140625, y: 36}
 dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
+fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-3::__graph__', remaining: 75}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-0', text: 'High density'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'High density'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'High density'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-1', text: 'Medium'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Medium'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Medium'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'legend', key: 'legend-2', text: 'Low density'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Low density'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Low density'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'Libraryrep1'}
 dom.js:7 Debug: makeEditable bound {hasOnChange: true}
 dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Libraryrep2'}
 dom.js:7 Debug: makeEditable bound {hasOnChange: true}
 dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
 fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-scatter.js:9208 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
+scatter.js:9212 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
 dom.js:7 Debug: makeEditable bound {hasOnChange: true}
 dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -14.093306064605713, minY: -8.666666507720947, viewW: 293.7599792480469, …}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -20.196964740753174, minY: -10, viewW: 338.0303039550781, …}
 dom.js:7 Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
-resizer.js:2472 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2520 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 584.6666870117188, graphContentWidth: 584.6666870117188, graphInset: 0, pad: 0, …}
-resizer.js:652 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:2740 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 318, heightToApply: 318, ratio: 1, …}
-resizer.js:2794 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 318, tableWidth: 292, graphWidth: 584.6666870117188, configWidth: 407.79168701171875, …}
-componentLayout.js:521 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -14.351446628570557, minY: -8.924805641174316, viewW: 294.16339111328125, …}
-componentLayout.js:515 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 356, heightToApply: 356, ratio: 1, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 356, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 407.79168701171875, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -19.864384174346924, minY: -9.667419910430908, viewW: 337.221923828125, …}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}

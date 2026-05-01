@@ -837,6 +837,7 @@
       return false;
     }
     const payloadSignature = tab.payloadSignature || null;
+    const layoutSignature = tab.layoutSignature || null;
     const liveSvg = typeof config.getPreviewSvg === 'function'
       ? (() => {
           try {
@@ -860,6 +861,8 @@
       && !tab.previewMeta?.canvasSimplified;
     const needsRenderCacheRefresh = renderCacheSequence > 0
       && Number(tab.previewMeta?.renderCacheSequence || 0) !== renderCacheSequence;
+    const needsLayoutRefresh = layoutSignature
+      && tab.previewMeta?.layoutSignature !== layoutSignature;
     const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
       && !tab.previewMeta?.hybrid
       && !tab.previewMeta?.canvasBitmap
@@ -875,6 +878,7 @@
       || (payloadSignature && tab.previewSignature !== payloadSignature)
       || needsHybridRefresh
       || needsRenderCacheRefresh
+      || needsLayoutRefresh
       || needsPlaceholderRefresh
       || needsLegacyCanvasGlyphRefresh;
     if (!shouldCapture) {
@@ -894,6 +898,7 @@
         canvasBitmap: !!preview.canvasBitmap,
         hybrid: !!preview.hybrid,
         renderCacheSequence,
+        layoutSignature,
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };

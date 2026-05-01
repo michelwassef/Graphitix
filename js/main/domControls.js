@@ -867,14 +867,17 @@
       ? value => session.fastClonePayload(value)
       : (session?.clonePayload ? value => session.clonePayload(value) : null);
     const canReuseWorkspaceForActivation = () => {
-      if (config.perTabDomInstances === true) {
-        return false;
-      }
       const runtimeAlreadyBoundToTarget = config.perTabDomInstances !== true
         || !config.__activeRuntimeTabId
         || String(config.__activeRuntimeTabId) === String(tab.id);
+      const mountedTabRoot = config.perTabDomInstances === true
+        ? (Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null)
+        : null;
+      const mountedTabRootHasGraph = config.perTabDomInstances !== true
+        || !!mountedTabRoot?.querySelector?.('.svgbox svg, .svgbox canvas, svg, canvas');
       return !didRuntimeRebindForActivation
         && runtimeAlreadyBoundToTarget
+        && mountedTabRootHasGraph
         && !options.forceReload
         && cachedWorkspace
         && cachedWorkspace.tabId === tab.id

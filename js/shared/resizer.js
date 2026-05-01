@@ -85,6 +85,105 @@
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
 
+  function copyCanvasBitmaps(sourceRoot, cloneRoot){
+    if(!sourceRoot || !cloneRoot || typeof sourceRoot.querySelectorAll !== 'function' || typeof cloneRoot.querySelectorAll !== 'function'){
+      return;
+    }
+    const sourceCanvases = Array.from(sourceRoot.querySelectorAll('canvas'));
+    const cloneCanvases = Array.from(cloneRoot.querySelectorAll('canvas'));
+    sourceCanvases.forEach((sourceCanvas, index) => {
+      const cloneCanvas = cloneCanvases[index];
+      if(!sourceCanvas || !cloneCanvas || typeof cloneCanvas.getContext !== 'function'){
+        return;
+      }
+      try{
+        const sourceWidth = Math.max(1, Number(sourceCanvas.width) || 1);
+        const sourceHeight = Math.max(1, Number(sourceCanvas.height) || 1);
+        if(cloneCanvas.width !== sourceWidth){
+          cloneCanvas.width = sourceWidth;
+        }
+        if(cloneCanvas.height !== sourceHeight){
+          cloneCanvas.height = sourceHeight;
+        }
+        const ctx = cloneCanvas.getContext('2d');
+        if(ctx && typeof ctx.drawImage === 'function'){
+          ctx.clearRect(0, 0, sourceWidth, sourceHeight);
+          ctx.drawImage(sourceCanvas, 0, 0);
+        }
+      }catch(err){
+        console.debug('Debug: resizer canvas bitmap copy skipped', {
+          message: err?.message || String(err),
+          index
+        });
+      }
+    });
+  }
+
+  resizerNamespace.reuseCanvasLayerDuringResizeMove = function reuseCanvasLayerDuringResizeMove(options = {}){
+    const targetGroup = options.targetGroup || options.targetLayer || null;
+    const previousSvg = options.previousSvg || null;
+    const sourceSelector = typeof options.sourceSelector === 'string' ? options.sourceSelector : '';
+    const nextMargin = options.nextMargin || null;
+    const nextPlotW = Number(options.nextPlotW);
+    const nextPlotH = Number(options.nextPlotH);
+    const metricKeys = options.metricKeys || {};
+    const leftKey = metricKeys.left || 'plotLeft';
+    const topKey = metricKeys.top || 'plotTop';
+    const widthKey = metricKeys.width || 'plotW';
+    const heightKey = metricKeys.height || 'plotH';
+    const rendererSelector = options.rendererSelector || 'foreignObject[data-point-renderer], foreignobject[data-point-renderer]';
+    const allowedModes = Array.isArray(options.allowedRenderModes)
+      ? new Set(options.allowedRenderModes.map(mode => String(mode)))
+      : null;
+    if(!previousSvg || !sourceSelector || !nextMargin){
+      return false;
+    }
+    const sourceGroup = previousSvg.querySelector(sourceSelector);
+    if(!sourceGroup){
+      return false;
+    }
+    if(allowedModes){
+      const sourceRenderMode = String(sourceGroup.getAttribute('data-render-mode') || '');
+      if(!allowedModes.has(sourceRenderMode)){
+        return false;
+      }
+    }
+    if(rendererSelector && !sourceGroup.querySelector(rendererSelector)){
+      return false;
+    }
+    const prevLeft = Number(previousSvg.dataset?.[leftKey]);
+    const prevTop = Number(previousSvg.dataset?.[topKey]);
+    const prevPlotW = Number(previousSvg.dataset?.[widthKey]);
+    const prevPlotH = Number(previousSvg.dataset?.[heightKey]);
+    if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(prevPlotW) || !Number.isFinite(prevPlotH) || prevPlotW <= 0 || prevPlotH <= 0){
+      return false;
+    }
+    if(!Number.isFinite(nextPlotW) || !Number.isFinite(nextPlotH) || nextPlotW <= 0 || nextPlotH <= 0){
+      return false;
+    }
+    const sx = nextPlotW / prevPlotW;
+    const sy = nextPlotH / prevPlotH;
+    if(!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0){
+      return false;
+    }
+    if(options.dryRun === true){
+      return true;
+    }
+    if(!targetGroup){
+      return false;
+    }
+    const tx = Number(nextMargin.left) - (sx * prevLeft);
+    const ty = Number(nextMargin.top) - (sy * prevTop);
+    const clone = sourceGroup.cloneNode(true);
+    copyCanvasBitmaps(sourceGroup, clone);
+    clone.setAttribute('data-resize-canvas-source', '1');
+    targetGroup.setAttribute('data-render-mode', options.renderMode || 'canvas-resize-reused');
+    targetGroup.setAttribute('pointer-events', 'none');
+    targetGroup.setAttribute('transform', `matrix(${sx} 0 0 ${sy} ${tx} ${ty})`);
+    targetGroup.appendChild(clone);
+    return true;
+  };
+
   resizerNamespace.attachPanelDragResizer = function attachPanelDragResizer(opts = {}){
     const {
       panelResizer,

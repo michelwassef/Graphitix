@@ -277,6 +277,8 @@
     lastDrawMeta: null,
     pendingDrawReasons: null,
     activeDrawReasons: null,
+    resizeInteractionActive: false,
+    resizeObserveDrawMutedUntil: 0,
     useDelegatedPointEvents: true,
     dataDirty: true,
     cachedCollect: null,
@@ -6631,6 +6633,8 @@
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
+    scatterState.resizeInteractionActive = false;
+    scatterState.resizeObserveDrawMutedUntil = 0;
     ensureScatterAxisSettings();
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
     const legacyDollar = global.$;
@@ -9620,12 +9624,25 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            const mutedUntil = Number(scatterState.resizeObserveDrawMutedUntil) || 0;
+            if(resizePhase === 'observe' && (scatterState.resizeInteractionActive || Date.now() <= mutedUntil)){
+              scatterDebug('Debug: scatter resize observer callback ignored during pointer resize');
+              return;
+            }
             const isResizeFinalize = resizePhase === 'end'
               || resizePhase === 'reset'
               || resizePhase === 'undo'
               || resizePhase === 'redo'
               || resizePhase === 'programmatic'
               || resizePhase === 'aspect-toggle';
+            if(resizePhase === 'move'){
+              scatterState.resizeInteractionActive = true;
+            }else if(isResizeFinalize){
+              scatterState.resizeInteractionActive = false;
+              scatterState.resizeObserveDrawMutedUntil = Date.now() + 180;
+            }else if(resizePhase !== 'observe'){
+              scatterState.resizeInteractionActive = false;
+            }
             scheduleDrawScatter({
               viewOnly: true,
               reason: 'resize',
@@ -15354,53 +15371,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
 
       function tryReuseScatterCanvasPointLayerDuringResizeMove(options = {}){
-        const targetLayer = options.targetLayer || null;
-        const previousSvg = options.previousSvg || null;
-        const nextMargin = options.nextMargin || null;
-        const nextPlotW = Number(options.nextPlotW);
-        const nextPlotH = Number(options.nextPlotH);
-        if(!targetLayer || !previousSvg || !nextMargin){
+        if(typeof Shared.resizer?.reuseCanvasLayerDuringResizeMove !== 'function'){
           return false;
         }
-        const sourceLayer = previousSvg.querySelector('g[data-layer="points"]');
-        if(!sourceLayer){
-          return false;
-        }
-        const sourceRenderMode = String(sourceLayer.getAttribute('data-render-mode') || '');
-        if(sourceRenderMode !== 'canvas'){
-          return false;
-        }
-        const sourceForeign = sourceLayer.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
-        if(!sourceForeign){
-          return false;
-        }
-        const prevLeft = Number(previousSvg.dataset?.scatterPlotLeft);
-        const prevTop = Number(previousSvg.dataset?.scatterPlotTop);
-        const prevPlotW = Number(previousSvg.dataset?.scatterPlotW);
-        const prevPlotH = Number(previousSvg.dataset?.scatterPlotH);
-        if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(prevPlotW) || !Number.isFinite(prevPlotH) || prevPlotW <= 0 || prevPlotH <= 0){
-          return false;
-        }
-        if(!Number.isFinite(nextPlotW) || !Number.isFinite(nextPlotH) || nextPlotW <= 0 || nextPlotH <= 0){
-          return false;
-        }
-        const sx = nextPlotW / prevPlotW;
-        const sy = nextPlotH / prevPlotH;
-        if(!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0){
-          return false;
-        }
-        const tx = Number(nextMargin.left) - (sx * prevLeft);
-        const ty = Number(nextMargin.top) - (sy * prevTop);
-        const clone = sourceLayer.cloneNode(true);
-        clone.setAttribute('data-render-mode', 'canvas-resize-reused');
-        clone.setAttribute('pointer-events', 'none');
-        clone.setAttribute('transform', `matrix(${sx} 0 0 ${sy} ${tx} ${ty})`);
-        while(clone.firstChild){
-          targetLayer.appendChild(clone.firstChild);
-        }
-        targetLayer.setAttribute('data-render-mode', 'canvas-resize-reused');
-        targetLayer.setAttribute('pointer-events', 'none');
-        return true;
+        return Shared.resizer.reuseCanvasLayerDuringResizeMove({
+          ...options,
+          sourceSelector: 'g[data-layer="points"][data-render-mode="canvas"], g[data-layer="points"][data-render-mode="canvas-resize-reused"]',
+          allowedRenderModes: ['canvas', 'canvas-resize-reused'],
+          metricKeys: {
+            left: 'scatterPlotLeft',
+            top: 'scatterPlotTop',
+            width: 'scatterPlotW',
+            height: 'scatterPlotH'
+          }
+        });
       }
 
       function createBubbleRadiusScaler(points, baseRadius){
@@ -17087,6 +17071,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
           svg3.setAttribute('width',String(W3));
           svg3.setAttribute('height',String(H3));
+          svg3.setAttribute('data-scatter-base-width',String(W3));
+          svg3.setAttribute('data-scatter-base-height',String(H3));
           svg3.setAttribute('viewBox',`0 0 ${W3} ${H3}`);
           svg3.setAttribute('font-family',chartStyle.FONT_FAMILY);
           svg3.dataset.viewMode = '3d';
@@ -17799,6 +17785,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         svg.setAttribute('id','scatterSvg');
         svg.setAttribute('width',String(W));
         svg.setAttribute('height',String(H));
+        svg.setAttribute('data-scatter-base-width',String(W));
+        svg.setAttribute('data-scatter-base-height',String(H));
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
         svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
         svg.dataset.viewMode='2d';
@@ -17807,9 +17795,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         chartStyle.applySvgDefaults(svg);
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
         plotEl.appendChild(svg);
-        const commitScatterSvg = () => {
-          svg.style.visibility='';
-          svg.style.pointerEvents='auto';
+        if(previousPlotChildren.length && svg.style){
+          svg.style.position = 'absolute';
+          svg.style.left = '0';
+          svg.style.top = '0';
+          svg.style.zIndex = '1';
+        }
+        const removePreviousScatterNodes = () => {
           if(Array.isArray(previousPlotChildren) && previousPlotChildren.length){
             for(let i = 0; i < previousPlotChildren.length; i += 1){
               const node = previousPlotChildren[i];
@@ -17822,6 +17814,35 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 }catch(err){}
               }
             }
+          }
+        };
+        const afterScatterPaint = callback => {
+          const raf = global.requestAnimationFrame || global.window?.requestAnimationFrame;
+          if(typeof raf === 'function'){
+            raf(() => raf(callback));
+          }else{
+            (global.setTimeout || setTimeout)(callback, 32);
+          }
+        };
+        const normalizeCommittedScatterSvg = () => {
+          if(!svg.style){
+            return;
+          }
+          svg.style.removeProperty('position');
+          svg.style.removeProperty('left');
+          svg.style.removeProperty('top');
+          svg.style.removeProperty('z-index');
+        };
+        const commitScatterSvg = () => {
+          svg.style.visibility='';
+          svg.style.pointerEvents='auto';
+          if(previousPlotChildren.length){
+            afterScatterPaint(() => {
+              removePreviousScatterNodes();
+              normalizeCommittedScatterSvg();
+            });
+          }else{
+            normalizeCommittedScatterSvg();
           }
         };
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -19001,7 +19022,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && !forceCanvasRecompute
           && useCanvasPointRender
           && previousScatterSvg2d
-          && previousScatterSvg2d.querySelector('g[data-layer="points"][data-render-mode="canvas"]')
+          && tryReuseScatterCanvasPointLayerDuringResizeMove({
+            previousSvg: previousScatterSvg2d,
+            nextMargin: margin,
+            nextPlotW: plotW,
+            nextPlotH: plotH,
+            dryRun: true
+          })
         );
         if(largePointMode){
           debug('Debug: scatter large point render mode', {
@@ -20811,7 +20838,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             ? scatterState.cachedCollect.points.length
             : 0;
           const cooldownMs = nextOpts.viewOnly
-            ? (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0)
+            ? (nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move'
+              ? 0
+              : (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0))
             : 80;
           const elapsed = now - scatterState.lastDrawAt;
           if(cooldownMs > 0 && elapsed < cooldownMs){
@@ -21888,9 +21917,156 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     return true;
   }
 
+  function getScatterRenderCacheMetadata(cache){
+    return cache?.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+  }
+
+  function isCompleteScatterRenderCache(cache){
+    if(!cache || typeof cache !== 'object'){
+      return false;
+    }
+    const plotFragment = cache.plot?.fragment || null;
+    const hasPlotSvg = !!(
+      plotFragment
+      && typeof plotFragment.querySelector === 'function'
+      && (plotFragment.querySelector('#scatterSvg') || plotFragment.querySelector('svg'))
+    );
+    if(!hasPlotSvg){
+      return false;
+    }
+    const cacheMeta = getScatterRenderCacheMetadata(cache);
+    return cacheMeta?.complete === true && cacheMeta?.type === 'scatter';
+  }
+
+  function captureScatterRenderCacheMetadata(meta = {}, sourceSvg = null){
+    const tab = meta?.tab || global.Main?.session?.getActiveTab?.() || null;
+    const svg = sourceSvg || getScatterNodeById('scatterPlot')?.querySelector?.('#scatterSvg') || null;
+    return {
+      tabId: meta?.tabId || tab?.id || null,
+      type: 'scatter',
+      complete: false,
+      viewMode: svg?.dataset?.viewMode || null,
+      width: svg?.getAttribute?.('width') || '',
+      height: svg?.getAttribute?.('height') || '',
+      viewBox: svg?.getAttribute?.('viewBox') || ''
+    };
+  }
+
+  function canRestoreScatterRenderCache(cache, meta = {}){
+    if(!isCompleteScatterRenderCache(cache)){
+      return false;
+    }
+    const cacheMeta = getScatterRenderCacheMetadata(cache);
+    if(cacheMeta?.tabId && meta?.tabId && String(cacheMeta.tabId) !== String(meta.tabId)){
+      scatterDebug('Debug: scatter render cache restore rejected', {
+        reason: 'cache-tab-mismatch',
+        cacheTabId: cacheMeta.tabId,
+        tabId: meta.tabId
+      });
+      return false;
+    }
+    return true;
+  }
+
+  function readScatterPositiveNumber(value){
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : NaN;
+  }
+
+  function readScatterPositiveCssPx(value){
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if(!raw || raw.endsWith('%')){
+      return NaN;
+    }
+    const num = Number.parseFloat(raw);
+    return Number.isFinite(num) && num > 0 ? num : NaN;
+  }
+
+  function readScatterViewBoxSize(svg){
+    const raw = svg?.getAttribute?.('viewBox') || '';
+    const parts = String(raw).trim().split(/[\s,]+/).map(part => Number.parseFloat(part));
+    if(parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0){
+      return { width: parts[2], height: parts[3] };
+    }
+    return { width: NaN, height: NaN };
+  }
+
+  function resolveScatterBaseViewportSize(svg){
+    const viewBox = readScatterViewBoxSize(svg);
+    const svgBox = svg?.closest?.('.svgbox') || null;
+    const width = readScatterPositiveNumber(svg?.getAttribute?.('data-scatter-base-width'))
+      || readScatterPositiveNumber(svg?.getAttribute?.('width'))
+      || readScatterPositiveCssPx(svgBox?.dataset?.resizerWidth)
+      || readScatterPositiveCssPx(svgBox?.style?.width)
+      || viewBox.width
+      || Math.max(1, Number(svg?.clientWidth) || 1);
+    const height = readScatterPositiveNumber(svg?.getAttribute?.('data-scatter-base-height'))
+      || readScatterPositiveNumber(svg?.getAttribute?.('height'))
+      || readScatterPositiveCssPx(svgBox?.dataset?.resizerHeight)
+      || readScatterPositiveCssPx(svgBox?.style?.height)
+      || viewBox.height
+      || Math.max(1, Number(svg?.clientHeight) || 1);
+    return {
+      width: Number.isFinite(width) && width > 0 ? width : 1,
+      height: Number.isFinite(height) && height > 0 ? height : 1
+    };
+  }
+
+  function removeScatterPreviewIgnoredNodes(root){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return;
+    }
+    Array.from(root.querySelectorAll('[data-export-ignore="1"]')).forEach(node => {
+      if(node?.parentNode){
+        node.parentNode.removeChild(node);
+      }
+    });
+  }
+
+  function copyScatterCanvasBitmaps(sourceRoot, cloneRoot){
+    if(!sourceRoot || !cloneRoot || typeof sourceRoot.querySelectorAll !== 'function' || typeof cloneRoot.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const sourceCanvases = Array.from(sourceRoot.querySelectorAll('canvas'));
+    const cloneCanvases = Array.from(cloneRoot.querySelectorAll('canvas'));
+    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
+    let copied = 0;
+    for(let idx = 0; idx < count; idx += 1){
+      const sourceCanvas = sourceCanvases[idx];
+      const cloneCanvas = cloneCanvases[idx];
+      const ctx = cloneCanvas?.getContext?.('2d');
+      if(!sourceCanvas || !cloneCanvas || !ctx || typeof ctx.drawImage !== 'function'){
+        continue;
+      }
+      const width = Math.max(1, Number(sourceCanvas.width) || 1);
+      const height = Math.max(1, Number(sourceCanvas.height) || 1);
+      cloneCanvas.width = width;
+      cloneCanvas.height = height;
+      cloneCanvas.setAttribute('width', String(width));
+      cloneCanvas.setAttribute('height', String(height));
+      try{
+        ctx.clearRect?.(0, 0, width, height);
+        ctx.drawImage(sourceCanvas, 0, 0);
+        copied += 1;
+      }catch(_err){}
+    }
+    return copied;
+  }
+
   function resolveScatterPreviewSourceSvg(tab){
-    const cachedFragment = tab?.renderCache?.cache?.plot?.fragment || null;
-    if(cachedFragment && typeof cachedFragment.querySelector === 'function'){
+    const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    const targetTabId = tab?.id || null;
+    const useRenderCache = !!(
+      tab
+      && targetTabId
+      && targetTabId !== activeTabId
+      && tab.renderCache?.cache?.plot?.fragment
+      && typeof tab.renderCache.cache.plot.fragment.querySelector === 'function'
+    );
+    if(useRenderCache){
+      const cachedFragment = tab.renderCache.cache.plot.fragment;
       const cachedSvg = cachedFragment.querySelector('#scatterSvg') || cachedFragment.querySelector('svg');
       if(cachedSvg){
         return cachedSvg;
@@ -21900,26 +22076,100 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     return plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
   }
 
+  function buildScatterPreviewSvgFromSource(sourceSvg){
+    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){
+      return null;
+    }
+    const clone = sourceSvg.cloneNode(true);
+    copyScatterCanvasBitmaps(sourceSvg, clone);
+    const baseViewport = resolveScatterBaseViewportSize(sourceSvg);
+    if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
+      clone.setAttribute('width', String(baseViewport.width));
+      clone.setAttribute('data-scatter-base-width', String(baseViewport.width));
+    }
+    if(Number.isFinite(baseViewport.height) && baseViewport.height > 0){
+      clone.setAttribute('height', String(baseViewport.height));
+      clone.setAttribute('data-scatter-base-height', String(baseViewport.height));
+    }
+    if(!clone.getAttribute('viewBox') && Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0){
+      clone.setAttribute('viewBox', `0 0 ${baseViewport.width} ${baseViewport.height}`);
+    }
+    if(clone.style){
+      clone.style.position = '';
+      clone.style.left = '';
+      clone.style.top = '';
+      clone.style.zIndex = '';
+      clone.style.visibility = '';
+      clone.style.pointerEvents = '';
+    }
+    removeScatterPreviewIgnoredNodes(clone);
+    return clone;
+  }
+
+  scatter.getPreviewSvg = function getPreviewSvg(tab){
+    const sourceSvg = resolveScatterPreviewSourceSvg(tab);
+    if(!sourceSvg){
+      return null;
+    }
+    return buildScatterPreviewSvgFromSource(sourceSvg);
+  };
+
   scatter.getThumbnailSvg = function getThumbnailSvg(tab){
     return resolveScatterPreviewSourceSvg(tab);
   };
 
-  scatter.captureRenderCache = function captureRenderCache(){
+  scatter.captureRenderCache = function captureRenderCache(meta = {}){
     const plot = getScatterNodeById('scatterPlot');
     const stats = getScatterNodeById('scatterStatsResults');
+    const plotSvg = plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
+    if(!plot || !plotSvg){
+      scatterDebug('Debug: scatter render cache capture skipped', {
+        reason: !plot ? 'missing-plot-host' : 'missing-svg',
+        tabId: meta?.tabId || null
+      });
+      return null;
+    }
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
+    const total = (plotCache?.count || 0) + (statsCache?.count || 0);
+    if(total <= 0){
+      restoreChildren(plot, plotCache);
+      restoreChildren(stats, statsCache);
+      scatterDebug('Debug: scatter render cache capture skipped', {
+        reason: 'empty-runtime',
+        tabId: meta?.tabId || null
+      });
+      return null;
+    }
+    const cacheMeta = captureScatterRenderCacheMetadata(meta, plotSvg);
+    cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       scatterDebug('Debug: scatter render cache captured', {
         plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0
+        statsNodes: statsCache?.count || 0,
+        total
       });
     }
-    return { plot: plotCache, stats: statsCache };
+    return { plot: plotCache, stats: statsCache, __graphitixRenderCache: cacheMeta };
   };
 
-  scatter.restoreRenderCache = function restoreRenderCache(cache, meta){
+  scatter.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return canRestoreScatterRenderCache(cache, meta);
+  };
+
+  scatter.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
+    if(!isCompleteScatterRenderCache(cache)){
+      scatterDebug('Debug: scatter render cache restore skipped', { reason: 'incomplete-cache' });
+      return false;
+    }
+    if(!canRestoreScatterRenderCache(cache, meta)){
+      scatterDebug('Debug: scatter render cache restore skipped', {
+        reason: 'cache-validation-failed',
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
     const plot = getScatterNodeById('scatterPlot');
     const stats = getScatterNodeById('scatterStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);

@@ -4980,11 +4980,7 @@
     if(Number.isFinite(pointCount) && pointCount > threshold){
       return true;
     }
-    if(drawOptions?.viewOnly !== true){
-      return false;
-    }
-    const reason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
-    return reason === 'resize';
+    return false;
   }
 
   function getActiveBoxWorkspaceTabId(){
@@ -23705,50 +23701,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
 
   function tryReuseBoxCanvasPointGroupDuringResizeMove(options = {}){
-    const targetGroup = options.targetGroup || null;
-    const previousSvg = options.previousSvg || null;
     const traceIndex = options.traceIndex;
-    const nextMargin = options.nextMargin || null;
-    const nextPlotW = Number(options.nextPlotW);
-    const nextPlotH = Number(options.nextPlotH);
-    if(!targetGroup || !previousSvg || !nextMargin || traceIndex == null){
+    if(traceIndex == null || typeof Shared.resizer?.reuseCanvasLayerDuringResizeMove !== 'function'){
       return false;
     }
-    const sourceGroup = previousSvg.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"]`);
-    if(!sourceGroup){
-      return false;
-    }
-    const sourceForeign = sourceGroup.querySelector('foreignObject[data-point-renderer], foreignobject[data-point-renderer]');
-    if(!sourceForeign){
-      return false;
-    }
-    const prevLeft = Number(previousSvg.dataset?.boxPlotLeft);
-    const prevTop = Number(previousSvg.dataset?.boxPlotTop);
-    const prevPlotW = Number(previousSvg.dataset?.boxPlotW);
-    const prevPlotH = Number(previousSvg.dataset?.boxPlotH);
-    if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !Number.isFinite(prevPlotW) || !Number.isFinite(prevPlotH) || prevPlotW <= 0 || prevPlotH <= 0){
-      return false;
-    }
-    if(!Number.isFinite(nextPlotW) || !Number.isFinite(nextPlotH) || nextPlotW <= 0 || nextPlotH <= 0){
-      return false;
-    }
-    const sx = nextPlotW / prevPlotW;
-    const sy = nextPlotH / prevPlotH;
-    if(!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0){
-      return false;
-    }
-    const tx = Number(nextMargin.left) - (sx * prevLeft);
-    const ty = Number(nextMargin.top) - (sy * prevTop);
-    const clone = sourceGroup.cloneNode(true);
-    clone.setAttribute('data-render-mode', 'canvas-resize-reused');
-    clone.setAttribute('pointer-events', 'none');
-    clone.setAttribute('transform', `matrix(${sx} 0 0 ${sy} ${tx} ${ty})`);
-    while(clone.firstChild){
-      targetGroup.appendChild(clone.firstChild);
-    }
-    targetGroup.setAttribute('data-render-mode', 'canvas-resize-reused');
-    targetGroup.setAttribute('pointer-events', 'none');
-    return true;
+    return Shared.resizer.reuseCanvasLayerDuringResizeMove({
+      ...options,
+      sourceSelector: `g[data-export-layer="box-points"][data-trace="${traceIndex}"]`,
+      metricKeys: {
+        left: 'boxPlotLeft',
+        top: 'boxPlotTop',
+        width: 'boxPlotW',
+        height: 'boxPlotH'
+      }
+    });
   }
 
   function buildStatsAnalysisSpec(extra){
@@ -27447,24 +27413,51 @@ Technical analysis record (advanced)
       if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !svg){
         return false;
       }
-      if(Array.isArray(retainedPlotNodes)){
+      const removeRetainedPlotNodes = () => {
+        if(!Array.isArray(retainedPlotNodes)){
+          return;
+        }
         retainedPlotNodes.forEach(node => {
           if(node && node.parentNode === els.plotDiv){
             node.parentNode.removeChild(node);
           }
         });
-      }
-      if(svg.style){
+      };
+      const afterBoxPaint = callback => {
+        const raf = global.requestAnimationFrame || global.window?.requestAnimationFrame;
+        if(typeof raf === 'function'){
+          raf(() => raf(callback));
+        }else{
+          (global.setTimeout || setTimeout)(callback, 32);
+        }
+      };
+      const normalizeCommittedBoxSvg = () => {
+        if(!svg.style){
+          return;
+        }
         svg.style.removeProperty('position');
         svg.style.removeProperty('left');
         svg.style.removeProperty('top');
         svg.style.removeProperty('opacity');
         svg.style.removeProperty('pointer-events');
         svg.style.removeProperty('z-index');
+      };
+      if(svg.style){
+        svg.style.opacity = '';
+        svg.style.pointerEvents = 'auto';
+        svg.style.zIndex = '1';
       }
       svg.removeAttribute('data-box-pending-render');
       svg.removeAttribute('aria-hidden');
       pendingPlotFrameCommitted = true;
+      if(Array.isArray(retainedPlotNodes) && retainedPlotNodes.length){
+        afterBoxPaint(() => {
+          removeRetainedPlotNodes();
+          normalizeCommittedBoxSvg();
+        });
+      }else{
+        normalizeCommittedBoxSvg();
+      }
       const committedTabId = svg?.dataset?.boxTabId || getActiveBoxWorkspaceTabId();
       if(els.plotDiv?.dataset){
         if(committedTabId){

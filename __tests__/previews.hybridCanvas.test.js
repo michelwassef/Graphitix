@@ -246,6 +246,45 @@ describe('preview hybrid capture for canvas-backed layers', () => {
     expect(tab.previewMeta.renderCacheSequence).toBe(2);
   });
 
+  test('layout signature invalidates stale inactive preview even with matching payload signature', () => {
+    const previews = window.Main.previews;
+    const element = document.createElement('div');
+    const cleanSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    cleanSvg.setAttribute('width', '356');
+    cleanSvg.setAttribute('height', '356');
+    cleanSvg.innerHTML = '<g data-export-layer="scatter-points"><circle cx="20" cy="20" r="2"></circle></g>';
+    const getPreviewSvg = jest.fn(() => cleanSvg);
+    window.Main.components = {
+      registry: {
+        scatter: {
+          type: 'scatter',
+          element,
+          getPreviewSvg
+        }
+      }
+    };
+    window.Main.session.workspaceState.activeTabId = 'workspace-1';
+    const tab = {
+      id: 'workspace-3',
+      type: 'scatter',
+      payloadSignature: 'same-payload',
+      layoutSignature: 'layout-new',
+      previewMarkup: '<svg width="220" height="120"></svg>',
+      previewSignature: 'same-payload',
+      previewMeta: { hybrid: false, width: 220, height: 120, layoutSignature: 'layout-old' }
+    };
+    const anchor = document.createElement('button');
+    anchor.getBoundingClientRect = () => ({ left: 40, top: 200, width: 120, height: 24, bottom: 224 });
+    document.body.appendChild(anchor);
+
+    previews.handleTabPreviewEnter({ currentTarget: anchor }, tab);
+
+    expect(getPreviewSvg).toHaveBeenCalledWith(tab);
+    expect(tab.previewSignature).toBe('same-payload');
+    expect(tab.previewMeta.layoutSignature).toBe('layout-new');
+    expect(tab.previewMarkup).toContain('circle');
+  });
+
   test('active tab hover skips preview capture and hides any visible tooltip', () => {
     const previews = window.Main.previews;
     const element = document.createElement('div');

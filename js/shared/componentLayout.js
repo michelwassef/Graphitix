@@ -465,7 +465,19 @@
         }
       }
       const phase = typeof options?.phase === 'string' ? options.phase : '';
-      const suppressResizeCallback = (visibility.hidden || deferActive || forceDeferActive || (forceSkipActive && phase !== 'end')) && !options.forceSchedule;
+      const isResizeFinalizePhase = phase === 'end'
+        || phase === 'reset'
+        || phase === 'undo'
+        || phase === 'redo'
+        || phase === 'programmatic'
+        || phase === 'aspect-toggle';
+      const suppressResizeCallback = (
+        visibility.hidden
+        || (
+          !isResizeFinalizePhase
+          && (deferActive || forceDeferActive || forceSkipActive)
+        )
+      ) && !options.forceSchedule;
       return { skipSchedule, visibility, suppressResizeCallback };
     };
 
