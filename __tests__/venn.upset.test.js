@@ -142,6 +142,24 @@ describe('Venn UpSet integration', () => {
     expect((updated.getAttribute('fill') || '').toLowerCase()).toBe('#aa5500');
   });
 
+  test('Venn retains aspect ratio when auto-resizing the chart viewport', async () => {
+    await activateWorkspace('venn');
+    const venn = window.Components?.venn;
+    const hooks = venn?.__testHooks;
+    expect(hooks?.state?.ui?.inputs).toBeTruthy();
+
+    hooks.state.ui.inputs.A.value = 'GeneA\nGeneShared';
+    hooks.state.ui.inputs.B.value = 'GeneB\nGeneShared';
+    hooks.state.ui.inputs.C.value = 'GeneC';
+    hooks.state.ui.syncTableFromInputs?.({ refresh: true });
+    venn.refreshDiagram();
+
+    const stage = document.getElementById('stage');
+    expect(stage).toBeTruthy();
+    console.log('DEBUG STAGE PR', stage.getAttribute('preserveAspectRatio'), stage.outerHTML);
+    expect(stage.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
+
   test('UpSet uses non-empty columns beyond first three and supports intersection selection', async () => {
     await activateWorkspace('venn');
     const plotType = document.getElementById('vennPlotType');
