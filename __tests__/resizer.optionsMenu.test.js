@@ -87,6 +87,7 @@ describe('Shared resizer graph options menu', () => {
     expect(box.style.height).toBe(before.height);
     expect(box.dataset.resizerAspectLocked).toBe('false');
     expect(box.dataset.resizerUnlockedStyleScaleBase).toBeTruthy();
+    expect(Number(box.dataset.resizerUnlockedStyleScaleBase)).toBeCloseTo(1, 6);
 
     checkbox.checked = true;
     checkbox.dispatchEvent(new Event('change', { bubbles: true }));
