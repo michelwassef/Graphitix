@@ -696,17 +696,24 @@
     const renderCacheOwnerTabId = renderCache?.tabId ?? tab.renderCacheTabId ?? null;
     const isSameComponentTabSwitch = !!(renderedTabForType && renderedTabForType !== tab.id);
     const hasRenderCacheValidator = typeof config.canRestoreRenderCache === 'function';
-    let canRestoreRender = !options.forceReload
+    const hasRenderCacheRestoreHook = typeof config.restoreRenderCache === 'function';
+    const hasBasicRestorableRenderCache = !!(!options.forceReload
       && renderCache
       && renderCache.cache
-      && hasRenderCacheValidator
       && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
       && renderPayloadSignature === targetPayloadSignature
       && renderLayoutSignature === targetLayoutSignature
-      && typeof config.restoreRenderCache === 'function';
-    if (canRestoreRender) {
+      && hasRenderCacheRestoreHook);
+    let renderCacheValidationDeferred = false;
+    const validateRenderCacheForRestore = stage => {
+      if (!hasBasicRestorableRenderCache) {
+        return false;
+      }
+      if (!hasRenderCacheValidator) {
+        return false;
+      }
       try {
-        canRestoreRender = !!config.canRestoreRenderCache(renderCache.cache, {
+        const validationResult = config.canRestoreRenderCache(renderCache.cache, {
           tab,
           tabId: tab.id,
           type: tab.type,
@@ -714,12 +721,47 @@
           payloadSignature: targetPayloadSignature,
           layoutSignature: targetLayoutSignature,
           renderCache,
-          reason: options.reason || 'workspace-view'
+          reason: options.reason || 'workspace-view',
+          validationStage: stage || 'workspace-view'
         });
+        if (validationResult === true) {
+          return true;
+        }
+        if (validationResult === false) {
+          return false;
+        }
+        // Lazy registry hooks can exist before the component bundle has loaded.
+        // In that case, keep the archive cache on the restore path and let the
+        // real component validator run after ensure()/init().
+        renderCacheValidationDeferred = true;
+        console.debug('Debug: workspace render cache validation deferred', {
+          tabId: tab.id,
+          type: tab.type,
+          stage: stage || 'workspace-view',
+          hasArchiveRenderCache: hadArchiveRenderCache
+        });
+        return !!hadArchiveRenderCache;
       } catch (err) {
         console.error('workspace render cache validation error', { type: tab.type, err });
-        canRestoreRender = false;
+        return false;
       }
+    };
+    let canRestoreRender = validateRenderCacheForRestore('pre-ensure');
+    let authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
+    const syncAuthoritativeRenderRestoreFlag = reason => {
+      authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
+      if (typeof session?.markTabAuthoritativeRenderRestore === 'function') {
+        session.markTabAuthoritativeRenderRestore(tab, authoritativeRenderRestore, {
+          reason: reason || (authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view')
+        });
+      }
+      return authoritativeRenderRestore;
+    };
+    if (renderCacheValidationDeferred && !canRestoreRender) {
+      console.debug('Debug: workspace render cache unavailable after deferred validation', {
+        tabId: tab.id,
+        type: tab.type
+      });
     }
     if (isSameComponentTabSwitch && canRestoreRender) {
       console.debug('Debug: workspace same-component render cache restore allowed', {
@@ -742,15 +784,11 @@
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
         layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
         hasRenderCacheValidator,
+        validationDeferred: renderCacheValidationDeferred,
         hasRestoreHook: typeof config.restoreRenderCache === 'function'
       });
     }
-    const authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
-    if (typeof session?.markTabAuthoritativeRenderRestore === 'function') {
-      session.markTabAuthoritativeRenderRestore(tab, authoritativeRenderRestore, {
-        reason: authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view'
-      });
-    }
+    syncAuthoritativeRenderRestoreFlag(authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view');
     const activeWorkspaceElement = Shared.workspaceTabs?.ensureMountedRoot
       ? (Shared.workspaceTabs.ensureMountedRoot(tab, config, {
           reason: options.reason || 'workspace-view-prepare'
@@ -897,6 +935,19 @@
         sessionRecord = Shared.workspaceTabs.getSessionRecord?.(tab, tab.type) || null;
       }
       const sessionGeneration = Number(sessionRecord?.generation) || 0;
+      if (canRestoreRender) {
+        const postEnsureCanRestore = validateRenderCacheForRestore('post-ensure');
+        if (postEnsureCanRestore !== canRestoreRender || renderCacheValidationDeferred) {
+          canRestoreRender = postEnsureCanRestore;
+          syncAuthoritativeRenderRestoreFlag(canRestoreRender ? 'workspace-view-authoritative-post-ensure' : 'workspace-view-post-ensure');
+          console.debug('Debug: workspace render cache validation finalized', {
+            tabId: tab.id,
+            type: tab.type,
+            canRestoreRender,
+            validationDeferred: renderCacheValidationDeferred
+          });
+        }
+      }
       const isCurrentWorkspaceSession = () => {
         if (!Shared.workspaceTabs?.isSessionCurrent || !sessionGeneration) {
           return true;

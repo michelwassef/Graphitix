@@ -516,6 +516,81 @@
     }
   }
 
+  function collectCanvasNodes(root) {
+    if (!root || Number(root.nodeType) !== 1) {
+      return [];
+    }
+    const nodes = [];
+    if (String(root.tagName || '').toLowerCase() === 'canvas') {
+      nodes.push(root);
+    }
+    if (typeof root.querySelectorAll === 'function') {
+      nodes.push(...Array.from(root.querySelectorAll('canvas')));
+    }
+    return nodes;
+  }
+
+  function canvasToRenderCacheDataUrl(canvas) {
+    if (!canvas || typeof canvas.toDataURL !== 'function') {
+      return '';
+    }
+    try {
+      return canvas.toDataURL('image/png') || '';
+    } catch (err) {
+      console.debug('Debug: archive render cache canvas bitmap skipped', {
+        message: err?.message || String(err)
+      });
+      return '';
+    }
+  }
+
+  function copyCanvasBitmapStateIntoClone(sourceNode, cloneNode) {
+    const sourceCanvases = collectCanvasNodes(sourceNode);
+    if (!sourceCanvases.length) {
+      return 0;
+    }
+    const cloneCanvases = collectCanvasNodes(cloneNode);
+    const count = Math.min(sourceCanvases.length, cloneCanvases.length);
+    let copied = 0;
+    for (let i = 0; i < count; i += 1) {
+      const sourceCanvas = sourceCanvases[i];
+      const cloneCanvas = cloneCanvases[i];
+      const dataUrl = canvasToRenderCacheDataUrl(sourceCanvas);
+      if (!dataUrl || !cloneCanvas?.parentNode) {
+        continue;
+      }
+      const doc = cloneCanvas.ownerDocument || global.document || null;
+      if (!doc) {
+        continue;
+      }
+      const image = typeof doc.createElementNS === 'function'
+        ? doc.createElementNS('http://www.w3.org/1999/xhtml', 'img')
+        : doc.createElement('img');
+      image.setAttribute('src', dataUrl);
+      image.setAttribute('data-graphitix-render-cache-canvas-bitmap', 'true');
+      const width = Math.max(1, Number(sourceCanvas.width) || Number(cloneCanvas.getAttribute?.('width')) || 1);
+      const height = Math.max(1, Number(sourceCanvas.height) || Number(cloneCanvas.getAttribute?.('height')) || 1);
+      image.setAttribute('width', cloneCanvas.getAttribute?.('width') || String(width));
+      image.setAttribute('height', cloneCanvas.getAttribute?.('height') || String(height));
+      const className = cloneCanvas.getAttribute?.('class');
+      if (className) {
+        image.setAttribute('class', className);
+      }
+      const styleText = cloneCanvas.getAttribute?.('style') || '';
+      if (styleText) {
+        image.setAttribute('style', styleText);
+      }
+      image.style.display = cloneCanvas.style?.display || 'block';
+      image.style.width = cloneCanvas.style?.width || `${width}px`;
+      image.style.height = cloneCanvas.style?.height || `${height}px`;
+      image.style.background = cloneCanvas.style?.background || 'transparent';
+      image.style.pointerEvents = 'none';
+      cloneCanvas.parentNode.replaceChild(image, cloneCanvas);
+      copied += 1;
+    }
+    return copied;
+  }
+
   function serializeDomNode(node) {
     if (!node) {
       return null;
@@ -535,6 +610,10 @@
       return { kind: 'text', text: node.textContent || '' };
     }
     syncFormStateIntoClone(node, clone);
+    const canvasBitmapCount = copyCanvasBitmapStateIntoClone(node, clone);
+    if (canvasBitmapCount && typeof clone.setAttribute === 'function') {
+      clone.setAttribute('data-graphitix-render-cache-canvas-bitmaps', String(canvasBitmapCount));
+    }
     const namespaceUri = String(node.namespaceURI || '').trim() || null;
     let markup = '';
     try {

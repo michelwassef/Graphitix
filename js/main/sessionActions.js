@@ -138,7 +138,8 @@
               restored = !!config.restoreRenderCache(captured, {
                 tabId: tab.id,
                 type: tab.type,
-                reason: 'archive-save-active-restore'
+                reason: 'archive-save-active-restore',
+                temporaryRestore: true
               });
             } catch (err) {
               console.error('buildArchiveTabSnapshot restoreRenderCache error', {

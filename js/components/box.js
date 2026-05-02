@@ -816,9 +816,6 @@
     if(state.statsComputationPending){
       return 'stats-computation-pending';
     }
-    if(state.authoritativeRenderRestoreActive){
-      return 'authoritative-restore-active';
-    }
     return null;
   }
 
@@ -34316,7 +34313,7 @@ Technical analysis record (advanced)
       restored,
       plot: !!cache.plot
     });
-    if(restored){
+    if(restored && meta?.temporaryRestore !== true){
       activateAuthoritativeBoxRenderRestore('render-cache-restore');
       hydrateBoxStatsSurfaceFromTabPayload(meta?.tab || meta?.tabId || null, 'render-cache-restore');
     }

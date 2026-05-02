@@ -314,6 +314,101 @@ describe('domControls default payload cache isolation', () => {
     expect(session.clearTabRenderCache).toHaveBeenCalledWith(tab, { reason: 'render-cache-consumed' });
   });
 
+  test('showWorkspaceForTab defers archive render cache validation until lazy component ensure', async () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const payload = {
+      type: 'scatter',
+      data: [['Gene', 'X', 'Y'], ['A', 1, 2]],
+      config: { title: 'Cached scatter' }
+    };
+    const renderCache = {
+      tabId: 'workspace-2',
+      type: 'scatter',
+      payloadSignature: 'payload-cached',
+      layoutSignature: 'layout-cached',
+      cache: { plot: { fragment: {} } }
+    };
+    const tab = {
+      id: 'workspace-2',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'payload-cached',
+      layoutSignature: 'layout-cached',
+      archiveRenderCache: { serialized: true },
+      archiveRenderCacheSignature: 'payload-cached',
+      archiveRenderCacheLayoutSignature: 'layout-cached'
+    };
+    let ensured = false;
+    const config = {
+      type: 'scatter',
+      element,
+      ensure: jest.fn(() => { ensured = true; }),
+      createEmptyPayload: jest.fn(() => ({ type: 'scatter', data: [], config: {} })),
+      loadFromPayload: jest.fn(),
+      canRestoreRenderCache: jest.fn(() => (ensured ? true : undefined)),
+      restoreRenderCache: jest.fn(() => true),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value)),
+      consumeArchiveRenderCache: jest.fn(target => {
+        target.archiveRenderCache = null;
+        target.renderCache = renderCache;
+        target.renderCacheSignature = renderCache.payloadSignature;
+        target.renderCacheLayoutSignature = renderCache.layoutSignature;
+        target.renderCacheTabId = renderCache.tabId;
+        return renderCache;
+      }),
+      clearTabRenderCache: jest.fn(),
+      markTabAuthoritativeRenderRestore: jest.fn()
+    };
+    const workspaceState = {
+      loadedWorkspaces: {},
+      renderedWorkspaceByType: {}
+    };
+
+    await domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.ensure).toHaveBeenCalled();
+    expect(config.canRestoreRenderCache).toHaveBeenCalledTimes(2);
+    expect(config.canRestoreRenderCache.mock.calls[0][1]).toEqual(expect.objectContaining({
+      validationStage: 'pre-ensure'
+    }));
+    expect(config.canRestoreRenderCache.mock.calls[1][1]).toEqual(expect.objectContaining({
+      validationStage: 'post-ensure'
+    }));
+    expect(config.loadFromPayload).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'scatter' }),
+      expect.objectContaining({ skipDraw: true, restoreRenderCache: true })
+    );
+    expect(config.applyLayoutState).toHaveBeenCalled();
+    expect(config.applyLayoutState.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ skipSchedule: true, authoritativeRenderRestore: true })
+    );
+    expect(config.restoreRenderCache).toHaveBeenCalledWith(
+      renderCache.cache,
+      expect.objectContaining({
+        tab,
+        tabId: 'workspace-2',
+        type: 'scatter',
+        authoritativeRenderRestore: true
+      })
+    );
+    expect(config.draw).not.toHaveBeenCalled();
+    expect(session.clearTabRenderCache).toHaveBeenCalledWith(tab, { reason: 'render-cache-consumed' });
+  });
+
   test('showWorkspaceForTab reuses a matching per-tab DOM root without payload redraw', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();

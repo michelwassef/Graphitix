@@ -100,6 +100,66 @@ describe('sessionActions save lazy archive build', () => {
     expect(context.session.clearSessionDirty).toHaveBeenCalledWith('graph-save-success');
   });
 
+  test('captures active render cache for archive without entering runtime restore mode', async () => {
+    const sessionActions = installSessionActions();
+    const serializedCache = { plot: { fragment: { kind: 'element', markup: '<svg></svg>' } } };
+    const capturedCache = { plot: { fragment: document.createDocumentFragment(), count: 1 } };
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      const payload = await options.getPayload();
+      expect(payload).toBeInstanceOf(Blob);
+      return {
+        status: 'saved',
+        via: 'picker',
+        fileName: 'workspace.graph'
+      };
+    });
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    activeTab.payloadSignature = 'payload-sig';
+    activeTab.layoutSignature = 'layout-sig';
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(() => serializedCache);
+    const captureRenderCache = jest.fn(() => capturedCache);
+    const restoreRenderCache = jest.fn(() => true);
+    const draw = jest.fn();
+    context.workspaces = {
+      scatter: {
+        captureRenderCache,
+        restoreRenderCache,
+        draw
+      }
+    };
+
+    const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
+    });
+
+    expect(result.status).toBe('saved');
+    expect(captureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: activeTab.id,
+      type: 'scatter',
+      reason: 'archive-save-active'
+    }));
+    expect(restoreRenderCache).toHaveBeenCalledWith(
+      capturedCache,
+      expect.objectContaining({
+        tabId: activeTab.id,
+        type: 'scatter',
+        reason: 'archive-save-active-restore',
+        temporaryRestore: true
+      })
+    );
+    expect(draw).not.toHaveBeenCalled();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBe(serializedCache);
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBe('payload-sig');
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
+  });
+
   test('handleSessionSaveClick uses Save As flow when there is no existing file handle', async () => {
     const sessionActions = installSessionActions();
     window.Shared.fileIO.saveGraphFile = jest.fn().mockResolvedValue({

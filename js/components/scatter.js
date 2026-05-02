@@ -6675,6 +6675,11 @@
     };
     const document = global.document;
     let scatterTableFormatSelect = null;
+    let scatterTitleText = 'Scatter plot';
+    let scatterXLabelText = 'X';
+    let scatterYLabelText = 'Y';
+    let scatterZLabelText = 'Z';
+    let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null, legend: null };
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.error('Table factory missing for scatter component');
       return;
@@ -15474,11 +15479,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         console.debug('Debug: scatter resizer container missing', { hasContainer: !!scatterContainer });
       }
 
-      let scatterTitleText='Scatter plot';
-      let scatterXLabelText='X';
-      let scatterYLabelText='Y';
-      let scatterZLabelText='Z';
-      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null, legend: null };
       async function drawScatter(drawOptions = {}){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
@@ -22183,7 +22183,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
       }
     }
-    if(restored){
+    if(restored && meta?.temporaryRestore !== true){
       scatterState.skipNextDraw = true;
       scatterState.skipNextDrawReason = meta?.reason || meta?.type || 'render-cache';
     }
