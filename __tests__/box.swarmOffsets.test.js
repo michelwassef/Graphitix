@@ -838,6 +838,67 @@ describe('Box swarm offset constraints', () => {
     document.body.innerHTML = '';
   });
 
+  test('unlocked box resize uses the resizer viewport instead of inflated plot height', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.syncBoxPlotResizeZone).toBe('function');
+    document.body.innerHTML = [
+      '<div id="boxPage">',
+      '<div id="boxGraphPanel">',
+      '<div class="svgbox" data-resizer-aspect-locked="false" data-resizer-zoom-level="1">',
+      '<div class="resizer-zoom-viewport"><div class="resizer-zoom-content"><div id="boxPlot"></div></div></div>',
+      '</div>',
+      '</div>',
+      '</div>'
+    ].join('');
+    const svgBox = document.querySelector('.svgbox');
+    const viewport = document.querySelector('.resizer-zoom-viewport');
+    const plot = document.getElementById('boxPlot');
+    svgBox.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
+    viewport.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 303 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 558 });
+
+    const zone = hooks.syncBoxPlotResizeZone({ reason: 'resize', resizePhase: 'move' });
+
+    expect(zone.height).toBe(428);
+    expect(zone.rawHeight).toBe(558);
+    expect(zone.constrained).toBe(true);
+    expect(plot.style.height).toBe('428px');
+    expect(plot.style.maxHeight).toBe('428px');
+    expect(plot.style.overflow).toBe('hidden');
+    document.body.innerHTML = '';
+  });
+
+  test('unlocked vertical box resize can grow after a previous shrink', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.syncBoxPlotResizeZone).toBe('function');
+    document.body.innerHTML = [
+      '<div id="boxPage">',
+      '<div id="boxGraphPanel">',
+      '<div class="svgbox" data-resizer-aspect-locked="false" data-resizer-zoom-level="1">',
+      '<div class="resizer-zoom-viewport"><div class="resizer-zoom-content"><div id="boxPlot"></div></div></div>',
+      '</div>',
+      '</div>',
+      '</div>'
+    ].join('');
+    const viewport = document.querySelector('.resizer-zoom-viewport');
+    const plot = document.getElementById('boxPlot');
+    plot.style.height = '263px';
+    plot.style.maxHeight = '263px';
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 472 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 263 });
+    viewport.getBoundingClientRect = () => ({ width: 472, height: 383, top: 0, left: 0, right: 472, bottom: 383 });
+
+    const zone = hooks.syncBoxPlotResizeZone({ reason: 'resize', resizePhase: 'move' });
+
+    expect(zone.height).toBe(383);
+    expect(zone.rawHeight).toBe(263);
+    expect(zone.constrained).toBe(true);
+    expect(plot.style.height).toBe('383px');
+    expect(plot.style.maxHeight).toBe('383px');
+    document.body.innerHTML = '';
+  });
+
   test('box preview svg prefers the committed visible plot frame over hidden pending frames', () => {
     expect(window.Components?.box?.getPreviewSvg).toBeDefined();
     document.body.innerHTML = '<div id="boxPlot"></div>';

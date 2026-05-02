@@ -1,0 +1,680 @@
+resizer.js:2095 Debug: resizer snapshot captured {container: 'survivalGraphPanel', tag: 'pointer-start', width: 445, height: 427, aspectLocked: true}
+resizer.js:2286 Debug: resizer drag start {axis: 'both', startW: 445, startH: 427, MIN_W: 128, MIN_H: 128}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+resizer.js:1264 Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2303 Debug: resizer drag move {axis: 'both', dx: 0, dy: 0, aspectLocked: true, width: '445px', …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'both', dx: -8.6666259765625, dy: -7.33331298828125, aspectLocked: true, width: '436px', …}
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 436, heightToApply: 418, ratio: 1.0430622009569377, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 436, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout scheduleDraw invoked {component: 'survival', source: 'resize'}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: true}
+ Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'both', dx: -17.33331298828125, dy: -17.33331298828125, aspectLocked: true, width: '428px', …}
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 428, heightToApply: 411, ratio: 1.0413625304136254, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 428, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 0}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.adjustPValues start {method: 'holm-sidak', count: 1}
+ Debug: stats.adjustPValues complete {method: 'holm-sidak', adjusted: Array(1)}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.getCorrectionMeta {method: 'holm-sidak', label: 'Holm-Šidák'}
+ Debug: fontControls enableForSvg attached {scopeId: 'survivalSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'survivalSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 428, height: 411, defaultWidth: 427, defaultHeight: 427, scaleX: 1.0023419203747073, …}
+ Debug: chartStyle.pxToPt {input: 15, numeric: 15, pt: 11.25}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'survivalFontSize', scaledPt: 11.25, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'survivalGraphPanel::@tab:workspace-2', scaledPt: 11.25, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 15, scaledPt: 11.25, …}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'survivalFontSize', displayPt: 11.25, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 11.3, px: 15, label: '11.3 pt (15px)', inputId: 'survivalFontSize', manualUpdate: false}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'survival-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.9621634438860022, resizeOnlyScale: 0.9621634438860022, lengthScale: 0.980899303642327, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.980899303642327, context: 'survival-grid'}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 0.9621634438860022, resizeOnlyScale: 0.9621634438860022, lengthScale: 0.980899303642327, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 2, min: 0.8, max: Infinity, result: 1.961798607284654, context: 'survival-curve'}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.9621634438860022, resizeScale: 0.9621634438860022, baseMetrics: {…}, …}
+ Debug: chartStyle.makeFont {size: 15, font: '15px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Survival Probability', font: '15px Arial, Helvetica, sans-serif', width: 127.55126953125}
+ Debug: chartStyle.makeFont {size: 15, font: '15px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Control', font: '15px Arial, Helvetica, sans-serif', width: 48.3544921875}
+ Debug: chartStyle.measureText {text: 'Treatment', font: '15px Arial, Helvetica, sans-serif', width: 67.80029296875}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 2, fontSize: 15, rowGap: 5, swatchSize: 9, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 2, legendGapPx: 12, legendWidthForMargin: 96.80029296875, minSvgWidth: 440.80029296875, basePlotWidth: 320, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 397, baseSpacing: 80, rawEstimate: 4.9625, rounded: 5, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 319, baseSpacing: 80, rawEstimate: 3.9875, rounded: 4, minTicks: 3, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'survival', tabToken: 'workspace-2'}
+ Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 97, maxYLabelWidth: 0, yTitleWidth: 127.55126953125, xTickFontSize: 15, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 15, plotWidth: 194.90542324442697, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+ Debug: chartStyle.measureText {text: '0.25', font: '15px Arial, Helvetica, sans-serif', width: 29.1943359375}
+ Debug: chartStyle.measureText {text: '0.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+ Debug: chartStyle.measureText {text: '0.75', font: '15px Arial, Helvetica, sans-serif', width: 29.1943359375}
+ Debug: chartStyle.measureText {text: '1', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+ Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 97, maxYLabelWidth: 29.1943359375, yTitleWidth: 127.55126953125, xTickFontSize: 15, …}
+ Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+ Debug: chartStyle.measureText {text: '2.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+ Debug: chartStyle.measureText {text: '5', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+ Debug: chartStyle.measureText {text: '7.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+ Debug: chartStyle.measureText {text: '10', font: '15px Arial, Helvetica, sans-serif', width: 16.6845703125}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 15, plotWidth: 194.90542324442697, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+ Debug: chartStyle.measureText {text: '0.25', font: '15px Arial, Helvetica, sans-serif', width: 29.1943359375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0.75', font: '15px Arial, Helvetica, sans-serif', width: 29.1943359375}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '1', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+chartStyle.js:2082 Debug: chartStyle.computeBaseMargins {fontSize: 15, legendWidth: 97, maxYLabelWidth: 29.1943359375, yTitleWidth: 127.55126953125, xTickFontSize: 15, …}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '0', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '2.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '5', font: '15px Arial, Helvetica, sans-serif', width: 8.34228515625}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '7.5', font: '15px Arial, Helvetica, sans-serif', width: 20.85205078125}
+chartStyle.js:1041 Debug: chartStyle.measureText {text: '10', font: '15px Arial, Helvetica, sans-serif', width: 16.6845703125}
+chartStyle.js:1475 Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 15, plotWidth: 194.90542324442697, shouldRotate: false, shouldRotateRaw: false, …}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '2.5'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '7.5'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
+chartStyle.js:1538 Debug: chartStyle.applyLabelOrientation result {count: 5, rotated: false, angle: -45, disableAuto: false}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.25'}
+fontControls.js:1424 Debug: fontControls registerNodeForKey cleanup {storeKey: 'survival::@tab:workspace-2::__graph__', remaining: 700}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.5'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.75'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'Time'}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Survival Probability'}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Survival curve'}
+dom.js:7 Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+chartStyle.js:2497 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 2, x: 288, y: 36}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Control'}
+fontControls.js:1424 Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Treatment'}
+dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-group-summary', contextLabel: 'survival-group-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 6, rowCount: 2, caption: 'Group Summary'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-group-summary', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-group-summary'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 2, columnCount: 6}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-curve-comparisons', contextLabel: 'survival-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 2, caption: 'Survival Curve Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-curve-comparisons'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 2, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-pairwise-log-rank', contextLabel: 'survival-pairwise-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 1, caption: 'Pairwise Log-rank Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-pairwise-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-pairwise-log-rank'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-hazard-ratios', contextLabel: 'survival-hazard-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 5, rowCount: 1, caption: 'Hazard ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-hazard-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-hazard-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 5}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-median-ratios', contextLabel: 'survival-median-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Median Survival Ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-median-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-median-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-model', contextLabel: 'survival-cox-model', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 7, rowCount: 1, caption: 'Cox Model Coefficients'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-model', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-model'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 7}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-diagnostics', contextLabel: 'survival-cox-diagnostics', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 2, rowCount: 4, caption: 'Cox Model Diagnostics'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-diagnostics', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-diagnostics'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 2}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-residuals', contextLabel: 'survival-cox-residuals', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 3, caption: 'Residual Summaries'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-residuals', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-residuals'}
+ Debug: statsTable render complete {rowCount: 3, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-schoenfeld-checks', contextLabel: 'survival-schoenfeld-checks', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Scaled Schoenfeld Residual Checks'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-schoenfeld-checks', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-schoenfeld-checks'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+ Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -9.252028465270996, minY: -7.3333330154418945, viewW: 400.551513671875, …}
+ Debug: ensureGraphViewport applied {component: 'survival', debugLabel: 'survival-graph', padding: 18, fill: true}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 428, heightToApply: 411, ratio: 1.0413625304136254, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 428, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 66ms
+ Debug: componentLayout ResizeObserver ignored during programmatic sync {component: 'survival', nextSize: {…}, depth: 1}
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 428, heightToApply: 411, ratio: 1.0413625304136254, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 428, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'both', dx: -85.33331298828125, dy: -92.66665649414062, aspectLocked: true, width: '360px', …}
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 360, heightToApply: 345, ratio: 1.0434782608695652, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 360, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'both', dx: -85.33331298828125, dy: -94, aspectLocked: true, width: '360px', …}
+ Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -9.486479759216309, minY: -7.567780494689941, viewW: 401.1748962402344, …}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 0}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.adjustPValues start {method: 'holm-sidak', count: 1}
+ Debug: stats.adjustPValues complete {method: 'holm-sidak', adjusted: Array(1)}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.getCorrectionMeta {method: 'holm-sidak', label: 'Holm-Šidák'}
+ Debug: fontControls enableForSvg attached {scopeId: 'survivalSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'survivalSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 360, height: 345, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8430913348946136, …}
+ Debug: chartStyle.pxToPt {input: 13, numeric: 13, pt: 9.75}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'survivalFontSize', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'survivalGraphPanel::@tab:workspace-2', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 13, scaledPt: 9.75, …}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'survivalFontSize', displayPt: 9.75, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 9.8, px: 13, label: '9.8 pt (13px)', inputId: 'survivalFontSize', manualUpdate: false}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'survival-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8084754838286711, resizeOnlyScale: 0.8084754838286711, lengthScale: 0.8991526476792865, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8991526476792865, context: 'survival-grid'}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 0.8084754838286711, resizeOnlyScale: 0.8084754838286711, lengthScale: 0.8991526476792865, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 2, min: 0.8, max: Infinity, result: 1.798305295358573, context: 'survival-curve'}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.8084754838286711, resizeScale: 0.8084754838286711, baseMetrics: {…}, …}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Survival Probability', font: '13px Arial, Helvetica, sans-serif', width: 110.54443359375}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Control', font: '13px Arial, Helvetica, sans-serif', width: 41.9072265625}
+ Debug: chartStyle.measureText {text: 'Treatment', font: '13px Arial, Helvetica, sans-serif', width: 58.76025390625}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 2, fontSize: 13, rowGap: 4, swatchSize: 8, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 2, legendGapPx: 12, legendWidthForMargin: 86.76025390625, minSvgWidth: 430.76025390625, basePlotWidth: 320, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 329, baseSpacing: 80, rawEstimate: 4.1125, rounded: 4, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 253, baseSpacing: 80, rawEstimate: 3.1625, rounded: 3, minTicks: 3, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'survival', tabToken: 'workspace-2'}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 0, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 148.17522449420892, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 148.17522449420892, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 148.17522449420892, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '2.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '7.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
+ Debug: chartStyle.applyLabelOrientation result {count: 5, rotated: false, angle: -45, disableAuto: false}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.25'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.75'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'Time'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Survival Probability'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls registerNodeForKey cleanup {storeKey: 'survival::@tab:workspace-2::__graph__', remaining: 720}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Survival curve'}
+ Debug: makeEditable bound {hasOnChange: true}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 2, x: 230, y: 36}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Control'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Treatment'}
+ Debug: enableLegendDrag bound {element: 'g'}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-group-summary', contextLabel: 'survival-group-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 6, rowCount: 2, caption: 'Group Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-group-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-group-summary'}
+ Debug: statsTable render complete {rowCount: 2, columnCount: 6}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-curve-comparisons', contextLabel: 'survival-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 2, caption: 'Survival Curve Comparisons'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-log-rank', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-curve-comparisons'}
+ Debug: statsTable render complete {rowCount: 2, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-pairwise-log-rank', contextLabel: 'survival-pairwise-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 1, caption: 'Pairwise Log-rank Comparisons'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-pairwise-log-rank', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-pairwise-log-rank'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-hazard-ratios', contextLabel: 'survival-hazard-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 5, rowCount: 1, caption: 'Hazard ratios'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-hazard-ratios', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-hazard-ratios'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 5}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-median-ratios', contextLabel: 'survival-median-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Median Survival Ratios'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-median-ratios', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-median-ratios'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-model', contextLabel: 'survival-cox-model', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 7, rowCount: 1, caption: 'Cox Model Coefficients'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-model', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-model'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 7}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-diagnostics', contextLabel: 'survival-cox-diagnostics', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 2, rowCount: 4, caption: 'Cox Model Diagnostics'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-diagnostics', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-diagnostics'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 2}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-cox-residuals', contextLabel: 'survival-cox-residuals', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 3, caption: 'Residual Summaries'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-cox-residuals', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-cox-residuals'}
+ Debug: statsTable render complete {rowCount: 3, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-schoenfeld-checks', contextLabel: 'survival-schoenfeld-checks', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Scaled Schoenfeld Residual Checks'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-schoenfeld-checks', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-schoenfeld-checks'}
+ Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+ Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.529539108276367, minY: -9.200000762939453, viewW: 333.677978515625, …}
+ Debug: ensureGraphViewport applied {component: 'survival', debugLabel: 'survival-graph', padding: 18, fill: true}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 360, heightToApply: 345, ratio: 1.0434782608695652, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 360, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 51ms
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 360, heightToApply: 345, ratio: 1.0434782608695652, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 360, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: enforceAspectRatio result {debugLabel: 'survivalGraphPanel', axis: 'both', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: resizer applyResize helper {container: 'survivalGraphPanel', reason: 'pointer-move', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+ Debug: resizer drag move {axis: 'both', dx: -86, dy: -96, aspectLocked: true, width: '359px', …}
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'move', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 359, heightToApply: 344, ratio: 1.0436046511627908, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 359, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.445257186889648, minY: -9.115715026855469, viewW: 333.778564453125, …}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 0}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.adjustPValues start {method: 'holm-sidak', count: 1}
+ Debug: stats.adjustPValues complete {method: 'holm-sidak', adjusted: Array(1)}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.getCorrectionMeta {method: 'holm-sidak', label: 'Holm-Šidák'}
+ Debug: fontControls enableForSvg attached {scopeId: 'survivalSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'survivalSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 359, height: 344, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8407494145199064, …}
+ Debug: chartStyle.pxToPt {input: 13, numeric: 13, pt: 9.75}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'survivalFontSize', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'survivalGraphPanel::@tab:workspace-2', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 13, scaledPt: 9.75, …}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'survivalFontSize', displayPt: 9.75, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 9.8, px: 13, label: '9.8 pt (13px)', inputId: 'survivalFontSize', manualUpdate: false}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'survival-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8061808961342316, resizeOnlyScale: 0.8061808961342316, lengthScale: 0.8978757687643829, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8978757687643829, context: 'survival-grid'}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 0.8061808961342316, resizeOnlyScale: 0.8061808961342316, lengthScale: 0.8978757687643829, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 2, min: 0.8, max: Infinity, result: 1.7957515375287658, context: 'survival-curve'}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.8061808961342316, resizeScale: 0.8061808961342316, baseMetrics: {…}, …}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Survival Probability', font: '13px Arial, Helvetica, sans-serif', width: 110.54443359375}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Control', font: '13px Arial, Helvetica, sans-serif', width: 41.9072265625}
+ Debug: chartStyle.measureText {text: 'Treatment', font: '13px Arial, Helvetica, sans-serif', width: 58.76025390625}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 2, fontSize: 13, rowGap: 4, swatchSize: 8, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 2, legendGapPx: 12, legendWidthForMargin: 86.76025390625, minSvgWidth: 430.76025390625, basePlotWidth: 320, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 328, baseSpacing: 80, rawEstimate: 4.1, rounded: 4, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 252, baseSpacing: 80, rawEstimate: 3.15, rounded: 3, minTicks: 3, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'survival', tabToken: 'workspace-2'}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 0, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '2.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '7.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
+ Debug: chartStyle.applyLabelOrientation result {count: 5, rotated: false, angle: -45, disableAuto: false}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.25'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.75'}
+ Debug: fontControls registerNodeForKey cleanup {storeKey: 'survival::@tab:workspace-2::yTick', remaining: 240}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'Time'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Survival Probability'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Survival curve'}
+ Debug: makeEditable bound {hasOnChange: true}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 2, x: 228.99999999999997, y: 36}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Control'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Treatment'}
+ Debug: enableLegendDrag bound {element: 'g'}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-group-summary', contextLabel: 'survival-group-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 6, rowCount: 2, caption: 'Group Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'survival-group-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'survival-group-summary'}
+ Debug: statsTable render complete {rowCount: 2, columnCount: 6}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'survival-curve-comparisons', contextLabel: 'survival-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 2, caption: 'Survival Curve Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-curve-comparisons'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 2, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-pairwise-log-rank', contextLabel: 'survival-pairwise-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 1, caption: 'Pairwise Log-rank Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-pairwise-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-pairwise-log-rank'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-hazard-ratios', contextLabel: 'survival-hazard-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 5, rowCount: 1, caption: 'Hazard ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-hazard-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-hazard-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 5}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-median-ratios', contextLabel: 'survival-median-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Median Survival Ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-median-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-median-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-model', contextLabel: 'survival-cox-model', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 7, rowCount: 1, caption: 'Cox Model Coefficients'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-model', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-model'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 7}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-diagnostics', contextLabel: 'survival-cox-diagnostics', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 2, rowCount: 4, caption: 'Cox Model Diagnostics'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-diagnostics', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-diagnostics'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 4, columnCount: 2}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-residuals', contextLabel: 'survival-cox-residuals', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 3, caption: 'Residual Summaries'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-residuals', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-residuals'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 3, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-schoenfeld-checks', contextLabel: 'survival-schoenfeld-checks', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Scaled Schoenfeld Residual Checks'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-schoenfeld-checks', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-schoenfeld-checks'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.52954387664795, minY: -9.200000762939453, viewW: 332.677978515625, …}
+dom.js:7 Debug: ensureGraphViewport applied {component: 'survival', debugLabel: 'survival-graph', padding: 18, fill: true}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 359, heightToApply: 344, ratio: 1.0436046511627908, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 359, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 65ms
+resizer.js:2383 Debug: resizer observer triggered
+componentLayout.js:675 Debug: componentLayout resizable onResize {component: 'survival', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 359, heightToApply: 344, ratio: 1.0436046511627908, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 359, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+resizer.js:2325 Debug: resizer drag end
+ Debug: resizer snapshot captured {container: 'survivalGraphPanel', tag: 'pointer-end', width: 359, height: 344, aspectLocked: true}
+ Debug: componentLayout resizable onResize {component: 'survival', phase: 'end', zoomDisplayOnly: false, phaseSkipSchedule: false}
+ Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+ Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+ Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+ Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 359, heightToApply: 344, ratio: 1.0436046511627908, …}
+ Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 359, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+ Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+ Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.406451225280762, minY: -9.07690715789795, viewW: 332.724365234375, …}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 2}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'survival', depth: 0}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.adjustPValues start {method: 'holm-sidak', count: 1}
+ Debug: stats.adjustPValues complete {method: 'holm-sidak', adjusted: Array(1)}
+ Debug: stats.normalizeMethod direct match {method: 'holm-sidak'}
+ Debug: stats.getCorrectionMeta {method: 'holm-sidak', label: 'Holm-Šidák'}
+ Debug: fontControls enableForSvg attached {scopeId: 'survivalSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'survivalSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+ Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+ Debug: chartStyle.computeResizeScale {width: 359, height: 344, defaultWidth: 427, defaultHeight: 427, scaleX: 0.8407494145199064, …}
+ Debug: chartStyle.pxToPt {input: 13, numeric: 13, pt: 9.75}
+ Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'survivalFontSize', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'survivalGraphPanel::@tab:workspace-2', scaledPt: 9.75, textLocked: false}
+ Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 13, scaledPt: 9.75, …}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'survivalFontSize', displayPt: 9.75, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 9.8, px: 13, label: '9.8 pt (13px)', inputId: 'survivalFontSize', manualUpdate: false}
+ Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'survival-axis'}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 0.8061808961342316, resizeOnlyScale: 0.8061808961342316, lengthScale: 0.8978757687643829, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 0.8978757687643829, context: 'survival-grid'}
+ Debug: chartStyle.scaleLength {base: 2, styleScale: 0.8061808961342316, resizeOnlyScale: 0.8061808961342316, lengthScale: 0.8978757687643829, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 2, min: 0.8, max: Infinity, result: 1.7957515375287658, context: 'survival-curve'}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 0.8061808961342316, resizeScale: 0.8061808961342316, baseMetrics: {…}, …}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Survival Probability', font: '13px Arial, Helvetica, sans-serif', width: 110.54443359375}
+ Debug: chartStyle.makeFont {size: 13, font: '13px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'Control', font: '13px Arial, Helvetica, sans-serif', width: 41.9072265625}
+ Debug: chartStyle.measureText {text: 'Treatment', font: '13px Arial, Helvetica, sans-serif', width: 58.76025390625}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 2, fontSize: 13, rowGap: 4, swatchSize: 8, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 2, legendGapPx: 12, legendWidthForMargin: 86.76025390625, minSvgWidth: 430.76025390625, basePlotWidth: 320, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 328, baseSpacing: 80, rawEstimate: 4.1, rounded: 4, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 252, baseSpacing: 80, rawEstimate: 3.15, rounded: 3, minTicks: 3, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'survival', tabToken: 'workspace-2'}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 0, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '0.25', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '0.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '0.75', font: '13px Arial, Helvetica, sans-serif', width: 25.3017578125}
+ Debug: chartStyle.measureText {text: '1', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 13, legendWidth: 87, maxYLabelWidth: 25.3017578125, yTitleWidth: 110.54443359375, xTickFontSize: 13, …}
+ Debug: chartStyle.measureText {text: '0', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '2.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '5', font: '13px Arial, Helvetica, sans-serif', width: 7.22998046875}
+ Debug: chartStyle.measureText {text: '7.5', font: '13px Arial, Helvetica, sans-serif', width: 18.07177734375}
+ Debug: chartStyle.measureText {text: '10', font: '13px Arial, Helvetica, sans-serif', width: 14.4599609375}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 13, plotWidth: 147.2165270727088, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
+ Debug: fontControls registerNodeForKey cleanup {storeKey: 'survival::@tab:workspace-2::xTick', remaining: 260}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '2.5'}
+ Debug: fontControls registerNodeForKey cleanup {storeKey: 'survival::@tab:workspace-2::__graph__', remaining: 740}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '7.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
+ Debug: chartStyle.applyLabelOrientation result {count: 5, rotated: false, angle: -45, disableAuto: false}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.25'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.5'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0.75'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '1'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'Time'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Survival Probability'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Survival curve'}
+ Debug: makeEditable bound {hasOnChange: true}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 2, x: 228.99999999999997, y: 36}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Control'}
+ Debug: fontControls markText applied {scopeId: 'survival', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Treatment'}
+ Debug: enableLegendDrag bound {element: 'g'}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-group-summary', contextLabel: 'survival-group-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 6, rowCount: 2, caption: 'Group Summary'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-group-summary', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-group-summary'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 2, columnCount: 6}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-curve-comparisons', contextLabel: 'survival-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 2, caption: 'Survival Curve Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-curve-comparisons'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 2, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-pairwise-log-rank', contextLabel: 'survival-pairwise-log-rank', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 1, caption: 'Pairwise Log-rank Comparisons'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-pairwise-log-rank', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-pairwise-log-rank'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-hazard-ratios', contextLabel: 'survival-hazard-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 5, rowCount: 1, caption: 'Hazard ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-hazard-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-hazard-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 5}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-median-ratios', contextLabel: 'survival-median-ratios', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Median Survival Ratios'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-median-ratios', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-median-ratios'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-model', contextLabel: 'survival-cox-model', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 7, rowCount: 1, caption: 'Cox Model Coefficients'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-model', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-model'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 7}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-diagnostics', contextLabel: 'survival-cox-diagnostics', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 2, rowCount: 4, caption: 'Cox Model Diagnostics'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-diagnostics', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-diagnostics'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 4, columnCount: 2}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-cox-residuals', contextLabel: 'survival-cox-residuals', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 3, caption: 'Residual Summaries'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-cox-residuals', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-cox-residuals'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 3, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'survival-schoenfeld-checks', contextLabel: 'survival-schoenfeld-checks', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 1, caption: 'Scaled Schoenfeld Residual Checks'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'survival-schoenfeld-checks', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'survival-schoenfeld-checks'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 1, columnCount: 3}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.52954387664795, minY: -9.200000762939453, viewW: 332.677978515625, …}
+dom.js:7 Debug: ensureGraphViewport applied {component: 'survival', debugLabel: 'survival-graph', padding: 18, fill: true}
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored {label: 'survival', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset {label: 'survival', graphWidth: 453.66668701171875, graphContentWidth: 453.66668701171875, graphInset: 0, pad: 0, …}
+resizer.js:751 Debug: enforceAspectRatio result {debugLabel: 'survival sync', axis: 'x', output: {…}, ratio: 1.0421545667447307, bounds: {…}}
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement {label: 'survival', aspectLocked: true, widthToApply: 359, heightToApply: 344, ratio: 1.0436046511627908, …}
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock {label: 'survival', appliedWidth: 359, tableWidth: 423, graphWidth: 453.66668701171875, configWidth: 415.9270935058594, …}
+componentLayout.js:533 Debug: componentLayout syncPanels complete {component: 'survival', minSvgWidth: 0, layoutChanged: false}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 55ms
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'survival-graph', bbox: SVGRect, minX: -10.406451225280762, minY: -9.07690715789795, viewW: 332.724365234375, …}
+componentLayout.js:527 Debug: componentLayout programmatic sync released {component: 'survival', depth: 0}

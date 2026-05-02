@@ -12050,6 +12050,146 @@
     return { width, height, zoomScale };
   }
 
+  function readBoxCssPx(style, prop){
+    if(!style || !prop){
+      return 0;
+    }
+    const value = Number.parseFloat(style.getPropertyValue?.(prop) || style[prop] || '0');
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function resolveBoxElementOuterHeight(node){
+    if(!node || typeof node.getBoundingClientRect !== 'function'){
+      return 0;
+    }
+    const rect = node.getBoundingClientRect();
+    const height = Number(rect?.height);
+    if(!Number.isFinite(height) || height <= 0){
+      return 0;
+    }
+    let margin = 0;
+    if(typeof global.getComputedStyle === 'function'){
+      try{
+        const style = global.getComputedStyle(node);
+        margin = readBoxCssPx(style, 'margin-top') + readBoxCssPx(style, 'margin-bottom');
+      }catch(_err){}
+    }
+    return Math.max(0, height + margin);
+  }
+
+  function resolveBoxPlotDrawingZoneSize(){
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
+    const svgBox = els.svgBox || plot?.closest?.('.svgbox') || els.graphPanel?.querySelector?.('.svgbox') || null;
+    const rawWidth = Math.max(0, Number(plot?.clientWidth) || 0);
+    const rawHeight = Math.max(0, Number(plot?.clientHeight) || 0);
+    if(!svgBox || typeof svgBox.getBoundingClientRect !== 'function'){
+      return { width: rawWidth, height: rawHeight, constrained: false };
+    }
+    const zoomScaleCandidate = Number(svgBox.dataset?.resizerZoomLevel || svgBox.dataset?.resizerZoom);
+    const zoomScale = Number.isFinite(zoomScaleCandidate) && zoomScaleCandidate > 0 ? zoomScaleCandidate : 1;
+    const zoomViewport = svgBox.querySelector?.('.resizer-zoom-viewport') || null;
+    const zoneRect = (zoomViewport && typeof zoomViewport.getBoundingClientRect === 'function')
+      ? zoomViewport.getBoundingClientRect()
+      : svgBox.getBoundingClientRect();
+    let availableWidth = Number(zoneRect?.width);
+    let availableHeight = Number(zoneRect?.height);
+    if(!zoomViewport && typeof global.getComputedStyle === 'function'){
+      try{
+        const style = global.getComputedStyle(svgBox);
+        availableWidth -= readBoxCssPx(style, 'border-left-width') + readBoxCssPx(style, 'border-right-width');
+        availableWidth -= readBoxCssPx(style, 'padding-left') + readBoxCssPx(style, 'padding-right');
+        availableHeight -= readBoxCssPx(style, 'border-top-width') + readBoxCssPx(style, 'border-bottom-width');
+        availableHeight -= readBoxCssPx(style, 'padding-top') + readBoxCssPx(style, 'padding-bottom');
+      }catch(_err){}
+      const controls = els.boxExportControls || getBoxNodeById('boxExportControls') || null;
+      if(controls && controls.closest?.('.svgbox') === svgBox){
+        availableHeight -= resolveBoxElementOuterHeight(controls);
+      }
+    }
+    const baseAvailableWidth = Number.isFinite(availableWidth) && availableWidth > 0
+      ? availableWidth / zoomScale
+      : NaN;
+    const baseAvailableHeight = Number.isFinite(availableHeight) && availableHeight > 0
+      ? availableHeight / zoomScale
+      : NaN;
+    const width = Number.isFinite(baseAvailableWidth) && baseAvailableWidth > 0
+      ? (rawWidth > 0 ? Math.min(rawWidth, baseAvailableWidth) : baseAvailableWidth)
+      : rawWidth;
+    const height = Number.isFinite(baseAvailableHeight) && baseAvailableHeight > 0
+      ? (rawHeight > 0 ? Math.min(rawHeight, baseAvailableHeight) : baseAvailableHeight)
+      : rawHeight;
+    return {
+      width,
+      height,
+      constrained: (Number.isFinite(baseAvailableWidth) && rawWidth > baseAvailableWidth + 0.5)
+        || (Number.isFinite(baseAvailableHeight) && rawHeight > baseAvailableHeight + 0.5),
+      availableWidth: baseAvailableWidth,
+      availableHeight: baseAvailableHeight,
+      rawWidth,
+      rawHeight
+    };
+  }
+
+  function shouldClampBoxPlotToResizeZone(drawOpts = {}){
+    const reason = typeof drawOpts?.reason === 'string' ? drawOpts.reason : '';
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
+    const svgBox = els.svgBox
+      || plot?.closest?.('.svgbox')
+      || els.graphPanel?.querySelector?.('.svgbox')
+      || null;
+    const aspectUnlocked = svgBox?.dataset?.resizerAspectLocked === 'false';
+    return aspectUnlocked && reason === 'resize';
+  }
+
+  function syncBoxPlotResizeZone(drawOpts = {}){
+    const zone = resolveBoxPlotDrawingZoneSize();
+    const plot = els.plotDiv || getBoxNodeById('boxPlot');
+    if(!shouldClampBoxPlotToResizeZone(drawOpts)){
+      if(plot?.style && plot.dataset?.boxResizeZoneClamped === '1'){
+        plot.style.removeProperty('height');
+        plot.style.removeProperty('max-height');
+        plot.style.removeProperty('overflow');
+        delete plot.dataset.boxResizeZoneClamped;
+      }
+      return zone;
+    }
+    const syncedWidth = Number.isFinite(zone.availableWidth) && zone.availableWidth > 0
+      ? zone.availableWidth
+      : zone.width;
+    const syncedHeight = Number.isFinite(zone.availableHeight) && zone.availableHeight > 0
+      ? zone.availableHeight
+      : zone.height;
+    const syncedZone = {
+      ...zone,
+      width: Number.isFinite(syncedWidth) && syncedWidth > 0 ? syncedWidth : zone.width,
+      height: Number.isFinite(syncedHeight) && syncedHeight > 0 ? syncedHeight : zone.height,
+      constrained: !!zone.constrained
+        || (Number.isFinite(zone.rawWidth) && Number.isFinite(syncedWidth) && Math.abs(zone.rawWidth - syncedWidth) > 0.5)
+        || (Number.isFinite(zone.rawHeight) && Number.isFinite(syncedHeight) && Math.abs(zone.rawHeight - syncedHeight) > 0.5)
+    };
+    if(plot?.style && Number.isFinite(syncedZone.height) && syncedZone.height > 0){
+      const heightPx = `${Math.max(40, Math.floor(syncedZone.height))}px`;
+      plot.style.height = heightPx;
+      plot.style.maxHeight = heightPx;
+      plot.style.overflow = 'hidden';
+      plot.dataset.boxResizeZoneClamped = '1';
+    }
+    if(boxDebugEnabled()){
+      console.debug('Debug: box plot resize zone synced', {
+        reason: drawOpts?.reason || null,
+        phase: drawOpts?.resizePhase || null,
+        rawWidth: zone.rawWidth || null,
+        rawHeight: zone.rawHeight || null,
+        availableWidth: zone.availableWidth || null,
+        availableHeight: zone.availableHeight || null,
+        width: syncedZone.width || null,
+        height: syncedZone.height || null,
+        constrained: !!syncedZone.constrained
+      });
+    }
+    return syncedZone;
+  }
+
   function applyBoxViewportExtensions(nextExtensions, options = {}){
     const debugLogging = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const shouldResizeContainer = options.resizeContainer === true;
@@ -27344,8 +27484,9 @@ Technical analysis record (advanced)
         retainedNodeCount: retainedPlotNodes?.length || 0
       });
     }
-    const W = Math.max(50, Math.floor(els.plotDiv.clientWidth || 50));
-    const H = Math.max(40, Math.floor(els.plotDiv.clientHeight || 40));
+    const plotResizeZone = syncBoxPlotResizeZone(drawOpts);
+    const W = Math.max(50, Math.floor(plotResizeZone.width || els.plotDiv.clientWidth || 50));
+    const H = Math.max(40, Math.floor(plotResizeZone.height || els.plotDiv.clientHeight || 40));
     const storedSignificanceBaseHeight = Number(state.significanceBasePlotHeightPx);
     const hasStoredSignificanceBaseHeight = Number.isFinite(storedSignificanceBaseHeight) && storedSignificanceBaseHeight > 0;
     const inferredBaseHeightFromGeometry = H - geometrySignificanceViewportExtension - previousBottomViewportExtension;
@@ -32139,10 +32280,15 @@ Technical analysis record (advanced)
     svg.setAttribute('data-box-base-height', String(viewportHeight));
     const zoomViewport = els.svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
     const zoomContent = els.svgBox?.querySelector?.('.resizer-zoom-content') || null;
+    const clampPlotToResizeZone = shouldClampBoxPlotToResizeZone(drawOpts);
     if(useFillParentViewport){
       if(els.plotDiv?.style){
-        els.plotDiv.style.removeProperty('overflow');
         els.plotDiv.style.removeProperty('min-height');
+        if(clampPlotToResizeZone){
+          els.plotDiv.style.overflow = 'hidden';
+        }else{
+          els.plotDiv.style.removeProperty('overflow');
+        }
       }
       if(zoomViewport?.style){
         zoomViewport.style.removeProperty('overflow');
@@ -34392,6 +34538,8 @@ Technical analysis record (advanced)
       resolveBoxSummaryOverlayColor:(summaryStyle,fillColor,borderColor,options={})=>resolveBoxSummaryOverlayColor(summaryStyle,fillColor,borderColor,options || {}),
       shouldUseBoxPointCanvasPreview:(opts, renderOptions)=>shouldUseBoxPointCanvasPreview(opts, renderOptions),
       shouldRetainPreviousBoxFrame:(opts)=>shouldRetainPreviousBoxFrame(opts),
+      resolveBoxPlotDrawingZoneSize:()=>resolveBoxPlotDrawingZoneSize(),
+      syncBoxPlotResizeZone:opts=>syncBoxPlotResizeZone(opts || {}),
       shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
       resolveTraceVisibleUpperBoundForAutoAxis:options=>resolveTraceVisibleUpperBoundForAutoAxis(options),
       isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),

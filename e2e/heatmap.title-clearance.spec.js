@@ -100,5 +100,64 @@ test.describe('Heatmap title clearance', () => {
     expect(metrics.columnsTopVisible, JSON.stringify(metrics)).toBe(true);
     expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThanOrEqual(4);
   });
+
+  test('keeps a visible gap between graph title and column labels after graph panel resize', async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(
+      page,
+      { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
+      { first: true }
+    );
+    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await page.waitForTimeout(1200);
+
+    const resizer = page.locator('#heatmapPage .panel-resizer:visible').first();
+    await expect(resizer).toBeVisible();
+    const box = await resizer.boundingBox();
+    expect(box).toBeTruthy();
+    if(box){
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+    }
+
+    const metrics = await page.evaluate(() => {
+      const svg = document.getElementById('heatmapSvg');
+      if(!svg){
+        return { ok: false, reason: 'missing-svg' };
+      }
+      const title = svg.querySelector('text[data-font-role="graphTitle"]');
+      const columns = Array.from(svg.querySelectorAll('text[data-font-role="columnLabel"]'));
+      if(!title || !columns.length){
+        return { ok: false, reason: 'missing-label-nodes', hasTitle: !!title, columnCount: columns.length };
+      }
+      const svgRect = svg.getBoundingClientRect();
+      const titleRect = title.getBoundingClientRect();
+      const columnTops = columns.map(node => node.getBoundingClientRect().top).filter(Number.isFinite);
+      const minColumnTop = columnTops.length ? Math.min(...columnTops) : Number.NaN;
+      const gapPx = Number.isFinite(minColumnTop) ? (minColumnTop - titleRect.bottom) : Number.NaN;
+      return {
+        ok: true,
+        gapPx,
+        minColumnTop,
+        titleBottom: titleRect.bottom,
+        titleTop: titleRect.top,
+        svgTop: svgRect.top,
+        svgBottom: svgRect.bottom,
+        titleVisible: titleRect.top >= (svgRect.top - 1) && titleRect.bottom <= (svgRect.bottom + 1),
+        columnsTopVisible: Number.isFinite(minColumnTop) ? minColumnTop >= (svgRect.top - 1) : false
+      };
+    });
+
+    expect(metrics.ok, JSON.stringify(metrics)).toBe(true);
+    expect(metrics.titleVisible, JSON.stringify(metrics)).toBe(true);
+    expect(metrics.columnsTopVisible, JSON.stringify(metrics)).toBe(true);
+    expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThanOrEqual(4);
+  });
 });
 
