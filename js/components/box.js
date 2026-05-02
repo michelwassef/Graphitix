@@ -12132,13 +12132,7 @@
 
   function shouldClampBoxPlotToResizeZone(drawOpts = {}){
     const reason = typeof drawOpts?.reason === 'string' ? drawOpts.reason : '';
-    const plot = els.plotDiv || getBoxNodeById('boxPlot');
-    const svgBox = els.svgBox
-      || plot?.closest?.('.svgbox')
-      || els.graphPanel?.querySelector?.('.svgbox')
-      || null;
-    const aspectUnlocked = svgBox?.dataset?.resizerAspectLocked === 'false';
-    return aspectUnlocked && reason === 'resize';
+    return reason === 'resize';
   }
 
   function syncBoxPlotResizeZone(drawOpts = {}){
@@ -12146,6 +12140,8 @@
     const plot = els.plotDiv || getBoxNodeById('boxPlot');
     if(!shouldClampBoxPlotToResizeZone(drawOpts)){
       if(plot?.style && plot.dataset?.boxResizeZoneClamped === '1'){
+        plot.style.removeProperty('width');
+        plot.style.removeProperty('max-width');
         plot.style.removeProperty('height');
         plot.style.removeProperty('max-height');
         plot.style.removeProperty('overflow');
@@ -12168,6 +12164,11 @@
         || (Number.isFinite(zone.rawHeight) && Number.isFinite(syncedHeight) && Math.abs(zone.rawHeight - syncedHeight) > 0.5)
     };
     if(plot?.style && Number.isFinite(syncedZone.height) && syncedZone.height > 0){
+      if(Number.isFinite(syncedZone.width) && syncedZone.width > 0){
+        const widthPx = `${Math.max(50, Math.floor(syncedZone.width))}px`;
+        plot.style.width = widthPx;
+        plot.style.maxWidth = widthPx;
+      }
       const heightPx = `${Math.max(40, Math.floor(syncedZone.height))}px`;
       plot.style.height = heightPx;
       plot.style.maxHeight = heightPx;
@@ -27564,14 +27565,6 @@ Technical analysis record (advanced)
           }
         });
       };
-      const afterBoxPaint = callback => {
-        const raf = global.requestAnimationFrame || global.window?.requestAnimationFrame;
-        if(typeof raf === 'function'){
-          raf(() => raf(callback));
-        }else{
-          (global.setTimeout || setTimeout)(callback, 32);
-        }
-      };
       const normalizeCommittedBoxSvg = () => {
         if(!svg.style){
           return;
@@ -27592,13 +27585,9 @@ Technical analysis record (advanced)
       svg.removeAttribute('aria-hidden');
       pendingPlotFrameCommitted = true;
       if(Array.isArray(retainedPlotNodes) && retainedPlotNodes.length){
-        afterBoxPaint(() => {
-          removeRetainedPlotNodes();
-          normalizeCommittedBoxSvg();
-        });
-      }else{
-        normalizeCommittedBoxSvg();
+        removeRetainedPlotNodes();
       }
+      normalizeCommittedBoxSvg();
       const committedTabId = svg?.dataset?.boxTabId || getActiveBoxWorkspaceTabId();
       if(els.plotDiv?.dataset){
         if(committedTabId){
@@ -33886,16 +33875,8 @@ Technical analysis record (advanced)
             boxDebug('Debug: box viewport extension resize draw muted', { phase: currentPhase || null });
             return;
           }
-          if(currentPhase === 'observe' && state.resizeInteractionActive){
-            boxDebug('Debug: box resize observer callback ignored during pointer resize');
-            return;
-          }
-          let reason = 'resize';
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-            reason = 'resize';
-          }else if(phase === 'observe'){
-            reason = 'resize';
           }
           if(
             phase === 'end'
@@ -33917,17 +33898,12 @@ Technical analysis record (advanced)
             || currentPhase === 'redo'
             || currentPhase === 'programmatic'
             || currentPhase === 'aspect-toggle';
-          const resizeDrawOptions = {
+          state.scheduleDraw?.({
             viewOnly: true,
-            reason,
+            reason: 'resize',
             resizePhase: currentPhase || null,
             forceCanvasRecompute: isResizeFinalize
-          };
-          if(currentPhase === 'move'){
-            runBoxDrawCycle(resizeDrawOptions);
-            return;
-          }
-          state.scheduleDraw?.(resizeDrawOptions);
+          });
         }
       }
     });

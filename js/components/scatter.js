@@ -277,8 +277,6 @@
     lastDrawMeta: null,
     pendingDrawReasons: null,
     activeDrawReasons: null,
-    resizeInteractionActive: false,
-    resizeObserveDrawMutedUntil: 0,
     useDelegatedPointEvents: true,
     dataDirty: true,
     cachedCollect: null,
@@ -6652,8 +6650,6 @@
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
-    scatterState.resizeInteractionActive = false;
-    scatterState.resizeObserveDrawMutedUntil = 0;
     ensureScatterAxisSettings();
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
     const legacyDollar = global.$;
@@ -9632,7 +9628,7 @@
           svgBox: () => scatterGraphPanel?.querySelector('.svgbox'),
           resizeTarget: () => scatterGraphPanel?.querySelector('.svgbox')
         },
-        scheduleDraw: () => scheduleDrawScatter(),
+        scheduleDraw: (...args) => scheduleDrawScatter(...args),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -9643,25 +9639,12 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
-            const mutedUntil = Number(scatterState.resizeObserveDrawMutedUntil) || 0;
-            if(resizePhase === 'observe' && (scatterState.resizeInteractionActive || Date.now() <= mutedUntil)){
-              scatterDebug('Debug: scatter resize observer callback ignored during pointer resize');
-              return;
-            }
             const isResizeFinalize = resizePhase === 'end'
               || resizePhase === 'reset'
               || resizePhase === 'undo'
               || resizePhase === 'redo'
               || resizePhase === 'programmatic'
               || resizePhase === 'aspect-toggle';
-            if(resizePhase === 'move'){
-              scatterState.resizeInteractionActive = true;
-            }else if(isResizeFinalize){
-              scatterState.resizeInteractionActive = false;
-              scatterState.resizeObserveDrawMutedUntil = Date.now() + 180;
-            }else if(resizePhase !== 'observe'){
-              scatterState.resizeInteractionActive = false;
-            }
             scheduleDrawScatter({
               viewOnly: true,
               reason: 'resize',
@@ -9676,7 +9659,7 @@
         bindScatterPlotContextMenuSuppression(scatterSvgBox);
       }
       scatterSvgBoxRef = scatterSvgBox;
-      scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
+      scatterLayout?.setScheduleDraw?.((...args) => scheduleDrawScatter(...args));
       scatterLayout?.syncPanels?.();
       ensureScatterResizerControls();
       const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
@@ -17835,14 +17818,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }
           }
         };
-        const afterScatterPaint = callback => {
-          const raf = global.requestAnimationFrame || global.window?.requestAnimationFrame;
-          if(typeof raf === 'function'){
-            raf(() => raf(callback));
-          }else{
-            (global.setTimeout || setTimeout)(callback, 32);
-          }
-        };
         const normalizeCommittedScatterSvg = () => {
           if(!svg.style){
             return;
@@ -17853,16 +17828,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           svg.style.removeProperty('z-index');
         };
         const commitScatterSvg = () => {
+          if(previousPlotChildren.length){
+            removePreviousScatterNodes();
+          }
           svg.style.visibility='';
           svg.style.pointerEvents='auto';
-          if(previousPlotChildren.length){
-            afterScatterPaint(() => {
-              removePreviousScatterNodes();
-              normalizeCommittedScatterSvg();
-            });
-          }else{
-            normalizeCommittedScatterSvg();
-          }
+          normalizeCommittedScatterSvg();
         };
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
@@ -20899,7 +20870,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           })
         : scheduleScatterInstrumented;
       scheduleDrawScatter = scheduleDrawScatterRaw;
-      scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
+      scatterLayout?.setScheduleDraw?.((...args) => scheduleDrawScatter(...args));
       console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame', { guarded: true }); // Debug: scheduler setup
     
     
