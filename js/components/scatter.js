@@ -9267,14 +9267,11 @@
           : (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
             ? dataset.resizerLastAxis
             : 'both');
-        if(scatterResizeMarginLock){
-          if(axis === 'y'){
-            locked.left = scatterResizeMarginLock.left;
-            locked.right = scatterResizeMarginLock.right;
-          }else if(axis === 'x'){
-            locked.top = scatterResizeMarginLock.top;
-            locked.bottom = scatterResizeMarginLock.bottom;
-          }
+        if(scatterResizeMarginLock && lockActive && (axis === 'x' || axis === 'y')){
+          locked.top = scatterResizeMarginLock.top;
+          locked.right = scatterResizeMarginLock.right;
+          locked.bottom = scatterResizeMarginLock.bottom;
+          locked.left = scatterResizeMarginLock.left;
         }
         scatterResizeMarginLock = { ...locked };
         return locked;
@@ -9630,7 +9627,6 @@
         },
         scheduleDraw: (...args) => scheduleDrawScatter(...args),
         preserveGraphContent: false,
-        skipScheduleOnResizePhases: ['move', 'observe', 'end', 'reset', 'undo', 'redo', 'programmatic', 'aspect-toggle'],
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
@@ -15517,7 +15513,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let statsContextPayload=null;
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
-        scatterLayout?.suppressNextSchedule?.({ reason: 'scatter-draw', count: 2, delayMs: 120 });
         hideScatterTooltip('draw-start');
         const significanceColors = getScatterSignificanceColors();
         const fill=scatterFill.value||significanceColors.neutral;

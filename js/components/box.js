@@ -26657,7 +26657,6 @@ Technical analysis record (advanced)
     let pendingPlotFrameCommitted = true;
     try{
     boxLog('boxplot draw start',{token, viewOnly, reason: drawOpts?.reason || null});
-    state.layout?.suppressNextSchedule?.({ reason: 'box-draw', count: 2, delayMs: 120 });
     hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     ensureWhiskerState();
@@ -33853,7 +33852,6 @@ Technical analysis record (advanced)
       },
         scheduleDraw: (...args) => state.scheduleDraw?.(...args),
         preserveGraphContent: false,
-        skipScheduleOnResizePhases: ['move', 'observe', 'end', 'reset', 'undo', 'redo', 'programmatic', 'aspect-toggle'],
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false

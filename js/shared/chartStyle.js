@@ -2132,13 +2132,10 @@
       && Date.now() <= lockUntil;
     const previous = axisResizeMarginLocks ? axisResizeMarginLocks.get(svgBox) : svgBox.__chartStyleAxisResizeMarginLock;
     if(lockActive && previous){
-      if(axis === 'y'){
-        locked.left = previous.left;
-        locked.right = previous.right;
-      }else if(axis === 'x'){
-        locked.top = previous.top;
-        locked.bottom = previous.bottom;
-      }
+      locked.top = previous.top;
+      locked.right = previous.right;
+      locked.bottom = previous.bottom;
+      locked.left = previous.left;
     }
     if(axisResizeMarginLocks){
       axisResizeMarginLocks.set(svgBox, { ...locked });
