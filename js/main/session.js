@@ -896,6 +896,17 @@
     const cache = deserializeRenderCacheValue(tab.archiveRenderCache);
     const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
     const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
+    if (cache && cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object') {
+      const originalTabId = cache.__graphitixRenderCache.tabId;
+      cache.__graphitixRenderCache.tabId = tab.id;
+      if (originalTabId && originalTabId !== tab.id) {
+        console.debug('Debug: archive render cache metadata tabId rewritten', {
+          originalTabId,
+          tabId: tab.id,
+          reason: meta.reason || 'archive-render-cache-consumed'
+        });
+      }
+    }
     clearTabArchiveRenderCache(tab, { reason: meta.reason || 'archive-render-cache-consumed' });
     if (!cache) {
       console.debug('Debug: archive render cache consume skipped', {

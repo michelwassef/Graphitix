@@ -52,7 +52,7 @@ describe('graph archive render cache serialization', () => {
     expect(markup).not.toContain('<canvas');
 
     const tab = {
-      id: 'workspace-2',
+      id: 'workspace-3',
       type: 'scatter',
       payloadSignature: 'payload',
       layoutSignature: 'layout',
@@ -61,6 +61,7 @@ describe('graph archive render cache serialization', () => {
       archiveRenderCacheLayoutSignature: 'layout'
     };
     const consumed = session.consumeArchiveRenderCache(tab, { reason: 'test' });
+    expect(consumed.cache.__graphitixRenderCache.tabId).toBe('workspace-3');
     const restoredImage = consumed.cache.plot.fragment.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]');
     expect(restoredImage).toBeTruthy();
     expect(restoredImage.getAttribute('src')).toBe('data:image/png;base64,Y2FjaGVkLXBvaW50cw==');
