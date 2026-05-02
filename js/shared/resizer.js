@@ -1310,7 +1310,7 @@
       const lockedStyleScaleBase = parsePositive(data.resizerLockedStyleScaleBase);
       const styleScaleBase = Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0
         ? rawStyleScaleBase / lockedStyleScaleBase
-        : rawStyleScaleBase;
+        : 1;
       if(Number.isFinite(styleScaleBase) && styleScaleBase > 0){
         data.resizerUnlockedStyleScaleBase = String(styleScaleBase);
         console.debug('Debug: resizer unlocked style scale base synced', {

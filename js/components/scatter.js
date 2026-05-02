@@ -9630,6 +9630,7 @@
         },
         scheduleDraw: (...args) => scheduleDrawScatter(...args),
         preserveGraphContent: false,
+        skipScheduleOnResizePhases: ['move', 'observe', 'end', 'reset', 'undo', 'redo', 'programmatic', 'aspect-toggle'],
         panelSyncOptions: {
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
