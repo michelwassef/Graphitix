@@ -189,7 +189,8 @@
   };
 
   let heatmapTextResizeObserver = null;
-  let heatmapTextScaleDebounced = null;
+  let heatmapResizeRefreshDebounced = null;
+  let heatmapResizeRefreshReason = null;
   const stripAspectMatrixTransform = (transform) => {
     const trimmed = typeof transform === 'string' ? transform.trim() : '';
     if(!trimmed){ return ''; }
@@ -258,13 +259,32 @@
       textScaleMode: HEATMAP_TEXT_SCALE_MODE
     });
   };
-  const scheduleHeatmapTextAspect = (reason) => {
-    const trigger = () => applyHeatmapTextAspect(reason || 'heatmap-text-resize');
-    if(typeof Shared.debounceFrame === 'function'){
-      if(!heatmapTextScaleDebounced){
-        heatmapTextScaleDebounced = Shared.debounceFrame(trigger);
+  const scheduleHeatmapResizeRefresh = (reason) => {
+    heatmapResizeRefreshReason = reason || heatmapResizeRefreshReason || 'resize';
+    const trigger = () => {
+      const nextReason = heatmapResizeRefreshReason || 'resize';
+      heatmapResizeRefreshReason = null;
+      if(state.isRendering){
+        const retry = () => scheduleHeatmapResizeRefresh(nextReason);
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(retry);
+        }else{
+          (global.setTimeout || setTimeout)(retry, 16);
+        }
+        return;
       }
-      heatmapTextScaleDebounced();
+      // Keep aspect-correction responsiveness while ensuring full layout clearance logic
+      // (title/label overlap, bounds reflow) is reapplied via a view-only redraw.
+      applyHeatmapTextAspect(`heatmap-resize-aspect-${nextReason}`);
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw({ viewOnly: true, reason: nextReason });
+      }
+    };
+    if(typeof Shared.debounceFrame === 'function'){
+      if(!heatmapResizeRefreshDebounced){
+        heatmapResizeRefreshDebounced = Shared.debounceFrame(trigger);
+      }
+      heatmapResizeRefreshDebounced();
       return;
     }
     if(typeof global.requestAnimationFrame === 'function'){
@@ -280,7 +300,7 @@
     const target = state.svgBox || state.svg?.closest?.('.svgbox') || null;
     if(!target){ return; }
     heatmapTextResizeObserver = new global.ResizeObserver(() => {
-      scheduleHeatmapTextAspect('heatmap-resize');
+      scheduleHeatmapResizeRefresh('resize-observer');
     });
     heatmapTextResizeObserver.observe(target);
     debugLog('Debug: heatmap text resize observer attached');
@@ -8390,7 +8410,7 @@
       resizableBoxOptions: {
         onResize: () => {
           debugLog('Debug: heatmap layout onResize schedule trigger');
-          scheduleHeatmapTextAspect('resize');
+          scheduleHeatmapResizeRefresh('resize');
         }
       }
     });
