@@ -109,56 +109,55 @@
       ?? null;
 
     const activeId = session?.getActiveTab?.()?.id || null;
-    if (!archiveRenderCache && activeId && tab.id === activeId) {
-      const config = workspaces?.[tab.type] || null;
-      if (config && typeof config.captureRenderCache === 'function') {
-        let captured = null;
-        try {
-          captured = config.captureRenderCache({
-            tabId: tab.id,
-            type: tab.type,
-            reason: 'archive-save-active'
-          });
-          if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
-            archiveRenderCache = session.serializeRenderCacheForArchive(captured);
-            archiveRenderCacheSignature = tab.payloadSignature || null;
-            archiveRenderCacheLayoutSignature = tab.layoutSignature || null;
-          }
-        } catch (err) {
-          console.error('buildArchiveTabSnapshot captureRenderCache error', {
-            tabId: tab.id,
-            type: tab.type,
-            err
-          });
+    const config = workspaces?.[tab.type] || null;
+    if (!archiveRenderCache && config && typeof config.captureRenderCache === 'function') {
+      let captured = null;
+      const captureReason = tab.id === activeId ? 'archive-save-active' : 'archive-save-inactive';
+      try {
+        captured = config.captureRenderCache({
+          tabId: tab.id,
+          type: tab.type,
+          reason: captureReason
+        });
+        if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
+          archiveRenderCache = session.serializeRenderCacheForArchive(captured);
+          archiveRenderCacheSignature = tab.payloadSignature || null;
+          archiveRenderCacheLayoutSignature = tab.layoutSignature || null;
         }
-        if (captured) {
-          let restored = false;
-          if (typeof config.restoreRenderCache === 'function') {
-            try {
-              restored = !!config.restoreRenderCache(captured, {
-                tabId: tab.id,
-                type: tab.type,
-                reason: 'archive-save-active-restore',
-                temporaryRestore: true
-              });
-            } catch (err) {
-              console.error('buildArchiveTabSnapshot restoreRenderCache error', {
-                tabId: tab.id,
-                type: tab.type,
-                err
-              });
-            }
+      } catch (err) {
+        console.error('buildArchiveTabSnapshot captureRenderCache error', {
+          tabId: tab.id,
+          type: tab.type,
+          err
+        });
+      }
+      if (captured) {
+        let restored = false;
+        if (typeof config.restoreRenderCache === 'function') {
+          try {
+            restored = !!config.restoreRenderCache(captured, {
+              tabId: tab.id,
+              type: tab.type,
+              reason: `${captureReason}-restore`,
+              temporaryRestore: true
+            });
+          } catch (err) {
+            console.error('buildArchiveTabSnapshot restoreRenderCache error', {
+              tabId: tab.id,
+              type: tab.type,
+              err
+            });
           }
-          if (!restored && typeof config.draw === 'function') {
-            try {
-              config.draw();
-            } catch (err) {
-              console.error('buildArchiveTabSnapshot draw recovery error', {
-                tabId: tab.id,
-                type: tab.type,
-                err
-              });
-            }
+        }
+        if (!restored && typeof config.draw === 'function') {
+          try {
+            config.draw();
+          } catch (err) {
+            console.error('buildArchiveTabSnapshot draw recovery error', {
+              tabId: tab.id,
+              type: tab.type,
+              err
+            });
           }
         }
       }

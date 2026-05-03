@@ -160,6 +160,113 @@ describe('sessionActions save lazy archive build', () => {
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
   });
 
+  test('captures inactive tab render cache for workspace archive when config supports it', async () => {
+    const sessionActions = installSessionActions();
+    const serializedCache = { plot: { kind: 'scatter' } };
+    const capturedCache = { plot: { fragment: document.createDocumentFragment(), count: 1 } };
+    const boxSerializedCache = { plot: { kind: 'box' } };
+    const boxCapturedCache = { plot: { fragment: document.createDocumentFragment(), count: 2 } };
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      const payload = await options.getPayload();
+      expect(payload).toBeInstanceOf(Blob);
+      return {
+        status: 'saved',
+        via: 'picker',
+        fileName: 'workspace.graph'
+      };
+    });
+    const context = createContext({
+      workspaceState: {
+        tabs: [
+          {
+            id: 'tab-1',
+            title: 'XY Plots',
+            type: 'scatter',
+            isWelcome: false,
+            payload: { type: 'scatter', data: [[1, 2, 'A']] },
+            layoutState: null
+          },
+          {
+            id: 'tab-2',
+            title: 'Distribution Charts',
+            type: 'box',
+            isWelcome: false,
+            payload: { type: 'box', data: [[3, 4, 'B']] },
+            layoutState: null
+          }
+        ],
+        sessionDirty: true,
+        sessionFileHandle: null,
+        sessionFileScope: null,
+        sessionFileName: ''
+      }
+    });
+    const activeTab = context.workspaceState.tabs[0];
+    activeTab.payloadSignature = 'payload-sig';
+    activeTab.layoutSignature = 'layout-sig';
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn((cache) => {
+      if (cache === capturedCache) {
+        return serializedCache;
+      }
+      if (cache === boxCapturedCache) {
+        return boxSerializedCache;
+      }
+      return null;
+    });
+    const captureRenderCache = jest.fn(() => capturedCache);
+    const restoreRenderCache = jest.fn(() => true);
+    const draw = jest.fn();
+    const boxCaptureRenderCache = jest.fn(() => boxCapturedCache);
+    const boxRestoreRenderCache = jest.fn(() => true);
+    const boxDraw = jest.fn();
+    context.workspaces = {
+      scatter: {
+        captureRenderCache,
+        restoreRenderCache,
+        draw
+      },
+      box: {
+        captureRenderCache: boxCaptureRenderCache,
+        restoreRenderCache: boxRestoreRenderCache,
+        draw: boxDraw
+      }
+    };
+
+    const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
+    });
+
+    expect(result.status).toBe('saved');
+    expect(captureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: activeTab.id,
+      type: 'scatter',
+      reason: 'archive-save-active'
+    }));
+    expect(boxCaptureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'tab-2',
+      type: 'box',
+      reason: 'archive-save-inactive'
+    }));
+    expect(boxRestoreRenderCache).toHaveBeenCalledWith(
+      boxCapturedCache,
+      expect.objectContaining({
+        tabId: 'tab-2',
+        type: 'box',
+        reason: 'archive-save-inactive-restore',
+        temporaryRestore: true
+      })
+    );
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toBe(boxSerializedCache);
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe(null);
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe(null);
+  });
+
   test('handleSessionSaveClick uses Save As flow when there is no existing file handle', async () => {
     const sessionActions = installSessionActions();
     window.Shared.fileIO.saveGraphFile = jest.fn().mockResolvedValue({
