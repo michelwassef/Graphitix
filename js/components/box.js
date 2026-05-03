@@ -13416,7 +13416,9 @@
       || value.includes('payload')
       || value.includes('viewport')
       || value.includes('programmatic')
-      || value.includes('render-cache');
+      || value.includes('render-cache')
+      || value.includes('resize')
+      || value.includes('layout');
   }
 
   function activateAuthoritativeBoxRenderRestore(reason){
