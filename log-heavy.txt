@@ -1,3 +1,34 @@
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
  Debug: chartStyle.measureText Object
  Debug: chartStyle.measureText Object
  Debug: chartStyle.measureText Object
@@ -482,6 +513,8 @@
  Debug: autoResizeSvg applied Object
  Debug: componentLayout programmatic sync released Object
  Debug: preview hover enter Object
+ Debug: preview hover skipped for active tab Object
+ Debug: preview hover enter Object
  Debug: tab data detected after header skip Object
  Debug: preview reuse Object
  Debug: preview hover using stored inactive preview Object
@@ -824,18 +857,18 @@
  Debug: chartStyle.createLegendRenderer metrics Object
  Debug: box legend initial state Object
  Debug: box analysis snapshot Object
- boxColCollect_0_4: 1.495849609375 ms
- boxColCollect_1_4: 0.936767578125 ms
- boxColCollect_2_4: 0.44091796875 ms
- boxColCollect_3_4: 0.409912109375 ms
- boxColCollect_4_4: 0.399169921875 ms
- boxColCollect_5_4: 0.39501953125 ms
- boxColCollect_6_4: 0.39892578125 ms
- boxColCollect_7_4: 0.390869140625 ms
- boxColCollect_8_4: 0.39208984375 ms
- boxColCollect_9_4: 0.406005859375 ms
- boxColCollect_10_4: 0.399169921875 ms
- boxColCollect_11_4: 0.38916015625 ms
+ boxColCollect_0_4: 1.803955078125 ms
+ boxColCollect_1_4: 0.97607421875 ms
+ boxColCollect_2_4: 0.440185546875 ms
+ boxColCollect_3_4: 0.408935546875 ms
+ boxColCollect_4_4: 0.407958984375 ms
+ boxColCollect_5_4: 0.408203125 ms
+ boxColCollect_6_4: 0.482177734375 ms
+ boxColCollect_7_4: 0.421142578125 ms
+ boxColCollect_8_4: 0.406005859375 ms
+ boxColCollect_9_4: 0.398193359375 ms
+ boxColCollect_10_4: 0.388916015625 ms
+ boxColCollect_11_4: 0.405029296875 ms
  Debug: box resolveTraceColor Object
  Debug: box resolveTraceColor Object
  Debug: box trace colors primed Object
@@ -905,39 +938,39 @@
  Debug: resizer observer triggered
  Debug: componentLayout resizable onResize Object
  Debug: Shared.syncPanelWidths table min stored Object
- Debug: Shared.syncPanelWidths graph inset Object
- Debug: enforceAspectRatio result Object
- Debug: Shared.syncPanelWidths aspect enforcement Object
- Debug: Shared.syncPanelWidths manual lock Object
- Debug: componentLayout syncPanels complete Object
- Debug: componentLayout programmatic sync released Object
- Debug: chartStyle.scaleLength Object
- Debug: chartStyle.scaleStrokeWidth applied Object
- Debug: box resolveTraceColor Object
- Debug: chartStyle.scaleLength Object
- Debug: chartStyle.scaleStrokeWidth applied Object
- Debug: fontControls markText applied Object
- Debug: box markFontEditable Object
- Debug: makeEditable bound Object
- Debug: enableLabelDrag bound Object
- Debug: box annotation style forwarded Object
- Debug: Shared.syncPanelWidths table min stored Object
- Debug: Shared.syncPanelWidths graph inset Object
- Debug: enforceAspectRatio result Object
- Debug: Shared.syncPanelWidths aspect enforcement Object
- Debug: Shared.syncPanelWidths manual lock Object
- Debug: componentLayout syncPanels complete Object
- Debug: componentLayout programmatic sync released Object
- Debug: tab data detected after header skip Object
- Debug: tab data detected after header skip Object
- Debug: shadeColor Object
- Debug: shadeColor Object
- Debug: shadeColor Object
- Debug: box graph-type border width sync Object
- Debug: box graph-type border width sync Object
- Debug: fontControls exportScopeStyles skipped (empty) Object
- Debug: box.getPayload captured state Object
- Debug: fastClonePayload using structuredClone Object
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:751 Debug: enforceAspectRatio result Object
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:533 Debug: componentLayout syncPanels complete Object
+componentLayout.js:527 Debug: componentLayout programmatic sync released Object
+chartStyle.js:952 Debug: chartStyle.scaleLength Object
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied Object
+box.js:26945 Debug: box resolveTraceColor Object
+chartStyle.js:952 Debug: chartStyle.scaleLength Object
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth applied Object
+fontControls.js:1424 Debug: fontControls markText applied Object
+box.js:8980 Debug: box markFontEditable Object
+dom.js:7 Debug: makeEditable bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+box.js:32450 Debug: box annotation style forwarded Object
+resizer.js:2571 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2619 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:751 Debug: enforceAspectRatio result Object
+resizer.js:2839 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:2893 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:533 Debug: componentLayout syncPanels complete Object
+componentLayout.js:527 Debug: componentLayout programmatic sync released Object
+session.js:1393 Debug: tab data detected after header skip Object
+session.js:1393 Debug: tab data detected after header skip Object
+box.js:6017 Debug: shadeColor Object
+box.js:6017 Debug: shadeColor Object
+box.js:6017 Debug: shadeColor Object
+box.js:13105 Debug: box graph-type border width sync Object
+box.js:13105 Debug: box graph-type border width sync Object
+fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) Object
+box.js:32738 Debug: box.getPayload captured state Object
+session.js:149 Debug: fastClonePayload using structuredClone Object
 session.js:236 Debug: clonePayload completed Object
 fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) Object
 componentLayout.js:828 Debug: componentLayout live resizable snapshot normalized Object
@@ -963,38 +996,39 @@ session.js:149 Debug: fastClonePayload using structuredClone Object
 session.js:149 Debug: fastClonePayload using structuredClone Object
 session.js:149 Debug: fastClonePayload using structuredClone Object
 session.js:1393 Debug: tab data detected after header skip Object
-session.js:1393 Debug: tab data detected after header skip Object
-session.js:1393 Debug: tab data detected after header skip Object
-box.js:6017 Debug: shadeColor Object
-box.js:6017 Debug: shadeColor Object
-box.js:6017 Debug: shadeColor Object
-box.js:13105 Debug: box graph-type border width sync Object
-box.js:13105 Debug: box graph-type border width sync Object
-fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:32738 Debug: box.getPayload captured state Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:236 Debug: clonePayload completed Object
-fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:828 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:877 Debug: componentLayout captureState Object
-componentLayout.js:186 Debug: componentLayout tab layout override merged Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:236 Debug: clonePayload completed Object
-session.js:1500 Debug: session graph sizing enrich skipped Object
-session.js:1515 Debug: session graph sizing layout merge skipped Object
-session.js:414 Debug: serializePayloadSignature computed Object
-session.js:1093 Debug: assignTabPayload applied Object
-session.js:414 Debug: serializePayloadSignature computed Object
-previews.js:779 Debug: preview capture success Object
-previews.js:817 Debug: preview indicator synced Object
-previews.js:906 Debug: preview stored Object
-session.js:1606 Debug: workspace state persisted Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:149 Debug: fastClonePayload using structuredClone Object
-session.js:1393 Debug: tab data detected after header skip Object
 previews.js:1000 Debug: preview tooltip hidden Object
 previews.js:1000 Debug: preview tooltip hidden Object
+session.js:1393 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'box'}
+session.js:1393 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'box'}
+box.js:6017 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+box.js:6017 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+box.js:6017 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
+box.js:13105 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+box.js:13105 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
+fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+box.js:32738 Debug: box.getPayload captured state {rows: 7357, cols: 17, colorMode: 'unified', statsTest: 'parametric', statsMode: 'all', …}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:236 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+fontControls.js:1424 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-2'}
+componentLayout.js:828 Debug: componentLayout live resizable snapshot normalized {component: 'box', context: 'svgBox', widthPx: 503, heightPx: 503, baseWidthPx: 503, …}
+componentLayout.js:877 Debug: componentLayout captureState {component: 'box', hasSvg: true, hasTable: true, minSvgWidth: 0}
+componentLayout.js:186 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'box', aspectLocked: true}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:236 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1500 Debug: session graph sizing enrich skipped {tabId: 'workspace-2', type: 'box', reason: 'box-layout-state-authoritative'}
+session.js:1515 Debug: session graph sizing layout merge skipped {tabId: 'workspace-2', type: 'box', reason: 'box-layout-state-authoritative'}
+session.js:414 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 437072}
+session.js:1093 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'recovery-interval', changed: false, hasPayload: true, statsTest: 'parametric'}
+session.js:414 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1188}
+previews.js:779 Debug: preview capture success {tabId: 'workspace-2', type: 'box', length: 58017, width: 220, height: 220}
+previews.js:817 Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
+previews.js:906 Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"box","version":4,"data":[["Libraryrep1","…null,"xLabel":null,"yLabel":null,"legend":null}}}', width: 220, height: 220, size: 58017, …}
+session.js:1606 Debug: workspace state persisted {tabId: 'workspace-2', type: 'box', hasPayload: true, changed: false, previewChanged: true, …}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:149 Debug: fastClonePayload using structuredClone {type: 'Object'}
+documentState.js:564 [Violation] 'setInterval' handler took 60ms
+session.js:1393 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'box'}

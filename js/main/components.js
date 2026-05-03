@@ -122,21 +122,47 @@
   }
 
   function ensureComponent(name, options = {}) {
+    const component = resolveComponentFromGlobal(name);
+    if (component && !options.forceReload) {
+      try {
+        let ensureResult = null;
+        if (typeof component.ensure === 'function') {
+          ensureResult = component.ensure(options.ensureOptions);
+        } else if (typeof component.init === 'function') {
+          ensureResult = component.init(options.ensureOptions);
+        }
+        if (ensureResult && typeof ensureResult.then === 'function') {
+          return ensureResult.then(() => {
+            console.debug('Debug: ensureComponent resolved async (cached)', { name, ready: !!component.ready });
+            return component;
+          });
+        }
+        console.debug('Debug: ensureComponent resolved synchronously (cached)', { name, ready: !!component.ready });
+        return component;
+      } catch (err) {
+        console.error('ensureComponent error during cached component ensure', {
+          name,
+          message: err?.message || String(err)
+        });
+        return component;
+      }
+    }
+
     return loadComponentBundle(name, options).then(() => {
-      const component = resolveComponentFromGlobal(name);
-      if (!component) {
+      const loadedComponent = resolveComponentFromGlobal(name);
+      if (!loadedComponent) {
         console.debug('Debug: ensureComponent missing global export', { name });
         return null;
       }
       let ensureResult = null;
-      if (typeof component.ensure === 'function') {
-        ensureResult = component.ensure(options.ensureOptions);
-      } else if (typeof component.init === 'function') {
-        ensureResult = component.init(options.ensureOptions);
+      if (typeof loadedComponent.ensure === 'function') {
+        ensureResult = loadedComponent.ensure(options.ensureOptions);
+      } else if (typeof loadedComponent.init === 'function') {
+        ensureResult = loadedComponent.init(options.ensureOptions);
       }
       return Promise.resolve(ensureResult).then(() => {
-        console.debug('Debug: ensureComponent resolved', { name, ready: !!component.ready }); // Debug: ensure completion
-        return component;
+        console.debug('Debug: ensureComponent resolved', { name, ready: !!loadedComponent.ready }); // Debug: ensure completion
+        return loadedComponent;
       });
     }).catch(err => {
       console.error('ensureComponent error', {

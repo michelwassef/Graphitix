@@ -847,7 +847,7 @@
         return false;
       }
       let currentComponentRoot = null;
-      if (typeof component.__getState === 'function') {
+      if (component.ready && typeof component.__getState === 'function') {
         try {
           const componentState = component.__getState();
           currentComponentRoot = componentState?.ui?.root || componentState?.root || null;
