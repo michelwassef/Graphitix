@@ -10114,7 +10114,13 @@
         ]
       };
       if(global.DEBUG_SCATTER) scatterLog('scatter example dataset map', scatterExamples);
-      getScatterNodeById('scatterLoadExample').addEventListener('click',()=>{
+      const scatterLoadExampleBtn = getScatterNodeById('scatterLoadExample');
+      if(!scatterLoadExampleBtn || typeof scatterLoadExampleBtn.addEventListener !== 'function'){
+        console.debug('Debug: scatter load example button missing at setup', {
+          hasButton: !!scatterLoadExampleBtn
+        });
+      }
+      scatterLoadExampleBtn?.addEventListener?.('click',()=>{
         const type=scatterGraphTypeSelect?.value || 'scatter';
         const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
         const viewMode = type==='scatter'
@@ -21662,6 +21668,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       });
     };
     scatter.getPayload = getScatterGraphPayload;
+    {
+      const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+        () => (typeof scatter.__ensureHotForActiveTab === 'function' ? scatter.__ensureHotForActiveTab() : null) || scatterRefs.hot || scatterHot,
+        'scatter'
+      );
+      scatter.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+      scatter.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+    }
     scatter.captureEmptyPayloadTemplate = function captureScatterEmptyPayloadTemplate(){
     const snapshot = scatter.createEmptyPayload();
     console.debug('Debug: scatter empty payload template captured', { hasTemplate: !!snapshot });

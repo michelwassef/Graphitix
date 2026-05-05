@@ -710,7 +710,13 @@
         return false;
       }
       if (!hasRenderCacheValidator) {
-        return false;
+        // No component-specific validator — the basic check (cache present + restore
+        // hook + signature match) is sufficient. Returning false here used to cause
+        // 9 of 11 component types (venn, line, heatmap, surface, pca, pie, hist,
+        // roc, survival) to silently bypass their render cache and re-draw on every
+        // activation, even after a clean reopen. Components that need stricter
+        // validation can opt in by exporting canRestoreRenderCache.
+        return true;
       }
       try {
         const validationResult = config.canRestoreRenderCache(renderCache.cache, {
@@ -1045,6 +1051,15 @@
             restored = false;
           }
           if (!restored && typeof config.draw === 'function') {
+            // Restore failed (cache empty / 3D-without-graph / etc.). The suppressNextScheduleFor
+            // call above would otherwise swallow this fallback draw and leave the tab blank,
+            // so explicitly release the suppression before drawing.
+            if (Shared.componentLayout?.releaseSuppressedSchedulesFor) {
+              Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
+                tabId: tab.id,
+                reason: 'render-cache-restore-reuse-fallback'
+              });
+            }
             try {
               config.draw(drawMeta);
             } catch (err) {
@@ -1200,6 +1215,15 @@
         }
       }
       if (!restored) {
+        // Earlier in this path we may have called suppressNextScheduleFor in anticipation of a
+        // successful restore. If restore did not succeed, release that suppression so the
+        // fallback draw is not silently swallowed (which would leave the tab blank).
+        if (canRestoreRender && Shared.componentLayout?.releaseSuppressedSchedulesFor) {
+          Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
+            tabId: tab.id,
+            reason: 'render-cache-restore-fallback'
+          });
+        }
         try {
           if (typeof config.draw === 'function') {
             config.draw(drawMeta);
@@ -1226,6 +1250,12 @@
         payloadSignature: targetPayloadSignature,
         layoutSignature: targetLayoutSignature
       };
+      // Apply persisted workspace UI state (toolbar sub-page + per-component table
+      // scroll/selection). The session helper isolates each leg behind try/catch so a
+      // flaky component cannot block the rest of the activation path.
+      if (tab.uiState && typeof session?.applyWorkspaceUiState === 'function') {
+        session.applyWorkspaceUiState(tab, { reason: options.reason || 'workspace-view' });
+      }
       console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
     };
 

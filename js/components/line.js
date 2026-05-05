@@ -12799,6 +12799,11 @@
     }
   };
   line.getPayload = getLineGraphPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(() => lineHot, 'line');
+    line.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    line.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   line.captureEmptyPayloadTemplate = function captureLineEmptyPayloadTemplate(){
     const snapshot = line.createEmptyPayload();
     console.debug('Debug: line empty payload template captured', { hasTemplate: !!snapshot });

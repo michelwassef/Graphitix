@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C C:/Users/Michel/Venn log --oneline -5)",
+      "Bash(git -C C:/Users/Michel/Venn status -uno)",
+      "Bash(git -C C:/Users/Michel/Venn show --stat 46efd67)",
+      "Bash(node --check C:/Users/Michel/Venn/js/main/session.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/main/sessionActions.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/main/domControls.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/shared/componentLayout.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/components/scatter.js)",
+      "Bash(npm test *)",
+      "Bash(node --check C:/Users/Michel/Venn/js/shared/graphArchive.js)",
+      "Bash(git stash *)",
+      "Bash(node --check C:/Users/Michel/Venn/js/shared/hot.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/components/box.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/main/components.js)",
+      "Bash(node --check js/components/scatter.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/components/line.js)",
+      "Bash(node --check C:/Users/Michel/Venn/js/components/heatmap.js)",
+      "Bash(unzip -l workspace.graph)",
+      "Read(//tmp/workspace_extract/tabs/Distribution Charts/raw/**)",
+      "Read(//tmp/workspace_extract/tabs/XY Plots #2/raw/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3)",
+      "Read(//tmp/**)",
+      "Bash(grep -nB 2 -A 8 \"writeRecoverySnapshot\" C:/Users/Michel/Venn/js/main/documentState.js)",
+      "Bash(grep -nB 1 -A 5 \"buildWorkspaceArchiveBlob\" C:/Users/Michel/Venn/js/main/sessionActions.js)"
+    ]
+  }
+}

@@ -74,8 +74,8 @@ Optional but already supported:
 
 ### Save
 
-1. `Main.session.persistActiveTabState()` captures active tab payload + layout.
-2. `Main.session.buildSessionPayload()` builds a normalized tab snapshot array.
+1. `Main.sessionActions.warmTabRenderCaches()` activates each cold tab through the normal path so every tab has a populated `tab.renderCache.cache` (or stays cold-skipped if its component bundle isn't ready yet).
+2. `Main.sessionActions.buildScopeSnapshot()` builds the tab snapshot array. Each entry funnels through `Main.session.enrichTabSnapshotForArchive` (clone + `Shared.graphSizing.enrich/merge` for non-box types) and includes payload, layout, preview, archive render cache, and `uiState`.
 3. `Main.sessionActions.saveWorkspaceArchiveWithScope()` routes to `Shared.graphArchive.buildArchiveBlob()`.
 4. `Shared.fileIO.saveGraphFile` / `saveGraphFileAs` persists the archive.
 

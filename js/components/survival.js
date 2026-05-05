@@ -4616,6 +4616,14 @@
     return payload;
   }
   survival.getPayload = getGraphPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      'survival'
+    );
+    survival.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    survival.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
     const snapshot = survival.createEmptyPayload();
     survivalDebug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });

@@ -8094,6 +8094,14 @@
     return payload;
   }
   heatmap.getPayload = getPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      'heatmap'
+    );
+    heatmap.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    heatmap.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   heatmap.captureEmptyPayloadTemplate = function captureHeatmapEmptyPayloadTemplate(){
     const snapshot = heatmap.createEmptyPayload();
     debugLog('Debug: heatmap empty payload template captured', { hasTemplate: !!snapshot });

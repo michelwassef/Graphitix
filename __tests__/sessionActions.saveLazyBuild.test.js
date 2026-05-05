@@ -19,15 +19,6 @@ describe('sessionActions save lazy archive build', () => {
       fastClonePayload: value => (value == null ? value : JSON.parse(JSON.stringify(value))),
       getActiveTab: jest.fn(() => ({ id: 'tab-1', title: 'XY Plots', type: 'scatter' })),
       persistActiveTabState: jest.fn(),
-      buildSessionPayload: jest.fn(() => ({
-        activeIndex: 0,
-        tabs: [{
-          title: 'XY Plots',
-          type: 'scatter',
-          payload: { type: 'scatter', data: [[1, 2, 'A']] },
-          layout: null
-        }]
-      })),
       clearSessionDirty: jest.fn()
     };
     const workspaceState = {
@@ -160,12 +151,12 @@ describe('sessionActions save lazy archive build', () => {
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
   });
 
-  test('captures inactive tab render cache for workspace archive when config supports it', async () => {
+  test('serializes inactive tab render cache from in-memory cache without invoking live capture', async () => {
     const sessionActions = installSessionActions();
     const serializedCache = { plot: { kind: 'scatter' } };
     const capturedCache = { plot: { fragment: document.createDocumentFragment(), count: 1 } };
     const boxSerializedCache = { plot: { kind: 'box' } };
-    const boxCapturedCache = { plot: { fragment: document.createDocumentFragment(), count: 2 } };
+    const boxCachedFragment = { plot: { fragment: document.createDocumentFragment(), count: 2 } };
     let archiveRequest = null;
     window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
       archiveRequest = request;
@@ -197,7 +188,16 @@ describe('sessionActions save lazy archive build', () => {
             type: 'box',
             isWelcome: false,
             payload: { type: 'box', data: [[3, 4, 'B']] },
-            layoutState: null
+            layoutState: null,
+            payloadSignature: 'box-payload-sig',
+            layoutSignature: 'box-layout-sig',
+            renderCache: {
+              cache: boxCachedFragment,
+              tabId: 'tab-2',
+              type: 'box',
+              payloadSignature: 'box-payload-sig',
+              layoutSignature: 'box-layout-sig'
+            }
           }
         ],
         sessionDirty: true,
@@ -214,7 +214,7 @@ describe('sessionActions save lazy archive build', () => {
       if (cache === capturedCache) {
         return serializedCache;
       }
-      if (cache === boxCapturedCache) {
+      if (cache === boxCachedFragment) {
         return boxSerializedCache;
       }
       return null;
@@ -222,7 +222,7 @@ describe('sessionActions save lazy archive build', () => {
     const captureRenderCache = jest.fn(() => capturedCache);
     const restoreRenderCache = jest.fn(() => true);
     const draw = jest.fn();
-    const boxCaptureRenderCache = jest.fn(() => boxCapturedCache);
+    const boxCaptureRenderCache = jest.fn(() => boxCachedFragment);
     const boxRestoreRenderCache = jest.fn(() => true);
     const boxDraw = jest.fn();
     context.workspaces = {
@@ -248,23 +248,109 @@ describe('sessionActions save lazy archive build', () => {
       type: 'scatter',
       reason: 'archive-save-active'
     }));
-    expect(boxCaptureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: 'tab-2',
-      type: 'box',
-      reason: 'archive-save-inactive'
-    }));
-    expect(boxRestoreRenderCache).toHaveBeenCalledWith(
-      boxCapturedCache,
-      expect.objectContaining({
-        tabId: 'tab-2',
-        type: 'box',
-        reason: 'archive-save-inactive-restore',
-        temporaryRestore: true
-      })
-    );
+    expect(boxCaptureRenderCache).not.toHaveBeenCalled();
+    expect(boxRestoreRenderCache).not.toHaveBeenCalled();
+    expect(boxDraw).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toBe(boxSerializedCache);
-    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe(null);
-    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe(null);
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe('box-payload-sig');
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
+  });
+
+  test('buildArchiveTabSnapshot funnels payload/layout through session.enrichTabSnapshotForArchive', async () => {
+    const sessionActions = installSessionActions();
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      const payload = await options.getPayload();
+      expect(payload).toBeInstanceOf(Blob);
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
+    });
+
+    const enrichedPayload = { type: 'scatter', data: [[1, 2, 'A']], __enriched: 'scatter-payload' };
+    const enrichedLayout = { component: 'scatter', __enriched: 'scatter-layout' };
+    const enrichSpy = jest.fn(() => ({ payload: enrichedPayload, layout: enrichedLayout }));
+
+    const context = createContext();
+    context.session.enrichTabSnapshotForArchive = enrichSpy;
+    context.session.getActiveTab.mockReturnValue(context.workspaceState.tabs[0]);
+
+    const result = await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace'
+    });
+
+    expect(result.status).toBe('saved');
+    // The shared enrichment helper should be called once per graph tab.
+    expect(enrichSpy).toHaveBeenCalledWith(
+      context.workspaceState.tabs[0],
+      expect.objectContaining({ contextLabel: 'archive-snapshot' })
+    );
+    // The payload/layout passed to buildArchiveBlob should be the enriched values, not raw clones.
+    expect(archiveRequest?.tabs?.[0]?.payload).toBe(enrichedPayload);
+    expect(archiveRequest?.tabs?.[0]?.layout).toBe(enrichedLayout);
+  });
+
+  test('warmTabRenderCaches calls config.ensure on cold components before any activateTab', async () => {
+    const sessionActions = installSessionActions();
+    const callOrder = [];
+    const scatterEnsure = jest.fn(() => {
+      callOrder.push('scatter-ensure');
+      window.Components = window.Components || {};
+      window.Components.scatter = window.Components.scatter || {};
+      window.Components.scatter.ready = true;
+    });
+    const boxEnsure = jest.fn(() => {
+      callOrder.push('box-ensure');
+      window.Components = window.Components || {};
+      window.Components.box = window.Components.box || {};
+      window.Components.box.ready = true;
+    });
+    const activateTab = jest.fn((tabId) => {
+      callOrder.push(`activate:${tabId}`);
+    });
+
+    window.Components = {};
+
+    const context = createContext({
+      workspaceState: {
+        tabs: [
+          { id: 'tab-1', title: 'A', type: 'scatter', isWelcome: false, payload: { type: 'scatter', data: [] }, layoutState: null },
+          { id: 'tab-2', title: 'B', type: 'box', isWelcome: false, payload: { type: 'box', data: [] }, layoutState: null }
+        ],
+        sessionDirty: false,
+        sessionFileHandle: null,
+        sessionFileScope: null,
+        sessionFileName: ''
+      }
+    });
+    context.session.getActiveTab.mockReturnValue(context.workspaceState.tabs[0]);
+    context.activateTab = activateTab;
+    context.workspaces = {
+      scatter: { ensure: scatterEnsure },
+      box: { ensure: boxEnsure }
+    };
+
+    const result = await sessionActions.warmTabRenderCaches(context, {
+      reason: 'unit-test-warmup',
+      finalTabId: 'tab-1',
+      stepDelayMs: 80
+    });
+
+    // Ensure box was called (scatter is the active/final tab and is skipped from warmup)
+    expect(boxEnsure).toHaveBeenCalledTimes(1);
+    // The order must be: every ensure() comes before any activateTab()
+    const firstActivate = callOrder.findIndex(entry => entry.startsWith('activate:'));
+    const lastEnsure = callOrder.map((e, i) => e.endsWith('-ensure') ? i : -1).filter(i => i >= 0).pop() ?? -1;
+    expect(lastEnsure).toBeLessThan(firstActivate);
+    // tab-2 (box) should have been activated, then the final tab.
+    expect(activateTab).toHaveBeenCalledWith('tab-2', expect.any(Object));
+    expect(activateTab).toHaveBeenCalledWith('tab-1', expect.any(Object));
+    expect(result.warmed).toBe(1);
+    expect(result.skippedColdComponents).toBe(0);
+
+    delete window.Components;
   });
 
   test('handleSessionSaveClick uses Save As flow when there is no existing file handle', async () => {
@@ -355,15 +441,6 @@ describe('sessionActions save lazy archive build', () => {
       Shared: window.Shared,
       session: {
         fastClonePayload: value => (value == null ? value : JSON.parse(JSON.stringify(value))),
-        buildSessionPayload: jest.fn(() => ({
-          activeIndex: 0,
-          tabs: [{
-            title: 'Existing XY',
-            type: 'scatter',
-            payload: { type: 'scatter', data: [[1, 2, 'E']] },
-            layout: null
-          }]
-        })),
         applySessionData,
         markSessionDirty
       },

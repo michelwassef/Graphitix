@@ -474,7 +474,7 @@ describe('domControls default payload cache isolation', () => {
     expect(workspaceState.renderedWorkspaceByType.scatter).toBe('workspace-3');
   });
 
-  test('showWorkspaceForTab refuses live render cache restore without component validator', () => {
+  test('showWorkspaceForTab restores live render cache when no component validator is exported (basic check is sufficient)', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();
 
@@ -543,11 +543,14 @@ describe('domControls default payload cache isolation', () => {
       workspaceState
     });
 
-    expect(config.restoreRenderCache).not.toHaveBeenCalled();
-    expect(session.clearTabRenderCache).not.toHaveBeenCalled();
-    expect(config.loadFromPayload).toHaveBeenCalled();
-    expect(config.applyLayoutState).toHaveBeenCalled();
-    expect(config.draw).toHaveBeenCalled();
+    // Render cache restore IS called even without a component-specific validator. The
+    // basic check (cache present, restore hook present, signatures match, owner-tab
+    // match) is enough; the validator is opt-in for stricter components like box.
+    // The earlier behaviour ("no validator → silently re-draw on every activation")
+    // was the root cause of 9 of 11 component types skipping their cache on every
+    // post-reopen tab switch (see the May 5 incident log).
+    expect(config.restoreRenderCache).toHaveBeenCalled();
+    expect(config.draw).not.toHaveBeenCalled();
   });
 
   test('showWorkspaceForTab rejects render cache owned by another tab', () => {

@@ -16,7 +16,7 @@ Because the module throws immediately, these namespaces have to be loaded in the
 
 | Namespace | Definition | Responsibilities |
 |-----------|------------|------------------|
-| `Main.session` | [`js/main/session.js`](../../js/main/session.js) | Owns the canonical `workspaceState`, exposes helpers such as `getActiveTab`, `createTab`, `buildSessionPayload`, and guards the "dirty" flag. It also coordinates preview invalidation for tabs so the preview overlay stays in sync. |
+| `Main.session` | [`js/main/session.js`](../../js/main/session.js) | Owns the canonical `workspaceState`, exposes helpers such as `getActiveTab`, `createTab`, `applySessionData`, `enrichTabSnapshotForArchive`, the workspace UI-state capture/apply hooks, and guards the "dirty" flag. It also coordinates preview invalidation for tabs so the preview overlay stays in sync. |
 | `Main.previews` | [`js/main/previews.js`](../../js/main/previews.js) | Produces and caches hover previews for workspaces. It surfaces `syncTabPreviewIndicator` that `Main.session` calls after payload updates and exposes rendering hooks consumed by `Main.sessionActions`. |
 | `Main.domControls` | [`js/main/domControls.js`](../../js/main/domControls.js) | Generates cached DOM handles, drives workspace visibility, and applies payload defaults to components during tab switches. |
 | `Main.sessionActions` | [`js/main/sessionActions.js`](../../js/main/sessionActions.js) | Binds DOM events (save, load, duplicate, rename) to `Main.session` helpers and to `Main.previews`/`Main.domControls` utilities. |

@@ -3197,6 +3197,14 @@
     return payload;
   }
   roc.getPayload = getPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      'roc'
+    );
+    roc.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    roc.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   roc.captureEmptyPayloadTemplate = function captureRocEmptyPayloadTemplate(){
     const snapshot = roc.createEmptyPayload();
     console.debug('Debug: roc empty payload template captured', { hasTemplate: !!snapshot });

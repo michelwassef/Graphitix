@@ -3353,6 +3353,14 @@
       return true;
     }
     hist.getPayload = getPayload;
+    {
+      const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+        () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+        'hist'
+      );
+      hist.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+      hist.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+    }
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
     const snapshot = createImmutableHistDefaultPayload();
     histDebug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });

@@ -90,8 +90,20 @@
     if (!tab || tab.isWelcome || !tab.type) {
       return null;
     }
-    const payload = cloneWithSession(session, tab.payload || null);
-    const layout = cloneWithSession(session, tab.layoutState || null);
+    // Funnel through the shared enrichment helper so that the live save path produces the
+    // same payload/layout shape as the legacy buildSessionPayload (including the
+    // graphSizing enrich/merge for non-box types). Falls back to a plain clone if the
+    // session module is mocked in a test that doesn't expose the helper.
+    let payload;
+    let layout;
+    if (typeof session?.enrichTabSnapshotForArchive === 'function') {
+      const enriched = session.enrichTabSnapshotForArchive(tab, { contextLabel: 'archive-snapshot' });
+      payload = enriched?.payload ?? cloneWithSession(session, tab.payload || null);
+      layout = enriched?.layout ?? cloneWithSession(session, tab.layoutState || null);
+    } else {
+      payload = cloneWithSession(session, tab.payload || null);
+      layout = cloneWithSession(session, tab.layoutState || null);
+    }
     let archiveRenderCache = tab.renderCache?.cache
       ? (typeof session?.serializeRenderCacheForArchive === 'function'
           ? session.serializeRenderCacheForArchive(tab.renderCache.cache)
@@ -110,35 +122,28 @@
 
     const activeId = session?.getActiveTab?.()?.id || null;
     const config = workspaces?.[tab.type] || null;
-    if (!archiveRenderCache && config && typeof config.captureRenderCache === 'function') {
-      let captured = null;
-      const captureReason = tab.id === activeId ? 'archive-save-active' : 'archive-save-inactive';
+    // Only fall back to a live captureRenderCache for the active tab. For inactive tabs
+    // the live DOM holds the active tab's content (per-tab DOM instances), so the live
+    // capture would record the wrong fragment. Pre-save warmup is responsible for
+    // populating tab.renderCache.cache on inactive tabs before this point.
+    if (!archiveRenderCache && config && typeof config.captureRenderCache === 'function' && tab.id === activeId) {
       try {
-        captured = config.captureRenderCache({
+        const captured = config.captureRenderCache({
           tabId: tab.id,
           type: tab.type,
-          reason: captureReason
+          reason: 'archive-save-active'
         });
         if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
           archiveRenderCache = session.serializeRenderCacheForArchive(captured);
           archiveRenderCacheSignature = tab.payloadSignature || null;
           archiveRenderCacheLayoutSignature = tab.layoutSignature || null;
         }
-      } catch (err) {
-        console.error('buildArchiveTabSnapshot captureRenderCache error', {
-          tabId: tab.id,
-          type: tab.type,
-          err
-        });
-      }
-      if (captured) {
-        let restored = false;
-        if (typeof config.restoreRenderCache === 'function') {
+        if (captured && typeof config.restoreRenderCache === 'function') {
           try {
-            restored = !!config.restoreRenderCache(captured, {
+            config.restoreRenderCache(captured, {
               tabId: tab.id,
               type: tab.type,
-              reason: `${captureReason}-restore`,
+              reason: 'archive-save-active-restore',
               temporaryRestore: true
             });
           } catch (err) {
@@ -149,17 +154,12 @@
             });
           }
         }
-        if (!restored && typeof config.draw === 'function') {
-          try {
-            config.draw();
-          } catch (err) {
-            console.error('buildArchiveTabSnapshot draw recovery error', {
-              tabId: tab.id,
-              type: tab.type,
-              err
-            });
-          }
-        }
+      } catch (err) {
+        console.error('buildArchiveTabSnapshot captureRenderCache error', {
+          tabId: tab.id,
+          type: tab.type,
+          err
+        });
       }
     }
 
@@ -173,7 +173,10 @@
       previewMeta: cloneWithSession(session, tab.previewMeta || null),
       archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object' ? archiveRenderCache : null,
       archiveRenderCacheSignature: archiveRenderCache ? archiveRenderCacheSignature : null,
-      archiveRenderCacheLayoutSignature: archiveRenderCache ? archiveRenderCacheLayoutSignature : null
+      archiveRenderCacheLayoutSignature: archiveRenderCache ? archiveRenderCacheLayoutSignature : null,
+      uiState: tab.uiState && typeof tab.uiState === 'object'
+        ? cloneWithSession(session, tab.uiState)
+        : null
     };
   }
 
@@ -245,6 +248,233 @@
     return true;
   }
 
+  function awaitDelay(ms) {
+    return new Promise(resolve => {
+      if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+        window.setTimeout(resolve, ms);
+      } else {
+        setTimeout(resolve, ms);
+      }
+    });
+  }
+
+  function tabHasLiveRenderCache(tab) {
+    return !!(tab && tab.renderCache && tab.renderCache.cache);
+  }
+
+  function isComponentReadyForWarmup(type) {
+    if (!type || typeof window === 'undefined') {
+      return false;
+    }
+    const component = window.Components ? window.Components[type] : null;
+    return !!(component && component.ready === true);
+  }
+
+  // Run config.ensure() for each unique tab type so the component bundle is loaded and
+  // its setup() has run against the default (non-per-tab) DOM root before we start the
+  // visible-activation warmup loop. This decouples bundle-load + first-init races (the
+  // class of bug we were avoiding via Option B's cold-component skip) from the rapid
+  // tab-activation cycle. After this returns, every component listed in `types` has
+  // ready === true (or has logged an error and is excluded from the returned set).
+  async function ensureComponentsBeforeWarmup(context, types, options = {}) {
+    const { workspaces } = context || {};
+    if (!workspaces || !Array.isArray(types) || !types.length) {
+      return new Set();
+    }
+    const ready = new Set();
+    const uniqueTypes = Array.from(new Set(types.filter(Boolean)));
+    await Promise.all(uniqueTypes.map(async type => {
+      if (isComponentReadyForWarmup(type)) {
+        ready.add(type);
+        return;
+      }
+      const config = workspaces[type];
+      if (!config || typeof config.ensure !== 'function') {
+        return;
+      }
+      try {
+        const ensureResult = config.ensure();
+        if (ensureResult && typeof ensureResult.then === 'function') {
+          await ensureResult;
+        }
+      } catch (err) {
+        console.error('ensureComponentsBeforeWarmup error', { type, err, reason: options.reason || 'pre-warmup-ensure' });
+        return;
+      }
+      // Re-check readiness after ensure resolved. A few component bundles set
+      // component.ready inside an internal async path; if it's still false, exclude this
+      // type from the warmup so we never call activateTab for a half-constructed bundle.
+      if (isComponentReadyForWarmup(type)) {
+        ready.add(type);
+      } else {
+        console.debug('Debug: ensureComponentsBeforeWarmup component still cold after ensure', {
+          type,
+          reason: options.reason || 'pre-warmup-ensure'
+        });
+      }
+    }));
+    return ready;
+  }
+
+  async function warmTabRenderCaches(context, options = {}) {
+    const { session, workspaceState, withSessionContext, activateTab } = context || {};
+    if (!session || !workspaceState || typeof activateTab !== 'function' || typeof withSessionContext !== 'function') {
+      return { warmed: 0, reason: 'missing-context' };
+    }
+    const reasonBase = options.reason || 'render-cache-warmup';
+    const finalTabId = options.finalTabId
+      || (typeof session.getActiveTab === 'function' ? session.getActiveTab()?.id : null);
+    if (!finalTabId) {
+      return { warmed: 0, reason: 'no-final-tab' };
+    }
+    const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
+    // Phase 1: ensure every component bundle is loaded and its setup() has run, so the
+    // upcoming activation loop never triggers cold setup against a per-tab clone.
+    const candidateTypes = graphTabs
+      .filter(tab => tab.id !== finalTabId && !tabHasLiveRenderCache(tab))
+      .map(tab => tab.type);
+    const readyTypes = await ensureComponentsBeforeWarmup(context, candidateTypes, { reason: reasonBase });
+    const tabsToWarm = [];
+    let skippedColdComponents = 0;
+    for (let i = 0; i < graphTabs.length; i += 1) {
+      const tab = graphTabs[i];
+      if (tab.id === finalTabId || tabHasLiveRenderCache(tab)) {
+        continue;
+      }
+      if (!readyTypes.has(tab.type) && !isComponentReadyForWarmup(tab.type)) {
+        skippedColdComponents += 1;
+        continue;
+      }
+      tabsToWarm.push(tab);
+    }
+    if (!tabsToWarm.length) {
+      return { warmed: 0, reason: 'all-warm', skippedColdComponents };
+    }
+    if (typeof session.setRenderCachePruneSuspended === 'function') {
+      session.setRenderCachePruneSuspended(true);
+    }
+    // Hide the rapid tab activations behind a loading overlay so the user does not see
+    // each tab flash. Resolved lazily so tests that don't expose Shared.loadingOverlay
+    // (or DOM hosts) keep working.
+    const Shared = context?.Shared || (typeof window !== 'undefined' ? window.Shared : null);
+    const overlayHost = (() => {
+      if (!Shared?.loadingOverlay || typeof Shared.loadingOverlay.show !== 'function') {
+        return null;
+      }
+      if (options.overlayHost) {
+        return options.overlayHost;
+      }
+      if (typeof document === 'undefined' || !document.getElementById) {
+        return null;
+      }
+      return document.getElementById('workspacePages') || document.body || null;
+    })();
+    const overlayHandle = overlayHost
+      ? Shared.loadingOverlay.show(overlayHost, {
+          reason: reasonBase,
+          component: 'render-cache-warmup',
+          message: options.overlayMessage || 'Preparing tabs…'
+        })
+      : null;
+    const stepDelayMs = Number.isFinite(options.stepDelayMs) ? Math.max(80, options.stepDelayMs) : 220;
+    let warmed = 0;
+    try {
+      for (let i = 0; i < tabsToWarm.length; i += 1) {
+        const tab = tabsToWarm[i];
+        try {
+          activateTab(tab.id, withSessionContext({
+            reason: `${reasonBase}-step`,
+            silent: true
+          }));
+        } catch (err) {
+          console.error('warmTabRenderCaches activate error', { tabId: tab.id, err });
+          await awaitDelay(stepDelayMs);
+          continue;
+        }
+        await awaitDelay(stepDelayMs);
+        warmed += 1;
+      }
+      try {
+        activateTab(finalTabId, withSessionContext({
+          reason: `${reasonBase}-finish`,
+          silent: true
+        }));
+      } catch (err) {
+        console.error('warmTabRenderCaches final-activate error', { tabId: finalTabId, err });
+      }
+      await awaitDelay(stepDelayMs);
+    } finally {
+      if (typeof session.setRenderCachePruneSuspended === 'function') {
+        session.setRenderCachePruneSuspended(false);
+      }
+      if (overlayHandle && Shared?.loadingOverlay?.hide) {
+        try {
+          Shared.loadingOverlay.hide(overlayHandle, {
+            reason: reasonBase,
+            component: 'render-cache-warmup'
+          });
+        } catch (err) {
+          console.error('warmTabRenderCaches overlay hide error', err);
+        }
+      }
+    }
+    debug(context, 'warmTabRenderCaches.complete', {
+      warmed,
+      tabCount: graphTabs.length,
+      finalTabId,
+      stepDelayMs,
+      skippedColdComponents,
+      overlayUsed: !!overlayHandle
+    });
+    return { warmed, reason: null, skippedColdComponents, overlayUsed: !!overlayHandle };
+  }
+
+  namespace.warmTabRenderCaches = warmTabRenderCaches;
+
+  let pendingPostLoadWarmup = null;
+  function schedulePostLoadWarmup(context, reason) {
+    if (pendingPostLoadWarmup && pendingPostLoadWarmup.cancel) {
+      try { pendingPostLoadWarmup.cancel(); } catch (err) { /* no-op */ }
+    }
+    const session = context?.session;
+    if (!session || typeof session.getActiveTab !== 'function') {
+      return;
+    }
+    let cancelled = false;
+    const startup = () => {
+      if (cancelled) return;
+      pendingPostLoadWarmup = null;
+      // Resolve finalTabId at warmup START, not at schedule time. If the user clicked a
+      // different tab during the 250 ms gap, we honour their navigation by warming around
+      // their new selection — they should never be yanked back to the originally-active
+      // tab after they've moved.
+      const finalTabId = session.getActiveTab()?.id || null;
+      if (!finalTabId) {
+        return;
+      }
+      warmTabRenderCaches(context, {
+        reason,
+        finalTabId
+      }).catch(err => {
+        console.error('schedulePostLoadWarmup error', err);
+      });
+    };
+    let timerId = null;
+    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+      timerId = window.setTimeout(startup, 250);
+    } else {
+      startup();
+    }
+    pendingPostLoadWarmup = {
+      cancel: () => {
+        cancelled = true;
+        if (timerId !== null && typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
+          window.clearTimeout(timerId);
+        }
+      }
+    };
+  }
+
   async function applyParsedSession(context, parsed, meta = {}) {
     if (!canLoadFile(context)) {
       throw new Error('Session load unavailable: missing applySessionData context.');
@@ -292,7 +522,8 @@
           previewMeta: cloneWithSession(session, tab?.previewMeta || null),
           archiveRenderCache: cloneWithSession(session, tab?.archiveRenderCache || null),
           archiveRenderCacheSignature: tab?.archiveRenderCacheSignature || null,
-          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null
+          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null,
+          uiState: cloneWithSession(session, tab?.uiState || null)
         });
       });
       incomingTabs.forEach(tab => {
@@ -306,7 +537,8 @@
           previewMeta: cloneWithSession(session, tab?.previewMeta || null),
           archiveRenderCache: cloneWithSession(session, tab?.archiveRenderCache || null),
           archiveRenderCacheSignature: tab?.archiveRenderCacheSignature || null,
-          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null
+          archiveRenderCacheLayoutSignature: tab?.archiveRenderCacheLayoutSignature || null,
+          uiState: cloneWithSession(session, tab?.uiState || null)
         });
       });
       payloadToApply = {
@@ -348,6 +580,9 @@
       addedTabCount,
       tabCount: payloadToApply.tabs.length
     });
+    if (meta.skipWarmup !== true && payloadToApply.tabs.length > 1) {
+      schedulePostLoadWarmup(context, meta.reason || 'post-load-warmup');
+    }
     return {
       status: 'loaded',
       scope: fileScope,
@@ -387,6 +622,13 @@
 
     const scope = options.scope === 'workspace' ? 'workspace' : 'tab';
     const rememberFile = options.rememberFile !== false;
+    if (scope === 'workspace' && options.skipWarmup !== true) {
+      try {
+        await warmTabRenderCaches(context, { reason: 'pre-save-warmup' });
+      } catch (err) {
+        console.error('saveWorkspaceArchiveWithScope warmup error', err);
+      }
+    }
     const snapshot = buildScopeSnapshot(context, scope, options);
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
       debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });

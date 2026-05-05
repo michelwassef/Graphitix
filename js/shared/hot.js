@@ -15044,6 +15044,109 @@
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;
   hotNS.clearExclusions = clearExclusions;
+  // Capture/apply UI state from a Shared.hot instance — currently the first displayed
+  // row + the last selection range. Used by components' captureUiState/applyUiState
+  // hooks so the workspace round-trip can preserve scroll position and selection.
+  function captureHotUiState(instance){
+    if(!instance){ return null; }
+    const captured = {};
+    const gridApi = instance.gridApi || null;
+    if(gridApi && typeof gridApi.getFirstDisplayedRowIndex === 'function'){
+      try{
+        const firstRow = gridApi.getFirstDisplayedRowIndex();
+        if(Number.isInteger(firstRow) && firstRow >= 0){
+          captured.firstDisplayedRow = firstRow;
+        }
+      }catch(err){
+        console.error('Shared.hot.captureHotUiState getFirstDisplayedRowIndex error', err);
+      }
+    }
+    if(gridApi && typeof gridApi.getVerticalPixelRange === 'function'){
+      try{
+        const range = gridApi.getVerticalPixelRange();
+        if(range && Number.isFinite(range.top)){
+          captured.scrollTopPx = Math.max(0, Math.round(range.top));
+        }
+      }catch(err){
+        // no-op — pixel range is opportunistic; firstDisplayedRow above is the source of truth
+      }
+    }
+    if(typeof instance.getSelectedRangeLast === 'function'){
+      try{
+        const selection = instance.getSelectedRangeLast();
+        if(selection && selection.from && selection.to){
+          captured.selection = {
+            from: { row: Number(selection.from.row), col: Number(selection.from.col) },
+            to: { row: Number(selection.to.row), col: Number(selection.to.col) }
+          };
+        }
+      }catch(err){
+        console.error('Shared.hot.captureHotUiState getSelectedRangeLast error', err);
+      }
+    }
+    return Object.keys(captured).length ? captured : null;
+  }
+
+  function applyHotUiState(instance, state, options = {}){
+    if(!instance || !state || typeof state !== 'object'){ return false; }
+    let appliedAny = false;
+    const gridApi = instance.gridApi || null;
+    const reason = options.reason || 'apply-hot-uiState';
+    if(Number.isInteger(state.firstDisplayedRow) && state.firstDisplayedRow >= 0
+      && gridApi && typeof gridApi.ensureIndexVisible === 'function'){
+      try{
+        gridApi.ensureIndexVisible(state.firstDisplayedRow, 'top');
+        appliedAny = true;
+      }catch(err){
+        console.error('Shared.hot.applyHotUiState ensureIndexVisible error', { reason, err });
+      }
+    }
+    if(state.selection && state.selection.from && state.selection.to
+      && typeof instance.selectCell === 'function'){
+      const from = state.selection.from;
+      const to = state.selection.to;
+      if(Number.isInteger(from.row) && Number.isInteger(from.col)
+        && Number.isInteger(to.row) && Number.isInteger(to.col)){
+        try{
+          instance.selectCell(from.row, from.col, to.row, to.col);
+          appliedAny = true;
+        }catch(err){
+          console.error('Shared.hot.applyHotUiState selectCell error', { reason, err });
+        }
+      }
+    }
+    return appliedAny;
+  }
+
+  // Component-facing factory: every workspace component owns a Shared.hot instance and
+  // exposes the same capture/apply uiState contract. This produces the standard
+  // implementation given a getter for the active hot instance + a label used for log
+  // messages and the apply reason. Components should prefer this over hand-rolling the
+  // captureUiState / applyUiState methods.
+  function makeTableUiStateHooks(getHot, label){
+    const componentLabel = String(label || 'component');
+    return {
+      capture(){
+        const hot = typeof getHot === 'function' ? getHot() : getHot;
+        if(!hot){ return null; }
+        const tableState = captureHotUiState(hot);
+        if(!tableState){ return null; }
+        return { table: tableState };
+      },
+      apply(uiState, meta = {}){
+        if(!uiState || typeof uiState !== 'object' || !uiState.table){ return false; }
+        const hot = typeof getHot === 'function' ? getHot() : getHot;
+        if(!hot){ return false; }
+        return applyHotUiState(hot, uiState.table, {
+          reason: meta.reason || (componentLabel + '-apply-uiState')
+        });
+      }
+    };
+  }
+
+  hotNS.captureHotUiState = captureHotUiState;
+  hotNS.applyHotUiState = applyHotUiState;
+  hotNS.makeTableUiStateHooks = makeTableUiStateHooks;
   hotNS.exportFilters = exportFilters;
   hotNS.applyFilters = applyFilters;
   hotNS.clearFilters = clearFilters;

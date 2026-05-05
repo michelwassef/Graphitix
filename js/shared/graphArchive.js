@@ -815,6 +815,7 @@
         : undefined;
       const hasPreview = typeof tab?.previewMarkup === 'string' && tab.previewMarkup.trim().length > 0;
       const hasArchiveRenderCache = !!(tab?.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
+      const hasUiState = !!(tab?.uiState && typeof tab.uiState === 'object' && Object.keys(tab.uiState).length > 0);
 
       const tabManifest = {
         index,
@@ -831,7 +832,8 @@
           layout: `${folderPath}/layout.json`,
           exclusions: `${folderPath}/raw/exclusions.json`,
           preview: hasPreview ? `${folderPath}/preview.json` : null,
-          renderCache: hasArchiveRenderCache ? `${folderPath}/render-cache.json` : null
+          renderCache: hasArchiveRenderCache ? `${folderPath}/render-cache.json` : null,
+          uiState: hasUiState ? `${folderPath}/ui-state.json` : null
         }
       };
 
@@ -884,6 +886,9 @@
           compression: 'DEFLATE',
           compressionOptions: { level: 1 }
         });
+      }
+      if (hasUiState && tabManifest.files.uiState) {
+        zip.file(tabManifest.files.uiState, JSON.stringify(tab.uiState));
       }
       manifest.tabs.push(tabManifest);
     }
@@ -1055,6 +1060,7 @@
       const layout = await readJsonFileFromZip(zip, files.layout);
       const previewData = files.preview ? await readJsonFileFromZip(zip, files.preview) : null;
       const renderCacheData = files.renderCache ? await readJsonFileFromZip(zip, files.renderCache) : null;
+      const uiStateData = files.uiState ? await readJsonFileFromZip(zip, files.uiState) : null;
       sessionTabs.push({
         title: entry.title || `${DEFAULT_TAB_TITLE} ${i + 1}`,
         type: entry.type || payload?.type || null,
@@ -1065,7 +1071,8 @@
         previewMeta: previewData?.meta && typeof previewData.meta === 'object' ? previewData.meta : null,
         archiveRenderCache: renderCacheData?.cache && typeof renderCacheData.cache === 'object' ? renderCacheData.cache : null,
         archiveRenderCacheSignature: renderCacheData?.payloadSignature || null,
-        archiveRenderCacheLayoutSignature: renderCacheData?.layoutSignature || null
+        archiveRenderCacheLayoutSignature: renderCacheData?.layoutSignature || null,
+        uiState: uiStateData && typeof uiStateData === 'object' ? uiStateData : null
       });
     }
 

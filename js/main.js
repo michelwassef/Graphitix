@@ -130,8 +130,6 @@
   const requiredSessionHelpers = [
     'getActiveTab',
     'persistActiveTabState',
-    'buildSessionPayload',
-    'loadWorkspaceSessionBlob',
     'applySessionData',
     'createTab'
   ];

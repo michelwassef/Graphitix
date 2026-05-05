@@ -3130,6 +3130,14 @@ let state = {
       return payload;
     }
     pie.getPayload = getPayload;
+    {
+      const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+        () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+        'pie'
+      );
+      pie.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+      pie.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+    }
     pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
     const snapshot = pie.createEmptyPayload();
     pieDebug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });

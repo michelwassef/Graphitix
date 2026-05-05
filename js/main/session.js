@@ -74,6 +74,20 @@
   const MAX_WARM_RENDER_CACHES_TOTAL = 6;
   const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
   let renderCacheCaptureSequence = 0;
+  let renderCachePruneSuspendDepth = 0;
+
+  function setRenderCachePruneSuspended(suspended) {
+    if (suspended) {
+      renderCachePruneSuspendDepth += 1;
+    } else if (renderCachePruneSuspendDepth > 0) {
+      renderCachePruneSuspendDepth -= 1;
+    }
+    return renderCachePruneSuspendDepth > 0;
+  }
+
+  function isRenderCachePruneSuspended() {
+    return renderCachePruneSuspendDepth > 0;
+  }
   console.debug('Debug: session workspaceState initialized', { tabCount: workspaceState.tabs.length });
 
   function markSessionDirty(reason, details) {
@@ -1011,6 +1025,13 @@
   }
 
   function pruneWarmRenderCaches(options = {}) {
+    if (renderCachePruneSuspendDepth > 0 && !options.force) {
+      console.debug('Debug: warm render cache prune suspended', {
+        depth: renderCachePruneSuspendDepth,
+        reason: options.reason || 'unspecified'
+      });
+      return 0;
+    }
     const maxTotal = Math.max(0, Number(options.maxTotal ?? MAX_WARM_RENDER_CACHES_TOTAL) || 0);
     const maxPerType = Math.max(0, Number(options.maxPerType ?? MAX_WARM_RENDER_CACHES_PER_TYPE) || 0);
     const preserveIds = normalizePreservedRenderCacheTabIds(options.preserveTabIds);
@@ -1068,6 +1089,31 @@
     if (!tab) {
       console.debug('Debug: assignTabPayload skipped', { reason: 'no-tab', meta });
       return false;
+    }
+    // Defensive guard: never overwrite an existing populated payload with null. This
+    // happens when the recovery-interval autosave fires while a tab's component is
+    // still binding — the component's getPayload() returns null (no live state yet)
+    // and we'd otherwise wipe the loaded-from-disk payload, leaving an empty AG-Grid
+    // and a render cache that can't be re-validated. The correct behaviour is to
+    // treat such calls as no-ops; once the component is fully bound, getPayload()
+    // returns real data and a subsequent recovery-interval call will persist it.
+    if (!payload && tab.payload) {
+      const reason = meta.reason || 'unspecified';
+      // Whitelist of reasons that are explicitly clearing the payload. Everything else
+      // (recovery-interval, archive-save, persist-active, etc.) is treated as an
+      // unintended null read from a tab whose component is still binding.
+      const allowExplicitClear = meta.allowClear === true
+        || reason === 'graph-selection-reset'
+        || reason === 'graph-payload-reset'
+        || reason === 'payload-clear';
+      if (!allowExplicitClear) {
+        console.debug('Debug: assignTabPayload null-overwrite refused', {
+          tabId: tab.id,
+          reason,
+          hadPriorPayload: true
+        });
+        return false;
+      }
     }
     const previousSignature = tab.payloadSignature || null;
     const nextSignature = serializePayloadSignature(payload);
@@ -1199,7 +1245,15 @@
         : serializePayloadSignature(options.layoutState || null),
       sharedState: options.sharedState && typeof options.sharedState === 'object'
         ? options.sharedState
-        : { runtime: {}, resources: {}, styles: {}, metadata: {} }
+        : { runtime: {}, resources: {}, styles: {}, metadata: {} },
+      // uiState carries non-component UI state that the user expects to round-trip across
+      // save/reopen — currently the workspace toolbar's active sub-page selection. Each
+      // field is captured during persistActiveTabState (active tab only) and re-applied
+      // after the tab is re-activated. Missing or null is treated as "use defaults" so
+      // older .graph files load cleanly.
+      uiState: options.uiState && typeof options.uiState === 'object'
+        ? clonePayload(options.uiState)
+        : null
     };
     if (tab.isWelcome) {
       tab.allowClose = false;
@@ -1457,6 +1511,23 @@
       });
       return false;
     }
+    // If the tab has been loaded from disk but its component has never bound to it
+    // (no entry in loadedWorkspaces), getPayload() will read live state that doesn't
+    // match the loaded-from-disk payload — typically returning null/empty because
+    // the component's data structures haven't been hydrated yet. Persisting that
+    // partial state would overwrite the authoritative archive payload. Skip.
+    const isAutosaveLikeReason = options.reason === 'recovery-interval'
+      || options.reason === 'archive-save'
+      || options.reason === 'document-snapshot'
+      || options.reason === 'beforeunload';
+    if (isAutosaveLikeReason && tab.payload && !workspaceState.loadedWorkspaces?.[tab.id]) {
+      console.debug('Debug: persistActiveTabState skipped (tab not bound)', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: options.reason
+      });
+      return false;
+    }
     try {
       const payload = config.getPayload();
       let payloadClone = clonePayload(payload);
@@ -1596,6 +1667,15 @@
           layoutSignature: tab.layoutSignature
         };
       }
+      // Capture workspace UI state for the active tab (toolbar sub-page + per-component
+      // state like table scroll/selection). Inactive tabs aren't mounted, so their state
+      // isn't accessible — they keep whatever uiState they previously had.
+      if (workspaceState.activeTabId === tab.id) {
+        const captured = captureWorkspaceUiState(tab);
+        if (captured) {
+          tab.uiState = captured;
+        }
+      }
       if (changed || layoutChanged) {
         markSessionDirty(options.reason || 'tab-state-updated', {
           tabId: tab.id,
@@ -1619,99 +1699,249 @@
     }
   }
 
-  function buildSessionPayload(options = {}) {
-    const active = options.activeTab || getActiveTab();
-    if (active && !active.isWelcome) {
-      persistActiveTabState(active, options);
-    } else {
-      console.debug('Debug: buildSessionPayload active tab skipped', {
-        hasActive: !!active,
-        isWelcome: !!active?.isWelcome
-      });
+  // Top-level workspace UI-state capture for the active tab. Combines the workspace
+  // toolbar's active sub-page (DOM dataset) with per-component UI state (table scroll,
+  // selection) into a single uiState blob suitable for round-tripping through the
+  // archive. Inactive tabs are not visited — they keep whatever uiState they had.
+  function captureWorkspaceUiState(tab) {
+    if (!tab || tab.isWelcome || !tab.type) {
+      return null;
     }
-    const graphTabs = workspaceState.tabs.filter(tab => !tab.isWelcome && tab.type);
-    const activeGraphIndex = active && !active.isWelcome
-      ? graphTabs.findIndex(tab => tab.id === active.id)
-      : -1;
-    const tabsPayload = graphTabs.map((tab, index) => {
-      let payloadClone = clonePayload(tab.payload);
-      let layoutClone = clonePayload(tab.layoutState);
-      if (tab.type !== 'box' && Shared.graphSizing?.enrichPayloadWithLayout) {
-        try {
-          payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
-            context: `build-session-${tab.type}`
-          });
-        } catch (err) {
-          console.error('buildSessionPayload graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
-        }
-      } else if (tab.type === 'box') {
-        console.debug('Debug: session build graph sizing enrich skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: 'box-layout-state-authoritative'
-        });
-      }
-      if (tab.type !== 'box' && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
-        try {
-          layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
-            context: `build-session-layout-${tab.type}`
-          });
-        } catch (err) {
-          console.error('buildSessionPayload graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
-        }
-      } else if (tab.type === 'box') {
-        console.debug('Debug: session build graph sizing layout merge skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: 'box-layout-state-authoritative'
-        });
-      }
-      console.debug('Debug: session tab snapshot', {
-        tabId: tab.id,
-        type: tab.type,
-        index,
-        hasPayload: !!payloadClone,
-        hasLayout: !!layoutClone
-      });
-      return {
-        title: tab.title,
-        type: tab.type,
-        payload: payloadClone,
-        layout: layoutClone
-      };
-    });
-    const sessionPayload = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      activeIndex: activeGraphIndex,
-      tabs: tabsPayload
-    };
-    console.debug('Debug: session payload built', {
-      tabCount: tabsPayload.length,
-      activeIndex: activeGraphIndex
-    });
-    return sessionPayload;
+    const toolbar = captureWorkspaceToolbarUiState(tab);
+    const componentUi = captureWorkspaceComponentUiState(tab);
+    if (!toolbar && !componentUi) {
+      return null;
+    }
+    const merged = Object.assign({}, tab.uiState || {});
+    if (toolbar) {
+      Object.assign(merged, toolbar);
+    }
+    if (componentUi) {
+      merged.component = Object.assign({}, merged.component || {}, componentUi);
+    }
+    return merged;
   }
 
-  async function loadWorkspaceSessionBlob(blob, options = {}) {
-    if (!blob) {
-      console.warn('loadWorkspaceSessionBlob skipped', { reason: 'no-blob', options });
-      return;
+  // Top-level workspace UI-state apply for the active tab. Restores the toolbar sub-page
+  // and dispatches the per-component state. Each leg is best-effort and isolated by its
+  // own try/catch so a flaky component cannot prevent the rest of the activation path.
+  function applyWorkspaceUiState(tab, options = {}) {
+    if (!tab || !tab.uiState || tab.isWelcome) {
+      return false;
+    }
+    let appliedAny = false;
+    try {
+      if (applyWorkspaceToolbarUiState(tab, options)) {
+        appliedAny = true;
+      }
+    } catch (err) {
+      console.error('applyWorkspaceUiState toolbar error', { tabId: tab.id, type: tab.type, err });
+    }
+    if (tab.uiState.component) {
+      try {
+        if (applyWorkspaceComponentUiState(tab, options)) {
+          appliedAny = true;
+        }
+      } catch (err) {
+        console.error('applyWorkspaceUiState component error', { tabId: tab.id, type: tab.type, err });
+      }
+    }
+    return appliedAny;
+  }
+
+  // Capture per-component UI state via the registry hook (component opts in by exposing
+  // captureUiState on its public API and the registry forwarder). Returns null if the
+  // active tab type doesn't expose the hook or returns nothing meaningful.
+  function captureWorkspaceComponentUiState(tab) {
+    if (!tab || tab.isWelcome || !tab.type) {
+      return null;
+    }
+    const config = window.Main?.components?.registry?.[tab.type] || null;
+    if (!config || typeof config.captureUiState !== 'function') {
+      return null;
     }
     try {
-      const text = await blob.text();
-      const parsed = JSON.parse(text);
-      const tabCount = Array.isArray(parsed?.tabs) ? parsed.tabs.length : 0;
-      console.debug('Debug: session blob parsed', {
-        bytes: text.length,
-        hasTabs: Array.isArray(parsed?.tabs),
-        tabCount,
-        reason: options.reason || 'unknown'
-      });
-      applySessionData(parsed, options);
+      const captured = config.captureUiState({ tabId: tab.id, type: tab.type });
+      if (captured && typeof captured === 'object' && Object.keys(captured).length > 0) {
+        return captured;
+      }
     } catch (err) {
-      console.error('loadWorkspaceSessionBlob error', { err, options });
+      console.error('captureWorkspaceComponentUiState error', { tabId: tab.id, type: tab.type, err });
     }
+    return null;
+  }
+
+  function applyWorkspaceComponentUiState(tab, options = {}) {
+    if (!tab || tab.isWelcome || !tab.type || !tab.uiState || !tab.uiState.component) {
+      return false;
+    }
+    const config = window.Main?.components?.registry?.[tab.type] || null;
+    if (!config || typeof config.applyUiState !== 'function') {
+      return false;
+    }
+    try {
+      return !!config.applyUiState(tab.uiState.component, {
+        tabId: tab.id,
+        type: tab.type,
+        reason: options.reason || 'apply-component-uiState'
+      });
+    } catch (err) {
+      console.error('applyWorkspaceComponentUiState error', { tabId: tab.id, type: tab.type, err });
+      return false;
+    }
+  }
+
+  function captureWorkspaceToolbarUiState(tab) {
+    if (!tab || tab.isWelcome || !tab.type) {
+      return null;
+    }
+    let mountedRoot = null;
+    try {
+      mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || null;
+    } catch (err) {
+      console.error('captureWorkspaceToolbarUiState getMountedRoot error', { tabId: tab.id, type: tab.type, err });
+      mountedRoot = null;
+    }
+    const toolbar = mountedRoot?.querySelector?.('.workspace-toolbar');
+    if (!toolbar || !toolbar.dataset) {
+      return null;
+    }
+    const captured = {};
+    const activeSection = String(toolbar.dataset.toolbarActiveSection || '').trim();
+    const manualSection = String(toolbar.dataset.toolbarManualSection || '').trim();
+    if (activeSection) {
+      captured.toolbarActiveSection = activeSection;
+    }
+    if (manualSection && manualSection !== activeSection) {
+      captured.toolbarManualSection = manualSection;
+    }
+    return Object.keys(captured).length ? captured : null;
+  }
+
+  function applyWorkspaceToolbarUiState(tab, options = {}) {
+    if (!tab || tab.isWelcome || !tab.type || !tab.uiState) {
+      return false;
+    }
+    const desiredSection = String(tab.uiState.toolbarActiveSection || '').trim();
+    if (!desiredSection) {
+      return false;
+    }
+    let mountedRoot = null;
+    try {
+      mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || null;
+    } catch (err) {
+      console.error('applyWorkspaceToolbarUiState getMountedRoot error', { tabId: tab.id, type: tab.type, err });
+      mountedRoot = null;
+    }
+    const toolbar = mountedRoot?.querySelector?.('.workspace-toolbar');
+    if (!toolbar || typeof Shared.workspaceToolbar?.activateSection !== 'function') {
+      // Fall back to direct dataset manipulation if no helper is exported. The toolbar
+      // module's setToolbarActiveSection is internal, but the dataset is the source of
+      // truth read by syncToolbarContextSection on the next interaction.
+      if (toolbar && toolbar.dataset) {
+        toolbar.dataset.toolbarActiveSection = desiredSection;
+        if (tab.uiState.toolbarManualSection) {
+          toolbar.dataset.toolbarManualSection = String(tab.uiState.toolbarManualSection);
+        }
+        // Toggle the visible section/tab classes manually since we have no helper.
+        const sections = toolbar.querySelectorAll('.workspace-toolbar__section[data-toolbar-section-id]');
+        let matched = false;
+        sections.forEach(section => {
+          const isActive = section.dataset.toolbarSectionId === desiredSection;
+          section.classList.toggle('workspace-toolbar__section--active', isActive);
+          section.toggleAttribute('hidden', !isActive);
+          if (isActive) matched = true;
+        });
+        if (matched) {
+          const tabs = toolbar.querySelectorAll('.workspace-toolbar__tab[data-toolbar-section-target]');
+          tabs.forEach(tabEl => {
+            const isActive = tabEl.dataset.toolbarSectionTarget === desiredSection;
+            tabEl.classList.toggle('workspace-toolbar__tab--active', isActive);
+            tabEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            tabEl.tabIndex = isActive ? 0 : -1;
+          });
+          console.debug('Debug: workspace toolbar uiState applied via fallback', {
+            tabId: tab.id,
+            type: tab.type,
+            section: desiredSection,
+            reason: options.reason || 'apply-uiState'
+          });
+          return true;
+        }
+      }
+      return false;
+    }
+    try {
+      Shared.workspaceToolbar.activateSection(toolbar, desiredSection, { manual: true });
+      console.debug('Debug: workspace toolbar uiState applied', {
+        tabId: tab.id,
+        type: tab.type,
+        section: desiredSection,
+        reason: options.reason || 'apply-uiState'
+      });
+      return true;
+    } catch (err) {
+      console.error('applyWorkspaceToolbarUiState error', { tabId: tab.id, type: tab.type, err });
+      return false;
+    }
+  }
+
+  // Single source of truth for the payload+layout cloning + graphSizing enrichment that
+  // every archive-bound tab snapshot must apply. Shared between buildSessionPayload (the
+  // legacy session-level builder) and buildArchiveTabSnapshot (the live save path in
+  // sessionActions.js) so both produce the same payload/layout shape.
+  function enrichTabSnapshotForArchive(tab, options = {}) {
+    if (!tab) {
+      return { payload: null, layout: null };
+    }
+    const contextLabel = String(options.contextLabel || 'archive-snapshot');
+    let payloadClone = clonePayload(tab.payload || null);
+    let layoutClone = clonePayload(tab.layoutState || null);
+    const type = tab.type || (payloadClone && payloadClone.type) || null;
+    const skipBoxEnrich = type === 'box';
+    if (!skipBoxEnrich && Shared.graphSizing?.enrichPayloadWithLayout) {
+      try {
+        payloadClone = Shared.graphSizing.enrichPayloadWithLayout(type, payloadClone, layoutClone, {
+          context: `${contextLabel}-${type || 'unknown'}`
+        });
+      } catch (err) {
+        console.error('enrichTabSnapshotForArchive enrich error', {
+          tabId: tab.id,
+          type,
+          context: contextLabel,
+          err
+        });
+      }
+    } else if (skipBoxEnrich) {
+      console.debug('Debug: enrichTabSnapshotForArchive skipped enrich', {
+        tabId: tab.id,
+        type,
+        reason: 'box-layout-state-authoritative',
+        context: contextLabel
+      });
+    }
+    if (!skipBoxEnrich && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+      try {
+        layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
+          context: `${contextLabel}-layout-${type || 'unknown'}`
+        });
+      } catch (err) {
+        console.error('enrichTabSnapshotForArchive layout merge error', {
+          tabId: tab.id,
+          type,
+          context: contextLabel,
+          err
+        });
+      }
+    } else if (skipBoxEnrich) {
+      console.debug('Debug: enrichTabSnapshotForArchive skipped layout merge', {
+        tabId: tab.id,
+        type,
+        reason: 'box-layout-state-authoritative',
+        context: contextLabel
+      });
+    }
+    return { payload: payloadClone, layout: layoutClone };
   }
 
   function applySessionData(session, options = {}) {
@@ -1775,7 +2005,10 @@
           ? clonePayload(tabData.archiveRenderCache)
           : null,
         archiveRenderCacheSignature: tabData.archiveRenderCacheSignature || null,
-        archiveRenderCacheLayoutSignature: tabData.archiveRenderCacheLayoutSignature || null
+        archiveRenderCacheLayoutSignature: tabData.archiveRenderCacheLayoutSignature || null,
+        uiState: tabData.uiState && typeof tabData.uiState === 'object'
+          ? clonePayload(tabData.uiState)
+          : null
       });
       graphTabs.push(newTab);
       workspaceState.tabs.push(newTab);
@@ -1834,6 +2067,8 @@
   namespace.serializeRenderCacheForArchive = serializeRenderCacheForArchive;
   namespace.markTabAuthoritativeRenderRestore = markTabAuthoritativeRenderRestore;
   namespace.pruneWarmRenderCaches = pruneWarmRenderCaches;
+  namespace.setRenderCachePruneSuspended = setRenderCachePruneSuspended;
+  namespace.isRenderCachePruneSuspended = isRenderCachePruneSuspended;
   namespace.getActiveTab = getActiveTab;
   namespace.generateUniqueTabTitle = generateUniqueTabTitle;
   namespace.createTab = createTab;
@@ -1841,8 +2076,9 @@
   namespace.tabHasTableData = tabHasTableData;
   namespace.graphTabsHaveData = graphTabsHaveData;
   namespace.persistActiveTabState = persistActiveTabState;
-  namespace.buildSessionPayload = buildSessionPayload;
-  namespace.loadWorkspaceSessionBlob = loadWorkspaceSessionBlob;
+  namespace.enrichTabSnapshotForArchive = enrichTabSnapshotForArchive;
+  namespace.captureWorkspaceUiState = captureWorkspaceUiState;
+  namespace.applyWorkspaceUiState = applyWorkspaceUiState;
   namespace.applySessionData = applySessionData;
   console.debug('Debug: Main session module initialized', { exportedHelpers: Object.keys(namespace) });
 })();

@@ -11085,6 +11085,14 @@
       });
     };
     pca.getPayload = getPcaGraphPayload;
+    {
+      const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+        () => (typeof ensurePcaHotForActiveTab === 'function' ? ensurePcaHotForActiveTab() : null) || pcaHotInstance,
+        'pca'
+      );
+      pca.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+      pca.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+    }
     pca.captureEmptyPayloadTemplate = function capturePcaEmptyPayloadTemplate(){
     const snapshot = pca.createEmptyPayload();
     console.debug('Debug: pca empty payload template captured', { hasTemplate: !!snapshot });

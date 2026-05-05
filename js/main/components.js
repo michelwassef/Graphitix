@@ -271,6 +271,8 @@
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.box?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.box?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.box?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('box', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('box', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('box', state, options || {})
@@ -292,6 +294,8 @@
       captureRenderCache: meta => window.Components?.scatter?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.scatter?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.scatter?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.scatter?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.scatter?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('scatter', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('scatter', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('scatter', state, options || {})
@@ -311,6 +315,8 @@
       activateTab: (tab, meta) => window.Components?.pca?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pca?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.pca?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.pca?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.pca?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('pca', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('pca', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pca', state, options || {})
@@ -329,6 +335,8 @@
       activateTab: (tab, meta) => window.Components?.line?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.line?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.line?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.line?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.line?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('line', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('line', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('line', state, options || {})
@@ -347,6 +355,8 @@
       activateTab: (tab, meta) => window.Components?.heatmap?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.heatmap?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.heatmap?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('heatmap', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('heatmap', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
@@ -365,6 +375,8 @@
       activateTab: (tab, meta) => window.Components?.surface?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.surface?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.surface?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.surface?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.surface?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('surface', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('surface', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('surface', state, options || {})
@@ -383,6 +395,8 @@
       activateTab: (tab, meta) => window.Components?.roc?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.roc?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.roc?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.roc?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.roc?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('roc', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('roc', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('roc', state, options || {})
@@ -401,6 +415,8 @@
       activateTab: (tab, meta) => window.Components?.survival?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.survival?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.survival?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.survival?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.survival?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('survival', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('survival', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('survival', state, options || {})
@@ -419,6 +435,8 @@
       activateTab: (tab, meta) => window.Components?.hist?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.hist?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.hist?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.hist?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.hist?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('hist', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('hist', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('hist', state, options || {})
@@ -437,6 +455,8 @@
       activateTab: (tab, meta) => window.Components?.pie?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pie?.captureRenderCache?.(meta),
       restoreRenderCache: (cache, meta) => window.Components?.pie?.restoreRenderCache?.(cache, meta),
+      captureUiState: () => window.Components?.pie?.captureUiState?.() || null,
+      applyUiState: (state, meta) => window.Components?.pie?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('pie', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('pie', options || {}),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})

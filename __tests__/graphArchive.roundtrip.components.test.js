@@ -252,4 +252,107 @@ describe('graphArchive component round-trip', () => {
       expect(actual.layout).toEqual(expected.layout);
     });
   });
+
+  test('uiState round-trips through .graph archives (toolbar active sub-page)', async () => {
+    const graphArchive = window.Shared.graphArchive;
+    const tabs = [
+      {
+        title: 'Box on Format',
+        type: 'box',
+        payload: { type: 'box', data: [['', 'A', 'B'], ['s1', 1, 2]], config: {} },
+        layout: { version: 1, component: 'box' },
+        uiState: { toolbarActiveSection: 'format', toolbarManualSection: 'format' }
+      },
+      {
+        title: 'Scatter on Data',
+        type: 'scatter',
+        payload: { type: 'scatter', data: [['', 'X', 'Y'], ['p1', 1, 2]], config: {} },
+        layout: { version: 1, component: 'scatter' },
+        uiState: { toolbarActiveSection: 'data' }
+      }
+    ];
+    const expectedUiStates = tabs.map(t => clone(t.uiState));
+
+    await graphArchive.buildArchiveBlob({
+      tabs,
+      activeIndex: 0,
+      scope: 'workspace',
+      fileName: 'workspace.graph',
+      payloadMode: 'full',
+      compression: 'STORE'
+    });
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer, {
+      fileName: 'workspace.graph'
+    });
+
+    expect(parsed?.session?.tabs?.length).toBe(2);
+    expect(parsed.session.tabs[0].uiState).toEqual(expectedUiStates[0]);
+    expect(parsed.session.tabs[1].uiState).toEqual(expectedUiStates[1]);
+  });
+
+  test('uiState.component (table scroll + selection) round-trips through .graph archives', async () => {
+    const graphArchive = window.Shared.graphArchive;
+    const tabs = [
+      {
+        title: 'Box with table state',
+        type: 'box',
+        payload: { type: 'box', data: [['', 'A', 'B'], ['s1', 1, 2], ['s2', 3, 4]], config: {} },
+        layout: { version: 1, component: 'box' },
+        uiState: {
+          toolbarActiveSection: 'data',
+          component: {
+            table: {
+              firstDisplayedRow: 47,
+              scrollTopPx: 1280,
+              selection: { from: { row: 5, col: 1 }, to: { row: 8, col: 3 } }
+            }
+          }
+        }
+      }
+    ];
+    const expected = clone(tabs[0].uiState);
+
+    await graphArchive.buildArchiveBlob({
+      tabs,
+      activeIndex: 0,
+      scope: 'workspace',
+      fileName: 'workspace.graph',
+      payloadMode: 'full',
+      compression: 'STORE'
+    });
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer, {
+      fileName: 'workspace.graph'
+    });
+
+    expect(parsed?.session?.tabs?.[0]?.uiState).toEqual(expected);
+  });
+
+  test('uiState absence stays null after a round-trip (back-compat with older archives)', async () => {
+    const graphArchive = window.Shared.graphArchive;
+    const tabs = [
+      {
+        title: 'No UI state',
+        type: 'box',
+        payload: { type: 'box', data: [['', 'A'], ['s1', 1]], config: {} },
+        layout: { version: 1, component: 'box' }
+      }
+    ];
+
+    await graphArchive.buildArchiveBlob({
+      tabs,
+      activeIndex: 0,
+      scope: 'workspace',
+      fileName: 'no-uistate.graph',
+      payloadMode: 'full',
+      compression: 'STORE'
+    });
+
+    const parsed = await graphArchive.parseArchiveBuffer(new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer, {
+      fileName: 'no-uistate.graph'
+    });
+
+    expect(parsed?.session?.tabs?.[0]?.uiState ?? null).toBeNull();
+  });
 });

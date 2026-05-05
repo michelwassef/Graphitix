@@ -49,10 +49,33 @@ Defined in `js/main/session.js`.
   renderCache: object | null,
   renderCacheSignature: string | null,
   renderCacheLayoutSignature: string | null,
+  archiveRenderCache: object | null,
+  archiveRenderCacheSignature: string | null,
+  archiveRenderCacheLayoutSignature: string | null,
   layoutState: object | null,
-  layoutSignature: string | null
+  layoutSignature: string | null,
+  uiState: object | null
 }
 ```
+
+`uiState` carries non-component UI state that the user expects to round-trip across save/reopen but that does not belong in the component payload:
+
+```js
+{
+  toolbarActiveSection: string | undefined,   // 'general' | 'data' | 'format' | …
+  toolbarManualSection: string | undefined,
+  component: {
+    table: {
+      firstDisplayedRow: number | undefined,
+      scrollTopPx:        number | undefined,
+      selection: { from: { row, col }, to: { row, col } } | undefined
+    } | undefined,
+    // future per-component additions go here
+  } | undefined
+}
+```
+
+The toolbar fields are captured/applied by `Main.session.captureWorkspaceToolbarUiState` / `applyWorkspaceToolbarUiState`. The `component` sub-tree is dispatched via the workspace registry (`Main.components.registry[type].captureUiState` / `applyUiState`) — each component reads its `Shared.hot` instance and uses `Shared.hot.captureHotUiState` / `applyHotUiState` for the table sub-state. Missing fields fall back to component defaults so older `.graph` archives still load.
 
 Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates increment `sessionRevision` and emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic or repeatedly snapshot an unchanged dirty session.
 
@@ -68,19 +91,26 @@ Recovery snapshots are eligible only when the workspace has at least one graph t
 
 ## 3. Session Payload Shape (Archive-Level)
 
-`Main.session.buildSessionPayload()` returns:
+`Main.sessionActions.buildScopeSnapshot(context, 'workspace', options)` is the single
+canonical builder. It funnels every tab through `Main.session.enrichTabSnapshotForArchive`
+(clone + `Shared.graphSizing.enrich/merge` for non-box types) and returns:
 
 ```js
 {
-  version: 1,
-  savedAt: string,        // ISO timestamp
   activeIndex: number,    // index in graph tabs only (excludes welcome tab)
   tabs: [
     {
       title: string,
       type: string,
       payload: object | null,
-      layout: object | null
+      layout: object | null,
+      previewMarkup: string | null,
+      previewSignature: string | null,
+      previewMeta: object | null,
+      archiveRenderCache: object | null,
+      archiveRenderCacheSignature: string | null,
+      archiveRenderCacheLayoutSignature: string | null,
+      uiState: object | null
     }
   ]
 }
@@ -166,6 +196,6 @@ When adding/changing persisted fields:
 1. Update `getPayload()` and `loadFromPayload()` in the owning component together.
 2. Ensure `createEmptyPayload()` initializes sensible defaults for missing keys.
 3. Keep payload JSON-serializable (avoid DOM nodes/functions/cyclic refs).
-4. Verify `buildSessionPayload()` and `applySessionData()` still round-trip.
+4. Verify `buildScopeSnapshot()` and `applySessionData()` still round-trip.
 5. Add/update tests for both fresh tab creation and loaded archives.
 6. If schema behavior changes materially, note migration/fallback behavior in component loader logic.

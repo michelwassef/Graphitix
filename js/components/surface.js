@@ -3007,6 +3007,14 @@
   }
 
   surface.getPayload = getPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      'surface'
+    );
+    surface.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    surface.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   surface.captureEmptyPayloadTemplate = function captureSurfaceEmptyPayloadTemplate(){
     const snapshot = surface.createEmptyPayload();
     console.debug('Debug: surface empty payload template captured', { hasTemplate: !!snapshot });

@@ -1041,6 +1041,19 @@
           });
         }
       },
+      releaseSuppressedSchedules(options = {}){
+        const hadDefer = panelState.forceDeferUntil > 0 || panelState.forceSkipSchedules > 0;
+        panelState.forceDeferUntil = 0;
+        panelState.forceDeferReason = null;
+        panelState.forceSkipSchedules = 0;
+        if(hadDefer && isDebugEnabled()){
+          console.debug('Debug: componentLayout schedule suppression released', {
+            component: componentName,
+            reason: options?.reason || 'manual-release'
+          });
+        }
+        return hadDefer;
+      },
       updateSvgBox(node){
         elements.svgBox = node;
         if(!selectors.resizeTarget){
@@ -1151,6 +1164,19 @@
       }
     }
     console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
+    return false;
+  };
+
+  componentLayout.releaseSuppressedSchedulesFor = function releaseSuppressedSchedulesFor(componentName, options = {}){
+    if(!componentName){ return false; }
+    const entry = resolveRegistryEntry(componentName, options);
+    if(entry && typeof entry.releaseSuppressedSchedules === 'function'){
+      try{
+        return !!entry.releaseSuppressedSchedules(options);
+      }catch(err){
+        console.error('Shared.componentLayout.releaseSuppressedSchedulesFor error', { component: componentName, err });
+      }
+    }
     return false;
   };
 

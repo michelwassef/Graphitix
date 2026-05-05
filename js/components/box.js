@@ -32764,6 +32764,14 @@ Technical analysis record (advanced)
     return payload;
   }
   box.getPayload = getPayload;
+  {
+    const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
+      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      'box'
+    );
+    box.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
+    box.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
+  }
   box.captureEmptyPayloadTemplate = function captureBoxEmptyPayloadTemplate(){
     const snapshot = box.createEmptyPayload();
     console.debug('Debug: box empty payload template captured', { hasTemplate: !!snapshot });
