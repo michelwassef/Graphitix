@@ -16,6 +16,195 @@
   };
   hotNS.resolveActiveTabId = resolveActiveTabId;
 
+  const resolveActiveSessionAndTab = () => {
+    try {
+      const session = global.Main?.session || null;
+      const tab = session?.getActiveTab?.() || null;
+      return { session, tab };
+    } catch (err) {
+      return { session: null, tab: null };
+    }
+  };
+
+  const markActiveTabUserModified = (reason, meta = {}) => {
+    try {
+      const { session, tab } = resolveActiveSessionAndTab();
+      if (!tab || typeof session?.markTabUserModified !== 'function') {
+        return false;
+      }
+      return session.markTabUserModified(tab, reason || 'table-edit', {
+        origin: 'user',
+        affectsPayload: meta.affectsPayload !== false,
+        source: meta.source || null
+      });
+    } catch (err) {
+      console.error('Shared.hot mark active tab modified error', err);
+      return false;
+    }
+  };
+
+  const resolveComponentForTab = tab => {
+    const type = String(tab?.type || '').trim();
+    const registryComponent = type ? global.Main?.components?.registry?.[type] : null;
+    const namespaceComponent = type ? global.Components?.[type] : null;
+    if (registryComponent && namespaceComponent) {
+      return { ...registryComponent, ...namespaceComponent };
+    }
+    return registryComponent || namespaceComponent || null;
+  };
+
+  const createPayloadForActiveTab = tab => {
+    const type = String(tab?.type || '').trim();
+    const component = resolveComponentForTab(tab);
+    if (typeof component?.createEmptyPayload === 'function') {
+      try {
+        const payload = component.createEmptyPayload();
+        if (payload && typeof payload === 'object') {
+          return payload;
+        }
+      } catch (err) {
+        console.error('Shared.hot create empty payload for direct update failed', { type, err });
+      }
+    }
+    return type ? { type, data: [] } : { data: [] };
+  };
+
+  const captureAttachedDataViewsPayload = hotInstance => {
+    if (!hotInstance || typeof hotInstance !== 'object') {
+      return { checked: false, payload: null };
+    }
+    const keys = Object.keys(hotInstance);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (!/DataViewsManager$/.test(key) && key !== '__dataViewsManager') {
+        continue;
+      }
+      const manager = hotInstance[key];
+      if (!manager || typeof manager.serialize !== 'function') {
+        continue;
+      }
+      try {
+        const payload = manager.serialize({ includeData: true }) || null;
+        return { checked: true, payload };
+      } catch (err) {
+        console.error('Shared.hot data views payload capture failed', { key, err });
+        return { checked: true, payload: null };
+      }
+    }
+    return { checked: false, payload: null };
+  };
+
+  const payloadDataMatchesChanges = (payload, changes) => {
+    if (!payload || !Array.isArray(payload.data) || !Array.isArray(changes)) {
+      return false;
+    }
+    return changes.every(change => {
+      const row = payload.data[change.row];
+      return Array.isArray(row) && row[change.col] === change.value;
+    });
+  };
+
+  const syncActiveTabPayloadDataChanges = (changes, reason, meta = {}) => {
+    const normalizedChanges = Array.isArray(changes)
+      ? changes.filter(change => change
+          && Number.isInteger(change.row)
+          && Number.isInteger(change.col)
+          && change.row >= 0
+          && change.col >= 0)
+      : [];
+    if (!normalizedChanges.length) {
+      return false;
+    }
+    const { session, tab } = resolveActiveSessionAndTab();
+    if (!tab || !tab.type) {
+      return false;
+    }
+    if (typeof session?.updateTabPayload !== 'function') {
+      return markActiveTabUserModified(reason || 'table-data-change', {
+        source: meta.source || null,
+        affectsPayload: true
+      });
+    }
+    const updated = session.updateTabPayload(tab, draft => {
+      const nextPayload = draft && typeof draft === 'object'
+        ? draft
+        : createPayloadForActiveTab(tab);
+      const component = resolveComponentForTab(tab);
+      if (typeof component?.applyTablePayloadChanges === 'function') {
+        try {
+          const result = component.applyTablePayloadChanges(nextPayload, normalizedChanges, {
+            tab,
+            reason: reason || 'table-data-change',
+            hotInstance: meta.hotInstance || null,
+            source: meta.source || null
+          });
+          if (result && typeof result === 'object') {
+            return result;
+          }
+        } catch (err) {
+          console.error('Shared.hot component table payload hook failed', {
+            type: tab.type || null,
+            reason: reason || 'table-data-change',
+            err
+          });
+        }
+      }
+      if (!Array.isArray(nextPayload.data)) {
+        nextPayload.data = [];
+      }
+      let maxCol = 0;
+      normalizedChanges.forEach(change => {
+        maxCol = Math.max(maxCol, change.col);
+      });
+      normalizedChanges.forEach(change => {
+        while (nextPayload.data.length <= change.row) {
+          nextPayload.data.push([]);
+        }
+        let row = Array.isArray(nextPayload.data[change.row])
+          ? nextPayload.data[change.row]
+          : [];
+        if (nextPayload.data[change.row] !== row) {
+          nextPayload.data[change.row] = row;
+        }
+        while (row.length <= maxCol) {
+          row.push('');
+        }
+        row[change.col] = change.value;
+      });
+      const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
+      if (dataViewsCapture.checked) {
+        const dataViewsPayload = dataViewsCapture.payload;
+        const includeDataViews = !!(dataViewsPayload
+          && Array.isArray(dataViewsPayload.views)
+          && dataViewsPayload.views.length > 1);
+        if (includeDataViews) {
+          nextPayload.dataViews = dataViewsPayload;
+          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
+        } else {
+          delete nextPayload.dataViews;
+          delete nextPayload.activeDataViewId;
+        }
+      }
+      return nextPayload;
+    }, {
+      reason: reason || 'table-data-change',
+      origin: 'user'
+    });
+    if (!updated) {
+      if (payloadDataMatchesChanges(tab.payload, normalizedChanges)) {
+        return markActiveTabUserModified(reason || 'table-data-change', {
+          source: meta.source || null,
+          affectsPayload: false
+        });
+      }
+      return markActiveTabUserModified(reason || 'table-data-change', {
+        source: meta.source || null,
+        affectsPayload: true
+      });
+    }
+    return true;
+  };
+
   const EXCLUSION_SCOPES = Object.freeze({
     CELL: 'cell',
     ROW: 'row',
@@ -9051,6 +9240,7 @@
           const prevCols = colCount;
           ensureDims(data, Math.max(maxPhysicalRow + 1, rowCount), Math.max(maxPhysicalCol + 1, colCount));
           const changesForHook = [];
+          const payloadChanges = [];
           for(let i = 0; i < entries.length; i++){
             const entry = entries[i];
             if(!Array.isArray(entry) || entry.length < 3){
@@ -9074,6 +9264,7 @@
             }
             data[physicalRow][physicalCol] = next;
             changesForHook.push([r, c, prev, next]);
+            payloadChanges.push({ row: physicalRow, col: physicalCol, value: next });
           }
           if(!changesForHook.length){
             return;
@@ -9091,6 +9282,10 @@
           refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
           captureLockedMutationChanges(changesForHook);
           recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
+          syncActiveTabPayloadDataChanges(payloadChanges, 'table-data-change', {
+            source: changeSource,
+            hotInstance: instance
+          });
           fireHook('afterChange', changesForHook, changeSource);
           triggerSchedule('afterChange', { source: changeSource });
           renderAg(instance.gridApi);
@@ -9127,6 +9322,10 @@
         refreshColumnFiltersForDataMutation('set-data-at-cell:single');
         captureLockedMutationChanges([[r, c, prev, value]]);
         recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
+        syncActiveTabPayloadDataChanges([{ row: physicalRow, col: physicalCol, value }], 'table-data-change', {
+          source: changeSource,
+          hotInstance: instance
+        });
         fireHook('afterChange', [[r, c, prev, value]], changeSource);
         triggerSchedule('afterChange', { source: changeSource });
         renderAg(instance.gridApi);
@@ -11450,6 +11649,10 @@
         if(formulaEvaluationState.enabled && !synchronized){
           markFormulaModelDirty('ag-cell-value-changed');
         }
+        syncActiveTabPayloadDataChanges([{ row: physicalRow, col: colIndex, value: normalizedNewValue }], 'table-cell-edit', {
+          source: event.source || 'edit',
+          hotInstance: instance
+        });
         if(undoLockDepth === 0){
           const physicalCol = colIndex;
           if(Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0){

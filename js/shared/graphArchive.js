@@ -22,6 +22,23 @@
   ]);
   let zipLoaderPromise = null;
 
+  function ensureArchiveSchema() {
+    if (Shared.graphArchiveSchema) {
+      return Shared.graphArchiveSchema;
+    }
+    if (typeof require === 'function') {
+      try {
+        require('./graphArchiveSchema.js');
+      } catch (err) {
+        debugLog('schema.requireFailed', { error: err?.message || String(err) });
+      }
+    }
+    if (!Shared.graphArchiveSchema) {
+      throw new Error('Shared.graphArchiveSchema is unavailable.');
+    }
+    return Shared.graphArchiveSchema;
+  }
+
   function isDebugEnabled() {
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
   }
@@ -578,28 +595,7 @@
   }
 
   function buildArchiveReadme(manifest) {
-    const lines = [
-      'Graph Archive (.graph)',
-      '======================',
-      '',
-      'This .graph file is a ZIP archive designed for transparent scientific workflows.',
-      '',
-      'Contents:',
-      '- manifest.json: archive index (version, tabs, active tab).',
-      '- tabs/<Tab Name>/raw/data.csv: raw tabular input.',
-      '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
-      '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
-      '- tabs/<Tab Name>/layout.json: panel/layout state.',
-      '- tabs/<Tab Name>/preview.json: cached tab preview markup (when available).',
-      '- tabs/<Tab Name>/render-cache.json: serialized one-shot render snapshot for redraw-free restore (when available).',
-      '',
-      `Archive format: ${manifest.format}`,
-      `Archive version: ${manifest.version}`,
-      `Scope: ${manifest.scope || 'unknown'}`,
-      `Saved at: ${manifest.createdAt}`,
-      `Tab count: ${manifest.tabCount}`
-    ];
-    return lines.join('\r\n');
+    return ensureArchiveSchema().buildArchiveReadme(manifest);
   }
 
   async function readJsonFileFromZip(zip, path) {
@@ -817,6 +813,11 @@
       const hasArchiveRenderCache = !!(tab?.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
       const hasUiState = !!(tab?.uiState && typeof tab.uiState === 'object' && Object.keys(tab.uiState).length > 0);
 
+      const tabFiles = ensureArchiveSchema().buildTabFileMap(folderPath, {
+        preview: hasPreview,
+        renderCache: hasArchiveRenderCache,
+        uiState: hasUiState
+      });
       const tabManifest = {
         index,
         title: tabTitle,
@@ -824,17 +825,7 @@
         folder: folderPath,
         rawDataMode: rawData.mode,
         payloadMode,
-        files: {
-          tab: `${folderPath}/tab.json`,
-          payload: `${folderPath}/payload.json`,
-          rawCsv: `${folderPath}/raw/data.csv`,
-          config: `${folderPath}/graph-config.json`,
-          layout: `${folderPath}/layout.json`,
-          exclusions: `${folderPath}/raw/exclusions.json`,
-          preview: hasPreview ? `${folderPath}/preview.json` : null,
-          renderCache: hasArchiveRenderCache ? `${folderPath}/render-cache.json` : null,
-          uiState: hasUiState ? `${folderPath}/ui-state.json` : null
-        }
+        files: tabFiles
       };
 
       zip.file(tabManifest.files.tab, JSON.stringify({

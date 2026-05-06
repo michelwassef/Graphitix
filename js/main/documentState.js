@@ -64,7 +64,7 @@
     const inFlight = revision > 0
       ? recoveryInFlightRevision === revision
       : recoveryInFlightRevision < 0;
-    return !!state?.workspaceState?.sessionDirty
+    return !!state?.workspaceState?.sessionUserDirty
       && !isRecoverySnapshotCurrent()
       && !inFlight;
   }
@@ -231,7 +231,7 @@
     }
     const workspaceState = state.workspaceState || {};
     const fileName = getDisplayName();
-    const dirty = !!workspaceState.sessionDirty;
+    const dirty = !!workspaceState.sessionUserDirty;
     const display = `${fileName}${dirty ? ' *' : ''}`;
     const titleDisplay = savedTitleMessage || display;
     const titleEls = Array.from(document.querySelectorAll('[data-document-title="1"]'));
@@ -297,7 +297,7 @@
         savedAt: new Date().toISOString(),
         updatedAt: Date.now(),
         reason,
-        dirty: !!workspaceState.sessionDirty,
+        dirty: !!workspaceState.sessionUserDirty,
         hasData,
         tabCount: graphTabs.length,
         fileName: workspaceState.sessionFileName || '',
@@ -308,7 +308,7 @@
   }
 
   async function writeRecoverySnapshot(reason = 'recovery') {
-    if (!state?.workspaceState?.sessionDirty) {
+    if (!state?.workspaceState?.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
     const revision = getSessionRevision();
@@ -458,7 +458,8 @@
       state.workspaceState.sessionFileScope = record.meta.fileScope || 'workspace';
       state.session.markSessionDirty('recovery-restored', {
         fileName: state.workspaceState.sessionFileName,
-        recoveredAt: record.meta.savedAt || null
+        recoveredAt: record.meta.savedAt || null,
+        origin: 'user'
       });
     } finally {
       state.restoringRecovery = false;
@@ -472,7 +473,7 @@
     if (!state?.autosaveEnabled) {
       return { status: 'skipped', reason: 'disabled' };
     }
-    if (!state.workspaceState?.sessionDirty) {
+    if (!state.workspaceState?.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
     const revision = getSessionRevision();
@@ -552,7 +553,7 @@
         showSavedTitleMessage(event.detail || {});
       }
       syncTitle({ reason: type });
-      if (state.workspaceState?.sessionDirty) {
+      if (state.workspaceState?.sessionUserDirty) {
         scheduleRecoverySnapshot(type);
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {
         lastRecoverySavedRevision = getSessionRevision();

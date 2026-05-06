@@ -80,7 +80,7 @@
       workspaceState.renameFocusId = null;
       renderTabs();
       if (tab.title !== previousTitle) {
-        session.markSessionDirty('tab-renamed', { tabId, previousTitle, nextTitle: tab.title });
+        session.markSessionDirty('tab-renamed', { tabId, previousTitle, nextTitle: tab.title, origin: 'user' });
       }
       console.debug('Debug: tab rename committed', { tabId, title: tab.title, trigger: meta.reason || 'unknown' });
     }

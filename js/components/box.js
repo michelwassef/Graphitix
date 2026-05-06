@@ -19923,8 +19923,10 @@
         return;
       }
       const sess=(window && window.Main && window.Main.session) ? window.Main.session : null;
-      if(sess && typeof sess.persistActiveTabState === 'function'){
-        sess.persistActiveTabState(undefined,{ reason: reason || 'stats-ui-change' });
+      if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+        sess.persistUserModifiedTabState(undefined, { reason: reason || 'stats-ui-change' });
+      }else if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined,{ reason: reason || 'stats-ui-change', origin: 'user' });
       }
     }catch(err){
       console.debug('Debug: box persistStatsUiState failed',{ reason: reason || 'stats-ui-change', message: err?.message || String(err) });
@@ -21926,8 +21928,10 @@
         return;
       }
       const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
-      if(sess && typeof sess.persistActiveTabState === 'function'){
-        sess.persistActiveTabState(undefined, { reason: reason || 'stats-controls-change' });
+      if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+        sess.persistUserModifiedTabState(undefined, { reason: reason || 'stats-controls-change' });
+      }else if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined, { reason: reason || 'stats-controls-change', origin: 'user' });
       }
     }catch(e){
       console.debug('Debug: persistTabState failed', { err: e?.message || String(e) });
@@ -25066,8 +25070,10 @@ Technical analysis record (advanced)
       try{
         if(stillCurrent && state.statsLastRunVersion === context.version && !autoSvgReapply){
           const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
-          if(sess && typeof sess.persistActiveTabState === 'function'){
-            sess.persistActiveTabState(undefined, { reason: 'stats-computed' });
+          if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+            sess.persistUserModifiedTabState(undefined, { reason: 'stats-computed' });
+          }else if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: 'stats-computed', origin: 'user' });
           }
         }
       }catch(e){

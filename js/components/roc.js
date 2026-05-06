@@ -554,8 +554,10 @@
   function persistRocTabState(reason){
     try{
       const sess = window.Main?.session;
-      if(sess && typeof sess.persistActiveTabState === 'function'){
-        sess.persistActiveTabState(undefined, { reason: reason || 'roc-stats-change' });
+      if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+        sess.persistUserModifiedTabState(undefined, { reason: reason || 'roc-stats-change' });
+      }else if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined, { reason: reason || 'roc-stats-change', origin: 'user' });
       }
     }catch(err){
       console.debug('Debug: persistRocTabState failed', { err: err?.message || String(err) });

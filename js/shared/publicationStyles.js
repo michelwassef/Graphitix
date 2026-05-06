@@ -735,7 +735,7 @@
     try{
       try{
         if(typeof session.persistActiveTabState === 'function'){
-          session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}` });
+          session.persistActiveTabState(tab, { reason: `publication-style-pre-${type}`, origin: 'lifecycle' });
         }
       }catch(err){
         console.error('publicationStyles pre-persist error', { type, err });
@@ -762,7 +762,12 @@
       }
 
       // Persist payload and redraw.
-      if(typeof session.assignTabPayload === 'function'){
+      if(typeof session.updateTabPayload === 'function'){
+        session.updateTabPayload(tab, () => cloneValue(nextPayload), {
+          reason: `publication-style-${type}`,
+          origin: 'user'
+        });
+      }else if(typeof session.assignTabPayload === 'function'){
         session.assignTabPayload(tab, cloneValue(nextPayload), { reason: `publication-style-${type}` });
       }else{
         tab.payload = cloneValue(nextPayload);
@@ -807,14 +812,14 @@
 
       try{
         if(typeof session.persistActiveTabState === 'function'){
-          session.persistActiveTabState(tab, { reason: `publication-style-post-${type}`, forcePreviewCapture: true });
+          session.persistActiveTabState(tab, { reason: `publication-style-post-${type}`, forcePreviewCapture: true, origin: 'lifecycle' });
         }
       }catch(err){
         console.error('publicationStyles post-persist error', { type, err });
       }
 
-      if(typeof session.markSessionDirty === 'function'){
-        session.markSessionDirty('publication-style-applied', { type, tabId: tab.id, preset: presetId });
+      if(typeof session.updateTabPayload !== 'function' && typeof session.markSessionDirty === 'function'){
+        session.markSessionDirty('publication-style-applied', { type, tabId: tab.id, preset: presetId, origin: 'user' });
       }
 
       applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {

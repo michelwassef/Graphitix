@@ -76,7 +76,7 @@
         if (workspaceState.activeTabId !== tab.id) {
           const currentActive = getActiveTab();
           if (currentActive && currentActive.id !== tab.id) {
-            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'unsaved-switch' }));
+            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'unsaved-switch', origin: 'lifecycle' }));
           }
           console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
           activateTab(tab.id, { reason: 'unsaved-save' });
@@ -102,7 +102,7 @@
           showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
           return;
         }
-        session.persistActiveTabState(tab, withSessionContext({ reason: 'unsaved-save' }));
+        session.persistActiveTabState(tab, withSessionContext({ reason: 'unsaved-save', origin: 'lifecycle' }));
         workspaceState.pendingClosePrompt = null;
         console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });
         closeTab(tab.id, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-save' });

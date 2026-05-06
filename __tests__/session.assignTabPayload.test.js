@@ -85,4 +85,159 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(changed).toBe(true);
     expect(tab.payload.data).toEqual([['A'], [42]]);
   });
+
+  test('archive save keeps a clean loaded tab authoritative without reading live component state', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.activeTabId = tab.id;
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({ type: 'box', data: [['corrupt-live']], config: {} }))
+        }
+      }
+    };
+
+    const changed = session.persistActiveTabState(tab, { reason: 'archive-save' });
+
+    expect(changed).toBe(false);
+    expect(window.Main.components.registry.box.getPayload).not.toHaveBeenCalled();
+    expect(tab.payload.data).toEqual([['Lib1', 'Lib2'], [180, 109], [337, 204]]);
+  });
+
+  test('dirty loaded tab flushes live payload once, then clears payloadDirty', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = true;
+    tab.payloadDirty = true;
+    session.workspaceState.activeTabId = tab.id;
+    session.workspaceState.loadedWorkspaces[tab.id] = {
+      tabId: tab.id,
+      type: tab.type,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature
+    };
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({ type: 'box', data: [['A'], [42]], config: {} }))
+        }
+      }
+    };
+
+    const changed = session.persistActiveTabState(tab, { reason: 'archive-save' });
+
+    expect(changed).toBe(true);
+    expect(window.Main.components.registry.box.getPayload).toHaveBeenCalledTimes(1);
+    expect(tab.payload.data).toEqual([['A'], [42]]);
+    expect(tab.payloadDirty).toBe(false);
+    expect(tab.userModified).toBe(true);
+  });
+
+  test('lifecycle dirty reasons do not create user-dirty session state', () => {
+    const tab = createTabWithPayload();
+    tab.userModified = false;
+    tab.payloadDirty = false;
+
+    session.markSessionDirty('activate-switch', { tabId: tab.id, origin: 'lifecycle' });
+
+    expect(session.workspaceState.sessionDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(false);
+    expect(tab.userModified).toBe(false);
+    expect(tab.payloadDirty).toBe(false);
+  });
+
+  test('lifecycle-like reason without explicit origin is treated as user dirty', () => {
+    const tab = createTabWithPayload();
+    tab.userModified = false;
+    tab.payloadDirty = false;
+
+    session.markSessionDirty('archive-save', { tabId: tab.id });
+
+    expect(session.workspaceState.sessionDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+  });
+
+  test('persistActiveTabState lifecycle origin can flush state without user-dirty', () => {
+    const tab = createTabWithPayload();
+    tab.userModified = false;
+    tab.payloadDirty = true;
+    session.workspaceState.activeTabId = tab.id;
+    session.workspaceState.loadedWorkspaces[tab.id] = {
+      tabId: tab.id,
+      type: tab.type,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature
+    };
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({ type: 'box', data: [['lifecycle-flush']], config: {} }))
+        }
+      }
+    };
+
+    const changed = session.persistActiveTabState(tab, { reason: 'archive-save', origin: 'lifecycle' });
+
+    expect(changed).toBe(true);
+    expect(tab.payload.data).toEqual([['lifecycle-flush']]);
+    expect(tab.userModified).toBe(false);
+    expect(tab.payloadDirty).toBe(false);
+    expect(session.workspaceState.sessionDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(false);
+  });
+
+  test('user modifications set user-dirty session and payload flags', () => {
+    const tab = createTabWithPayload();
+
+    const marked = session.markTabUserModified(tab, 'table-cell-edit', { origin: 'user' });
+
+    expect(marked).toBe(true);
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(true);
+    expect(tab.payloadDirtyReason).toBe('table-cell-edit');
+    expect(session.workspaceState.sessionDirty).toBe(true);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+  });
+
+  test('clearSessionDirty clears both session and per-tab user dirty state', () => {
+    const tab = createTabWithPayload();
+    session.markTabUserModified(tab, 'table-cell-edit', { origin: 'user' });
+
+    session.clearSessionDirty('graph-save-success');
+
+    expect(session.workspaceState.sessionDirty).toBe(false);
+    expect(session.workspaceState.sessionUserDirty).toBe(false);
+    expect(tab.userModified).toBe(false);
+    expect(tab.payloadDirty).toBe(false);
+  });
+
+  test('persistUserModifiedTabState marks user dirty and flushes mounted payload state', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    session.workspaceState.loadedWorkspaces[tab.id] = {
+      tabId: tab.id,
+      type: tab.type,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature
+    };
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => ({ type: 'box', data: [['flushed']], config: {} }))
+        }
+      }
+    };
+
+    const changed = session.persistUserModifiedTabState(tab, { reason: 'stats-controls-change' });
+
+    expect(changed).toBe(true);
+    expect(window.Main.components.registry.box.getPayload).toHaveBeenCalledTimes(1);
+    expect(tab.payload.data).toEqual([['flushed']]);
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(false);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+  });
 });

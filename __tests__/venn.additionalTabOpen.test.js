@@ -144,6 +144,28 @@ describe('Venn additional tab opening', () => {
     expect(venn.__getState().ui.inputs.A.value).toContain('BRCA1');
   });
 
+  test('venn control edits update the authoritative payload immediately', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+
+    const venn = window.Components?.venn;
+    const vennTab = Main.tabs.getActiveTab();
+    expect(venn).toBeTruthy();
+    expect(vennTab?.type).toBe('venn');
+
+    Main.session.clearSessionDirty('test-clean-venn-control');
+    const state = venn.__getState();
+    state.ui.inputs.A.value = 'BRCA1\nATM';
+    state.ui.inputs.A.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    expect(Main.session.workspaceState.sessionUserDirty).toBe(true);
+    expect(vennTab.userModified).toBe(true);
+    expect(vennTab.payloadDirty).toBe(false);
+    expect(vennTab.payload?.data?.listA).toContain('BRCA1');
+    expect(Array.isArray(vennTab.payload?.data)).toBe(false);
+  });
+
   test('new venn tabs do not inherit border width from an existing venn tab', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'venn');

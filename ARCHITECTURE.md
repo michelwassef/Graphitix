@@ -40,7 +40,7 @@ Primary state lives in `js/main/session.js`:
 - `Main.session.workspaceState`
   - tab list, active tab id
   - duplication/close prompt metadata
-  - session dirty flag
+  - session dirty flags (`sessionDirty` for any state transition, `sessionUserDirty` for unsaved user-originated changes; lifecycle captures must pass `origin: 'lifecycle'`)
   - file handle/name/scope for `.graph`
   - drag-and-drop transient state
 
@@ -75,7 +75,7 @@ Optional but already supported:
 ### Save
 
 1. `Main.sessionActions.warmTabRenderCaches()` activates each cold tab through the normal path so every tab has a populated `tab.renderCache.cache` (or stays cold-skipped if its component bundle isn't ready yet).
-2. `Main.sessionActions.buildScopeSnapshot()` builds the tab snapshot array. Each entry funnels through `Main.session.enrichTabSnapshotForArchive` (clone + `Shared.graphSizing.enrich/merge` for non-box types) and includes payload, layout, preview, archive render cache, and `uiState`.
+2. `Main.sessionActions.buildScopeSnapshot()` builds the tab snapshot array. Clean loaded tabs keep `tab.payload` authoritative; dirty mounted tabs flush live component state first. Each entry funnels through `Main.session.enrichTabSnapshotForArchive` (clone + `Shared.graphSizing.enrich/merge` for non-box types) and includes payload, layout, preview, archive render cache, and `uiState`.
 3. `Main.sessionActions.saveWorkspaceArchiveWithScope()` routes to `Shared.graphArchive.buildArchiveBlob()`.
 4. `Shared.fileIO.saveGraphFile` / `saveGraphFileAs` persists the archive.
 

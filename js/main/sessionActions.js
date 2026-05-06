@@ -81,7 +81,8 @@
     }
     session.persistActiveTabState(active, withSessionContext({
       reason: reason || 'archive-save',
-      forcePreviewCapture: true
+      forcePreviewCapture: true,
+      origin: 'lifecycle'
     }));
   }
 
@@ -228,7 +229,7 @@
     if (!session || !workspaceState) {
       return false;
     }
-    const isDirty = !!workspaceState.sessionDirty;
+    const isDirty = !!workspaceState.sessionUserDirty;
     const hasData = typeof session.graphTabsHaveData === 'function'
       ? !!session.graphTabsHaveData()
       : getGraphTabsFromWorkspaceState(workspaceState).length > 0;
@@ -570,7 +571,7 @@
         workspaceState.sessionFileScope = 'workspace';
       }
       if (existingTabCount > 0 && typeof session.markSessionDirty === 'function') {
-        session.markSessionDirty('graph-load-append', { existingTabCount, addedTabCount });
+        session.markSessionDirty('graph-load-append', { existingTabCount, addedTabCount, origin: 'user' });
       }
     }
     debug(context, 'applyParsedSession.complete', {
@@ -703,7 +704,8 @@
       window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
         detail: {
           type: rememberFile ? 'saved' : 'saved-copy',
-          dirty: rememberFile ? false : !!workspaceState.sessionDirty,
+          dirty: rememberFile ? false : !!workspaceState.sessionUserDirty,
+          userDirty: rememberFile ? false : !!workspaceState.sessionUserDirty,
           fileName: rememberFile ? workspaceState.sessionFileName : (result.fileName || fileName),
           filePath: rememberFile ? workspaceState.sessionFilePath : (result.filePath || ''),
           fileScope: scope,
@@ -879,7 +881,7 @@
     try {
       const active = session.getActiveTab?.();
       if (active && !active.isWelcome) {
-        persistedActive = !!session.persistActiveTabState(active, withSessionContext({ reason: 'beforeunload' }));
+        persistedActive = !!session.persistActiveTabState(active, withSessionContext({ reason: 'beforeunload', origin: 'lifecycle' }));
       }
     } catch (err) {
       console.error('beforeunload persist error', err);
@@ -887,10 +889,11 @@
     const hasData = typeof session.graphTabsHaveData === 'function'
       ? !!session.graphTabsHaveData()
       : getGraphTabsFromWorkspaceState(workspaceState).length > 0;
-    const shouldWarn = !!workspaceState.sessionDirty && hasData;
+    const shouldWarn = !!workspaceState.sessionUserDirty && hasData;
     debug(context, 'shouldWarnBeforeUnload', {
       shouldWarn,
       dirty: !!workspaceState.sessionDirty,
+      userDirty: !!workspaceState.sessionUserDirty,
       hasData,
       persistedActive
     });
@@ -944,7 +947,7 @@
     if (!workspaceState || !session) {
       return { status: 'error', reason: 'missing-context' };
     }
-    if (!workspaceState.sessionDirty) {
+    if (!workspaceState.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
     const handle = workspaceState.sessionFileHandle;

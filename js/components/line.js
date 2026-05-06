@@ -2080,8 +2080,10 @@
       const skipPersist = String(reason || '').toLowerCase().includes('payload') || String(reason || '').toLowerCase().includes('payload-restored');
       if(!skipPersist){
         const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
-        if(sess && typeof sess.persistActiveTabState === 'function'){
-          sess.persistActiveTabState(undefined, { reason: 'stats-control-change' });
+        if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+          sess.persistUserModifiedTabState(undefined, { reason: 'stats-control-change' });
+        }else if(sess && typeof sess.persistActiveTabState === 'function'){
+          sess.persistActiveTabState(undefined, { reason: 'stats-control-change', origin: 'user' });
         }
       }
     }catch(e){
@@ -2124,8 +2126,10 @@
         const stillCurrent = lineStatsState.context === context && lineStatsState.signature === context.signature;
         const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
         if(stillCurrent && lineStatsState.lastRunVersion === context.version){
-          if(sess && typeof sess.persistActiveTabState === 'function'){
-            sess.persistActiveTabState(undefined, { reason: 'stats-computed' });
+          if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+            sess.persistUserModifiedTabState(undefined, { reason: 'stats-computed' });
+          }else if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: 'stats-computed', origin: 'user' });
           }
         }
       }catch(e){

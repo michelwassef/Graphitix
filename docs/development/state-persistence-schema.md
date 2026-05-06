@@ -22,6 +22,7 @@ Defined in `js/main/session.js`.
   sessionFilePath: string,
   sessionFileScope: 'tab' | 'workspace' | null,
   sessionDirty: boolean,
+  sessionUserDirty: boolean,
   sessionRevision: number,
   draggingTabId: string | null,
   dragStartIndex: number | null,
@@ -54,6 +55,9 @@ Defined in `js/main/session.js`.
   archiveRenderCacheLayoutSignature: string | null,
   layoutState: object | null,
   layoutSignature: string | null,
+  userModified: boolean,
+  payloadDirty: boolean,
+  payloadDirtyReason: string,
   uiState: object | null
 }
 ```
@@ -79,20 +83,22 @@ The toolbar fields are captured/applied by `Main.session.captureWorkspaceToolbar
 
 Document lifecycle state is shared by the web and Electron builds. `sessionFileHandle` is a File System Access API handle in browsers and a lightweight desktop path handle in Electron. `sessionFilePath` is populated only when the desktop bridge has a real filesystem path. Dirty-state updates increment `sessionRevision` and emit `graphitix:document-state-change` so document UI, Autosave, and recovery do not need to duplicate tab-change logic or repeatedly snapshot an unchanged dirty session.
 
+`sessionDirty` means the in-memory workspace has observed any state transition. `sessionUserDirty` means a user-originated change still needs persistence. Lifecycle transitions such as tab activation, render-cache warming, archive save, autosave, recovery snapshots, and workspace binding can update runtime/cache metadata without setting `sessionUserDirty` only when they pass explicit `origin: 'lifecycle'` metadata. Missing origin metadata is treated as user-originated so future callers fail dirty rather than silently dropping a user edit.
+
 ## 2. Document UI, Autosave, And Recovery
 
 `js/main/documentState.js` owns the filename/status cluster rendered in each workspace toolbar tab row, to the right of the `General`, `Data`, and `Format` tabs. It is not rendered on the Welcome page because the Welcome page has no workspace toolbar.
 
-Autosave is off by default and persisted in `localStorage` under `graphitix.autosave.enabled`. When Autosave is on and the current `.graph` file has a writable target, `Main.sessionActions.autosaveWorkspace` writes through the same archive save path as manual save. If there is no writable target, Autosave still keeps the private recovery snapshot current without silently overwriting a user file.
+Autosave is off by default and persisted in `localStorage` under `graphitix.autosave.enabled`. When Autosave is on, there are user-originated changes, and the current `.graph` file has a writable target, `Main.sessionActions.autosaveWorkspace` writes through the same archive save path as manual save. If there is no writable target, Autosave still keeps the private recovery snapshot current without silently overwriting a user file.
 
-Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes. Recovery scheduling is revision-aware: intervals only write when `sessionRevision` has advanced since the last successful snapshot, and large payload signatures use a longer debounce before archive construction.
+Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes. Recovery scheduling is revision-aware: intervals only write when `sessionUserDirty` is true and `sessionRevision` has advanced since the last successful snapshot, and large payload signatures use a longer debounce before archive construction.
 
 Recovery snapshots are eligible only when the workspace has at least one graph tab with meaningful data according to the same `Main.session.graphTabsHaveData()` / `tabHasTableData()` heuristics used by unload prompts. Explicit discard paths clear the private recovery snapshot before continuing, so discarded changes are not offered again on the next launch.
 
 ## 3. Session Payload Shape (Archive-Level)
 
 `Main.sessionActions.buildScopeSnapshot(context, 'workspace', options)` is the single
-canonical builder. It funnels every tab through `Main.session.enrichTabSnapshotForArchive`
+canonical session snapshot builder. It funnels every tab through `Main.session.enrichTabSnapshotForArchive`
 (clone + `Shared.graphSizing.enrich/merge` for non-box types) and returns:
 
 ```js
@@ -117,6 +123,8 @@ canonical builder. It funnels every tab through `Main.session.enrichTabSnapshotF
 ```
 
 `Main.session.applySessionData()` expects this same shape when restoring.
+
+The archive writer schema shared by the main-thread and worker builders is defined in `js/shared/graphArchiveSchema.js`, which owns README content and per-tab archive file paths. This keeps optional entries such as `preview.json`, `render-cache.json`, and `ui-state.json` aligned between writer implementations.
 
 ## 4. Component Payload Contract
 
@@ -177,8 +185,11 @@ Derived from each `createEmptyPayload` implementation.
 - `tab.payloadSignature`
 - `tab.layoutSignature`
 - `workspaceState.sessionDirty`
+- `workspaceState.sessionUserDirty`
+- `tab.userModified`
+- `tab.payloadDirty`
 
-Dirty is set when payload/layout changes and cleared after successful archive save/load.
+For clean, loaded tabs, `tab.payload` is authoritative. Save/recovery/archive paths with autosave-like reasons return the existing payload unchanged and do not query the live component. During the migration period, live component state is flushed only for mounted tabs whose payload is dirty. Standard AG Grid edits update payloads directly through `Main.session.updateTabPayload()`, using component `applyTablePayloadChanges()` hooks for non-matrix payload shapes and preserving attached `dataViews` payloads when a component has them. Shared style helpers, Venn controls/analysis/style updates, and tab-state undo/redo also route through explicit user-origin session APIs. Stats-heavy components use `Main.session.persistUserModifiedTabState()` to mark user-origin changes before flushing their mounted component state, while layout-only user actions mark the tab/session user-dirty without forcing payload capture. Dirty state is cleared after successful archive save/load.
 
 ## 7. Scope Semantics
 

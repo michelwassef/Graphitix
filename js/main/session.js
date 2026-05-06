@@ -64,6 +64,7 @@
     sessionFilePath: '',
     sessionFileScope: null,
     sessionDirty: false,
+    sessionUserDirty: false,
     sessionRevision: 0,
     draggingTabId: null,
     dragStartIndex: null,
@@ -71,6 +72,9 @@
     dragInsertBefore: true
   };
   namespace.workspaceState = workspaceState;
+  if (typeof workspaceState.sessionUserDirty !== 'boolean') {
+    workspaceState.sessionUserDirty = !!workspaceState.sessionDirty;
+  }
   const MAX_WARM_RENDER_CACHES_TOTAL = 6;
   const MAX_WARM_RENDER_CACHES_PER_TYPE = 2;
   let renderCacheCaptureSequence = 0;
@@ -90,12 +94,134 @@
   }
   console.debug('Debug: session workspaceState initialized', { tabCount: workspaceState.tabs.length });
 
+  const LIVE_CAPTURE_SKIP_REASONS = new Set([
+    'archive-save',
+    'document-snapshot',
+    'recovery-interval',
+    'beforeunload',
+    'autosave',
+    'autosave-interval',
+    'autosave-enabled'
+  ]);
+
+  function normalizeReason(value) {
+    return String(value || '').trim();
+  }
+
+  function isLiveCaptureSkippableReason(reason) {
+    const normalized = normalizeReason(reason);
+    if (!normalized) {
+      return false;
+    }
+    return LIVE_CAPTURE_SKIP_REASONS.has(normalized)
+      || normalized.includes('warmup')
+      || normalized.endsWith('-private-snapshot');
+  }
+
+  function isLifecycleDirtyReason(reason, details = {}) {
+    if (details?.origin === 'user') {
+      return false;
+    }
+    if (details?.origin === 'lifecycle') {
+      return true;
+    }
+    return false;
+  }
+
+  function hasUserModifiedTabs() {
+    return Array.isArray(workspaceState.tabs)
+      && workspaceState.tabs.some(tab => tab && !tab.isWelcome && tab.userModified === true);
+  }
+
+  function resolveTab(tabLike) {
+    if (!tabLike) {
+      return null;
+    }
+    if (typeof tabLike === 'object' && tabLike.id) {
+      return tabLike;
+    }
+    const tabId = String(tabLike || '').trim();
+    if (!tabId || !Array.isArray(workspaceState.tabs)) {
+      return null;
+    }
+    return workspaceState.tabs.find(tab => tab && tab.id === tabId) || null;
+  }
+
+  function markTabUserModified(tabLike, reason, meta = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome) {
+      return false;
+    }
+    const affectsPayload = meta.affectsPayload !== false;
+    tab.userModified = true;
+    tab.lastUserModifiedReason = normalizeReason(reason) || 'user-modified';
+    tab.lastUserModifiedAt = Date.now();
+    if (affectsPayload) {
+      tab.payloadDirty = true;
+      tab.payloadDirtyReason = tab.lastUserModifiedReason;
+    }
+    if (meta.markSessionDirty !== false) {
+      markSessionDirty(tab.lastUserModifiedReason, {
+        tabId: tab.id,
+        type: tab.type || null,
+        origin: meta.origin || 'user',
+        affectsPayload
+      });
+    }
+    console.debug('Debug: tab user modification marked', {
+      tabId: tab.id,
+      type: tab.type || null,
+      reason: tab.lastUserModifiedReason,
+      affectsPayload,
+      payloadDirty: !!tab.payloadDirty
+    });
+    return true;
+  }
+
+  function markTabPayloadFlushed(tab, reason) {
+    if (!tab) {
+      return false;
+    }
+    const wasDirty = !!tab.payloadDirty;
+    tab.payloadDirty = false;
+    tab.payloadDirtyReason = '';
+    tab.lastPayloadFlushedReason = normalizeReason(reason) || 'payload-flushed';
+    tab.lastPayloadFlushedAt = Date.now();
+    if (wasDirty) {
+      console.debug('Debug: tab payload dirty flag cleared', {
+        tabId: tab.id,
+        type: tab.type || null,
+        reason: tab.lastPayloadFlushedReason
+      });
+    }
+    return wasDirty;
+  }
+
+  function markAllTabsClean(reason) {
+    if (!Array.isArray(workspaceState.tabs)) {
+      return;
+    }
+    workspaceState.tabs.forEach(tab => {
+      if (!tab || tab.isWelcome) {
+        return;
+      }
+      tab.userModified = false;
+      tab.payloadDirty = false;
+      tab.payloadDirtyReason = '';
+      tab.lastCleanReason = normalizeReason(reason) || 'clean';
+      tab.lastCleanAt = Date.now();
+    });
+  }
+
   function markSessionDirty(reason, details) {
     const wasDirty = workspaceState.sessionDirty;
+    const userDirty = !isLifecycleDirtyReason(reason, details || {});
     workspaceState.sessionDirty = true;
+    workspaceState.sessionUserDirty = !!workspaceState.sessionUserDirty || userDirty || hasUserModifiedTabs();
     workspaceState.sessionRevision = (Number(workspaceState.sessionRevision) || 0) + 1;
     notifySessionDocumentState('dirty', {
       dirty: workspaceState.sessionDirty,
+      userDirty: workspaceState.sessionUserDirty,
       wasDirty,
       revision: workspaceState.sessionRevision,
       reason: reason || 'unspecified',
@@ -104,6 +230,7 @@
     console.debug('Debug: session dirty flag updated', {
       reason: reason || 'unspecified',
       wasDirty,
+      userDirty: workspaceState.sessionUserDirty,
       details: details || null
     });
   }
@@ -111,8 +238,11 @@
   function clearSessionDirty(reason) {
     const wasDirty = workspaceState.sessionDirty;
     workspaceState.sessionDirty = false;
+    workspaceState.sessionUserDirty = false;
+    markAllTabsClean(reason || 'session-clean');
     notifySessionDocumentState('clean', {
       dirty: workspaceState.sessionDirty,
+      userDirty: workspaceState.sessionUserDirty,
       wasDirty,
       revision: workspaceState.sessionRevision,
       reason: reason || 'unspecified'
@@ -1149,6 +1279,72 @@
     return changed;
   }
 
+  function updateTabPayload(tabLike, updater, meta = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome || !tab.type) {
+      console.debug('Debug: updateTabPayload skipped', {
+        tabId: typeof tabLike === 'string' ? tabLike : tabLike?.id || null,
+        reason: 'missing-tab'
+      });
+      return false;
+    }
+    if (typeof updater !== 'function') {
+      console.warn('updateTabPayload requires an updater function', { tabId: tab.id, type: tab.type || null });
+      return false;
+    }
+    const previousPayload = clonePayload(tab.payload || null);
+    let nextPayload;
+    try {
+      const draft = clonePayload(tab.payload || null);
+      const result = updater(draft, tab);
+      nextPayload = typeof result === 'undefined' ? draft : result;
+    } catch (err) {
+      console.error('updateTabPayload updater error', { tabId: tab.id, type: tab.type || null, err });
+      return false;
+    }
+    const changed = assignTabPayload(tab, nextPayload, {
+      reason: meta.reason || 'update-tab-payload',
+      allowClear: meta.allowClear === true
+    });
+    if (!changed) {
+      return false;
+    }
+    markTabPayloadFlushed(tab, meta.reason || 'update-tab-payload');
+    tab.userModified = true;
+    tab.lastUserModifiedReason = meta.reason || 'update-tab-payload';
+    tab.lastUserModifiedAt = Date.now();
+    markSessionDirty(meta.reason || 'update-tab-payload', {
+      tabId: tab.id,
+      type: tab.type || null,
+      origin: meta.origin || 'user',
+      directPayloadMutation: true,
+      previousSignature: serializePayloadSignature(previousPayload),
+      nextSignature: tab.payloadSignature || null
+    });
+    console.debug('Debug: updateTabPayload applied', {
+      tabId: tab.id,
+      type: tab.type || null,
+      reason: meta.reason || 'update-tab-payload'
+    });
+    return true;
+  }
+
+  function persistUserModifiedTabState(tabLike, options = {}) {
+    const tab = resolveTab(tabLike) || getActiveTab();
+    if (!tab || tab.isWelcome || !tab.type) {
+      return false;
+    }
+    const reason = normalizeReason(options.reason) || 'user-state-change';
+    markTabUserModified(tab, reason, {
+      origin: 'user',
+      affectsPayload: options.affectsPayload !== false
+    });
+    return persistActiveTabState(tab, {
+      ...options,
+      reason
+    });
+  }
+
   function getActiveTab() {
     const activeId = workspaceState.activeTabId || null;
     const tab = workspaceState.tabs.find(item => item.id === activeId) || null;
@@ -1243,6 +1439,14 @@
       layoutSignature: options.layoutSignature !== undefined
         ? options.layoutSignature
         : serializePayloadSignature(options.layoutState || null),
+      userModified: options.userModified === true,
+      lastUserModifiedReason: '',
+      lastUserModifiedAt: 0,
+      payloadDirty: options.payloadDirty === true,
+      payloadDirtyReason: options.payloadDirtyReason || '',
+      lastPayloadFlushedReason: '',
+      lastPayloadFlushedAt: 0,
+      loadedFromArchive: options.loadedFromArchive === true,
       sharedState: options.sharedState && typeof options.sharedState === 'object'
         ? options.sharedState
         : { runtime: {}, resources: {}, styles: {}, metadata: {} },
@@ -1511,20 +1715,83 @@
       });
       return false;
     }
+    const reason = options.reason || 'persist-active';
+    const shouldSkipLivePayloadCapture = !!(tab.payload && !tab.payloadDirty && isLiveCaptureSkippableReason(reason));
+    const captureRenderCacheOnly = () => {
+      if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
+        try {
+          const captured = config.captureRenderCache({
+            tabId: tab.id,
+            type: tab.type,
+            reason
+          });
+          if (captured) {
+            const capturedAt = Date.now();
+            tab.renderCache = {
+              cache: captured,
+              tabId: tab.id,
+              type: tab.type || null,
+              payloadSignature: tab.payloadSignature || null,
+              layoutSignature: tab.layoutSignature || null,
+              capturedAt,
+              captureSequence: ++renderCacheCaptureSequence
+            };
+            tab.renderCacheSignature = tab.payloadSignature || null;
+            tab.renderCacheLayoutSignature = tab.layoutSignature || null;
+            tab.renderCacheTabId = tab.id;
+            if (tab.previewMeta && tab.previewSignature === (tab.payloadSignature || null)) {
+              tab.previewMeta.renderCacheSequence = tab.renderCache.captureSequence;
+              tab.previewMeta.renderCacheCapturedAt = capturedAt;
+            }
+          } else {
+            clearTabRenderCache(tab, { reason: `${reason}:capture-empty` });
+          }
+          pruneWarmRenderCaches({
+            preserveTabIds: [tab.id, ...(options.preserveRenderCacheTabIds || [])],
+            reason
+          });
+        } catch (err) {
+          console.error('persistActiveTabState render cache error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
+    };
+    if (shouldSkipLivePayloadCapture) {
+      if (!workspaceState.loadedWorkspaces) {
+        workspaceState.loadedWorkspaces = {};
+      }
+      if (workspaceState.activeTabId === tab.id) {
+        workspaceState.loadedWorkspaces[tab.id] = {
+          tabId: tab.id,
+          type: tab.type || null,
+          payloadSignature: tab.payloadSignature,
+          layoutSignature: tab.layoutSignature
+        };
+        const capturedUiState = captureWorkspaceUiState(tab);
+        if (capturedUiState) {
+          tab.uiState = capturedUiState;
+        }
+      }
+      captureRenderCacheOnly();
+      console.debug('Debug: persistActiveTabState skipped live payload capture', {
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        payloadDirty: !!tab.payloadDirty,
+        userModified: !!tab.userModified
+      });
+      return false;
+    }
     // If the tab has been loaded from disk but its component has never bound to it
     // (no entry in loadedWorkspaces), getPayload() will read live state that doesn't
     // match the loaded-from-disk payload — typically returning null/empty because
     // the component's data structures haven't been hydrated yet. Persisting that
     // partial state would overwrite the authoritative archive payload. Skip.
-    const isAutosaveLikeReason = options.reason === 'recovery-interval'
-      || options.reason === 'archive-save'
-      || options.reason === 'document-snapshot'
-      || options.reason === 'beforeunload';
+    const isAutosaveLikeReason = isLiveCaptureSkippableReason(reason);
     if (isAutosaveLikeReason && tab.payload && !workspaceState.loadedWorkspaces?.[tab.id]) {
       console.debug('Debug: persistActiveTabState skipped (tab not bound)', {
         tabId: tab.id,
         type: tab.type,
-        reason: options.reason
+        reason
       });
       return false;
     }
@@ -1533,12 +1800,12 @@
       let payloadClone = clonePayload(payload);
       if (Shared.workspaceTabs?.captureSharedPayloadState) {
         Shared.workspaceTabs.captureSharedPayloadState(tab, tab.type, payloadClone, config, {
-          reason: options.reason || 'persist-active'
+          reason
         });
       }
       if (Shared.workspaceTabs?.captureRuntimeState) {
         Shared.workspaceTabs.captureRuntimeState(tab, tab.type, config, {
-          reason: options.reason || 'persist-active'
+          reason
         });
       }
       const layoutState = Shared.componentLayout?.captureStateFor
@@ -1590,7 +1857,8 @@
         });
       }
       const previousLayoutSignature = tab.layoutSignature || null;
-      const changed = assignTabPayload(tab, payloadClone, { reason: options.reason || 'persist-active' });
+      const changed = assignTabPayload(tab, payloadClone, { reason });
+      markTabPayloadFlushed(tab, reason);
       tab.layoutState = layoutClone;
       tab.layoutSignature = serializePayloadSignature(layoutClone);
       const layoutChanged = previousLayoutSignature !== tab.layoutSignature;
@@ -1677,10 +1945,17 @@
         }
       }
       if (changed || layoutChanged) {
+        const lifecyclePersist = isLifecycleDirtyReason(reason, options || {});
+        if (!lifecyclePersist) {
+          tab.userModified = true;
+          tab.lastUserModifiedReason = reason;
+          tab.lastUserModifiedAt = Date.now();
+        }
         markSessionDirty(options.reason || 'tab-state-updated', {
           tabId: tab.id,
           type: tab.type,
-          layoutChanged
+          layoutChanged,
+          origin: lifecyclePersist ? 'lifecycle' : (options.origin || null)
         });
       }
       console.debug('Debug: workspace state persisted', {
@@ -2006,6 +2281,9 @@
           : null,
         archiveRenderCacheSignature: tabData.archiveRenderCacheSignature || null,
         archiveRenderCacheLayoutSignature: tabData.archiveRenderCacheLayoutSignature || null,
+        loadedFromArchive: true,
+        userModified: false,
+        payloadDirty: false,
         uiState: tabData.uiState && typeof tabData.uiState === 'object'
           ? clonePayload(tabData.uiState)
           : null
@@ -2039,6 +2317,7 @@
     clearSessionDirty(options.reason || 'session-load');
     notifySessionDocumentState('loaded', {
       dirty: workspaceState.sessionDirty,
+      userDirty: workspaceState.sessionUserDirty,
       reason: options.reason || 'session-load'
     });
     console.debug('Debug: session applied', {
@@ -2060,7 +2339,10 @@
   namespace.fastClonePayload = fastClonePayload;
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
+  namespace.markTabUserModified = markTabUserModified;
   namespace.assignTabPayload = assignTabPayload;
+  namespace.updateTabPayload = updateTabPayload;
+  namespace.persistUserModifiedTabState = persistUserModifiedTabState;
   namespace.clearTabRenderCache = clearTabRenderCache;
   namespace.clearTabArchiveRenderCache = clearTabArchiveRenderCache;
   namespace.consumeArchiveRenderCache = consumeArchiveRenderCache;

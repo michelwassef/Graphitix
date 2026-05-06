@@ -37,6 +37,7 @@ describe('documentState recovery snapshot throttling', () => {
         payloadSignature: 'x'.repeat(300000)
       }],
       sessionDirty: true,
+      sessionUserDirty: true,
       sessionRevision: 1,
       sessionFileName: 'large.graph',
       sessionFilePath: '',
@@ -110,5 +111,23 @@ describe('documentState recovery snapshot throttling', () => {
     jest.advanceTimersByTime(5000);
     await flushTimers();
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(2);
+  });
+
+  test('lifecycle-only dirty revisions do not schedule recovery snapshots', async () => {
+    const { sessionActions } = installDocumentState({
+      workspaceState: {
+        sessionDirty: true,
+        sessionUserDirty: false,
+        sessionRevision: 1
+      }
+    });
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1, userDirty: false }
+    }));
+    jest.advanceTimersByTime(30000);
+    await flushTimers();
+
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
   });
 });

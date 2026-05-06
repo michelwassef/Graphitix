@@ -152,6 +152,9 @@ describe('Box stats controls tab isolation with render cache', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
     restoreJStat = ensureJStatStub();
     if(typeof global.__restoreTestDebugLogs === 'function'){
       global.__restoreTestDebugLogs();
@@ -210,6 +213,9 @@ describe('Box stats controls tab isolation with render cache', () => {
       restoreJStat();
       restoreJStat = null;
     }
+    delete window.Main;
+    delete window.Components;
+    delete window.Shared;
     if(typeof global.__suppressTestDebugLogs === 'function'){
       global.__suppressTestDebugLogs();
     }

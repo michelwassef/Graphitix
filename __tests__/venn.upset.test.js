@@ -156,7 +156,6 @@ describe('Venn UpSet integration', () => {
 
     const stage = document.getElementById('stage');
     expect(stage).toBeTruthy();
-    console.log('DEBUG STAGE PR', stage.getAttribute('preserveAspectRatio'), stage.outerHTML);
     expect(stage.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 

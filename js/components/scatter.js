@@ -10812,8 +10812,10 @@
       function persistTabState(reason){
         try{
           const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
-          if(sess && typeof sess.persistActiveTabState === 'function'){
-            sess.persistActiveTabState(undefined, { reason: reason || 'scatter-stats-change' });
+          if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+            sess.persistUserModifiedTabState(undefined, { reason: reason || 'scatter-stats-change' });
+          }else if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: reason || 'scatter-stats-change', origin: 'user' });
           }
         }catch(e){
           console.debug('Debug: persistTabState failed', { err: e?.message || String(e) });
@@ -11840,9 +11842,11 @@
             try{
               if(scatterState.statsLastRunVersion === context.version){
                 const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
-                if(sess && typeof sess.persistActiveTabState === 'function'){
-                  sess.persistActiveTabState(undefined, { reason: 'scatter-stats-computed' });
-                }
+                    if(sess && typeof sess.persistUserModifiedTabState === 'function'){
+                      sess.persistUserModifiedTabState(undefined, { reason: 'scatter-stats-computed' });
+                    }else if(sess && typeof sess.persistActiveTabState === 'function'){
+                      sess.persistActiveTabState(undefined, { reason: 'scatter-stats-computed', origin: 'user' });
+                    }
               }
             }catch(e){
               console.debug('Debug: persistActiveTabState after scatter compute failed', { err: e?.message || String(e) });

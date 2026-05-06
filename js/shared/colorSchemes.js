@@ -1813,7 +1813,7 @@
 
     try{
       if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `color-scheme-pre-${type}` });
+        session.persistActiveTabState(tab, { reason: `color-scheme-pre-${type}`, origin: 'lifecycle' });
       }
     }catch(err){
       console.error('colorSchemes pre-persist error', { type, err });
@@ -1826,8 +1826,15 @@
     const nextPayload = applySchemeToPayload(type, sourcePayload, scheme, { forceColors: true });
     syncSharedScatterPalette(type, scheme);
 
-    if(typeof session.assignTabPayload === 'function'){
-      session.assignTabPayload(tab, cloneValue(nextPayload), { reason: `color-scheme-${type}` });
+    if(typeof session.updateTabPayload === 'function'){
+      session.updateTabPayload(tab, () => cloneValue(nextPayload), {
+        reason: `color-scheme-${type}`,
+        origin: 'user'
+      });
+    }else if(typeof session.assignTabPayload === 'function'){
+      session.assignTabPayload(tab, cloneValue(nextPayload), {
+        reason: `color-scheme-${type}`
+      });
     }else{
       tab.payload = cloneValue(nextPayload);
     }
@@ -1852,14 +1859,14 @@
 
     try{
       if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `color-scheme-post-${type}`, forcePreviewCapture: true });
+        session.persistActiveTabState(tab, { reason: `color-scheme-post-${type}`, forcePreviewCapture: true, origin: 'lifecycle' });
       }
     }catch(err){
       console.error('colorSchemes post-persist error', { type, err });
     }
 
-    if(typeof session.markSessionDirty === 'function'){
-      session.markSessionDirty('color-scheme-applied', { type, tabId: tab.id, scheme: scheme.id });
+    if(typeof session.updateTabPayload !== 'function' && typeof session.markSessionDirty === 'function'){
+      session.markSessionDirty('color-scheme-applied', { type, tabId: tab.id, scheme: scheme.id, origin: 'user' });
     }
 
     applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-immediate');

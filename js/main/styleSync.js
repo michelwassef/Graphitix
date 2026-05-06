@@ -1220,13 +1220,24 @@
       if (mappedPatch.style) {
         nextPayload.style = deepMerge(nextPayload.style, mappedPatch.style);
       }
-      const changed = state.session?.assignTabPayload
-        ? state.session.assignTabPayload(targetTab, nextPayload, { reason: 'style-sync' })
-        : (() => { targetTab.payload = nextPayload; return true; })();
+      const changed = state.session?.updateTabPayload
+        ? state.session.updateTabPayload(targetTab, () => nextPayload, {
+            reason: 'style-sync',
+            origin: 'user'
+          })
+        : (state.session?.assignTabPayload
+          ? state.session.assignTabPayload(targetTab, nextPayload, { reason: 'style-sync' })
+          : (() => { targetTab.payload = nextPayload; return true; })());
       if (stylePatch.layout) {
         applyLayoutToTab(targetTab, copiedLayout || null);
       }
       if (changed || stylePatch.layout) {
+        if (stylePatch.layout && !changed && typeof state.session?.markTabUserModified === 'function') {
+          state.session.markTabUserModified(targetTab, 'style-sync-layout', {
+            origin: 'user',
+            affectsPayload: false
+          });
+        }
         applied.push(targetTab);
       }
       if (state.workspaceState?.activeTabId === targetTab.id) {
@@ -1256,11 +1267,12 @@
       }
     });
     if (applied.length) {
-      if (typeof state.session.markSessionDirty === 'function') {
+      if (typeof state.session.markSessionDirty === 'function' && typeof state.session.updateTabPayload !== 'function') {
         state.session.markSessionDirty('style-sync-applied', {
           sourceId: sourceTab.id,
           targetCount: applied.length,
-          groups: selectedGroups
+          groups: selectedGroups,
+          origin: 'user'
         });
       }
       if (typeof state.renderTabs === 'function') {
@@ -1338,7 +1350,8 @@
         state.session.persistActiveTabState(activeTab, {
           workspaces: state.workspaces,
           previews: state.previews,
-          reason: 'style-sync-open'
+          reason: 'style-sync-open',
+          origin: 'lifecycle'
         });
       } catch (err) {
         console.error('styleSync persist active error', err);

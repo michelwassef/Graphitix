@@ -407,6 +407,14 @@ describe('UI stats persistence and restore', () => {
     if(typeof global.__suppressTestDebugLogs === 'function'){
       global.__suppressTestDebugLogs();
     }
+    if(typeof window !== 'undefined'){
+      delete window.Main;
+      delete window.Components;
+      delete window.Shared;
+    }
+    delete global.Main;
+    delete global.Components;
+    delete global.Shared;
   });
 
   afterAll(() => {

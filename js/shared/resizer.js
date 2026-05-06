@@ -45,6 +45,23 @@
     return Shared.workspaceTabs?.resolveTab?.(null) || global.Main?.session?.getActiveTab?.() || null;
   }
 
+  function markResizerTabUserModified(container, opts = {}, reason = 'resizer-change'){
+    try{
+      const tab = resolveResizerTab(container, opts);
+      const session = global.Main?.session || null;
+      if(!tab || typeof session?.markTabUserModified !== 'function'){
+        return false;
+      }
+      return session.markTabUserModified(tab, reason, {
+        origin: 'user',
+        affectsPayload: false
+      });
+    }catch(err){
+      console.error('Shared.resizer mark tab modified error', err);
+      return false;
+    }
+  }
+
   function persistAspectLockToTab(container, opts, aspectLockedValue, reason){
     const tab = resolveResizerTab(container, opts);
     const tabId = normalizeTabId(tab?.id);
@@ -79,6 +96,9 @@
       aspectLocked: !!aspectLockedValue,
       reason: reason || 'resizer-aspect-lock'
     });
+    if(reason === 'checkbox-change'){
+      markResizerTabUserModified(container, opts, 'resizer-aspect-lock');
+    }
     return true;
   }
 
@@ -1615,6 +1635,9 @@
           appliedHeight: applied?.height || null
         });
       }
+      if(changed && (reason === 'button-plus' || reason === 'button-minus' || reason === 'input')){
+        markResizerTabUserModified(container, opts, 'resizer-zoom-change');
+      }
       return zoomLevel;
     }
 
@@ -2102,8 +2125,7 @@
       return snapshot;
     };
 
-    const notifyUndoableResize = (mode, before, after, trigger) => {
-      if(!hasUndo) return;
+    const resizeSnapshotsDiffer = (before, after) => {
       if(!before || !after) return;
       const widthChanged = (() => {
         if(Number.isFinite(before.width) && Number.isFinite(after.width)){
@@ -2134,7 +2156,12 @@
         const afterDataset = after.dataset || {};
         return RESIZE_SNAPSHOT_DATA_KEYS.some(key => (beforeDataset[key] || '') !== (afterDataset[key] || ''));
       })();
-      if(!widthChanged && !heightChanged && !aspectChanged && !zoomChanged && !datasetChanged) return;
+      return widthChanged || heightChanged || aspectChanged || zoomChanged || datasetChanged;
+    };
+
+    const notifyUndoableResize = (mode, before, after, trigger) => {
+      if(!hasUndo) return;
+      if(!resizeSnapshotsDiffer(before, after)) return;
       undoManager.record({
         label: `resize:${containerLabel}:${mode}`,
         scope: containerLabel,
@@ -2326,7 +2353,11 @@
           markOrthogonalViewportLock(axis, 'pointer-end', { capture: false, durationMs: 6000 });
           if(startSnapshot){
             const endSnapshot = makeResizeSnapshot('pointer-end');
+            const changed = resizeSnapshotsDiffer(startSnapshot, endSnapshot);
             notifyUndoableResize(`drag-${axis}`, startSnapshot, endSnapshot, 'pointer');
+            if(changed){
+              markResizerTabUserModified(container, opts, `resizer-drag-${axis}`);
+            }
             startSnapshot = null;
           }
           if (typeof opts.onResize === 'function') {
@@ -2359,6 +2390,9 @@
         }
         const afterReset = makeResizeSnapshot('dblclick-after');
         notifyUndoableResize('reset', beforeReset, afterReset, 'dblclick');
+        if(applied?.changed){
+          markResizerTabUserModified(container, opts, 'resizer-reset');
+        }
         console.debug('Debug: resizer size reset', { width: container.style.width, height: container.style.height, applied }); // Debug: resizer reset
         if (typeof opts.onResize === 'function') {
           try { opts.onResize('reset'); } catch(e) { console.error('resizer onResize error', e); }

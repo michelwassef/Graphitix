@@ -2,6 +2,11 @@
   'use strict';
 
   const ZIP_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  const Shared = ctx.Shared = ctx.Shared || {};
+  if (!Shared.graphArchiveSchema) {
+    ctx.importScripts('../shared/graphArchiveSchema.js');
+  }
+  const archiveSchema = Shared.graphArchiveSchema;
   const ARCHIVE_FORMAT = 'venn-graph-archive';
   const ARCHIVE_VERSION = 3;
   const DEFAULT_TAB_TITLE = 'Workspace';
@@ -319,28 +324,7 @@
   }
 
   function buildArchiveReadme(manifest) {
-    const lines = [
-      'Graph Archive (.graph)',
-      '======================',
-      '',
-      'This .graph file is a ZIP archive designed for transparent scientific workflows.',
-      '',
-      'Contents:',
-      '- manifest.json: archive index (version, tabs, active tab).',
-      '- tabs/<Tab Name>/raw/data.csv: raw tabular input.',
-      '- tabs/<Tab Name>/graph-config.json: graph/stat settings.',
-      '- tabs/<Tab Name>/payload.json: payload snapshot (may omit raw data in lite mode).',
-      '- tabs/<Tab Name>/layout.json: panel/layout state.',
-      '- tabs/<Tab Name>/preview.json: cached tab preview markup (when available).',
-      '- tabs/<Tab Name>/render-cache.json: serialized one-shot render snapshot for redraw-free restore (when available).',
-      '',
-      `Archive format: ${manifest.format}`,
-      `Archive version: ${manifest.version}`,
-      `Scope: ${manifest.scope || 'unknown'}`,
-      `Saved at: ${manifest.createdAt}`,
-      `Tab count: ${manifest.tabCount}`
-    ];
-    return lines.join('\r\n');
+    return archiveSchema.buildArchiveReadme(manifest);
   }
 
   async function buildArchive(payload) {
@@ -386,7 +370,13 @@
         : undefined;
       const hasPreview = typeof tab?.previewMarkup === 'string' && tab.previewMarkup.trim().length > 0;
       const hasArchiveRenderCache = !!(tab?.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
+      const hasUiState = !!(tab?.uiState && typeof tab.uiState === 'object' && Object.keys(tab.uiState).length > 0);
 
+      const tabFiles = archiveSchema.buildTabFileMap(folderPath, {
+        preview: hasPreview,
+        renderCache: hasArchiveRenderCache,
+        uiState: hasUiState
+      });
       const tabManifest = {
         index,
         title: tabTitle,
@@ -394,16 +384,7 @@
         folder: folderPath,
         rawDataMode: rawData.mode,
         payloadMode,
-        files: {
-          tab: `${folderPath}/tab.json`,
-          payload: `${folderPath}/payload.json`,
-          rawCsv: `${folderPath}/raw/data.csv`,
-          config: `${folderPath}/graph-config.json`,
-          layout: `${folderPath}/layout.json`,
-          exclusions: `${folderPath}/raw/exclusions.json`,
-          preview: hasPreview ? `${folderPath}/preview.json` : null,
-          renderCache: hasArchiveRenderCache ? `${folderPath}/render-cache.json` : null
-        }
+        files: tabFiles
       };
 
       zip.file(tabManifest.files.tab, JSON.stringify({
@@ -453,6 +434,9 @@
           compression: 'DEFLATE',
           compressionOptions: { level: 1 }
         });
+      }
+      if (hasUiState && tabManifest.files.uiState) {
+        zip.file(tabManifest.files.uiState, JSON.stringify(tab.uiState));
       }
       manifest.tabs.push(tabManifest);
     }

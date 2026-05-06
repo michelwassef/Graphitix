@@ -322,7 +322,7 @@
         try {
           const currentActive = getActiveTab();
           if (currentActive && !currentActive.isWelcome) {
-            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'duplicate-before-create' }));
+            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'duplicate-before-create', origin: 'lifecycle' }));
             deactivateWorkspaceForTab(currentActive, 'duplicate-before-create');
           }
         } catch (e) {
@@ -345,7 +345,7 @@
           newTab.layoutState = null;
           newTab.layoutSignature = null;
           showWorkspaceForTab(newTab);
-          session.markSessionDirty('duplicate-created-empty', { tabId: newTab.id, sourceId });
+          session.markSessionDirty('duplicate-created-empty', { tabId: newTab.id, sourceId, origin: 'user' });
           return;
         }
         const cloneFn = session.fastClonePayload || session.clonePayload;
@@ -363,7 +363,7 @@
           ? session.serializePayloadSignature(clonedLayout)
           : null;
         showWorkspaceForTab(newTab);
-        session.markSessionDirty('duplicate-created-reuse', { tabId: newTab.id, sourceId });
+        session.markSessionDirty('duplicate-created-reuse', { tabId: newTab.id, sourceId, origin: 'user' });
       }
 
       function saveCurrentTabOnly(sourceId) {
@@ -480,7 +480,7 @@
       }
       console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
       if (!meta.skipDirty) {
-        session.markSessionDirty('tab-removed', { tabId, reason });
+        session.markSessionDirty('tab-removed', { tabId, reason, origin: 'user' });
       }
     }
 
@@ -502,7 +502,7 @@
       const reason = options.reason || 'close-tab';
       let persistedActive = false;
       if (wasActive && !skipPersist) {
-        session.persistActiveTabState(tab, withSessionContext({ reason }));
+        session.persistActiveTabState(tab, withSessionContext({ reason, origin: 'lifecycle' }));
         persistedActive = true;
       }
       if (!force && !skipPrompt) {
@@ -514,7 +514,7 @@
         }
       }
       if (force && wasActive && !skipPersist && !persistedActive) {
-        session.persistActiveTabState(tab, withSessionContext({ reason: `${reason}-force` }));
+        session.persistActiveTabState(tab, withSessionContext({ reason: `${reason}-force`, origin: 'lifecycle' }));
       }
       workspaceState.pendingClosePrompt = null;
       hideUnsavedPrompt();
@@ -526,6 +526,7 @@
       if (current && current.id !== tabId && !options.skipPersist) {
         session.persistActiveTabState(current, withSessionContext({
           reason: options.reason || 'activate-switch',
+          origin: 'lifecycle',
           captureRenderCache: true,
           preserveRenderCacheTabIds: [current.id, tabId]
         }));
@@ -608,7 +609,7 @@
           type,
           candidateSource
         });
-        session.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'welcome-selection' });
+        session.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'welcome-selection', origin: 'user' });
         previousType = null;
         previousTitle = tab.title || '';
       }
@@ -635,10 +636,10 @@
       renderTabs();
       console.debug('Debug: graph assigned to tab', { tabId: tab.id, type, variantId: pendingVariantId, reason: options.reason || 'graph-selection' });
       if (priorType !== type) {
-        session.markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type });
+        session.markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type, origin: 'user' });
       }
       if (tab.title !== priorTitle) {
-        session.markSessionDirty('tab-title-updated', { tabId: tab.id, previousTitle: priorTitle, nextTitle: tab.title });
+        session.markSessionDirty('tab-title-updated', { tabId: tab.id, previousTitle: priorTitle, nextTitle: tab.title, origin: 'user' });
       }
       const sourceId = tab.duplicateSource || workspaceState.pendingDuplicateSource;
       workspaceState.pendingDuplicateSource = null;
@@ -661,7 +662,7 @@
       tab.layoutState = null;
       tab.layoutSignature = null;
       if (payloadCleared) {
-        session.markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
+        session.markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type, origin: 'user' });
       }
       return showWorkspaceForTab(tab);
     }
@@ -669,7 +670,7 @@
     function handleAddTabClick() {
       const current = getActiveTab();
       if (current && !current.isWelcome) {
-        session.persistActiveTabState(current, withSessionContext({ reason: 'add-tab-before-new' }));
+        session.persistActiveTabState(current, withSessionContext({ reason: 'add-tab-before-new', origin: 'lifecycle' }));
         deactivateWorkspaceForTab(current, 'add-tab-before-new');
       }
       const candidateSource = determineDuplicateSourceCandidate(current?.id);
@@ -678,7 +679,7 @@
       workspaceState.activeTabId = newTab.id;
       workspaceState.pendingDuplicateSource = candidateSource;
       renderTabs();
-      session.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'add-tab-click' });
+      session.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'add-tab-click', origin: 'user' });
       showGraphSelection({ reason: 'new-tab' });
       console.debug('Debug: add tab invoked', { newTabId: newTab.id, duplicateSource: candidateSource });
     }

@@ -66,6 +66,8 @@ describe('Shared.hot AG Grid binding', () => {
 
   afterEach(() => {
     global.window.agGrid = originalAgGrid;
+    delete global.window.Main;
+    delete global.window.Components;
     capturedGridOptions = null;
     capturedApi = null;
   });
@@ -186,6 +188,121 @@ describe('Shared.hot AG Grid binding', () => {
       'unit-test'
     );
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
+  });
+
+  test('table edits update the active tab payload directly without leaving payload dirty', () => {
+    require('../js/main/session.js');
+    const session = global.window.Main.session;
+    const tab = session.createTab({
+      title: 'Shared Matrix',
+      type: 'box',
+      payload: {
+        type: 'box',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ],
+        config: {}
+      }
+    });
+    session.workspaceState.tabs.push(tab);
+    session.workspaceState.activeTabId = tab.id;
+
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'payload-sync-table',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ]
+      }
+    );
+    hot.__dataViewsManager = {
+      serialize: jest.fn(() => ({
+        activeViewId: 'filtered',
+        views: [
+          { id: 'base', data: [['A', 'B'], ['C', 'D']] },
+          { id: 'filtered', data: [['A', 'B'], ['C', 'D2']] }
+        ]
+      }))
+    };
+
+    hot.setDataAtCell(1, 1, 'D2', 'edit');
+
+    expect(tab.payload.data[1][1]).toBe('D2');
+    expect(tab.payload.dataViews?.activeViewId).toBe('filtered');
+    expect(tab.payload.activeDataViewId).toBe('filtered');
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(false);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+  });
+
+  test('component table payload hook preserves non-matrix payload data shapes', () => {
+    require('../js/main/session.js');
+    const session = global.window.Main.session;
+    const applyTablePayloadChanges = jest.fn((payload, changes) => {
+      payload.data = {
+        kind: 'custom-object',
+        firstChange: changes[0]
+      };
+      return payload;
+    });
+    global.window.Main.components = {
+      registry: {
+        customTable: {
+          createEmptyPayload: () => ({ type: 'customTable', data: { kind: 'from-registry' } })
+        }
+      }
+    };
+    global.window.Components = {
+      customTable: {
+        createEmptyPayload: () => ({ type: 'customTable', data: { kind: 'empty' } }),
+        applyTablePayloadChanges
+      }
+    };
+    const tab = session.createTab({
+      title: 'Custom Table',
+      type: 'customTable',
+      payload: {
+        type: 'customTable',
+        data: { kind: 'initial' }
+      }
+    });
+    session.workspaceState.tabs.push(tab);
+    session.workspaceState.activeTabId = tab.id;
+
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'payload-sync-custom-table',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ]
+      }
+    );
+
+    hot.setDataAtCell(1, 1, 'D2', 'edit');
+
+    expect(applyTablePayloadChanges).toHaveBeenCalled();
+    expect(Array.isArray(tab.payload.data)).toBe(false);
+    expect(tab.payload.data).toEqual({
+      kind: 'custom-object',
+      firstChange: { row: 1, col: 1, value: 'D2' }
+    });
+    expect(tab.payloadDirty).toBe(false);
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
   });
 
   test('defaults to double-click editing even when the browser reports touch capability', () => {

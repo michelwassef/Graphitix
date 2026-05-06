@@ -74,7 +74,7 @@
         }
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
-        session.markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type });
+        session.markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type, origin: 'user' });
         return;
       }
       if (!dom.duplicatePrompt || !dom.duplicateEmpty) {
@@ -95,7 +95,7 @@
           tab.layoutSignature = null;
         }
         showWorkspaceForTab(tab);
-        session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type });
+        session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, origin: 'user' });
         return;
       }
       if (!dom.duplicateReuse || !dom.duplicateCancel) {
@@ -122,7 +122,7 @@
           : null;
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
-        session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type });
+        session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
       };
       dom.duplicateEmpty.onclick = () => {
         const emptyPayload = getEmptyWorkspacePayload(type);
@@ -131,7 +131,7 @@
         tab.layoutSignature = null;
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
-        session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type });
+        session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
       };
       dom.duplicateCancel.onclick = () => {
         hideDuplicatePrompt();

@@ -3148,18 +3148,36 @@
     const active = resolveActiveVennTabId();
     if (!session || !active || typeof getVennGraphPayload !== 'function') return false;
     const tab = getVennTabById(active);
-    if (!tab || typeof session.assignTabPayload !== 'function') return false;
+    if (!tab) return false;
     const payload = getVennGraphPayload();
-    session.assignTabPayload(tab, payload, { reason: reason || 'venn-analysis-sync' });
-    debugLog('venn tab payload synced', { tabId: active, reason: reason || 'venn-analysis-sync' });
-    return true;
+    const resolvedReason = reason || 'venn-analysis-sync';
+    let changed = false;
+    if (typeof session.updateTabPayload === 'function') {
+      changed = session.updateTabPayload(tab, () => payload, {
+        reason: resolvedReason,
+        origin: 'user'
+      });
+    } else if (typeof session.assignTabPayload === 'function') {
+      changed = session.assignTabPayload(tab, payload, { reason: resolvedReason });
+      if (changed && typeof session.markTabUserModified === 'function') {
+        session.markTabUserModified(tab, resolvedReason, { origin: 'user' });
+      }
+    } else {
+      return false;
+    }
+    debugLog('venn tab payload synced', { tabId: active, reason: resolvedReason, changed });
+    return changed;
+  }
+
+  function persistActiveVennUserChange(reason) {
+    return syncActiveVennPayload(reason || 'venn-user-change');
   }
 
   function updateTabAnalysisPayload(tabId, analysisPatch, meta = {}) {
     const session = global.Main?.session;
     if (!session || !tabId || !analysisPatch || typeof analysisPatch !== 'object') return false;
     const tab = getVennTabById(tabId);
-    if (!tab || typeof session.assignTabPayload !== 'function') return false;
+    if (!tab) return false;
     const cloneFn = session.fastClonePayload || session.clonePayload;
     let payload = tab.payload ? (cloneFn ? cloneFn(tab.payload) : cloneSimple(tab.payload)) : null;
     if (!payload && typeof venn.createEmptyPayload === 'function') {
@@ -3168,13 +3186,28 @@
     if (!payload) return false;
     payload.analysis = payload.analysis && typeof payload.analysis === 'object' ? payload.analysis : {};
     Object.assign(payload.analysis, analysisPatch);
-    session.assignTabPayload(tab, payload, { reason: meta.reason || 'venn-analysis-update' });
+    const resolvedReason = meta.reason || 'venn-analysis-update';
+    let changed = false;
+    if (typeof session.updateTabPayload === 'function') {
+      changed = session.updateTabPayload(tab, () => payload, {
+        reason: resolvedReason,
+        origin: meta.origin || 'user'
+      });
+    } else if (typeof session.assignTabPayload === 'function') {
+      changed = session.assignTabPayload(tab, payload, { reason: resolvedReason });
+      if (changed && typeof session.markTabUserModified === 'function') {
+        session.markTabUserModified(tab, resolvedReason, { origin: meta.origin || 'user' });
+      }
+    } else {
+      return false;
+    }
     debugLog('venn tab analysis patched', {
       tabId,
-      reason: meta.reason || 'venn-analysis-update',
-      keys: Object.keys(analysisPatch || {})
+      reason: resolvedReason,
+      keys: Object.keys(analysisPatch || {}),
+      changed
     });
-    return true;
+    return changed;
   }
 
   function renderStringResults(items, limit = 5) {
@@ -4318,6 +4351,37 @@
       enableDrag(t);
       return t;
     }
+    function measureTextBox(node, fallbackFontSize) {
+      if (node && typeof node.getBBox === 'function') {
+        try {
+          const box = node.getBBox();
+          if (box && Number.isFinite(box.x) && Number.isFinite(box.y) && Number.isFinite(box.width) && Number.isFinite(box.height)) {
+            return box;
+          }
+        } catch (err) {
+          debugLog('venn text getBBox fallback', { message: err?.message || String(err) });
+        }
+      }
+      const fontSize = Number(fallbackFontSize) || 12;
+      const fontFamilyAttr = node?.getAttribute?.('font-family') || fontFamily || 'Arial, sans-serif';
+      const font = `${fontSize}px ${fontFamilyAttr}`;
+      const text = node?.textContent || '';
+      const measuredWidth = chartStyle.measureText
+        ? chartStyle.measureText(text, font)
+        : text.length * fontSize * 0.6;
+      const width = Math.max(fontSize, Number(measuredWidth) || 0);
+      const height = Math.max(fontSize, fontSize * 1.2);
+      const x = Number(node?.getAttribute?.('x')) || 0;
+      const y = Number(node?.getAttribute?.('y')) || 0;
+      const anchor = node?.getAttribute?.('text-anchor') || 'start';
+      const left = anchor === 'middle' ? x - width / 2 : (anchor === 'end' ? x - width : x);
+      return {
+        x: left,
+        y: y - height,
+        width,
+        height
+      };
+    }
     const labelBoxes = [];
     function placeCircleLabel(circle, label, count) {
       const center = toPx(circle.x, circle.y);
@@ -4326,12 +4390,12 @@
       const margin = style.fontSizePx * 0.6;
       let y = center.y + (isTop ? -(circle.r * scale + margin) : (circle.r * scale + margin));
       const t = addText(label + ' (' + count + ')', center.x, y, null, { role: 'setLabel', key: circle?.id ? `set-${circle.id}` : 'setLabel' });
-      let box = t.getBBox();
+      let box = measureTextBox(t, style.fontSizePx);
       for (const b of labelBoxes) {
         while (!(box.x + box.width < b.x || b.x + b.width < box.x || box.y + box.height < b.y || b.y + b.height < box.y)) {
           y += isTop ? -style.fontSizePx : style.fontSizePx;
           t.setAttribute('y', y);
-          box = t.getBBox();
+          box = measureTextBox(t, style.fontSizePx);
         }
       }
       const minYBound = style.fontSizePx;
@@ -4339,12 +4403,12 @@
       if (box.y < minYBound) {
         y += minYBound - box.y;
         t.setAttribute('y', y);
-        box = t.getBBox();
+        box = measureTextBox(t, style.fontSizePx);
       }
       if (box.y + box.height > maxYBound) {
         y -= box.y + box.height - maxYBound;
         t.setAttribute('y', y);
-        box = t.getBBox();
+        box = measureTextBox(t, style.fontSizePx);
       }
       labelBoxes.push(box);
     }
@@ -5793,6 +5857,32 @@
     return payload;
   };
 
+  venn.applyTablePayloadChanges = function applyVennTablePayloadChanges(payload, _changes, meta = {}){
+    const hot = meta.hotInstance || state.ui.hot || null;
+    const matrix = hot && typeof hot.getData === 'function' ? hot.getData() : null;
+    if (!Array.isArray(matrix)) {
+      return null;
+    }
+    const nextPayload = payload && typeof payload === 'object'
+      ? payload
+      : venn.createEmptyPayload();
+    const existingData = nextPayload.data && typeof nextPayload.data === 'object' && !Array.isArray(nextPayload.data)
+      ? nextPayload.data
+      : {};
+    const header = matrix[0] || [];
+    nextPayload.type = 'venn';
+    nextPayload.data = {
+      ...existingData,
+      labelA: getNormalizedVennLabel(header[0], 0),
+      labelB: getNormalizedVennLabel(header[1], 1),
+      labelC: getNormalizedVennLabel(header[2], 2),
+      listA: getColumnValuesFromTable(matrix, 0).join('\n'),
+      listB: getColumnValuesFromTable(matrix, 1).join('\n'),
+      listC: getColumnValuesFromTable(matrix, 2).join('\n')
+    };
+    return nextPayload;
+  };
+
   venn.save = async function () {
     const payload = getVennGraphPayload();
     if (!payload) return;
@@ -6073,6 +6163,7 @@
     const target = event?.currentTarget || state.ui.inputs.opacity;
     state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value;
     refreshDiagram();
+    persistActiveVennUserChange('venn-opacity-change');
     debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
     commitVennUndo(target, 'venn:opacity');
     if (target) {
@@ -6091,6 +6182,7 @@
     chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
     debug('Debug: venn fontsize slider change', { raw, fontInfo });
     refreshDiagram();
+    persistActiveVennUserChange('venn-fontsize-change');
     const target = event?.currentTarget || state.ui.inputs.fontsize;
     commitVennUndo(target, 'venn:fontsize');
     if (target) {
@@ -6100,6 +6192,7 @@
 
   function handleColorInput(event) {
     refreshDiagram();
+    persistActiveVennUserChange('venn-color-change');
     debug('Debug: venn handleColorInput'); // Debug: color change trigger
     const target = event?.currentTarget || null;
     const label = target?.id ? `venn:${target.id}` : 'venn:color';
@@ -6110,6 +6203,7 @@
 
   function handleBorderColorInput(event) {
     refreshDiagram();
+    persistActiveVennUserChange('venn-border-color-change');
     debug('Debug: venn handleBorderColorInput'); // Debug: border color update
     commitVennUndo(event?.currentTarget || state.ui.inputs.borderColor, 'venn:border-color');
   }
@@ -6118,6 +6212,7 @@
     const target = event?.currentTarget || state.ui.inputs.borderWidth;
     state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
     refreshDiagram();
+    persistActiveVennUserChange('venn-border-width-change');
     debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
     commitVennUndo(target, 'venn:border-width');
     if (target) {
@@ -6134,6 +6229,7 @@
       }
       updateCountLabels(labels);
       requestScheduledDraw(`label-input-${id}`);
+      persistActiveVennUserChange(`venn-label-${id}-change`);
       debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
       const target = event?.currentTarget || state.ui.inputs[id];
       commitVennUndo(target, `venn:label-${id}`);
@@ -6142,6 +6238,7 @@
 
   function handleCaseSensitiveChange(event) {
     requestScheduledDraw('case-sensitive-toggle', 'lists');
+    persistActiveVennUserChange('venn-case-sensitive-change');
     debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
     commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
   }
@@ -6151,6 +6248,7 @@
     const nextType = normalizePlotType(target?.value || DEFAULT_PLOT_TYPE);
     syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
     requestScheduledDraw('plot-type-change');
+    persistActiveVennUserChange('venn-plot-type-change');
     debug('Debug: venn handlePlotTypeChange', { plot: nextType });
     commitVennUndo(target, 'venn:plot-type');
   }
@@ -6159,6 +6257,7 @@
     requestScheduledDraw('upset-control-change');
     const target = event?.currentTarget || null;
     const label = target?.id ? `venn:${target.id}` : 'venn:upset-control';
+    persistActiveVennUserChange('venn-upset-control-change');
     debug('Debug: venn handleUpSetControlChange', { id: target?.id || null });
     commitVennUndo(target, label);
   }
@@ -6167,6 +6266,7 @@
     const target = event?.currentTarget || state.ui.upset?.dotSize;
     updateUpSetDotSizeOutput(target?.value);
     requestScheduledDraw('upset-dot-size');
+    persistActiveVennUserChange('venn-upset-dot-size-change');
     debug('Debug: venn handleUpSetDotSizeInput', { value: target?.value });
     commitVennUndo(target, 'venn:upset-dot-size');
   }
@@ -6214,6 +6314,7 @@
       setSpeciesIndicator(null);
       requestScheduledDraw(`list-input-${key}`, 'lists');
       scheduleSpeciesRecognition(`list-input-${key}`);
+      persistActiveVennUserChange(`venn-list-${key}-change`);
       debug('Debug: venn listInputHandler', { key }); // Debug: list input change
       const target = event?.currentTarget || state.ui.inputs[key];
       commitVennUndo(target, `venn:list-${key}`);
@@ -6224,6 +6325,7 @@
     return function numericInputHandler(event) {
       requestScheduledDraw(`numeric-input-${key}`, 'numeric');
       cancelPendingSpeciesDetection(`numeric-input-${key}`, { abortActive: true, resetIndicator: true });
+      persistActiveVennUserChange(`venn-numeric-${key}-change`);
       debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
       const target = event?.currentTarget || state.ui.inputs.counts[key];
       commitVennUndo(target, `venn:numeric-${key}`);

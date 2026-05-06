@@ -369,6 +369,7 @@
       try{
         session.persistActiveTabState(tab, {
           reason: options.reason || 'undo-capture',
+          origin: 'lifecycle',
           forcePreviewCapture: options.forcePreviewCapture === true
         });
       }catch(err){
@@ -438,6 +439,18 @@
       tab.previewMarkup = snapshot.previewMarkup || null;
       tab.previewSignature = snapshot.previewSignature || null;
       tab.previewMeta = cloneValue(snapshot.previewMeta || null);
+      if(typeof session.markTabUserModified === 'function'){
+        session.markTabUserModified(tab, reason, {
+          origin: 'user',
+          affectsPayload: false
+        });
+      }else if(typeof session.markSessionDirty === 'function'){
+        session.markSessionDirty(reason, {
+          tabId: tab.id,
+          type: tab.type || snapshot.type || null,
+          origin: 'user'
+        });
+      }
     }catch(err){
       console.error('Shared.undoManager applyTabState assign error', err);
       return false;
