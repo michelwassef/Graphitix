@@ -10612,7 +10612,7 @@
     if(!tabLike && boxRoot?.isConnected){
       return boxRoot;
     }
-    return global.document?.getElementById?.('boxPage') || null;
+    return null;
   }
 
   function getBoxNodeById(id, options = {}){
@@ -10627,7 +10627,7 @@
       }
       return null;
     }
-    return global.document?.getElementById?.(id) || null;
+    return null;
   }
 
   function queryBoxNode(selector, options = {}){
@@ -10974,8 +10974,8 @@
       });
     }
     const manager = hotInstance.__boxDataViewsManager;
-    const hostWrapper = options.wrapper || global.document?.getElementById?.('hotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null;
+    const hostWrapper = options.wrapper || getBoxNodeById('hotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null;
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -11010,8 +11010,8 @@
       return false;
     }
     const manager = ensureBoxDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('hotWrapper') || null,
-      container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+      wrapper: getBoxNodeById('hotWrapper') || null,
+      container: hot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('box data transform skipped: Shared.dataViews unavailable');
@@ -11100,8 +11100,8 @@
       return false;
     }
     const manager = ensureBoxDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('hotWrapper') || null,
-      container: hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+      wrapper: getBoxNodeById('hotWrapper') || null,
+      container: hot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
     });
     if(!manager || typeof manager.applyPipeline !== 'function'){
       console.warn('box data transform pipeline skipped: Shared.dataViews unavailable');
@@ -11245,7 +11245,7 @@
         applyBoxTransformToNewView(resolved.spec, { title: resolved.title });
       }
     }, true);
-    const wrapper = global.document?.getElementById?.('hotWrapper');
+    const wrapper = getBoxNodeById('hotWrapper');
     if(wrapper && !wrapper.__boxDataToolbarFocusBound){
       wrapper.addEventListener('mousedown', () => {
         activateBoxDataToolbar('table-mousedown');
@@ -14759,7 +14759,7 @@
     const hotRoot = hot?.rootElement
       || hot?.__boxHostContainer
       || els.hotContainer
-      || global.document?.getElementById?.('hot')
+      || getBoxNodeById('hot')
       || null;
     if(!hotRoot){
       return;
@@ -14781,7 +14781,7 @@
     const hotRoot = hot?.rootElement
       || hot?.__boxHostContainer
       || els.hotContainer
-      || global.document?.getElementById?.('hot')
+      || getBoxNodeById('hot')
       || null;
     if(!hotRoot || typeof hotRoot.querySelectorAll !== 'function'){
       return;
@@ -15242,14 +15242,16 @@
       return instance;
     };
     const ensureBoxHotForActiveTab = () => {
-      const wrapper = els.hotWrapper || getBoxNodeById('hotWrapper');
-      const baseContainer = els.hotContainer || getBoxNodeById('hot');
+      const activeTabId = Shared.hot.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+      const wrapper = getBoxNodeById('hotWrapper', { tabLike: activeTabId }) || getBoxNodeById('hotWrapper');
+      const baseContainer = getBoxNodeById('hot', { tabLike: activeTabId }) || getBoxNodeById('hot');
       if(!baseContainer){
         if(Shared.isDebugEnabled?.()){
           console.debug('Debug: box ensure table skipped (missing container)');
         }
         return state.hot || null;
       }
+      els.hotWrapper = wrapper || null;
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper){
         if(!state.hot){
           state.hot = createBoxTable(baseContainer);
@@ -15257,7 +15259,7 @@
         els.hotContainer = baseContainer;
         if(state.hot){
           state.hot.__boxHostContainer = baseContainer;
-          state.hot.__boxTabId = Shared.hot.resolveActiveTabId?.() || 'box-default';
+          state.hot.__boxTabId = activeTabId || 'box-default';
           ensureBoxDefaultHeaderRow(state.hot);
           ensureBoxDataViewsForHot(state.hot, {
             wrapper,
@@ -15271,7 +15273,7 @@
       try{
         entry = Shared.hot.ensureTableForTab({
           type: 'box',
-          tabId: Shared.hot.resolveActiveTabId?.() || 'box-default',
+          tabId: activeTabId || null,
           wrapper,
           container: baseContainer,
           createInstance: createBoxTable
@@ -15291,7 +15293,7 @@
       }
       if(state.hot){
         state.hot.__boxHostContainer = entry?.container || baseContainer;
-        state.hot.__boxTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'box-default';
+        state.hot.__boxTabId = entry?.tabId || activeTabId || 'box-default';
         ensureBoxDefaultHeaderRow(state.hot);
         ensureBoxDataViewsForHot(state.hot, {
           wrapper,
@@ -32678,8 +32680,8 @@ Technical analysis record (advanced)
     }
     selectedColumns.sort((a,b)=>a-b);
     const activeManager = ensureBoxDataViewsForHot(activeHot, {
-      wrapper: global.document?.getElementById?.('hotWrapper') || null,
-      container: activeHot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+      wrapper: getBoxNodeById('hotWrapper') || null,
+      container: activeHot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
     });
     syncBoxActiveDataViewFromHot(activeHot, 'payload');
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
@@ -33095,8 +33097,8 @@ Technical analysis record (advanced)
     const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = state.hot
       ? ensureBoxDataViewsForHot(state.hot, {
-          wrapper: global.document?.getElementById?.('hotWrapper') || null,
-          container: state.hot.__boxHostContainer || els.hotContainer || global.document?.getElementById?.('hot') || null
+          wrapper: getBoxNodeById('hotWrapper') || null,
+          container: state.hot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
         })
       : null;
     if(dataManager){

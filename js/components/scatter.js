@@ -343,11 +343,14 @@
       || Shared.hot?.resolveActiveTabId?.()
       || global.Main?.tabs?.getActiveTab?.()?.id
       || null;
-    return Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'scatter')
-      || scatterRoot
-      || global.document?.getElementById?.('scatterPage')
-      || global.document
-      || null;
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'scatter') || null;
+    if(mountedRoot){
+      return mountedRoot;
+    }
+    if(scatterRoot && scatterRoot.isConnected){
+      return scatterRoot;
+    }
+    return global.document?.getElementById?.('scatterPage') || null;
   }
   function queryScatterRoot(selector, tabLike){
     const root = resolveScatterRoot(tabLike);
@@ -371,11 +374,7 @@
     if(scoped && scoped.isConnected){
       return scoped;
     }
-    const docNode = global.document?.getElementById?.(id) || null;
-    if(docNode && docNode.isConnected){
-      return docNode;
-    }
-    return scoped || docNode || null;
+    return scoped || null;
   }
   let scatterDrawToken = 0;
   function normalizeScatterAxisLabelMode(value){
@@ -10022,17 +10021,21 @@
         return hotInstance;
       };
       const ensureScatterHotForActiveTab = () => {
-        const wrapper = scatterHotWrapper || getScatterNodeById('scatterHotWrapper');
-        const baseContainer = scatterHotContainer || getScatterNodeById('scatterHot');
-        if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        const activeTabId = Shared.hot.resolveActiveTabId?.()
+          || scatter.__boundTabId
+          || global.Main?.tabs?.getActiveTab?.()?.id
+          || null;
+        const wrapper = getScatterNodeById('scatterHotWrapper', activeTabId) || getScatterNodeById('scatterHotWrapper');
+        const baseContainer = getScatterNodeById('scatterHot', activeTabId) || getScatterNodeById('scatterHot');
+        if(typeof Shared.hot?.ensureTableForTab !== 'function'){
           if(!scatterHot){
             scatterHot = createScatterTable(baseContainer);
           }
-          const activeTabId = Shared.hot.resolveActiveTabId?.() || 'scatter-default';
+          const resolvedTabId = activeTabId || 'scatter-default';
           if(scatterHot){
             scatterHot.__scatterHostContainer = baseContainer;
-            scatterHot.__scatterTabId = activeTabId;
-            scheduleScatterSelectionRestore(scatterHot, activeTabId);
+            scatterHot.__scatterTabId = resolvedTabId;
+            scheduleScatterSelectionRestore(scatterHot, resolvedTabId);
             scatterRefs.hot = scatterHot;
             ensureScatterHeaderTitles(scatterHot, {
               graphType: scatterCurrentGraphType,
@@ -10053,9 +10056,15 @@
           }
           return scatterHot;
         }
+        if(!wrapper || !baseContainer){
+          const poolEntry = activeTabId
+            ? Shared.hot?.__tabTablePools?.scatter?.byTab?.[activeTabId]
+            : null;
+          return poolEntry?.instance || scatterRefs.hot || scatterHot || null;
+        }
         const entry = Shared.hot.ensureTableForTab({
           type: 'scatter',
-          tabId: Shared.hot.resolveActiveTabId?.() || 'scatter-default',
+          tabId: activeTabId || null,
           wrapper,
           container: baseContainer,
           createInstance: createScatterTable
@@ -10067,10 +10076,10 @@
         if(scatterHot){
           scatterHot.__scatterHostContainer = entry?.container || baseContainer;
         }
-        const activeTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'scatter-default';
+        const resolvedTabId = entry?.tabId || activeTabId || 'scatter-default';
         if(scatterHot){
-          scatterHot.__scatterTabId = activeTabId;
-          scheduleScatterSelectionRestore(scatterHot, activeTabId);
+          scatterHot.__scatterTabId = resolvedTabId;
+          scheduleScatterSelectionRestore(scatterHot, resolvedTabId);
           scatterRefs.hot = scatterHot;
           ensureScatterHeaderTitles(scatterHot, {
             graphType: scatterCurrentGraphType,
@@ -16370,6 +16379,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const shouldRenderSignificantLabels = false;
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=getScatterNodeById('scatterPlot');
+        if(!plotEl){
+          info('scatter draw skipped: missing active plot container', {
+            tabId: Shared.hot?.resolveActiveTabId?.() || null,
+            graphType
+          });
+          return;
+        }
         plotEl.style.display='block';
         const clearScatterPlot=()=>{
           if(!plotEl){
@@ -21586,8 +21602,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
-        const postApplyGraphTypeControl = getScatterNodeById('scatterGraphType') || global.document?.getElementById?.('scatterGraphType') || null;
-        const postApplyShowLineControl = getScatterNodeById('scatterShowLine') || global.document?.getElementById?.('scatterShowLine') || null;
+        const postApplyGraphTypeControl = getScatterNodeById('scatterGraphType') || null;
+        const postApplyShowLineControl = getScatterNodeById('scatterShowLine') || null;
         const postApplyGraphType = String(c.graphType || postApplyGraphTypeControl?.value || 'scatter').toLowerCase();
         if(postApplyShowLineControl){
           const shouldShowLine = postApplyGraphType === 'scatter' && !!c.showLine;
@@ -21740,7 +21756,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     scatter.getPayload = getScatterGraphPayload;
     {
       const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
-        () => (typeof scatter.__ensureHotForActiveTab === 'function' ? scatter.__ensureHotForActiveTab() : null) || scatterRefs.hot || scatterHot,
+        () => scatterRefs.hot || scatterHot || null,
         'scatter'
       );
       scatter.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
@@ -21826,6 +21842,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     };
 
     scatter.serialize = serializeSvg;
+    scatter.__getActiveHot = () => (typeof scatter.__ensureHotForActiveTab === 'function'
+      ? scatter.__ensureHotForActiveTab()
+      : (scatterRefs.hot || scatterHot || null));
     initNotes();
     ensureScatterFontEventListener();
     ensureEmptyPayloadTemplate();
@@ -21841,6 +21860,38 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       return;
     }
     if(!scatter.ready) setup();
+  }
+
+  function resetScatterHotViewportToTop(hotInstance){
+    const hot = hotInstance || null;
+    if(!hot){
+      return;
+    }
+    try{
+      if(typeof hot.gridApi?.ensureIndexVisible === 'function'){
+        hot.gridApi.ensureIndexVisible(0, 'top');
+      }
+    }catch(err){
+      console.debug('Debug: scatter viewport reset ensureIndexVisible failed', { message: err?.message || String(err) });
+    }
+    try{
+      const host = hot.__scatterHostContainer || getScatterNodeById('scatterHot');
+      const viewport = host?.querySelector?.('.ag-body-vertical-scroll-viewport') || null;
+      if(viewport && typeof viewport.scrollTop === 'number'){
+        viewport.scrollTop = 0;
+      }
+    }catch(err){
+      console.debug('Debug: scatter viewport reset scrollTop failed', { message: err?.message || String(err) });
+    }
+  }
+
+  function isScatterRuntimeFreshForTab(tabLike){
+    const record = getScatterSessionRecord(tabLike || Shared.hot?.resolveActiveTabId?.() || null, { create: false });
+    const runtime = record?.runtime;
+    if(!runtime || typeof runtime !== 'object'){
+      return true;
+    }
+    return Object.keys(runtime).length === 0;
   }
 
   function ensureScatterDomBindings(tabLike){
@@ -21882,22 +21933,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       graphTypeControl.value = targetGraphType;
       graphTypeControl.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    const docGraphTypeControl = global.document?.getElementById?.('scatterGraphType') || null;
-    if(docGraphTypeControl && docGraphTypeControl !== graphTypeControl && docGraphTypeControl.value !== targetGraphType){
-      docGraphTypeControl.value = targetGraphType;
-    }
     if(showLineControl){
       const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
       if(showLineControl.checked !== shouldShowLine){
         showLineControl.checked = shouldShowLine;
         showLineControl.dispatchEvent(new Event('change', { bubbles: true }));
       }
-    }
-    const docShowLineControl = global.document?.getElementById?.('scatterShowLine') || null;
-    if(docShowLineControl && docShowLineControl !== showLineControl){
-      const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
-      docShowLineControl.checked = shouldShowLine;
-      docShowLineControl.disabled = targetGraphType !== 'scatter';
     }
   }
 
@@ -21962,6 +22003,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     scatterLayoutWasHidden = true;
     if(typeof scatter.__ensureHotForActiveTab === 'function'){
       scatter.__ensureHotForActiveTab();
+    }
+    if(tab?.uiState?.component && typeof scatter.applyUiState === 'function'){
+      try{
+        scatter.applyUiState(tab.uiState.component, { reason: 'activate-tab-final-ui-state' });
+      }catch(err){
+        console.debug('Debug: scatter activateTab final uiState apply failed', { message: err?.message || String(err) });
+      }
+    }
+    if(isScatterRuntimeFreshForTab(tab) && tab?.loadedFromArchive !== true){
+      resetScatterHotViewportToTop(scatter.__getActiveHot?.() || scatterRefs.hot || scatterHot || null);
     }
   };
 
@@ -22502,4 +22553,3 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   });
 
 })(window);
-

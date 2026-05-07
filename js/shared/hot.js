@@ -941,6 +941,12 @@
       while(target.firstChild){
         target.removeChild(target.firstChild);
       }
+      if(typeof target.scrollTop === 'number'){
+        target.scrollTop = 0;
+      }
+      if(typeof target.scrollLeft === 'number'){
+        target.scrollLeft = 0;
+      }
     };
     normalizeContainerForMount(container, pool.template || templateContainer || null);
     if(!container.id && templateContainer?.id){
@@ -979,19 +985,64 @@
       container,
       createInstance
     } = options || {};
-    const tabId = explicitTabId || resolveActiveTabId() || `${type || 'hot'}-default`;
-    if(typeof hotNS.mountTableForTab !== 'function' || !wrapper){
-      const instance = typeof createInstance === 'function' ? createInstance(container) : null;
-      return { instance, container, tabId };
+    const resolveTabIdFromNode = node => {
+      if(!node || typeof node.closest !== 'function'){
+        return null;
+      }
+      const scopedRoot = node.closest('[data-workspace-tab-id],[data-tab-id]') || null;
+      if(!scopedRoot){
+        return null;
+      }
+      return scopedRoot.getAttribute?.('data-workspace-tab-id')
+        || scopedRoot.getAttribute?.('data-tab-id')
+        || null;
+    };
+    let tabId = explicitTabId || resolveActiveTabId() || null;
+    let resolvedWrapper = wrapper || null;
+    let resolvedContainer = container || null;
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabId, type || null) || null;
+    if(mountedRoot && typeof mountedRoot.querySelector === 'function'){
+      const wrapperId = resolvedWrapper?.id || null;
+      const containerId = resolvedContainer?.id || null;
+      const wrapperInRoot = !!(resolvedWrapper && typeof mountedRoot.contains === 'function' && mountedRoot.contains(resolvedWrapper));
+      const containerInRoot = !!(resolvedContainer && typeof mountedRoot.contains === 'function' && mountedRoot.contains(resolvedContainer));
+      if(!wrapperInRoot && wrapperId){
+        const scopedWrapper = mountedRoot.querySelector(`#${wrapperId}`);
+        if(scopedWrapper){
+          resolvedWrapper = scopedWrapper;
+        }
+      }
+      if(!containerInRoot && containerId){
+        const scopedContainer = mountedRoot.querySelector(`#${containerId}`);
+        if(scopedContainer){
+          resolvedContainer = scopedContainer;
+        }
+      }
+      if(!resolvedWrapper && wrapperId){
+        resolvedWrapper = mountedRoot.querySelector(`#${wrapperId}`) || null;
+      }
+      if(!resolvedContainer && containerId){
+        resolvedContainer = mountedRoot.querySelector(`#${containerId}`) || null;
+      }
+    }
+    if((!tabId || /-default$/.test(String(tabId))) && (resolvedWrapper || resolvedContainer)){
+      const inferredTabId = resolveTabIdFromNode(resolvedWrapper) || resolveTabIdFromNode(resolvedContainer);
+      if(inferredTabId){
+        tabId = inferredTabId;
+      }
+    }
+    if(typeof hotNS.mountTableForTab !== 'function' || !resolvedWrapper || !tabId){
+      const instance = typeof createInstance === 'function' ? createInstance(resolvedContainer) : null;
+      return { instance, container: resolvedContainer, tabId };
     }
     const entry = hotNS.mountTableForTab({
       type: type || 'hot',
       tabId,
-      wrapper,
-      templateContainer: container,
+      wrapper: resolvedWrapper,
+      templateContainer: resolvedContainer,
       createInstance
     });
-    return entry || { instance: null, container, tabId };
+    return entry || { instance: null, container: resolvedContainer, tabId };
   };
 
   hotNS.ensureStandardTableForTab = function ensureStandardTableForTab(options){
@@ -15273,11 +15324,28 @@
         console.error('Shared.hot.captureHotUiState getSelectedRangeLast error', err);
       }
     }
+    try{
+      const activeTabId = hotNS.resolveActiveTabId?.() || null;
+      if(activeTabId){
+        captured.tabId = activeTabId;
+      }
+    }catch(err){
+      // best-effort tab ownership stamp
+    }
     return Object.keys(captured).length ? captured : null;
   }
 
   function applyHotUiState(instance, state, options = {}){
     if(!instance || !state || typeof state !== 'object'){ return false; }
+    const activeTabId = hotNS.resolveActiveTabId?.() || null;
+    if(state.tabId && activeTabId && String(state.tabId) !== String(activeTabId)){
+      hotDebug('Debug: Shared.hot.applyHotUiState skipped due to tab ownership mismatch', {
+        stateTabId: state.tabId,
+        activeTabId,
+        reason: options.reason || 'apply-hot-uiState'
+      });
+      return false;
+    }
     let appliedAny = false;
     const gridApi = instance.gridApi || null;
     const reason = options.reason || 'apply-hot-uiState';

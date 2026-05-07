@@ -142,10 +142,12 @@ describe('Venn UpSet integration', () => {
     expect((updated.getAttribute('fill') || '').toLowerCase()).toBe('#aa5500');
   });
 
-  test('Venn retains aspect ratio when auto-resizing the chart viewport', async () => {
+  test('Venn and UpSet retain aspect ratio when auto-resizing the chart viewport', async () => {
     await activateWorkspace('venn');
+    const plotType = document.getElementById('vennPlotType');
     const venn = window.Components?.venn;
     const hooks = venn?.__testHooks;
+    expect(plotType).toBeTruthy();
     expect(hooks?.state?.ui?.inputs).toBeTruthy();
 
     hooks.state.ui.inputs.A.value = 'GeneA\nGeneShared';
@@ -156,6 +158,11 @@ describe('Venn UpSet integration', () => {
 
     const stage = document.getElementById('stage');
     expect(stage).toBeTruthy();
+    expect(stage.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+
+    plotType.value = 'upset';
+    dispatchChange(plotType);
+    venn.refreshDiagram();
     expect(stage.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
   });
 

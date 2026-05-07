@@ -2850,7 +2850,7 @@ let state = {
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'pie',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'pie-default',
+        tabId: Shared.hot.resolveActiveTabId?.() || null,
         wrapper,
         container: baseContainer,
         createInstance: createPieTable

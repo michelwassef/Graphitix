@@ -178,8 +178,6 @@
   function resolveSurfaceRoot(tabLike){
     return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface')
       || state.root
-      || global.document?.getElementById?.('surfacePage')
-      || global.document
       || null;
   }
 
@@ -1210,6 +1208,10 @@
       return instance;
     };
     const ensureSurfaceHotForActiveTab = () => {
+      const activeTabId = Shared.hot.resolveActiveTabId?.()
+        || surface.__boundTabId
+        || global.Main?.tabs?.getActiveTab?.()?.id
+        || null;
       const wrapper = getSurfaceNodeById('surfaceHotWrapper');
       const baseContainer = getSurfaceNodeById('surfaceHot');
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
@@ -1218,7 +1220,7 @@
         }
         if(state.hot){
           state.hot.__surfaceHostContainer = baseContainer;
-          state.hot.__surfaceTabId = Shared.hot.resolveActiveTabId?.() || 'surface-default';
+          state.hot.__surfaceTabId = activeTabId || 'surface-default';
           ensureSurfaceDataViewsForHot(state.hot, {
             wrapper,
             container: baseContainer
@@ -1229,7 +1231,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'surface',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'surface-default',
+        tabId: activeTabId || null,
         wrapper,
         container: baseContainer,
         createInstance: createSurfaceTable
@@ -1239,7 +1241,7 @@
       }
       if(state.hot){
         state.hot.__surfaceHostContainer = entry?.container || baseContainer;
-        state.hot.__surfaceTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'surface-default';
+        state.hot.__surfaceTabId = entry?.tabId || activeTabId || 'surface-default';
         ensureSurfaceDataViewsForHot(state.hot, {
           wrapper,
           container: entry?.container || baseContainer
@@ -2557,6 +2559,10 @@
       debugLog('Debug: surface.init skipped', { reason: 'ready' });
       return;
     }
+    surface.__boundTabId = surface.__boundTabId
+      || Shared.hot.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
     state.root = resolveSurfaceRoot();
     cacheDom();
     state.scheduleDraw = () => {};
@@ -2712,7 +2718,38 @@
     }
     if(!surface.ready){ surface.init(); }
   };
+  function resetSurfaceHotViewportToTop(hotInstance){
+    const hot = hotInstance || null;
+    if(!hot){
+      return;
+    }
+    try{
+      if(typeof hot.gridApi?.ensureIndexVisible === 'function'){
+        hot.gridApi.ensureIndexVisible(0, 'top');
+      }
+    }catch(err){
+      debugLog('Debug: surface viewport reset ensureIndexVisible failed', { message: err?.message || String(err) });
+    }
+    try{
+      const host = hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot');
+      const viewport = host?.querySelector?.('.ag-body-vertical-scroll-viewport') || null;
+      if(viewport && typeof viewport.scrollTop === 'number'){
+        viewport.scrollTop = 0;
+      }
+    }catch(err){
+      debugLog('Debug: surface viewport reset scrollTop failed', { message: err?.message || String(err) });
+    }
+  }
+  function isSurfaceRuntimeFreshForTab(tabLike){
+    const record = Shared.workspaceTabs?.getSessionRecord?.(tabLike || Shared.hot?.resolveActiveTabId?.() || null, 'surface') || null;
+    const runtime = record?.runtime;
+    if(!runtime || typeof runtime !== 'object'){
+      return true;
+    }
+    return Object.keys(runtime).length === 0;
+  }
   surface.activateTab = function activateTab(tab){
+    surface.__boundTabId = (tab && typeof tab === 'object' ? tab.id : tab) || surface.__boundTabId || null;
     state.root = resolveSurfaceRoot(tab || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
@@ -2746,6 +2783,16 @@
           container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
         });
         syncSurfaceActiveDataViewFromHot(hot, 'activate-tab');
+        if(isSurfaceRuntimeFreshForTab(tab) && tab?.loadedFromArchive !== true){
+          resetSurfaceHotViewportToTop(hot);
+        }
+      }
+    }
+    if(tab?.uiState?.component && typeof surface.applyUiState === 'function'){
+      try{
+        surface.applyUiState(tab.uiState.component, { reason: 'activate-tab-final-ui-state' });
+      }catch(err){
+        debugLog('Debug: surface activateTab final uiState apply failed', { message: err?.message || String(err) });
       }
     }
     cacheDom();
@@ -2778,6 +2825,9 @@
     // schedule a fresh draw for the active tab
     state.scheduleDraw?.();
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
+  };
+  surface.__getActiveHot = function __getActiveHot(){
+    return (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
   };
 
   surface.captureRuntimeState = function captureRuntimeState(){
@@ -3009,7 +3059,7 @@
   surface.getPayload = getPayload;
   {
     const tableUiHooks = Shared.hot?.makeTableUiStateHooks?.(
-      () => (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot,
+      () => state.hot || null,
       'surface'
     );
     surface.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;

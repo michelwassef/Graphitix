@@ -2401,7 +2401,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'heatmap',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'heatmap-default',
+        tabId: Shared.hot.resolveActiveTabId?.() || null,
         wrapper,
         container: baseContainer,
         createInstance: createHeatmapTable

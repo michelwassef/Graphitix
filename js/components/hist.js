@@ -2761,7 +2761,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'hist',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'hist-default',
+        tabId: Shared.hot.resolveActiveTabId?.() || null,
         wrapper,
         container: baseContainer,
         createInstance: createHistTable

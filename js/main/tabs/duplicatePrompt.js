@@ -59,6 +59,36 @@
       return null;
     }
 
+    function clearTabTransientState(tab, type, reason) {
+      if (!tab || typeof tab !== 'object') {
+        return;
+      }
+      tab.uiState = null;
+      tab.sharedState = tab.sharedState && typeof tab.sharedState === 'object'
+        ? tab.sharedState
+        : {};
+      tab.sharedState.runtime = {};
+      tab.sharedState.sessions = {};
+      if (window.Shared?.hot?.__tabTablePools && type && tab.id) {
+        try {
+          const pool = window.Shared.hot.__tabTablePools[type];
+          if (pool?.byTab && Object.prototype.hasOwnProperty.call(pool.byTab, tab.id)) {
+            delete pool.byTab[tab.id];
+          }
+          if (pool?.currentTabId === tab.id) {
+            pool.currentTabId = null;
+          }
+        } catch (err) {
+          console.debug('Debug: duplicate prompt transient table state clear failed', {
+            tabId: tab.id,
+            type,
+            reason: reason || 'clear',
+            message: err?.message || String(err)
+          });
+        }
+      }
+    }
+
     function showDuplicateDecision({ tab, type, sourceTab, canDuplicate }) {
       if (!canDuplicate) {
         console.debug('Debug: duplicate prompt bypassed', {
@@ -71,6 +101,7 @@
           session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-bypass-clear' });
           tab.layoutState = null;
           tab.layoutSignature = null;
+          clearTabTransientState(tab, type, 'duplicate-bypass');
         }
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
@@ -93,6 +124,7 @@
           session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-fallback-empty' });
           tab.layoutState = null;
           tab.layoutSignature = null;
+          clearTabTransientState(tab, type, 'duplicate-fallback-empty');
         }
         showWorkspaceForTab(tab);
         session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, origin: 'user' });
@@ -129,6 +161,7 @@
         session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-empty' });
         tab.layoutState = null;
         tab.layoutSignature = null;
+        clearTabTransientState(tab, type, 'duplicate-empty');
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
         session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });

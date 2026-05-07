@@ -4769,7 +4769,12 @@
       });
       emptyText.textContent = 'No intersections to display';
       ensureUpSetFontBindings(stage);
-      ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-empty' });
+      ensureGraphViewport(stage, {
+        padding: Math.max(style.fontSizePx || 12, 20),
+        debugLabel: 'upset-empty',
+        preserveAspectRatio: 'xMidYMid meet'
+      });
+      stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       return;
     }
 
@@ -5397,7 +5402,12 @@
     });
 
     ensureUpSetFontBindings(stage);
-    ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'upset-plot' });
+    ensureGraphViewport(stage, {
+      padding: Math.max(style.fontSizePx || 12, 20),
+      debugLabel: 'upset-plot',
+      preserveAspectRatio: 'xMidYMid meet'
+    });
+    stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
       chartStyle.applyTextAspectCorrection({
         svg: stage,

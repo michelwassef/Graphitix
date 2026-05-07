@@ -12091,7 +12091,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'line',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'line-default',
+        tabId: Shared.hot.resolveActiveTabId?.() || null,
         wrapper,
         container: baseContainer,
         createInstance: createLineTable

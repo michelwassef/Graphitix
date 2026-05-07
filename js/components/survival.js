@@ -1039,7 +1039,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'survival',
-        tabId: Shared.hot.resolveActiveTabId?.() || 'survival-default',
+        tabId: Shared.hot.resolveActiveTabId?.() || null,
         wrapper,
         container: baseContainer,
         createInstance: createSurvivalTable
