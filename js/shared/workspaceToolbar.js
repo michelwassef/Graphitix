@@ -175,6 +175,7 @@
   let undoSubscriptionCleanup = null;
   let menuHandlersBound = false;
   let transformHandlersBound = false;
+  let sectionTabHandlersBound = false;
   const contextObservers = new WeakMap();
   const transformCustomExpressionByKey = new Map();
   const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
@@ -835,6 +836,32 @@
     transformHandlersBound = true;
   }
 
+  function handleToolbarSectionTabClickCapture(event){
+    const target = event?.target;
+    if(!target || typeof target.closest !== 'function'){
+      return;
+    }
+    const tab = target.closest('.workspace-toolbar__tab[data-toolbar-section-target]');
+    if(!tab || tab.disabled){
+      return;
+    }
+    const toolbar = tab.closest?.('.workspace-toolbar') || null;
+    const targetId = String(tab.dataset.toolbarSectionTarget || '').trim();
+    if(!toolbar || !targetId){
+      return;
+    }
+    collapseToolbarContextHosts(toolbar, targetId);
+    setToolbarActiveSection(toolbar, targetId, { manual: true, clearContext: true });
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function ensureSectionTabHandlers(){
+    if(sectionTabHandlersBound || !doc){ return; }
+    doc.addEventListener('click', handleToolbarSectionTabClickCapture, true);
+    sectionTabHandlersBound = true;
+  }
+
   function createFormControl(control){
     if(!control || !doc){ return null; }
     const wrapper = doc.createElement('label');
@@ -1017,8 +1044,10 @@
     toolbar.dataset.toolbarActiveSection = sectionId;
     if(options.manual){
       toolbar.dataset.toolbarManualSection = sectionId;
+      toolbar.dataset.toolbarContextSuppressed = '1';
     }
     if(options.context){
+      delete toolbar.dataset.toolbarContextSuppressed;
       toolbar.dataset.toolbarContextSection = sectionId;
     } else if(options.clearContext){
       delete toolbar.dataset.toolbarContextSection;
@@ -1047,11 +1076,15 @@
   function syncToolbarContextSection(toolbar){
     if(!toolbar){ return; }
     const contextSectionId = findContextSectionId(toolbar);
+    const contextSuppressed = toolbar.dataset.toolbarContextSuppressed === '1';
+    const activeSectionId = toolbar.dataset.toolbarActiveSection || '';
+    if(contextSectionId && contextSuppressed && activeSectionId && activeSectionId !== contextSectionId){
+      return;
+    }
     if(contextSectionId){
       setToolbarActiveSection(toolbar, contextSectionId, { context: true });
       return;
     }
-    const activeSectionId = toolbar.dataset.toolbarActiveSection || '';
     const previousContext = toolbar.dataset.toolbarContextSection || '';
     if(activeSectionId && previousContext && activeSectionId === previousContext){
       const fallback = toolbar.dataset.toolbarManualSection || activeSectionId;
@@ -1061,6 +1094,26 @@
     if(previousContext){
       delete toolbar.dataset.toolbarContextSection;
     }
+  }
+
+  function collapseToolbarContextHosts(toolbar, targetSectionId){
+    if(!toolbar || !targetSectionId){
+      return;
+    }
+    const targetId = String(targetSectionId || '').trim();
+    if(!targetId){
+      return;
+    }
+    const visibleHosts = Array.from(toolbar.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible'));
+    visibleHosts.forEach(host => {
+      const section = typeof host.closest === 'function'
+        ? host.closest('.workspace-toolbar__section[data-toolbar-section-id]')
+        : null;
+      const sectionId = section?.dataset?.toolbarSectionId || '';
+      if(sectionId && sectionId !== targetId){
+        hideToolbarHost(host);
+      }
+    });
   }
 
   function getTransformSection(node){
@@ -1609,6 +1662,7 @@
       if(!tab || tab.disabled){ return; }
       const targetId = tab.dataset.toolbarSectionTarget || '';
       if(!targetId){ return; }
+      collapseToolbarContextHosts(toolbar, targetId);
       setToolbarActiveSection(toolbar, targetId, { manual: true, clearContext: true });
     });
 
@@ -1628,6 +1682,7 @@
       nextTab.focus();
       const targetId = nextTab.dataset.toolbarSectionTarget || '';
       if(targetId){
+        collapseToolbarContextHosts(toolbar, targetId);
         setToolbarActiveSection(toolbar, targetId, { manual: true, clearContext: true });
       }
     });
@@ -1727,6 +1782,7 @@
     }
     ensureMenuHandlers();
     ensureTransformHandlers();
+    ensureSectionTabHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
     if(placeholder){
@@ -1792,6 +1848,7 @@
       .find(node => String(node.textContent || '').trim().toLowerCase() === label);
     const sectionId = tab?.dataset?.toolbarSectionTarget || '';
     if(!sectionId){ return false; }
+    collapseToolbarContextHosts(toolbar, sectionId);
     setToolbarActiveSection(toolbar, sectionId, { manual: true, clearContext: true });
     return true;
   };

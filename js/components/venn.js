@@ -847,7 +847,7 @@
     inputs.A.value = data.listA != null ? String(data.listA) : '';
     inputs.B.value = data.listB != null ? String(data.listB) : '';
     inputs.C.value = data.listC != null ? String(data.listC) : '';
-    state.ui.syncTableFromInputs?.({ refresh: true });
+    state.ui.syncTableFromInputs?.({ refresh: true, skipPayloadSync: true });
     if(counts.nA) counts.nA.value = data.nA != null ? String(data.nA) : '';
     if(counts.nB) counts.nB.value = data.nB != null ? String(data.nB) : '';
     if(counts.nC) counts.nC.value = data.nC != null ? String(data.nC) : '';
@@ -1351,6 +1351,21 @@
     if (!hot || !inputs) {
       return;
     }
+    const hasRequiredInputs = !!(
+      inputs.labelA && inputs.labelB && inputs.labelC
+      && inputs.A && inputs.B && inputs.C
+    );
+    if(!hasRequiredInputs){
+      debugLog('table sync skipped: missing venn inputs', {
+        hasLabelA: !!inputs.labelA,
+        hasLabelB: !!inputs.labelB,
+        hasLabelC: !!inputs.labelC,
+        hasA: !!inputs.A,
+        hasB: !!inputs.B,
+        hasC: !!inputs.C
+      });
+      return;
+    }
     const matrix = hot.getData?.() || [];
     const tableSignature = makeTableSignature(matrix);
     const tableChanged = tableSignature !== state.analysis.lastTableSignature;
@@ -1425,6 +1440,13 @@
       hot.refreshLayout?.();
     }
     state.analysis.lastTableSignature = makeTableSignature(matrix);
+    // Programmatic input sync (e.g. paste-into-textarea, sample-data load) is a user
+    // intent — flush it through the authoritative payload immediately so the next
+    // lifecycle persist sees a dirty tab and captures the new state. Without this,
+    // the activate-switch-on-clean-tab skip would drop the change on the floor.
+    if (options.skipPayloadSync !== true) {
+      try { persistActiveVennUserChange('venn-inputs-sync'); } catch (err) { /* swallow */ }
+    }
     debugLog('inputs synced to table', { rows: matrix.length, delimiterMode });
   }
 
@@ -5975,7 +5997,7 @@
       inputs.A.value = d.listA || '';
       inputs.B.value = d.listB || '';
       inputs.C.value = d.listC || '';
-      state.ui.syncTableFromInputs?.({ refresh: true });
+      state.ui.syncTableFromInputs?.({ refresh: true, skipPayloadSync: true });
       const c = inputs.counts;
       c.nA.value = d.nA || 0;
       c.nB.value = d.nB || 0;
@@ -6784,10 +6806,12 @@
   }
 
   function resolveVennRoot(tabLike = null){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'venn')
+    const activeTabId = tabLike || Main?.session?.getActiveTab?.()?.id || null;
+    const staticRoot = Main?.components?.workspaces?.venn?.element || null;
+    return Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'venn')
       || state.ui.root
-      || document.getElementById('vennPage')
-      || document;
+      || staticRoot
+      || null;
   }
 
   function queryVennRoot(selector, tabLike = null){
@@ -6919,7 +6943,7 @@
       .forEach(select => attachVennSelectAutoSize(select, 'venn'));
     initNotes(root);
     initVennTable(root);
-    if(!vennBoundRoots.has(root)){
+    if(root && !vennBoundRoots.has(root)){
       registerEventHandlers();
       vennBoundRoots.add(root);
     }
@@ -6965,7 +6989,7 @@
       console.warn('venn notes helper unavailable', { hasSharedNotes: !!helper });
       return;
     }
-    if(notesState.control?.root && notesState.control.root.isConnected){
+    if(notesState.control?.root && notesState.control.root.isConnected && stack.contains(notesState.control.root)){
       notesState.control.setValue(notesState.text || '');
       notesState.control.setOpen(!!notesState.open);
       return;
@@ -6997,8 +7021,9 @@
     Object.assign(state.persistence, freshState.persistence);
     const mountedRoot = options?.root
       || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'venn')
-      || getVennNodeById('vennPage')
-      || document;
+      || Main?.components?.workspaces?.venn?.element
+      || resolveVennRoot(options?.tabId || null)
+      || null;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     const scheduleVennBase = Shared.debounceFrame ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
@@ -7116,8 +7141,9 @@
       venn.init({ tabId: _tab?.id || null });
     }else{
       const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(_tab?.id || null, 'venn')
-        || getVennNodeById('vennPage')
-        || document;
+        || Main?.components?.workspaces?.venn?.element
+        || resolveVennRoot(_tab?.id || null)
+        || null;
       bindUiToRoot(mountedRoot);
     }
     if(typeof state.ui.syncPanels === 'function'){
@@ -7458,11 +7484,17 @@
   };
 
   function resolveVennPreviewSourceSvg(tab){
-    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'venn')
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab?.id || tab || null, 'venn')
       || state.ui.root
-      || getVennNodeById('vennPage')
-      || document;
-    return mountedRoot?.querySelector?.('#stage') || state.ui.stage || null;
+      || Main?.components?.workspaces?.venn?.element
+      || null;
+    if(!mountedRoot || typeof mountedRoot.querySelector !== 'function'){
+      return state.ui.stage || null;
+    }
+    return mountedRoot.querySelector('#vennPlot #stage')
+      || mountedRoot.querySelector('#stage')
+      || state.ui.stage
+      || null;
   }
 
   venn.getThumbnailSvg = function getThumbnailSvg(tab){

@@ -10543,7 +10543,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   state.drawInProgress = false;
@@ -10750,7 +10750,9 @@
     state.statsComputationPending = false;
     state.statsComputationOwnerTabId = null;
     state.pendingAutoShowSignificance = false;
-    state.authoritativeRenderRestoreActive = false;
+    if(!state.authoritativeRenderRestoreActive){
+      state.authoritativeRenderRestoreActive = false;
+    }
     if(statsRuntime){
       state.significanceViewportExtensionPx = Number.isFinite(Number(statsRuntime.significanceViewportExtensionPx)) ? Number(statsRuntime.significanceViewportExtensionPx) : 0;
       state.bottomViewportExtensionPx = Number.isFinite(Number(statsRuntime.bottomViewportExtensionPx)) ? Number(statsRuntime.bottomViewportExtensionPx) : 0;
@@ -14971,6 +14973,12 @@
         state.dataDirty = true;
         state.cachedDrawInput = null;
       }
+      if(state.authoritativeRenderRestoreActive && shouldSuppressAuthoritativeBoxRestoreDraw(meta.reason || meta.source || 'payload')){
+        console.debug('Debug: box table draw suppressed during authoritative restore', {
+          reason: meta.reason || meta.source || null
+        });
+        return;
+      }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw(meta);
       }
@@ -17913,7 +17921,9 @@
     }
     const observed = Number(params.observed);
     const meanValue = Number(params.mean);
-    const sigma = Math.sqrt(Math.max(Number(params.sigma) || 0, 0));
+    // Callers pass standard deviation already. Re-sqrt here would shrink sigma and
+    // inflate |z|, severely biasing asymptotic rank-test p-values.
+    const sigma = Math.max(Number(params.sigma) || 0, 0);
     const alternative = params.alternative === 'greater' || params.alternative === 'less'
       ? params.alternative
       : 'two-sided';
@@ -23778,6 +23788,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       ? options.placeholder
       : 'Statistics will appear after calculation.';
     state.statsContext = null;
+    state.statsContextTabId = null;
     state.statsContextSignature = null;
     state.statsContextVersion = 0;
     state.statsLastRunVersion = 0;
@@ -23791,7 +23802,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       clearStatsOutputs(placeholder);
     }
     setStatsStatus('');
-    updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+    updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
     updateSignificanceControlState({ statsReady: false });
   }
 
@@ -23828,14 +23839,55 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
       return true;
     }
-    state.authoritativeRenderRestoreActive = false;
     resetStatsComputationState({
       placeholder: 'Statistics will appear after calculation.',
       clearOutputs: true
     });
-    if(state.statsContext?.traces?.length){
-      updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
-      setStatsStatus('Statistics ready to calculate.');
+    let cachedTraces = Array.isArray(state.cachedDrawInput?.traces)
+      ? state.cachedDrawInput.traces.filter(trace => Array.isArray(trace?.rawY) && trace.rawY.length)
+      : [];
+    if(!cachedTraces.length && state.tableFormat !== 'grouped'){
+      const activeHot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
+      const liveMatrix = activeHot && typeof activeHot.getData === 'function'
+        ? (activeHot.getData() || [])
+        : null;
+      const dataMatrix = Array.isArray(tab?.payload?.data)
+        ? tab.payload.data
+        : (Array.isArray(liveMatrix) ? liveMatrix : null);
+      if(!Array.isArray(dataMatrix)){
+        console.debug('Debug: box stats context hydrate skipped - missing matrix', {
+          tabId: tab?.id || null,
+          reason: reason || 'hydrate-cache-stats-context'
+        });
+      }else{
+      const startRow = getBoxDataStartRow({ forceGrouped: false });
+      const colCount = dataMatrix.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+      cachedTraces = Array.from({ length: colCount }, (_, colIndex) => {
+        const header = dataMatrix[0]?.[colIndex];
+        const rawY = [];
+        for(let rowIndex = startRow; rowIndex < dataMatrix.length; rowIndex += 1){
+          const value = Number.parseFloat(dataMatrix[rowIndex]?.[colIndex]);
+          if(Number.isFinite(value)){
+            rawY.push(value);
+          }
+        }
+        return {
+          name: (header && String(header).trim()) || `Col ${colIndex + 1}`,
+          rawY,
+          columnIndex: colIndex
+        };
+      }).filter(trace => trace.rawY.length);
+      }
+    }
+    if(cachedTraces.length){
+      const svg = els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null;
+      primeStatsComputation(cachedTraces, svg, {
+        axisLabels: Array.isArray(state.cachedDrawInput?.axisLabels) ? state.cachedDrawInput.axisLabels.slice() : [],
+        significance: { enabled: !!state.showSignificanceBars }
+      }, {
+        viewOnly: true,
+        reason: reason || 'hydrate-cache-stats-context'
+      });
     }
     console.debug('Debug: box stats surface reset from tab payload', {
       tabId: tab?.id || null,
@@ -24001,6 +24053,10 @@ Technical analysis record (advanced)
 
 
   function updateStatsButtonState(config){
+    const activeButton = getBoxNodeById('boxComputeStats', { root: boxRoot, tabLike: box.__boundTabId || null }) || els.statsButton || null;
+    if(activeButton && els.statsButton !== activeButton){
+      els.statsButton = activeButton;
+    }
     if(!els.statsButton){
       return;
     }
@@ -24010,6 +24066,76 @@ Technical analysis record (advanced)
     if(config && typeof config.label === 'string' && config.label){
       els.statsButton.textContent = config.label;
     }
+    const mirrors = global.document?.querySelectorAll?.('#boxComputeStats') || [];
+    mirrors.forEach(button => {
+      if(button === els.statsButton){
+        return;
+      }
+      if(config && Object.prototype.hasOwnProperty.call(config,'disabled')){
+        button.disabled = !!config.disabled;
+      }
+      if(config && typeof config.label === 'string' && config.label){
+        button.textContent = config.label;
+      }
+    });
+  }
+
+  function ensureBoxStatsContextForActiveData(tabLike, reason){
+    const tab = resolveBoxWorkspaceTab(tabLike);
+    const targetTabId = resolveBoxTabId(tab || tabLike || null);
+    const currentContextTabId = state.statsContextTabId == null ? null : String(state.statsContextTabId);
+    const matchesTargetTab = !targetTabId || (currentContextTabId != null && currentContextTabId === String(targetTabId));
+    if(state.statsContext && matchesTargetTab && Array.isArray(state.statsContext.traces) && state.statsContext.traces.length){
+      updateStatsButtonState({
+        disabled: false,
+        label: state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0
+          ? 'Recalculate statistics'
+          : 'Calculate statistics'
+      });
+      return true;
+    }
+    const activeHot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
+    const matrix = Array.isArray(tab?.payload?.data)
+      ? tab.payload.data
+      : (activeHot && typeof activeHot.getData === 'function' ? (activeHot.getData() || []) : null);
+    if(state.tableFormat === 'grouped' || !Array.isArray(matrix)){
+      return false;
+    }
+    const startRow = getBoxDataStartRow({ forceGrouped: false });
+    const colCount = matrix.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+    const traces = Array.from({ length: colCount }, (_, colIndex) => {
+      const header = matrix[0]?.[colIndex];
+      const rawY = [];
+      for(let rowIndex = startRow; rowIndex < matrix.length; rowIndex += 1){
+        const value = Number.parseFloat(matrix[rowIndex]?.[colIndex]);
+        if(Number.isFinite(value)){
+          rawY.push(value);
+        }
+      }
+      return {
+        name: (header && String(header).trim()) || `Col ${colIndex + 1}`,
+        rawY,
+        columnIndex: colIndex
+      };
+    }).filter(trace => trace.rawY.length);
+    if(!traces.length){
+      return false;
+    }
+    primeStatsComputation(traces, els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null, {
+      axisLabels: traces.map(trace => trace.name),
+      significance: { enabled: !!state.showSignificanceBars }
+    }, {
+      tabId: targetTabId || null,
+      viewOnly: true,
+      reason: reason || 'active-data-stats-context'
+    });
+    updateStatsButtonState({
+      disabled: false,
+      label: state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0
+        ? 'Recalculate statistics'
+        : 'Calculate statistics'
+    });
+    return true;
   }
 
   function isPairwiseSignificanceSupported(){
@@ -24183,7 +24309,9 @@ Technical analysis record (advanced)
     }
     state.statsContextVersion = version;
     state.statsContextSignature = signature;
+    const contextTabId = resolveBoxTabId(options?.tabId || getActiveBoxWorkspaceTabId() || null);
     state.statsContext = { traces: traces.slice(), svg, helpers, version, signature };
+    state.statsContextTabId = contextTabId || null;
     const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
     if(state.statsLastRunVersion === version && hasResults){
       setStatsStatus('Statistics up to date.');
@@ -24994,24 +25122,17 @@ Technical analysis record (advanced)
     const canShowSignificance = isPairwiseSignificanceSupported();
     if(userInitiated && canShowSignificance && !state.showSignificanceBars){
       state.pendingAutoShowSignificance = true;
-      let toggledViaControl = false;
-      if(els.boxShowSignificance){
-        els.boxShowSignificance.checked = true;
-        try{
-          els.boxShowSignificance.dispatchEvent(new Event('change'));
-          toggledViaControl = true;
-        }catch(err){
-          toggledViaControl = false;
-        }
-      }
-      if(!toggledViaControl){
-        state.showSignificanceBars = true;
-        requestStatsContextRefresh('significance-toggle-auto');
-        state.scheduleDraw();
-      }
       setStatsStatus('Preparing significance bars…');
     }
-    const context = state.statsContext;
+    let context = state.statsContext;
+    if((!context || !Array.isArray(context.traces) || !context.traces.length)
+      && ensureBoxStatsContextForActiveData(getActiveBoxWorkspaceTabId() || null, 'stats-compute-click')){
+      context = state.statsContext;
+    }
+    if((!context || !Array.isArray(context.traces) || !context.traces.length)
+      && hydrateBoxStatsSurfaceFromTabPayload(getActiveBoxWorkspaceTabId() || null, 'stats-compute-click-bootstrap')){
+      context = state.statsContext;
+    }
     if(!context || !Array.isArray(context.traces) || !context.traces.length){
       state.pendingAutoShowSignificance = false;
       setStatsStatus('Statistics unavailable until data is loaded.');
@@ -25050,10 +25171,11 @@ Technical analysis record (advanced)
         return;
       }
       const stillCurrent = state.statsContext === context && state.statsContextSignature === context.signature;
-      const label = stillCurrent && state.statsLastRunVersion === context.version
+      const hasFreshResultsForContext = state.statsLastRunVersion === context.version && state.statsLastRunVersion > 0;
+      const label = hasFreshResultsForContext
         ? 'Recalculate statistics'
         : 'Calculate statistics';
-      updateStatsButtonState({ disabled: !stillCurrent, label });
+      updateStatsButtonState({ disabled: false, label });
       if(!stillCurrent){
         updateSignificanceControlState({ statsReady: false });
       }
@@ -33616,6 +33738,7 @@ Technical analysis record (advanced)
             version: savedVersion
           });
           state.statsContext = null;
+          state.statsContextTabId = null;
           state.statsComputationPending = false;
           state.statsComputationOwnerTabId = null;
           state.statsRestoredNeedsSignificanceReapply = false;
@@ -33636,6 +33759,37 @@ Technical analysis record (advanced)
         }
         if(!restoredComputedStats){
           resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
+          if(state.tableFormat !== 'grouped' && Array.isArray(obj.data)){
+            const startRow = getBoxDataStartRow({ forceGrouped: false });
+            const colCount = obj.data.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+            const traces = Array.from({ length: colCount }, (_, colIndex) => {
+              const header = obj.data[0]?.[colIndex];
+              const rawY = [];
+              for(let rowIndex = startRow; rowIndex < obj.data.length; rowIndex += 1){
+                const value = Number.parseFloat(obj.data[rowIndex]?.[colIndex]);
+                if(Number.isFinite(value)){
+                  rawY.push(value);
+                }
+              }
+              return {
+                name: (header && String(header).trim()) || `Col ${colIndex + 1}`,
+                rawY,
+                columnIndex: colIndex
+              };
+            }).filter(trace => trace.rawY.length);
+          if(traces.length){
+            primeStatsComputation(traces, els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null, {
+              axisLabels: traces.map(trace => trace.name),
+              significance: { enabled: !!state.showSignificanceBars }
+            }, {
+              viewOnly: true,
+              reason: authoritativeRenderRestore ? 'payload-load-authoritative-stats-context' : 'payload-load-stats-context'
+            });
+            if(authoritativeRenderRestore){
+              activateAuthoritativeBoxRenderRestore('payload-load-stats-context');
+            }
+          }
+        }
         }
       }
     }catch(err){
@@ -33705,6 +33859,15 @@ Technical analysis record (advanced)
       return false;
     }
     drawOptions.__boxSessionMeta = sessionMeta;
+    if(state.authoritativeRenderRestoreActive){
+      const nextReason = drawOptions.reason || 'schedule';
+      if(shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+        console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: nextReason });
+        resolveBoxLoading('skipped');
+        return false;
+      }
+      releaseAuthoritativeBoxRenderRestore(nextReason);
+    }
     if(state.drawInProgress){
       state.pendingDrawOpts = mergeBoxDrawOptions(state.pendingDrawOpts, drawOptions);
       boxDebug('Debug: box draw coalesced', {
@@ -33715,7 +33878,7 @@ Technical analysis record (advanced)
       return false;
     }
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
-    if(state.authoritativeRenderRestoreActive && !drawOptions.force){
+    if(state.authoritativeRenderRestoreActive){
       if(shouldSuppressAuthoritativeBoxRestoreDraw(drawReason)){
         console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: drawReason || null });
         resolveBoxLoading('authoritative-render-restore');
@@ -33844,6 +34007,9 @@ Technical analysis record (advanced)
     boxRoot = targetRoot || null;
     box.__boundTabId = targetTabId || null;
     console.debug('Debug: Components.box.init');
+    if(options.restoreRenderCache === true || options.skipInitialDraw === true){
+      activateAuthoritativeBoxRenderRestore(options.reason || 'init-render-cache-restore');
+    }
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls({ root: boxRoot, tabId: targetTabId });
@@ -33941,7 +34107,7 @@ Technical analysis record (advanced)
         return;
       }
       nextOpts.__boxSessionMeta = sessionMeta;
-      if(state.authoritativeRenderRestoreActive && !nextOpts.force){
+      if(state.authoritativeRenderRestoreActive){
         const nextReason = nextOpts.reason || '';
         if(shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
           console.debug('Debug: box scheduled draw suppressed during authoritative restore', { reason: nextReason || null });
@@ -34385,6 +34551,16 @@ Technical analysis record (advanced)
     state.drawToken += 1;
     state.resizeInteractionActive = false;
     state.resizeObserveDrawMutedUntil = 0;
+    const deactivatedTabId = resolveBoxTabId(_tab || null);
+    if(state.statsComputationPending && (!state.statsComputationOwnerTabId || !deactivatedTabId || String(state.statsComputationOwnerTabId) === String(deactivatedTabId))){
+      state.statsComputationPending = false;
+      state.statsComputationOwnerTabId = null;
+      const hasContext = !!(state.statsContext && Array.isArray(state.statsContext.traces) && state.statsContext.traces.length);
+      updateStatsButtonState({
+        disabled: !!state.statsComputationPending,
+        label: 'Calculate statistics'
+      });
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box tab deactivated', {
         reason: meta.reason || 'deactivate-tab',
@@ -34395,6 +34571,13 @@ Technical analysis record (advanced)
   };
   box.activateTab = function activateTab(tab, meta = {}){
     const targetTabId = resolveBoxTabId(tab || null);
+    if(state.statsComputationPending){
+      const ownerTabId = state.statsComputationOwnerTabId || null;
+      if(ownerTabId && targetTabId && String(ownerTabId) !== String(targetTabId)){
+        state.statsComputationPending = false;
+        state.statsComputationOwnerTabId = null;
+      }
+    }
     const targetRoot = resolveBoxRoot(tab || targetTabId || null);
     const needsRebind = !!(
       targetTabId
@@ -34417,10 +34600,24 @@ Technical analysis record (advanced)
     if(ensureBoxDomBindings(tab)){
       applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
       hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
+      const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
+      updateStatsButtonState({
+        disabled: !!state.statsComputationPending,
+        label: hasContext && state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0
+          ? 'Recalculate statistics'
+          : 'Calculate statistics'
+      });
       return;
     }
     applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
     hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
+    const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
+    updateStatsButtonState({
+      disabled: !!state.statsComputationPending,
+      label: hasContext && state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0
+        ? 'Recalculate statistics'
+        : 'Calculate statistics'
+    });
     if(!box.ready){
       box.init({
         root: boxRoot || targetRoot || null,
@@ -34439,6 +34636,7 @@ Technical analysis record (advanced)
         syncBoxActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab-ready');
   };
   box.getAdvisorRecommendation = function(answers,context){
     return computeAdvisorRecommendation(answers || {}, context || {});

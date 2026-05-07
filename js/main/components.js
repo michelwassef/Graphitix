@@ -213,6 +213,15 @@
         })
       : raw;
   }
+  function resolveWorkspacePreviewSvg(type, tab) {
+    const tabId = tab?.id || null;
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabId, type) || null;
+    const hostRoot = mountedRoot || document.getElementById(`${type}Page`) || null;
+    if (!hostRoot || typeof hostRoot.querySelector !== 'function') {
+      return null;
+    }
+    return hostRoot.querySelector('.svgbox svg') || hostRoot.querySelector('svg[data-preview-source="true"]') || null;
+  }
 
   const scheduleDrawBoxplot = createRegistryDrawScheduler('box', 'box');
   const scheduleDrawScatter = createRegistryDrawScheduler('scatter', 'scatter');
@@ -307,6 +316,7 @@
       element: document.getElementById('pcaPage'),
       ensure: () => ensureComponent('pca'),
       draw: meta => scheduleDrawPca(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
       getPayload: () => window.Components?.pca?.getPayload?.(),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
@@ -328,6 +338,7 @@
       element: document.getElementById('linePage'),
       ensure: () => ensureComponent('line'),
       draw: meta => scheduleDrawLine(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('line', tab),
       getPayload: () => window.Components?.line?.getPayload?.(),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
@@ -348,6 +359,7 @@
       element: document.getElementById('heatmapPage'),
       ensure: () => ensureComponent('heatmap'),
       draw: meta => scheduleDrawHeatmap(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('heatmap', tab),
       getPayload: () => window.Components?.heatmap?.getPayload?.(),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
@@ -368,6 +380,7 @@
       element: document.getElementById('surfacePage'),
       ensure: () => ensureComponent('surface'),
       draw: meta => scheduleDrawSurface(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('surface', tab),
       getPayload: () => window.Components?.surface?.getPayload?.(),
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
@@ -388,6 +401,7 @@
       element: document.getElementById('rocPage'),
       ensure: () => ensureComponent('roc'),
       draw: () => window.Components?.roc?.draw?.(),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
       getPayload: () => window.Components?.roc?.getPayload?.(),
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
@@ -408,6 +422,7 @@
       element: document.getElementById('survivalPage'),
       ensure: () => ensureComponent('survival'),
       draw: meta => scheduleDrawSurvival(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('survival', tab),
       getPayload: () => window.Components?.survival?.getPayload?.(),
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
@@ -428,6 +443,7 @@
       element: document.getElementById('histPage'),
       ensure: () => ensureComponent('hist'),
       draw: meta => scheduleDrawHist(meta || {}),
+      getPreviewSvg: tab => resolveWorkspacePreviewSvg('hist', tab),
       getPayload: () => window.Components?.hist?.getPayload?.(),
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
@@ -448,6 +464,7 @@
       element: document.getElementById('piePage'),
       ensure: () => ensureComponent('pie'),
       draw: meta => scheduleDrawPie(meta || {}),
+      getPreviewSvg: tab => window.Components?.pie?.getThumbnailSvg?.(tab) || window.Components?.pie?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('pie', tab),
       getPayload: () => window.Components?.pie?.getPayload?.(),
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),

@@ -138,9 +138,9 @@
     }
     svg.setAttribute('width', String(sizing.targetWidth));
     svg.setAttribute('height', String(sizing.targetHeight));
-    if (!svg.hasAttribute('preserveAspectRatio')) {
-      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    }
+    // Force aspect-preserving thumbnails. Some workspace SVGs intentionally use
+    // preserveAspectRatio="none" for live panel fill, which distorts tab previews.
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     if (!svg.hasAttribute('viewBox') && Number.isFinite(sizing.boxW) && Number.isFinite(sizing.boxH)) {
       svg.setAttribute('viewBox', `${Number.isFinite(sizing.minX) ? sizing.minX : 0} ${Number.isFinite(sizing.minY) ? sizing.minY : 0} ${sizing.boxW} ${sizing.boxH}`);
     }
@@ -659,8 +659,36 @@
       }
     }
     const rootContainsSvg = node => !!(node && previewRoot && typeof previewRoot.contains === 'function' && previewRoot.contains(node));
+    const isLikelyPlotSvg = node => {
+      if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
+        return false;
+      }
+      if (node.getAttribute?.('data-preview-source') === 'true') {
+        return true;
+      }
+      if (node.id && /(?:^|[-_])(pieSvg|stage)(?:$|[-_])/i.test(node.id)) {
+        return true;
+      }
+      if (node.querySelector?.('[data-layer="pie-data"], [data-layer="pie-axis"], [data-layer="pie-labels"], [data-venn-trace-id], [data-upset-trace-id]')) {
+        return true;
+      }
+      const vb = node.getAttribute?.('viewBox') || '';
+      const parts = vb.trim().split(/[\s,]+/).map(v => Number.parseFloat(v));
+      if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+        if (parts[2] < 80 || parts[3] < 80) {
+          return false;
+        }
+      }
+      const w = Number.parseFloat(node.getAttribute?.('width'));
+      const h = Number.parseFloat(node.getAttribute?.('height'));
+      if (Number.isFinite(w) && Number.isFinite(h) && (w < 80 || h < 80)) {
+        return false;
+      }
+      return true;
+    };
     if (!svg || (!svgFromGetter && !rootContainsSvg(svg))) {
-      svg = previewRoot.querySelector('.svgbox svg');
+      const primary = previewRoot.querySelector('.svgbox svg');
+      svg = isLikelyPlotSvg(primary) ? primary : null;
     }
     if (!svg) {
       const tagged = previewRoot.querySelector('svg[data-preview-source="true"]');
@@ -668,17 +696,26 @@
         svg = tagged;
       } else {
         const candidates = Array.from(previewRoot.querySelectorAll('svg'));
-        svg = candidates.find(node => !node.closest('.workspace-toolbar')) || candidates[0] || null;
+        svg = candidates.find(node => isLikelyPlotSvg(node) && !node.closest('.workspace-toolbar'))
+          || candidates.find(node => isLikelyPlotSvg(node))
+          || null;
       }
     }
     if (!svg) {
       console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
-      return null;
+      svg = resolvePreviewSvgFromTabRenderCache(tab, config.type);
+      if (!svg) {
+        return null;
+      }
     }
     const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
     if (!rawMarkup) {
       console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
-      return null;
+      const cacheSvg = resolvePreviewSvgFromTabRenderCache(tab, config.type);
+      if (!cacheSvg) {
+        return null;
+      }
+      svg = cacheSvg;
     }
     const sizing = resolvePreviewSizing(svg);
     const clone = svg.cloneNode(true);
@@ -792,6 +829,101 @@
       canvasSimplified: simplifiedLayerCount > 0,
       canvasBitmap: hydratedCanvasLayers > 0
     };
+  }
+
+  function resolvePreviewSvgFromTabRenderCache(tab, type) {
+    const cache = tab?.archiveRenderCache?.cache
+      || tab?.archiveRenderCache
+      || tab?.renderCache?.cache
+      || null;
+    if (!cache) {
+      return null;
+    }
+    const doc = window.document || document;
+    if (!doc || typeof doc.createElementNS !== 'function') {
+      return null;
+    }
+    const NS = 'http://www.w3.org/2000/svg';
+    const materializePayloadFragment = payload => {
+      if (!payload) {
+        return null;
+      }
+      if (payload.fragment && typeof payload.fragment.cloneNode === 'function') {
+        return payload.fragment.cloneNode(true);
+      }
+      if (payload.__graphitixKind === 'fragment-payload' && Array.isArray(payload.nodes)) {
+        const fragment = doc.createDocumentFragment();
+        payload.nodes.forEach(spec => {
+          const markup = typeof spec?.markup === 'string' ? spec.markup.trim() : '';
+          if (!markup) {
+            return;
+          }
+          const template = doc.createElement('template');
+          template.innerHTML = markup;
+          const node = template.content?.firstChild || null;
+          if (node) {
+            fragment.appendChild(node);
+          }
+        });
+        return fragment;
+      }
+      return null;
+    };
+    const fromFragment = payload => {
+      const fragment = materializePayloadFragment(payload);
+      if (!fragment || typeof fragment.cloneNode !== 'function') {
+        return null;
+      }
+      const clone = fragment;
+      if (!clone) {
+        return null;
+      }
+      if (clone.nodeType === 1 && String(clone.nodeName || '').toLowerCase() === 'svg') {
+        return clone;
+      }
+      if (typeof clone.querySelector === 'function') {
+        return clone.querySelector('svg') || null;
+      }
+      return null;
+    };
+    const stageState = cache.stageRootState || null;
+    const stagePayload = cache.stage || null;
+    const stageFragment = materializePayloadFragment(stagePayload);
+    if ((type === 'venn' || stageState || stagePayload) && stageFragment) {
+      const svg = doc.createElementNS(NS, 'svg');
+      const attrs = stageState?.attributes || null;
+      const styles = stageState?.style || null;
+      if (attrs && typeof attrs === 'object') {
+        Object.keys(attrs).forEach(name => {
+          try {
+            svg.setAttribute(name, String(attrs[name]));
+          } catch (_) {}
+        });
+      }
+      if (styles && typeof styles === 'object' && svg.style) {
+        Object.keys(styles).forEach(name => {
+          try {
+            svg.style[name] = String(styles[name]);
+          } catch (_) {}
+        });
+      }
+      svg.appendChild(stageFragment);
+      if (!svg.getAttribute('viewBox')) {
+        const width = Number.parseFloat(svg.getAttribute('width')) || 427;
+        const height = Number.parseFloat(svg.getAttribute('height')) || 427;
+        svg.setAttribute('viewBox', `0 0 ${Math.max(1, width)} ${Math.max(1, height)}`);
+      }
+      if (typeof svg.innerHTML === 'string' && svg.innerHTML.trim()) {
+        console.debug('Debug: preview cache svg reconstructed', { tabId: tab?.id || null, type: type || null, source: 'stage' });
+        return svg;
+      }
+    }
+    const plotSvg = fromFragment(cache.plot);
+    if (plotSvg && typeof plotSvg.innerHTML === 'string' && plotSvg.innerHTML.trim()) {
+      console.debug('Debug: preview cache svg reconstructed', { tabId: tab?.id || null, type: type || null, source: 'plot-fragment' });
+      return plotSvg;
+    }
+    return null;
   }
 
   function syncTabPreviewIndicator(tab) {
@@ -912,6 +1044,14 @@
         meta
       });
       return true;
+    }
+    const preserveExistingPreview = (meta?.reason === 'hover-inactive') && !!tab.previewMarkup;
+    if (preserveExistingPreview) {
+      console.debug('Debug: preview capture failed, preserving existing preview', {
+        tabId: tab.id,
+        reason: meta?.reason || 'capture-failed'
+      });
+      return false;
     }
     if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {
       tab.previewMarkup = null;

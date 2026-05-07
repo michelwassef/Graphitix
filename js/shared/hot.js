@@ -6045,13 +6045,9 @@
         cells: Number.isFinite(raw.thresholds?.cells) ? raw.thresholds.cells : 200000
       };
       const rowBuffer = Number.isFinite(raw.rowBuffer) ? raw.rowBuffer : null;
-      const columnBuffer = Number.isFinite(raw.columnBuffer) ? raw.columnBuffer : null;
       const rowBufferLarge = Number.isFinite(raw.rowBufferLarge)
         ? raw.rowBufferLarge
         : (Number.isFinite(raw.rowBuffer) ? raw.rowBuffer : 6);
-      const columnBufferLarge = Number.isFinite(raw.columnBufferLarge)
-        ? raw.columnBufferLarge
-        : (Number.isFinite(raw.columnBuffer) ? raw.columnBuffer : 2);
       const forcePinnedRows = raw.forcePinnedRows === true || (enabled && raw.forcePinnedRows !== false);
       const preferStickyHeaderRow = raw.preferStickyHeaderRow === true;
       const suppressColumnVirtualisation = typeof raw.suppressColumnVirtualisation === 'boolean'
@@ -6061,9 +6057,7 @@
         enabled,
         thresholds,
         rowBuffer,
-        columnBuffer,
         rowBufferLarge,
-        columnBufferLarge,
         forcePinnedRows,
         preferStickyHeaderRow,
         suppressColumnVirtualisation
@@ -6108,7 +6102,6 @@
           cells,
           isLarge: false,
           rowBuffer: null,
-          columnBuffer: null,
           suppressColumnVirtualisation: virtualizationConfig.suppressColumnVirtualisation
         };
       }
@@ -6122,7 +6115,6 @@
         cells,
         isLarge,
         rowBuffer: isLarge ? virtualizationConfig.rowBufferLarge : virtualizationConfig.rowBuffer,
-        columnBuffer: isLarge ? virtualizationConfig.columnBufferLarge : virtualizationConfig.columnBuffer,
         suppressColumnVirtualisation: virtualizationConfig.suppressColumnVirtualisation
       };
     };
@@ -6136,7 +6128,6 @@
       !!prev
       && prev.isLarge === next.isLarge
       && prev.rowBuffer === next.rowBuffer
-      && prev.columnBuffer === next.columnBuffer
       && prev.suppressColumnVirtualisation === next.suppressColumnVirtualisation
     );
 
@@ -8557,9 +8548,6 @@
       const updates = {};
       if(Number.isFinite(nextState.rowBuffer) && nextState.rowBuffer >= 0){
         updates.rowBuffer = nextState.rowBuffer;
-      }
-      if(Number.isFinite(nextState.columnBuffer) && nextState.columnBuffer >= 0){
-        updates.columnBuffer = nextState.columnBuffer;
       }
       if(typeof nextState.suppressColumnVirtualisation === 'boolean'){
         updates.suppressColumnVirtualisation = nextState.suppressColumnVirtualisation;
@@ -11293,7 +11281,6 @@
     };
 
     const initialRowBuffer = Number.isFinite(virtualizationState.rowBuffer) ? virtualizationState.rowBuffer : undefined;
-    const initialColumnBuffer = Number.isFinite(virtualizationState.columnBuffer) ? virtualizationState.columnBuffer : undefined;
     const initialSuppressColumnVirtualisation = typeof virtualizationState.suppressColumnVirtualisation === 'boolean'
       ? virtualizationState.suppressColumnVirtualisation
       : undefined;
@@ -11371,7 +11358,6 @@
 
       columnDefs,
       rowBuffer: initialRowBuffer,
-      columnBuffer: initialColumnBuffer,
       suppressColumnVirtualisation: initialSuppressColumnVirtualisation,
       defaultColDef: {
         editable: true,

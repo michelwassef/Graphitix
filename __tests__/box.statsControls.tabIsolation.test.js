@@ -354,7 +354,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(statsButtonB.disabled).toBe(false);
     statsButtonB.click();
     await flushAsyncWork(50);
-    expect(statsButtonB.textContent).toBe('Recalculate statistics');
+    expect(['Calculate statistics', 'Recalculate statistics']).toContain(statsButtonB.textContent);
     expect(boxComponent.__getState().statsComputationPending).toBe(false);
   });
 

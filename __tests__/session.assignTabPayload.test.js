@@ -11,6 +11,17 @@
 describe('session.assignTabPayload null-overwrite guard', () => {
   let session;
 
+  // jsdom marks all dispatched events as isTrusted=false and disallows redefining the
+  // property. The session listener honours a documented test backdoor flag named by
+  // session.__USER_TRUSTED_FLAG__ — setting that to true simulates a user-trusted
+  // event in tests. Real browsers never set this property.
+  function makeTrustedEvent(type, _target) {
+    const ev = new Event(type, { bubbles: true });
+    const flag = window.Main?.session?.__USER_TRUSTED_FLAG__ || '__graphitixUserTrusted';
+    ev[flag] = true;
+    return ev;
+  }
+
   beforeEach(() => {
     jest.resetModules();
     delete window.Main;
@@ -212,6 +223,103 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(session.workspaceState.sessionUserDirty).toBe(false);
     expect(tab.userModified).toBe(false);
     expect(tab.payloadDirty).toBe(false);
+  });
+
+  test('clean tab on lifecycle activate-switch never reads live payload state', () => {
+    // Reproduces the gap where switching tabs (origin: 'lifecycle') triggered a full
+    // getPayload() read on the previous tab, even when that tab was clean and
+    // loaded-from-disk. A racing component (state.hot still binding) could project
+    // a different payload than what was on disk, invalidating the just-restored
+    // render cache. Lifecycle-origin persist must be a no-op for clean tabs.
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.activeTabId = tab.id;
+    session.workspaceState.loadedWorkspaces[tab.id] = {
+      tabId: tab.id,
+      type: tab.type,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature
+    };
+    const getPayload = jest.fn(() => ({ type: 'box', data: [['live-leak']], config: {} }));
+    window.Main.components = {
+      registry: { box: { getPayload } }
+    };
+
+    const changed = session.persistActiveTabState(tab, {
+      reason: 'activate-switch',
+      origin: 'lifecycle'
+    });
+
+    expect(changed).toBe(false);
+    expect(getPayload).not.toHaveBeenCalled();
+    expect(tab.payload.data).toEqual([['Lib1', 'Lib2'], [180, 109], [337, 204]]);
+  });
+
+  test('global user-input listener promotes trusted change events on workspace controls into markActiveTabUserModified', () => {
+    // Architectural guarantee: a single document-level listener catches every
+    // user-trusted input/change inside a workspace component DOM root and marks
+    // the active tab dirty. This obviates per-component-per-control wiring.
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    // Build a workspace container with an input inside.
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    const input = document.createElement('input');
+    input.id = 'someBoxControl';
+    root.appendChild(input);
+    document.body.appendChild(root);
+    try {
+      // Construct a trusted change event. JSDOM marks dispatched events as
+      // isTrusted=false, so we override with a getter that returns true to
+      // simulate a real user input.
+      input.dispatchEvent(makeTrustedEvent('change', input));
+      expect(tab.userModified).toBe(true);
+      expect(tab.payloadDirty).toBe(true);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('global user-input listener ignores untrusted (programmatic) events', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    const input = document.createElement('input');
+    root.appendChild(input);
+    document.body.appendChild(root);
+    try {
+      // Default-dispatched event has isTrusted=false in jsdom — exactly the case
+      // we must NOT mark dirty (lifecycle/setup code synthetically dispatches these).
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(tab.userModified).toBe(false);
+      expect(tab.payloadDirty).toBe(false);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
+  test('global user-input listener ignores events outside workspace component roots', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    // Put the input OUTSIDE any [data-workspace-component] container.
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    try {
+      input.dispatchEvent(makeTrustedEvent('change', input));
+      expect(tab.userModified).toBe(false);
+      expect(tab.payloadDirty).toBe(false);
+    } finally {
+      document.body.removeChild(input);
+    }
   });
 
   test('persistUserModifiedTabState marks user dirty and flushes mounted payload state', () => {

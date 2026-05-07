@@ -283,7 +283,9 @@
     rotationPendingLogged: false,
     axesVarianceScaled: false,
     equalAxes: false,
-    equalScaleAxes: false
+    equalScaleAxes: false,
+    renderCacheRestoreSuppressUntil: 0,
+    renderCacheRestoreSuppressCount: 0
   };
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(lineViewState.rotation);
@@ -11319,6 +11321,9 @@
     refs.hotContainer=byId('lineHot');
     refs.hotWrapper=byId('lineHotWrapper');
     refs.plot=byId('linePlot');
+    if(options?.restoreRenderCache === true || options?.skipInitialDraw === true){
+      suppressLineRestoreDraws(options.reason || 'init-render-cache-restore', { delayMs: 5000, count: 24 });
+    }
     if(refs.plot && !refs.plot.__lineAxesLengthCloseHandler){
       const onPlotPointerDown = () => {
         closeLineAxesLengthMenu('plot-pointer');
@@ -12579,6 +12584,10 @@
     const scheduleLineInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(consumeLineRestoreDrawSuppression(overlayReason, !!nextOpts.force)){
+        resolveLineOverlay('skipped');
+        return;
+      }
       if(nextOpts.force){
         markLineOverlayPending(overlayReason);
         forceLineOverlay(overlayReason, { message: 'Rendering line graph...' });
@@ -12629,8 +12638,66 @@
     ensureEmptyPayloadTemplate();
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
     line.ready = true;
-    scheduleLineDraw();
+    if(options.skipInitialDraw !== true){
+      scheduleLineDraw();
+    }else{
+      console.debug('Debug: line init initial draw skipped', {
+        reason: options.reason || 'setup',
+        restoreRenderCache: options.restoreRenderCache === true
+      });
+    }
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
+  }
+
+  function shouldSuppressLineRestoreDraw(reason){
+    const value = String(reason || '').trim().toLowerCase();
+    if(!value){
+      return true;
+    }
+    return value === 'schedule'
+      || value.includes('restore')
+      || value.includes('payload')
+      || value.includes('programmatic')
+      || value.includes('render-cache')
+      || value.includes('resize')
+      || value.includes('layout');
+  }
+
+  function suppressLineRestoreDraws(reason, options = {}){
+    lineViewState.renderCacheRestoreSuppressUntil = Date.now() + (Number.isFinite(options.delayMs) ? Math.max(0, Number(options.delayMs)) : 2500);
+    lineViewState.renderCacheRestoreSuppressCount = Math.max(
+      Number(lineViewState.renderCacheRestoreSuppressCount) || 0,
+      Number.isFinite(options.count) ? Math.max(0, Math.floor(options.count)) : 12
+    );
+    lineDebug('Debug: line restore draw suppression activated', {
+      reason: reason || null,
+      count: lineViewState.renderCacheRestoreSuppressCount
+    });
+  }
+
+  function consumeLineRestoreDrawSuppression(reason, force){
+    if(force){
+      lineViewState.renderCacheRestoreSuppressUntil = 0;
+      lineViewState.renderCacheRestoreSuppressCount = 0;
+      return false;
+    }
+    const now = Date.now();
+    const active = (Number(lineViewState.renderCacheRestoreSuppressCount) || 0) > 0
+      || (Number(lineViewState.renderCacheRestoreSuppressUntil) || 0) > now;
+    if(!active){
+      return false;
+    }
+    if(!shouldSuppressLineRestoreDraw(reason)){
+      lineViewState.renderCacheRestoreSuppressUntil = 0;
+      lineViewState.renderCacheRestoreSuppressCount = 0;
+      return false;
+    }
+    lineViewState.renderCacheRestoreSuppressCount = Math.max(0, (Number(lineViewState.renderCacheRestoreSuppressCount) || 0) - 1);
+    lineDebug('Debug: line draw suppressed during render cache restore', {
+      reason: reason || null,
+      remaining: lineViewState.renderCacheRestoreSuppressCount
+    });
+    return true;
   }
 
   function ensureLineDomBindings(tabLike){
@@ -12707,8 +12774,6 @@
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
     const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
     const svg = plot ? plot.querySelector('#lineSvg') : null;
-    const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
     const plotStyle = plot ? plot.getAttribute('style') : null;
     const svgState = svg ? {
       width: svg.getAttribute('width'),
@@ -12716,6 +12781,8 @@
       viewBox: svg.getAttribute('viewBox'),
       dataViewMode: svg.dataset ? svg.dataset.viewMode : null
     } : null;
+    const plotCache = detachChildren(plot);
+    const statsCache = detachChildren(stats);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache captured', {
         plotNodes: plotCache?.count || 0,
@@ -12753,6 +12820,7 @@
     }
     const restored = restoredPlot || restoredStats;
     if(restored){
+      suppressLineRestoreDraws('render-cache-restore', { delayMs: 2500, count: 12 });
       lineViewState.rotationPending = false;
       lineViewState.rotationPendingLogged = false;
       const svg = plot ? plot.querySelector('#lineSvg') : null;

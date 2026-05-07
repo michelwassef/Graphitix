@@ -9,6 +9,7 @@
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
 
   const layoutRegistry = componentLayout.__registry = componentLayout.__registry || {};
+  const pendingScheduleSuppressions = componentLayout.__pendingScheduleSuppressions = componentLayout.__pendingScheduleSuppressions || {};
 
   function normalizeTabId(value){
     const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
@@ -43,6 +44,9 @@
       if(tabId && entry.tabs?.[tabId]){
         return entry.tabs[tabId];
       }
+      if(options.exact === true){
+        return null;
+      }
       const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
       if(activeTabId && entry.tabs?.[activeTabId]){
         return entry.tabs[activeTabId];
@@ -50,6 +54,70 @@
       return entry.__default || null;
     }
     return entry || null;
+  }
+
+  function buildSuppressionKey(componentName, tabId){
+    const component = String(componentName || '').trim();
+    if(!component){
+      return '';
+    }
+    return `${component}::${normalizeTabId(tabId) || '__default__'}`;
+  }
+
+  function resolveSuppressionValues(options = {}){
+    const delayMs = Number.isFinite(options?.delayMs) ? Number(options.delayMs) : 120;
+    const count = Number.isFinite(options?.count) ? Math.max(0, Math.floor(options.count)) : 2;
+    return {
+      delayMs: Math.max(0, delayMs),
+      count,
+      reason: options?.reason || 'manual'
+    };
+  }
+
+  function storePendingScheduleSuppression(componentName, options = {}){
+    const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    const key = buildSuppressionKey(componentName, tabId);
+    if(!key){
+      return false;
+    }
+    const values = resolveSuppressionValues(options);
+    const existing = pendingScheduleSuppressions[key] || null;
+    pendingScheduleSuppressions[key] = {
+      forceDeferUntil: Math.max(existing?.forceDeferUntil || 0, Date.now() + values.delayMs),
+      forceSkipSchedules: Math.max(existing?.forceSkipSchedules || 0, values.count),
+      forceDeferReason: values.reason,
+      tabId,
+      componentName: String(componentName || '').trim()
+    };
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: componentLayout pending schedule suppression stored', {
+        component: componentName,
+        tabId: tabId || null,
+        delayMs: values.delayMs,
+        count: pendingScheduleSuppressions[key].forceSkipSchedules,
+        reason: values.reason
+      });
+    }
+    return true;
+  }
+
+  function consumePendingScheduleSuppression(componentName, tabId){
+    const exactKey = buildSuppressionKey(componentName, tabId);
+    const defaultKey = buildSuppressionKey(componentName, '');
+    const key = exactKey && pendingScheduleSuppressions[exactKey]
+      ? exactKey
+      : (defaultKey && pendingScheduleSuppressions[defaultKey] ? defaultKey : '');
+    if(!key){
+      return null;
+    }
+    const pending = pendingScheduleSuppressions[key];
+    delete pendingScheduleSuppressions[key];
+    if(!pending){
+      return null;
+    }
+    const stillDeferred = Number(pending.forceDeferUntil) > Date.now();
+    const stillCounted = Number(pending.forceSkipSchedules) > 0;
+    return stillDeferred || stillCounted ? pending : null;
   }
 
   function resolveElementTabId(elements, config){
@@ -300,6 +368,20 @@
       programmaticSyncDepth: 0,
       lastObservedTableSize: null
     };
+    const pendingSuppression = consumePendingScheduleSuppression(componentName, layoutTabId);
+    if(pendingSuppression){
+      panelState.forceDeferUntil = Math.max(panelState.forceDeferUntil, Number(pendingSuppression.forceDeferUntil) || 0);
+      panelState.forceSkipSchedules = Math.max(panelState.forceSkipSchedules, Number(pendingSuppression.forceSkipSchedules) || 0);
+      panelState.forceDeferReason = pendingSuppression.forceDeferReason || 'pending';
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: componentLayout pending schedule suppression applied', {
+          component: componentName,
+          tabId: layoutTabId || null,
+          reason: panelState.forceDeferReason,
+          count: panelState.forceSkipSchedules
+        });
+      }
+    }
     const restoreDelayMs = Number.isFinite(config?.restoreScheduleDelayMs)
       ? Number(config.restoreScheduleDelayMs)
       : 120;
@@ -1154,7 +1236,8 @@
 
   componentLayout.suppressNextScheduleFor = function suppressNextScheduleFor(componentName, options = {}){
     if(!componentName){ return false; }
-    const entry = resolveRegistryEntry(componentName, options);
+    const hasExplicitTabId = !!normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    const entry = resolveRegistryEntry(componentName, hasExplicitTabId ? { ...options, exact: true } : options);
     if(entry && typeof entry.suppressNextSchedule === 'function'){
       try{
         entry.suppressNextSchedule(options);
@@ -1163,21 +1246,32 @@
         console.error('Shared.componentLayout.suppressNextScheduleFor error', { component: componentName, err });
       }
     }
+    if(storePendingScheduleSuppression(componentName, options)){
+      return true;
+    }
     console.debug('Debug: componentLayout.suppressNextScheduleFor skipped', { component: componentName, tabId: options?.tabId || null, hasEntry: !!entry });
     return false;
   };
 
   componentLayout.releaseSuppressedSchedulesFor = function releaseSuppressedSchedulesFor(componentName, options = {}){
     if(!componentName){ return false; }
-    const entry = resolveRegistryEntry(componentName, options);
+    const hasExplicitTabId = !!normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    const entry = resolveRegistryEntry(componentName, hasExplicitTabId ? { ...options, exact: true } : options);
+    let released = false;
     if(entry && typeof entry.releaseSuppressedSchedules === 'function'){
       try{
-        return !!entry.releaseSuppressedSchedules(options);
+        released = !!entry.releaseSuppressedSchedules(options);
       }catch(err){
         console.error('Shared.componentLayout.releaseSuppressedSchedulesFor error', { component: componentName, err });
       }
     }
-    return false;
+    const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
+    const pendingKey = buildSuppressionKey(componentName, tabId);
+    if(pendingKey && pendingScheduleSuppressions[pendingKey]){
+      delete pendingScheduleSuppressions[pendingKey];
+      released = true;
+    }
+    return released;
   };
 
   componentLayout.syncTabStateToControlsFor = function syncTabStateToControlsFor(componentName, options = {}){

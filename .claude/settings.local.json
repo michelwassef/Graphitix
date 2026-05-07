@@ -25,7 +25,10 @@
       "Bash(python3)",
       "Read(//tmp/**)",
       "Bash(grep -nB 2 -A 8 \"writeRecoverySnapshot\" C:/Users/Michel/Venn/js/main/documentState.js)",
-      "Bash(grep -nB 1 -A 5 \"buildWorkspaceArchiveBlob\" C:/Users/Michel/Venn/js/main/sessionActions.js)"
+      "Bash(grep -nB 1 -A 5 \"buildWorkspaceArchiveBlob\" C:/Users/Michel/Venn/js/main/sessionActions.js)",
+      "Bash(git status *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json,sys;m=json.load\\(sys.stdin\\);print\\('tabCount:',m['tabCount']\\);print\\('activeIndex:',m['activeIndex']\\);[print\\(t['index'],t['title'],t['type'],'renderCache:',t['files'].get\\('renderCache'\\) is not None\\) for t in m['tabs']]\")"
     ]
   }
 }

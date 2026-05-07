@@ -225,4 +225,45 @@ describe('componentLayout zoom behavior contract', () => {
     expect(stateA?.svgBox?.dataset?.resizerAspectLocked).toBe('false');
     expect(stateB?.svgBox?.dataset?.resizerAspectLocked).toBe('true');
   });
+
+  test('pending schedule suppression applies when layout is created after restore begins', () => {
+    const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
+      if(typeof scheduleDraw === 'function'){
+        scheduleDraw();
+      }
+      return { table, graph, config, options };
+    });
+    window.Shared.syncPanelWidths = syncPanelSpy;
+    const scheduleDraw = jest.fn();
+
+    expect(window.Shared.componentLayout.suppressNextScheduleFor('line', {
+      tabId: 'line-restore-tab',
+      reason: 'render-cache-restore-prepare',
+      delayMs: 5000,
+      count: 2
+    })).toBe(true);
+
+    const layout = window.Shared.componentLayout.createStandardPanels({
+      componentName: 'line',
+      tabId: 'line-restore-tab',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        configPanel: '#lineConfigPanel',
+        panelResizer: '#linePanelResizer',
+        svgBox: '#lineSvgBox',
+        resizeTarget: '#lineSvgBox'
+      },
+      scheduleDraw
+    });
+
+    expect(scheduleDraw).not.toHaveBeenCalled();
+    expect(syncPanelSpy).toHaveBeenCalled();
+    expect(syncPanelSpy.mock.calls[0][4]?.skipSchedule).toBe(true);
+
+    layout.syncPanels();
+    expect(scheduleDraw).not.toHaveBeenCalled();
+    const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
+    expect(lastSyncCall[4]?.skipSchedule).toBe(true);
+  });
 });

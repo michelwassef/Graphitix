@@ -178,6 +178,19 @@
     return true;
   }
 
+  // Convenience wrapper: components don't need to look up the active tab themselves.
+  // Call from any onChange / click handler that mutates component state without
+  // routing through updateTabPayload. The drift detector catches anything still
+  // missing this call, but wiring it directly lets the persist machinery flush
+  // promptly instead of relying on a later persist-active to notice the drift.
+  function markActiveTabUserModified(reason, meta = {}) {
+    const active = getActiveTab();
+    if (!active || active.isWelcome) {
+      return false;
+    }
+    return markTabUserModified(active, reason, Object.assign({ origin: 'user' }, meta || {}));
+  }
+
   function markTabPayloadFlushed(tab, reason) {
     if (!tab) {
       return false;
@@ -1716,7 +1729,16 @@
       return false;
     }
     const reason = options.reason || 'persist-active';
-    const shouldSkipLivePayloadCapture = !!(tab.payload && !tab.payloadDirty && isLiveCaptureSkippableReason(reason));
+    // Skip the live-state read for any persist call where the tab is clean (no
+    // user modifications since last flush) AND the call is either autosave-like
+    // (recovery-interval, archive-save, etc.) OR a lifecycle event (tab activation
+    // switch, deactivation, warmup, etc.). For these calls tab.payload is already
+    // authoritative — running config.getPayload() risks projecting half-bound
+    // component state over a perfectly good loaded-from-disk payload.
+    const isLifecycleOrigin = options.origin === 'lifecycle';
+    const shouldSkipLivePayloadCapture = !!(tab.payload
+      && !tab.payloadDirty
+      && (isLiveCaptureSkippableReason(reason) || isLifecycleOrigin));
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
         try {
@@ -1772,6 +1794,35 @@
         }
       }
       captureRenderCacheOnly();
+      // Opt-in deep drift probe. Enabled via `window.Shared.__driftDetectOnSkip = true`
+      // (off in production). When on, runs config.getPayload() purely to compute its
+      // signature; if it differs from tab.payloadSignature on a "clean" tab, an unwired
+      // user control has mutated state without calling markTabUserModified. This is the
+      // self-locating drift detector for the skip path; the live-read path has its own
+      // detector below.
+      if (typeof window !== 'undefined'
+        && window.Shared
+        && window.Shared.__driftDetectOnSkip === true
+        && typeof config.getPayload === 'function') {
+        try {
+          const probe = config.getPayload();
+          if (probe) {
+            const probeSig = serializePayloadSignature(probe);
+            if (probeSig && tab.payloadSignature && probeSig !== tab.payloadSignature) {
+              console.warn('persistActiveTabState DRIFT on skipped path (clean tab projects different payload)', {
+                tabId: tab.id,
+                type: tab.type,
+                reason,
+                origin: options.origin || null,
+                cachedSignatureLength: tab.payloadSignature.length,
+                liveSignatureLength: probeSig.length
+              });
+            }
+          }
+        } catch (err) {
+          // Probe is best-effort; never fail the persist due to a probe error.
+        }
+      }
       console.debug('Debug: persistActiveTabState skipped live payload capture', {
         tabId: tab.id,
         type: tab.type,
@@ -1857,6 +1908,25 @@
         });
       }
       const previousLayoutSignature = tab.layoutSignature || null;
+      // Drift detector: when the live read produces a different signature than the
+      // clean cached payload, *something* in the component mutated state without
+      // routing through markTabUserModified / updateTabPayload. Surface the offender
+      // by name so we can find and migrate it. Skipped in production-disabled debug,
+      // and skipped when payloadDirty is true (in which case drift is expected).
+      if (!tab.payloadDirty && tab.payload && payloadClone) {
+        const livePayloadSignature = serializePayloadSignature(payloadClone);
+        const previousPayloadSignature = tab.payloadSignature || null;
+        if (previousPayloadSignature && livePayloadSignature !== previousPayloadSignature) {
+          console.warn('persistActiveTabState payload drift detected (clean tab projected a different signature)', {
+            tabId: tab.id,
+            type: tab.type || null,
+            reason,
+            origin: options.origin || null,
+            previousSignatureLength: previousPayloadSignature.length,
+            liveSignatureLength: livePayloadSignature.length
+          });
+        }
+      }
       const changed = assignTabPayload(tab, payloadClone, { reason });
       markTabPayloadFlushed(tab, reason);
       tab.layoutState = layoutClone;
@@ -2340,6 +2410,7 @@
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.markTabUserModified = markTabUserModified;
+  namespace.markActiveTabUserModified = markActiveTabUserModified;
   namespace.assignTabPayload = assignTabPayload;
   namespace.updateTabPayload = updateTabPayload;
   namespace.persistUserModifiedTabState = persistUserModifiedTabState;
@@ -2362,5 +2433,81 @@
   namespace.captureWorkspaceUiState = captureWorkspaceUiState;
   namespace.applyWorkspaceUiState = applyWorkspaceUiState;
   namespace.applySessionData = applySessionData;
+
+  // Single document-level listener that promotes ANY user-trusted input/change/click
+  // event inside a workspace component into a markActiveTabUserModified call. This
+  // saves us from wiring ~30 individual control handlers across 11 components: as
+  // long as the event is user-initiated (event.isTrusted === true) and the target
+  // sits inside a per-tab DOM root, we mark the active tab dirty.
+  //
+  // Programmatic events from component setup/restore code use dispatchEvent() which
+  // produces isTrusted=false, so they correctly do NOT mark anything dirty.
+  //
+  // Components that already call markTabUserModified / persistUserModifiedTabState
+  // explicitly remain correct — markTabUserModified is idempotent.
+  function installGlobalUserInputListener() {
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') {
+      return;
+    }
+    if (namespace.__globalUserInputListenerInstalled) {
+      return;
+    }
+    namespace.__globalUserInputListenerInstalled = true;
+    const isInsideWorkspace = target => {
+      if (!target || typeof target.closest !== 'function') return false;
+      // Workspace per-tab DOM roots all sit under #workspacePages and carry
+      // data-workspace-component or data-workspace-instance-root attributes.
+      return !!target.closest('[data-workspace-component], [data-workspace-instance-root="true"]');
+    };
+    // Late-bind through window.Main.session so the listener always invokes the current
+    // session module — important for tests that load session.js multiple times.
+    const callMark = (reason, source) => {
+      try {
+        const sess = (typeof window !== 'undefined' && window.Main && window.Main.session) || namespace;
+        if (sess && typeof sess.markActiveTabUserModified === 'function') {
+          sess.markActiveTabUserModified(reason, { origin: 'user', source: source || 'unknown' });
+        }
+      } catch (err) { /* listener must never throw */ }
+    };
+    // Production browsers set event.isTrusted=true for real user input. JSDOM hard-codes
+    // isTrusted=false on every dispatched event, so unit tests need a deterministic way
+    // to simulate the user-trusted condition. The Symbol below is the test backdoor —
+    // setting event[USER_TRUSTED_FLAG] = true on a JSDOM-dispatched event makes the
+    // listener treat it as user input. Real browsers never set this property.
+    const USER_TRUSTED_FLAG = namespace.__USER_TRUSTED_FLAG__ = '__graphitixUserTrusted';
+    const isTrustedUserEvent = event => !!(event && (event.isTrusted === true || event[USER_TRUSTED_FLAG] === true));
+    const handler = reason => event => {
+      if (!isTrustedUserEvent(event)) return;
+      const target = event.target;
+      if (!target || !isInsideWorkspace(target)) return;
+      // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
+      // a content change).
+      if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
+      callMark(reason, target?.id || target?.tagName);
+    };
+    document.addEventListener('change', handler('control-change'), true);
+    document.addEventListener('input', handler('control-input'), true);
+    // Click handler is gated to interactive controls (button-like). Plain reads of
+    // text/cells must not trigger dirty.
+    document.addEventListener('click', event => {
+      if (!isTrustedUserEvent(event)) return;
+      const target = event.target;
+      if (!target || !isInsideWorkspace(target)) return;
+      const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
+      if (!interactive) return;
+      // Skip the workspace tab strip and its close buttons (lifecycle, not content).
+      if (target.closest && target.closest('.workspace-tab, [data-workspace-tablist]')) return;
+      callMark('control-click', interactive?.id || 'button');
+    }, true);
+    console.debug('Debug: Main session global user-input listener installed');
+  }
+
+  if (typeof document !== 'undefined' && document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installGlobalUserInputListener);
+  } else {
+    installGlobalUserInputListener();
+  }
+  namespace.installGlobalUserInputListener = installGlobalUserInputListener;
+
   console.debug('Debug: Main session module initialized', { exportedHelpers: Object.keys(namespace) });
 })();

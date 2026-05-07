@@ -4594,6 +4594,27 @@ let state = {
     }
     return restored;
   };
+  function resolvePiePreviewSourceSvg(tab){
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'pie')
+      || state.root
+      || getPieNodeById('piePage')
+      || global.document;
+    if(!mountedRoot || typeof mountedRoot.querySelector !== 'function'){
+      return null;
+    }
+    return mountedRoot.querySelector('#piePlot svg#pieSvg')
+      || mountedRoot.querySelector('#piePlot svg')
+      || mountedRoot.querySelector('.svgbox svg')
+      || null;
+  }
+
+  pie.getThumbnailSvg = function getThumbnailSvg(tab){
+    return resolvePiePreviewSourceSvg(tab);
+  };
+
+  pie.getPreviewSvg = function getPreviewSvg(tab){
+    return resolvePiePreviewSourceSvg(tab);
+  };
 
   pie.__testHooks = Object.assign({}, pie.__testHooks, {
     computeChiSquare: (observed, expected) => computePieChiSquare(observed, expected),

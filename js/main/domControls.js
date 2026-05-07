@@ -795,6 +795,14 @@
       });
     }
     syncAuthoritativeRenderRestoreFlag(authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view');
+    if (canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor) {
+      Shared.componentLayout.suppressNextScheduleFor(tab.type, {
+        tabId: tab.id,
+        reason: 'render-cache-restore-prepare',
+        delayMs: authoritativeRenderRestore ? 5000 : 400,
+        count: authoritativeRenderRestore ? 24 : 3
+      });
+    }
     const activeWorkspaceElement = Shared.workspaceTabs?.ensureMountedRoot
       ? (Shared.workspaceTabs.ensureMountedRoot(tab, config, {
           reason: options.reason || 'workspace-view-prepare'
@@ -952,6 +960,12 @@
             canRestoreRender,
             validationDeferred: renderCacheValidationDeferred
           });
+          if (!canRestoreRender && Shared.componentLayout?.releaseSuppressedSchedulesFor) {
+            Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
+              tabId: tab.id,
+              reason: 'render-cache-restore-validation-failed'
+            });
+          }
         }
       }
       const isCurrentWorkspaceSession = () => {

@@ -270,6 +270,8 @@
     statsRestorePending: null,
     skipNextDraw: false,
     skipNextDrawReason: null,
+    renderCacheRestoreSuppressUntil: 0,
+    renderCacheRestoreSuppressCount: 0,
     drawInProgress: false,
     pendingDrawOpts: null,
     lastDrawAt: 0,
@@ -286,6 +288,56 @@
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
   };
   let scatterRoot = null;
+  function shouldSuppressScatterRestoreDraw(reason){
+    const value = String(reason || '').trim().toLowerCase();
+    if(!value){
+      return true;
+    }
+    return value === 'schedule'
+      || value.includes('restore')
+      || value.includes('payload')
+      || value.includes('programmatic')
+      || value.includes('render-cache')
+      || value.includes('resize')
+      || value.includes('layout');
+  }
+
+  function suppressScatterRestoreDraws(reason, options = {}){
+    scatterState.renderCacheRestoreSuppressUntil = Date.now() + (Number.isFinite(options.delayMs) ? Math.max(0, Number(options.delayMs)) : 2500);
+    scatterState.renderCacheRestoreSuppressCount = Math.max(
+      Number(scatterState.renderCacheRestoreSuppressCount) || 0,
+      Number.isFinite(options.count) ? Math.max(0, Math.floor(options.count)) : 12
+    );
+    scatterDebug('Debug: scatter restore draw suppression activated', {
+      reason: reason || null,
+      count: scatterState.renderCacheRestoreSuppressCount
+    });
+  }
+
+  function consumeScatterRestoreDrawSuppression(reason, force){
+    if(force){
+      scatterState.renderCacheRestoreSuppressUntil = 0;
+      scatterState.renderCacheRestoreSuppressCount = 0;
+      return false;
+    }
+    const active = (Number(scatterState.renderCacheRestoreSuppressCount) || 0) > 0
+      || (Number(scatterState.renderCacheRestoreSuppressUntil) || 0) > Date.now();
+    if(!active){
+      return false;
+    }
+    if(!shouldSuppressScatterRestoreDraw(reason)){
+      scatterState.renderCacheRestoreSuppressUntil = 0;
+      scatterState.renderCacheRestoreSuppressCount = 0;
+      return false;
+    }
+    scatterState.renderCacheRestoreSuppressCount = Math.max(0, (Number(scatterState.renderCacheRestoreSuppressCount) || 0) - 1);
+    scatterDebug('Debug: scatter draw suppressed during render cache restore', {
+      reason: reason || null,
+      remaining: scatterState.renderCacheRestoreSuppressCount
+    });
+    return true;
+  }
+
   function resolveScatterRoot(tabLike){
     const activeTabId = tabLike
       || Shared.hot?.resolveActiveTabId?.()
@@ -6650,6 +6702,11 @@
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
+    if(initOptions?.restoreRenderCache === true || initOptions?.skipInitialDraw === true){
+      scatterState.skipNextDraw = true;
+      scatterState.skipNextDrawReason = initOptions.reason || 'init-render-cache-restore';
+      suppressScatterRestoreDraws(initOptions.reason || 'init-render-cache-restore', { delayMs: 5000, count: 24 });
+    }
     ensureScatterAxisSettings();
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
     const legacyDollar = global.$;
@@ -9620,6 +9677,7 @@
       scatterLegendControl = scatterShowLegend?.closest('label') || null;
       scatterLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'scatter',
+        tabId: initOptions?.tabId || undefined,
         selectors: {
           tablePanel: '#scatterTablePanel',
           graphPanel: '#scatterGraphPanel',
@@ -20776,6 +20834,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           });
           return;
         }
+        const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
+        if(consumeScatterRestoreDrawSuppression(overlayReason, !!nextOpts.force)){
+          scatterState.skipNextDraw = false;
+          scatterState.skipNextDrawReason = null;
+          scatterState.rotationPending = false;
+          scatterState.rotationPendingLogged = false;
+          resolveScatterOverlay('skipped');
+          return;
+        }
         if(scatterState.skipNextDraw && !nextOpts.force){
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
@@ -20789,7 +20856,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterState.skipNextDraw = false;
           scatterState.skipNextDrawReason = null;
         }
-        const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
         if(nextOpts.reason){
           if(!scatterState.pendingDrawReasons){
             scatterState.pendingDrawReasons = new Set();
@@ -22204,6 +22270,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     if(restored && meta?.temporaryRestore !== true){
       scatterState.skipNextDraw = true;
       scatterState.skipNextDrawReason = meta?.reason || meta?.type || 'render-cache';
+      suppressScatterRestoreDraws(meta?.reason || meta?.type || 'render-cache', { delayMs: 2500, count: 12 });
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       scatterDebug('Debug: scatter render cache restored', {
