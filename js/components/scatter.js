@@ -343,14 +343,12 @@
       || Shared.hot?.resolveActiveTabId?.()
       || global.Main?.tabs?.getActiveTab?.()?.id
       || null;
-    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'scatter') || null;
-    if(mountedRoot){
-      return mountedRoot;
-    }
-    if(scatterRoot && scatterRoot.isConnected){
-      return scatterRoot;
-    }
-    return global.document?.getElementById?.('scatterPage') || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: activeTabId,
+      componentKey: 'scatter',
+      currentRoot: scatterRoot,
+      staticRootId: 'scatterPage'
+    }) || null;
   }
   function queryScatterRoot(selector, tabLike){
     const root = resolveScatterRoot(tabLike);
@@ -6740,10 +6738,18 @@
       console.error('Table factory missing for scatter component');
       return;
     }
+    const requestedTabId = (initOptions && typeof initOptions === 'object' && typeof initOptions.tabId === 'string' && initOptions.tabId.trim())
+      ? initOptions.tabId.trim()
+      : null;
     const requestedRoot = initOptions && typeof initOptions === 'object'
       ? (initOptions.root || null)
       : null;
-    scatterRoot = requestedRoot || resolveScatterRoot(initOptions?.tabId || null);
+    const setupTabId = requestedTabId
+      || Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
+    scatterRoot = requestedRoot || resolveScatterRoot(setupTabId || null);
+    scatter.__boundTabId = setupTabId || scatter.__boundTabId || null;
     const makeEditableLocal = (el,onChange,options) => {
       const fn = Shared.makeEditable || global.makeEditable;
       if (typeof fn === 'function') {
@@ -10021,8 +10027,9 @@
         return hotInstance;
       };
       const ensureScatterHotForActiveTab = () => {
-        const activeTabId = Shared.hot.resolveActiveTabId?.()
+        const activeTabId = requestedTabId
           || scatter.__boundTabId
+          || Shared.hot.resolveActiveTabId?.()
           || global.Main?.tabs?.getActiveTab?.()?.id
           || null;
         const wrapper = getScatterNodeById('scatterHotWrapper', activeTabId) || getScatterNodeById('scatterHotWrapper');
@@ -21848,7 +21855,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     initNotes();
     ensureScatterFontEventListener();
     ensureEmptyPayloadTemplate();
-    scatter.__boundTabId = Shared.hot?.resolveActiveTabId?.()
+    scatter.__boundTabId = requestedTabId
+      || scatter.__boundTabId
+      || Shared.hot?.resolveActiveTabId?.()
       || global.Main?.tabs?.getActiveTab?.()?.id
       || null;
     scatter.ready = true;

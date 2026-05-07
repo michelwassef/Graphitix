@@ -957,6 +957,23 @@
     const session = Main.session;
     const hasData = meta.forceCapture ? true : session?.tabHasTableData?.(tab);
     if (!hasData) {
+      const reasonText = String(meta?.reason || '').trim().toLowerCase();
+      const preserveExistingPreview = !!tab.previewMarkup && (
+        reasonText === 'hover-inactive'
+        || reasonText.includes('activate-switch')
+        || reasonText.includes('deactivate')
+        || reasonText.includes('persist-active')
+        || reasonText.includes('recovery-interval')
+        || reasonText.includes('archive-snapshot')
+      );
+      if (preserveExistingPreview) {
+        console.debug('Debug: preview no-data during hover, preserving stored preview', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: meta?.reason || 'no-data-preserve'
+        });
+        return false;
+      }
       if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {
         tab.previewMarkup = null;
         tab.previewSignature = null;
@@ -1045,7 +1062,7 @@
       });
       return true;
     }
-    const preserveExistingPreview = (meta?.reason === 'hover-inactive') && !!tab.previewMarkup;
+    const preserveExistingPreview = (String(meta?.reason || '').toLowerCase().startsWith('hover-inactive')) && !!tab.previewMarkup;
     if (preserveExistingPreview) {
       console.debug('Debug: preview capture failed, preserving existing preview', {
         tabId: tab.id,
@@ -1204,39 +1221,52 @@
     const session = Main.session;
     const workspaceState = session?.workspaceState;
     const components = Main.components;
-    if (!tab || tab.isWelcome || !tab.type) {
+    const resolvedTab = (() => {
+      const tabId = tab?.id || null;
+      if (!tabId || !Array.isArray(workspaceState?.tabs)) {
+        return tab || null;
+      }
+      return workspaceState.tabs.find(item => item && item.id === tabId) || tab;
+    })();
+    if (!resolvedTab || resolvedTab.isWelcome || !resolvedTab.type) {
       hideTabPreviewTooltip('enter-invalid');
       return;
     }
-    if (tab.isRenaming) {
+    if (resolvedTab.isRenaming) {
       hideTabPreviewTooltip('renaming');
       return;
     }
-    console.debug('Debug: preview hover enter', { tabId: tab.id, type: tab.type });
-    const isActive = tab.id === workspaceState?.activeTabId;
+    console.debug('Debug: preview hover enter', { tabId: resolvedTab.id, type: resolvedTab.type });
+    const isActive = resolvedTab.id === workspaceState?.activeTabId;
     if (isActive) {
       hideTabPreviewTooltip('active-tab');
-      console.debug('Debug: preview hover skipped for active tab', { tabId: tab.id, type: tab.type });
+      console.debug('Debug: preview hover skipped for active tab', { tabId: resolvedTab.id, type: resolvedTab.type });
       return;
     }
-    const config = components?.registry?.[tab.type];
+    const config = components?.registry?.[resolvedTab.type];
     if (config) {
-      updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-inactive' });
+      updateTabPreviewFromWorkspace(resolvedTab, config, { reason: 'hover-inactive' });
+      if (!resolvedTab.previewMarkup) {
+        updateTabPreviewFromWorkspace(resolvedTab, config, {
+          reason: 'hover-inactive-force',
+          forceCapture: true
+        });
+      }
     }
     console.debug('Debug: preview hover using stored inactive preview', {
-      tabId: tab.id,
-      hasPreview: !!tab.previewMarkup
+      tabId: resolvedTab.id,
+      hasPreview: !!resolvedTab.previewMarkup
     });
-    if (!tab.previewMarkup) {
+    if (!resolvedTab.previewMarkup) {
       hideTabPreviewTooltip('no-preview');
       return;
     }
-    if (tabPreviewActiveId === tab.id && tabPreviewTooltipEl && tabPreviewTooltipEl.style.display !== 'none') {
-      console.debug('Debug: preview hover reuse tooltip', { tabId: tab.id });
+    if (tabPreviewActiveId === resolvedTab.id && tabPreviewTooltipEl && tabPreviewTooltipEl.style.display !== 'none') {
+      console.debug('Debug: preview hover reuse tooltip', { tabId: resolvedTab.id });
       return;
     }
     const anchorEl = event?.currentTarget || event?.target || null;
-    showTabPreviewTooltip(tab, anchorEl);
+    showTabPreviewTooltip(resolvedTab, anchorEl);
   }
 
   function handleTabPreviewLeave(reason = 'leave') {

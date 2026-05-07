@@ -466,11 +466,12 @@
   };
 
   function resolveHeatmapRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'heatmap')
-      || state.root
-      || global.document?.getElementById?.('heatmapPage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'heatmap',
+      currentRoot: state.root,
+      staticRootId: 'heatmapPage'
+    }) || null;
   }
 
   function queryHeatmapRoot(selector, tabLike){

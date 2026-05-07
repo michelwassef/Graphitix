@@ -470,11 +470,12 @@ let state = {
   };
 
   function resolvePieRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'pie')
-      || state.root
-      || global.document?.getElementById?.('piePage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'pie',
+      currentRoot: state.root,
+      staticRootId: 'piePage'
+    }) || null;
   }
 
   function queryPieRoot(selector, tabLike){

@@ -857,11 +857,12 @@
 
   const refs = {};
   function resolveSurvivalRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'survival')
-      || refs.root
-      || global.document?.getElementById?.('survivalPage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'survival',
+      currentRoot: refs.root,
+      staticRootId: 'survivalPage'
+    }) || null;
   }
 
   function getSurvivalNodeById(id, tabLike){

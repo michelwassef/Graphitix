@@ -2390,11 +2390,12 @@
 
   const refs = {};
   function resolveLineRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'line')
-      || refs.root
-      || global.document?.getElementById?.('linePage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'line',
+      currentRoot: refs.root,
+      staticRootId: 'linePage'
+    }) || null;
   }
   function queryLineRoot(selector, tabLike){
     const root = resolveLineRoot(tabLike);

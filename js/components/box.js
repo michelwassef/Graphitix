@@ -10536,7 +10536,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, authoritativeRenderRestoreSuppressUntil: 0, authoritativeRenderRestoreSuppressCount: 0, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   state.drawInProgress = false;
@@ -10642,6 +10642,21 @@
       }
     }
     return null;
+  }
+
+  function resolveActiveBoxSvg(tabLike = null){
+    const tabId = resolveBoxTabId(tabLike || box.__boundTabId || null);
+    const root = resolveBoxRoot(tabLike || tabId || null) || boxRoot || null;
+    const scopedSvg = queryBoxNode('#boxPlot svg', { root, tabLike: tabId });
+    if(scopedSvg){
+      return scopedSvg;
+    }
+    const directSvg = getBoxNodeById('boxSvg', { root, tabLike: tabId });
+    if(directSvg){
+      return directSvg;
+    }
+    const activePlotSvg = els.plotDiv?.querySelector?.('svg') || null;
+    return activePlotSvg || null;
   }
 
   function buildBoxSessionMeta(options = {}){
@@ -13416,8 +13431,15 @@
       || value.includes('layout');
   }
 
+  function isAuthoritativeRestoreReleaseReason(reason){
+    const value = String(reason || '').trim().toLowerCase();
+    return value === 'resize' || value === 'layout-sync';
+  }
+
   function activateAuthoritativeBoxRenderRestore(reason){
     state.authoritativeRenderRestoreActive = true;
+    state.authoritativeRenderRestoreSuppressUntil = Date.now() + 2500;
+    state.authoritativeRenderRestoreSuppressCount = Math.max(Number(state.authoritativeRenderRestoreSuppressCount) || 0, 12);
     state.suppressNextStatsSvgReapply = true;
     console.debug('Debug: box authoritative render restore activated', { reason: reason || 'unknown' });
   }
@@ -13427,8 +13449,32 @@
       return false;
     }
     state.authoritativeRenderRestoreActive = false;
+    state.authoritativeRenderRestoreSuppressUntil = 0;
+    state.authoritativeRenderRestoreSuppressCount = 0;
     state.suppressNextStatsSvgReapply = false;
     console.debug('Debug: box authoritative render restore released', { reason: reason || 'unknown' });
+    return true;
+  }
+
+  function consumeAuthoritativeBoxRestoreSuppression(reason, force){
+    if(force || isAuthoritativeRestoreReleaseReason(reason)){
+      releaseAuthoritativeBoxRenderRestore(reason || 'force-release');
+      return false;
+    }
+    const active = state.authoritativeRenderRestoreActive
+      && (
+        (Number(state.authoritativeRenderRestoreSuppressCount) || 0) > 0
+        || (Number(state.authoritativeRenderRestoreSuppressUntil) || 0) > Date.now()
+      );
+    if(!active){
+      releaseAuthoritativeBoxRenderRestore(reason || 'expired');
+      return false;
+    }
+    if(!shouldSuppressAuthoritativeBoxRestoreDraw(reason)){
+      releaseAuthoritativeBoxRenderRestore(reason || 'non-suppressed');
+      return false;
+    }
+    state.authoritativeRenderRestoreSuppressCount = Math.max(0, (Number(state.authoritativeRenderRestoreSuppressCount) || 0) - 1);
     return true;
   }
 
@@ -13441,11 +13487,10 @@
       clearRestoredBoxSignificanceGeometryLock(nextReason);
     }
     if(state.authoritativeRenderRestoreActive){
-      if(shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, false)){
         console.debug('Debug: box draw suppressed during authoritative restore', { reason: nextReason });
         return;
       }
-      releaseAuthoritativeBoxRenderRestore(nextReason);
     }
     state.scheduleDraw({
       viewOnly: true,
@@ -14966,7 +15011,7 @@
         state.dataDirty = true;
         state.cachedDrawInput = null;
       }
-      if(state.authoritativeRenderRestoreActive && shouldSuppressAuthoritativeBoxRestoreDraw(meta.reason || meta.source || 'payload')){
+      if(consumeAuthoritativeBoxRestoreSuppression(meta.reason || meta.source || 'payload', !!meta.force)){
         console.debug('Debug: box table draw suppressed during authoritative restore', {
           reason: meta.reason || meta.source || null
         });
@@ -24116,7 +24161,7 @@ Technical analysis record (advanced)
     if(!traces.length){
       return false;
     }
-    primeStatsComputation(traces, els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null, {
+    primeStatsComputation(traces, resolveActiveBoxSvg(targetTabId || null), {
       axisLabels: traces.map(trace => trace.name),
       significance: { enabled: !!state.showSignificanceBars }
     }, {
@@ -24264,9 +24309,12 @@ Technical analysis record (advanced)
       resetStatsComputationState({ placeholder: 'Add data to enable statistics.' });
       return;
     }
+    const effectiveSvg = (svg && typeof svg.appendChild === 'function')
+      ? svg
+      : resolveActiveBoxSvg(options?.tabId || null);
     const previousContext = state.statsContext;
     const signature = buildStatsSignature(traces);
-    const svgChanged = previousContext?.svg && previousContext.svg !== svg;
+    const svgChanged = previousContext?.svg && previousContext.svg !== effectiveSvg;
     const rawContextChanged = signature !== state.statsContextSignature;
     const canPreserveAnnotationsForViewRedraw = rawContextChanged
       && options?.viewOnly === true
@@ -24305,7 +24353,7 @@ Technical analysis record (advanced)
     state.statsContextVersion = version;
     state.statsContextSignature = signature;
     const contextTabId = resolveBoxTabId(options?.tabId || getActiveBoxWorkspaceTabId() || null);
-    state.statsContext = { traces: traces.slice(), svg, helpers, version, signature };
+    state.statsContext = { traces: traces.slice(), svg: effectiveSvg || null, helpers, version, signature };
     state.statsContextTabId = contextTabId || null;
     const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
     if(state.statsLastRunVersion === version && hasResults){
@@ -24320,7 +24368,7 @@ Technical analysis record (advanced)
     }
     const suppressSvgReapply = !!state.suppressNextStatsSvgReapply;
     const requestedReason = typeof options?.reason === 'string' ? options.reason : '';
-    const hasLiveSignificanceAnnotations = !!svg?.querySelector?.('.box-significance-annotation');
+    const hasLiveSignificanceAnnotations = !!effectiveSvg?.querySelector?.('.box-significance-annotation');
     const needsSvgReapply = svgChanged && (state.showSignificanceBars || state.statsLastSignificanceEnabled) && !state.statsComputationPending && !suppressSvgReapply;
     const needsMissingStoredAnnotationReapply = !svgChanged
       && !!state.showSignificanceBars
@@ -25115,7 +25163,8 @@ Technical analysis record (advanced)
       releaseAuthoritativeBoxRenderRestore('stats-compute-user');
     }
     const canShowSignificance = isPairwiseSignificanceSupported();
-    if(userInitiated && canShowSignificance && !state.showSignificanceBars){
+    const shouldAutoEnableSignificance = userInitiated && canShowSignificance && !state.showSignificanceBars;
+    if(shouldAutoEnableSignificance){
       state.pendingAutoShowSignificance = true;
       setStatsStatus('Preparing significance bars…');
     }
@@ -25132,6 +25181,28 @@ Technical analysis record (advanced)
       state.pendingAutoShowSignificance = false;
       setStatsStatus('Statistics unavailable until data is loaded.');
       return;
+    }
+    const contextSvg = (context.svg && typeof context.svg.appendChild === 'function')
+      ? context.svg
+      : resolveActiveBoxSvg(getActiveBoxWorkspaceTabId() || null);
+    if(!contextSvg){
+      state.pendingAutoShowSignificance = false;
+      setStatsStatus('Graph is still initializing. Try again in a moment.');
+      console.debug('Debug: box stats compute deferred (missing svg)', {
+        tabId: getActiveBoxWorkspaceTabId() || null,
+        reason: 'missing-svg-context'
+      });
+      return;
+    }
+    if(contextSvg !== context.svg){
+      context.svg = contextSvg;
+      if(state.statsContext === context){
+        state.statsContext.svg = contextSvg;
+      }
+      console.debug('Debug: box stats context svg rebound before compute', {
+        tabId: getActiveBoxWorkspaceTabId() || null,
+        reason: 'context-svg-rebind'
+      });
     }
     const previousSignificanceMaxLevel = Number.isFinite(state.significanceMaxLevel)
       ? Number(state.significanceMaxLevel)
@@ -25225,6 +25296,12 @@ Technical analysis record (advanced)
     };
 
     const runLocalCompute = () => {
+      if(shouldAutoEnableSignificance && state.pendingAutoShowSignificance){
+        state.showSignificanceBars = true;
+        if(els.boxShowSignificance){
+          els.boxShowSignificance.checked = true;
+        }
+      }
       if(autoSvgReapply){
         console.debug('Debug: box stats auto SVG reapply compute',{ version: context.version, significance: state.showSignificanceBars });
       }
@@ -26225,7 +26302,24 @@ Technical analysis record (advanced)
         alternative:state.statsAlternative
       })
       : null;
-    const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
+    const maxValCandidates = indices.map(i => {
+      const trace = traces?.[i];
+      const values = Array.isArray(trace?.rawY)
+        ? trace.rawY
+        : (Array.isArray(trace?.y) ? trace.y : []);
+      const finiteValues = values.filter(Number.isFinite);
+      return finiteValues.length ? Math.max(...finiteValues) : -Infinity;
+    });
+    const fallbackOverallMax = analysisGroups.reduce((acc, grp) => {
+      if(!Array.isArray(grp) || !grp.length){
+        return acc;
+      }
+      const localMax = Math.max(...grp.filter(Number.isFinite));
+      return Number.isFinite(localMax) ? Math.max(acc, localMax) : acc;
+    }, -Infinity);
+    const maxVal = Number.isFinite(Math.max(...maxValCandidates))
+      ? Math.max(...maxValCandidates)
+      : fallbackOverallMax;
     const xs=indices.map(i=>categoryCenter(i));
     let pairs=[];
     let referenceLabel=null;
@@ -33856,12 +33950,11 @@ Technical analysis record (advanced)
     drawOptions.__boxSessionMeta = sessionMeta;
     if(state.authoritativeRenderRestoreActive){
       const nextReason = drawOptions.reason || 'schedule';
-      if(shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, !!drawOptions.force)){
         console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: nextReason });
         resolveBoxLoading('skipped');
         return false;
       }
-      releaseAuthoritativeBoxRenderRestore(nextReason);
     }
     if(state.drawInProgress){
       state.pendingDrawOpts = mergeBoxDrawOptions(state.pendingDrawOpts, drawOptions);
@@ -33874,12 +33967,11 @@ Technical analysis record (advanced)
     }
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     if(state.authoritativeRenderRestoreActive){
-      if(shouldSuppressAuthoritativeBoxRestoreDraw(drawReason)){
+      if(consumeAuthoritativeBoxRestoreSuppression(drawReason, !!drawOptions.force)){
         console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: drawReason || null });
         resolveBoxLoading('authoritative-render-restore');
         return false;
       }
-      releaseAuthoritativeBoxRenderRestore(drawReason || 'draw-cycle');
     }
     state.drawInProgress = true;
     let status = 'complete';
@@ -34104,11 +34196,10 @@ Technical analysis record (advanced)
       nextOpts.__boxSessionMeta = sessionMeta;
       if(state.authoritativeRenderRestoreActive){
         const nextReason = nextOpts.reason || '';
-        if(shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+        if(consumeAuthoritativeBoxRestoreSuppression(nextReason, !!nextOpts.force)){
           console.debug('Debug: box scheduled draw suppressed during authoritative restore', { reason: nextReason || null });
           return;
         }
-        releaseAuthoritativeBoxRenderRestore(nextReason || 'scheduled-draw');
       }
       if(
         !nextOpts.force

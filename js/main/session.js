@@ -1778,6 +1778,37 @@
       }
     };
     if (shouldSkipLivePayloadCapture) {
+      const previousLayoutSignature = tab.layoutSignature || null;
+      if (Shared.workspaceTabs?.captureRuntimeState) {
+        Shared.workspaceTabs.captureRuntimeState(tab, tab.type, config, {
+          reason
+        });
+      }
+      const skippedLayoutState = Shared.componentLayout?.captureStateFor
+        ? Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id })
+        : null;
+      const skippedLayoutClone = clonePayload(
+        Shared.componentLayout?.withTabLayoutOverrides
+          ? Shared.componentLayout.withTabLayoutOverrides(skippedLayoutState, tab)
+          : skippedLayoutState
+      );
+      const skippedAspectLocked = skippedLayoutClone?.svgBox?.dataset?.resizerAspectLocked;
+      if (skippedAspectLocked === 'true' || skippedAspectLocked === 'false') {
+        tab.sharedState = tab.sharedState || {};
+        tab.sharedState.layout = tab.sharedState.layout || {};
+        tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
+        tab.sharedState.layout.resizer.aspectLocked = skippedAspectLocked === 'true';
+        if (skippedLayoutClone?.svgBox?.dataset?.resizerAspectRatio) {
+          tab.sharedState.layout.resizer.aspectRatio = String(skippedLayoutClone.svgBox.dataset.resizerAspectRatio);
+        }
+      }
+      tab.layoutState = skippedLayoutClone;
+      tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
+      const skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
+      if (skippedLayoutChanged) {
+        clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
+        markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed-skip' });
+      }
       if (!workspaceState.loadedWorkspaces) {
         workspaceState.loadedWorkspaces = {};
       }
@@ -1794,6 +1825,12 @@
         }
       }
       captureRenderCacheOnly();
+      if (previews && typeof previews.updateTabPreviewFromWorkspace === 'function') {
+        previews.updateTabPreviewFromWorkspace(tab, config, {
+          reason: options.reason || 'persist-active-skip',
+          forceCapture: skippedLayoutChanged
+        });
+      }
       // Opt-in deep drift probe. Enabled via `window.Shared.__driftDetectOnSkip = true`
       // (off in production). When on, runs config.getPayload() purely to compute its
       // signature; if it differs from tab.payloadSignature on a "clean" tab, an unwired

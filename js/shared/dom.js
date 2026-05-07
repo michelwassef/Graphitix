@@ -2351,7 +2351,7 @@
         }
         svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         if(dataset){
-          const preserve = preserveAspectRatio != null ? preserveAspectRatio : 'none';
+          const preserve = preserveAspectRatio != null ? preserveAspectRatio : 'xMidYMid meet';
           svg.setAttribute('preserveAspectRatio', preserve);
           writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
         }
@@ -2404,7 +2404,8 @@
     const defaults = {
       fill: true,
       padding: 16,
-      remeasure: true
+      remeasure: true,
+      preserveAspectRatio: 'xMidYMid meet'
     };
     const payload = { ...defaults, ...options };
     if (payload.component && !payload.debugLabel) {

@@ -801,11 +801,12 @@
   let pcaAspectSyncing = false;
 
   function resolvePcaRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'pca')
-      || pcaRoot
-      || global.document?.getElementById?.('pcaPage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'pca',
+      currentRoot: pcaRoot,
+      staticRootId: 'pcaPage'
+    }) || null;
   }
 
   function queryPcaRoot(selector, tabLike){

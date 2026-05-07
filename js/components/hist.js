@@ -576,10 +576,12 @@
     const activeTabId = Shared.hot?.resolveActiveTabId?.()
       || global.Main?.tabs?.getActiveTab?.()?.id
       || null;
-    return state.root
-      || Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'hist')
-      || global.document?.getElementById?.('histPage')
-      || global.document;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: activeTabId,
+      componentKey: 'hist',
+      currentRoot: state.root,
+      staticRootId: 'histPage'
+    }) || null;
   }
 
   function queryHistRoot(selector){
@@ -591,15 +593,7 @@
     if(!id){
       return null;
     }
-    const scopedNode = queryHistRoot(`#${id}`) || null;
-    const documentNode = global.document?.getElementById?.(id) || null;
-    if(scopedNode && scopedNode.isConnected){
-      return scopedNode;
-    }
-    if(documentNode && documentNode.isConnected){
-      return documentNode;
-    }
-    return scopedNode || documentNode || null;
+    return queryHistRoot(`#${id}`) || null;
   }
 
   function createImmutableHistDefaultConfig(){

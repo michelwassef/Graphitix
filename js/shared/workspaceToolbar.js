@@ -1041,15 +1041,34 @@
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
       tab.tabIndex = isActive ? 0 : -1;
     });
-    toolbar.dataset.toolbarActiveSection = sectionId;
-    if(options.manual){
-      toolbar.dataset.toolbarManualSection = sectionId;
-      toolbar.dataset.toolbarContextSuppressed = '1';
+    applyToolbarSectionState(toolbar, {
+      activeSection: sectionId,
+      manual: options.manual === true ? sectionId : null,
+      context: options.context === true ? sectionId : null,
+      clearContext: options.clearContext === true
+    });
+  }
+
+  function applyToolbarSectionState(toolbar, transition = {}){
+    if(!toolbar){
+      return;
     }
-    if(options.context){
+    const nextActive = typeof transition.activeSection === 'string' && transition.activeSection
+      ? transition.activeSection
+      : (toolbar.dataset.toolbarActiveSection || '');
+    if(nextActive){
+      toolbar.dataset.toolbarActiveSection = nextActive;
+    }
+    if(typeof transition.manual === 'string' && transition.manual){
+      toolbar.dataset.toolbarManualSection = transition.manual;
+      toolbar.dataset.toolbarContextSuppressed = '1';
+    }else if(transition.manual === null && transition.context !== null){
       delete toolbar.dataset.toolbarContextSuppressed;
-      toolbar.dataset.toolbarContextSection = sectionId;
-    } else if(options.clearContext){
+    }
+    if(typeof transition.context === 'string' && transition.context){
+      delete toolbar.dataset.toolbarContextSuppressed;
+      toolbar.dataset.toolbarContextSection = transition.context;
+    }else if(transition.clearContext){
       delete toolbar.dataset.toolbarContextSection;
     }
   }
@@ -1092,7 +1111,7 @@
       return;
     }
     if(previousContext){
-      delete toolbar.dataset.toolbarContextSection;
+      applyToolbarSectionState(toolbar, { clearContext: true });
     }
   }
 

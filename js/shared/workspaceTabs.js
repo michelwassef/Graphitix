@@ -448,12 +448,28 @@
     return namespace.getSessionRecord(tab, key)?.dom?.root || null;
   };
 
+  namespace.resolveComponentRoot = function resolveComponentRoot(config = {}){
+    const componentKey = String(config.componentKey || config.type || '').trim();
+    const mounted = namespace.getMountedRoot(config.tabLike || config.tabId || null, componentKey);
+    if(mounted){
+      return mounted;
+    }
+    const currentRoot = config.currentRoot || null;
+    if(currentRoot && currentRoot.isConnected){
+      return currentRoot;
+    }
+    if(config.staticRootId && global.document?.getElementById){
+      return global.document.getElementById(config.staticRootId) || null;
+    }
+    return null;
+  };
+
   namespace.queryRoot = function queryRoot(tabLike, componentKey, selector){
     const root = namespace.getMountedRoot(tabLike, componentKey);
     if(root && selector && typeof root.querySelector === 'function'){
       return root.querySelector(selector);
     }
-    return selector ? global.document?.querySelector?.(selector) || null : root;
+    return null;
   };
 
   namespace.ensureActiveDomBindings = function ensureActiveDomBindings(config = {}){

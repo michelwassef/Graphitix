@@ -489,11 +489,12 @@
   let rocDataViewsManager = null;
 
   function resolveRocRoot(tabLike){
-    return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'roc')
-      || state.root
-      || global.document?.getElementById?.('rocPage')
-      || global.document
-      || null;
+    return Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || null,
+      componentKey: 'roc',
+      currentRoot: state.root,
+      staticRootId: 'rocPage'
+    }) || null;
   }
 
   function queryRocRoot(selector, tabLike){
