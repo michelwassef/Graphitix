@@ -779,7 +779,7 @@
   }
   function resolveScatterToolbarHost(doc){
     if(!doc){ return null; }
-    const anchor = doc.getElementById('scatterFontHost');
+    const anchor = getScatterNodeById('scatterFontHost');
     if(anchor && anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')){
       return anchor.nextElementSibling;
     }
@@ -813,9 +813,9 @@
       syncScatterSymbolToolbarDotToggles = null;
       return;
     }
-    const showErrorBarsInput = doc.getElementById('scatterShowErrorBars');
-    const showGroupedReplicatesInput = doc.getElementById('scatterShowGroupedReplicates');
-    const showGroupedReplicatesRow = doc.getElementById('scatterShowGroupedReplicatesRow');
+    const showErrorBarsInput = getScatterNodeById('scatterShowErrorBars');
+    const showGroupedReplicatesInput = getScatterNodeById('scatterShowGroupedReplicates');
+    const showGroupedReplicatesRow = getScatterNodeById('scatterShowGroupedReplicatesRow');
     if(!showErrorBarsInput && !showGroupedReplicatesInput){
       syncScatterSymbolToolbarDotToggles = null;
       return;
@@ -5493,12 +5493,12 @@
     syncScatterSymbolToolbarDotToggles = null;
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
-      const scatterFillInput = doc.getElementById('scatterFill');
-      const scatterBorderInput = doc.getElementById('scatterBorder');
-      const scatterBorderWidthInput = doc.getElementById('scatterBorderWidth');
-      const scatterDotSizeInput = doc.getElementById('scatterDotSize');
-      const scatterAlphaInput = doc.getElementById('scatterAlpha');
-      const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
+      const scatterFillInput = getScatterNodeById('scatterFill');
+      const scatterBorderInput = getScatterNodeById('scatterBorder');
+      const scatterBorderWidthInput = getScatterNodeById('scatterBorderWidth');
+      const scatterDotSizeInput = getScatterNodeById('scatterDotSize');
+      const scatterAlphaInput = getScatterNodeById('scatterAlpha');
+      const scatterAlphaVal = getScatterNodeById('scatterAlphaVal');
       let scatterLabelKey = target?.__scatterPointData?.label || null;
       const resolveAlpha = value => {
         const clamped = clampScatterAlpha(value);
@@ -5554,7 +5554,7 @@
         Object.keys(scatterLabelColors || {}).forEach(addKey);
         Object.keys(scatterLabelShapes || {}).forEach(addKey);
         Object.keys(scatterLabelStyles || {}).forEach(addKey);
-        const scatterSvg = doc.getElementById('scatterPlot');
+        const scatterSvg = getScatterNodeById('scatterPlot');
         if(scatterSvg && scatterSvg.querySelectorAll){
           scatterSvg.querySelectorAll('[data-label]').forEach(node => addKey(node.getAttribute('data-label')));
         }

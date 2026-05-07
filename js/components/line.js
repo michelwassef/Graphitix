@@ -3171,12 +3171,12 @@
     if(!doc){ return; }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
-      const dotSizeInput = doc.getElementById('lineDotSize');
-      const fillInput = doc.getElementById('lineFill');
-      const strokeInput = doc.getElementById('lineBorder');
-      const strokeWidthInput = doc.getElementById('lineBorderWidth');
-      const alphaInput = doc.getElementById('lineAlpha');
-      const alphaVal = doc.getElementById('lineAlphaVal');
+      const dotSizeInput = getLineNodeById('lineDotSize');
+      const fillInput = getLineNodeById('lineFill');
+      const strokeInput = getLineNodeById('lineBorder');
+      const strokeWidthInput = getLineNodeById('lineBorderWidth');
+      const alphaInput = getLineNodeById('lineAlpha');
+      const alphaVal = getLineNodeById('lineAlphaVal');
       let seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
       const resolveAlpha = value => {
         const n = Number(value);
@@ -3694,7 +3694,7 @@
           if(Array.isArray(lineLastRegressionSummaries)){
             lineLastRegressionSummaries.forEach(entry => addActive(entry?.name));
           }
-          const plotHost = refs.plot || doc.getElementById('linePlot');
+          const plotHost = refs.plot || getLineNodeById('linePlot');
           if(plotHost && typeof plotHost.querySelectorAll === 'function'){
             plotHost.querySelectorAll('[data-series]').forEach(node => {
               addActive(node?.getAttribute?.('data-series') || node?.dataset?.series);

@@ -192,11 +192,11 @@
 
   function syncPlotMode(nextType, options = {}) {
     const normalized = normalizePlotType(nextType);
-    const page = global.document?.getElementById('vennPage');
+    const page = getVennNodeById('vennPage');
     if (page && page.dataset) {
       page.dataset.plot = normalized;
     }
-    const stage = state.ui?.stage || global.document?.getElementById('stage');
+    const stage = state.ui?.stage || getVennNodeById('stage');
     if (stage && typeof stage.setAttribute === 'function') {
       stage.setAttribute('aria-label', normalized === 'upset' ? 'UpSet plot' : 'Venn diagram');
     }
@@ -2244,8 +2244,8 @@
   }
 
   function resolveVennSymbolToolbarAnchor(doc){
-    return doc.getElementById('vennFontHost')
-      || doc.getElementById('sample')
+    return getVennNodeById('vennFontHost')
+      || getVennNodeById('sample')
       || null;
   }
 

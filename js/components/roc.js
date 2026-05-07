@@ -88,8 +88,7 @@
         Object.keys(state.labelStrokeWidth || {}).forEach(addKey);
         Object.keys(state.labelOpacity || {}).forEach(addKey);
         Object.keys(state.labelLinePattern || {}).forEach(addKey);
-        const doc = global.document;
-        const svg = doc ? doc.getElementById('rocSvg') : null;
+        const svg = getRocNodeById('rocSvg');
         if(svg && svg.querySelectorAll){
           svg.querySelectorAll('path[data-series]').forEach(node => addKey(node.getAttribute('data-series')));
         }
@@ -129,8 +128,7 @@
         return options;
       })();
       const resolveTargets = scopeValue => {
-        const doc = global.document;
-        const svg = doc ? doc.getElementById('rocSvg') : null;
+        const svg = getRocNodeById('rocSvg');
         if(!svg){ return target ? [target] : []; }
         if(scopeValue === 'series' && seriesKey){
           return Array.from(svg.querySelectorAll(`path[data-series="${seriesKey.replace(/"/g, '\\"')}"]`));

@@ -1548,8 +1548,7 @@
   }
 
   function findBoxPointNodeForTrace(traceIndex, fallbackNode){
-    const doc = global.document;
-    const plot = doc ? doc.getElementById('boxPlot') : null;
+    const plot = getBoxNodeById('boxPlot');
     if(!plot){
       return fallbackNode || null;
     }
@@ -1587,8 +1586,7 @@
   }
 
   function findBoxSummaryNodeForTrace(traceIndex, fallbackNode){
-    const doc = global.document;
-    const plot = doc ? doc.getElementById('boxPlot') : null;
+    const plot = getBoxNodeById('boxPlot');
     if(!plot){
       return fallbackNode || null;
     }
@@ -1602,8 +1600,7 @@
   }
 
   function findBoxBodyNodeForTrace(traceIndex, fallbackNode){
-    const doc = global.document;
-    const plot = doc ? doc.getElementById('boxPlot') : null;
+    const plot = getBoxNodeById('boxPlot');
     if(!plot){
       return fallbackNode || null;
     }
@@ -2270,8 +2267,7 @@
   let pendingBoxGlobalOpacity = null;
   const runBoxGlobalOpacityApply = () => {
     if(pendingBoxGlobalOpacity == null){ return; }
-    const doc = global.document;
-    const plot = doc ? doc.getElementById('boxPlot') : null;
+    const plot = getBoxNodeById('boxPlot');
     if(plot){
       const nodes = plot.querySelectorAll('[data-box-shape],[data-export-layer="box-points"] circle:not([data-point-proxy="1"]),[data-export-layer="box-points"] path:not([data-point-proxy="1"]),[data-export-layer="box-points"] rect:not([data-point-proxy="1"]),[data-summary-line="1"]');
       nodes.forEach(node => {
@@ -2303,7 +2299,7 @@
     if(opts.skipHideAll !== true){
       try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     }
-    const anchor = doc.getElementById('boxFontHost');
+    const anchor = getBoxNodeById('boxFontHost');
     if(!anchor){ return; }
 
     const hostOverride = opts.host && opts.host.nodeType === 1 ? opts.host : null;
@@ -2351,7 +2347,7 @@
       };
       addKey(traceIndex);
       Object.keys(state.pointStyles || {}).forEach(addKey);
-      const plotRoot = doc.getElementById('boxPlot');
+      const plotRoot = getBoxNodeById('boxPlot');
       if(plotRoot && plotRoot.querySelectorAll){
         plotRoot.querySelectorAll('g[data-export-layer="box-points"][data-trace], g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
       }
@@ -2633,8 +2629,7 @@
     }
     const sourceLine = target;
     const resolveConnectionTargets = () => {
-      const doc = global.document;
-      const plot = doc ? doc.getElementById('boxPlot') : null;
+      const plot = getBoxNodeById('boxPlot');
       if(!plot){
         return sourceLine ? [sourceLine] : [];
       }
@@ -2762,8 +2757,7 @@
       };
       addKey(traceIndex);
       Object.keys(state.summaryStyles || {}).forEach(addKey);
-      const doc = global.document;
-      const plot = doc ? doc.getElementById('boxPlot') : null;
+      const plot = getBoxNodeById('boxPlot');
       if(plot && plot.querySelectorAll){
         plot.querySelectorAll('g[data-trace]').forEach(group => addKey(group.getAttribute('data-trace')));
         plot.querySelectorAll('line[data-summary-line="1"][data-trace]').forEach(line => addKey(line.getAttribute('data-trace')));
@@ -2781,8 +2775,7 @@
       ? target
       : (target.querySelector ? (target.querySelector('line[data-summary-line="1"]') || target) : target);
     const resolveSummaryTargets = scopeValue => {
-      const doc = global.document;
-      const plot = doc ? doc.getElementById('boxPlot') : null;
+      const plot = getBoxNodeById('boxPlot');
       if(!plot){
         return sourceLine ? [sourceLine] : [];
       }
@@ -2991,7 +2984,7 @@
         };
         addKey(selectedTraceIndex);
         Object.keys(state.traceShapeStyles || {}).forEach(addKey);
-        const plotRoot = doc.getElementById('boxPlot');
+        const plotRoot = getBoxNodeById('boxPlot');
         if(plotRoot && plotRoot.querySelectorAll){
           plotRoot.querySelectorAll(`${getBoxBodyShapeSelector()}[data-trace]`).forEach(node => addKey(node.getAttribute('data-trace')));
         }
@@ -3006,7 +2999,7 @@
         return [selectedKey].concat(keys.filter(key => key !== selectedKey));
       };
       const shapeScopeLabel = resolveBoxTraceDisplayLabel(selectedTraceIndex);
-      const plotRootNode = doc.getElementById('boxPlot');
+      const plotRootNode = getBoxNodeById('boxPlot');
       const resolveBodyTargets = scopeValue => {
         if(scopeValue === 'global'){
           return plotRootNode ? Array.from(plotRootNode.querySelectorAll(getBoxBodyShapeSelector())) : [target];

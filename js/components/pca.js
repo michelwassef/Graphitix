@@ -2277,7 +2277,7 @@
         equalLengthCheckbox.addEventListener('change', onChange);
         equalLengthCheckbox.__pcaEqualAxesHandler = onChange;
       }
-      const varianceInput = pcaVarianceAxisScaleInput || doc.getElementById('pcaVarianceAxisScale');
+      const varianceInput = pcaVarianceAxisScaleInput || getPcaNodeById('pcaVarianceAxisScale');
       if(varianceInput){
         pcaVarianceAxisScaleInput = varianceInput;
         const varianceLabel = varianceInput.closest('label');
