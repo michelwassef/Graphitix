@@ -116,13 +116,29 @@ async function hoverAndAssertPreview(page, tabId) {
   }, tabId);
   await page.waitForFunction((targetId) => {
     const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
+    const isWheelIcon = !!tooltip?.querySelector?.('svg.resizer-options-icon');
     const hasRenderableContent = !!tooltip?.querySelector?.('svg')
       || String(tooltip?.innerHTML || '').trim().length > 0;
     return !!tooltip
       && tooltip.dataset.tabId === targetId
       && tooltip.style.display !== 'none'
+      && !isWheelIcon
       && hasRenderableContent;
   }, tabId, { timeout: 20_000 });
+  const hoverMeta = await page.evaluate((targetId) => {
+    const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === targetId) || null;
+    const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
+    const svg = tooltip?.querySelector?.('svg') || null;
+    return {
+      tabId: targetId,
+      tabHasPreview: !!tab?.previewMarkup,
+      previewIconMarkup: String(tab?.previewMarkup || '').includes('resizer-options-icon'),
+      tooltipIcon: !!svg?.classList?.contains('resizer-options-icon'),
+      tooltipLen: String(tooltip?.innerHTML || '').length
+    };
+  }, tabId);
+  expect(hoverMeta.previewIconMarkup, `${tabId} preview markup should not be a resizer icon`).toBe(false);
+  expect(hoverMeta.tooltipIcon, `${tabId} tooltip should not render resizer icon`).toBe(false);
 }
 
 const COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE = COMPONENT_MATRIX

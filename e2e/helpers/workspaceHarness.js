@@ -197,15 +197,28 @@ async function clickExampleButtonIfPresent(page, buttonId) {
   if (!buttonId) {
     return false;
   }
-  const button = page.locator(`#${buttonId}`);
-  if (await button.count() < 1) {
+  const clicked = await page.evaluate((targetId) => {
+    const state = window.Main?.session?.workspaceState;
+    const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
+    const type = activeTab?.type || '';
+    const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(activeTab?.id || null, type) || null;
+    const pageRoot = type ? document.getElementById(`${type}Page`) : null;
+    const searchRoot = mountedRoot || pageRoot || document;
+    const button = searchRoot?.querySelector?.(`#${targetId}`) || null;
+    if (!button || button.disabled) {
+      return false;
+    }
+    const style = window.getComputedStyle(button);
+    if (!button.offsetParent || style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    button.click();
+    return true;
+  }, buttonId);
+  if (!clicked) {
     return false;
   }
-  if (!(await button.isVisible()) || !(await button.isEnabled())) {
-    return false;
-  }
-  await button.click();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(700);
   return true;
 }
 
