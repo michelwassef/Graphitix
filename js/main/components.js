@@ -220,7 +220,68 @@
     if (!hostRoot || typeof hostRoot.querySelector !== 'function') {
       return null;
     }
-    return hostRoot.querySelector('.svgbox svg') || hostRoot.querySelector('svg[data-preview-source="true"]') || null;
+    const isUiIconSvg = node => {
+      if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
+        return false;
+      }
+      const className = String(node.getAttribute?.('class') || '').toLowerCase();
+      if (className.includes('resizer-options-icon')) {
+        return true;
+      }
+      const ariaHidden = String(node.getAttribute?.('aria-hidden') || '').toLowerCase() === 'true';
+      const focusable = String(node.getAttribute?.('focusable') || '').toLowerCase() === 'false';
+      const hasPlotMarkers = !!node.querySelector?.('[data-export-layer], [data-layer], [data-venn-trace-id], [data-upset-trace-id]');
+      if (ariaHidden && focusable && !hasPlotMarkers) {
+        return true;
+      }
+      if (node.closest?.('.workspace-toolbar, .resizer-control-tray, .resizer-options, .resizer-options-menu, button')) {
+        return true;
+      }
+      return false;
+    };
+    const hasPlotMarkers = node => !!node?.querySelector?.('[data-export-layer], [data-layer], [data-venn-trace-id], [data-upset-trace-id]');
+    const isLikelyPlotSvg = node => {
+      if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
+        return false;
+      }
+      if (isUiIconSvg(node)) {
+        return false;
+      }
+      if (node.getAttribute?.('data-preview-source') === 'true') {
+        return true;
+      }
+      if (hasPlotMarkers(node)) {
+        return true;
+      }
+      const viewBox = String(node.getAttribute?.('viewBox') || '').trim();
+      if (viewBox) {
+        const parts = viewBox.split(/[\s,]+/).map(item => Number.parseFloat(item));
+        if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+          if (parts[2] < 80 || parts[3] < 80) {
+            return false;
+          }
+        }
+      }
+      const width = Number.parseFloat(node.getAttribute?.('width'));
+      const height = Number.parseFloat(node.getAttribute?.('height'));
+      if (Number.isFinite(width) && Number.isFinite(height) && (width < 80 || height < 80)) {
+        return false;
+      }
+      return true;
+    };
+    const tagged = hostRoot.querySelector('.svgbox svg[data-preview-source="true"], svg[data-preview-source="true"]');
+    if (isLikelyPlotSvg(tagged)) {
+      return tagged;
+    }
+    const candidates = Array.from(hostRoot.querySelectorAll('.svgbox svg, svg[data-preview-source="true"]'));
+    const likely = candidates.filter(isLikelyPlotSvg);
+    if (!likely.length) {
+      return null;
+    }
+    return likely.find(node => hasPlotMarkers(node))
+      || likely.find(node => !node.closest('.workspace-toolbar, .resizer-control-tray, .resizer-options, .resizer-options-menu, button'))
+      || likely[0]
+      || null;
   }
 
   const scheduleDrawBoxplot = createRegistryDrawScheduler('box', 'box');

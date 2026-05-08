@@ -640,9 +640,12 @@
 
   function captureWorkspacePreview(config, tab) {
     const previewRoot = resolvePreviewRoot(config, tab);
-    if (!config || !previewRoot) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-preview-root', type: config?.type || null, tabId: tab?.id || null });
+    if (!config) {
+      console.debug('Debug: preview capture skipped', { reason: 'no-config', type: config?.type || null, tabId: tab?.id || null });
       return null;
+    }
+    if (!previewRoot) {
+      console.debug('Debug: preview capture continuing without mounted root', { type: config?.type || null, tabId: tab?.id || null });
     }
     let svg = null;
     let svgFromGetter = false;
@@ -658,9 +661,31 @@
         });
       }
     }
+    const isUiIconSvg = node => {
+      if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
+        return false;
+      }
+      const className = String(node.getAttribute?.('class') || '').toLowerCase();
+      if (className.includes('resizer-options-icon')) {
+        return true;
+      }
+      const ariaHidden = String(node.getAttribute?.('aria-hidden') || '').toLowerCase() === 'true';
+      const focusable = String(node.getAttribute?.('focusable') || '').toLowerCase() === 'false';
+      const hasExportLayer = !!node.querySelector?.('[data-export-layer], [data-layer], [data-venn-trace-id], [data-upset-trace-id]');
+      if (ariaHidden && focusable && !hasExportLayer) {
+        return true;
+      }
+      if (node.closest?.('.workspace-toolbar, .resizer-control-tray, .resizer-options, .resizer-options-menu, button')) {
+        return true;
+      }
+      return false;
+    };
     const rootContainsSvg = node => !!(node && previewRoot && typeof previewRoot.contains === 'function' && previewRoot.contains(node));
     const isLikelyPlotSvg = node => {
       if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
+        return false;
+      }
+      if (isUiIconSvg(node)) {
         return false;
       }
       if (node.getAttribute?.('data-preview-source') === 'true') {
@@ -686,13 +711,23 @@
       }
       return true;
     };
-    if (!svg || (!svgFromGetter && !rootContainsSvg(svg))) {
-      const primary = previewRoot.querySelector('.svgbox svg');
+    if (svg && !isLikelyPlotSvg(svg)) {
+      console.debug('Debug: preview getter svg rejected', {
+        tabId: tab?.id || null,
+        type: config.type,
+        className: svg.getAttribute?.('class') || '',
+        id: svg.id || null
+      });
+      svg = null;
+      svgFromGetter = false;
+    }
+    if ((!svg || (!svgFromGetter && !rootContainsSvg(svg))) && previewRoot) {
+      const primary = previewRoot.querySelector('.svgbox svg:not(.resizer-options-icon)');
       svg = isLikelyPlotSvg(primary) ? primary : null;
     }
-    if (!svg) {
+    if (!svg && previewRoot) {
       const tagged = previewRoot.querySelector('svg[data-preview-source="true"]');
-      if (tagged) {
+      if (isLikelyPlotSvg(tagged)) {
         svg = tagged;
       } else {
         const candidates = Array.from(previewRoot.querySelectorAll('svg'));
@@ -955,7 +990,15 @@
       return false;
     }
     const session = Main.session;
-    const hasData = meta.forceCapture ? true : session?.tabHasTableData?.(tab);
+    const hasStableTabState = !!(
+      tab?.payloadSignature
+      || tab?.renderCache
+      || tab?.archiveRenderCache
+      || tab?.previewMarkup
+    );
+    const hasData = meta.forceCapture
+      ? true
+      : !!(session?.tabHasTableData?.(tab) || hasStableTabState);
     if (!hasData) {
       const reasonText = String(meta?.reason || '').trim().toLowerCase();
       const preserveExistingPreview = !!tab.previewMarkup && (
