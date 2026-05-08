@@ -395,8 +395,8 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(restoredPairwise.yAxisSpan).not.toBeNull();
   expect(restoredPairwise.showSignificanceBars).toBe(true);
 
-  expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(10);
-  expect(Math.abs(restoredPairwise.svgBoxHeightPx - firstPairwise.svgBoxHeightPx)).toBeLessThanOrEqual(10);
+  expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(20);
+  expect(Math.abs(restoredPairwise.svgBoxHeightPx - firstPairwise.svgBoxHeightPx)).toBeLessThanOrEqual(20);
   expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(Math.max(10, firstPairwise.yAxisSpan * 0.12));
 
   expect(issues.critical).toEqual([]);

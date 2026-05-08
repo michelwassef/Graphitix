@@ -1090,7 +1090,9 @@
         return;
       }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
-      const shouldResetSharedComponentState = isSameComponentTabSwitch && !options.skipApply;
+      const shouldResetSharedComponentState = isSameComponentTabSwitch
+        && !options.skipApply
+        && options.skipBaselineReset !== true;
       if (shouldResetSharedComponentState) {
         const baselineResetPayload = resolveBaselineResetPayload();
         if (baselineResetPayload && guardWorkspaceMutation('baseline-reset')) {

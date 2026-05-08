@@ -104,7 +104,7 @@
           clearTabTransientState(tab, type, 'duplicate-bypass');
         }
         hideDuplicatePrompt();
-        showWorkspaceForTab(tab);
+        showWorkspaceForTab(tab, { reason: 'duplicate-bypass', skipBaselineReset: true });
         session.markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type, origin: 'user' });
         return;
       }
@@ -126,7 +126,7 @@
           tab.layoutSignature = null;
           clearTabTransientState(tab, type, 'duplicate-fallback-empty');
         }
-        showWorkspaceForTab(tab);
+        showWorkspaceForTab(tab, { reason: 'duplicate-fallback', skipBaselineReset: true });
         session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, origin: 'user' });
         return;
       }
@@ -153,7 +153,7 @@
           ? session.serializePayloadSignature(clonedLayout)
           : null;
         hideDuplicatePrompt();
-        showWorkspaceForTab(tab);
+        showWorkspaceForTab(tab, { reason: 'duplicate-accept', skipBaselineReset: true });
         session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
       };
       dom.duplicateEmpty.onclick = () => {
@@ -163,7 +163,7 @@
         tab.layoutSignature = null;
         clearTabTransientState(tab, type, 'duplicate-empty');
         hideDuplicatePrompt();
-        showWorkspaceForTab(tab);
+        showWorkspaceForTab(tab, { reason: 'duplicate-empty', skipBaselineReset: true });
         session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
       };
       dom.duplicateCancel.onclick = () => {

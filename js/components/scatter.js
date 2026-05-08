@@ -21940,14 +21940,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     const targetGraphType = String(payloadConfig.graphType || graphTypeControl?.value || 'scatter').toLowerCase();
     if(graphTypeControl && graphTypeControl.value !== targetGraphType){
       graphTypeControl.value = targetGraphType;
-      graphTypeControl.dispatchEvent(new Event('change', { bubbles: true }));
     }
     if(showLineControl){
       const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
-      if(showLineControl.checked !== shouldShowLine){
-        showLineControl.checked = shouldShowLine;
-        showLineControl.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      showLineControl.checked = shouldShowLine;
     }
   }
 

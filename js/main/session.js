@@ -1736,8 +1736,11 @@
     // authoritative — running config.getPayload() risks projecting half-bound
     // component state over a perfectly good loaded-from-disk payload.
     const isLifecycleOrigin = options.origin === 'lifecycle';
+    const skipCaptureBlockedByReason = reason === 'duplicate-before-create'
+      || reason === 'add-tab-before-new';
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
+      && !skipCaptureBlockedByReason
       && (isLiveCaptureSkippableReason(reason) || isLifecycleOrigin));
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {

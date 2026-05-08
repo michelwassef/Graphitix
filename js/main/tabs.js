@@ -344,7 +344,7 @@
           session.assignTabPayload(newTab, emptyPayload, { reason: 'duplicate-context-empty' });
           newTab.layoutState = null;
           newTab.layoutSignature = null;
-          showWorkspaceForTab(newTab);
+          showWorkspaceForTab(newTab, { reason: 'duplicate-context-empty', skipBaselineReset: true });
           session.markSessionDirty('duplicate-created-empty', { tabId: newTab.id, sourceId, origin: 'user' });
           return;
         }
@@ -362,7 +362,7 @@
         newTab.layoutSignature = session.serializePayloadSignature
           ? session.serializePayloadSignature(clonedLayout)
           : null;
-        showWorkspaceForTab(newTab);
+        showWorkspaceForTab(newTab, { reason: 'duplicate-context-reuse', skipBaselineReset: true });
         session.markSessionDirty('duplicate-created-reuse', { tabId: newTab.id, sourceId, origin: 'user' });
       }
 
@@ -646,8 +646,19 @@
       tab.duplicateSource = null;
       const sourceTab = sourceId ? getTabById(sourceId) : null;
       const canDuplicate = Boolean(sourceTab && sourceTab.type === type && sourceTab.payload);
+      const pendingDuplicatePayload = tab.pendingDuplicatePayload || null;
+      const pendingDuplicateLayout = tab.pendingDuplicateLayout || null;
+      tab.pendingDuplicatePayload = null;
+      tab.pendingDuplicateLayout = null;
       if (canDuplicate) {
-        showDuplicateDecision({ tab, type, sourceTab, canDuplicate });
+        const sourceForPrompt = (pendingDuplicatePayload && sourceTab?.type === type)
+          ? {
+              ...sourceTab,
+              payload: pendingDuplicatePayload,
+              layoutState: pendingDuplicateLayout || sourceTab.layoutState || null
+            }
+          : sourceTab;
+        showDuplicateDecision({ tab, type, sourceTab: sourceForPrompt, canDuplicate });
         return;
       }
       if (sourceTab) {
@@ -675,6 +686,19 @@
       }
       const candidateSource = determineDuplicateSourceCandidate(current?.id);
       const newTab = session.createTab({ duplicateSource: candidateSource });
+      if (current && candidateSource && current.id === candidateSource) {
+        const cloneFn = session.fastClonePayload || session.clonePayload;
+        if (typeof cloneFn === 'function') {
+          try {
+            newTab.pendingDuplicatePayload = current.payload ? cloneFn.call(session, current.payload) : null;
+            newTab.pendingDuplicateLayout = current.layoutState ? cloneFn.call(session, current.layoutState) : null;
+          } catch (err) {
+            console.debug('Debug: add tab pending duplicate snapshot failed', { tabId: current.id, err });
+            newTab.pendingDuplicatePayload = null;
+            newTab.pendingDuplicateLayout = null;
+          }
+        }
+      }
       workspaceState.tabs.push(newTab);
       workspaceState.activeTabId = newTab.id;
       workspaceState.pendingDuplicateSource = candidateSource;

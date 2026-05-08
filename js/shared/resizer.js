@@ -27,10 +27,58 @@
     return text || '';
   }
 
+  function extractTabIdFromScope(scopeId){
+    const scope = typeof scopeId === 'string' ? scopeId.trim() : '';
+    if(!scope){
+      return '';
+    }
+    const marker = '::@tab:';
+    const markerIndex = scope.lastIndexOf(marker);
+    if(markerIndex < 0){
+      return '';
+    }
+    const rawToken = scope.slice(markerIndex + marker.length).trim();
+    if(!rawToken){
+      return '';
+    }
+    const separatorIndex = rawToken.indexOf('::');
+    const token = separatorIndex >= 0 ? rawToken.slice(0, separatorIndex) : rawToken;
+    return normalizeTabId(token);
+  }
+
+  function resolveScopeTabIdFromNode(node){
+    if(!node || typeof node !== 'object'){
+      return '';
+    }
+    const directScopeTabId = extractTabIdFromScope(node?.dataset?.resizerTextLockScope || node?.dataset?.textLockScope || '');
+    if(directScopeTabId){
+      return directScopeTabId;
+    }
+    if(typeof node.closest === 'function'){
+      const closestSvgBox = node.closest('.svgbox');
+      const closestScopeTabId = extractTabIdFromScope(closestSvgBox?.dataset?.resizerTextLockScope || closestSvgBox?.dataset?.textLockScope || '');
+      if(closestScopeTabId){
+        return closestScopeTabId;
+      }
+    }
+    if(typeof node.querySelector === 'function'){
+      const nestedSvgBox = node.querySelector('.svgbox');
+      const nestedScopeTabId = extractTabIdFromScope(nestedSvgBox?.dataset?.resizerTextLockScope || nestedSvgBox?.dataset?.textLockScope || '');
+      if(nestedScopeTabId){
+        return nestedScopeTabId;
+      }
+    }
+    return '';
+  }
+
   function resolveResizerTab(container, opts = {}){
-    const explicitTabId = normalizeTabId(opts.tabId || opts.workspaceTabId || opts.activeTabId);
-    if(explicitTabId){
-      return Shared.workspaceTabs?.resolveTab?.(explicitTabId) || { id: explicitTabId, type: opts.componentName || null };
+    const scopedTabFromScope = resolveScopeTabIdFromNode(container);
+    if(scopedTabFromScope){
+      return Shared.workspaceTabs?.resolveTab?.(scopedTabFromScope) || { id: scopedTabFromScope, type: opts.componentName || null };
+    }
+    const optionScopeTabId = extractTabIdFromScope(opts.scopeId || opts.textLockScope || '');
+    if(optionScopeTabId){
+      return Shared.workspaceTabs?.resolveTab?.(optionScopeTabId) || { id: optionScopeTabId, type: opts.componentName || null };
     }
     const dataset = container?.dataset || {};
     const dataTabId = normalizeTabId(dataset.workspaceTabId || dataset.tabId);
@@ -41,6 +89,19 @@
     const scopedTabId = normalizeTabId(scopedRoot?.dataset?.workspaceTabId || scopedRoot?.dataset?.tabId);
     if(scopedTabId){
       return Shared.workspaceTabs?.resolveTab?.(scopedTabId) || { id: scopedTabId, type: opts.componentName || scopedRoot?.dataset?.workspaceComponent || null };
+    }
+    const explicitTabId = normalizeTabId(opts.tabId || opts.workspaceTabId || opts.activeTabId);
+    if(explicitTabId){
+      return Shared.workspaceTabs?.resolveTab?.(explicitTabId) || { id: explicitTabId, type: opts.componentName || null };
+    }
+    const activeTab = Shared.workspaceTabs?.resolveTab?.(null) || global.Main?.session?.getActiveTab?.() || null;
+    const activeTabId = normalizeTabId(activeTab?.id);
+    const activeTabType = normalizeTabId(activeTab?.type).toLowerCase();
+    const componentName = normalizeTabId(opts.componentName).toLowerCase();
+    const containerRect = container?.getBoundingClientRect?.() || null;
+    const containerVisible = !!(containerRect && Number(containerRect.width) > 0 && Number(containerRect.height) > 0);
+    if(activeTabId && containerVisible && (!componentName || componentName === activeTabType)){
+      return activeTab;
     }
     return Shared.workspaceTabs?.resolveTab?.(null) || global.Main?.session?.getActiveTab?.() || null;
   }
@@ -251,7 +312,8 @@
         return;
       }
       const startX = Number(event?.clientX) || 0;
-      const activeTabId = undoManager?.getActiveTabId?.() || null;
+      const resolvedPanelTab = resolveResizerTab(graphPanel || panelResizer || tablePanel || null, opts);
+      const activeTabId = normalizeTabId(resolvedPanelTab?.id) || undoManager?.getActiveTabId?.() || null;
       const beforeTabState = (undoManager && typeof undoManager.captureTabState === 'function' && activeTabId)
         ? undoManager.captureTabState(activeTabId, {
             reason: `${label}-panel-drag-pre`,
@@ -1088,10 +1150,19 @@
     let suppressObserveResizeUntil = 0;
     let resizeObserver = null;
 
+    const activeResizerTab = resolveResizerTab(container, opts);
+    const activeResizerTabId = normalizeTabId(activeResizerTab?.id);
     const existingScope = data.resizerTextLockScope || null;
     const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
       : (typeof opts.textLockScope === 'string' && opts.textLockScope.trim() ? opts.textLockScope.trim() : null);
-    let textLockScope = existingScope || optionScope || panelId || container.id || (labelFromOpts ? `${labelFromOpts}-scope` : null);
+    const baseScope = optionScope || panelId || container.id || (labelFromOpts ? `${labelFromOpts}-scope` : null);
+    const canonicalTabScope = activeResizerTabId && baseScope
+      ? `${baseScope}::@tab:${activeResizerTabId}`
+      : null;
+    let textLockScope = existingScope || canonicalTabScope || baseScope;
+    if(canonicalTabScope && textLockScope !== canonicalTabScope){
+      textLockScope = canonicalTabScope;
+    }
     if(!textLockScope){
       resizerScopeCounter += 1;
       textLockScope = `svgbox-scope-${resizerScopeCounter}`;
@@ -1112,6 +1183,8 @@
       container: containerLabel,
       scope: textLockScope,
       existingScope,
+      canonicalTabScope,
+      tabId: activeResizerTabId || null,
       fromOption: optionScope,
       fromPanel: panelId,
       labelFromOpts
@@ -2162,9 +2235,12 @@
     const notifyUndoableResize = (mode, before, after, trigger) => {
       if(!hasUndo) return;
       if(!resizeSnapshotsDiffer(before, after)) return;
+      const resolvedTab = resolveResizerTab(container, opts);
+      const resolvedTabId = normalizeTabId(resolvedTab?.id);
       undoManager.record({
         label: `resize:${containerLabel}:${mode}`,
         scope: containerLabel,
+        tabId: resolvedTabId,
         target: container,
         element: container,
         undo: () => {

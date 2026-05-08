@@ -5060,6 +5060,40 @@
       }
     }
     const undoManager = Shared.undoManager || null;
+    const resolveUndoTabId = ()=>{
+      const fromDataset = (node)=>{
+        let cursor = node || null;
+        while(cursor && cursor !== global.document){
+          const dataset = cursor.dataset || null;
+          const candidate = (dataset?.workspaceTabId || dataset?.tabId || '').toString().trim();
+          if(candidate){
+            return candidate;
+          }
+          if(typeof cursor.getAttribute === 'function'){
+            const attrCandidate = String(
+              cursor.getAttribute('data-workspace-tab-id')
+              || cursor.getAttribute('data-tab-id')
+              || ''
+            ).trim();
+            if(attrCandidate){
+              return attrCandidate;
+            }
+          }
+          cursor = cursor.parentElement || cursor.parentNode || null;
+        }
+        return '';
+      };
+      const fromContainer = fromDataset(container);
+      if(fromContainer){
+        return fromContainer;
+      }
+      const fromWrapper = fromDataset(wrapper);
+      if(fromWrapper){
+        return fromWrapper;
+      }
+      const activeTabId = hotNS.resolveActiveTabId?.() || null;
+      return typeof activeTabId === 'string' ? activeTabId.trim() : '';
+    };
     const undoScope = (()=>{
       if(container?.closest){
         const panel = container.closest('.panel');
@@ -5554,7 +5588,7 @@
       undoManager.record({
         label: step.label,
         scope: undoScope,
-        tabId: '',
+        tabId: resolveUndoTabId(),
         undo: ()=>applyRecordedUndoStep(step, 'undo'),
         redo: ()=>applyRecordedUndoStep(step, 'redo')
       });
@@ -8419,7 +8453,7 @@
       undoManager.record({
         label: label || `table:${debugLabel}:exclusion`,
         scope: undoScope,
-        tabId: '',
+        tabId: resolveUndoTabId(),
         undo: ()=>exclusionController.importState(before),
         redo: ()=>exclusionController.importState(after)
       });
@@ -8453,7 +8487,7 @@
       undoManager.record({
         label: label || `table:${debugLabel}:filter`,
         scope: undoScope,
-        tabId: '',
+        tabId: resolveUndoTabId(),
         undo: ()=>withUndoLock('undo:filter', ()=>applyCapturedFilterState(before, 'UndoRedo.undo.filter', { schedule: true })),
         redo: ()=>withUndoLock('redo:filter', ()=>applyCapturedFilterState(after, 'UndoRedo.redo.filter', { schedule: true }))
       });
@@ -9424,7 +9458,7 @@
         undoManager.record({
           label: options.undoLabel || `table:${debugLabel}:${options.source || 'loadData'}`,
           scope: undoScope,
-          tabId: '',
+          tabId: resolveUndoTabId(),
           undo: ()=>applyLoadDataUndoSnapshot(beforeSnapshot, 'UndoRedo.undo.loadData'),
           redo: ()=>applyLoadDataUndoSnapshot(afterSnapshot, 'UndoRedo.redo.loadData')
         });
@@ -10633,7 +10667,7 @@
             undoManager.record({
               label: `table:${debugLabel}:insert-cols`,
               scope: undoScope,
-              tabId: '',
+              tabId: resolveUndoTabId(),
               undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
               redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); exclusionController.importState(nextExclusions); }
             });
@@ -10650,7 +10684,7 @@
             undoManager.record({
               label: `table:${debugLabel}:insert-cols`,
               scope: undoScope,
-              tabId: '',
+              tabId: resolveUndoTabId(),
               undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
               redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); exclusionController.importState(nextExclusions); }
             });
@@ -10670,7 +10704,7 @@
             undoManager.record({
               label: `table:${debugLabel}:delete-cols`,
               scope: undoScope,
-              tabId: '',
+              tabId: resolveUndoTabId(),
               undo: ()=>{
                 instance.alter('insert_col_left', at, count, 'undo:delete-cols');
                 const matrix = dataHandle.current;
@@ -11264,7 +11298,7 @@
       undoManager.record({
         label: undoLabel,
         scope: undoScope,
-        tabId: '',
+        tabId: resolveUndoTabId(),
         undo: ()=>{
           const ok = applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true });
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -11952,7 +11986,7 @@
                 undoManager.record({
                   label: `table:${debugLabel}:insert-rows`,
                   scope: undoScope,
-                  tabId: '',
+                  tabId: resolveUndoTabId(),
                   undo: ()=>{ instance.alter('remove_row', rowStart, rowCountToAct, 'undo:insert-rows'); exclusionController.importState(beforeExclusions); },
                   redo: ()=>{ instance.alter('insert_row_above', rowStart, rowCountToAct, 'redo:insert-rows'); exclusionController.importState(afterExclusions); }
                 });
@@ -11969,7 +12003,7 @@
                 undoManager.record({
                   label: `table:${debugLabel}:insert-rows`,
                   scope: undoScope,
-                  tabId: '',
+                  tabId: resolveUndoTabId(),
                   undo: ()=>{ instance.alter('remove_row', insertAt, rowCountToAct, 'undo:insert-rows'); exclusionController.importState(beforeExclusions); },
                   redo: ()=>{ instance.alter('insert_row_below', rowEnd, rowCountToAct, 'redo:insert-rows'); exclusionController.importState(afterExclusions); }
                 });
@@ -11988,7 +12022,7 @@
                 undoManager.record({
                   label: `table:${debugLabel}:delete-rows`,
                   scope: undoScope,
-                  tabId: '',
+                  tabId: resolveUndoTabId(),
                   undo: ()=>{
                     instance.alter('insert_row_above', at, count, 'undo:delete-rows');
                     const matrix = dataHandle.current;

@@ -154,7 +154,9 @@
     if(input && typeof input === 'object' && input.id != null){
       return normalizeTabId(input.id);
     }
-    const directTabId = normalizeTabId(input || '');
+    const directTabId = (typeof input === 'string' || typeof input === 'number')
+      ? normalizeTabId(input)
+      : '';
     if(directTabId){
       return directTabId;
     }
@@ -665,7 +667,7 @@
     if(typeof input.undo !== 'function'){
       return null;
     }
-    const tabId = normalizeTabId(resolveEntryTabId(input));
+    const tabId = normalizeTabId(resolveEntryTabId(input) || resolveActiveTabId());
     return {
       label: input.label || 'action',
       scope: input.scope || null,
@@ -989,7 +991,7 @@
   };
 
   undoNamespace.undo = function undo(options = {}){
-    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: true }));
+    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: false }));
     try{
       flushPendingTransactions('undo', { tabId });
     }catch(err){
@@ -1025,7 +1027,7 @@
   };
 
   undoNamespace.redo = function redo(options = {}){
-    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: true }));
+    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: false }));
     try{
       flushPendingTransactions('redo', { tabId });
     }catch(err){
@@ -1325,7 +1327,7 @@
   }
 
   undoNamespace.canUndo = function canUndo(options = {}){
-    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: true }));
+    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: false }));
     if(tabId){
       return canUndoForTab(tabId);
     }
@@ -1333,7 +1335,7 @@
   };
 
   undoNamespace.canRedo = function canRedo(options = {}){
-    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: true }));
+    const tabId = normalizeTabId(resolveRequestedTabId(options, { allowGlobal: false }));
     if(tabId){
       return canRedoForTab(tabId);
     }

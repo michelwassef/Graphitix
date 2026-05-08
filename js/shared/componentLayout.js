@@ -207,6 +207,21 @@
     return true;
   }
 
+  function applyTabScopedResizerTextLockScope(svgBox, componentName, tabId){
+    if(!svgBox?.dataset){
+      return false;
+    }
+    const normalizedTabId = normalizeTabId(tabId);
+    const normalizedComponent = normalizeTabId(componentName);
+    if(!normalizedTabId || !normalizedComponent){
+      return false;
+    }
+    const panelId = normalizeTabId(svgBox.closest?.('[id$="GraphPanel"]')?.id) || `${normalizedComponent}GraphPanel`;
+    const scope = `${panelId}::@tab:${normalizedTabId}`;
+    svgBox.dataset.resizerTextLockScope = scope;
+    return true;
+  }
+
   componentLayout.hydrateRootFromState = function hydrateRootFromState(componentName, root, state, options = {}){
     if(!root || !state || typeof state !== 'object'){
       return false;
@@ -794,6 +809,7 @@
         }
       };
 
+      applyTabScopedResizerTextLockScope(elements.resizeTarget, componentName, layoutTabId || null);
       Shared.attachResizableBox(elements.resizeTarget, {
         defaultWidth: sizing.width,
         defaultHeight: sizing.height,
@@ -819,8 +835,9 @@
       });
     }
 
+    let panelDragResizerApi = null;
     if(elements.panelResizer && elements.tablePanel && elements.graphPanel && typeof Shared.resizer?.attachPanelDragResizer === 'function'){
-      Shared.resizer.attachPanelDragResizer({
+      panelDragResizerApi = Shared.resizer.attachPanelDragResizer({
         panelResizer: elements.panelResizer,
         tablePanel: elements.tablePanel,
         graphPanel: elements.graphPanel,
@@ -1148,24 +1165,31 @@
       applyState,
       defaultState,
       destroy(){
-        if(panelState.resizeObserver){
-          try{
-            panelState.resizeObserver.disconnect();
-          }catch(err){
-            console.error('Shared.componentLayout destroy observer error', err);
+      if(panelState.resizeObserver){
+        try{
+          panelState.resizeObserver.disconnect();
+        }catch(err){
+          console.error('Shared.componentLayout destroy observer error', err);
           }
           panelState.resizeObserver = null;
           console.debug('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
         }
         const resizeApi = elements.resizeTarget?.__sharedResizableBoxApi;
-        if(resizeApi && typeof resizeApi.destroy === 'function'){
-          try{
-            resizeApi.destroy({ reason: 'component-layout-destroy' });
-          }catch(err){
-            console.error('Shared.componentLayout destroy resizable box error', err);
-          }
+      if(resizeApi && typeof resizeApi.destroy === 'function'){
+        try{
+          resizeApi.destroy({ reason: 'component-layout-destroy' });
+        }catch(err){
+          console.error('Shared.componentLayout destroy resizable box error', err);
         }
-        const bucket = layoutRegistry[componentName];
+      }
+      if(panelDragResizerApi && typeof panelDragResizerApi.detach === 'function'){
+        try{
+          panelDragResizerApi.detach();
+        }catch(err){
+          console.error('Shared.componentLayout destroy panel drag resizer error', err);
+        }
+      }
+      const bucket = layoutRegistry[componentName];
         if(bucket && bucket.__isTabScopedBucket === true){
           if(layoutTabId && bucket.tabs?.[layoutTabId] === layoutApi){
             delete bucket.tabs[layoutTabId];
@@ -1282,6 +1306,7 @@
     if(!entry?.elements?.svgBox || typeof aspectLocked !== 'boolean'){
       return false;
     }
+    applyTabScopedResizerTextLockScope(entry.elements.svgBox, componentName, tab?.id || tabId);
     const synced = applyAspectLockToSvgBox(entry.elements.svgBox, aspectLocked);
     console.debug('Debug: componentLayout tab controls synced', {
       component: componentName || null,

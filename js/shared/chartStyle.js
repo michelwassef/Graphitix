@@ -152,7 +152,7 @@
     try{
       const doc = global.document;
       if(doc && typeof doc.querySelector === 'function'){
-        const activeBtn = doc.querySelector('.workspace-tab.is-active[data-tab-id]');
+        const activeBtn = doc.querySelector('.workspace-tab[data-tab-id][aria-selected="true"], .workspace-tab.workspace-tab--active[data-tab-id], .workspace-tab.is-active[data-tab-id]');
         const fromDom = normalizeTabId(activeBtn?.dataset?.tabId);
         if(fromDom){ return fromDom; }
       }
@@ -162,15 +162,25 @@
     return null;
   }
 
+  function resolveNearestWorkspaceTabId(node){
+    if(!node || typeof node.closest !== 'function'){
+      return null;
+    }
+    const owner = node.closest('[data-workspace-tab-id], [data-tab-id]');
+    return normalizeTabId(owner?.dataset?.workspaceTabId || owner?.dataset?.tabId || null);
+  }
+
   function resolveScopeTabToken(options){
     const opts = options || {};
     const svgBox = opts.svgBox || opts.container || opts.element || null;
     const input = opts.input || opts.control || null;
     const explicit = normalizeTabId(opts.tabId || opts.workspaceTabId || null);
+    const fromInputOwner = resolveNearestWorkspaceTabId(input);
+    const fromSvgOwner = resolveNearestWorkspaceTabId(svgBox);
     const fromInput = normalizeTabId(input?.dataset?.workspaceTabId || input?.dataset?.fontTabId || input?.dataset?.tabId || null);
     const fromSvg = normalizeTabId(svgBox?.dataset?.workspaceTabId || svgBox?.dataset?.fontTabId || svgBox?.dataset?.tabId || null);
     const active = resolveActiveWorkspaceTabId();
-    return normalizeScopeId(explicit || fromInput || fromSvg || active || null);
+    return normalizeScopeId(explicit || fromInputOwner || fromSvgOwner || fromInput || fromSvg || active || null);
   }
 
   function applyTabScope(scopeId, options){
