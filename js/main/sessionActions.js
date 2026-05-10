@@ -70,6 +70,270 @@
     return value;
   }
 
+
+  function rehomeArchiveValue(session, value, tabId) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    if (typeof session?.rehomeTabScopedState === 'function') {
+      return session.rehomeTabScopedState(value, tabId);
+    }
+    return cloneWithSession(session, value);
+  }
+
+  function rehomeArchiveString(session, value, tabId) {
+    if (typeof value !== 'string') {
+      return value;
+    }
+    if (typeof session?.remapRuntimeWorkspaceString === 'function') {
+      return session.remapRuntimeWorkspaceString(value, tabId);
+    }
+    return value.replace(/workspace-\d+/g, String(tabId || ''));
+  }
+
+  const ARCHIVE_RENDER_CACHE_SECTIONS = {
+    box: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#boxPlot'
+      },
+      requireGraphSvg: true
+    },
+    scatter: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#scatterPlot',
+        stats: '#scatterStatsResults'
+      },
+      requireGraphSvg: true
+    },
+    line: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#linePlot',
+        stats: '#lineStatsResults'
+      },
+      requireGraphSvg: true
+    },
+    hist: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#histPlot',
+        stats: '#histStatsResults'
+      },
+      requireGraphSvg: true
+    },
+    heatmap: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#heatmapSvg',
+        stats: '#heatmapStatsContent'
+      },
+      requireGraphSvg: false,
+      svgRoot: '#heatmapSvg'
+    },
+    pca: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#pcaPlot',
+        stats: '#pcaStatsResults',
+        summary: '#pcaStatsSummary',
+        scree: '#pcaScreePlot'
+      },
+      requireGraphSvg: true
+    },
+    pie: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#piePlot',
+        stats: '#pieStatsResults'
+      },
+      requireGraphSvg: true
+    },
+    roc: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#rocPlot',
+        stats: '#rocStatsResults'
+      },
+      requireGraphSvg: true
+    },
+    survival: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#survivalPlot',
+        summary: '#survivalStatsSummary',
+        logRank: '#survivalStatsLogRank',
+        hazard: '#survivalStatsHazardRatios',
+        cox: '#survivalStatsCox'
+      },
+      requireGraphSvg: true
+    },
+    venn: {
+      graphicKey: 'stage',
+      sections: {
+        stage: '#stage',
+        regionList: '#regionList',
+        significance: '#significanceResults',
+        goResults: '#goResults',
+        stringResults: '#stringResults',
+        stringNetwork: '#stringNetwork',
+        regionOptions: '#regionSelect'
+      },
+      requireGraphSvg: false,
+      svgRoot: '#stage'
+    },
+    surface: {
+      graphicKey: 'plot',
+      sections: {
+        plot: '#surfaceSvg',
+        stats: '#surfaceStatsSummary',
+        message: '#surfaceMessage'
+      },
+      requireGraphSvg: false,
+      svgRoot: '#surfaceSvg'
+    }
+  };
+
+  function resolveArchiveCacheRoot(tab) {
+    const Shared = window.Shared || null;
+    const root = Shared?.workspaceTabs?.getMountedRoot?.(tab, tab?.type || null) || null;
+    if (root && typeof root.querySelector === 'function') {
+      return root;
+    }
+    return null;
+  }
+
+  function cloneChildNodesToFragment(node) {
+    const doc = node?.ownerDocument || window.document || null;
+    if (!node || !doc || !node.childNodes) {
+      return null;
+    }
+    const fragment = doc.createDocumentFragment();
+    let count = 0;
+    Array.from(node.childNodes || []).forEach(child => {
+      try {
+        fragment.appendChild(child.cloneNode(true));
+        count += 1;
+      } catch (err) {
+        console.warn('cloneChildNodesToFragment skipped child', { err });
+      }
+    });
+    return { fragment, count };
+  }
+
+  function captureSvgRootStateForArchive(svg) {
+    if (!svg || !svg.attributes) {
+      return null;
+    }
+    const attributes = {};
+    Array.from(svg.attributes || []).forEach(attr => {
+      if (attr && typeof attr.name === 'string') {
+        attributes[attr.name] = attr.value || '';
+      }
+    });
+    const style = {};
+    const styleNames = ['display'];
+    styleNames.forEach(name => {
+      const value = svg.style?.[name];
+      if (typeof value === 'string' && value.length) {
+        style[name] = value;
+      }
+    });
+    return {
+      attributes: Object.keys(attributes).length ? attributes : null,
+      style: Object.keys(style).length ? style : null
+    };
+  }
+
+  function graphFragmentLooksRenderable(payload) {
+    const fragment = payload?.fragment || null;
+    if (!fragment || Number(payload?.count || 0) <= 0) {
+      return false;
+    }
+    if (typeof fragment.querySelector !== 'function') {
+      return true;
+    }
+    return !!(
+      fragment.querySelector('svg')
+      || fragment.querySelector('path, rect, circle, line, polyline, polygon, text, g, image, canvas')
+      || fragment.childNodes?.length
+    );
+  }
+
+  function captureMountedTabRenderCacheForArchive(context, tab, config, meta = {}) {
+    const spec = ARCHIVE_RENDER_CACHE_SECTIONS[tab?.type || ''];
+    const root = resolveArchiveCacheRoot(tab);
+    if (!spec || !root) {
+      return null;
+    }
+    const cache = {};
+    let graphPayload = null;
+    let totalNodes = 0;
+    Object.entries(spec.sections || {}).forEach(([key, selector]) => {
+      const node = selector && root.querySelector?.(selector);
+      const payload = cloneChildNodesToFragment(node);
+      if (!payload || payload.count <= 0) {
+        return;
+      }
+      cache[key] = payload;
+      totalNodes += payload.count;
+      if (key === spec.graphicKey) {
+        graphPayload = payload;
+      }
+    });
+    if (!graphPayload || !graphFragmentLooksRenderable(graphPayload)) {
+      debug(context, 'generic archive render cache skipped', {
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: !graphPayload ? 'missing-graph-fragment' : 'empty-graph-fragment',
+        source: meta.reason || 'archive-snapshot'
+      });
+      return null;
+    }
+    if (spec.requireGraphSvg && !graphPayload.fragment.querySelector?.('svg')) {
+      debug(context, 'generic archive render cache skipped', {
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: 'missing-svg-in-graph-fragment',
+        source: meta.reason || 'archive-snapshot'
+      });
+      return null;
+    }
+    if (spec.svgRoot) {
+      const svg = root.querySelector?.(spec.svgRoot) || null;
+      const svgRootState = captureSvgRootStateForArchive(svg);
+      if (svgRootState) {
+        if (tab.type === 'venn') {
+          cache.stageRootState = svgRootState;
+        } else {
+          cache.svgRootState = svgRootState;
+        }
+      }
+    }
+    cache.__graphitixRenderCache = {
+      version: 2,
+      component: tab?.type || null,
+      type: tab?.type || null,
+      tabId: tab?.id || null,
+      complete: true,
+      graphicKey: spec.graphicKey,
+      previewKey: spec.graphicKey,
+      captureMode: 'mounted-root-clone',
+      capturedAt: Date.now(),
+      reason: meta.reason || 'archive-snapshot-mounted-root'
+    };
+    cache.graphicKey = spec.graphicKey;
+    debug(context, 'generic archive render cache captured', {
+      tabId: tab?.id || null,
+      type: tab?.type || null,
+      graphicKey: spec.graphicKey,
+      totalNodes,
+      sections: Object.keys(cache).filter(key => key !== '__graphitixRenderCache')
+    });
+    return cache;
+  }
+
   function persistActiveTabIfNeeded(context, reason) {
     const { session, withSessionContext } = context || {};
     if (!session || typeof session.getActiveTab !== 'function' || typeof session.persistActiveTabState !== 'function') {
@@ -82,6 +346,8 @@
     session.persistActiveTabState(active, withSessionContext({
       reason: reason || 'archive-save',
       forcePreviewCapture: true,
+      captureRenderCache: true,
+      preserveRenderCacheTabIds: [active.id],
       origin: 'lifecycle'
     }));
   }
@@ -105,6 +371,15 @@
       payload = cloneWithSession(session, tab.payload || null);
       layout = cloneWithSession(session, tab.layoutState || null);
     }
+    const archivePayloadForSignature = rehomeArchiveValue(session, payload, tab.id);
+    const archiveLayoutForSignature = rehomeArchiveValue(session, layout, tab.id);
+    const archivePayloadSignature = typeof session?.serializePayloadSignature === 'function'
+      ? session.serializePayloadSignature(archivePayloadForSignature || null)
+      : (tab.payloadSignature || null);
+    const archiveLayoutSignature = typeof session?.serializePayloadSignature === 'function'
+      ? session.serializePayloadSignature(archiveLayoutForSignature || null)
+      : (tab.layoutSignature || null);
+
     let archiveRenderCache = tab.renderCache?.cache
       ? (typeof session?.serializeRenderCacheForArchive === 'function'
           ? session.serializeRenderCacheForArchive(tab.renderCache.cache)
@@ -112,14 +387,8 @@
       : (tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object'
           ? cloneWithSession(session, tab.archiveRenderCache)
           : null);
-    let archiveRenderCacheSignature = tab.renderCache?.payloadSignature
-      ?? tab.renderCacheSignature
-      ?? tab.archiveRenderCacheSignature
-      ?? null;
-    let archiveRenderCacheLayoutSignature = tab.renderCache?.layoutSignature
-      ?? tab.renderCacheLayoutSignature
-      ?? tab.archiveRenderCacheLayoutSignature
-      ?? null;
+    let archiveRenderCacheSignature = archiveRenderCache ? archivePayloadSignature : null;
+    let archiveRenderCacheLayoutSignature = archiveRenderCache ? archiveLayoutSignature : null;
 
     const activeId = session?.getActiveTab?.()?.id || null;
     const config = workspaces?.[tab.type] || null;
@@ -136,8 +405,8 @@
         });
         if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
           archiveRenderCache = session.serializeRenderCacheForArchive(captured);
-          archiveRenderCacheSignature = tab.payloadSignature || null;
-          archiveRenderCacheLayoutSignature = tab.layoutSignature || null;
+          archiveRenderCacheSignature = archivePayloadSignature;
+          archiveRenderCacheLayoutSignature = archiveLayoutSignature;
         }
         if (captured && typeof config.restoreRenderCache === 'function') {
           try {
@@ -164,19 +433,33 @@
       }
     }
 
+    if (!archiveRenderCache) {
+      const mountedRootCache = captureMountedTabRenderCacheForArchive(context, tab, config, {
+        reason: 'archive-save-mounted-root-fallback'
+      });
+      if (mountedRootCache && typeof session?.serializeRenderCacheForArchive === 'function') {
+        archiveRenderCache = session.serializeRenderCacheForArchive(mountedRootCache);
+        archiveRenderCacheSignature = archivePayloadSignature;
+        archiveRenderCacheLayoutSignature = archiveLayoutSignature;
+      }
+    }
+
     return {
       title: tab.title || 'Workspace',
       type: tab.type || tab?.payload?.type || null,
-      payload,
-      layout,
-      previewMarkup: typeof tab.previewMarkup === 'string' ? tab.previewMarkup : null,
+      runtimeTabId: tab.id || null,
+      payload: archivePayloadForSignature,
+      layout: archiveLayoutForSignature,
+      previewMarkup: typeof tab.previewMarkup === 'string' ? rehomeArchiveString(session, tab.previewMarkup, tab.id) : null,
       previewSignature: tab.previewSignature || null,
-      previewMeta: cloneWithSession(session, tab.previewMeta || null),
-      archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object' ? archiveRenderCache : null,
+      previewMeta: rehomeArchiveValue(session, tab.previewMeta || null, tab.id),
+      archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object'
+        ? rehomeArchiveValue(session, archiveRenderCache, tab.id)
+        : null,
       archiveRenderCacheSignature: archiveRenderCache ? archiveRenderCacheSignature : null,
       archiveRenderCacheLayoutSignature: archiveRenderCache ? archiveRenderCacheLayoutSignature : null,
       uiState: tab.uiState && typeof tab.uiState === 'object'
-        ? cloneWithSession(session, tab.uiState)
+        ? rehomeArchiveValue(session, tab.uiState, tab.id)
         : null
     };
   }

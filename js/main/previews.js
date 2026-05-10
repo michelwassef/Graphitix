@@ -17,17 +17,59 @@
   let tabPreviewLastAnchorRect = null;
   const tabPreviewHybridRequests = new Map();
 
+  function getElementTabToken(node) {
+    let current = node || null;
+    const doc = document || null;
+    while (current && current !== doc && current.nodeType === 1) {
+      const token = current.getAttribute?.('data-workspace-tab-id')
+        || current.getAttribute?.('data-tab-id')
+        || current.getAttribute?.('data-tab-token')
+        || current.dataset?.workspaceTabId
+        || current.dataset?.tabId
+        || current.dataset?.tabToken
+        || null;
+      if (token) {
+        return String(token);
+      }
+      current = current.parentElement || null;
+    }
+    return null;
+  }
+
+  function getActiveWorkspaceTabId() {
+    try {
+      return Main.session?.getActiveTab?.()?.id || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function elementBelongsToTab(node, tab) {
+    if (!node || !tab?.id) {
+      return false;
+    }
+    const token = getElementTabToken(node);
+    if (token) {
+      return token === String(tab.id);
+    }
+    // Untagged component roots/SVGs are only safe when we are capturing the currently
+    // active tab. Inactive same-component tabs must never reuse the active component's
+    // untagged live DOM, because that is the root cause of duplicated reopened previews.
+    const activeId = getActiveWorkspaceTabId();
+    return !!(activeId && String(activeId) === String(tab.id));
+  }
+
   function resolvePreviewRoot(config, tab) {
     const type = String(tab?.type || config?.type || '').trim();
     const mounted = window.Shared?.workspaceTabs?.getMountedRoot?.(tab || null, type) || null;
     if (mounted && typeof mounted.querySelector === 'function') {
       return mounted;
     }
-    if (config?.activeElement && typeof config.activeElement.querySelector === 'function') {
-      return config.activeElement;
-    }
-    if (config?.element && typeof config.element.querySelector === 'function') {
-      return config.element;
+    const candidates = [config?.activeElement, config?.element];
+    for (const candidate of candidates) {
+      if (candidate && typeof candidate.querySelector === 'function' && elementBelongsToTab(candidate, tab)) {
+        return candidate;
+      }
     }
     return null;
   }
@@ -638,7 +680,7 @@
     return true;
   }
 
-  function captureWorkspacePreview(config, tab) {
+  function captureWorkspacePreview(config, tab, meta = {}) {
     const previewRoot = resolvePreviewRoot(config, tab);
     if (!config) {
       console.debug('Debug: preview capture skipped', { reason: 'no-config', type: config?.type || null, tabId: tab?.id || null });
@@ -681,6 +723,26 @@
       return false;
     };
     const rootContainsSvg = node => !!(node && previewRoot && typeof previewRoot.contains === 'function' && previewRoot.contains(node));
+    const rejectGetterSvgIfNotTabOwned = () => {
+      if (!svg || !svgFromGetter) {
+        return;
+      }
+      const insideRoot = rootContainsSvg(svg);
+      const token = getElementTabToken(svg);
+      const tokenMatches = !!(token && tab?.id && token === String(tab.id));
+      const safeWithoutRoot = !previewRoot && elementBelongsToTab(svg, tab);
+      if (!insideRoot && !tokenMatches && !safeWithoutRoot) {
+        console.debug('Debug: preview getter svg ignored outside target tab', {
+          type: config.type,
+          tabId: tab?.id || null,
+          candidateToken: token || null,
+          hasPreviewRoot: !!previewRoot
+        });
+        svg = null;
+        svgFromGetter = false;
+      }
+    };
+    rejectGetterSvgIfNotTabOwned();
     const isLikelyPlotSvg = node => {
       if (!node || String(node.nodeName || '').toLowerCase() !== 'svg') {
         return false;
@@ -738,6 +800,14 @@
     }
     if (!svg) {
       console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
+      if (shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
+        console.debug('Debug: preview cache fallback skipped to preserve existing preview', {
+          tabId: tab?.id || null,
+          type: config.type,
+          reason: meta?.reason || 'no-svg-preserve'
+        });
+        return null;
+      }
       svg = resolvePreviewSvgFromTabRenderCache(tab, config.type);
       if (!svg) {
         return null;
@@ -746,6 +816,14 @@
     const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
     if (!rawMarkup) {
       console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
+      if (shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
+        console.debug('Debug: preview cache fallback skipped to preserve existing preview', {
+          tabId: tab?.id || null,
+          type: config.type,
+          reason: meta?.reason || 'empty-svg-preserve'
+        });
+        return null;
+      }
       const cacheSvg = resolvePreviewSvgFromTabRenderCache(tab, config.type);
       if (!cacheSvg) {
         return null;
@@ -805,7 +883,7 @@
           canvasBitmap: true
         };
       }
-      const forcedSimplified = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing, { force: config.type === 'box' || config.type === 'scatter' });
+      const forcedSimplified = hydratedCanvasLayers ? 0 : simplifyHeavyPointLayersForPreview(clone, config.type, sizing, { force: true });
       if (forcedSimplified) {
         markup = serializer.serializeToString(clone);
         previewSimplified = true;
@@ -819,7 +897,7 @@
           return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: true, canvasSimplified: true, canvasBitmap: hydratedCanvasLayers > 0 };
         }
       }
-      if (config.type === 'box' || config.type === 'scatter') {
+      if (true) {
         const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
           message: 'Preview simplified',
           detail: 'Large dataset'
@@ -874,6 +952,24 @@
     if (!cache) {
       return null;
     }
+    const cacheOwnerTabId = cache.__graphitixRenderCache?.tabId || null;
+    const cacheOwnerType = cache.__graphitixRenderCache?.component || cache.__graphitixRenderCache?.type || null;
+    if (cacheOwnerTabId && tab?.id && String(cacheOwnerTabId) !== String(tab.id)) {
+      console.debug('Debug: preview cache fallback rejected owner mismatch', {
+        tabId: tab.id,
+        type: type || null,
+        cacheOwnerTabId
+      });
+      return null;
+    }
+    if (cacheOwnerType && type && String(cacheOwnerType) !== String(type)) {
+      console.debug('Debug: preview cache fallback rejected type mismatch', {
+        tabId: tab?.id || null,
+        type: type || null,
+        cacheOwnerType
+      });
+      return null;
+    }
     const doc = window.document || document;
     if (!doc || typeof doc.createElementNS !== 'function') {
       return null;
@@ -921,6 +1017,24 @@
       }
       return null;
     };
+    const metaGraphicKey = typeof cache.__graphitixRenderCache?.graphicKey === 'string'
+      ? cache.__graphitixRenderCache.graphicKey
+      : null;
+    const fromGraphicKey = metaGraphicKey ? fromFragment(cache[metaGraphicKey]) : null;
+    if(fromGraphicKey && typeof fromGraphicKey.innerHTML === 'string' && fromGraphicKey.innerHTML.trim()){
+      console.debug('Debug: preview cache svg reconstructed', { tabId: tab?.id || null, type: type || null, source: `metadata-${metaGraphicKey}` });
+      return fromGraphicKey;
+    }
+    const previewSvg = fromFragment(cache.preview || cache.graph);
+    if (previewSvg && typeof previewSvg.innerHTML === 'string' && previewSvg.innerHTML.trim()) {
+      console.debug('Debug: preview cache svg reconstructed', { tabId: tab?.id || null, type: type || null, source: cache.preview ? 'preview-fragment' : 'graph-fragment' });
+      return previewSvg;
+    }
+    const svgCacheSvg = fromFragment(cache.svg);
+    if (svgCacheSvg && typeof svgCacheSvg.innerHTML === 'string' && svgCacheSvg.innerHTML.trim()) {
+      console.debug('Debug: preview cache svg reconstructed', { tabId: tab?.id || null, type: type || null, source: 'svg-fragment' });
+      return svgCacheSvg;
+    }
     const stageState = cache.stageRootState || null;
     const stagePayload = cache.stage || null;
     const stageFragment = materializePayloadFragment(stagePayload);
@@ -984,6 +1098,50 @@
     console.debug('Debug: preview indicator synced', { tabId: tab.id, hasPreview: !!tab.previewMarkup });
   }
 
+  function previewSvgHasRenderableContent(svg) {
+    if (!svg || String(svg.nodeName || '').toLowerCase() !== 'svg') {
+      return false;
+    }
+    const inner = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
+    if (inner) {
+      return true;
+    }
+    const childCount = Number(svg.childNodes?.length || 0);
+    return childCount > 0;
+  }
+
+  function isPreviewRefreshSafeWithoutLiveSource(meta = {}) {
+    const reason = String(meta?.reason || '').toLowerCase();
+    return reason.startsWith('hover-inactive')
+      || reason.includes('activate-switch')
+      || reason.includes('deactivate')
+      || reason.includes('persist-active')
+      || reason.includes('workspace-view')
+      || reason.includes('recovery-interval')
+      || reason.includes('archive-snapshot')
+      || reason.includes('archive-save')
+      || reason.includes('save')
+      || reason.includes('snapshot')
+      || reason.includes('reopen')
+      || reason.includes('load')
+      || reason.includes('regression');
+  }
+
+  function shouldPreserveExistingPreviewWithoutLiveSource(tab, meta = {}, details = {}) {
+    if (!tab?.previewMarkup) {
+      return false;
+    }
+    if (details?.hasLivePreviewSource) {
+      return false;
+    }
+    // Force captures are still allowed for active tabs with a real live SVG. When there is no
+    // tab-owned live SVG, falling back to a component/render cache can silently copy the previous
+    // same-component tab's graph into this tab's preview. Preserve the already serialized preview
+    // instead. This is especially important after reopening a .graph file where each tab already
+    // carries an authoritative preview from the archive.
+    return isPreviewRefreshSafeWithoutLiveSource(meta);
+  }
+
   function updateTabPreviewFromWorkspace(tab, config, meta = {}) {
     if (!tab || tab.isWelcome || !tab.type || !config) {
       console.debug('Debug: preview update skipped', { reason: 'invalid-tab', tabId: tab?.id || null, type: tab?.type || null, meta });
@@ -1018,6 +1176,15 @@
         return false;
       }
       if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {
+        if (tab.previewMarkup && meta?.allowPreviewClear !== true) {
+          console.debug('Debug: preview no-data capture preserved existing preview', {
+            tabId: tab.id,
+            type: tab.type,
+            reason: meta?.reason || 'no-data-preserve-existing'
+          });
+          syncTabPreviewIndicator(tab);
+          return false;
+        }
         tab.previewMarkup = null;
         tab.previewSignature = null;
         tab.previewMeta = null;
@@ -1030,10 +1197,33 @@
     }
     const payloadSignature = tab.payloadSignature || null;
     const layoutSignature = tab.layoutSignature || null;
+    const previewRoot = resolvePreviewRoot(config, tab);
+    const rootSvg = previewRoot?.querySelector?.('.svgbox svg') || null;
     const liveSvg = typeof config.getPreviewSvg === 'function'
       ? (() => {
           try {
-            return config.getPreviewSvg(tab) || null;
+            const candidate = config.getPreviewSvg(tab) || null;
+            if (!candidate) {
+              return null;
+            }
+            // Component getters are often backed by the currently bound module instance.
+            // For inactive same-component tabs, the getter can point at the wrong tab.
+            // Accept it only when it belongs to the mounted root for this tab, or when no
+            // mounted root is available and the SVG carries this tab's token.
+            const insidePreviewRoot = !!(previewRoot && typeof previewRoot.contains === 'function' && previewRoot.contains(candidate));
+            const token = getElementTabToken(candidate);
+            const tokenMatches = !!(token && String(token) === String(tab.id));
+            const safeWithoutRoot = !previewRoot && elementBelongsToTab(candidate, tab);
+            if (!insidePreviewRoot && !tokenMatches && !safeWithoutRoot) {
+              console.debug('Debug: preview live svg ignored outside tab root', {
+                type: config.type,
+                tabId: tab.id,
+                candidateToken: token || null,
+                hasPreviewRoot: !!previewRoot
+              });
+              return null;
+            }
+            return candidate;
           } catch (err) {
             console.debug('Debug: preview live svg resolve failed', {
               type: config.type,
@@ -1044,8 +1234,7 @@
           }
         })()
       : null;
-    const previewRoot = resolvePreviewRoot(config, tab);
-    const rootSvg = previewRoot?.querySelector?.('.svgbox svg') || null;
+    const hasLivePreviewSource = previewSvgHasRenderableContent(rootSvg) || previewSvgHasRenderableContent(liveSvg);
     const renderCacheSequence = getRenderCacheSequence(tab);
     const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || rootSvg || null, config.type)
       && !tab.previewMeta?.hybrid
@@ -1073,11 +1262,23 @@
       || needsLayoutRefresh
       || needsPlaceholderRefresh
       || needsLegacyCanvasGlyphRefresh;
+    if (shouldCapture && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource })) {
+      console.debug('Debug: preview refresh skipped to preserve existing tab preview', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: meta?.reason || 'preserve-existing-no-live-source',
+        needsRenderCacheRefresh,
+        needsLayoutRefresh,
+        needsPlaceholderRefresh,
+        forceCapture: !!meta.forceCapture
+      });
+      return false;
+    }
     if (!shouldCapture) {
       console.debug('Debug: preview reuse', { tabId: tab.id, signature: tab.previewSignature, meta });
       return false;
     }
-    const preview = captureWorkspacePreview(config, tab);
+    const preview = captureWorkspacePreview(config, tab, meta);
     if (preview && preview.markup) {
       tab.previewMarkup = preview.markup;
       tab.previewSignature = payloadSignature;
@@ -1105,12 +1306,14 @@
       });
       return true;
     }
-    const preserveExistingPreview = (String(meta?.reason || '').toLowerCase().startsWith('hover-inactive')) && !!tab.previewMarkup;
+    const preserveExistingPreview = !!tab.previewMarkup && meta?.allowPreviewClear !== true;
     if (preserveExistingPreview) {
       console.debug('Debug: preview capture failed, preserving existing preview', {
         tabId: tab.id,
+        type: tab.type,
         reason: meta?.reason || 'capture-failed'
       });
+      syncTabPreviewIndicator(tab);
       return false;
     }
     if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {

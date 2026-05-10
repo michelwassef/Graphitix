@@ -92,6 +92,103 @@
     return handler.apply(component, args);
   }
 
+  function getTabPayloadSignature(tabId) {
+    const id = String(tabId || '').trim();
+    if (!id) {
+      return null;
+    }
+    const tabs = Array.isArray(window.Main?.session?.workspaceState?.tabs)
+      ? window.Main.session.workspaceState.tabs
+      : [];
+    const tab = tabs.find(item => item && String(item.id || '') === id) || null;
+    return tab?.payloadSignature ?? null;
+  }
+
+  function installGenericRenderCacheValidator(workspace, type) {
+    if (!workspace || typeof workspace.restoreRenderCache !== 'function' || typeof workspace.canRestoreRenderCache === 'function') {
+      return;
+    }
+    workspace.canRestoreRenderCache = (cache, meta = {}) => {
+      const wrapper = meta?.renderCache || null;
+      const tabId = String(meta?.tabId || meta?.tab?.id || '').trim() || null;
+      const expectedPayloadSignature = meta?.payloadSignature ?? meta?.tab?.payloadSignature ?? null;
+      const expectedLayoutSignature = meta?.layoutSignature ?? meta?.tab?.layoutSignature ?? null;
+      const ownerTabId = wrapper?.tabId ?? null;
+      const ownerType = wrapper?.type ?? type;
+      const payloadSignature = wrapper?.payloadSignature ?? null;
+      const layoutSignature = wrapper?.layoutSignature ?? null;
+      const fragments = cache && typeof cache === 'object'
+        ? Object.keys(cache).filter(key => {
+            const item = cache[key];
+            return !!(item && typeof item === 'object' && (
+              'fragment' in item
+              || 'count' in item
+              || item.__graphitixKind === 'fragment-payload'
+              || Array.isArray(item.nodes)
+            ));
+          })
+        : [];
+      const preferredGraphicKey = typeof cache?.__graphitixRenderCache?.graphicKey === 'string'
+        ? cache.__graphitixRenderCache.graphicKey
+        : null;
+      const hasRenderableContent = fragments.some(key => {
+        const item = cache[key];
+        return item?.fragment || Number(item?.count) > 0 || item?.__graphitixKind === 'fragment-payload' || Array.isArray(item?.nodes);
+      }) || !!(
+        (preferredGraphicKey && cache?.[preferredGraphicKey])
+        || cache?.preview
+        || cache?.graph
+        || cache?.plot
+        || cache?.svg
+        || cache?.stage
+        || cache?.renderState
+        || cache?.analysisState
+        || cache?.svgRootState
+        || cache?.plotStyle
+        || cache?.uiState
+      );
+      let ok = true;
+      let reason = null;
+      if (!cache || typeof cache !== 'object') {
+        ok = false;
+        reason = 'missing-cache-object';
+      } else if (ownerTabId && tabId && String(ownerTabId) !== tabId) {
+        ok = false;
+        reason = 'owner-tab-mismatch';
+      } else if (ownerType && type && String(ownerType) !== String(type)) {
+        ok = false;
+        reason = 'owner-type-mismatch';
+      } else if (payloadSignature !== null && expectedPayloadSignature !== null && payloadSignature !== expectedPayloadSignature) {
+        ok = false;
+        reason = 'payload-signature-mismatch';
+      } else if (layoutSignature !== null && expectedLayoutSignature !== null && layoutSignature !== expectedLayoutSignature && meta?.renderCache?.archiveBacked !== true) {
+        ok = false;
+        reason = 'layout-signature-mismatch';
+      } else if (!hasRenderableContent) {
+        ok = false;
+        reason = 'empty-cache';
+      }
+      if (!ok) {
+        console.debug('Debug: generic render cache validation rejected', {
+          type,
+          tabId,
+          reason,
+          fragments,
+          ownerTabId,
+          ownerType
+        });
+        return false;
+      }
+      console.debug('Debug: generic render cache validation accepted', {
+        type,
+        tabId,
+        fragments,
+        reason: meta?.reason || null
+      });
+      return true;
+    };
+  }
+
   function installStandardWorkspaceLifecycle(workspace) {
     if (!workspace || !workspace.type) {
       return workspace;
@@ -103,26 +200,117 @@
         if (component && typeof component.activateTab === 'function') {
           return component.activateTab(tab, meta);
         }
+        console.debug('Debug: workspace activateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return undefined;
       };
     }
     if (typeof workspace.deactivateTab !== 'function') {
-      workspace.deactivateTab = (tab, meta) => invokeComponentLifecycle(type, 'deactivateTab', [tab, meta]);
+      workspace.deactivateTab = (tab, meta) => {
+        const result = invokeComponentLifecycle(type, 'deactivateTab', [tab, meta]);
+        if (typeof result === 'undefined') {
+          console.debug('Debug: workspace deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        }
+        return result;
+      };
     }
     if (typeof workspace.disposeTab !== 'function') {
-      workspace.disposeTab = (tab, meta) => invokeComponentLifecycle(type, 'disposeTab', [tab, meta]);
+      workspace.disposeTab = (tab, meta) => {
+        const result = invokeComponentLifecycle(type, 'disposeTab', [tab, meta]);
+        try {
+          window.Shared?.hot?.disposeTableForTab?.(type, tab?.id || meta?.tabId || null, {
+            reason: meta?.reason || 'workspace-dispose-tab',
+            type
+          });
+        } catch (err) {
+          console.error('workspace disposeTab table cleanup error', { type, tabId: tab?.id || null, err });
+        }
+        return result;
+      };
     }
     if (typeof workspace.captureRuntimeState !== 'function') {
-      workspace.captureRuntimeState = meta => invokeComponentLifecycle(type, 'captureRuntimeState', [meta]);
+      workspace.captureRuntimeState = meta => {
+        const captured = invokeComponentLifecycle(type, 'captureRuntimeState', [meta]);
+        return captured && typeof captured === 'object' ? captured : null;
+      };
     }
     if (typeof workspace.applyRuntimeState !== 'function') {
       workspace.applyRuntimeState = (snapshot, meta) => invokeComponentLifecycle(type, 'applyRuntimeState', [snapshot, meta]);
     }
+    if (typeof workspace.captureUiState !== 'function') {
+      workspace.captureUiState = meta => {
+        const component = resolveComponentFromGlobal(type);
+        return typeof component?.captureUiState === 'function'
+          ? (component.captureUiState(meta || {}) || null)
+          : null;
+      };
+    }
+    if (typeof workspace.applyUiState !== 'function') {
+      workspace.applyUiState = (state, meta) => {
+        const component = resolveComponentFromGlobal(type);
+        return typeof component?.applyUiState === 'function'
+          ? component.applyUiState(state, meta || {})
+          : false;
+      };
+    }
+    installGenericRenderCacheValidator(workspace, type);
+    workspace.__lifecycleContract = {
+      activateTab: typeof workspace.activateTab === 'function',
+      deactivateTab: typeof workspace.deactivateTab === 'function',
+      disposeTab: typeof workspace.disposeTab === 'function',
+      captureRuntimeState: typeof workspace.captureRuntimeState === 'function',
+      applyRuntimeState: typeof workspace.applyRuntimeState === 'function',
+      captureUiState: typeof workspace.captureUiState === 'function',
+      applyUiState: typeof workspace.applyUiState === 'function',
+      captureRenderCache: typeof workspace.captureRenderCache === 'function',
+      canRestoreRenderCache: typeof workspace.canRestoreRenderCache === 'function',
+      restoreRenderCache: typeof workspace.restoreRenderCache === 'function'
+    };
+    console.debug('Debug: workspace lifecycle contract installed', { type, contract: workspace.__lifecycleContract });
     return workspace;
   }
 
+  function installComponentLifecycleDefaults(type, component) {
+    if (!component || typeof component !== 'object') {
+      return component;
+    }
+    if (typeof component.deactivateTab !== 'function') {
+      component.deactivateTab = (tab, meta) => {
+        console.debug('Debug: component deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        return false;
+      };
+    }
+    if (typeof component.disposeTab !== 'function') {
+      component.disposeTab = (tab, meta) => {
+        try {
+          window.Shared?.hot?.disposeTableForTab?.(type, tab?.id || meta?.tabId || null, {
+            reason: meta?.reason || 'component-dispose-tab',
+            type
+          });
+        } catch (err) {
+          console.error('component disposeTab table cleanup error', { type, tabId: tab?.id || null, err });
+        }
+        console.debug('Debug: component disposeTab default complete', { type, tabId: tab?.id || null, reason: meta?.reason || null });
+        return true;
+      };
+    }
+    if (typeof component.captureRuntimeState !== 'function') {
+      component.captureRuntimeState = () => null;
+    }
+    if (typeof component.applyRuntimeState !== 'function') {
+      component.applyRuntimeState = () => false;
+    }
+    if (typeof component.captureUiState !== 'function') {
+      component.captureUiState = () => null;
+    }
+    if (typeof component.applyUiState !== 'function') {
+      component.applyUiState = () => false;
+    }
+    component.__lifecycleDefaultsInstalled = true;
+    return component;
+  }
+
   function ensureComponent(name, options = {}) {
-    const component = resolveComponentFromGlobal(name);
+    const component = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
     if (component && !options.forceReload) {
       try {
         let ensureResult = null;
@@ -149,7 +337,7 @@
     }
 
     return loadComponentBundle(name, options).then(() => {
-      const loadedComponent = resolveComponentFromGlobal(name);
+      const loadedComponent = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
       if (!loadedComponent) {
         console.debug('Debug: ensureComponent missing global export', { name });
         return null;
@@ -399,13 +587,15 @@
       element: document.getElementById('linePage'),
       ensure: () => ensureComponent('line'),
       draw: meta => scheduleDrawLine(meta || {}),
-      getPreviewSvg: tab => resolveWorkspacePreviewSvg('line', tab),
+      getPreviewSvg: tab => window.Components?.line?.getPreviewSvg?.(tab) || window.Components?.line?.getThumbnailSvg?.(tab) || resolveWorkspacePreviewSvg('line', tab),
       getPayload: () => window.Components?.line?.getPayload?.(),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
+      applyColorSchemePayload: (payload, options) => window.Components?.line?.applyColorSchemePayload?.(payload, options),
       createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.line?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.line?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.line?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.line?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.line?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.line?.applyUiState?.(state, meta || {}),

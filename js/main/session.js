@@ -118,6 +118,21 @@
       || normalized.endsWith('-private-snapshot');
   }
 
+  function isSaveLikeLiveCaptureReason(reason, options = {}) {
+    const normalized = normalizeReason(reason).toLowerCase();
+    if (options.manualSave === true || options.forceLivePayloadCapture === true) {
+      return true;
+    }
+    if (!normalized || normalized.includes('autosave')) {
+      return false;
+    }
+    return normalized === 'archive-save'
+      || normalized === 'document-snapshot'
+      || normalized === 'unsaved-save'
+      || normalized.includes('save')
+      || normalized.includes('snapshot');
+  }
+
   function isLifecycleDirtyReason(reason, details = {}) {
     if (details?.origin === 'user') {
       return false;
@@ -1043,48 +1058,167 @@
     return hadCache;
   }
 
-  function consumeArchiveRenderCache(tab, meta = {}) {
-    if (!tab || tab.renderCache) {
-      return tab?.renderCache || null;
+  function detectRenderCacheGraphicKey(cache){
+    if(!cache || typeof cache !== 'object'){
+      return null;
+    }
+    const metaKey = typeof cache.__graphitixRenderCache?.graphicKey === 'string'
+      ? cache.__graphitixRenderCache.graphicKey
+      : null;
+    if(metaKey && cache[metaKey]){
+      return metaKey;
+    }
+    const candidates = ['preview', 'plot', 'svg', 'stage', 'graph'];
+    for(const key of candidates){
+      const value = cache[key];
+      if(value && typeof value === 'object'){
+        if(value.fragment || Number(value.count) > 0 || value.__graphitixKind === 'fragment-payload' || Array.isArray(value.nodes)){
+          return key;
+        }
+      }
+    }
+    return null;
+  }
+
+
+  function cloneRenderCacheForStorage(cache) {
+    if (!cache || typeof cache !== 'object') {
+      return cache || null;
+    }
+    try {
+      return deserializeRenderCacheValue(serializeRenderCacheValue(cache));
+    } catch (err) {
+      console.warn('cloneRenderCacheForStorage failed; storing live cache object as fallback', { err });
+      return cache;
+    }
+  }
+
+  function restoreLiveDomAfterRenderCacheCapture(config, captured, tab, reason) {
+    if (!config || typeof config.restoreRenderCache !== 'function' || !captured) {
+      return false;
+    }
+    try {
+      const restored = !!config.restoreRenderCache(captured, {
+        tab,
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: `${reason || 'persist-active'}:restore-live-after-cache-capture`,
+        restoreLiveAfterCapture: true,
+        skipStateMutation: true
+      });
+      console.debug('Debug: live DOM restored after render cache capture', {
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: reason || 'persist-active',
+        restored
+      });
+      return restored;
+    } catch (err) {
+      console.error('restoreLiveDomAfterRenderCacheCapture error', {
+        tabId: tab?.id || null,
+        type: tab?.type || null,
+        reason: reason || 'persist-active',
+        err
+      });
+      return false;
+    }
+  }
+
+  function normalizeRenderCacheShapeForTab(cache, tab, meta = {}){
+    if(!cache || typeof cache !== 'object'){
+      return cache || null;
+    }
+    const componentType = String(tab?.type || meta?.type || cache.__graphitixRenderCache?.component || '').trim() || null;
+    const graphicKey = detectRenderCacheGraphicKey(cache);
+    const previousMeta = cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+    cache.__graphitixRenderCache = {
+      ...(previousMeta || {}),
+      version: 2,
+      component: componentType,
+      tabId: tab?.id || meta?.tabId || previousMeta?.tabId || null,
+      graphicKey,
+      previewKey: graphicKey,
+      normalizedAt: Date.now(),
+      reason: meta?.reason || previousMeta?.reason || 'render-cache-normalize'
+    };
+    if(graphicKey && !cache.graphicKey){
+      cache.graphicKey = graphicKey;
+    }
+    return cache;
+  }
+
+  function peekArchiveRenderCache(tab, meta = {}) {
+    if (!tab) {
+      return null;
+    }
+    if (tab.renderCache && tab.renderCache.cache) {
+      return tab.renderCache;
     }
     if (!tab.archiveRenderCache) {
       return null;
     }
-    const cache = deserializeRenderCacheValue(tab.archiveRenderCache);
-    const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
-    const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
-    if (cache && cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object') {
-      const originalTabId = cache.__graphitixRenderCache.tabId;
-      cache.__graphitixRenderCache.tabId = tab.id;
-      if (originalTabId && originalTabId !== tab.id) {
-        console.debug('Debug: archive render cache metadata tabId rewritten', {
-          originalTabId,
-          tabId: tab.id,
-          reason: meta.reason || 'archive-render-cache-consumed'
-        });
-      }
-    }
-    clearTabArchiveRenderCache(tab, { reason: meta.reason || 'archive-render-cache-consumed' });
+    const cache = normalizeRenderCacheShapeForTab(deserializeRenderCacheValue(tab.archiveRenderCache), tab, {
+      reason: meta.reason || 'archive-render-cache-peeked'
+    });
     if (!cache) {
-      console.debug('Debug: archive render cache consume skipped', {
+      console.debug('Debug: archive render cache peek skipped', {
         tabId: tab?.id || null,
         reason: 'empty-cache',
         meta
       });
       return null;
     }
-    const capturedAt = Date.now();
-    tab.renderCache = {
+    if (cache && cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object') {
+      const originalTabId = cache.__graphitixRenderCache.tabId;
+      cache.__graphitixRenderCache.tabId = tab.id;
+      if (originalTabId && originalTabId !== tab.id) {
+        console.debug('Debug: archive render cache metadata tabId rewritten on peek', {
+          originalTabId,
+          tabId: tab.id,
+          reason: meta.reason || 'archive-render-cache-peeked'
+        });
+      }
+    }
+    const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
+    const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
+    return {
       cache,
       tabId: tab.id,
       type: tab.type || null,
       payloadSignature,
       layoutSignature,
+      archiveBacked: true,
+      capturedAt: Date.now(),
+      captureSequence: Number(tab.renderCache?.captureSequence || 0)
+    };
+  }
+
+  function consumeArchiveRenderCache(tab, meta = {}) {
+    if (!tab || tab.renderCache) {
+      return tab?.renderCache || null;
+    }
+    const peeked = peekArchiveRenderCache(tab, {
+      ...meta,
+      reason: meta.reason || 'archive-render-cache-consumed'
+    });
+    if (!peeked) {
+      return null;
+    }
+    clearTabArchiveRenderCache(tab, { reason: meta.reason || 'archive-render-cache-consumed' });
+    const capturedAt = Date.now();
+    tab.renderCache = {
+      cache: peeked.cache,
+      tabId: tab.id,
+      type: tab.type || null,
+      payloadSignature: peeked.payloadSignature || null,
+      layoutSignature: peeked.layoutSignature || null,
       capturedAt,
       captureSequence: ++renderCacheCaptureSequence
     };
-    tab.renderCacheSignature = payloadSignature;
-    tab.renderCacheLayoutSignature = layoutSignature;
+    tab.renderCacheSignature = tab.renderCache.payloadSignature;
+    tab.renderCacheLayoutSignature = tab.renderCache.layoutSignature;
     tab.renderCacheTabId = tab.id;
     console.debug('Debug: archive render cache consumed', {
       tabId: tab.id,
@@ -1713,6 +1847,207 @@
     return workspaceState.tabs.some(tab => !tab.isWelcome && tab.type && tabHasTableData(tab));
   }
 
+  function describeTopLevelPayloadDrift(previousPayload, livePayload, limit = 24) {
+    const previousObj = previousPayload && typeof previousPayload === 'object' ? previousPayload : null;
+    const liveObj = livePayload && typeof livePayload === 'object' ? livePayload : null;
+    if (!previousObj || !liveObj) {
+      return [];
+    }
+    const keys = new Set([...Object.keys(previousObj), ...Object.keys(liveObj)]);
+    const changed = [];
+    keys.forEach(key => {
+      if (changed.length >= limit) {
+        return;
+      }
+      try {
+        const previousSignature = serializePayloadSignature(previousObj[key]);
+        const liveSignature = serializePayloadSignature(liveObj[key]);
+        if (previousSignature !== liveSignature) {
+          changed.push(key);
+        }
+      } catch (err) {
+        changed.push(key);
+      }
+    });
+    return changed;
+  }
+
+
+  const RUNTIME_WORKSPACE_ID_PATTERN = /workspace-\d+/g;
+
+  function normalizeRuntimeTabId(value) {
+    const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
+    return text || '';
+  }
+
+  function remapRuntimeWorkspaceString(value, targetTabId) {
+    const target = normalizeRuntimeTabId(targetTabId);
+    if (!target || typeof value !== 'string' || !RUNTIME_WORKSPACE_ID_PATTERN.test(value)) {
+      RUNTIME_WORKSPACE_ID_PATTERN.lastIndex = 0;
+      return value;
+    }
+    RUNTIME_WORKSPACE_ID_PATTERN.lastIndex = 0;
+    return value.replace(RUNTIME_WORKSPACE_ID_PATTERN, target);
+  }
+
+  function rehomeTabScopedStateInPlace(value, targetTabId, options = {}, seen = new WeakSet(), path = '') {
+    const target = normalizeRuntimeTabId(targetTabId);
+    if (!target || value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return remapRuntimeWorkspaceString(value, target);
+    }
+    if (typeof value !== 'object') {
+      return value;
+    }
+    if (seen.has(value)) {
+      return value;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i += 1) {
+        value[i] = rehomeTabScopedStateInPlace(value[i], target, options, seen, `${path}[${i}]`);
+      }
+      return value;
+    }
+    Object.keys(value).forEach(key => {
+      const nextKey = options.remapKeys === false ? key : remapRuntimeWorkspaceString(key, target);
+      const childPath = path ? `${path}.${key}` : key;
+      const remapped = rehomeTabScopedStateInPlace(value[key], target, options, seen, childPath);
+      if (nextKey !== key) {
+        delete value[key];
+      }
+      value[nextKey] = remapped;
+    });
+    return value;
+  }
+
+  function rehomeTabScopedState(value, targetTabId, options = {}) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    const clone = clonePayload(value);
+    return rehomeTabScopedStateInPlace(clone, targetTabId, options);
+  }
+
+  function collectRuntimeWorkspaceIds(value, out = new Set(), seen = new WeakSet()) {
+    if (value === null || value === undefined) {
+      return out;
+    }
+    if (typeof value === 'string') {
+      const matches = value.match(/workspace-\d+/g);
+      if (matches) {
+        matches.forEach(id => out.add(id));
+      }
+      return out;
+    }
+    if (typeof value !== 'object' || seen.has(value)) {
+      return out;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(item => collectRuntimeWorkspaceIds(item, out, seen));
+      return out;
+    }
+    Object.entries(value).forEach(([key, child]) => {
+      collectRuntimeWorkspaceIds(key, out, seen);
+      collectRuntimeWorkspaceIds(child, out, seen);
+    });
+    return out;
+  }
+
+  function shouldRunSkippedPayloadDriftProbe(reason, options = {}) {
+    if (options.disableDriftProbe === true) {
+      return false;
+    }
+    if (options.forceDriftProbe === true) {
+      return true;
+    }
+    if (typeof window !== 'undefined' && window.Shared && window.Shared.__driftDetectOnSkip === false) {
+      return false;
+    }
+    if (typeof window !== 'undefined' && window.Shared && window.Shared.__driftDetectOnSkip === true) {
+      return true;
+    }
+    const normalized = normalizeReason(reason);
+    if (normalized === 'archive-save' || normalized === 'document-snapshot' || normalized === 'unsaved-save') {
+      return true;
+    }
+    if (normalized.includes('save') && !normalized.includes('autosave')) {
+      return true;
+    }
+    if (options.manualSave === true || options.origin === 'user') {
+      return true;
+    }
+    if (typeof window !== 'undefined') {
+      let debugFlag = window.__GRAPHITIX_DEBUG__ === true || window.__GRAPHITIX_DEV__ === true;
+      try {
+        debugFlag = debugFlag || window.localStorage?.getItem?.('graphitix.debug') === 'true';
+      } catch (err) {
+        // Accessing localStorage can throw under some browser privacy/sandbox modes.
+      }
+      if (debugFlag) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function captureExactTabLayoutClone(tab, reason) {
+    if (!tab || !tab.type || !Shared.componentLayout?.captureStateFor) {
+      return { captured: false, clone: null, raw: null };
+    }
+    let raw = null;
+    try {
+      raw = Shared.componentLayout.captureStateFor(tab.type, {
+        tabId: tab.id,
+        exact: true,
+        reason
+      });
+    } catch (err) {
+      console.error('captureExactTabLayoutClone error', {
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        err
+      });
+      return { captured: false, clone: null, raw: null };
+    }
+    if (!raw) {
+      console.warn('captureExactTabLayoutClone skipped: no exact layout registry entry for tab', {
+        tabId: tab.id,
+        type: tab.type,
+        reason,
+        previousLayoutSignature: tab.layoutSignature || null
+      });
+      return { captured: false, clone: null, raw: null };
+    }
+    const withOverrides = Shared.componentLayout?.withTabLayoutOverrides
+      ? Shared.componentLayout.withTabLayoutOverrides(raw, tab)
+      : raw;
+    return {
+      captured: true,
+      clone: clonePayload(withOverrides),
+      raw
+    };
+  }
+
+  function syncTabLayoutAspectStateFromClone(tab, layoutClone) {
+    const aspectLocked = layoutClone?.svgBox?.dataset?.resizerAspectLocked;
+    if (aspectLocked !== 'true' && aspectLocked !== 'false') {
+      return false;
+    }
+    tab.sharedState = tab.sharedState || {};
+    tab.sharedState.layout = tab.sharedState.layout || {};
+    tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
+    tab.sharedState.layout.resizer.aspectLocked = aspectLocked === 'true';
+    if (layoutClone?.svgBox?.dataset?.resizerAspectRatio) {
+      tab.sharedState.layout.resizer.aspectRatio = String(layoutClone.svgBox.dataset.resizerAspectRatio);
+    }
+    return true;
+  }
+
   function persistActiveTabState(tab = getActiveTab(), options = {}) {
     if (!tab || !tab.type) {
       return false;
@@ -1738,22 +2073,30 @@
     const isLifecycleOrigin = options.origin === 'lifecycle';
     const skipCaptureBlockedByReason = reason === 'duplicate-before-create'
       || reason === 'add-tab-before-new';
+    const shouldCaptureLivePayloadForSave = isSaveLikeLiveCaptureReason(reason, options);
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
       && !skipCaptureBlockedByReason
+      && !shouldCaptureLivePayloadForSave
       && (isLiveCaptureSkippableReason(reason) || isLifecycleOrigin));
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
         try {
-          const captured = config.captureRenderCache({
+          const captured = normalizeRenderCacheShapeForTab(config.captureRenderCache({
             tabId: tab.id,
             type: tab.type,
             reason
-          });
+          }), tab, { reason });
+          const cacheForStorage = captured
+            ? normalizeRenderCacheShapeForTab(cloneRenderCacheForStorage(captured), tab, { reason: `${reason}:storage-clone` })
+            : null;
           if (captured) {
+            restoreLiveDomAfterRenderCacheCapture(config, captured, tab, reason);
+          }
+          if (cacheForStorage) {
             const capturedAt = Date.now();
             tab.renderCache = {
-              cache: captured,
+              cache: cacheForStorage,
               tabId: tab.id,
               type: tab.type || null,
               payloadSignature: tab.payloadSignature || null,
@@ -1787,30 +2130,25 @@
           reason
         });
       }
-      const skippedLayoutState = Shared.componentLayout?.captureStateFor
-        ? Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id })
-        : null;
-      const skippedLayoutClone = clonePayload(
-        Shared.componentLayout?.withTabLayoutOverrides
-          ? Shared.componentLayout.withTabLayoutOverrides(skippedLayoutState, tab)
-          : skippedLayoutState
-      );
-      const skippedAspectLocked = skippedLayoutClone?.svgBox?.dataset?.resizerAspectLocked;
-      if (skippedAspectLocked === 'true' || skippedAspectLocked === 'false') {
-        tab.sharedState = tab.sharedState || {};
-        tab.sharedState.layout = tab.sharedState.layout || {};
-        tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
-        tab.sharedState.layout.resizer.aspectLocked = skippedAspectLocked === 'true';
-        if (skippedLayoutClone?.svgBox?.dataset?.resizerAspectRatio) {
-          tab.sharedState.layout.resizer.aspectRatio = String(skippedLayoutClone.svgBox.dataset.resizerAspectRatio);
+      const skippedLayoutCapture = captureExactTabLayoutClone(tab, reason);
+      let skippedLayoutChanged = false;
+      if (skippedLayoutCapture.captured) {
+        const skippedLayoutClone = skippedLayoutCapture.clone;
+        syncTabLayoutAspectStateFromClone(tab, skippedLayoutClone);
+        tab.layoutState = skippedLayoutClone;
+        tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
+        skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
+        if (skippedLayoutChanged) {
+          clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
+          markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed-skip' });
         }
-      }
-      tab.layoutState = skippedLayoutClone;
-      tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
-      const skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
-      if (skippedLayoutChanged) {
-        clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
-        markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed-skip' });
+      } else {
+        console.warn('persistActiveTabState kept previous layout because exact tab layout capture failed', {
+          tabId: tab.id,
+          type: tab.type,
+          reason,
+          previousLayoutSignature
+        });
       }
       if (!workspaceState.loadedWorkspaces) {
         workspaceState.loadedWorkspaces = {};
@@ -1834,16 +2172,12 @@
           forceCapture: skippedLayoutChanged
         });
       }
-      // Opt-in deep drift probe. Enabled via `window.Shared.__driftDetectOnSkip = true`
-      // (off in production). When on, runs config.getPayload() purely to compute its
-      // signature; if it differs from tab.payloadSignature on a "clean" tab, an unwired
-      // user control has mutated state without calling markTabUserModified. This is the
-      // self-locating drift detector for the skip path; the live-read path has its own
-      // detector below.
-      if (typeof window !== 'undefined'
-        && window.Shared
-        && window.Shared.__driftDetectOnSkip === true
-        && typeof config.getPayload === 'function') {
+      // Best-effort drift probe for clean tabs whose live payload capture is skipped.
+      // This now runs by default for manual/archive snapshots and in debug/dev mode
+      // unless explicitly disabled with Shared.__driftDetectOnSkip = false. It never
+      // overwrites tab.payload; it only warns when a user-visible control appears to
+      // have changed live state without marking the tab dirty.
+      if (shouldRunSkippedPayloadDriftProbe(reason, options) && typeof config.getPayload === 'function') {
         try {
           const probe = config.getPayload();
           if (probe) {
@@ -1854,13 +2188,20 @@
                 type: tab.type,
                 reason,
                 origin: options.origin || null,
+                changedTopLevelKeys: describeTopLevelPayloadDrift(tab.payload, probe),
+                changedTopLevelKeysText: describeTopLevelPayloadDrift(tab.payload, probe).join(','),
                 cachedSignatureLength: tab.payloadSignature.length,
                 liveSignatureLength: probeSig.length
               });
             }
           }
         } catch (err) {
-          // Probe is best-effort; never fail the persist due to a probe error.
+          console.debug('Debug: persistActiveTabState skipped-path drift probe failed', {
+            tabId: tab.id,
+            type: tab.type,
+            reason,
+            message: err?.message || String(err)
+          });
         }
       }
       console.debug('Debug: persistActiveTabState skipped live payload capture', {
@@ -1899,23 +2240,18 @@
           reason
         });
       }
-      const layoutState = Shared.componentLayout?.captureStateFor
-        ? Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id })
-        : null;
-      let layoutClone = clonePayload(
-        Shared.componentLayout?.withTabLayoutOverrides
-          ? Shared.componentLayout.withTabLayoutOverrides(layoutState, tab)
-          : layoutState
-      );
-      const capturedAspectLocked = layoutClone?.svgBox?.dataset?.resizerAspectLocked;
-      if (capturedAspectLocked === 'true' || capturedAspectLocked === 'false') {
-        tab.sharedState = tab.sharedState || {};
-        tab.sharedState.layout = tab.sharedState.layout || {};
-        tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
-        tab.sharedState.layout.resizer.aspectLocked = capturedAspectLocked === 'true';
-        if (layoutClone?.svgBox?.dataset?.resizerAspectRatio) {
-          tab.sharedState.layout.resizer.aspectRatio = String(layoutClone.svgBox.dataset.resizerAspectRatio);
-        }
+      const layoutCapture = captureExactTabLayoutClone(tab, reason);
+      const previousLayoutClone = clonePayload(tab.layoutState || null);
+      let layoutClone = layoutCapture.captured ? layoutCapture.clone : previousLayoutClone;
+      if (layoutCapture.captured) {
+        syncTabLayoutAspectStateFromClone(tab, layoutClone);
+      } else {
+        console.warn('persistActiveTabState will reuse previous layout because exact tab layout capture failed', {
+          tabId: tab.id,
+          type: tab.type,
+          reason,
+          previousLayoutSignature: tab.layoutSignature || null
+        });
       }
       if (tab.type !== 'box' && Shared.graphSizing?.enrichPayloadWithLayout) {
         try {
@@ -1962,6 +2298,8 @@
             type: tab.type || null,
             reason,
             origin: options.origin || null,
+            changedTopLevelKeys: describeTopLevelPayloadDrift(tab.payload, payloadClone),
+            changedTopLevelKeysText: describeTopLevelPayloadDrift(tab.payload, payloadClone).join(','),
             previousSignatureLength: previousPayloadSignature.length,
             liveSignatureLength: livePayloadSignature.length
           });
@@ -1995,15 +2333,21 @@
       }
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
         try {
-          const captured = config.captureRenderCache({
+          const captured = normalizeRenderCacheShapeForTab(config.captureRenderCache({
             tabId: tab.id,
             type: tab.type,
             reason: options.reason || 'persist-active'
-          });
+          }), tab, { reason: options.reason || 'persist-active' });
+          const cacheForStorage = captured
+            ? normalizeRenderCacheShapeForTab(cloneRenderCacheForStorage(captured), tab, { reason: `${options.reason || 'persist-active'}:storage-clone` })
+            : null;
           if (captured) {
+            restoreLiveDomAfterRenderCacheCapture(config, captured, tab, options.reason || 'persist-active');
+          }
+          if (cacheForStorage) {
             const capturedAt = Date.now();
             tab.renderCache = {
-              cache: captured,
+              cache: cacheForStorage,
               tabId: tab.id,
               type: tab.type || null,
               payloadSignature: tab.payloadSignature || null,
@@ -2374,29 +2718,51 @@
         console.warn('applySessionData skipping invalid tab', { index, tabData });
         return;
       }
+      const predictedRuntimeTabId = `workspace-${workspaceState.nextId}`;
       const clonedPayload = clonePayload(tabData.payload) || null;
-      const clonedLayout = clonePayload(tabData.layout) || null;
+      const clonedLayout = rehomeTabScopedState(tabData.layout || null, predictedRuntimeTabId);
+      const clonedPreviewMeta = tabData.previewMeta && typeof tabData.previewMeta === 'object'
+        ? rehomeTabScopedState(tabData.previewMeta, predictedRuntimeTabId)
+        : null;
+      const clonedPreviewMarkup = typeof tabData.previewMarkup === 'string'
+        ? remapRuntimeWorkspaceString(tabData.previewMarkup, predictedRuntimeTabId)
+        : null;
+      const clonedArchiveRenderCache = tabData.archiveRenderCache && typeof tabData.archiveRenderCache === 'object'
+        ? rehomeTabScopedState(tabData.archiveRenderCache, predictedRuntimeTabId)
+        : null;
+      const clonedUiState = tabData.uiState && typeof tabData.uiState === 'object'
+        ? rehomeTabScopedState(tabData.uiState, predictedRuntimeTabId)
+        : null;
+      const oldRuntimeIds = Array.from(collectRuntimeWorkspaceIds({
+        layout: tabData.layout || null,
+        previewMarkup: tabData.previewMarkup || null,
+        previewMeta: tabData.previewMeta || null,
+        archiveRenderCache: tabData.archiveRenderCache || null,
+        uiState: tabData.uiState || null
+      })).filter(id => id !== predictedRuntimeTabId);
+      if (oldRuntimeIds.length) {
+        console.debug('Debug: session remapped archive runtime tab ids', {
+          title: tabData.title || `Workspace ${index + 1}`,
+          type: tabData.type,
+          targetTabId: predictedRuntimeTabId,
+          oldRuntimeIds
+        });
+      }
       const newTab = createTab({
         title: tabData.title || `Workspace ${index + 1}`,
         type: tabData.type,
         payload: clonedPayload,
         layoutState: clonedLayout,
-        previewMarkup: typeof tabData.previewMarkup === 'string' ? tabData.previewMarkup : null,
+        previewMarkup: clonedPreviewMarkup,
         previewSignature: tabData.previewSignature || null,
-        previewMeta: tabData.previewMeta && typeof tabData.previewMeta === 'object'
-          ? clonePayload(tabData.previewMeta)
-          : null,
-        archiveRenderCache: tabData.archiveRenderCache && typeof tabData.archiveRenderCache === 'object'
-          ? clonePayload(tabData.archiveRenderCache)
-          : null,
+        previewMeta: clonedPreviewMeta,
+        archiveRenderCache: clonedArchiveRenderCache,
         archiveRenderCacheSignature: tabData.archiveRenderCacheSignature || null,
-        archiveRenderCacheLayoutSignature: tabData.archiveRenderCacheLayoutSignature || null,
+        archiveRenderCacheLayoutSignature: oldRuntimeIds.length ? null : (tabData.archiveRenderCacheLayoutSignature || null),
         loadedFromArchive: true,
         userModified: false,
         payloadDirty: false,
-        uiState: tabData.uiState && typeof tabData.uiState === 'object'
-          ? clonePayload(tabData.uiState)
-          : null
+        uiState: clonedUiState
       });
       graphTabs.push(newTab);
       workspaceState.tabs.push(newTab);
@@ -2456,8 +2822,11 @@
   namespace.persistUserModifiedTabState = persistUserModifiedTabState;
   namespace.clearTabRenderCache = clearTabRenderCache;
   namespace.clearTabArchiveRenderCache = clearTabArchiveRenderCache;
+  namespace.peekArchiveRenderCache = peekArchiveRenderCache;
   namespace.consumeArchiveRenderCache = consumeArchiveRenderCache;
   namespace.serializeRenderCacheForArchive = serializeRenderCacheForArchive;
+  namespace.rehomeTabScopedState = rehomeTabScopedState;
+  namespace.remapRuntimeWorkspaceString = remapRuntimeWorkspaceString;
   namespace.markTabAuthoritativeRenderRestore = markTabAuthoritativeRenderRestore;
   namespace.pruneWarmRenderCaches = pruneWarmRenderCaches;
   namespace.setRenderCachePruneSuspended = setRenderCachePruneSuspended;
@@ -2475,10 +2844,10 @@
   namespace.applySessionData = applySessionData;
 
   // Single document-level listener that promotes ANY user-trusted input/change/click
-  // event inside a workspace component into a markActiveTabUserModified call. This
-  // saves us from wiring ~30 individual control handlers across 11 components: as
-  // long as the event is user-initiated (event.isTrusted === true) and the target
-  // sits inside a per-tab DOM root, we mark the active tab dirty.
+  // event inside a workspace component into a tab-dirty mark. It resolves the owning
+  // per-tab DOM root first, then falls back to the active tab. This saves us from
+  // wiring ~30 individual control handlers across 11 components while avoiding
+  // accidental active-tab writes from late or delegated UI events.
   //
   // Programmatic events from component setup/restore code use dispatchEvent() which
   // produces isTrusted=false, so they correctly do NOT mark anything dirty.
@@ -2493,6 +2862,12 @@
       return;
     }
     namespace.__globalUserInputListenerInstalled = true;
+    const resolveWorkspaceOwnerTabId = target => {
+      if (!target || typeof target.closest !== 'function') return '';
+      const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
+      const dataset = owner?.dataset || null;
+      return String(dataset?.workspaceTabId || dataset?.tabId || owner?.getAttribute?.('data-workspace-tab-id') || owner?.getAttribute?.('data-tab-id') || '').trim();
+    };
     const isInsideWorkspace = target => {
       if (!target || typeof target.closest !== 'function') return false;
       // Workspace per-tab DOM roots all sit under #workspacePages and carry
@@ -2501,10 +2876,26 @@
     };
     // Late-bind through window.Main.session so the listener always invokes the current
     // session module — important for tests that load session.js multiple times.
-    const callMark = (reason, source) => {
+    const callMark = (reason, source, ownerTabId) => {
       try {
         const sess = (typeof window !== 'undefined' && window.Main && window.Main.session) || namespace;
-        if (sess && typeof sess.markActiveTabUserModified === 'function') {
+        if (!sess) return;
+        if (ownerTabId && typeof sess.markTabUserModified === 'function') {
+          const marked = sess.markTabUserModified(ownerTabId, reason, {
+            origin: 'user',
+            source: source || 'unknown',
+            ownerResolvedFrom: 'workspace-dom'
+          });
+          if (marked) {
+            return;
+          }
+          console.warn('Global user-input listener could not mark owner tab, falling back to active tab', {
+            ownerTabId,
+            reason,
+            source: source || 'unknown'
+          });
+        }
+        if (typeof sess.markActiveTabUserModified === 'function') {
           sess.markActiveTabUserModified(reason, { origin: 'user', source: source || 'unknown' });
         }
       } catch (err) { /* listener must never throw */ }
@@ -2523,7 +2914,7 @@
       // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
       // a content change).
       if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
-      callMark(reason, target?.id || target?.tagName);
+      callMark(reason, target?.id || target?.tagName, resolveWorkspaceOwnerTabId(target));
     };
     document.addEventListener('change', handler('control-change'), true);
     document.addEventListener('input', handler('control-input'), true);
@@ -2537,7 +2928,7 @@
       if (!interactive) return;
       // Skip the workspace tab strip and its close buttons (lifecycle, not content).
       if (target.closest && target.closest('.workspace-tab, [data-workspace-tablist]')) return;
-      callMark('control-click', interactive?.id || 'button');
+      callMark('control-click', interactive?.id || 'button', resolveWorkspaceOwnerTabId(target));
     }, true);
     console.debug('Debug: Main session global user-input listener installed');
   }

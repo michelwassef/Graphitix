@@ -5699,7 +5699,7 @@
     }
   }
 
-  function initLayout(root) {
+  function initLayout(root, options = {}) {
     const layoutFactory = Shared.componentLayout?.createStandardPanels;
     if (typeof layoutFactory !== 'function') {
       debugLog('initLayout skipped - missing factory', { hasFactory: typeof layoutFactory === 'function' });
@@ -5708,6 +5708,9 @@
     const queryRoot = root && typeof root.querySelector === 'function' ? root : global.document;
     const layout = layoutFactory({
       componentName: 'venn',
+      tabId: options?.tabId || undefined,
+      root: root || undefined,
+      reason: options?.reason || 'venn-init-layout',
       selectors: {
         tablePanel: '#vennInputPanel',
         graphPanel: '#vennGraphPanel',
@@ -7024,15 +7027,21 @@
   }
 
   venn.init = function init(options = {}) {
-    if (venn.ready) { debugLog('init skipped'); return; }
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    if (venn.ready && (!targetTabId || venn.__boundTabId === targetTabId)) { debugLog('init skipped', { tabId: venn.__boundTabId || null }); return; }
+    if(venn.ready){
+      debugLog('init rebinding', { previousTabId: venn.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      venn.ready = false;
+    }
+    venn.__boundTabId = targetTabId || null;
     const freshState = createInitialState();
     Object.assign(state.ui, freshState.ui);
     Object.assign(state.analysis, freshState.analysis);
     Object.assign(state.persistence, freshState.persistence);
     const mountedRoot = options?.root
-      || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'venn')
+      || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'venn')
       || Main?.components?.workspaces?.venn?.element
-      || resolveVennRoot(options?.tabId || null)
+      || resolveVennRoot(targetTabId || null)
       || null;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
@@ -7045,7 +7054,7 @@
         })
       : scheduleVennBase;
     debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    initLayout(mountedRoot);
+    initLayout(mountedRoot, { tabId: targetTabId || undefined, reason: options?.reason || 'venn-init' });
     state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
     if (typeof state.ui.syncPanels === 'function') {
       debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
@@ -7147,12 +7156,14 @@
   };
 
   venn.activateTab = function activateTab(_tab, meta = {}){
+    const targetTabId = (_tab && typeof _tab === 'object' ? _tab.id : _tab) || meta?.tabId || null;
+    venn.__boundTabId = targetTabId || venn.__boundTabId || null;
     if(!venn.ready){
-      venn.init({ tabId: _tab?.id || null });
+      venn.init({ tabId: targetTabId || null, reason: meta?.reason || 'activate-tab' });
     }else{
-      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(_tab?.id || null, 'venn')
+      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'venn')
         || Main?.components?.workspaces?.venn?.element
-        || resolveVennRoot(_tab?.id || null)
+        || resolveVennRoot(targetTabId || null)
         || null;
       bindUiToRoot(mountedRoot);
     }
@@ -7412,7 +7423,8 @@
   venn.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
     restoreSvgRootState(state.ui.stage, cache.stageRootState);
-    const restoredStage = restoreChildren(state.ui.stage, cache.stage);
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.stage || cache?.plot || cache?.preview || cache?.graph || cache?.svg;
+    const restoredStage = restoreChildren(state.ui.stage, graphCachePayload);
     const restoredRegion = restoreChildren(state.ui.regionList, cache.regionList);
     const restoredSignificance = restoreChildren(state.ui.significanceResults, cache.significance);
     const restoredGo = restoreChildren(state.ui.goResults, cache.goResults);

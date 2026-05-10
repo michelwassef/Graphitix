@@ -347,9 +347,32 @@
     return matrix;
   }
 
+  function activeTabHasSavedRocData(){
+    try{
+      const tab = Main?.session?.getActiveTab?.();
+      if(!tab || tab.type !== 'roc'){
+        return false;
+      }
+      const data = tab.payload && Array.isArray(tab.payload.data) ? tab.payload.data : null;
+      if(!data || !data.length){
+        return false;
+      }
+      return data.some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
+    }catch(err){
+      console.error('roc active tab payload check error', err);
+      return false;
+    }
+  }
+
   function ensureRocDefaultHeaderRow(hotInstance){
     const hot = hotInstance || state.hot;
     if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    if(activeTabHasSavedRocData()){
+      console.debug('Debug: roc default header seed skipped for tab with saved data', {
+        tabId: resolveActiveTabId() || null
+      });
       return false;
     }
     const data = hot.getData() || [];
@@ -366,7 +389,8 @@
     if(!(headerRow[0] != null && String(headerRow[0]).trim())){
       changes.push([0, 0, 'Label']);
     }
-    for(let col = 1; col < colCount; col += 1){
+    const defaultScoreCols = Math.min(Math.max(0, ROC_DEFAULT_COLS - 1), Math.max(0, colCount - 1));
+    for(let col = 1; col <= defaultScoreCols; col += 1){
       const current = headerRow[col] != null ? String(headerRow[col]).trim() : '';
       if(!current){
         changes.push([0, col, `Score ${col}`]);
@@ -3221,7 +3245,10 @@
     return !!emptyPayloadTemplate;
   };
   roc.createEmptyPayload = function createEmptyRocPayload(){
-    roc.ensure();
+    console.debug('Debug: roc.createEmptyPayload pure factory invoked', {
+      ready: !!roc.ready,
+      boundTabId: roc.__boundTabId || null
+    });
     const payload = { type: 'roc', config: {} };
     payload.type = 'roc';
     const createEmpty = Shared.createEmptyData;
@@ -3554,11 +3581,19 @@
     });
   }
 
-  function init(){
-    if(roc.ready){
+  function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || resolveRocRoot(targetTabId || null) || state.root || null;
+    if(roc.ready && (!targetTabId || roc.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      console.debug('Debug: roc init skipped', { tabId: roc.__boundTabId || null });
       return;
     }
-    state.root = resolveRocRoot();
+    if(roc.ready){
+      console.debug('Debug: roc init rebinding', { previousTabId: roc.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      roc.ready = false;
+    }
+    roc.__boundTabId = targetTabId || null;
+    state.root = targetRoot || resolveRocRoot(targetTabId || null);
     if(!ensureElements()){
       console.warn('ROC component init skipped: required elements missing');
       return;
@@ -3631,6 +3666,9 @@
     console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame', { guarded: !!rocAutoDrawManager }); // Debug: scheduler setup
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'roc',
+      tabId: targetTabId || undefined,
+      root: state.root || undefined,
+      reason: options?.reason || 'roc-init',
       selectors: {
         tablePanel: '#rocTablePanel',
         graphPanel: '#rocGraphPanel',
@@ -3701,9 +3739,9 @@
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => roc.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveRocRoot();
+          state.root = info?.root || resolveRocRoot(info?.tab || null) || state.root || null;
           roc.ready = false;
-          init();
+          init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -3711,11 +3749,13 @@
       }
     }
     if(!roc.ready){
-      init();
+      init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
     }
   };
-  roc.activateTab = function activateTab(tab){
-    state.root = resolveRocRoot(tab || null);
+  roc.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    roc.__boundTabId = targetTabId || roc.__boundTabId || null;
+    state.root = resolveRocRoot(tab || targetTabId || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'roc',
@@ -3724,14 +3764,18 @@
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => roc.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveRocRoot(tab || null);
+          state.root = info?.root || resolveRocRoot(tab || null) || state.root || null;
           roc.ready = false;
-          init();
+          init({ root: state.root || undefined, tabId: info?.tab?.id || targetTabId || null, reason: 'activate-tab-rebind' });
         }
       });
       if(rebound?.rebound){
         return;
       }
+    }
+    if(!roc.ready){
+      init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
+      return;
     }
     ensureHotForActiveTab();
     roc.__domSentinel = getRocNodeById('rocHot');
@@ -3786,9 +3830,10 @@
 
   roc.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getRocNodeById('rocPlot');
     const stats = getRocNodeById('rocStatsResults');
-    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){

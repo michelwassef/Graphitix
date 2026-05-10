@@ -242,14 +242,37 @@
   let lineDataViewsManager = null;
   let lineDataToolbarBound = false;
   let lineDataToolbarLastActivation = 0;
-  function scheduleLineViewRefresh(reason){
+  function scheduleLineViewRefresh(reason, extraOptions){
     if(typeof scheduleLineDraw !== 'function'){
       return;
     }
-    scheduleLineDraw({
+    const options = Object.assign({}, extraOptions || {}, {
       viewOnly: true,
-      reason: reason || 'line-view-refresh'
+      silentOverlay: true,
+      reason: reason || (extraOptions && extraOptions.reason) || 'line-view-refresh'
     });
+    scheduleLineDraw(options);
+  }
+
+  function invalidateActiveLineRenderCache(reason){
+    try{
+      const sess = (global.Main && global.Main.session) ? global.Main.session : null;
+      const active = typeof sess?.getActiveTab === 'function' ? sess.getActiveTab() : null;
+      if(!active || active.type !== 'line'){
+        return false;
+      }
+      let cleared = false;
+      if(typeof sess.clearTabRenderCache === 'function'){
+        cleared = sess.clearTabRenderCache(active, { reason: reason || 'line-view-change' }) || cleared;
+      }
+      if(typeof sess.clearTabArchiveRenderCache === 'function'){
+        cleared = sess.clearTabArchiveRenderCache(active, { reason: reason || 'line-view-change' }) || cleared;
+      }
+      return cleared;
+    }catch(err){
+      lineDebug('Debug: line render cache invalidation failed', { reason: reason || null, message: err?.message || String(err) });
+      return false;
+    }
   }
 
   function isLineFontStyleEvent(detail){
@@ -347,6 +370,14 @@
       isDark ? '#000000' : '#ffffff'
     );
     lineOverlayStyles = sanitizeLineOverlayStylesMap(cfg.overlayStyles);
+  }
+
+  function getLineThemeTextColor(){
+    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    return normalizeLineThemeColor(
+      lineTextColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+    );
   }
 
   function appendLine3dBackground(svg, width, height){
@@ -1308,23 +1339,25 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: line axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    if(typeof scheduleLineDraw === 'function'){
-      scheduleLineDraw();
-    }
+    scheduleLineViewRefresh('axis-stroke-width');
   }
 
   function getLineAxisColor(){
     const settings = ensureLineAxisSettings();
-    return settings.color || DEFAULT_AXIS_COLOR;
+    const rawColor = settings.color || DEFAULT_AXIS_COLOR;
+    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    const normalized = String(rawColor || '').trim().toLowerCase();
+    if(isDark && (!normalized || normalized === '#000' || normalized === '#000000' || normalized === 'black')){
+      return '#e6e6e6';
+    }
+    return rawColor;
   }
 
   function updateLineAxisColor(value){
     const settings = ensureLineAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: line axis color updated',{ color: settings.color });
-    if(typeof scheduleLineDraw === 'function'){
-      scheduleLineDraw();
-    }
+    scheduleLineViewRefresh('axis-color');
   }
 
   function registerLineGridControlTarget(target, options){
@@ -1948,25 +1981,49 @@
       && lineStatsPanelHasRenderedResults();
   }
 
-  function updateLineRegressionOverlayControlState(statsReady){
-    const ready = !!statsReady;
-    const msg = ready ? '' : 'Calculate statistics first to enable regression overlays.';
-    [
-      refs.showTrendLine,
-      refs.showIntervals,
-      refs.showPredictionIntervals
-    ].forEach(input => {
-      if(!input){
-        return;
-      }
-      input.disabled = !ready;
-      input.title = msg;
-      const label = typeof input.closest === 'function'
-        ? input.closest('label')
-        : input.parentElement;
-      if(label){
-        label.title = msg;
-      }
+  function lineHasComputedStats(){
+    const version = Number(lineStatsState.version) || 0;
+    return version > 0
+      && lineStatsState.lastRunVersion === version
+      && lineStatsPanelHasRenderedResults()
+      && !lineStatsState.computationPending;
+  }
+
+  function setLineOverlayInputDisabled(input, disabled, message, options = {}){
+    if(!input){
+      return;
+    }
+    input.disabled = !!disabled;
+    input.title = message || '';
+    if(disabled && options.clearWhenDisabled !== false && input.checked){
+      input.checked = false;
+    }
+    const label = typeof input.closest === 'function'
+      ? input.closest('label')
+      : input.parentElement;
+    if(label){
+      label.title = message || '';
+      label.classList.toggle('config-panel__checkbox--disabled', !!disabled);
+    }
+  }
+
+  function updateLineRegressionOverlayControlState(statsReady = lineHasComputedStats()){
+    const is3d = lineViewState.viewMode === '3d' || refs.viewMode?.value === '3d' || refs.replicateMode?.value === '3d';
+    const disabled = !!is3d || !statsReady;
+    const msg = is3d
+      ? 'Regression overlays are available in 2D line mode.'
+      : (statsReady ? '' : 'Calculate statistics before enabling regression overlays.');
+    setLineOverlayInputDisabled(refs.showTrendLine, disabled, msg);
+    const trendReady = !disabled && !!refs.showTrendLine?.checked;
+    setLineOverlayInputDisabled(refs.showIntervals, disabled || !trendReady, trendReady ? '' : msg || 'Enable the trend line first.');
+    setLineOverlayInputDisabled(refs.showPredictionIntervals, disabled || !trendReady, trendReady ? '' : msg || 'Enable the trend line first.');
+    console.debug('Debug: line regression overlay controls synced', {
+      statsReady: !!statsReady,
+      is3d,
+      disabled,
+      showTrendLine: !!refs.showTrendLine?.checked,
+      showConfidenceIntervals: !!refs.showIntervals?.checked,
+      showPredictionIntervals: !!refs.showPredictionIntervals?.checked
     });
   }
 
@@ -2075,7 +2132,8 @@
     console.debug('Debug: line stats context refresh',{ reason, seriesCount: refreshed.series.length, displayOnlyRefresh, hadCurrentRenderedStats });
     primeLineStatsContext(refreshed);
     if(hadCurrentRenderedStats && !lineStatsState.computationPending){
-      handleLineStatsComputeClick();
+      updateLineRegressionOverlayControlState(true);
+      scheduleLineViewRefresh(`${reason || 'line-stats-display'}-redraw`, { force: true, skipThresholdEvaluation: true });
     }
     // Persist active tab state when this refresh is triggered by user control changes
     try{
@@ -3865,12 +3923,12 @@
           thicknessInput.hidden = true;
           panel.appendChild(thicknessInput);
           const resolveScope = () => normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);
-          const applyOverlayPatch = patch => {
+          const applyOverlayPatch = (patch, reason = 'overlay-style-change') => {
             const targets = getLineOverlayScopeTargets(resolveScope());
             targets.forEach(targetEntry => {
               updateLineOverlayStyle(targetEntry.key, patch, targetEntry.seriesKey);
             });
-            scheduleLineDraw();
+            scheduleLineViewRefresh(reason, { force: true, skipThresholdEvaluation: true });
           };
           const syncStyleChip = () => {
             const color = toColorInputValue(colorInput.value);
@@ -3923,26 +3981,26 @@
             syncOverlayInputs();
           });
           colorInput.addEventListener('input', () => {
-            applyOverlayPatch({ color: colorInput.value });
+            applyOverlayPatch({ color: colorInput.value }, 'overlay-color-input');
             syncOverlayInputs();
           });
           colorInput.addEventListener('change', () => {
-            applyOverlayPatch({ color: colorInput.value });
+            applyOverlayPatch({ color: colorInput.value }, 'overlay-color-input');
             syncOverlayInputs();
           });
           patternSelect.addEventListener('change', () => {
-            applyOverlayPatch({ pattern: patternSelect.value });
+            applyOverlayPatch({ pattern: patternSelect.value }, 'overlay-pattern-change');
             syncOverlayInputs();
           });
           transparencyInput.addEventListener('input', () => {
             const bounded = Math.min(100, Math.max(0, Number(transparencyInput.value) || 0));
-            applyOverlayPatch({ transparency: bounded });
+            applyOverlayPatch({ transparency: bounded }, 'overlay-transparency-change');
             transparencyValue.textContent = `${Math.round(bounded)}%`;
             syncStyleChip();
           });
           transparencyInput.addEventListener('change', () => {
             const bounded = Math.min(100, Math.max(0, Number(transparencyInput.value) || 0));
-            applyOverlayPatch({ transparency: bounded });
+            applyOverlayPatch({ transparency: bounded }, 'overlay-transparency-change');
             syncOverlayInputs();
           });
           styleChip.addEventListener('wheel', evt => {
@@ -3951,7 +4009,7 @@
             const delta = evt.deltaY < 0 ? 0.5 : -0.5;
             const next = Math.max(0, current + delta);
             thicknessInput.value = String(next);
-            applyOverlayPatch({ thickness: next });
+            applyOverlayPatch({ thickness: next }, 'overlay-thickness-change');
             syncOverlayInputs();
           }, { passive: false });
           styleChip.addEventListener('click', evt => {
@@ -4014,6 +4072,10 @@
       ? buildLineOverlaySeriesScopeValue(safeKey, safeSeriesKey)
       : safeKey;
     element.dataset.lineOverlay = scopeValue;
+    element.dataset.lineOverlayKey = safeKey;
+    if(!element.dataset.lineOverlayRole){
+      element.dataset.lineOverlayRole = safeKey === 'trend' ? 'trend' : 'interval';
+    }
     if(safeSeriesKey){
       element.dataset.series = safeSeriesKey;
     }
@@ -6379,7 +6441,11 @@
     renderLine3dList();
     syncLineAspectControls('enter-3d');
     if(!skipDraw){
-      scheduleLineDraw();
+      invalidateActiveLineRenderCache('line-view-mode-change');
+      scheduleLineViewRefresh('line-view-mode-change', {
+        force: true,
+        skipThresholdEvaluation: true
+      });
     }
   }
 
@@ -6455,7 +6521,11 @@
     updateLineNestedHeaders();
     syncLineAspectControls('exit-3d');
     if(!skipDraw){
-      scheduleLineDraw();
+      invalidateActiveLineRenderCache('line-view-mode-change');
+      scheduleLineViewRefresh('line-view-mode-change', {
+        force: true,
+        skipThresholdEvaluation: true
+      });
     }
   }
 
@@ -8024,9 +8094,11 @@
         if(hasRestoredResults && lineStatsState.lastRunVersion){
           setLineStatsStatus('Statistics up to date.');
           updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+          updateLineRegressionOverlayControlState(true);
         }else{
           // leave button enabled so user can (re)calculate
           updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+          updateLineRegressionOverlayControlState(false);
         }
         lineStatsState.context = null;
         lineStatsState.computationPending = false;
@@ -8054,7 +8126,12 @@
     ensureLineResizerControls();
     syncLineAspectControls('payload');
     if(!skipDraw){
-      scheduleLineDraw();
+      const drawReason = meta?.reason || meta?.source || (styleOnly ? 'line-style-payload' : 'line-payload');
+      if(styleOnly){
+        scheduleLineViewRefresh(drawReason, { force: true, skipThresholdEvaluation: true });
+      }else if(typeof scheduleLineDraw === 'function'){
+        scheduleLineDraw({ reason: drawReason });
+      }
     }
     if(scheduleBackup){
       scheduleLineDraw = scheduleBackup;
@@ -9096,6 +9173,7 @@
       const axisStrokeWidthBase = getLineAxisStrokeWidth();
       const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis', min: 0, exact: true });
       const axisStroke = getLineAxisColor();
+      const lineThemeTextColor = getLineThemeTextColor();
       const dotSizeRaw=Number(refs.dotSize?.value)||LINE_DEFAULT_DOT_SIZE;
       const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker', min: 0 });
       const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series', min: 0 });
@@ -9155,10 +9233,10 @@
       if(logY && storedManualIntervalY){
         console.debug('Debug: line manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
       }
-      const showTrendLine=!!refs.showTrendLine?.checked;
-      const showConfidenceIntervals = isLineConfidenceIntervalEnabled();
-      const showPredictionIntervals = isLinePredictionIntervalEnabled();
-      const showIntervals = showConfidenceIntervals || showPredictionIntervals;
+      let showTrendLine=!!refs.showTrendLine?.checked;
+      let showConfidenceIntervals = isLineConfidenceIntervalEnabled();
+      let showPredictionIntervals = isLinePredictionIntervalEnabled();
+      let showIntervals = showConfidenceIntervals || showPredictionIntervals;
       const showDiagnostics=isLineDiagnosticsEnabled();
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
       const regressionAlpha = 0.05;
@@ -9335,16 +9413,34 @@
         }
       };
       const regressionStatsCurrent = isLineStatsCurrentForPayload(lineStatsPayloadForDraw);
-      if(global.jStat && typeof regressionTools.fitRegression==='function' && regressionStatsCurrent){
+      updateLineRegressionOverlayControlState(regressionStatsCurrent);
+      if(!regressionStatsCurrent && (showTrendLine || showIntervals)){
+        console.debug('Debug: line regression overlays disabled until stats are calculated', {
+          showTrendLine,
+          showConfidenceIntervals,
+          showPredictionIntervals
+        });
+        showTrendLine = false;
+        showConfidenceIntervals = false;
+        showPredictionIntervals = false;
+        showIntervals = false;
+      }
+      const shouldPrepareVisualRegression = regressionStatsCurrent;
+      if(typeof regressionTools.fitRegression==='function' && shouldPrepareVisualRegression){
         seriesWithData.forEach(s=>{
           const pts=s.points.filter(Boolean);
           if(pts.length>=3){
             try{
-              const regressionModel=regressionTools.fitRegression(pts,{ mode: regressionModeCurrent, alpha: regressionAlpha, forecast: forecastOptions });
+              const regressionModel=regressionCache.get(s.name) || regressionTools.fitRegression(pts,{ mode: regressionModeCurrent, alpha: regressionAlpha, forecast: forecastOptions });
               if(regressionModel){
                 regressionCache.set(s.name, regressionModel);
                 s.regression=regressionModel;
-                console.debug('Debug: line regression prepared',{ series: s.name, mode: regressionModeCurrent, hasIntervals: !!regressionModel.intervals });
+                console.debug('Debug: line regression prepared',{
+                  series: s.name,
+                  mode: regressionModeCurrent,
+                  hasIntervals: !!regressionModel.intervals,
+                  source: 'stats-current'
+                });
               }
             }catch(err){
               console.error('line regression fit error', err);
@@ -9357,7 +9453,8 @@
       }else{
         seriesWithData.forEach(s=>{ s.regression = null; });
         if(showTrendLine || showIntervals){
-          console.debug('Debug: line regression overlays skipped until statistics are calculated', {
+          console.debug('Debug: line regression overlays skipped', {
+            reason: typeof regressionTools.fitRegression === 'function' ? 'insufficient-request' : 'missing-regression-tools',
             regressionStatsCurrent,
             showTrendLine,
             showIntervals
@@ -10297,7 +10394,7 @@
           return;
         }
         const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-        const txt=add('text',{x,y:xAxisY+tickLen+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:chartStyle.TEXT_COLOR});
+        const txt=add('text',{x,y:xAxisY+tickLen+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:lineThemeTextColor});
         txt.textContent=formatTickX(logX?Math.pow(10,t):t);
         Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
         markFontEditable(txt,'xTick');
@@ -10423,7 +10520,7 @@
           lineDebug('Debug: line y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
           return;
         }
-        const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+        const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:lineThemeTextColor});
         txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
         yTickFontCount+=1;
@@ -10516,6 +10613,173 @@
       const showErrorBars=replicates>1;
       const errorStrokeWidth=errorBarWidthPx;
       const errorCapHalf=Math.max(4, dotSizePx*1.2);
+      const buildLineOverlayPathFromSamples = (samples, projector, options = {}) => {
+        const source = Array.isArray(samples) ? samples.slice() : [];
+        const commands = [];
+        source
+          .sort((a, b) => (a?.x ?? 0) - (b?.x ?? 0))
+          .forEach(sample => {
+            const point = typeof projector === 'function' ? projector(sample) : null;
+            if(!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)){
+              return;
+            }
+            commands.push(`${commands.length ? 'L' : 'M'}${point.x},${point.y}`);
+          });
+        if(commands.length < (Number(options.minPoints) || 2)){
+          return null;
+        }
+        if(options.closed === true){
+          commands.push('Z');
+        }
+        return commands.join(' ');
+      };
+      const projectLineOverlaySample = (sample, yKey = 'y') => {
+        const xRaw = sample?.x;
+        const yRaw = sample?.[yKey];
+        if(!Number.isFinite(xRaw) || !Number.isFinite(yRaw)){
+          return null;
+        }
+        if(xRaw < xMin || xRaw > xMax || yRaw < yMin || yRaw > yMax){
+          return null;
+        }
+        if(logX && xRaw <= 0){
+          return null;
+        }
+        if(logY && yRaw <= 0){
+          return null;
+        }
+        const xVal = logX ? Math.log10(xRaw) : xRaw;
+        const yVal = logY ? Math.log10(yRaw) : yRaw;
+        if(!Number.isFinite(xVal) || !Number.isFinite(yVal)){
+          return null;
+        }
+        return { x: x2px(xVal), y: y2px(yVal) };
+      };
+      const buildLineIntervalBandPath = (samples, lowerKey, upperKey) => {
+        const ordered = Array.isArray(samples) ? samples.slice().sort((a, b) => (a?.x ?? 0) - (b?.x ?? 0)) : [];
+        const upper = [];
+        const lower = [];
+        ordered.forEach(sample => {
+          const xRaw = sample?.x;
+          const upperRaw = sample?.[upperKey];
+          const lowerRaw = sample?.[lowerKey];
+          if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)){
+            return;
+          }
+          if(xRaw < xMin || xRaw > xMax){
+            return;
+          }
+          if(logX && xRaw <= 0){
+            return;
+          }
+          if(logY && (upperRaw <= 0 || lowerRaw <= 0)){
+            return;
+          }
+          const xVal = logX ? Math.log10(xRaw) : xRaw;
+          const upperVal = logY ? Math.log10(upperRaw) : upperRaw;
+          const lowerVal = logY ? Math.log10(lowerRaw) : lowerRaw;
+          if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)){
+            return;
+          }
+          upper.push({ x: x2px(xVal), y: y2px(upperVal) });
+          lower.push({ x: x2px(xVal), y: y2px(lowerVal) });
+        });
+        if(upper.length < 2 || lower.length < 2){
+          return null;
+        }
+        const commands = [];
+        upper.forEach((pt, idx) => { commands.push(`${idx ? 'L' : 'M'}${pt.x},${pt.y}`); });
+        lower.slice().reverse().forEach(pt => { commands.push(`L${pt.x},${pt.y}`); });
+        commands.push('Z');
+        return commands.join(' ');
+      };
+      const createLineRegressionOverlayPath = ({ overlayKey, seriesName, pathData, fill = 'none', stroke = 'none', strokeWidth = 0, opacity = 1, pattern = 'solid', vectorEffect = false }) => {
+        const safeKey = sanitizeLineOverlayKey(overlayKey);
+        if(!safeKey || !pathData){
+          return null;
+        }
+        const el = document.createElementNS(NS, 'path');
+        el.setAttribute('d', pathData);
+        el.setAttribute('fill', fill || 'none');
+        if(stroke && stroke !== 'none' && Number(strokeWidth) > 0){
+          el.setAttribute('stroke', stroke);
+          el.setAttribute('stroke-width', String(strokeWidth));
+          el.setAttribute('stroke-opacity', String(Math.min(1, Math.max(0, Number(opacity)))));
+          const dash = lineOverlayPatternToDasharray(pattern, strokeWidth);
+          if(dash){
+            el.setAttribute('stroke-dasharray', dash);
+          }
+        }else{
+          el.setAttribute('stroke', 'none');
+        }
+        if(vectorEffect){
+          el.setAttribute('vector-effect', 'non-scaling-stroke');
+        }
+        el.dataset.lineOverlay = seriesName
+          ? buildLineOverlaySeriesScopeValue(safeKey, seriesName)
+          : safeKey;
+        el.dataset.lineOverlayKey = safeKey;
+        if(seriesName){
+          el.dataset.series = seriesName;
+        }
+        return el;
+      };
+      const appendLineIntervalOverlay = ({ layer, overlayKey, pathData, style, seriesName, seriesLineColor, fallbackColor }) => {
+        const safeKey = sanitizeLineOverlayKey(overlayKey);
+        if(!layer || !safeKey || !pathData){
+          return null;
+        }
+        const fillColor = resolveLineOverlayStrokeColor(style?.color, seriesLineColor, fallbackColor);
+        const alpha = 1 - ((style?.transparency ?? (safeKey === 'prediction' ? 92 : 85)) / 100);
+        const boundedAlpha = Math.min(1, Math.max(0, alpha));
+        const thickness = Number(style?.thickness);
+        const el = createLineRegressionOverlayPath({
+          overlayKey: safeKey,
+          seriesName,
+          pathData,
+          fill: fillColor,
+          stroke: Number.isFinite(thickness) && thickness > 0 ? fillColor : 'none',
+          strokeWidth: Number.isFinite(thickness) && thickness > 0 ? thickness : 0,
+          opacity: boundedAlpha,
+          pattern: style?.pattern
+        });
+        if(!el){
+          return null;
+        }
+        el.setAttribute('fill-opacity', String(boundedAlpha));
+        el.dataset.band = safeKey;
+        el.dataset.lineOverlayRole = 'interval';
+        layer.appendChild(el);
+        registerLineOverlayControlElement(el, safeKey, seriesName);
+        return el;
+      };
+      const appendLineTrendOverlay = ({ series, pathData, style, seriesLineColor, fallbackColor }) => {
+        if(!series || !pathData){
+          return null;
+        }
+        const rawThickness = Number(style?.thickness);
+        const baseThickness = Number.isFinite(rawThickness) ? Math.max(0, rawThickness) : 1;
+        const strokeWidth = chartStyle.scaleStrokeWidth(baseThickness, styleScaleInfo, { context: 'line-trend', min: 0 });
+        const opacity = 1 - ((style?.transparency ?? 0) / 100);
+        const strokeColor = resolveLineOverlayStrokeColor(style?.color, seriesLineColor, fallbackColor);
+        const el = createLineRegressionOverlayPath({
+          overlayKey: 'trend',
+          seriesName: series.name || '',
+          pathData,
+          fill: 'none',
+          stroke: strokeColor,
+          strokeWidth,
+          opacity,
+          pattern: style?.pattern,
+          vectorEffect: true
+        });
+        if(!el){
+          return null;
+        }
+        svg.appendChild(el);
+        registerLineOverlayControlElement(el, 'trend', series.name);
+        return el;
+      };
       const seriesElems=[];
       seriesWithData.forEach((s,i)=>{
         const color=colors[i];
@@ -10549,99 +10813,41 @@
         const confidenceStyle = getLineOverlayStyle('confidence', s.name);
         const predictionStyle = getLineOverlayStyle('prediction', s.name);
         if((showConfidenceIntervals || showPredictionIntervals) && s.regression?.intervals?.samples?.length){
-          const intervalLayer=document.createElementNS(NS,'g');
-          intervalLayer.setAttribute('data-layer',`interval-${i}`);
-          svg.appendChild(intervalLayer);
-          const intervalSamples=s.regression.intervals.samples
-            .slice()
-            .filter(sample=>Number.isFinite(sample?.x) && sample.x>=xMin && sample.x<=xMax)
-            .sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
-          const buildIntervalPath=(lowerKey,upperKey)=>{
-            const upper=[];
-            const lower=[];
-            intervalSamples.forEach(sample=>{
-              const xRaw=sample?.x;
-              const upperRaw=sample?.[upperKey];
-              const lowerRaw=sample?.[lowerKey];
-              if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)) return;
-              if(xRaw<xMin || xRaw>xMax) return;
-              if(logX && xRaw<=0) return;
-              if(logY && (upperRaw<=0 || lowerRaw<=0)) return;
-              const xVal=logX?Math.log10(xRaw):xRaw;
-              const upperVal=logY?Math.log10(upperRaw):upperRaw;
-              const lowerVal=logY?Math.log10(lowerRaw):lowerRaw;
-              if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)) return;
-              upper.push({x:x2px(xVal),y:y2px(upperVal)});
-              lower.push({x:x2px(xVal),y:y2px(lowerVal)});
+          const intervalSamples = s.regression.intervals.samples;
+          const confidencePath = showConfidenceIntervals ? buildLineIntervalBandPath(intervalSamples, 'ciLow', 'ciHigh') : null;
+          const predictionPath = showPredictionIntervals ? buildLineIntervalBandPath(intervalSamples, 'piLow', 'piHigh') : null;
+          const intervalLayer = (confidencePath || predictionPath) ? document.createElementNS(NS, 'g') : null;
+          if(intervalLayer){
+            intervalLayer.setAttribute('data-layer', 'line-interval-bands');
+            intervalLayer.dataset.lineOverlayLayer = 'intervals';
+            intervalLayer.dataset.series = s.name || '';
+            svg.appendChild(intervalLayer);
+            appendLineIntervalOverlay({
+              layer: intervalLayer,
+              overlayKey: 'confidence',
+              pathData: confidencePath,
+              style: confidenceStyle,
+              seriesName: s.name,
+              seriesLineColor,
+              fallbackColor: color
             });
-            if(upper.length<2 || lower.length<2) return null;
-            const commands=[];
-            upper.forEach((pt,idx)=>{commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);});
-            lower.slice().reverse().forEach(pt=>{commands.push(`L${pt.x},${pt.y}`);});
-            commands.push('Z');
-            return commands.join(' ');
-          };
-          const confidencePath=buildIntervalPath('ciLow','ciHigh');
-          const predictionPath=buildIntervalPath('piLow','piHigh');
-          const confidenceColor = resolveLineOverlayStrokeColor(confidenceStyle?.color, seriesLineColor, color);
-          const predictionColor = resolveLineOverlayStrokeColor(predictionStyle?.color, seriesLineColor, color);
-          if(showConfidenceIntervals && confidencePath){
-            const confEl=document.createElementNS(NS,'path');
-            confEl.setAttribute('d',confidencePath);
-            confEl.setAttribute('fill',confidenceColor);
-            const confidenceOpacity = 1 - ((confidenceStyle?.transparency ?? 85) / 100);
-            confEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
-            const confidenceThickness = Number(confidenceStyle?.thickness);
-            if(Number.isFinite(confidenceThickness) && confidenceThickness > 0){
-              confEl.setAttribute('stroke',confidenceColor);
-              confEl.setAttribute('stroke-width',String(confidenceThickness));
-              confEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, confidenceOpacity))));
-              const confidenceDash = lineOverlayPatternToDasharray(confidenceStyle?.pattern, confidenceThickness);
-              if(confidenceDash){
-                confEl.setAttribute('stroke-dasharray', confidenceDash);
-              }else{
-                confEl.removeAttribute('stroke-dasharray');
-              }
-            }else{
-              confEl.setAttribute('stroke','none');
-            }
-            confEl.dataset.band='confidence';
-            confEl.dataset.series = s.name || '';
-            intervalLayer.appendChild(confEl);
-            registerLineOverlayControlElement(confEl, 'confidence', s.name);
+            appendLineIntervalOverlay({
+              layer: intervalLayer,
+              overlayKey: 'prediction',
+              pathData: predictionPath,
+              style: predictionStyle,
+              seriesName: s.name,
+              seriesLineColor,
+              fallbackColor: color
+            });
+            console.debug('Debug: line interval shading rendered',{
+              series: s.name,
+              showConfidenceIntervals,
+              showPredictionIntervals,
+              hasConfidence: !!confidencePath,
+              hasPrediction: !!predictionPath
+            });
           }
-          if(showPredictionIntervals && predictionPath){
-            const predEl=document.createElementNS(NS,'path');
-            predEl.setAttribute('d',predictionPath);
-            predEl.setAttribute('fill',predictionColor);
-            const predictionOpacity = 1 - ((predictionStyle?.transparency ?? 92) / 100);
-            predEl.setAttribute('fill-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
-            const predictionThickness = Number(predictionStyle?.thickness);
-            if(Number.isFinite(predictionThickness) && predictionThickness > 0){
-              predEl.setAttribute('stroke',predictionColor);
-              predEl.setAttribute('stroke-width',String(predictionThickness));
-              predEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, predictionOpacity))));
-              const predictionDash = lineOverlayPatternToDasharray(predictionStyle?.pattern, predictionThickness);
-              if(predictionDash){
-                predEl.setAttribute('stroke-dasharray', predictionDash);
-              }else{
-                predEl.removeAttribute('stroke-dasharray');
-              }
-            }else{
-              predEl.setAttribute('stroke','none');
-            }
-            predEl.dataset.band='prediction';
-            predEl.dataset.series = s.name || '';
-            intervalLayer.appendChild(predEl);
-            registerLineOverlayControlElement(predEl, 'prediction', s.name);
-          }
-          console.debug('Debug: line interval shading rendered',{
-            series: s.name,
-            showConfidenceIntervals,
-            showPredictionIntervals,
-            hasConfidence: !!confidencePath,
-            hasPrediction: !!predictionPath
-          });
         }
         let trendPathEl=null;
         if(showTrendLine && s.regression){
@@ -10656,51 +10862,14 @@
               : (Array.isArray(s.regression?.intervals?.samples)
                 ? s.regression.intervals.samples.map(sample => ({ x: sample?.x, y: sample?.y }))
                 : []));
-          const trendSamples = trendSamplesRaw
-            .filter(sample => Number.isFinite(sample?.x) && Number.isFinite(sample?.y))
-            .sort((a,b)=>(a?.x ?? 0)-(b?.x ?? 0));
-          const trendCommands = [];
-          trendSamples.forEach(sample => {
-            const xRaw = sample.x;
-            const yRaw = sample.y;
-            if(xRaw < xMin || xRaw > xMax || yRaw < yMin || yRaw > yMax){
-              return;
-            }
-            if(logX && xRaw <= 0){
-              return;
-            }
-            if(logY && yRaw <= 0){
-              return;
-            }
-            const xVal = logX ? Math.log10(xRaw) : xRaw;
-            const yVal = logY ? Math.log10(yRaw) : yRaw;
-            if(!Number.isFinite(xVal) || !Number.isFinite(yVal)){
-              return;
-            }
-            trendCommands.push(`${trendCommands.length ? 'L' : 'M'}${x2px(xVal)},${y2px(yVal)}`);
+          const trendPath = buildLineOverlayPathFromSamples(trendSamplesRaw, sample => projectLineOverlaySample(sample, 'y'));
+          trendPathEl = appendLineTrendOverlay({
+            series: s,
+            pathData: trendPath,
+            style: trendStyle,
+            seriesLineColor,
+            fallbackColor: color
           });
-          if(trendCommands.length > 1){
-            const rawTrendThickness = Number(trendStyle?.thickness);
-            const trendThickness = Number.isFinite(rawTrendThickness) ? Math.max(0, rawTrendThickness) : 1;
-            const trendStrokeWidth = chartStyle.scaleStrokeWidth(trendThickness, styleScaleInfo, { context: 'line-trend', min: 0 });
-            const trendOpacity = 1 - ((trendStyle?.transparency ?? 0) / 100);
-            trendPathEl = document.createElementNS(NS,'path');
-            trendPathEl.setAttribute('d',trendCommands.join(' '));
-            trendPathEl.setAttribute('fill','none');
-            trendPathEl.setAttribute('stroke',resolveLineOverlayStrokeColor(trendStyle?.color, seriesLineColor, color));
-            trendPathEl.setAttribute('stroke-width',String(trendStrokeWidth));
-            trendPathEl.setAttribute('stroke-opacity',String(Math.min(1, Math.max(0, trendOpacity))));
-            const trendDash = lineOverlayPatternToDasharray(trendStyle?.pattern, trendStrokeWidth);
-            if(trendDash){
-              trendPathEl.setAttribute('stroke-dasharray', trendDash);
-            }else{
-              trendPathEl.removeAttribute('stroke-dasharray');
-            }
-            trendPathEl.setAttribute('vector-effect','non-scaling-stroke');
-            trendPathEl.dataset.series = s.name || '';
-            svg.appendChild(trendPathEl);
-            registerLineOverlayControlElement(trendPathEl, 'trend', s.name);
-          }
         }
         const segments=[];
         let currentSegment=null;
@@ -10966,7 +11135,7 @@
         }
       }
       
-      const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       xText.textContent=lineXLabelText;
       markFontEditable(xText,'xTitle','xTitle');
       const applyLineXLabel=value=>{
@@ -11143,7 +11312,7 @@
         }
       }
       
-      const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       yText.textContent=lineYLabelText;
       markFontEditable(yText,'yTitle','yTitle');
       const applyLineYLabel=value=>{
@@ -11199,7 +11368,7 @@
         }
       }
       
-      const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       const applyLineTitle=value=>{
@@ -11290,15 +11459,24 @@
   }
 
   function setup(options = {}){
-    if(line.ready){ console.debug('Debug: Components.line.setup skipped'); return; }
-    console.debug('Debug: Components.line.setup start'); // Debug: setup entry
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    if(line.ready && (!targetTabId || line.__boundTabId === targetTabId)){
+      console.debug('Debug: Components.line.setup skipped', { tabId: line.__boundTabId || null });
+      return;
+    }
+    if(line.ready){
+      console.debug('Debug: Components.line.setup rebinding', { previousTabId: line.__boundTabId || null, targetTabId, reason: options?.reason || 'setup' });
+      line.ready = false;
+    }
+    line.__boundTabId = targetTabId || null;
+    console.debug('Debug: Components.line.setup start', { tabId: line.__boundTabId || null }); // Debug: setup entry
     const document = global.document;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.error('Line component dependencies missing');
       return;
     }
     const activeRoot = options?.root
-      || Shared.workspaceTabs?.getMountedRoot?.(options?.tabId || null, 'line')
+      || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'line')
       || getLineNodeById('linePage')
       || document;
     refs.root = activeRoot;
@@ -11398,7 +11576,7 @@
         if(nextMode !== lineDisplayMode){
           lineDisplayMode = nextMode;
           console.debug('Debug: line display mode change',{ mode: lineDisplayMode });
-          scheduleLineDraw();
+          scheduleLineViewRefresh('line-display-mode-change');
         }
       });
     }
@@ -11486,7 +11664,7 @@
         console.debug('Debug: line regression mode change',{ value: e.target.value });
         updateForecastVisibility();
         requestLineStatsContextRefresh('regression-mode-change');
-        scheduleLineDraw();
+        scheduleLineViewRefresh('line-regression-mode-change', { force: true, skipThresholdEvaluation: true });
       });
     }
     refs.showGrid=byId('lineShowGrid');
@@ -11780,6 +11958,9 @@
 
     lineLayout = Shared.componentLayout?.createStandardPanels({
       componentName: 'line',
+      tabId: targetTabId || undefined,
+      root: refs.root || activeRoot || undefined,
+      reason: options?.reason || 'line-setup',
       selectors: {
         tablePanel: '#lineTablePanel',
         graphPanel: '#lineGraphPanel',
@@ -11801,10 +11982,17 @@
         console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });
       },
         resizableBoxOptions: {
-          onResize: () => {
-            console.debug('Debug: line layout onResize schedule trigger');
+          onResize: (phase) => {
+            const resizePhase = typeof phase === 'string' ? phase : '';
+            const aspectLocked = refs.svgBox?.dataset?.resizerAspectLocked === 'true';
+            console.debug('Debug: line layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
             scheduleLineNoticeWidth('resize');
-            scheduleLineDraw({ viewOnly: true, reason: 'resize' });
+            scheduleLineViewRefresh('resize', {
+              force: true,
+              skipThresholdEvaluation: true,
+              resizePhase: resizePhase || null,
+              silentOverlay: true
+            });
           }
         }
       });
@@ -12385,16 +12573,16 @@
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
 
-    refs.fill?.addEventListener('input',()=>{ scheduleLineDraw(); });
-    refs.border?.addEventListener('input',()=>{ scheduleLineDraw(); });
-    refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.fill?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-fill-change'); });
+    refs.border?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-change'); });
+    refs.borderWidth?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-width-change'); });
     refs.errorBarWidth?.addEventListener('input',()=>{
       syncLineErrorBarToolbarValue();
       console.debug('Debug: line errorBarWidth change',{ value: refs.errorBarWidth.value });
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-errorbar-width-change');
     });
-    refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
-    refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
+    refs.dotSize?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-dot-size-change'); });
+    refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineViewRefresh('line-alpha-change'); });
     refs.fontSize?.addEventListener('input',()=>{
       if(refs.fontSize?.dataset){
         refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -12403,10 +12591,10 @@
       if(refs.fontSizeVal){
         chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
       }
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-font-size-change');
     });
-    refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineDraw(); });
-    refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineDraw(); });
+    refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineViewRefresh('line-grid-toggle'); });
+    refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineViewRefresh('line-frame-toggle'); });
     const handleLineLogToggle=(axis,checkbox)=>{
       checkbox?.addEventListener('change',()=>{
         const enabling=!!checkbox.checked;
@@ -12424,7 +12612,7 @@
                 }
                 clearLineLogWarning();
                 console.debug('Debug: line log+1 enabled by user confirmation',{ axis });
-                scheduleLineDraw();
+                scheduleLineViewRefresh(`line-log-${axis}-toggle`);
                 return;
               }else{
                 checkbox.checked = false;
@@ -12458,7 +12646,7 @@
           clearLineLogWarning();
         }
         console.debug('Debug: line log toggle change',{ id: checkbox.id, checked: checkbox.checked });
-        scheduleLineDraw();
+        scheduleLineViewRefresh(`line-log-${axis}-toggle`);
       });
     };
     handleLineLogToggle('x',refs.logX);
@@ -12482,7 +12670,7 @@
           if(lineDebugEnabled()){
             console.debug('Debug: line log axis validation deferred',{ axis, context, value: el.value });
           }
-          scheduleLineDraw();
+          scheduleLineViewRefresh(`${context}-deferred`);
           return;
         }
         if(!revalidateActiveLineLogAxis(axis,context)){
@@ -12491,7 +12679,7 @@
         if(!refs.logX?.checked && !refs.logY?.checked){
           clearLineLogWarning();
         }
-        scheduleLineDraw();
+        scheduleLineViewRefresh(context);
       });
       el.addEventListener('change',()=>{
         if(!revalidateActiveLineLogAxis(axis,`${context}-change`)){
@@ -12500,7 +12688,7 @@
         if(!refs.logX?.checked && !refs.logY?.checked){
           clearLineLogWarning();
         }
-        scheduleLineDraw();
+        scheduleLineViewRefresh(`${context}-change`);
       });
     });
     if(refs.originMode){
@@ -12511,14 +12699,21 @@
         if(!xOk||!yOk){
           return;
         }
-        scheduleLineDraw();
+        scheduleLineViewRefresh('line-origin-mode-change');
       });
     }
     refs.statType?.addEventListener('change',()=>{
       requestLineStatsContextRefresh('stat-type-change');
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-stat-type-change', { force: true, skipThresholdEvaluation: true });
     });
     refs.showTrendLine?.addEventListener('change',e=>{
+      const statsReady = lineHasComputedStats();
+      if(!statsReady){
+        e.target.checked = false;
+        updateLineRegressionOverlayControlState(false);
+        console.debug('Debug: line showTrendLine blocked until stats are calculated');
+        return;
+      }
       const checked = !!e.target.checked;
       console.debug('Debug: line showTrendLine change',{ checked });
       if(!checked){
@@ -12528,22 +12723,37 @@
           }
         }catch(err){}
       }
-      scheduleLineDraw();
+      updateLineRegressionOverlayControlState(true);
+      scheduleLineViewRefresh('line-show-trend-change', { force: true, skipThresholdEvaluation: true });
     });
     refs.showIntervals?.addEventListener('change',e=>{
+      const statsReady = lineHasComputedStats();
+      if(!statsReady || !refs.showTrendLine?.checked){
+        e.target.checked = false;
+        updateLineRegressionOverlayControlState(statsReady);
+        console.debug('Debug: line showIntervals blocked', { statsReady, showTrendLine: !!refs.showTrendLine?.checked });
+        return;
+      }
       console.debug('Debug: line showIntervals change',{checked:e.target.checked});
       requestLineStatsContextRefresh('intervals-toggle');
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
     refs.showPredictionIntervals?.addEventListener('change',e=>{
+      const statsReady = lineHasComputedStats();
+      if(!statsReady || !refs.showTrendLine?.checked){
+        e.target.checked = false;
+        updateLineRegressionOverlayControlState(statsReady);
+        console.debug('Debug: line showPredictionIntervals blocked', { statsReady, showTrendLine: !!refs.showTrendLine?.checked });
+        return;
+      }
       console.debug('Debug: line showPredictionIntervals change',{checked:e.target.checked});
       requestLineStatsContextRefresh('prediction-intervals-toggle');
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-prediction-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
     refs.showLegend?.addEventListener('change',e=>{
       console.debug('Debug: line showLegend change',{checked:e.target.checked});
       ensureLineResizerControls();
-      scheduleLineDraw();
+      scheduleLineViewRefresh('line-legend-toggle');
     });
 
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
@@ -12589,10 +12799,11 @@
         resolveLineOverlay('skipped');
         return;
       }
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markLineOverlayPending(overlayReason);
         forceLineOverlay(overlayReason, { message: 'Rendering line graph...' });
-      }else{
+      }else if(!suppressOverlay){
         queueLineOverlay(overlayReason);
       }
       const runSchedule = () => scheduleLineBase(nextOpts);
@@ -12728,12 +12939,13 @@
 
   line.init = setup;
   line.ensure = ensureReady;
-  line.activateTab = function activateTab(){
-    if(ensureLineDomBindings()){
+  line.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    if(ensureLineDomBindings(tab || targetTabId)){
       return;
     }
     if(!line.ready){
-      line.init();
+      line.init({ tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
       return;
     }
     if(typeof line.__ensureHotForActiveTab === 'function'){
@@ -12749,6 +12961,19 @@
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
   };
 
+  function getLineRenderCacheMetadata(cache){
+    return cache?.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object'
+      ? cache.__graphitixRenderCache
+      : null;
+  }
+
+  function resolveLineGraphCachePayload(cache){
+    if(!cache || typeof cache !== 'object'){ return null; }
+    const meta = getLineRenderCacheMetadata(cache);
+    const preferredKey = typeof meta?.graphicKey === 'string' ? meta.graphicKey : null;
+    return (preferredKey && cache[preferredKey]) || cache.plot || cache.preview || cache.graph || cache.svg || cache.stage || null;
+  }
+
   function detachChildren(node){
     if(!node){ return null; }
     const doc = node.ownerDocument || global.document;
@@ -12762,8 +12987,50 @@
     return { fragment, count };
   }
 
+  function lineFragmentPayloadHasGraph(payload){
+    if(!payload || typeof payload !== 'object'){ return false; }
+    const fragment = payload.fragment || null;
+    if(fragment && typeof fragment.querySelector === 'function'){
+      const svg = fragment.querySelector('#lineSvg') || fragment.querySelector('svg');
+      if(svg && lineSvgHasMeaningfulContent(svg)){
+        return true;
+      }
+      const canvas = fragment.querySelector('canvas');
+      if(canvas && (Number(canvas.width) > 0 || Number(canvas.height) > 0)){
+        return true;
+      }
+    }
+    if(payload.__graphitixKind === 'fragment-payload' && Array.isArray(payload.nodes)){
+      return payload.nodes.some(node => {
+        const markup = String(node?.markup || '');
+        return /<svg\b/i.test(markup) || /id=["']lineSvg["']/i.test(markup) || /<canvas\b/i.test(markup);
+      });
+    }
+    return false;
+  }
+
+  function lineSvgHasMeaningfulContent(svg){
+    if(!svg){ return false; }
+    const meaningful = Array.from(svg.children || []).some(child => {
+      const name = String(child?.tagName || '').toLowerCase();
+      return name && name !== 'defs' && name !== 'style' && name !== 'title' && name !== 'desc';
+    });
+    return meaningful || String(svg.textContent || '').trim().length > 0;
+  }
+
+  function linePlotHasMeaningfulGraph(plot){
+    if(!plot || typeof plot.querySelector !== 'function'){ return false; }
+    const svg = plot.querySelector('#lineSvg') || plot.querySelector('svg');
+    if(svg && lineSvgHasMeaningfulContent(svg)){ return true; }
+    const canvas = plot.querySelector('canvas');
+    return !!(canvas && (Number(canvas.width) > 0 || Number(canvas.height) > 0));
+  }
+
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
+    const count = Number(payload.count);
+    const hasChildNodes = !!(payload.fragment && payload.fragment.childNodes && payload.fragment.childNodes.length);
+    if(Number.isFinite(count) && count <= 0 && !hasChildNodes){ return false; }
     while(node.firstChild){
       node.removeChild(node.firstChild);
     }
@@ -12771,10 +13038,272 @@
     return true;
   }
 
-  line.captureRenderCache = function captureRenderCache(){
+  function captureLineRenderCacheMetadata(meta = {}, sourceSvg = null){
+    const tab = meta?.tab || global.Main?.session?.getActiveTab?.() || null;
+    const svg = sourceSvg || (refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot'))?.querySelector?.('#lineSvg') || null;
+    return {
+      tabId: meta?.tabId || tab?.id || line.__boundTabId || null,
+      type: 'line',
+      complete: false,
+      viewMode: svg?.dataset?.viewMode || null,
+      width: svg?.getAttribute?.('width') || '',
+      height: svg?.getAttribute?.('height') || '',
+      viewBox: svg?.getAttribute?.('viewBox') || ''
+    };
+  }
+
+  function isCompleteLineRenderCache(cache){
+    const graphPayload = resolveLineGraphCachePayload(cache);
+    if(!lineFragmentPayloadHasGraph(graphPayload)){ return false; }
+    const meta = getLineRenderCacheMetadata(cache);
+    return !meta || meta.type === 'line';
+  }
+
+  function canRestoreLineRenderCache(cache, meta = {}){
+    if(!isCompleteLineRenderCache(cache)){
+      lineDebug('Debug: line render cache restore rejected', {
+        reason: 'incomplete-or-empty-graph-cache',
+        tabId: meta?.tabId || null
+      });
+      return false;
+    }
+    const cacheMeta = getLineRenderCacheMetadata(cache);
+    if(cacheMeta?.tabId && meta?.tabId && String(cacheMeta.tabId) !== String(meta.tabId)){
+      lineDebug('Debug: line render cache restore rejected', {
+        reason: 'cache-tab-mismatch',
+        cacheTabId: cacheMeta.tabId,
+        tabId: meta.tabId
+      });
+      return false;
+    }
+    return true;
+  }
+
+  function removeLinePreviewIgnoredNodes(root){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return;
+    }
+    Array.from(root.querySelectorAll('[data-export-ignore="1"]')).forEach(node => {
+      try { node.remove(); } catch (_err) {}
+    });
+  }
+
+  function resolveLinePreviewSourceSvg(tab){
+    const tabId = tab?.id || null;
+    const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    const cachePayload = resolveLineGraphCachePayload(tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null);
+    if(tabId && tabId !== activeTabId && cachePayload?.fragment && typeof cachePayload.fragment.querySelector === 'function'){
+      const cachedSvg = cachePayload.fragment.querySelector('#lineSvg') || cachePayload.fragment.querySelector('svg');
+      if(cachedSvg && lineSvgHasMeaningfulContent(cachedSvg)){
+        return cachedSvg;
+      }
+    }
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabId, 'line') || null;
+    const mountedSvg = mountedRoot?.querySelector?.('#linePlot #lineSvg, #linePlot svg, .svgbox svg');
+    if(mountedSvg && lineSvgHasMeaningfulContent(mountedSvg)){
+      return mountedSvg;
+    }
+    if(!tabId || tabId === activeTabId){
+      const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
+      const liveSvg = plot?.querySelector?.('#lineSvg') || plot?.querySelector?.('svg') || null;
+      if(liveSvg && lineSvgHasMeaningfulContent(liveSvg)){
+        return liveSvg;
+      }
+    }
+    return null;
+  }
+
+  function formatLinePreviewNumber(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return String(value);
+    }
+    if(Math.abs(numeric) >= 10000){
+      return String(Math.round(numeric));
+    }
+    const rounded = Math.round(numeric * 100) / 100;
+    return String(rounded).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+  }
+
+  function compactLinePreviewNumericString(raw){
+    if(typeof raw !== 'string' || !raw){
+      return raw;
+    }
+    return raw.replace(/-?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/gi, match => formatLinePreviewNumber(match));
+  }
+
+  function parseLinePreviewPathPoints(raw){
+    if(typeof raw !== 'string' || !raw){
+      return null;
+    }
+    const points = [];
+    const re = /([ML])\s*(-?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?)\s*,?\s*(-?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?)/gi;
+    let match;
+    while((match = re.exec(raw))){
+      const x = Number(match[2]);
+      const y = Number(match[3]);
+      if(Number.isFinite(x) && Number.isFinite(y)){
+        points.push({ cmd: points.length ? 'L' : 'M', x, y });
+      }
+    }
+    if(points.length < 2){
+      return null;
+    }
+    return { points, closed: /Z\s*$/i.test(raw.trim()) };
+  }
+
+  function downsampleLinePreviewPoints(points, maxPoints){
+    if(!Array.isArray(points) || points.length <= maxPoints || maxPoints < 3){
+      return points;
+    }
+    const result = [points[0]];
+    const stride = (points.length - 1) / (maxPoints - 1);
+    let lastIndex = 0;
+    for(let i = 1; i < maxPoints - 1; i += 1){
+      const idx = Math.min(points.length - 2, Math.max(lastIndex + 1, Math.round(i * stride)));
+      result.push(points[idx]);
+      lastIndex = idx;
+    }
+    result.push(points[points.length - 1]);
+    return result;
+  }
+
+  function compactLinePreviewPathData(raw, node){
+    const parsed = parseLinePreviewPathPoints(raw);
+    if(!parsed){
+      return compactLinePreviewNumericString(raw);
+    }
+    const overlayKey = node?.dataset?.lineOverlayKey || node?.dataset?.band || node?.dataset?.lineOverlay || '';
+    const isInterval = overlayKey === 'confidence' || overlayKey === 'prediction' || node?.dataset?.lineOverlayRole === 'interval';
+    const isTrend = overlayKey === 'trend';
+    const maxPoints = isInterval ? 72 : (isTrend ? 64 : 96);
+    const points = downsampleLinePreviewPoints(parsed.points, maxPoints);
+    const commands = points.map((pt, idx) => `${idx ? 'L' : 'M'}${formatLinePreviewNumber(pt.x)},${formatLinePreviewNumber(pt.y)}`);
+    if(parsed.closed){
+      commands.push('Z');
+    }
+    return commands.join(' ');
+  }
+
+  function compactLinePreviewSvg(svg, tabId = null){
+    if(!svg || typeof svg.querySelectorAll !== 'function'){
+      return svg;
+    }
+    const numericAttrs = [
+      'd', 'points', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy',
+      'r', 'rx', 'ry', 'width', 'height', 'stroke-width', 'font-size',
+      'opacity', 'fill-opacity', 'stroke-opacity', 'viewBox'
+    ];
+    const preserveDataAttrs = new Set([
+      'data-preview-source',
+      'data-workspace-tab-id',
+      'data-tab-id',
+      'data-tab-token'
+    ]);
+    const nodes = [svg, ...Array.from(svg.querySelectorAll('*'))];
+    nodes.forEach(node => {
+      if(!node || typeof node.getAttribute !== 'function' || typeof node.setAttribute !== 'function'){
+        return;
+      }
+      numericAttrs.forEach(attr => {
+        const raw = node.getAttribute(attr);
+        if(raw != null && raw !== ''){
+          node.setAttribute(attr, attr === 'd'
+            ? compactLinePreviewPathData(raw, node)
+            : compactLinePreviewNumericString(raw));
+        }
+      });
+      if(node.hasAttributes?.()){
+        Array.from(node.attributes || []).forEach(attr => {
+          const name = attr?.name || '';
+          if(name.startsWith('data-') && !preserveDataAttrs.has(name)){
+            try{ node.removeAttribute(name); }catch(_err){}
+          }
+        });
+      }
+      if(node.style){
+        node.style.pointerEvents = '';
+      }
+    });
+    if(tabId){
+      svg.setAttribute('data-workspace-tab-id', String(tabId));
+      svg.setAttribute('data-tab-id', String(tabId));
+    }
+    svg.setAttribute('data-preview-source', 'true');
+    return svg;
+  }
+
+  function buildLinePreviewSvgFromSource(sourceSvg, tab = null){
+    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){
+      return null;
+    }
+    const clone = sourceSvg.cloneNode(true);
+    removeLinePreviewIgnoredNodes(clone);
+    const svgBox = sourceSvg.closest?.('.svgbox') || null;
+    const width = Number(sourceSvg.getAttribute?.('data-line-base-width'))
+      || Number(sourceSvg.getAttribute?.('width'))
+      || Number.parseFloat(svgBox?.dataset?.resizerWidth || '')
+      || Number.parseFloat(svgBox?.style?.width || '')
+      || Number(sourceSvg.clientWidth)
+      || 427;
+    const height = Number(sourceSvg.getAttribute?.('data-line-base-height'))
+      || Number(sourceSvg.getAttribute?.('height'))
+      || Number.parseFloat(svgBox?.dataset?.resizerHeight || '')
+      || Number.parseFloat(svgBox?.style?.height || '')
+      || Number(sourceSvg.clientHeight)
+      || 427;
+    if(Number.isFinite(width) && width > 0){
+      clone.setAttribute('width', formatLinePreviewNumber(width));
+      clone.setAttribute('data-line-base-width', formatLinePreviewNumber(width));
+    }
+    if(Number.isFinite(height) && height > 0){
+      clone.setAttribute('height', formatLinePreviewNumber(height));
+      clone.setAttribute('data-line-base-height', formatLinePreviewNumber(height));
+    }
+    if(!clone.getAttribute('viewBox') && Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0){
+      clone.setAttribute('viewBox', `0 0 ${formatLinePreviewNumber(width)} ${formatLinePreviewNumber(height)}`);
+    }
+    if(clone.style){
+      clone.style.position = '';
+      clone.style.left = '';
+      clone.style.top = '';
+      clone.style.zIndex = '';
+      clone.style.visibility = '';
+      clone.style.pointerEvents = '';
+    }
+    compactLinePreviewSvg(clone, tab?.id || line.__boundTabId || null);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      try{
+        const length = new XMLSerializer().serializeToString(clone).length;
+        lineDebug('Debug: line preview svg compacted', {
+          tabId: tab?.id || line.__boundTabId || null,
+          length
+        });
+      }catch(_err){}
+    }
+    return clone;
+  }
+
+  line.getPreviewSvg = function getPreviewSvg(tab){
+    const sourceSvg = resolveLinePreviewSourceSvg(tab);
+    return buildLinePreviewSvgFromSource(sourceSvg, tab);
+  };
+
+  line.getThumbnailSvg = function getThumbnailSvg(tab){
+    return resolveLinePreviewSourceSvg(tab);
+  };
+
+  line.captureRenderCache = function captureRenderCache(meta = {}){
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
     const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
-    const svg = plot ? plot.querySelector('#lineSvg') : null;
+    const svg = plot ? (plot.querySelector('#lineSvg') || plot.querySelector('svg')) : null;
+    if(!plot || !svg || !lineSvgHasMeaningfulContent(svg)){
+      console.debug('Debug: line render cache capture skipped', {
+        reason: !plot ? 'missing-plot-host' : (!svg ? 'missing-svg' : 'empty-svg'),
+        tabId: meta?.tabId || line.__boundTabId || null
+      });
+      return null;
+    }
     const plotStyle = plot ? plot.getAttribute('style') : null;
     const svgState = svg ? {
       width: svg.getAttribute('width'),
@@ -12784,6 +13313,17 @@
     } : null;
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
+    if(!lineFragmentPayloadHasGraph(plotCache)){
+      restoreChildren(plot, plotCache);
+      restoreChildren(stats, statsCache);
+      console.debug('Debug: line render cache capture skipped', {
+        reason: 'empty-runtime-cache',
+        tabId: meta?.tabId || line.__boundTabId || null
+      });
+      return null;
+    }
+    const cacheMeta = captureLineRenderCacheMetadata(meta, svg);
+    cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache captured', {
         plotNodes: plotCache?.count || 0,
@@ -12792,19 +13332,28 @@
         viewMode: svgState?.dataViewMode || null
       });
     }
-    return { plot: plotCache, stats: statsCache, plotStyle, svgState };
+    return { plot: plotCache, stats: statsCache, plotStyle, svgState, __graphitixRenderCache: cacheMeta };
   };
 
-  line.restoreRenderCache = function restoreRenderCache(cache){
+  line.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return canRestoreLineRenderCache(cache, meta);
+  };
+
+  line.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
+    if(!canRestoreLineRenderCache(cache, meta)){
+      consumeLineRestoreDrawSuppression('invalid-render-cache', true);
+      return false;
+    }
+    const graphCachePayload = resolveLineGraphCachePayload(cache);
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
     const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
-    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
     if(plot && typeof cache.plotStyle === 'string' && cache.plotStyle){
       plot.setAttribute('style', cache.plotStyle);
     }
-    const svg = plot ? plot.querySelector('#lineSvg') : null;
+    const svg = plot ? (plot.querySelector('#lineSvg') || plot.querySelector('svg')) : null;
     if(svg && cache.svgState){
       if(cache.svgState.width){
         svg.setAttribute('width', cache.svgState.width);
@@ -12819,49 +13368,61 @@
         svg.dataset.viewMode = cache.svgState.dataViewMode;
       }
     }
-    const restored = restoredPlot || restoredStats;
-    if(restored){
-      suppressLineRestoreDraws('render-cache-restore', { delayMs: 2500, count: 12 });
-      lineViewState.rotationPending = false;
-      lineViewState.rotationPendingLogged = false;
-      const svg = plot ? plot.querySelector('#lineSvg') : null;
-      if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
-        delete svg.dataset.rotationControlsAttached;
-        plot3d.attachRotationControls(svg, {
-          state: lineViewState.rotation,
-          onChange: () => scheduleLineRotationRedraw(),
-          shouldIgnorePointer: (event) => {
-            if(typeof plot3d.isInteractivePointerTarget === 'function'){
-              return plot3d.isInteractivePointerTarget(event?.target);
-            }
-            return plot3d.isLegendPointerTarget(event?.target);
-          },
-          debugLabel: 'line-3d-restore'
-        });
-        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          lineDebug('Debug: line 3d rotation handlers rebound');
-        }
-      }
-    }
-    const wants3d = lineViewState.viewMode === '3d'
-      || refs.replicateMode?.value === '3d'
-      || refs.viewMode?.value === '3d';
-    const hasGraph = !!(plot && plot.querySelector('svg,canvas'));
-    if(wants3d && !hasGraph){
+    const hasGraph = linePlotHasMeaningfulGraph(plot);
+    if(!restoredPlot || !hasGraph){
+      consumeLineRestoreDrawSuppression('empty-restored-graph', true);
+      console.debug('Debug: line render cache restore rejected after restore', {
+        reason: !restoredPlot ? 'plot-not-restored' : 'empty-restored-graph',
+        plot: restoredPlot,
+        stats: restoredStats,
+        hasGraph
+      });
       return false;
+    }
+    suppressLineRestoreDraws('render-cache-restore', { delayMs: 2500, count: 12 });
+    lineViewState.rotationPending = false;
+    lineViewState.rotationPendingLogged = false;
+    if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
+      delete svg.dataset.rotationControlsAttached;
+      plot3d.attachRotationControls(svg, {
+        state: lineViewState.rotation,
+        onChange: () => scheduleLineRotationRedraw(),
+        shouldIgnorePointer: (event) => {
+          if(typeof plot3d.isInteractivePointerTarget === 'function'){
+            return plot3d.isInteractivePointerTarget(event?.target);
+          }
+          return plot3d.isLegendPointerTarget(event?.target);
+        },
+        debugLabel: 'line-3d-restore'
+      });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        lineDebug('Debug: line 3d rotation handlers rebound');
+      }
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache restored', {
-        restored,
+        restored: true,
         plot: restoredPlot,
         stats: restoredStats,
         hasGraph,
-        viewMode: cache.svgState?.dataViewMode || null
+        viewMode: cache.svgState?.dataViewMode || getLineRenderCacheMetadata(cache)?.viewMode || null
       });
     }
-    return restored;
+    return true;
   };
-  line.draw = function draw(){ ensureReady(); scheduleLineDraw && scheduleLineDraw(); };
+  line.draw = function draw(options = {}){
+    ensureReady();
+    if(typeof scheduleLineDraw === 'function'){
+      const drawOptions = Object.assign({}, options || {});
+      if(!drawOptions.reason){
+        drawOptions.reason = 'component-draw';
+      }
+      if(drawOptions.force !== false && drawOptions.viewOnly !== true){
+        drawOptions.force = true;
+      }
+      scheduleLineDraw(drawOptions);
+    }
+  };
   line.save = saveLineFile;
   line.saveAs = saveAsLineFile;
   line.open = openLineFile;
@@ -12870,6 +13431,13 @@
     if(!applyLineGraphPayload(payload, { source: 'payload', ...options })){
       console.warn('line payload application failed', { source: 'payload' });
     }
+  };
+  line.applyColorSchemePayload = function applyLineColorSchemePayload(payload, options = {}){
+    return applyLineGraphPayload(payload, {
+      source: 'color-scheme',
+      colorSchemeOnly: true,
+      ...options
+    });
   };
   line.getPayload = getLineGraphPayload;
   {
@@ -12892,7 +13460,10 @@
     return !!emptyPayloadTemplate;
   };
   line.createEmptyPayload = function createEmptyLinePayload(){
-    line.ensure();
+    console.debug('Debug: line.createEmptyPayload pure factory invoked', {
+      ready: !!line.ready,
+      boundTabId: line.__boundTabId || null
+    });
     const payload = { type: 'line', config: {} };
     payload.type = 'line';
     const createEmpty = Shared.createEmptyData;

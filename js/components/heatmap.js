@@ -8118,7 +8118,10 @@
     return !!emptyPayloadTemplate;
   };
   heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
-    heatmap.ensure();
+    console.debug('Debug: heatmap.createEmptyPayload pure factory invoked', {
+      ready: !!heatmap.ready,
+      boundTabId: heatmap.__boundTabId || null
+    });
     const payload = { type: 'heatmap', config: {} };
     payload.type = 'heatmap';
     const createEmpty = Shared.createEmptyData;
@@ -8368,12 +8371,20 @@
     });
   }
 
-  heatmap.init = function init(){
-    if(heatmap.ready){
-      debugLog('Debug: heatmap.init skipped - already ready');
+  heatmap.init = function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || resolveHeatmapRoot(targetTabId || null) || null;
+    if(heatmap.ready && (!targetTabId || heatmap.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      debugLog('Debug: heatmap.init skipped - already ready', { tabId: heatmap.__boundTabId || null });
       return;
     }
-    debugLog('Debug: heatmap.init start');
+    if(heatmap.ready){
+      debugLog('Debug: heatmap.init rebinding', { previousTabId: heatmap.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      heatmap.ready = false;
+    }
+    heatmap.__boundTabId = targetTabId || null;
+    state.root = targetRoot || state.root || null;
+    debugLog('Debug: heatmap.init start', { tabId: heatmap.__boundTabId || null });
     state.svg = $('heatmapSvg');
     if(state.svg){
       if(typeof chartStyle.applySvgDefaults === 'function'){
@@ -8397,6 +8408,9 @@
     }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
+      tabId: targetTabId || undefined,
+      root: state.root || undefined,
+      reason: options?.reason || 'heatmap-init',
       selectors: {
         tablePanel: '#heatmapTablePanel',
         graphPanel: '#heatmapGraphPanel',
@@ -8510,10 +8524,11 @@
       tabLike: tabLike || null,
       sentinelSelector: '#heatmapLoadExample',
       getCurrentSentinel: () => heatmap.__domSentinel || null,
-      rebind: () => {
-        debugLog('Debug: heatmap DOM bindings rebind requested');
+      rebind: info => {
+        debugLog('Debug: heatmap DOM bindings rebind requested', { tabId: info?.tab?.id || null });
+        state.root = info?.root || resolveHeatmapRoot(info?.tab || null) || state.root || null;
         heatmap.ready = false;
-        heatmap.init();
+        heatmap.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
       }
     });
     return !!rebound?.rebound;
@@ -8524,15 +8539,18 @@
       return;
     }
     if(!heatmap.ready){
-      heatmap.init();
+      heatmap.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
     }
   };
-  heatmap.activateTab = function activateTab(tab){
+  heatmap.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    heatmap.__boundTabId = targetTabId || heatmap.__boundTabId || null;
+    state.root = resolveHeatmapRoot(tab || targetTabId || null) || state.root || null;
     if(ensureHeatmapDomBindings(tab)){
       return;
     }
     if(!heatmap.ready){
-      heatmap.init();
+      heatmap.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
     }
     invalidateHeatmapTransientRenderState('activate-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
@@ -8692,25 +8710,33 @@
         hasSvgRootState: !!svgRootState
       });
     }
-    return { svg: svgCache, stats: statsCache, renderState, svgRootState };
+    return { plot: svgCache, stats: statsCache, renderState, svgRootState };
   };
 
   heatmap.restoreRenderCache = function restoreRenderCache(cache){
-    if(!cache || !cache.renderState){
+    if(!cache){
       clearCachedRenderState();
       return false;
     }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.svg || cache?.plot || cache?.preview || cache?.graph || cache?.stage;
     const svg = state.svg || $('heatmapSvg');
     const stats = state.statsEl || $('heatmapStatsContent');
-    const restoredState = restoreHeatmapRenderStateSnapshot(cache.renderState);
+    const hasRenderState = !!cache.renderState;
+    const restoredState = hasRenderState ? restoreHeatmapRenderStateSnapshot(cache.renderState) : false;
     let restoredSvg = false;
     let restoredStats = false;
     let restored = false;
     let replayedFromModel = false;
     restoreHeatmapSvgRootState(svg, cache.svgRootState);
-    restoredSvg = restoreChildren(svg, cache.svg);
+    restoredSvg = restoreChildren(svg, graphCachePayload);
     restoredStats = restoreChildren(stats, cache.stats);
-    restored = (restoredSvg || restoredStats) && restoredState;
+    // Archive-wide caches can be captured from the mounted per-tab root without
+    // heatmap's private renderState. In that case the serialized SVG DOM itself is
+    // authoritative enough to provide a fast visual restore; the next real draw will
+    // rebuild the private model if needed.
+    restored = hasRenderState
+      ? ((restoredSvg || restoredStats) && restoredState)
+      : (restoredSvg || restoredStats);
     if(!restored && restoredState && state.lastRenderModel && state.lastViewOptions){
       try{
         replayedFromModel = true;

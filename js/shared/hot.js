@@ -26,9 +26,147 @@
     }
   };
 
-  const markActiveTabUserModified = (reason, meta = {}) => {
+  const normalizeOwnerTabId = value => {
+    const text = String(value || '').trim();
+    return text || null;
+  };
+
+  const resolveTabById = tabId => {
+    const id = normalizeOwnerTabId(tabId);
+    if(!id){
+      return null;
+    }
+    try{
+      const session = global.Main?.session || null;
+      const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+      return tabs.find(tab => tab && String(tab.id || '') === id) || null;
+    }catch(err){
+      console.error('Shared.hot resolve tab by id error', { tabId: id, err });
+      return null;
+    }
+  };
+
+  const resolveTabIdFromNode = node => {
+    let cursor = node || null;
+    while(cursor && cursor !== global.document){
+      const dataset = cursor.dataset || null;
+      const candidate = normalizeOwnerTabId(dataset?.workspaceTabId || dataset?.tabId);
+      if(candidate){
+        return candidate;
+      }
+      if(typeof cursor.getAttribute === 'function'){
+        const attrCandidate = normalizeOwnerTabId(
+          cursor.getAttribute('data-workspace-tab-id')
+          || cursor.getAttribute('data-tab-id')
+        );
+        if(attrCandidate){
+          return attrCandidate;
+        }
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  };
+
+  const stampTableOwner = (instance, meta = {}) => {
+    const tabId = normalizeOwnerTabId(meta.tabId || meta.workspaceTabId);
+    const type = String(meta.type || meta.componentType || '').trim() || null;
+    const nodes = [meta.container, instance?.rootElement, meta.wrapper].filter(Boolean);
+    nodes.forEach(node => {
+      try{
+        if(node?.dataset){
+          if(tabId){
+            node.dataset.workspaceTabId = tabId;
+          }
+          if(type){
+            node.dataset.componentType = type;
+          }
+        }
+        if(node && tabId){
+          node.__workspaceTabId = tabId;
+        }
+        if(node && type){
+          node.__componentType = type;
+        }
+      }catch(err){
+        console.debug('Debug: Shared.hot table owner node stamp skipped', { tabId, type, message: err?.message || String(err) });
+      }
+    });
+    if(instance && typeof instance === 'object'){
+      try{
+        if(tabId){
+          instance.__workspaceTabId = tabId;
+          instance.__graphitixTabId = tabId;
+          instance.__hotWorkspaceTabId = tabId;
+        }
+        if(type){
+          instance.__componentType = type;
+          instance.__graphitixComponentType = type;
+          instance.__hotComponentType = type;
+        }
+      }catch(err){
+        console.debug('Debug: Shared.hot table owner instance stamp skipped', { tabId, type, message: err?.message || String(err) });
+      }
+    }
+    return instance || null;
+  };
+
+  const resolveTableOwnerSessionAndTab = (meta = {}) => {
+    const { session, tab: activeTab } = resolveActiveSessionAndTab();
+    const hotInstance = meta.hotInstance || meta.instance || null;
+    const candidates = [
+      meta.tabId,
+      meta.workspaceTabId,
+      hotInstance?.__workspaceTabId,
+      hotInstance?.__graphitixTabId,
+      hotInstance?.__hotWorkspaceTabId,
+      resolveTabIdFromNode(hotInstance?.rootElement || null),
+      resolveTabIdFromNode(meta.container || null),
+      resolveTabIdFromNode(meta.wrapper || null)
+    ].map(normalizeOwnerTabId).filter(Boolean);
+    let ownerTab = null;
+    let ownerTabId = null;
+    for(let i = 0; i < candidates.length; i += 1){
+      const candidate = candidates[i];
+      ownerTab = resolveTabById(candidate);
+      if(ownerTab){
+        ownerTabId = candidate;
+        break;
+      }
+    }
+    if(!ownerTab && candidates.length){
+      console.warn('Shared.hot table owner candidates did not match an open tab; skipping active-tab fallback', {
+        reason: meta.reason || meta.source || 'table-data-change',
+        activeTabId: activeTab?.id || null,
+        candidateTabIds: candidates
+      });
+    }else if(!ownerTab && activeTab){
+      ownerTab = activeTab;
+      ownerTabId = activeTab.id || null;
+      console.debug('Debug: Shared.hot table owner fallback to active tab', {
+        reason: meta.reason || meta.source || 'table-data-change',
+        activeTabId: activeTab.id || null,
+        candidateTabIds: candidates
+      });
+    }else if(ownerTab && activeTab && ownerTab.id !== activeTab.id){
+      console.debug('Debug: Shared.hot table owner differs from active tab', {
+        ownerTabId: ownerTab.id,
+        activeTabId: activeTab.id,
+        reason: meta.reason || meta.source || 'table-data-change'
+      });
+    }
+    stampTableOwner(hotInstance, {
+      tabId: ownerTabId,
+      type: ownerTab?.type || meta.type || null,
+      container: meta.container || hotInstance?.rootElement || null,
+      wrapper: meta.wrapper || null
+    });
+    return { session, tab: ownerTab };
+  };
+
+  const markTabUserModifiedForOwner = (tab, reason, meta = {}) => {
     try {
-      const { session, tab } = resolveActiveSessionAndTab();
+      const session = global.Main?.session || null;
       if (!tab || typeof session?.markTabUserModified !== 'function') {
         return false;
       }
@@ -38,9 +176,14 @@
         source: meta.source || null
       });
     } catch (err) {
-      console.error('Shared.hot mark active tab modified error', err);
+      console.error('Shared.hot mark owner tab modified error', { tabId: tab?.id || null, err });
       return false;
     }
+  };
+
+  const markActiveTabUserModified = (reason, meta = {}) => {
+    const { tab } = resolveActiveSessionAndTab();
+    return markTabUserModifiedForOwner(tab, reason, meta);
   };
 
   const resolveComponentForTab = tab => {
@@ -53,7 +196,7 @@
     return registryComponent || namespaceComponent || null;
   };
 
-  const createPayloadForActiveTab = tab => {
+  const createPayloadForTab = tab => {
     const type = String(tab?.type || '').trim();
     const component = resolveComponentForTab(tab);
     if (typeof component?.createEmptyPayload === 'function') {
@@ -104,7 +247,7 @@
     });
   };
 
-  const syncActiveTabPayloadDataChanges = (changes, reason, meta = {}) => {
+  const syncOwnerTabPayloadDataChanges = (changes, reason, meta = {}) => {
     const normalizedChanges = Array.isArray(changes)
       ? changes.filter(change => change
           && Number.isInteger(change.row)
@@ -115,12 +258,19 @@
     if (!normalizedChanges.length) {
       return false;
     }
-    const { session, tab } = resolveActiveSessionAndTab();
+    const effectiveReason = reason || 'table-data-change';
+    const { session, tab } = resolveTableOwnerSessionAndTab({ ...meta, reason: effectiveReason });
     if (!tab || !tab.type) {
+      console.debug('Debug: Shared.hot owner-tab payload sync skipped', {
+        reason: effectiveReason,
+        source: meta.source || null,
+        hasTab: !!tab,
+        changeCount: normalizedChanges.length
+      });
       return false;
     }
     if (typeof session?.updateTabPayload !== 'function') {
-      return markActiveTabUserModified(reason || 'table-data-change', {
+      return markTabUserModifiedForOwner(tab, effectiveReason, {
         source: meta.source || null,
         affectsPayload: true
       });
@@ -128,13 +278,13 @@
     const updated = session.updateTabPayload(tab, draft => {
       const nextPayload = draft && typeof draft === 'object'
         ? draft
-        : createPayloadForActiveTab(tab);
+        : createPayloadForTab(tab);
       const component = resolveComponentForTab(tab);
       if (typeof component?.applyTablePayloadChanges === 'function') {
         try {
           const result = component.applyTablePayloadChanges(nextPayload, normalizedChanges, {
             tab,
-            reason: reason || 'table-data-change',
+            reason: effectiveReason,
             hotInstance: meta.hotInstance || null,
             source: meta.source || null
           });
@@ -143,8 +293,9 @@
           }
         } catch (err) {
           console.error('Shared.hot component table payload hook failed', {
+            tabId: tab.id || null,
             type: tab.type || null,
-            reason: reason || 'table-data-change',
+            reason: effectiveReason,
             err
           });
         }
@@ -187,22 +338,32 @@
       }
       return nextPayload;
     }, {
-      reason: reason || 'table-data-change',
+      reason: effectiveReason,
       origin: 'user'
     });
     if (!updated) {
       if (payloadDataMatchesChanges(tab.payload, normalizedChanges)) {
-        return markActiveTabUserModified(reason || 'table-data-change', {
+        return markTabUserModifiedForOwner(tab, effectiveReason, {
           source: meta.source || null,
           affectsPayload: false
         });
       }
-      return markActiveTabUserModified(reason || 'table-data-change', {
+      return markTabUserModifiedForOwner(tab, effectiveReason, {
         source: meta.source || null,
         affectsPayload: true
       });
     }
     return true;
+  };
+
+  const syncActiveTabPayloadDataChanges = (changes, reason, meta = {}) => {
+    console.debug('Debug: Shared.hot legacy active-tab sync entry redirected to owner-tab sync', {
+      reason: reason || 'table-data-change',
+      source: meta?.source || null,
+      explicitTabId: meta?.tabId || meta?.workspaceTabId || null,
+      instanceTabId: meta?.hotInstance?.__workspaceTabId || meta?.hotInstance?.__graphitixTabId || null
+    });
+    return syncOwnerTabPayloadDataChanges(changes, reason, meta);
   };
 
   const EXCLUSION_SCOPES = Object.freeze({
@@ -884,6 +1045,7 @@
     }
     let entry = pool.byTab[tabId];
     if(entry && entry.container){
+      stampTableOwner(entry.instance, { tabId, type, container: entry.container, wrapper });
       if(entry.container.parentNode !== wrapper){
         // detach from previous parent before reattaching
         if(entry.container.parentNode){
@@ -964,7 +1126,9 @@
     // mark entry before instantiation to guard against re-entrant calls
     entry = pool.byTab[tabId] = { container, instance: null, creating: true };
     pool.currentTabId = tabId;
+    stampTableOwner(null, { tabId, type, container, wrapper });
     const instance = typeof createInstance === 'function' ? createInstance(container) : null;
+    stampTableOwner(instance, { tabId, type, container, wrapper });
     entry.instance = instance;
     if(instance && typeof instance.resumeRender === 'function'){
       try{
@@ -975,6 +1139,93 @@
     }
     delete entry.creating;
     return entry;
+  };
+
+
+  hotNS.disposeTableForTab = function disposeTableForTab(type, tabId, meta = {}){
+    const normalizedType = String(type || '').trim();
+    const normalizedTabId = normalizeOwnerTabId(tabId);
+    if(!normalizedType || !normalizedTabId){
+      hotDebug('Debug: Shared.hot.disposeTableForTab skipped', { type: normalizedType || null, tabId: normalizedTabId || null });
+      return false;
+    }
+    const pool = tabTablePools[normalizedType];
+    const entry = pool?.byTab?.[normalizedTabId] || null;
+    if(!entry){
+      hotDebug('Debug: Shared.hot.disposeTableForTab no entry', { type: normalizedType, tabId: normalizedTabId });
+      return false;
+    }
+    let destroyed = false;
+    const instance = entry.instance || null;
+    try{
+      if(instance && typeof instance.destroy === 'function'){
+        instance.destroy();
+        destroyed = true;
+      }else if(instance?.gridApi && typeof instance.gridApi.destroy === 'function'){
+        instance.gridApi.destroy();
+        destroyed = true;
+      }
+    }catch(err){
+      console.error('Shared.hot.disposeTableForTab destroy error', {
+        type: normalizedType,
+        tabId: normalizedTabId,
+        reason: meta.reason || 'dispose-table-for-tab',
+        err
+      });
+    }
+    try{
+      if(entry.container?.parentNode){
+        entry.container.parentNode.removeChild(entry.container);
+      }
+      if(entry.container){
+        while(entry.container.firstChild){
+          entry.container.removeChild(entry.container.firstChild);
+        }
+      }
+    }catch(err){
+      console.error('Shared.hot.disposeTableForTab container cleanup error', {
+        type: normalizedType,
+        tabId: normalizedTabId,
+        reason: meta.reason || 'dispose-table-for-tab',
+        err
+      });
+    }
+    delete pool.byTab[normalizedTabId];
+    if(pool.currentTabId === normalizedTabId){
+      pool.currentTabId = null;
+    }
+    hotDebug('Debug: Shared.hot.disposeTableForTab complete', {
+      type: normalizedType,
+      tabId: normalizedTabId,
+      destroyed,
+      reason: meta.reason || 'dispose-table-for-tab'
+    });
+    return true;
+  };
+
+  hotNS.disposeTab = function disposeTab(tabLike, meta = {}){
+    const tabId = normalizeOwnerTabId(tabLike?.id || tabLike?.tabId || tabLike || meta.tabId || meta.workspaceTabId);
+    const preferredType = String(tabLike?.type || meta.type || meta.componentType || '').trim();
+    if(!tabId){
+      hotDebug('Debug: Shared.hot.disposeTab skipped - missing tab id', { reason: meta.reason || 'dispose-tab' });
+      return 0;
+    }
+    let disposed = 0;
+    Object.keys(tabTablePools).forEach(type => {
+      if(preferredType && type !== preferredType){
+        return;
+      }
+      if(hotNS.disposeTableForTab(type, tabId, meta)){
+        disposed += 1;
+      }
+    });
+    hotDebug('Debug: Shared.hot.disposeTab complete', {
+      tabId,
+      preferredType: preferredType || null,
+      disposed,
+      reason: meta.reason || 'dispose-tab'
+    });
+    return disposed;
   };
 
   hotNS.ensureTableForTab = function ensureTableForTab(options){
@@ -1033,6 +1284,12 @@
     }
     if(typeof hotNS.mountTableForTab !== 'function' || !resolvedWrapper || !tabId){
       const instance = typeof createInstance === 'function' ? createInstance(resolvedContainer) : null;
+      stampTableOwner(instance, {
+        tabId: tabId || resolveTabIdFromNode(resolvedWrapper) || resolveTabIdFromNode(resolvedContainer),
+        type: type || null,
+        container: resolvedContainer,
+        wrapper: resolvedWrapper
+      });
       return { instance, container: resolvedContainer, tabId };
     }
     const entry = hotNS.mountTableForTab({
@@ -11431,7 +11688,7 @@
             node.rowIndex >= 0 &&
             node.rowIndex < pinRowCount
           ) {
-            return 0;
+            return 1;
           }
         } catch (err) {
           console.error("Shared.hot getRowHeight error", {
@@ -11463,7 +11720,7 @@
         }
         const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex ?? null;
         if(isPinnedTopRow(physicalRow)){
-          return 0;
+          return 1;
         }
         return undefined;
       },
@@ -15314,6 +15571,9 @@
   Shared.createEmptyData = createEmptyData;
   hotNS.ensureHotWrapperStyles = ensureHotWrapperStyles;
   hotNS.createEmptyData = createEmptyData;
+  hotNS.resolveTableOwnerSessionAndTab = resolveTableOwnerSessionAndTab;
+  hotNS.syncOwnerTabPayloadDataChanges = syncOwnerTabPayloadDataChanges;
+  hotNS.stampTableOwner = stampTableOwner;
   hotNS.createStandardTable = createStandardTable;
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;

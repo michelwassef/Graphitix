@@ -4603,10 +4603,20 @@
     return info;
   }
 
-  function setup(){
-    if(pca.ready){ console.debug('Debug: Components.pca.setup skipped'); return; }
-    console.debug('Debug: Components.pca.setup start');
-    pcaRoot = resolvePcaRoot();
+  function setup(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'pca') || pcaRoot || resolvePcaRoot(targetTabId || null);
+    if(pca.ready && (!targetTabId || pca.__boundTabId === targetTabId) && (!targetRoot || pcaRoot === targetRoot)){
+      console.debug('Debug: Components.pca.setup skipped', { tabId: pca.__boundTabId || null });
+      return;
+    }
+    if(pca.ready){
+      console.debug('Debug: Components.pca.setup rebinding', { previousTabId: pca.__boundTabId || null, targetTabId, reason: options?.reason || 'setup' });
+      pca.ready = false;
+    }
+    pca.__boundTabId = targetTabId || null;
+    console.debug('Debug: Components.pca.setup start', { tabId: pca.__boundTabId || null });
+    pcaRoot = targetRoot || resolvePcaRoot(targetTabId || null);
     const $ = global.$;
     const document = global.document;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
@@ -4660,6 +4670,9 @@
       schedulePcaNoticeWidth = () => {};
       const pcaLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'pca',
+        tabId: targetTabId || undefined,
+        root: pcaRoot || undefined,
+        reason: options?.reason || 'pca-setup',
         selectors: {
           tablePanel: '#pcaTablePanel',
           graphPanel: '#pcaGraphPanel',
@@ -5723,17 +5736,35 @@
         }
         return Shared.statsTable.render(config);
       }
-      function dockLoadingsActions(wrapper){
-        if(!pcaLoadingsActions || !wrapper || typeof wrapper.insertBefore !== 'function'){
+      function insertBeforeIfOwned(parent, node, referenceNode){
+        if(!parent || !node || typeof parent.insertBefore !== 'function'){
           return false;
         }
-        const referenceNode = wrapper.querySelector('.stats-table') || wrapper.firstChild || null;
-        wrapper.insertBefore(pcaLoadingsActions, referenceNode);
-        return true;
+        const safeReference = referenceNode && referenceNode.parentNode === parent ? referenceNode : null;
+        try {
+          parent.insertBefore(node, safeReference);
+          return true;
+        } catch (err) {
+          try {
+            parent.appendChild(node);
+            console.debug('Debug: pca insertBefore fallback appendChild', { message: err?.message || String(err) });
+            return true;
+          } catch (appendErr) {
+            console.error('pca insertBefore fallback failed', { err: appendErr });
+            return false;
+          }
+        }
+      }
+      function dockLoadingsActions(wrapper){
+        if(!pcaLoadingsActions || !wrapper){
+          return false;
+        }
+        const referenceNode = wrapper.querySelector?.('.stats-table') || wrapper.firstChild || null;
+        return insertBeforeIfOwned(wrapper, pcaLoadingsActions, referenceNode);
       }
       function resetLoadingsActionsHost(){
         if(pcaDefaultLoadingsActionsHost && pcaLoadingsActions){
-          pcaDefaultLoadingsActionsHost.insertBefore(pcaLoadingsActions, pcaLoadingsTable || null);
+          insertBeforeIfOwned(pcaDefaultLoadingsActionsHost, pcaLoadingsActions, pcaLoadingsTable || null);
         }
       }
       function renderPcaSummaryPanel(options = {}){
@@ -11109,7 +11140,10 @@
     return !!emptyPayloadTemplate;
   };
   pca.createEmptyPayload = function createEmptyPcaPayload(){
-      pca.ensure();
+      console.debug('Debug: pca.createEmptyPayload pure factory invoked', {
+        ready: !!pca.ready,
+        boundTabId: pca.__boundTabId || null
+      });
       const payload = { type: 'pca', config: {} };
       payload.type = 'pca';
       const createEmpty = Shared.createEmptyData;
@@ -11149,8 +11183,10 @@
     };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
-    pca.activateTab = function activateTab(tab){
-      pcaRoot = resolvePcaRoot(tab || null);
+    pca.activateTab = function activateTab(tab, meta = {}){
+      const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+      pca.__boundTabId = targetTabId || pca.__boundTabId || null;
+      pcaRoot = resolvePcaRoot(tab || targetTabId || null);
       if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
         const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
           componentKey: 'pca',
@@ -11161,7 +11197,7 @@
           rebind: info => {
             pcaRoot = info?.root || resolvePcaRoot(tab || null);
             pca.ready = false;
-            setup();
+            setup({ root: info?.root || undefined, tabId: info?.tab?.id || tab?.id || null, reason: 'activate-tab-rebind' });
           }
         });
         if(rebound?.rebound){
@@ -11274,6 +11310,7 @@
 
     pca.restoreRenderCache = function restoreRenderCache(cache){
       if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
       const plot = getPcaNodeById('pcaPlot');
       const stats = getPcaNodeById('pcaStatsResults');
       const summary = getPcaNodeById('pcaStatsSummary');
@@ -11284,7 +11321,7 @@
       const eigenTableContainer = getPcaNodeById('pcaEigenTableContainer');
       const loadingsContainer = getPcaNodeById('pcaLoadingsContainer');
       const screeVarianceRow = getPcaNodeById('pcaScreeVarianceRow');
-      const restoredPlot = restoreChildren(plot, cache.plot);
+      const restoredPlot = restoreChildren(plot, graphCachePayload);
       const restoredStats = restoreChildren(stats, cache.stats);
       const restoredSummary = restoreChildren(summary, cache.summary);
       const restoredScree = restoreChildren(scree, cache.scree);
@@ -11341,14 +11378,14 @@
         rebind: info => {
           pcaRoot = info?.root || resolvePcaRoot();
           pca.ready = false;
-          setup();
+          setup({ root: info?.root || undefined, tabId: info?.tab?.id || null, reason: 'ensure-dom-rebind' });
         }
       });
       if(rebound?.rebound){
         return;
       }
     }
-    if(!pca.ready) setup();
+    if(!pca.ready) setup({ tabId: Shared.hot?.resolveActiveTabId?.() || null, reason: 'ensure-ready' });
   }
 
   pca.init = setup;

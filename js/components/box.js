@@ -4977,6 +4977,20 @@
     return global.Main?.session?.workspaceState?.activeTabId || null;
   }
 
+  function getBoxTabPayloadSignature(tabId){
+    const id = String(tabId || '').trim();
+    if(!id){ return null; }
+    try{
+      const tabs = Array.isArray(global.Main?.session?.workspaceState?.tabs)
+        ? global.Main.session.workspaceState.tabs
+        : [];
+      const tab = tabs.find(item => item && String(item.id || '') === id) || null;
+      return tab?.payloadSignature ?? null;
+    }catch(err){
+      return null;
+    }
+  }
+
   function shouldRetainPreviousBoxFrame(drawOptions){
     if(drawOptions?.viewOnly !== true){
       return false;
@@ -10663,24 +10677,35 @@
     if(options?.__workspaceSessionMeta && typeof options.__workspaceSessionMeta === 'object'){
       return {
         tabId: options.__workspaceSessionMeta.tabId || null,
-        sessionGeneration: Number(options.__workspaceSessionMeta.sessionGeneration) || 0
+        sessionGeneration: Number(options.__workspaceSessionMeta.sessionGeneration) || 0,
+        payloadSignature: options.__workspaceSessionMeta.payloadSignature ?? null,
+        layoutSignature: options.__workspaceSessionMeta.layoutSignature ?? null,
+        requirePayloadSignature: options.__workspaceSessionMeta.requirePayloadSignature === true,
+        requireLayoutSignature: options.__workspaceSessionMeta.requireLayoutSignature === true
       };
     }
     if(Shared.workspaceTabs?.buildSessionMeta){
       const sharedMeta = Shared.workspaceTabs.buildSessionMeta('box', options || {});
       return {
         tabId: sharedMeta?.tabId || null,
-        sessionGeneration: Number(sharedMeta?.sessionGeneration) || 0
+        sessionGeneration: Number(sharedMeta?.sessionGeneration) || 0,
+        payloadSignature: sharedMeta?.payloadSignature ?? null,
+        layoutSignature: sharedMeta?.layoutSignature ?? null,
+        requirePayloadSignature: sharedMeta?.requirePayloadSignature === true,
+        requireLayoutSignature: sharedMeta?.requireLayoutSignature === true
       };
     }
     const active = getActiveBoxSessionInfo();
     const explicitTabId = typeof options?.tabId === 'string' && options.tabId.trim() ? options.tabId.trim() : null;
     const explicitGeneration = Number(options?.sessionGeneration);
+    const tabId = explicitTabId || active?.tabId || getActiveBoxWorkspaceTabId() || null;
     return {
-      tabId: explicitTabId || active?.tabId || getActiveBoxWorkspaceTabId() || null,
+      tabId,
       sessionGeneration: Number.isFinite(explicitGeneration) && explicitGeneration > 0
         ? explicitGeneration
-        : (Number(active?.generation) || 0)
+        : (Number(active?.generation) || 0),
+      payloadSignature: options?.payloadSignature ?? getBoxTabPayloadSignature(tabId),
+      requirePayloadSignature: options?.requirePayloadSignature === true
     };
   }
 
@@ -10692,7 +10717,11 @@
       return Shared.workspaceTabs.isSessionMetaCurrent('box', {
         tabId: meta.tabId || null,
         sessionGeneration: Number(meta.sessionGeneration) || 0,
-        componentKey: 'box'
+        componentKey: 'box',
+        payloadSignature: meta.payloadSignature ?? null,
+        layoutSignature: meta.layoutSignature ?? null,
+        requirePayloadSignature: meta.requirePayloadSignature === true,
+        requireLayoutSignature: meta.requireLayoutSignature === true
       });
     }
     if(!Shared.workspaceTabs?.isSessionCurrent){
@@ -25140,6 +25169,7 @@ Technical analysis record (advanced)
         });
         state.statsComputationPending = false;
         state.statsComputationOwnerTabId = null;
+        state.statsComputationOwnerPayloadSignature = null;
       }else{
         console.debug('Debug: box stats compute ignored while pending', {
           ownerTabId,
@@ -25209,10 +25239,22 @@ Technical analysis record (advanced)
       : null;
     state.statsComputationPending = true;
     state.statsComputationOwnerTabId = getActiveBoxWorkspaceTabId();
+    state.statsComputationOwnerPayloadSignature = getBoxTabPayloadSignature(state.statsComputationOwnerTabId);
     const computationOwnerTabId = state.statsComputationOwnerTabId || null;
+    const computationOwnerPayloadSignature = state.statsComputationOwnerPayloadSignature ?? null;
     const isCurrentStatsComputationOwner = () => {
       const activeTabId = getActiveBoxWorkspaceTabId();
-      return !computationOwnerTabId || !activeTabId || String(computationOwnerTabId) === String(activeTabId);
+      const ownerMatchesActive = !computationOwnerTabId || !activeTabId || String(computationOwnerTabId) === String(activeTabId);
+      const ownerPayloadCurrent = computationOwnerPayloadSignature == null
+        || getBoxTabPayloadSignature(computationOwnerTabId) === computationOwnerPayloadSignature;
+      if(ownerMatchesActive && !ownerPayloadCurrent && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box stats async result rejected by payload signature', {
+          ownerTabId: computationOwnerTabId,
+          expectedPayloadSignature: computationOwnerPayloadSignature,
+          currentPayloadSignature: getBoxTabPayloadSignature(computationOwnerTabId)
+        });
+      }
+      return ownerMatchesActive && ownerPayloadCurrent;
     };
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
@@ -33004,7 +33046,10 @@ Technical analysis record (advanced)
     return !!emptyPayloadTemplate;
   };
   box.createEmptyPayload = function createEmptyBoxPayload(){
-    box.ensure();
+    console.debug('Debug: box.createEmptyPayload pure factory invoked', {
+      ready: !!box.ready,
+      boundTabId: box.__boundTabId || null
+    });
     const payload = { type: 'box', config: {} };
     payload.type = 'box';
     const createEmpty = Shared.createEmptyData;
@@ -34104,6 +34149,8 @@ Technical analysis record (advanced)
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'box',
       tabId: targetTabId || undefined,
+      root: boxRoot || undefined,
+      reason: options.reason || 'box-init',
       selectors: {
         tablePanel: () => getBoxNodeById('boxTablePanel', { root: boxRoot, tabLike: targetTabId }),
         graphPanel: () => getBoxNodeById('boxGraphPanel', { root: boxRoot, tabLike: targetTabId }),

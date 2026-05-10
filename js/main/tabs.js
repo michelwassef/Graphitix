@@ -527,7 +527,12 @@
         session.persistActiveTabState(current, withSessionContext({
           reason: options.reason || 'activate-switch',
           origin: 'lifecycle',
-          captureRenderCache: true,
+          // Do not capture render cache during ordinary tab switches. Component-level
+          // captureRenderCache() implementations detach live graph nodes into fragments;
+          // doing that on every switch can leave a tab blank if a later restore path is
+          // skipped or accepted without a real redraw. The hidden per-tab DOM already
+          // preserves the live graph for fast in-session switching. Archive/save paths
+          // still capture a non-destructive cache for reopen speed.
           preserveRenderCacheTabIds: [current.id, tabId]
         }));
       }

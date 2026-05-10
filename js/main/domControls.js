@@ -591,15 +591,18 @@
       return;
     }
     const label = config.type || 'workspace';
-    const skipManagedBoxPayloadSizing = label === 'box'
+    const hasAuthoritativeLayoutState = options?.authoritativeLayoutState === true
+      || options?.hasAuthoritativeLayoutState === true
+      || !!options?.layoutStatePresent;
+    const skipManagedPayloadSizing = hasAuthoritativeLayoutState
       && typeof config.applyLayoutState === 'function';
     const shouldApplyPayloadSizing = !options?.skipPayloadSizing
-      && !skipManagedBoxPayloadSizing
+      && !skipManagedPayloadSizing
       && !!Shared.graphSizing?.applyPayloadSizingForType;
-    if (skipManagedBoxPayloadSizing) {
+    if (skipManagedPayloadSizing) {
       console.debug('Debug: workspace payload sizing skipped', {
         type: label,
-        reason: 'managed-layout-box'
+        reason: 'authoritative-layout-state'
       });
     }
     if (typeof config.loadFromPayload === 'function') {
@@ -611,6 +614,8 @@
               if (shouldApplyPayloadSizing) {
                 Shared.graphSizing.applyPayloadSizingForType(label, payload, {
                   context: `workspace-payload-${label}`,
+                  tabId: options?.tabId || options?.workspaceTabId || null,
+                  authoritativeLayoutState: hasAuthoritativeLayoutState,
                   ...(options?.payloadSizingOptions || {})
                 });
               }
@@ -619,6 +624,8 @@
         } else if (shouldApplyPayloadSizing) {
           Shared.graphSizing.applyPayloadSizingForType(label, payload, {
             context: `workspace-payload-${label}`,
+            tabId: options?.tabId || options?.workspaceTabId || null,
+            authoritativeLayoutState: hasAuthoritativeLayoutState,
             ...(options?.payloadSizingOptions || {})
           });
         }
@@ -637,9 +644,11 @@
           Shared.fileIO.registerPayloadBlob(blob, payload);
         }
         config.loadFromFile(blob, options || {});
-        if (Shared.graphSizing?.applyPayloadSizingForType && !(label === 'box' && typeof config.applyLayoutState === 'function')) {
+        if (Shared.graphSizing?.applyPayloadSizingForType && !skipManagedPayloadSizing) {
           Shared.graphSizing.applyPayloadSizingForType(label, payload, {
-            context: `workspace-blob-${label}`
+            context: `workspace-blob-${label}`,
+            tabId: options?.tabId || options?.workspaceTabId || null,
+            authoritativeLayoutState: hasAuthoritativeLayoutState
           });
         }
         console.debug('Debug: workspace payload applied via blob', { type: label, length: serialized.length });
@@ -683,27 +692,55 @@
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
     const hadArchiveRenderCache = !!tab.archiveRenderCache;
-    const renderCache = (typeof session?.consumeArchiveRenderCache === 'function')
-      ? (session.consumeArchiveRenderCache(tab, {
+    const archiveRenderCache = (typeof session?.peekArchiveRenderCache === 'function')
+      ? session.peekArchiveRenderCache(tab, {
           reason: options.reason || 'workspace-view',
           type: tab.type,
           payloadSignature: targetPayloadSignature,
           layoutSignature: targetLayoutSignature
-        }) || tab.renderCache || null)
-      : (tab.renderCache || null);
+        })
+      : null;
+    const renderCache = archiveRenderCache || tab.renderCache || null;
+    const renderCacheIsArchiveBacked = !!(archiveRenderCache || renderCache?.archiveBacked);
     const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
     const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? tab.archiveRenderCacheLayoutSignature ?? null;
     const renderCacheOwnerTabId = renderCache?.tabId ?? tab.renderCacheTabId ?? null;
     const isSameComponentTabSwitch = !!(renderedTabForType && renderedTabForType !== tab.id);
     const hasRenderCacheValidator = typeof config.canRestoreRenderCache === 'function';
     const hasRenderCacheRestoreHook = typeof config.restoreRenderCache === 'function';
+    const renderCacheUnavailableReasons = [];
+    if (options.forceReload) { renderCacheUnavailableReasons.push('forceReload'); }
+    if (!renderCache) { renderCacheUnavailableReasons.push('missing-wrapper'); }
+    if (renderCache && !renderCache.cache) { renderCacheUnavailableReasons.push('missing-cache-payload'); }
+    if (renderCacheOwnerTabId && String(renderCacheOwnerTabId) !== String(tab.id)) { renderCacheUnavailableReasons.push('owner-tab-mismatch'); }
+    if (renderPayloadSignature !== targetPayloadSignature) { renderCacheUnavailableReasons.push('payload-signature-mismatch'); }
+    const layoutSignatureMatches = renderLayoutSignature === targetLayoutSignature;
+    const layoutSignatureMismatchTolerated = !!(renderCacheIsArchiveBacked
+      && renderPayloadSignature === targetPayloadSignature
+      && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
+      && renderCache?.cache);
+    if (!layoutSignatureMatches && !layoutSignatureMismatchTolerated) { renderCacheUnavailableReasons.push('layout-signature-mismatch'); }
+    if (!hasRenderCacheRestoreHook) { renderCacheUnavailableReasons.push('missing-restore-hook'); }
     const hasBasicRestorableRenderCache = !!(!options.forceReload
       && renderCache
       && renderCache.cache
       && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
       && renderPayloadSignature === targetPayloadSignature
-      && renderLayoutSignature === targetLayoutSignature
+      && (layoutSignatureMatches || layoutSignatureMismatchTolerated)
       && hasRenderCacheRestoreHook);
+    if (renderCache && !hasBasicRestorableRenderCache) {
+      console.debug('Debug: workspace render cache basic validation failed', {
+        tabId: tab.id,
+        type: tab.type,
+        reasons: renderCacheUnavailableReasons,
+        reasonText: renderCacheUnavailableReasons.join('|'),
+        renderCacheOwnerTabId,
+        targetPayloadSignatureLength: targetPayloadSignature ? String(targetPayloadSignature).length : 0,
+        renderPayloadSignatureLength: renderPayloadSignature ? String(renderPayloadSignature).length : 0,
+        targetLayoutSignatureLength: targetLayoutSignature ? String(targetLayoutSignature).length : 0,
+        renderLayoutSignatureLength: renderLayoutSignature ? String(renderLayoutSignature).length : 0
+      });
+    }
     let renderCacheValidationDeferred = false;
     const validateRenderCacheForRestore = stage => {
       if (!hasBasicRestorableRenderCache) {
@@ -776,7 +813,8 @@
         renderedTabForType,
         renderCacheOwnerTabId,
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
-        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
+        layoutSignatureMatched: layoutSignatureMatches,
+        layoutSignatureMismatchTolerated,
         hasRenderCacheValidator
       });
     } else if (isSameComponentTabSwitch && !canRestoreRender) {
@@ -788,10 +826,12 @@
         renderCacheOwnerMatched: !renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id),
         hasRenderCache: !!(renderCache && renderCache.cache),
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
-        layoutSignatureMatched: renderLayoutSignature === targetLayoutSignature,
+        layoutSignatureMatched: layoutSignatureMatches,
+        layoutSignatureMismatchTolerated,
         hasRenderCacheValidator,
         validationDeferred: renderCacheValidationDeferred,
-        hasRestoreHook: typeof config.restoreRenderCache === 'function'
+        hasRestoreHook: typeof config.restoreRenderCache === 'function',
+        reasonText: renderCacheUnavailableReasons.join('|')
       });
     }
     syncAuthoritativeRenderRestoreFlag(authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view');
@@ -819,6 +859,9 @@
         tabId: tab.id,
         reason: options.reason || 'workspace-view-prepare'
       });
+      if (Shared.workspaceTabs?.stampWorkspaceScopeDeep) {
+        Shared.workspaceTabs.stampWorkspaceScopeDeep(activeWorkspaceElement, tab.id);
+      }
     }
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
@@ -918,6 +961,30 @@
     const cloneFn = session?.fastClonePayload
       ? value => session.fastClonePayload(value)
       : (session?.clonePayload ? value => session.clonePayload(value) : null);
+    const hasRenderableGraphContent = root => {
+      if (config.perTabDomInstances !== true) {
+        return true;
+      }
+      if (!root || typeof root.querySelector !== 'function') {
+        return false;
+      }
+      const canvases = Array.from(root.querySelectorAll('canvas'));
+      if (canvases.some(canvas => Number(canvas.width) > 0 && Number(canvas.height) > 0)) {
+        return true;
+      }
+      const svgs = Array.from(root.querySelectorAll('.svgbox svg, [id$="Plot"] svg, svg'));
+      return svgs.some(svg => {
+        if (!svg) {
+          return false;
+        }
+        const meaningfulChildren = Array.from(svg.children || []).filter(child => {
+          const name = String(child?.tagName || '').toLowerCase();
+          return name && name !== 'defs' && name !== 'style' && name !== 'title' && name !== 'desc';
+        });
+        return meaningfulChildren.length > 0 || String(svg.textContent || '').trim().length > 0;
+      });
+    };
+
     const canReuseWorkspaceForActivation = () => {
       const runtimeAlreadyBoundToTarget = config.perTabDomInstances !== true
         || !config.__activeRuntimeTabId
@@ -925,8 +992,14 @@
       const mountedTabRoot = config.perTabDomInstances === true
         ? (Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null)
         : null;
-      const mountedTabRootHasGraph = config.perTabDomInstances !== true
-        || !!mountedTabRoot?.querySelector?.('.svgbox svg, .svgbox canvas, svg, canvas');
+      const mountedTabRootHasGraph = hasRenderableGraphContent(mountedTabRoot);
+      if (!mountedTabRootHasGraph && config.perTabDomInstances === true) {
+        console.debug('Debug: workspace reuse blocked because mounted graph is empty', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: options.reason || 'workspace-view'
+        });
+      }
       return !didRuntimeRebindForActivation
         && runtimeAlreadyBoundToTarget
         && mountedTabRootHasGraph
@@ -1036,56 +1109,19 @@
           workspaceState.lastActiveGraphId = tab.id;
           workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
         }
-        let restored = false;
-        if (canRestoreRender) {
-          if (Shared.componentLayout?.suppressNextScheduleFor) {
-            Shared.componentLayout.suppressNextScheduleFor(tab.type, {
-              tabId: tab.id,
-              reason: 'render-cache-restore-reuse',
-              delayMs: authoritativeRenderRestore ? 5000 : 400,
-              count: authoritativeRenderRestore ? 24 : 3
-            });
-          }
-          try {
-            restored = guardWorkspaceMutation('restore-render-cache-reuse') && !!config.restoreRenderCache(renderCache.cache, {
-              tab,
-              tabId: tab.id,
-              type: tab.type,
-              payload: tab.payload || null,
-              payloadSignature: targetPayloadSignature,
-              layoutSignature: targetLayoutSignature,
-              authoritativeRenderRestore,
-              sessionGeneration
-            });
-            if (restored && typeof session?.clearTabRenderCache === 'function') {
-              session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
-            }
-          } catch (err) {
-            console.error('workspace render cache restore error', { type: tab.type, err });
-            restored = false;
-          }
-          if (!restored && typeof config.draw === 'function') {
-            // Restore failed (cache empty / 3D-without-graph / etc.). The suppressNextScheduleFor
-            // call above would otherwise swallow this fallback draw and leave the tab blank,
-            // so explicitly release the suppression before drawing.
-            if (Shared.componentLayout?.releaseSuppressedSchedulesFor) {
-              Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
-                tabId: tab.id,
-                reason: 'render-cache-restore-reuse-fallback'
-              });
-            }
-            try {
-              config.draw(drawMeta);
-            } catch (err) {
-              console.error('workspace draw error', { type: tab.type, err });
-            }
-          }
-        }
+        // A reusable per-tab workspace already contains the live graph DOM. Do not
+        // restore a fragment cache over it during ordinary in-session switching:
+        // component captureRenderCache() implementations move children into fragments,
+        // and consuming a cache here can blank a tab if the restored fragment is stale
+        // or if only non-plot fragments are present. Cache restore is still used in the
+        // non-reuse path, e.g. after reopening from file or when the mounted DOM is empty.
         console.debug('Debug: workspace reuse without redraw', {
           tabId: tab.id,
           type: tab.type,
-          reason: options.reason || 'reuse-cache',
-          renderCacheRestored: restored
+          reason: options.reason || 'reuse-live-dom',
+          renderCacheAvailable: !!(renderCache && renderCache.cache),
+          renderCacheRestored: false,
+          liveDomReused: true
         });
         return;
       }
@@ -1149,7 +1185,9 @@
           namespace.applyWorkspacePayload(config, payload, {
             skipDraw: canRestoreRender,
             restoreRenderCache: canRestoreRender,
-            skipPayloadSizing: canRestoreRender,
+            skipPayloadSizing: canRestoreRender || !!tab.layoutState,
+            authoritativeLayoutState: !!tab.layoutState,
+            layoutStatePresent: !!tab.layoutState,
             authoritativeRenderRestore,
             ...drawMeta
           });
@@ -1222,8 +1260,23 @@
             authoritativeRenderRestore,
             sessionGeneration
           });
-          if (restored && typeof session?.clearTabRenderCache === 'function') {
-            session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
+          if (restored && config.perTabDomInstances === true) {
+            const restoredRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null;
+            if (!hasRenderableGraphContent(restoredRoot)) {
+              console.warn('workspace render cache restore produced empty graph; falling back to draw', {
+                tabId: tab.id,
+                type: tab.type,
+                reason: options.reason || 'workspace-view'
+              });
+              restored = false;
+            }
+          }
+          if (restored) {
+            if (renderCacheIsArchiveBacked && typeof session?.clearTabArchiveRenderCache === 'function') {
+              session.clearTabArchiveRenderCache(tab, { reason: 'render-cache-restored' });
+            } else if (typeof session?.clearTabRenderCache === 'function') {
+              session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
+            }
           }
         } catch (err) {
           console.error('workspace render cache restore error', { type: tab.type, err });

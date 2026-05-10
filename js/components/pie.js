@@ -3154,7 +3154,10 @@ let state = {
     return !!emptyPayloadTemplate;
   };
   pie.createEmptyPayload = function createEmptyPiePayload(){
-      pie.ensure();
+      console.debug('Debug: pie.createEmptyPayload pure factory invoked', {
+        ready: !!pie.ready,
+        boundTabId: pie.__boundTabId || null
+      });
       const payload = { type: 'pie', config: createImmutablePieDefaultConfig() };
       payload.type = 'pie';
       const createEmpty = Shared.createEmptyData;
@@ -4364,9 +4367,9 @@ let state = {
       getCurrentRoot: () => state.root || null,
       getCurrentSentinel: () => pie.__domSentinel || null,
       rebind: info => {
-        state.root = info?.root || resolvePieRoot(tabLike || null);
+        state.root = info?.root || resolvePieRoot(info?.tab || tabLike || null);
         pie.ready = false;
-        pie.init();
+        pie.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
       }
     });
     return !!result?.rebound;
@@ -4431,10 +4434,20 @@ let state = {
       }
     });
   }
-  pie.init = function init(){
-    if (pie.ready) { pieDebug('Debug: Components.pie.init skipped (already ready)'); return; }
-    pieDebug('Debug: Components.pie.init');
-    state.root = resolvePieRoot();
+  pie.init = function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || resolvePieRoot(targetTabId || null) || state.root || null;
+    if(pie.ready && (!targetTabId || pie.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      pieDebug('Debug: Components.pie.init skipped (already ready)', { tabId: pie.__boundTabId || null });
+      return;
+    }
+    if(pie.ready){
+      pieDebug('Debug: Components.pie.init rebinding', { previousTabId: pie.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      pie.ready = false;
+    }
+    pie.__boundTabId = targetTabId || null;
+    pieDebug('Debug: Components.pie.init', { tabId: pie.__boundTabId || null });
+    state.root = targetRoot || resolvePieRoot();
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     const schedulePieLayoutDraw = () => {
@@ -4461,6 +4474,9 @@ let state = {
     };
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'pie',
+        tabId: targetTabId || undefined,
+        root: state.root || undefined,
+        reason: options?.reason || 'pie-init',
         selectors: {
           tablePanel: '#pieTablePanel',
           graphPanel: '#pieGraphPanel',
@@ -4526,15 +4542,17 @@ let state = {
     if(ensurePieDomBindings()){
       return;
     }
-    if (!pie.ready) pie.init();
+    if (!pie.ready) pie.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
   };
-  pie.activateTab = function activateTab(tab){
-    state.root = resolvePieRoot(tab || null);
+  pie.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    pie.__boundTabId = targetTabId || pie.__boundTabId || null;
+    state.root = resolvePieRoot(tab || targetTabId || null);
     if(ensurePieDomBindings(tab)){
       return;
     }
     if(!pie.ready){
-      pie.init();
+      pie.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
@@ -4581,9 +4599,10 @@ let state = {
 
   pie.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getPieNodeById('piePlot');
     const stats = getPieNodeById('pieStatsResults');
-    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){

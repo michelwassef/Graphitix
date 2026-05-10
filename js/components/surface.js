@@ -2554,16 +2554,19 @@
     });
   }
 
-  surface.init = function init(){
-    if(surface.ready){
-      debugLog('Debug: surface.init skipped', { reason: 'ready' });
+  surface.init = function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || surface.__boundTabId || null;
+    const targetRoot = options?.root || resolveSurfaceRoot(targetTabId || null) || null;
+    if(surface.ready && (!targetTabId || surface.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      debugLog('Debug: surface.init skipped', { reason: 'ready', tabId: surface.__boundTabId || null });
       return;
     }
-    surface.__boundTabId = surface.__boundTabId
-      || Shared.hot.resolveActiveTabId?.()
-      || global.Main?.tabs?.getActiveTab?.()?.id
-      || null;
-    state.root = resolveSurfaceRoot();
+    if(surface.ready){
+      debugLog('Debug: surface.init rebinding', { previousTabId: surface.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      surface.ready = false;
+    }
+    surface.__boundTabId = targetTabId || null;
+    state.root = targetRoot || resolveSurfaceRoot(targetTabId || null);
     cacheDom();
     state.scheduleDraw = () => {};
     if(state.renderButton){
@@ -2578,6 +2581,9 @@
     state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
       ? componentLayout.createStandardPanels({
         componentName: 'surface',
+        tabId: targetTabId || undefined,
+        root: state.root || undefined,
+        reason: options?.reason || 'surface-init',
         selectors: {
           tablePanel: '#surfaceTablePanel',
           graphPanel: '#surfaceGraphPanel',
@@ -2707,16 +2713,16 @@
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveSurfaceRoot();
+          state.root = info?.root || resolveSurfaceRoot(info?.tab || null) || state.root || null;
           surface.ready = false;
-          surface.init();
+          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
         }
       });
       if(rebound?.rebound){
         return;
       }
     }
-    if(!surface.ready){ surface.init(); }
+    if(!surface.ready){ surface.init({ tabId: Shared.hot?.resolveActiveTabId?.() || surface.__boundTabId || undefined, reason: 'ensure' }); }
   };
   function resetSurfaceHotViewportToTop(hotInstance){
     const hot = hotInstance || null;
@@ -2748,9 +2754,10 @@
     }
     return Object.keys(runtime).length === 0;
   }
-  surface.activateTab = function activateTab(tab){
-    surface.__boundTabId = (tab && typeof tab === 'object' ? tab.id : tab) || surface.__boundTabId || null;
-    state.root = resolveSurfaceRoot(tab || null);
+  surface.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    surface.__boundTabId = targetTabId || surface.__boundTabId || null;
+    state.root = resolveSurfaceRoot(tab || targetTabId || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
@@ -2759,9 +2766,9 @@
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveSurfaceRoot(tab || null);
+          state.root = info?.root || resolveSurfaceRoot(tab || null) || state.root || null;
           surface.ready = false;
-          surface.init();
+          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || targetTabId || surface.__boundTabId || null, reason: 'activate-tab-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -2769,7 +2776,7 @@
       }
     }
     if(!surface.ready){
-      surface.init();
+      surface.init({ root: state.root || undefined, tabId: targetTabId || surface.__boundTabId || undefined, reason: meta?.reason || 'activate-tab' });
     }
     if(state.layout && typeof state.layout.syncPanels === 'function'){
       state.layout.syncPanels({ skipSchedule: true });
@@ -3080,7 +3087,10 @@
     return !!emptyPayloadTemplate;
   };
   surface.createEmptyPayload = function createEmptySurfacePayload(){
-    surface.ensure();
+    console.debug('Debug: surface.createEmptyPayload pure factory invoked', {
+      ready: !!surface.ready,
+      boundTabId: surface.__boundTabId || null
+    });
     const payload = { type: 'surface', config: {} };
     payload.type = 'surface';
     const createEmpty = Shared.createEmptyData;
@@ -3378,14 +3388,15 @@
         hasSvgRootState: !!svgRootState
       });
     }
-    return { svg: svgCache, stats: statsCache, message: messageCache, svgRootState };
+    return { plot: svgCache, stats: statsCache, message: messageCache, svgRootState };
   };
 
   surface.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.svg || cache?.plot || cache?.preview || cache?.graph || cache?.stage;
     cacheDom();
     restoreSurfaceSvgRootState(state.svg, cache.svgRootState);
-    const restoredSvg = restoreChildren(state.svg, cache.svg);
+    const restoredSvg = restoreChildren(state.svg, graphCachePayload);
     const restoredStats = restoreChildren(state.statsEl, cache.stats);
     const restoredMessage = restoreChildren(state.messageEl, cache.message);
     if(restoredSvg){

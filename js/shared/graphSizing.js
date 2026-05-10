@@ -623,6 +623,17 @@
 
   graphSizing.applyPayloadSizingForType = function applyPayloadSizingForType(type, payload, options = {}){
     const context = options.context || `${type || 'graph'}-apply`;
+    const authoritativeLayoutState = options.authoritativeLayoutState === true
+      || options.hasAuthoritativeLayoutState === true
+      || options.layoutStatePresent === true;
+    if(authoritativeLayoutState){
+      debug('Debug: graphSizing.applyPayloadSizingForType skipped', {
+        type,
+        context,
+        reason: 'authoritative-layout-state'
+      });
+      return false;
+    }
     if(type === 'box'){
       debug('Debug: graphSizing.applyPayloadSizingForType skipped', {
         type,

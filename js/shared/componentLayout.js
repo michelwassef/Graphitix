@@ -16,6 +16,42 @@
     return text || '';
   }
 
+  function remapRuntimeWorkspaceString(value, targetTabId){
+    const target = normalizeTabId(targetTabId);
+    if(!target || typeof value !== 'string'){
+      return value;
+    }
+    return value.replace(/workspace-\d+/g, target);
+  }
+
+  function rehomeDatasetForTab(dataset, componentName, tabId){
+    const target = normalizeTabId(tabId);
+    if(!dataset || typeof dataset !== 'object' || !target){
+      return dataset || null;
+    }
+    const next = {};
+    Object.entries(dataset).forEach(([key, value]) => {
+      next[key] = typeof value === 'string'
+        ? remapRuntimeWorkspaceString(value, target)
+        : value;
+    });
+    next.workspaceTabId = target;
+    next.tabId = target;
+    if(Object.prototype.hasOwnProperty.call(next, 'tabToken')){
+      next.tabToken = target;
+    }
+    if(typeof next.resizerTextLockScope === 'string'){
+      next.resizerTextLockScope = remapRuntimeWorkspaceString(next.resizerTextLockScope, target);
+    }
+    return next;
+  }
+
+  function resolveInstanceRootTabId(node){
+    const root = node?.closest?.('[data-workspace-instance-root="true"]') || null;
+    return normalizeTabId(root?.dataset?.workspaceTabId || root?.dataset?.tabId);
+  }
+
+
   function ensureRegistryBucket(componentName){
     const key = String(componentName || '').trim();
     if(!key){
@@ -129,8 +165,20 @@
       elements?.resizeTarget,
       elements?.svgBox,
       elements?.graphPanel,
-      elements?.tablePanel
+      elements?.tablePanel,
+      elements?.hotWrapper,
+      elements?.hotContainer
     ];
+    for(let i = 0; i < roots.length; i += 1){
+      const scoped = resolveInstanceRootTabId(roots[i]);
+      if(scoped){
+        return scoped;
+      }
+    }
+    const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    if(activeTabId){
+      return activeTabId;
+    }
     for(let i = 0; i < roots.length; i += 1){
       const node = roots[i];
       const direct = normalizeTabId(node?.dataset?.workspaceTabId || node?.dataset?.tabId);
@@ -143,7 +191,7 @@
         return scoped;
       }
     }
-    return normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    return '';
   }
 
   function getRootScopedElement(root, id, fallbackSelector){
@@ -178,11 +226,12 @@
     });
   }
 
-  function applySnapshotDataset(element, map){
+  function applySnapshotDataset(element, map, options = {}){
     if(!element?.dataset || !map || typeof map !== 'object'){
       return;
     }
-    Object.entries(map).forEach(([key, value]) => {
+    const sourceMap = options.tabId ? rehomeDatasetForTab(map, options.componentName, options.tabId) : map;
+    Object.entries(sourceMap).forEach(([key, value]) => {
       try{
         if(value === undefined || value === null || value === ''){
           delete element.dataset[key];
@@ -236,8 +285,11 @@
     };
     Object.entries(nodes).forEach(([key, node]) => {
       applySnapshotStyle(node, state[key]?.style);
-      applySnapshotDataset(node, state[key]?.dataset);
+      applySnapshotDataset(node, state[key]?.dataset, { tabId: options.tabId || root?.dataset?.workspaceTabId || null, componentName: name });
     });
+    if(options.tabId && global.Shared?.workspaceTabs?.stampWorkspaceScopeDeep){
+      global.Shared.workspaceTabs.stampWorkspaceScopeDeep(root, options.tabId);
+    }
     console.debug('Debug: componentLayout root hydrated', {
       component: name || null,
       tabId: options.tabId || root?.dataset?.workspaceTabId || null,
@@ -274,15 +326,31 @@
     return nextState;
   };
 
-  function resolveElement({ selector, label, documentRef, componentName }){
+  function resolveElement({ selector, label, documentRef, componentName, rootRef }){
     if(!selector){
       console.debug('Debug: componentLayout resolveElement missing selector', { component: componentName, label });
       return null;
     }
     try{
       if(typeof selector === 'string'){
-        const node = documentRef.querySelector(selector);
-        console.debug('Debug: componentLayout resolved selector', { component: componentName, label, selector, found: !!node });
+        let node = null;
+        if(rootRef && typeof rootRef.querySelector === 'function'){
+          try{
+            node = rootRef.querySelector(selector) || null;
+          }catch(err){
+            console.error('Shared.componentLayout root-scoped selector error', { component: componentName, label, selector, err });
+          }
+        }
+        if(!node){
+          node = documentRef.querySelector(selector);
+        }
+        console.debug('Debug: componentLayout resolved selector', {
+          component: componentName,
+          label,
+          selector,
+          found: !!node,
+          scoped: !!(node && rootRef && typeof rootRef.contains === 'function' && rootRef.contains(node))
+        });
         return node || null;
       }
       if(typeof selector === 'function'){
@@ -318,31 +386,51 @@
     }
 
     const selectors = config?.selectors || {};
+    const explicitTabId = normalizeTabId(config?.tabId || config?.workspaceTabId || config?.activeTabId);
+    const preferredRoot = config?.root
+      || (explicitTabId && typeof Shared.workspaceTabs?.getMountedRoot === 'function'
+        ? Shared.workspaceTabs.getMountedRoot(explicitTabId, componentName)
+        : null)
+      || null;
     const elements = {};
-    elements.tablePanel = resolveElement({ selector: selectors.tablePanel, label: 'tablePanel', documentRef, componentName });
-    elements.graphPanel = resolveElement({ selector: selectors.graphPanel, label: 'graphPanel', documentRef, componentName });
+    elements.tablePanel = resolveElement({ selector: selectors.tablePanel, label: 'tablePanel', documentRef, componentName, rootRef: preferredRoot });
+    elements.graphPanel = resolveElement({ selector: selectors.graphPanel, label: 'graphPanel', documentRef, componentName, rootRef: preferredRoot });
     elements.configPanel = resolveElement({
       selector: selectors.configPanel || (() => elements.graphPanel?.querySelector('.config-panel')),
       label: 'configPanel',
       documentRef,
-      componentName
+      componentName,
+      rootRef: preferredRoot
     });
-    elements.panelResizer = resolveElement({ selector: selectors.panelResizer, label: 'panelResizer', documentRef, componentName });
-    elements.hotWrapper = resolveElement({ selector: selectors.hotWrapper, label: 'hotWrapper', documentRef, componentName });
-    elements.hotContainer = resolveElement({ selector: selectors.hotContainer, label: 'hotContainer', documentRef, componentName });
+    elements.panelResizer = resolveElement({ selector: selectors.panelResizer, label: 'panelResizer', documentRef, componentName, rootRef: preferredRoot });
+    elements.hotWrapper = resolveElement({ selector: selectors.hotWrapper, label: 'hotWrapper', documentRef, componentName, rootRef: preferredRoot });
+    elements.hotContainer = resolveElement({ selector: selectors.hotContainer, label: 'hotContainer', documentRef, componentName, rootRef: preferredRoot });
     elements.svgBox = resolveElement({
       selector: selectors.svgBox || (() => elements.graphPanel?.querySelector('.svgbox')),
       label: 'svgBox',
       documentRef,
-      componentName
+      componentName,
+      rootRef: preferredRoot
     });
     elements.resizeTarget = resolveElement({
       selector: selectors.resizeTarget || (() => elements.svgBox || elements.graphPanel),
       label: 'resizeTarget',
       documentRef,
-      componentName
+      componentName,
+      rootRef: preferredRoot
     });
     const layoutTabId = resolveElementTabId(elements, config);
+    const activeSessionTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+    if(layoutTabId && activeSessionTabId && layoutTabId !== activeSessionTabId){
+      console.warn('componentLayout tabId conflict resolved', {
+        component: componentName,
+        layoutTabId,
+        activeSessionTabId,
+        explicitTabId: explicitTabId || null,
+        preferredRootTabId: normalizeTabId(preferredRoot?.dataset?.workspaceTabId || preferredRoot?.dataset?.tabId) || null,
+        reason: config?.reason || 'createStandardPanels'
+      });
+    }
     const previousLayoutApi = (() => {
       const bucket = layoutRegistry[componentName];
       if(bucket && bucket.__isTabScopedBucket === true){
@@ -973,8 +1061,16 @@
           style: cloneStyle(elements.configPanel)
         }
       };
+      if(layoutTabId){
+        ['svgBox', 'tablePanel', 'graphPanel', 'configPanel'].forEach(key => {
+          if(state[key]?.dataset){
+            state[key].dataset = rehomeDatasetForTab(state[key].dataset, componentName, layoutTabId);
+          }
+        });
+      }
       console.debug('Debug: componentLayout captureState', {
         component: componentName,
+        tabId: layoutTabId || null,
         hasSvg: !!state.svgBox?.style || !!state.svgBox?.dataset,
         hasTable: !!state.tablePanel?.style || !!state.tablePanel?.dataset,
         minSvgWidth: state.minSvgWidth
@@ -1007,10 +1103,11 @@
     const applyDataset = (element, map, contextLabel, options = {}) => {
       if(!element || !element.dataset){ return; }
       const reset = options.reset === true;
+      const sanitizedMap = map ? rehomeDatasetForTab(map, componentName, options.tabId || layoutTabId) : map;
       if(reset){
         const keys = Object.keys(element.dataset);
         keys.forEach(key => {
-          if(!map || !Object.prototype.hasOwnProperty.call(map, key)){
+          if(!sanitizedMap || !Object.prototype.hasOwnProperty.call(sanitizedMap, key)){
             try{
               delete element.dataset[key];
             }catch(err){
@@ -1019,8 +1116,8 @@
           }
         });
       }
-      if(!map){ return; }
-      Object.entries(map).forEach(([key, value]) => {
+      if(!sanitizedMap){ return; }
+      Object.entries(sanitizedMap).forEach(([key, value]) => {
         try{
           if(value === undefined || value === null || value === ''){
             delete element.dataset[key];

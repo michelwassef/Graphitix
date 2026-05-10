@@ -3370,7 +3370,10 @@
     return !!emptyPayloadTemplate;
   };
   hist.createEmptyPayload = function createEmptyHistPayload(){
-      hist.ensure();
+      console.debug('Debug: hist.createEmptyPayload pure factory invoked', {
+        ready: !!hist.ready,
+        boundTabId: hist.__boundTabId || null
+      });
       return createImmutableHistDefaultPayload();
     };
     hist.save = async function(){
@@ -5402,27 +5405,38 @@
       getCurrentSentinel: () => hist.__domSentinel || null,
       rebind: info => {
         state.root = info?.root
-          || Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'hist')
+          || Shared.workspaceTabs?.getMountedRoot?.(info?.tab || tabLike || null, 'hist')
           || state.root
           || global.document?.getElementById?.('histPage')
           || global.document;
         hist.ready = false;
-        hist.init();
+        hist.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
       }
     });
     return !!result?.rebound;
   }
 
-  hist.init = function init(){
-    if (hist.ready) { histDebug('Debug: Components.hist.init skipped (already ready)'); return; }
-    histDebug('Debug: Components.hist.init');
-    state.root = Shared.workspaceTabs?.getMountedRoot?.(null, 'hist')
-      || global.document?.getElementById?.('histPage')
-      || global.document;
+  hist.init = function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || global.document?.getElementById?.('histPage') || global.document;
+    if(hist.ready && (!targetTabId || hist.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      histDebug('Debug: Components.hist.init skipped (already ready)', { tabId: hist.__boundTabId || null });
+      return;
+    }
+    if(hist.ready){
+      histDebug('Debug: Components.hist.init rebinding', { previousTabId: hist.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      hist.ready = false;
+    }
+    hist.__boundTabId = targetTabId || null;
+    histDebug('Debug: Components.hist.init', { tabId: hist.__boundTabId || null });
+    state.root = targetRoot;
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'hist',
+        tabId: targetTabId || undefined,
+        root: state.root || undefined,
+        reason: options?.reason || 'hist-init',
         selectors: {
           tablePanel: '#histTablePanel',
           graphPanel: '#histGraphPanel',
@@ -5558,10 +5572,12 @@
     if(ensureHistDomBindings()){
       return;
     }
-    if (!hist.ready) hist.init();
+    if (!hist.ready) hist.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
   };
-  hist.activateTab = function activateTab(tab){
-    state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'hist')
+  hist.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    hist.__boundTabId = targetTabId || hist.__boundTabId || null;
+    state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || targetTabId || null, 'hist')
       || state.root
       || global.document?.getElementById?.('histPage')
       || global.document;
@@ -5569,7 +5585,7 @@
       return;
     }
     if(!hist.ready){
-      hist.init();
+      hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
@@ -5623,9 +5639,10 @@
 
   hist.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getHistNodeById('histPlot');
     const stats = getHistNodeById('histStatsResults');
-    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){

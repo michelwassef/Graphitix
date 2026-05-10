@@ -71,6 +71,77 @@
     }
   }
 
+
+  function collectRuntimeWorkspaceIds(value, out = new Set(), seen = new WeakSet()) {
+    if (value === null || value === undefined) {
+      return out;
+    }
+    if (typeof value === 'string') {
+      const matches = value.match(/workspace-\d+/g);
+      if (matches) {
+        matches.forEach(id => out.add(id));
+      }
+      return out;
+    }
+    if (typeof value !== 'object' || seen.has(value)) {
+      return out;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(item => collectRuntimeWorkspaceIds(item, out, seen));
+      return out;
+    }
+    Object.entries(value).forEach(([key, child]) => {
+      collectRuntimeWorkspaceIds(key, out, seen);
+      collectRuntimeWorkspaceIds(child, out, seen);
+    });
+    return out;
+  }
+
+  function remapRuntimeWorkspaceString(value, targetTabId) {
+    const target = String(targetTabId || '').trim();
+    if (!target || typeof value !== 'string') {
+      return value;
+    }
+    return value.replace(/workspace-\d+/g, target);
+  }
+
+  function rehomeTabScopedArchiveState(value, targetTabId, seen = new WeakSet()) {
+    const target = String(targetTabId || '').trim();
+    if (!target || value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return remapRuntimeWorkspaceString(value, target);
+    }
+    if (typeof value !== 'object' || seen.has(value)) {
+      return value;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i += 1) {
+        value[i] = rehomeTabScopedArchiveState(value[i], target, seen);
+      }
+      return value;
+    }
+    Object.keys(value).forEach(key => {
+      const nextKey = remapRuntimeWorkspaceString(key, target);
+      const nextValue = rehomeTabScopedArchiveState(value[key], target, seen);
+      if (nextKey !== key) {
+        delete value[key];
+      }
+      value[nextKey] = nextValue;
+    });
+    return value;
+  }
+
+  function cloneAndRehomeTabScopedArchiveState(value, targetTabId) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    return rehomeTabScopedArchiveState(cloneValue(value), targetTabId);
+  }
+
   function sanitizeSegment(value, fallback) {
     const base = String(value || '').trim();
     const fallbackValue = String(fallback || 'workspace').trim() || 'workspace';
@@ -818,11 +889,16 @@
         renderCache: hasArchiveRenderCache,
         uiState: hasUiState
       });
+      const runtimeTabId = typeof tab?.runtimeTabId === 'string'
+        ? tab.runtimeTabId
+        : (typeof tab?.id === 'string' ? tab.id : null);
+      const rehomeForRuntimeTab = value => runtimeTabId ? cloneAndRehomeTabScopedArchiveState(value, runtimeTabId) : value;
       const tabManifest = {
         index,
         title: tabTitle,
         type: typeof tab?.type === 'string' ? tab.type : (typeof payload?.type === 'string' ? payload.type : null),
         folder: folderPath,
+        runtimeTabId,
         rawDataMode: rawData.mode,
         payloadMode,
         files: tabFiles
@@ -831,6 +907,7 @@
       zip.file(tabManifest.files.tab, JSON.stringify({
         title: tabManifest.title,
         type: tabManifest.type,
+        runtimeTabId: tabManifest.runtimeTabId || null,
         rawDataMode: tabManifest.rawDataMode,
         payloadMode: tabManifest.payloadMode,
         files: tabManifest.files
@@ -852,15 +929,15 @@
       }
       zip.file(tabManifest.files.rawCsv, rawCsvText, rawCsvOptions || undefined);
       zip.file(tabManifest.files.config, JSON.stringify(config));
-      zip.file(tabManifest.files.layout, JSON.stringify(layout));
+      zip.file(tabManifest.files.layout, JSON.stringify(rehomeForRuntimeTab(layout)));
       if (typeof exclusions !== 'undefined') {
         zip.file(tabManifest.files.exclusions, JSON.stringify(exclusions));
       }
       if (hasPreview && tabManifest.files.preview) {
         const previewPayload = {
-          markup: tab.previewMarkup,
+          markup: runtimeTabId ? remapRuntimeWorkspaceString(tab.previewMarkup, runtimeTabId) : tab.previewMarkup,
           signature: tab.previewSignature || null,
-          meta: tab.previewMeta || null
+          meta: rehomeForRuntimeTab(tab.previewMeta || null)
         };
         zip.file(tabManifest.files.preview, JSON.stringify(previewPayload), {
           compression: 'DEFLATE',
@@ -869,7 +946,7 @@
       }
       if (hasArchiveRenderCache && tabManifest.files.renderCache) {
         const renderCachePayload = {
-          cache: tab.archiveRenderCache,
+          cache: rehomeForRuntimeTab(tab.archiveRenderCache),
           payloadSignature: tab.archiveRenderCacheSignature || null,
           layoutSignature: tab.archiveRenderCacheLayoutSignature || null
         };
@@ -879,7 +956,7 @@
         });
       }
       if (hasUiState && tabManifest.files.uiState) {
-        zip.file(tabManifest.files.uiState, JSON.stringify(tab.uiState));
+        zip.file(tabManifest.files.uiState, JSON.stringify(rehomeForRuntimeTab(tab.uiState)));
       }
       manifest.tabs.push(tabManifest);
     }
@@ -1048,13 +1125,17 @@
       if (payloadMode === 'lite' || shouldHydrateData) {
         payload = hydratePayloadDataViews(payload);
       }
+      const tabInfo = await readJsonFileFromZip(zip, files.tab);
       const layout = await readJsonFileFromZip(zip, files.layout);
       const previewData = files.preview ? await readJsonFileFromZip(zip, files.preview) : null;
       const renderCacheData = files.renderCache ? await readJsonFileFromZip(zip, files.renderCache) : null;
       const uiStateData = files.uiState ? await readJsonFileFromZip(zip, files.uiState) : null;
+      const embeddedRuntimeIds = Array.from(collectRuntimeWorkspaceIds({ layout, previewData, renderCacheData, uiStateData }));
       sessionTabs.push({
-        title: entry.title || `${DEFAULT_TAB_TITLE} ${i + 1}`,
-        type: entry.type || payload?.type || null,
+        title: entry.title || tabInfo?.title || `${DEFAULT_TAB_TITLE} ${i + 1}`,
+        type: entry.type || tabInfo?.type || payload?.type || null,
+        archiveRuntimeTabId: entry.runtimeTabId || tabInfo?.runtimeTabId || embeddedRuntimeIds[embeddedRuntimeIds.length - 1] || null,
+        archiveRuntimeTabIds: embeddedRuntimeIds,
         payload: payload || null,
         layout: layout || null,
         previewMarkup: typeof previewData?.markup === 'string' ? previewData.markup : null,

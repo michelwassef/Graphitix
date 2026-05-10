@@ -207,9 +207,16 @@
     if(!element?.dataset){
       return;
     }
-    if(tabId){
-      element.dataset.workspaceTabId = tabId;
-      element.dataset.tabId = tabId;
+    const target = normalizeTabId(tabId);
+    if(target){
+      element.dataset.workspaceTabId = target;
+      element.dataset.tabId = target;
+      if(Object.prototype.hasOwnProperty.call(element.dataset, 'tabToken')){
+        element.dataset.tabToken = target;
+      }
+      if(typeof element.dataset.resizerTextLockScope === 'string'){
+        element.dataset.resizerTextLockScope = element.dataset.resizerTextLockScope.replace(/workspace-\d+/g, target);
+      }
     }else{
       delete element.dataset.workspaceTabId;
       delete element.dataset.tabId;
@@ -221,7 +228,7 @@
     if(!element || typeof element.querySelectorAll !== 'function'){
       return;
     }
-    const scopedNodes = element.querySelectorAll('[data-font-scope], .svgbox, svg');
+    const scopedNodes = element.querySelectorAll('[data-font-scope], [data-workspace-tab-id], [data-tab-id], [data-tab-token], [data-resizer-text-lock-scope], .svgbox, svg');
     for(let i = 0; i < scopedNodes.length; i += 1){
       stampWorkspaceScope(scopedNodes[i], tabId);
     }
@@ -337,6 +344,7 @@
 
 
   namespace.ensureSessionRecord = ensureSessionRecord;
+  namespace.stampWorkspaceScopeDeep = stampWorkspaceScopeDeep;
 
   namespace.ensureComponentInstance = function ensureComponentInstance(tabLike, componentKey, factory, meta = {}){
     const tab = resolveTab(tabLike);
@@ -634,17 +642,38 @@
     return true;
   };
 
+  function findWorkspaceTabById(tabId){
+    const id = normalizeTabId(tabId || '');
+    if(!id){
+      return null;
+    }
+    try{
+      const session = resolveSession();
+      const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+      return tabs.find(tab => tab && String(tab.id || '') === id) || null;
+    }catch(err){
+      return null;
+    }
+  }
+
   namespace.buildSessionMeta = function buildSessionMeta(componentKey, options = {}){
     const componentKeyText = String(componentKey || options?.type || options?.componentType || '').trim() || '__default__';
     const active = namespace.getActiveSessionInfo(componentKeyText) || null;
     const explicitTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId || '');
+    const fallbackTab = resolveSession()?.getActiveTab?.() || null;
+    const tabId = explicitTabId || active?.tabId || fallbackTab?.id || null;
+    const tab = findWorkspaceTabById(tabId) || fallbackTab || null;
     const explicitGeneration = Number(options?.sessionGeneration ?? options?.generation);
     return {
-      tabId: explicitTabId || active?.tabId || resolveSession()?.getActiveTab?.()?.id || null,
+      tabId,
       sessionGeneration: Number.isFinite(explicitGeneration) && explicitGeneration > 0
         ? explicitGeneration
         : (Number(active?.generation) || 0),
-      componentKey: componentKeyText
+      componentKey: componentKeyText,
+      payloadSignature: options?.payloadSignature ?? tab?.payloadSignature ?? null,
+      layoutSignature: options?.layoutSignature ?? tab?.layoutSignature ?? null,
+      requirePayloadSignature: options?.requirePayloadSignature === true,
+      requireLayoutSignature: options?.requireLayoutSignature === true
     };
   };
 
@@ -657,7 +686,30 @@
     if(!Number.isFinite(generation) || generation <= 0){
       return true;
     }
-    return !!namespace.isSessionCurrent(componentKeyText, meta.tabId || null, generation);
+    const sessionCurrent = !!namespace.isSessionCurrent(componentKeyText, meta.tabId || null, generation);
+    if(!sessionCurrent){
+      return false;
+    }
+    const tab = findWorkspaceTabById(meta.tabId || null);
+    if(meta.requirePayloadSignature === true && meta.payloadSignature != null && tab && tab.payloadSignature !== meta.payloadSignature){
+      debugLog('Debug: workspaceTabs session meta rejected by payload signature', {
+        componentKey: componentKeyText,
+        tabId: meta.tabId || null,
+        expected: meta.payloadSignature,
+        current: tab.payloadSignature || null
+      });
+      return false;
+    }
+    if(meta.requireLayoutSignature === true && meta.layoutSignature != null && tab && tab.layoutSignature !== meta.layoutSignature){
+      debugLog('Debug: workspaceTabs session meta rejected by layout signature', {
+        componentKey: componentKeyText,
+        tabId: meta.tabId || null,
+        expected: meta.layoutSignature,
+        current: tab.layoutSignature || null
+      });
+      return false;
+    }
+    return true;
   };
 
   namespace.createTabScopedScheduler = function createTabScopedScheduler(config = {}){
@@ -926,11 +978,28 @@
       return false;
     }
     const sharedState = ensureRecordShape(tab);
+    sharedState.metadata.active = false;
+    sharedState.metadata.lastDeactivatedAt = Date.now();
+    try{
+      const capturedUiState = global.Main?.session?.captureWorkspaceUiState?.(tab) || null;
+      if(capturedUiState && typeof capturedUiState === 'object'){
+        tab.uiState = capturedUiState;
+        debugLog('Debug: workspaceTabs deactivation uiState captured', {
+          tabId: tab.id,
+          type: resolvedType || null,
+          reason: meta.reason || 'deactivate-workspace'
+        });
+      }
+    }catch(err){
+      console.error('workspaceTabs deactivate uiState capture error', {
+        tabId: tab.id,
+        type: resolvedType || null,
+        err
+      });
+    }
     const sessionRecord = namespace.deactivateSession(tab, resolvedType, {
       reason: meta.reason || 'deactivate-workspace'
     });
-    sharedState.metadata.active = false;
-    sharedState.metadata.lastDeactivatedAt = Date.now();
     invokeWorkspaceHook(resolvedConfig, 'deactivateTab', [tab, {
       reason: meta.reason || 'deactivate-workspace',
       sessionGeneration: sessionRecord?.generation || 0,
@@ -961,6 +1030,18 @@
     invokeWorkspaceHook(resolvedConfig, 'disposeTab', [tab, {
       reason: meta.reason || 'dispose-tab'
     }], meta);
+    try{
+      global.Shared?.hot?.disposeTab?.(tab, {
+        type: resolvedType || null,
+        reason: meta.reason || 'dispose-tab'
+      });
+    }catch(err){
+      console.error('workspaceTabs hot dispose error', {
+        tabId: tab.id,
+        type: resolvedType || null,
+        err
+      });
+    }
     const record = namespace.getSessionRecord(tab, resolvedType);
     detachRoot(record?.dom?.root || null);
     delete tab.sharedState;

@@ -4638,7 +4638,10 @@
     return !!emptyPayloadTemplate;
   };
   survival.createEmptyPayload = function createEmptySurvivalPayload(){
-    survival.ensure();
+    console.debug('Debug: survival.createEmptyPayload pure factory invoked', {
+      ready: !!survival.ready,
+      boundTabId: survival.__boundTabId || null
+    });
     const payload = { type: 'survival', config: {} };
     payload.type = 'survival';
     const createEmpty = Shared.createEmptyData;
@@ -5175,11 +5178,19 @@
     });
   }
 
-  function init(){
-    if(survival.ready){
+  function init(options = {}){
+    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetRoot = options?.root || resolveSurvivalRoot(targetTabId || null) || refs.root || null;
+    if(survival.ready && (!targetTabId || survival.__boundTabId === targetTabId) && (!targetRoot || refs.root === targetRoot)){
+      logDebug('init skipped', { tabId: survival.__boundTabId || null });
       return;
     }
-    refs.root = resolveSurvivalRoot();
+    if(survival.ready){
+      logDebug('init rebinding', { previousTabId: survival.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      survival.ready = false;
+    }
+    survival.__boundTabId = targetTabId || null;
+    refs.root = targetRoot || resolveSurvivalRoot(targetTabId || null);
     if(!ensureElements()){
       console.warn('Survival component init skipped: required elements missing');
       return;
@@ -5195,6 +5206,9 @@
     logDebug('scheduleDraw configured', { hasDebounce: typeof Shared.debounceFrame === 'function' });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'survival',
+        tabId: targetTabId || undefined,
+        root: refs.root || undefined,
+        reason: options?.reason || 'survival-init',
         selectors: {
           tablePanel: '#survivalTablePanel',
           graphPanel: '#survivalGraphPanel',
@@ -5266,9 +5280,9 @@
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
         rebind: (info) => {
-          refs.root = info?.root || resolveSurvivalRoot();
+          refs.root = info?.root || resolveSurvivalRoot(info?.tab || null) || refs.root || null;
           survival.ready = false;
-          init();
+          init({ root: refs.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -5276,11 +5290,13 @@
       }
     }
     if(!survival.ready){
-      init();
+      init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
     }
   };
-  survival.activateTab = function activateTab(tab){
-    refs.root = resolveSurvivalRoot(tab || null);
+  survival.activateTab = function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    survival.__boundTabId = targetTabId || survival.__boundTabId || null;
+    refs.root = resolveSurvivalRoot(tab || targetTabId || null);
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
@@ -5289,9 +5305,9 @@
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
         rebind: (info) => {
-          refs.root = info?.root || resolveSurvivalRoot(tab || null);
+          refs.root = info?.root || resolveSurvivalRoot(tab || null) || refs.root || null;
           survival.ready = false;
-          init();
+          init({ root: refs.root || undefined, tabId: info?.tab?.id || targetTabId || null, reason: 'activate-tab-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -5299,7 +5315,7 @@
       }
     }
     if(!survival.ready){
-      init();
+      init({ root: refs.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
       return;
     }
     if(typeof state.ensureHotForActiveTab === 'function'){
@@ -5361,12 +5377,13 @@
 
   survival.restoreRenderCache = function restoreRenderCache(cache){
     if(!cache){ return false; }
+    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getSurvivalNodeById('survivalPlot');
     const summary = getSurvivalNodeById('survivalStatsSummary');
     const logRank = getSurvivalNodeById('survivalStatsLogRank');
     const hazard = getSurvivalNodeById('survivalStatsHazardRatios');
     const cox = getSurvivalNodeById('survivalStatsCox');
-    const restoredPlot = restoreChildren(plot, cache.plot);
+    const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredSummary = restoreChildren(summary, cache.summary);
     const restoredLogRank = restoreChildren(logRank, cache.logRank);
     const restoredHazard = restoreChildren(hazard, cache.hazard);
