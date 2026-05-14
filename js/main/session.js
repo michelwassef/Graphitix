@@ -3116,6 +3116,10 @@
       // data-workspace-component or data-workspace-instance-root attributes.
       return !!target.closest('[data-workspace-component], [data-workspace-instance-root="true"]');
     };
+    const isDocumentStateControl = target => {
+      if (!target || typeof target.closest !== 'function') return false;
+      return !!target.closest('input[data-document-autosave="1"], [data-document-title="1"], [data-document-status="1"]');
+    };
     // Late-bind through window.Main.session so the listener always invokes the current
     // session module — important for tests that load session.js multiple times.
     const callMark = (reason, source, ownerTabId) => {
@@ -3153,6 +3157,7 @@
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
       if (!target || !isInsideWorkspace(target)) return;
+      if (isDocumentStateControl(target)) return;
       // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
       // a content change).
       if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
@@ -3166,6 +3171,7 @@
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
       if (!target || !isInsideWorkspace(target)) return;
+      if (isDocumentStateControl(target)) return;
       const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
       if (!interactive) return;
       // Skip the workspace tab strip and its close buttons (lifecycle, not content).

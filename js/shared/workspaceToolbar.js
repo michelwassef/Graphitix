@@ -176,9 +176,45 @@
   let menuHandlersBound = false;
   let transformHandlersBound = false;
   let sectionTabHandlersBound = false;
+  let generalFallbackHandlersBound = false;
   const contextObservers = new WeakMap();
   const transformCustomExpressionByKey = new Map();
   const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
+  const GENERAL_FALLBACK_IGNORE_SELECTOR = [
+    '.workspace-toolbar',
+    '.font-toolbar-host',
+    '.workspace-toolbar__panel',
+    '.workspace-toolbar__transform-custom-dropdown',
+    '.workspace-toolbar__menu-list',
+    '.ag-root-wrapper',
+    '.ag-theme-balham',
+    '.ag-theme-alpine',
+    '.shared-color-picker',
+    '.scatter-point-context-menu',
+    '.axis-controls-panel',
+    '.grid-controls-panel',
+    '.additional-line-controls-panel',
+    '.significance-controls-panel',
+    '.resizer-control-tray',
+    '.resizer-options',
+    '.resizer-options-menu',
+    '[data-grid-control="1"]',
+    '[data-axis-control="1"]',
+    '[data-additional-line-control="1"]',
+    '[data-significance-control="1"]',
+    '[data-dendrogram-control="1"]',
+    '[data-point-controls="1"]',
+    '[data-font-editable="1"]',
+    '[data-font-key]',
+    '.inline-edit-overlay',
+    'input',
+    'select',
+    'textarea',
+    'button',
+    'summary',
+    'a[href]',
+    '[contenteditable="true"]'
+  ].join(', ');
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -860,6 +896,85 @@
     if(sectionTabHandlersBound || !doc){ return; }
     doc.addEventListener('click', handleToolbarSectionTabClickCapture, true);
     sectionTabHandlersBound = true;
+  }
+
+  function findGeneralSectionId(toolbar){
+    if(!toolbar){ return ''; }
+    const tabs = Array.from(toolbar.querySelectorAll('.workspace-toolbar__tab[data-toolbar-section-target]'));
+    if(!tabs.length){
+      return '';
+    }
+    const generalTab = tabs.find(tab => {
+      const label = String(tab.textContent || '').trim().toLowerCase();
+      return label === 'general' || label === 'file';
+    });
+    return String(generalTab?.dataset?.toolbarSectionTarget || tabs[0]?.dataset?.toolbarSectionTarget || '').trim();
+  }
+
+  function resolveToolbarFromClickTarget(target){
+    if(!doc || !target || typeof target.closest !== 'function'){
+      return null;
+    }
+    const page = target.closest('.workspace-page:not([hidden])')
+      || doc.querySelector('.workspace-page:not([hidden])');
+    if(!page){
+      return null;
+    }
+    return page.querySelector('.workspace-page__topbar[data-toolbar] .workspace-toolbar');
+  }
+
+  function shouldFallbackToGeneralOnClick(target){
+    if(!target || typeof target.closest !== 'function'){
+      return false;
+    }
+    if(target.closest(GENERAL_FALLBACK_IGNORE_SELECTOR)){
+      return false;
+    }
+    const svgRoot = target.closest('.svgbox svg');
+    if(svgRoot){
+      return target === svgRoot;
+    }
+    return !!target.closest('.workspace-page:not([hidden])');
+  }
+
+  function handleGeneralToolbarFallbackClick(event){
+    if(!doc){ return; }
+    const target = event?.target;
+    if(!target || typeof target.closest !== 'function'){
+      return;
+    }
+    if(event.defaultPrevented){
+      return;
+    }
+    if(!shouldFallbackToGeneralOnClick(target)){
+      return;
+    }
+    const toolbar = resolveToolbarFromClickTarget(target);
+    if(!toolbar){
+      return;
+    }
+    const sectionId = findGeneralSectionId(toolbar);
+    if(!sectionId){
+      return;
+    }
+    const activeSectionId = String(toolbar.dataset.toolbarActiveSection || '').trim();
+    if(activeSectionId === sectionId && !toolbar.querySelector('.font-toolbar-host.font-toolbar-host--visible')){
+      return;
+    }
+    collapseToolbarContextHosts(toolbar, sectionId);
+    setToolbarActiveSection(toolbar, sectionId, { manual: true, clearContext: true });
+    logDebug('fallback to general section after non-action click', {
+      toolbarKey: toolbar.dataset.toolbarKey || '',
+      sectionId
+    });
+  }
+
+  function ensureGeneralFallbackHandlers(){
+    if(generalFallbackHandlersBound || !doc){
+      return;
+    }
+    doc.addEventListener('click', handleGeneralToolbarFallbackClick);
+    generalFallbackHandlersBound = true;
   }
 
   function createFormControl(control){
@@ -1614,7 +1729,6 @@
     const content = doc.createElement('div');
     content.className = 'workspace-toolbar__content';
 
-    const entries = [];
     const sections = normalizeToolbarSections(config.sections);
     sections.forEach((section, index) => {
       if(!section){ return; }
@@ -1632,8 +1746,6 @@
       sectionEl.dataset.toolbarSectionId = sectionId;
       sectionEl.setAttribute('hidden', 'hidden');
       content.appendChild(sectionEl);
-      entries.push({ sectionId, tabLabel });
-
       const tab = doc.createElement('button');
       tab.type = 'button';
       tab.className = 'workspace-toolbar__tab';
@@ -1709,13 +1821,7 @@
     toolbar.appendChild(tabs);
     toolbar.appendChild(content);
 
-    let defaultSectionId = '';
-    const fileEntry = entries.find(entry => entry.tabLabel.toLowerCase() === 'file');
-    if(fileEntry){
-      defaultSectionId = fileEntry.sectionId;
-    } else if(entries.length){
-      defaultSectionId = entries[0].sectionId;
-    }
+    const defaultSectionId = findGeneralSectionId(toolbar);
     if(defaultSectionId){
       setToolbarActiveSection(toolbar, defaultSectionId, { manual: true, clearContext: true });
     }
@@ -1802,6 +1908,7 @@
     ensureMenuHandlers();
     ensureTransformHandlers();
     ensureSectionTabHandlers();
+    ensureGeneralFallbackHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
     if(placeholder){

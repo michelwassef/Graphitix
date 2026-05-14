@@ -322,6 +322,28 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     }
   });
 
+  test('global user-input listener ignores autosave document control events inside workspace roots', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'line');
+    const autosave = document.createElement('input');
+    autosave.type = 'checkbox';
+    autosave.setAttribute('data-document-autosave', '1');
+    root.appendChild(autosave);
+    document.body.appendChild(root);
+    try {
+      autosave.dispatchEvent(makeTrustedEvent('change', autosave));
+      expect(tab.userModified).toBe(false);
+      expect(tab.payloadDirty).toBe(false);
+      expect(session.workspaceState.sessionUserDirty).toBe(false);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
   test('persistUserModifiedTabState marks user dirty and flushes mounted payload state', () => {
     const tab = createTabWithPayload();
     session.workspaceState.activeTabId = tab.id;

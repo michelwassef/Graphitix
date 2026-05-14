@@ -101,3 +101,52 @@ test('scatter: Data -> Format -> General must stay on General', async ({ page },
   expect(after.dataset.active).toBe(after.activeTab?.target || after.dataset.active);
   expect(issues.critical).toEqual([]);
 });
+
+test('scatter: Data -> click empty page area must return to General', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#welcomeScreen')).toBeVisible();
+
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true });
+  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
+
+  await page.evaluate(() => {
+    const cell = document.querySelector('#scatterPage:not([hidden]) .ag-center-cols-container .ag-cell');
+    if (!cell) {
+      return false;
+    }
+    cell.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    cell.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    cell.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    return true;
+  });
+  await page.waitForTimeout(250);
+
+  const afterData = await page.evaluate(snapshotToolbarState);
+
+  await page.evaluate(() => {
+    const panel = document.querySelector('#scatterPage:not([hidden]) #scatterGraphPanel');
+    if (!panel) {
+      return false;
+    }
+    panel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    return true;
+  });
+  await page.waitForTimeout(300);
+
+  const afterBlankClick = await page.evaluate(snapshotToolbarState);
+  await testInfo.attach('toolbar-general-fallback.after-data.json', {
+    body: Buffer.from(JSON.stringify(afterData, null, 2), 'utf8'),
+    contentType: 'application/json'
+  });
+  await testInfo.attach('toolbar-general-fallback.after-blank-click.json', {
+    body: Buffer.from(JSON.stringify(afterBlankClick, null, 2), 'utf8'),
+    contentType: 'application/json'
+  });
+
+  expect(afterData.activeTab?.label).toBe('Data');
+  expect(afterBlankClick.activeTab?.label).toBe('General');
+  expect(issues.critical).toEqual([]);
+});
