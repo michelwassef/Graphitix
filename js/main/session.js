@@ -267,6 +267,21 @@
     return wasDirty;
   }
 
+  function markTabRenderCommitted(tabLike, meta = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome) {
+      return false;
+    }
+    const floor = Math.max(
+      Number(tab.payloadVersion || 0),
+      Number(tab.layoutVersion || 0)
+    );
+    tab.renderCommitVersion = Math.max(Number(tab.renderCommitVersion || 0), floor);
+    tab.lastRenderCommitReason = normalizeReason(meta.reason) || 'render-commit';
+    tab.lastRenderCommitAt = Date.now();
+    return true;
+  }
+
   function markAllTabsClean(reason) {
     if (!Array.isArray(workspaceState.tabs)) {
       return;
@@ -1225,12 +1240,28 @@
     }
     const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
     const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
+    const payloadVersion = Number(tab.payloadVersion || 0);
+    const layoutVersion = Number(tab.layoutVersion || 0);
+    const renderCommitVersion = Number(tab.renderCommitVersion || 0);
+    if (renderCommitVersion < payloadVersion || renderCommitVersion < layoutVersion) {
+      console.debug('Debug: archive render cache rejected by render-commit barrier', {
+        tabId: tab.id,
+        payloadVersion,
+        layoutVersion,
+        renderCommitVersion,
+        reason: meta.reason || 'archive-render-cache-peeked'
+      });
+      return null;
+    }
     return {
       cache,
       tabId: tab.id,
       type: tab.type || null,
       payloadSignature,
       layoutSignature,
+      payloadVersion,
+      layoutVersion,
+      renderCommitVersion,
       archiveBacked: true,
       capturedAt: Date.now(),
       captureSequence: Number(tab.renderCache?.captureSequence || 0)
@@ -1256,6 +1287,9 @@
       type: tab.type || null,
       payloadSignature: peeked.payloadSignature || null,
       layoutSignature: peeked.layoutSignature || null,
+      payloadVersion: Number(peeked.payloadVersion || tab.payloadVersion || 0),
+      layoutVersion: Number(peeked.layoutVersion || tab.layoutVersion || 0),
+      renderCommitVersion: Number(peeked.renderCommitVersion || tab.renderCommitVersion || 0),
       capturedAt,
       captureSequence: ++renderCacheCaptureSequence
     };
@@ -1292,6 +1326,9 @@
       type: tab.type || null,
       payloadSignature: wrapper.payloadSignature || tab.archiveRenderCacheSignature || tab.payloadSignature || null,
       layoutSignature: wrapper.layoutSignature || tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null,
+      payloadVersion: Number(wrapper.payloadVersion || tab.payloadVersion || 0),
+      layoutVersion: Number(wrapper.layoutVersion || tab.layoutVersion || 0),
+      renderCommitVersion: Number(wrapper.renderCommitVersion || tab.renderCommitVersion || 0),
       capturedAt,
       captureSequence: ++renderCacheCaptureSequence,
       promotedFromArchive: true
@@ -1494,6 +1531,7 @@
     }
     const changed = previousSignature !== nextSignature;
     if (changed) {
+      tab.payloadVersion = Number(tab.payloadVersion || 0) + 1;
       // Payload signature changes invalidate any warm runtime render cache.
       // Keeping a pre-change cache while accepting a post-change payload can
       // restore stale visuals on tab re-entry (same signature checks pass only
@@ -1677,6 +1715,15 @@
       layoutSignature: options.layoutSignature !== undefined
         ? options.layoutSignature
         : serializePayloadSignature(options.layoutState || null),
+      payloadVersion: Number.isFinite(Number(options.payloadVersion))
+        ? Math.max(0, Number(options.payloadVersion))
+        : 1,
+      layoutVersion: Number.isFinite(Number(options.layoutVersion))
+        ? Math.max(0, Number(options.layoutVersion))
+        : 1,
+      renderCommitVersion: Number.isFinite(Number(options.renderCommitVersion))
+        ? Math.max(0, Number(options.renderCommitVersion))
+        : 1,
       userModified: options.userModified === true,
       lastUserModifiedReason: '',
       lastUserModifiedAt: 0,
@@ -2246,12 +2293,20 @@
           }
           if (cacheForStorage) {
             const capturedAt = Date.now();
+            tab.renderCommitVersion = Math.max(
+              Number(tab.renderCommitVersion || 0),
+              Number(tab.payloadVersion || 0),
+              Number(tab.layoutVersion || 0)
+            );
             tab.renderCache = {
               cache: cacheForStorage,
               tabId: tab.id,
               type: tab.type || null,
               payloadSignature: tab.payloadSignature || null,
               layoutSignature: tab.layoutSignature || null,
+              payloadVersion: Number(tab.payloadVersion || 0),
+              layoutVersion: Number(tab.layoutVersion || 0),
+              renderCommitVersion: Number(tab.renderCommitVersion || 0),
               capturedAt,
               captureSequence: ++renderCacheCaptureSequence
             };
@@ -2291,6 +2346,9 @@
         tab.layoutState = skippedLayoutClone;
         tab.layoutSignature = serializePayloadSignature(skippedLayoutClone);
         skippedLayoutChanged = previousLayoutSignature !== tab.layoutSignature;
+        if (skippedLayoutChanged) {
+          tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
+        }
         if (skippedLayoutChanged) {
           if (shouldInvalidateArchiveOnLayoutSignatureChange(tab, options)) {
             clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
@@ -2525,6 +2583,9 @@
       tab.layoutSignature = serializePayloadSignature(layoutClone);
       const layoutChanged = previousLayoutSignature !== tab.layoutSignature;
       if (layoutChanged) {
+        tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
+      }
+      if (layoutChanged) {
         if (shouldInvalidateArchiveOnLayoutSignatureChange(tab, options)) {
           clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed' });
         } else {
@@ -2569,12 +2630,20 @@
           }
           if (cacheForStorage) {
             const capturedAt = Date.now();
+            tab.renderCommitVersion = Math.max(
+              Number(tab.renderCommitVersion || 0),
+              Number(tab.payloadVersion || 0),
+              Number(tab.layoutVersion || 0)
+            );
             tab.renderCache = {
               cache: cacheForStorage,
               tabId: tab.id,
               type: tab.type || null,
               payloadSignature: tab.payloadSignature || null,
               layoutSignature: tab.layoutSignature || null,
+              payloadVersion: Number(tab.payloadVersion || 0),
+              layoutVersion: Number(tab.layoutVersion || 0),
+              renderCommitVersion: Number(tab.renderCommitVersion || 0),
               capturedAt,
               captureSequence: ++renderCacheCaptureSequence
             };
@@ -3057,6 +3126,7 @@
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.markTabUserModified = markTabUserModified;
   namespace.markActiveTabUserModified = markActiveTabUserModified;
+  namespace.markTabRenderCommitted = markTabRenderCommitted;
   namespace.assignTabPayload = assignTabPayload;
   namespace.updateTabPayload = updateTabPayload;
   namespace.persistUserModifiedTabState = persistUserModifiedTabState;
@@ -3120,9 +3190,23 @@
       if (!target || typeof target.closest !== 'function') return false;
       return !!target.closest('input[data-document-autosave="1"], [data-document-title="1"], [data-document-status="1"]');
     };
+    const shouldIgnoreDirtyTracking = target => {
+      if (!target || typeof target.closest !== 'function') return false;
+      return !!target.closest('[data-session-ignore-dirty="1"], [data-session-affects-payload="0"]');
+    };
+    const resolveAffectsPayload = target => {
+      if (!target || typeof target.closest !== 'function') return true;
+      const node = target.closest('[data-session-affects-payload]');
+      if (!node) return true;
+      const raw = String(node.getAttribute('data-session-affects-payload') || '').trim().toLowerCase();
+      if (raw === '0' || raw === 'false' || raw === 'no') {
+        return false;
+      }
+      return true;
+    };
     // Late-bind through window.Main.session so the listener always invokes the current
     // session module — important for tests that load session.js multiple times.
-    const callMark = (reason, source, ownerTabId) => {
+    const callMark = (reason, source, ownerTabId, affectsPayload = true) => {
       try {
         const sess = (typeof window !== 'undefined' && window.Main && window.Main.session) || namespace;
         if (!sess) return;
@@ -3130,7 +3214,8 @@
           const marked = sess.markTabUserModified(ownerTabId, reason, {
             origin: 'user',
             source: source || 'unknown',
-            ownerResolvedFrom: 'workspace-dom'
+            ownerResolvedFrom: 'workspace-dom',
+            affectsPayload
           });
           if (marked) {
             return;
@@ -3142,7 +3227,11 @@
           });
         }
         if (typeof sess.markActiveTabUserModified === 'function') {
-          sess.markActiveTabUserModified(reason, { origin: 'user', source: source || 'unknown' });
+          sess.markActiveTabUserModified(reason, {
+            origin: 'user',
+            source: source || 'unknown',
+            affectsPayload
+          });
         }
       } catch (err) { /* listener must never throw */ }
     };
@@ -3158,10 +3247,16 @@
       const target = event.target;
       if (!target || !isInsideWorkspace(target)) return;
       if (isDocumentStateControl(target)) return;
+      if (shouldIgnoreDirtyTracking(target)) return;
       // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
       // a content change).
       if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
-      callMark(reason, target?.id || target?.tagName, resolveWorkspaceOwnerTabId(target));
+      callMark(
+        reason,
+        target?.id || target?.tagName,
+        resolveWorkspaceOwnerTabId(target),
+        resolveAffectsPayload(target)
+      );
     };
     document.addEventListener('change', handler('control-change'), true);
     document.addEventListener('input', handler('control-input'), true);
@@ -3172,11 +3267,17 @@
       const target = event.target;
       if (!target || !isInsideWorkspace(target)) return;
       if (isDocumentStateControl(target)) return;
+      if (shouldIgnoreDirtyTracking(target)) return;
       const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
       if (!interactive) return;
       // Skip the workspace tab strip and its close buttons (lifecycle, not content).
       if (target.closest && target.closest('.workspace-tab, [data-workspace-tablist]')) return;
-      callMark('control-click', interactive?.id || 'button', resolveWorkspaceOwnerTabId(target));
+      callMark(
+        'control-click',
+        interactive?.id || 'button',
+        resolveWorkspaceOwnerTabId(target),
+        resolveAffectsPayload(target)
+      );
     }, true);
     console.debug('Debug: Main session global user-input listener installed');
   }

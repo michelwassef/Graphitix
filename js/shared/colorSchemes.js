@@ -275,6 +275,7 @@
     monitorTimer: null,
     lastActiveSignature: null,
     pendingSyncTimer: null,
+    lifecycleSyncAttached: false,
     controlListenersBound: false,
     darkTextObservers: new WeakMap()
   };
@@ -1240,10 +1241,8 @@
         box.style.removeProperty('background-color');
       }
       box.style.removeProperty('color');
-      const svg = box.querySelector('svg');
-      if(svg){
-        applySvgVisualTheme(svg, scheme);
-      }
+      const svgs = box.querySelectorAll ? Array.from(box.querySelectorAll('svg')) : [];
+      svgs.forEach(svg => applySvgVisualTheme(svg, scheme));
     });
   }
 
@@ -2167,6 +2166,60 @@
     }, 350);
   }
 
+  function attachLifecycleVisualSync(){
+    if(state.lifecycleSyncAttached){
+      return;
+    }
+    const shouldSyncAction = action => {
+      const normalized = String(action || '').trim().toLowerCase();
+      if(!normalized){
+        return false;
+      }
+      return normalized === 'runtime-render-cache-restored'
+        || normalized === 'saved-render-cache-restored'
+        || normalized === 'draw-executed';
+    };
+    const handleLifecycleEvent = evt => {
+      const detail = evt?.detail || evt || null;
+      if(!detail || !shouldSyncAction(detail.action)){
+        return;
+      }
+      const active = getActiveTab();
+      if(!active || !active.type || active.isWelcome){
+        return;
+      }
+      if(detail.tabId && String(detail.tabId) !== String(active.id)){
+        return;
+      }
+      if(detail.componentKey && String(detail.componentKey) !== String(active.type)){
+        return;
+      }
+      const expectedTabId = String(active.id);
+      const expectedType = String(active.type);
+      const runSync = phase => {
+        const current = getActiveTab();
+        if(!current || current.isWelcome){
+          return;
+        }
+        if(String(current.id) !== expectedTabId || String(current.type || '') !== expectedType){
+          return;
+        }
+        syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`, { preferWorkspace: true });
+      };
+      scheduleActiveVisualSync(`lifecycle-${detail.action}-queued`, { preferWorkspace: true });
+      global.requestAnimationFrame?.(() => runSync('raf'));
+      global.setTimeout(() => runSync('delay-90'), 90);
+      global.setTimeout(() => runSync('delay-220'), 220);
+    };
+    if(Shared.componentLifecycle && typeof Shared.componentLifecycle.onLifecycleEvent === 'function'){
+      Shared.componentLifecycle.onLifecycleEvent(handleLifecycleEvent);
+      state.lifecycleSyncAttached = true;
+      return;
+    }
+    global.addEventListener?.('graphitix:lifecycle-event', handleLifecycleEvent);
+    state.lifecycleSyncAttached = true;
+  }
+
   function renderControlForType(type, descriptor){
     const doc = global.document;
     const page = doc.getElementById(descriptor.pageId);
@@ -2386,6 +2439,29 @@
     return readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
   };
 
+  namespace.resolveThemeState = function resolveThemeState(type, payload){
+    const safeType = String(type || '').trim();
+    const source = payload && typeof payload === 'object' ? payload : null;
+    const rawScheme = safeType === 'venn'
+      ? source?.style?.colorScheme
+      : source?.config?.colorScheme;
+    const schemeId = safeType === 'surface'
+      ? normalizeSurfaceSchemeId(rawScheme || readActiveSchemeForType(safeType))
+      : normalizePresetSchemeId(rawScheme || readActiveSchemeForType(safeType), safeType);
+    const scheme = getScheme(schemeId);
+    const tokens = ensureObject(scheme?.tokens);
+    return {
+      type: safeType || null,
+      schemeId,
+      isDark: schemeId === 'dark',
+      textColor: String(tokens.textColor || '#000000'),
+      background: String(tokens.background || '#ffffff'),
+      axisColor: String(tokens.axisColor || '#000000'),
+      gridColor: String(tokens.gridColor || '#dddddd'),
+      borderColor: String(tokens.borderColor || '#000000')
+    };
+  };
+
   namespace.applyToActiveTab = function applyToActiveTab(type, schemeId){
     return applySchemeToActiveTab(type, schemeId);
   };
@@ -2462,6 +2538,7 @@
     });
     attachColorSchemeControlListeners();
     attachManualColorListeners();
+    attachLifecycleVisualSync();
     startActiveMonitor();
     syncActiveTabVisuals('init');
     state.initialized = true;

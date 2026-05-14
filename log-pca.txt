@@ -1,0 +1,1503 @@
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+componentLayout.js:1401 Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
+componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:1545 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'add-tab-before-new', changed: false, hasPayload: true, statsTest: undefined}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+previews.js:1320 Debug: preview reuse {tabId: 'workspace-2', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', meta: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-2', type: 'pca', hasPayload: true, changed: false, previewChanged: false, …}
+session.js:1667 Debug: session unique title computed {baseTitle: 'Workspace 3', collisionBase: 'Workspace 3', uniqueTitle: 'Workspace 3', excludeId: 'workspace-4', highestIndex: 0, …}
+session.js:1751 Debug: session createTab generated {id: 'workspace-4', index: 3, duplicateSource: 'workspace-2', isWelcome: false}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'render'}
+session.js:315 Debug: session dirty flag updated {reason: 'tab-created', wasDirty: true, userDirty: true, details: {…}}
+domControls.js:157 Debug: setAppHeaderVisibility skipped {hasHeader: false, requested: true}
+domControls.js:1787 Debug: welcome screen shown {reason: 'new-tab'}
+tabs.js:749 Debug: add tab invoked {newTabId: 'workspace-4', duplicateSource: 'workspace-2'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'enter-invalid'}
+componentLayout.js:1076 Debug: componentLayout ResizeObserver triggered {component: 'pca', nextSize: {…}}
+resizer.js:2639 Debug: Shared.syncPanelWidths skipped (hidden) {label: 'pca', tableHidden: true, graphHidden: true}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+resizer.js:2545 Debug: resizer observer triggered
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2639 Debug: Shared.syncPanelWidths skipped (hidden) {label: 'pca', tableHidden: true, graphHidden: true}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 1}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'leave'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+tabs.js:799 Debug: graph card selected {type: 'pca'}
+session.js:1678 Debug: session unique title computed {baseTitle: 'Dimensionality Reduction', collisionBase: 'Dimensionality Reduction', uniqueTitle: 'Dimensionality Reduction #2', excludeId: 'workspace-4', highestIndex: 1, …}
+tabs.js:661 Debug: graph tab title resolved {tabId: 'workspace-4', baseTitle: 'Dimensionality Reduction', uniqueTitle: 'Dimensionality Reduction #2'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'render'}
+tabs.js:668 Debug: graph assigned to tab {tabId: 'workspace-4', type: 'pca', variantId: null, reason: 'graph-selection'}
+session.js:315 Debug: session dirty flag updated {reason: 'graph-type-changed', wasDirty: true, userDirty: true, details: {…}}
+session.js:315 Debug: session dirty flag updated {reason: 'tab-title-updated', wasDirty: true, userDirty: true, details: {…}}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: componentLayout.captureStateFor skipped {component: 'pca', tabId: 'workspace-4', hasEntry: false}
+ Debug: captureExactTabLayoutClone unavailable without stored fallback {tabId: 'workspace-4', type: 'pca', reason: 'dirty', previousLayoutSignature: null}
+ persistActiveTabState will reuse previous layout because exact tab layout capture failed {tabId: 'workspace-4', type: 'pca', reason: 'dirty', previousLayoutSignature: null}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10089}
+ Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'dirty', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 832}
+ Debug: archive render cache preserved across layout signature drift {tabId: 'workspace-4', type: 'pca', reason: 'dirty', origin: 'lifecycle'}
+ Debug: preview capture skipped {reason: 'no-svg', type: 'pca', tabId: 'workspace-4'}
+ Debug: preview capture unavailable {tabId: 'workspace-4', meta: {…}}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+session.js:1166 Debug: live DOM restored after render cache capture {tabId: 'workspace-4', type: 'pca', reason: 'dirty', restored: false}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-4', type: 'pca', hasCache: true}
+session.js:315 Debug: session dirty flag updated {reason: 'dirty', wasDirty: true, userDirty: true, details: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-4', type: 'pca', hasPayload: true, changed: true, previewChanged: false, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10089}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 832}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: pca.createEmptyPayload pure factory invoked {ready: true, boundTabId: 'workspace-2'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: sanitizeDefaultPayloadVolatileState applied {type: 'pca', hasBaselineStats: true, hasBaselineRegression: false, strippedGraphSizing: false}
+ Debug: resolveDefaultFontSizeForType skipped {type: 'pca', reason: 'missing-input', inputId: 'pcaFontSize'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: duplicate prompt using workspace defaults {type: 'pca', hasPayload: true}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 4317}
+ Debug: workspace render cache cleared {tabId: 'workspace-4', type: 'pca', reason: 'duplicate-empty-empty'}
+ Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'duplicate-empty-empty', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: workspace same-component render cache unavailable {tabId: 'workspace-4', type: 'pca', renderedTabForType: 'workspace-2', renderCacheOwnerTabId: null, renderCacheOwnerMatched: true, …}
+ Debug: setAppHeaderVisibility skipped {hasHeader: false, requested: false}
+ Debug: workspace initialization status {type: 'pca', initialized: true}
+ Debug: workspace ensure skipped (cached) {tabId: 'workspace-4', type: 'pca'}
+ Debug: Components.pca.setup start {tabId: 'workspace-4'}
+ Debug: componentLayout createStandardPanels init {component: 'pca'}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'tablePanel', selector: '#pcaTablePanel', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'graphPanel', selector: '#pcaGraphPanel', found: true, scoped: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'configPanel', found: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'panelResizer', selector: '#pcaPanelResizer', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'hotWrapper', selector: '#pcaHotWrapper', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'hotContainer', selector: '#pcaHot', found: true, scoped: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'svgBox', found: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'resizeTarget', found: true}
+componentLayout.js:740 Debug: componentLayout applying wrapper styles {component: 'pca', wrapperId: 'pcaHotWrapper'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+componentLayout.js:1134 Debug: componentLayout using graphSizing helper {component: 'pca', sizingHelper: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'svgbox', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'svgbox', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+resizer.js:984 Debug: attachResizableBox helper sizing applied {context: 'svgbox', helperSizing: {…}}
+resizer.js:1067 Debug: attachResizableBox unlimited width enabled {container: 'pcaGraphPanel', helperMaxWidth: true, hasExplicitMaxWidth: true, ignoringHelperMaxWidth: true, allowUnlimitedOverride: true}
+resizer.js:1089 Debug: attachResizableBox unlimited height enabled {container: 'pcaGraphPanel', helperMaxHeight: true, hasExplicitMaxHeight: true, ignoringHelperMaxHeight: true, allowUnlimitedHeightOverride: true}
+chartStyle.js:822 Debug: chartStyle.isTextSizeLocked query {locked: false, scope: 'pcaGraphPanel::@tab:workspace-4'}
+resizer.js:1184 Debug: resizer text lock scope resolved {container: 'pcaGraphPanel', scope: 'pcaGraphPanel::@tab:workspace-4', existingScope: 'pcaGraphPanel::@tab:workspace-4', canonicalTabScope: 'pcaGraphPanel::@tab:workspace-4', tabId: 'workspace-4', …}
+resizer.js:1206 Debug: resizer aspect ratio override {container: 'pcaGraphPanel', overrideAspectRatio: 1}
+resizer.js:1225 Debug: resizer aspect lock default applied {container: 'pcaGraphPanel', aspectLocked: true}
+resizer.js:1239 Debug: resizer aspect ratio set {container: 'pcaGraphPanel', aspectRatio: 1}
+resizer.js:1846 Debug: attachResizableBox defaults {defaultWidth: 427, defaultHeight: 427, MIN_W: 128, MIN_H: 128, MAX_W: Infinity, …}
+resizer.js:1866 Debug: resizer control tray created {container: 'pcaGraphPanel'}
+resizer.js:1883 Debug: resizer aspect control created {container: 'pcaGraphPanel'}
+resizer.js:1946 Debug: resizer text lock control created {container: 'pcaGraphPanel'}
+chartStyle.js:876 Debug: chartStyle.registerTextSizeLockControl {origin: 'pcaGraphPanel-resizer', locked: false, controlCount: 3, scope: 'pcaGraphPanel::@tab:workspace-4'}
+resizer.js:1963 Debug: resizer text lock registered {container: 'pcaGraphPanel', scope: 'pcaGraphPanel::@tab:workspace-4'}
+resizer.js:558 Debug: resizer options menu created {label: 'pcaGraphPanel-options', trayChildren: 3}
+resizer.js:673 Debug: resizer known option moved into menu {label: 'pcaGraphPanel-options', selector: '.resizer-aspect-control', menuChildren: 1}
+resizer.js:673 Debug: resizer known option moved into menu {label: 'pcaGraphPanel-options', selector: '.resizer-textlock-control', menuChildren: 2}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pcaGraphPanel', axis: 'both', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1359 Debug: resizer applyResize helper {container: 'pcaGraphPanel', reason: 'initial-lock', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2169 Debug: attachResizableBox on pcaGraphPanel
+componentLayout.js:1241 Debug: componentLayout attachResizableBox applied {component: 'pca'}
+resizer.js:473 Debug: Shared.resizer.attachPanelDragResizer attached {label: 'pca', hasSync: true}
+componentLayout.js:1267 Debug: componentLayout panel drag resizer attached {component: 'pca'}
+resizer.js:2710 Debug: Shared.syncPanelWidths default width captured {label: 'pca', defaultTableWidth: 340}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2750 Debug: Shared.syncPanelWidths table min enforced {label: 'pca', minPx: 0}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.65625, graphContentWidth: 677.65625, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3129 Debug: Shared.syncPanelWidths manual state {label: 'pca', isManualResize: false, datasetMinWidth: 128, datasetDefaultWidth: 427, svgCurrentWidth: 427, …}
+componentLayout.js:991 Debug: componentLayout scheduleDraw invoked {component: 'pca', source: 'sync'}
+resizer.js:3159 Debug: Shared.syncPanelWidths applied {label: 'pca', tableWidth: 339.6770935058594, graphWidth: 677.65625, configWidth: 223.3229217529297, gap: 12, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+componentLayout.js:1401 Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-4', hasSvg: true, hasTable: true, minSvgWidth: 0}
+componentLayout.js:1669 Debug: componentLayout registry updated {component: 'pca', tabId: 'workspace-4', hasCapture: true, hasApply: true}
+resizer.js:641 Debug: resizer option moved into menu {label: 'pca-legend', className: 'idx-inline-023 resizer-legend-control', menuChildren: 3}
+componentLayout.js:1571 Debug: componentLayout scheduleDraw updated {component: 'pca', hasSchedule: true}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.65625, graphContentWidth: 677.65625, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3129 Debug: Shared.syncPanelWidths manual state {label: 'pca', isManualResize: false, datasetMinWidth: 128, datasetDefaultWidth: 427, svgCurrentWidth: 427, …}
+resizer.js:3159 Debug: Shared.syncPanelWidths applied {label: 'pca', tableWidth: 339.6770935058594, graphWidth: 677.65625, configWidth: 223.3229217529297, gap: 12, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+hot.js:378 Debug: Shared.hot legacy active-tab sync entry redirected to owner-tab sync {reason: 'table-data-change', source: 'pca-init', explicitTabId: null, instanceTabId: null}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 4325}
+session.js:1545 Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'table-data-change', changed: true, hasPayload: true, statsTest: undefined}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 4317}
+session.js:315 Debug: session dirty flag updated {reason: 'table-data-change', wasDirty: true, userDirty: true, details: {…}}
+session.js:1600 Debug: updateTabPayload applied {tabId: 'workspace-4', type: 'pca', reason: 'table-data-change'}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:2242 Debug: chartStyle.renderFontSizeLabel manual control sync {inputId: 'pcaFontSize', basePt: 12, displayPt: 12}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: true}
+resizer.js:673 Debug: resizer known option moved into menu {label: 'pca-legend', selector: '.resizer-axeslength-control', menuChildren: 4}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-export', dropdowns: 2}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-scree-export', dropdowns: 2}
+componentLayout.js:1571 Debug: componentLayout scheduleDraw updated {component: 'pca', hasSchedule: true}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'notes', key: 'notes', text: ''}
+pca.js:11565 Debug: Components.pca.setup complete
+domControls.js:1029 Debug: workspace per-tab root bound {tabId: 'workspace-4', type: 'pca', reason: 'cached-workspace-bind'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+pca.js:11304 Debug: pca.createEmptyPayload pure factory invoked {ready: true, boundTabId: 'workspace-4'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+domControls.js:507 Debug: sanitizeDefaultPayloadVolatileState applied {type: 'pca', hasBaselineStats: true, hasBaselineRegression: false, strippedGraphSizing: false}
+domControls.js:196 Debug: resolveDefaultFontSizeForType resolved {type: 'pca', inputId: 'pcaFontSize', defaultPt: 12}
+domControls.js:225 Debug: normalizeDefaultPayloadForType applied {type: 'pca', previousFontSize: 12, normalizedFontSize: 12}
+domControls.js:1466 Debug: workspace baseline reset skipped {tabId: 'workspace-4', type: 'pca', reason: 'same-component-reset-not-required'}
+fontControls.js:1432 Debug: fontControls importScopeStyles complete {scope: 'pca', tabToken: 'workspace-4', imported: 0, pruned: undefined}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:2242 Debug: chartStyle.renderFontSizeLabel manual control sync {inputId: 'pcaFontSize', basePt: 12, displayPt: 12}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: true}
+domControls.js:711 Debug: workspace payload applied via custom handler {type: 'pca'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-4', component: 'pca', aspectLocked: true}
+componentLayout.js:1101 Debug: componentLayout minSvgWidth updated {component: 'pca', value: 0, coerced: 0}
+componentLayout.js:1511 Debug: componentLayout applyState normalized svg sizing authority {component: 'pca', widthPx: 427, heightPx: 427, baseWidth: 427, baseHeight: 427, …}
+resizer.js:1505 Debug: resizer programmatic simulated aspect lock {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', simulateAspectLock: true, previousAspectLocked: true}
+resizer.js:1239 Debug: resizer aspect ratio set {container: 'pcaGraphPanel', aspectRatio: 1}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pcaGraphPanel', axis: 'both', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1359 Debug: resizer applyResize helper {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+resizer.js:1553 Debug: resizer applyProgrammaticResize {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', authorityMode: 'authoritative', requestedAxis: 'both', requestedWidth: 427, …}
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'programmatic', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.65625, graphContentWidth: 677.65625, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 340, graphWidth: 677.3333740234375, configWidth: 223.3229217529297, …}
+componentLayout.js:991 Debug: componentLayout scheduleDraw invoked {component: 'pca', source: 'resize'}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.3333740234375, graphContentWidth: 677.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 340, graphWidth: 677.3333740234375, configWidth: 390.66668701171875, …}
+componentLayout.js:991 Debug: componentLayout scheduleDraw invoked {component: 'pca', source: 'sync'}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+componentLayout.js:1553 Debug: componentLayout applyState {component: 'pca', applied: true, skipSchedule: false}
+domControls.js:1569 Debug: workspace layout applied {tabId: 'workspace-4', type: 'pca', hasState: true, applied: true}
+componentLayout.js:1780 Debug: componentLayout tab controls synced {component: 'pca', tabId: 'workspace-4', aspectLocked: true, synced: true}
+domControls.js:1680 Debug: workspace displayed {tabId: 'workspace-4', type: 'pca', activationError: null}
+session.js:315 Debug: session dirty flag updated {reason: 'duplicate-empty-empty', wasDirty: true, userDirty: true, details: {…}}
+duplicatePrompt.js:171 [Violation] 'click' handler took 285ms
+[Violation] Forced reflow while executing JavaScript took 44ms
+previews.js:1456 Debug: preview tooltip hidden {reason: 'scroll'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:435 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+chartStyle.js:502 Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
+chartStyle.js:427 Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
+chartStyle.js:615 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'pcaFontSize', scaledPt: 12, textLocked: false}
+chartStyle.js:623 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'pcaGraphPanel::@tab:workspace-2', scaledPt: 12, textLocked: false}
+chartStyle.js:648 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-axis'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border'}
+chartStyle.js:2266 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'pcaFontSize', displayPt: 12, min: 6, max: 24}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: false}
+chartStyle.js:1403 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-grid'}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 3}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 2}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 1}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+componentLayout.js:1068 Debug: componentLayout ResizeObserver ignored unchanged size {component: 'pca', lastSize: {…}, nextSize: {…}}
+resizer.js:2545 Debug: resizer observer triggered
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.3333740234375, graphContentWidth: 677.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 340, graphWidth: 677.3333740234375, configWidth: 390.66668701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:435 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+chartStyle.js:502 Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
+chartStyle.js:427 Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
+chartStyle.js:615 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'pcaFontSize', scaledPt: 12, textLocked: false}
+chartStyle.js:623 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'pcaGraphPanel::@tab:workspace-4', scaledPt: 12, textLocked: false}
+chartStyle.js:648 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-axis'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border'}
+chartStyle.js:2266 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'pcaFontSize', displayPt: 12, min: 6, max: 24}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: false}
+chartStyle.js:1403 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-grid'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+session.js:315 Debug: session dirty flag updated {reason: 'control-click', wasDirty: true, userDirty: true, details: {…}}
+session.js:228 Debug: tab user modification marked {tabId: 'workspace-4', type: 'pca', reason: 'control-click', affectsPayload: true, payloadDirty: true}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:435 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
+chartStyle.js:502 Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
+chartStyle.js:427 Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
+chartStyle.js:615 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'pcaFontSize', scaledPt: 12, textLocked: false}
+chartStyle.js:623 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'pcaGraphPanel::@tab:workspace-4', scaledPt: 12, textLocked: false}
+chartStyle.js:648 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
+chartStyle.js:988 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-axis'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border'}
+ Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'pcaFontSize', displayPt: 12, min: 6, max: 24}
+ Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: false}
+ Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
+ Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+ Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'pca-grid'}
+ pca svd result {q: Array(4), u_shape: '8x4', v_shape: '4x4'}
+ pca svd sorted {q_sorted: Array(4), u_shape: '8x4', v_shape: '4x4'}
+ pca scores {n: 8, dims: 4, sample0: Array(4)}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-component-loadings', contextLabel: 'pca-component-loadings', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 4, caption: 'Component Loadings'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-component-loadings', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-component-loadings'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 3}
+ Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'A', font: '16px Arial, Helvetica, sans-serif', width: 10.671875}
+ Debug: chartStyle.measureText {text: 'B', font: '16px Arial, Helvetica, sans-serif', width: 10.671875}
+ Debug: chartStyle.measureText {text: 'C', font: '16px Arial, Helvetica, sans-serif', width: 11.5546875}
+ Debug: chartStyle.measureText {text: 'D', font: '16px Arial, Helvetica, sans-serif', width: 11.5546875}
+ Debug: chartStyle.measureText {text: 'E', font: '16px Arial, Helvetica, sans-serif', width: 10.671875}
+ Debug: chartStyle.measureText {text: 'F', font: '16px Arial, Helvetica, sans-serif', width: 9.7734375}
+ Debug: chartStyle.measureText {text: 'G', font: '16px Arial, Helvetica, sans-serif', width: 12.4453125}
+ Debug: chartStyle.measureText {text: 'H', font: '16px Arial, Helvetica, sans-serif', width: 11.5546875}
+ Debug: chartStyle.createLegendRenderer metrics {entryCount: 8, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
+ Debug: chartStyle.computeLegendLayout {entryCount: 8, legendGapPx: 12, legendWidthForMargin: 100, minSvgWidth: 444, basePlotWidth: 320, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+ Debug: chartStyle.estimateTickCount {spanPx: 396, baseSpacing: 80, rawEstimate: 4.95, rounded: 5, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 335, baseSpacing: 80, rawEstimate: 4.1875, rounded: 4, minTicks: 3, …}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
+ Debug: chartStyle.measureText {text: 'PC2 (20.2%)', font: '16px Arial, Helvetica, sans-serif', width: 91.59375}
+ Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 118, maxYLabelWidth: 0, yTitleWidth: 91.59375, xTickFontSize: 16, …}
+ Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 16, plotWidth: 190.203125, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.measureText {text: '-40', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '-30', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-10', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 118, maxYLabelWidth: 23.125, yTitleWidth: 91.59375, xTickFontSize: 16, …}
+ Debug: chartStyle.measureText {text: '-30', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-10', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.computeBottomLayout {labelCount: 7, fontSize: 16, plotWidth: 190.203125, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 190.203125, baseSpacing: 80, rawEstimate: 2.3775390625, rounded: 2, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 80, rawEstimate: 2.8875, rounded: 3, minTicks: 3, …}
+ Debug: chartStyle.measureText {text: '-40', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '-40', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 118, maxYLabelWidth: 23.125, yTitleWidth: 91.59375, xTickFontSize: 16, …}
+ Debug: chartStyle.measureText {text: '-40', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '-20', font: '16px Arial, Helvetica, sans-serif', width: 23.125}
+ Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
+ Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
+ Debug: chartStyle.computeBottomLayout {labelCount: 5, fontSize: 16, plotWidth: 190.203125, shouldRotate: false, shouldRotateRaw: false, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 190.203125, baseSpacing: 80, rawEstimate: 2.3775390625, rounded: 2, minTicks: 3, …}
+ Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 80, rawEstimate: 2.8875, rounded: 3, minTicks: 3, …}
+ Debug: chartStyle.ensureSquarePlot {totalWidth: 396, totalHeight: 335, originalMargin: {…}, adjustedMargin: {…}, targetSize: 190.203125}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: chartStyle.drawPlotFrame applied {sides: Array(2), stroke: '#000000', plotW: 190.203125, plotH: 190.203125, strokeWidth: 1}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTick', key: 'xTick', text: '-40'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTick', key: 'xTick', text: '-20'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTick', key: 'xTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTick', key: 'xTick', text: '20'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTick', key: 'xTick', text: '40'}
+ Debug: chartStyle.applyLabelOrientation result {count: 5, rotated: false, angle: -45, disableAuto: false}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTick', key: 'yTick', text: '-40'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTick', key: 'yTick', text: '-20'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTick', key: 'yTick', text: '0'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTick', key: 'yTick', text: '20'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTick', key: 'yTick', text: '40'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'xTitle', key: 'xTitle', text: 'PC1 (71.6%)'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'yTitle', key: 'yTitle', text: 'PC2 (20.2%)'}
+ Debug: enableLabelDrag bound {element: 'text'}
+ Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'graphTitle', key: 'graphTitle', text: 'PCA Plot'}
+ Debug: makeEditable bound {hasOnChange: true}
+dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 3, min: 0.5, max: Infinity, result: 3, context: 'pca-dot-size-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'pca-border-label'}
+chartStyle.js:962 Debug: chartStyle.scaleLength {base: 0.75, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
+chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 0.75, min: 0.25, max: Infinity, result: 0.75, context: 'pca-point-label'}
+chartStyle.js:454 Debug: chartStyle.makeFont {size: 10.509263858701118, font: '10.509263858701118px Arial, Helvetica, sans-serif'}
+chartStyle.js:1051 Debug: chartStyle.measureText {text: 'A', font: '10.5093px Arial, Helvetica, sans-serif', width: 7.00341796875}
+chartStyle.js:1051 Debug: chartStyle.measureText {text: 'D', font: '10.5093px Arial, Helvetica, sans-serif', width: 7.582763671875}
+chartStyle.js:2504 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 8, x: 290.3480224609375, y: 37.365203857421875}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-0', text: 'A'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-1', text: 'B'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-2', text: 'C'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-3', text: 'D'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-4', text: 'E'}
+fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup {storeKey: 'pca::@tab:workspace-4::__graph__', remaining: 20}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-5', text: 'F'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-6', text: 'G'}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-4', role: 'legend', key: 'legend-7', text: 'H'}
+dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
+pca.js:10445 pca render complete {pointCount: 8, width: 396, height: 335, fastMode: false, loadingsRendered: 4, …}
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'pca-2d-graph', bbox: SVGRect, minX: -23.994792938232422, minY: -13.666666507720947, viewW: 362.79071044921875, …}
+dom.js:7 Debug: ensureGraphViewport applied {component: 'pca', debugLabel: 'pca-2d-graph', padding: 18, fill: true}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 677.3333740234375, graphContentWidth: 677.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 340, graphWidth: 677.3333740234375, configWidth: 390.66668701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+debounce.js:81 [Violation] 'requestAnimationFrame' handler took 60ms
+dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'pca-2d-graph', bbox: SVGRect, minX: -23.938411712646484, minY: -13.610291957855225, viewW: 362.73297119140625, …}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-4', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-4', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+ Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'recovery-interval', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: tab payload dirty flag cleared {tabId: 'workspace-4', type: 'pca', reason: 'recovery-interval'}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+ Debug: preview capture success {tabId: 'workspace-4', type: 'pca', length: 12529, width: 220, height: 220}
+ Debug: preview indicator synced {tabId: 'workspace-4', hasPreview: true}
+ Debug: preview stored {tabId: 'workspace-4', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 12529, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+session.js:1166 Debug: live DOM restored after render cache capture {tabId: 'workspace-4', type: 'pca', reason: 'recovery-interval', restored: true}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-4', type: 'pca', hasCache: true}
+session.js:315 Debug: session dirty flag updated {reason: 'recovery-interval', wasDirty: true, userDirty: true, details: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-4', type: 'pca', hasPayload: true, changed: true, previewChanged: true, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+dom.js:7 Debug: enableLegendDrag start {originPos: {…}, dragThreshold: 4}
+dom.js:7 Debug: enableLegendDrag end {x: 277.0171203613281, y: 40.539207458496094}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-4', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-4', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5859}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5859}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) {tabId: 'workspace-4', type: 'pca', reason: 'dirty', origin: 'lifecycle', changedTopLevelKeys: Array(1), …}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+ Debug: workspace render cache cleared {tabId: 'workspace-4', type: 'pca', reason: 'dirty'}
+ Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'dirty', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+ Debug: preview capture success {tabId: 'workspace-4', type: 'pca', length: 12529, width: 220, height: 220}
+ Debug: preview indicator synced {tabId: 'workspace-4', hasPreview: true}
+ Debug: preview stored {tabId: 'workspace-4', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 12529, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-4', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+session.js:1166 Debug: live DOM restored after render cache capture {tabId: 'workspace-4', type: 'pca', reason: 'dirty', restored: true}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-4', type: 'pca', hasCache: true}
+session.js:315 Debug: session dirty flag updated {reason: 'dirty', wasDirty: true, userDirty: true, details: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-4', type: 'pca', hasPayload: true, changed: true, previewChanged: true, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10087}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+previews.js:1538 Debug: preview hover enter {tabId: 'workspace-2', type: 'pca'}
+previews.js:1320 Debug: preview reuse {tabId: 'workspace-2', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', meta: {…}}
+previews.js:1555 Debug: preview hover using stored inactive preview {tabId: 'workspace-2', hasPreview: true}
+previews.js:1488 Debug: preview tooltip positioned {tabId: 'workspace-2', left: 72, top: 297, width: 237, height: 237}
+render.js:202 Debug: workspace tab selected {tabId: 'workspace-2'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-4'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-4', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-4', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+ Debug: assignTabPayload applied {tabId: 'workspace-4', reason: 'activate-switch', changed: false, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+ Debug: preview reuse {tabId: 'workspace-4', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', meta: {…}}
+ Debug: workspace state persisted {tabId: 'workspace-4', type: 'pca', hasPayload: true, changed: false, previewChanged: false, …}
+ Debug: preview tooltip hidden {reason: 'render'}
+ Debug: preview tooltip hidden {reason: 'blur'}
+ Debug: workspace same-component render cache restore allowed {tabId: 'workspace-2', type: 'pca', renderedTabForType: 'workspace-4', renderCacheOwnerTabId: 'workspace-2', payloadSignatureMatched: true, …}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+ Debug: componentLayout root hydrated {component: 'pca', tabId: 'workspace-2', hasSvgBox: true, aspectLocked: 'true'}
+ Debug: setAppHeaderVisibility skipped {hasHeader: false, requested: false}
+ Debug: workspace initialization status {type: 'pca', initialized: true}
+ Debug: workspace ensure skipped (cached) {tabId: 'workspace-2', type: 'pca'}
+ Debug: Components.pca.setup start {tabId: 'workspace-2'}
+ Debug: componentLayout createStandardPanels init {component: 'pca'}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'tablePanel', selector: '#pcaTablePanel', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'graphPanel', selector: '#pcaGraphPanel', found: true, scoped: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'configPanel', found: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'panelResizer', selector: '#pcaPanelResizer', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'hotWrapper', selector: '#pcaHotWrapper', found: true, scoped: true}
+ Debug: componentLayout resolved selector {component: 'pca', label: 'hotContainer', selector: '#pcaHot', found: true, scoped: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'svgBox', found: true}
+ Debug: componentLayout resolved function selector {component: 'pca', label: 'resizeTarget', found: true}
+ Debug: componentLayout ResizeObserver disconnected {component: 'pca'}
+ Debug: resizer api destroyed {container: 'pcaGraphPanel', reason: 'component-layout-destroy'}
+ Debug: Shared.resizer.attachPanelDragResizer detached {label: 'pca'}
+ Debug: componentLayout registry entry removed {component: 'pca'}
+ Debug: componentLayout previous instance destroyed {component: 'pca', tabId: 'workspace-2'}
+ Debug: componentLayout applying wrapper styles {component: 'pca', wrapperId: 'pcaHotWrapper'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+componentLayout.js:1134 Debug: componentLayout using graphSizing helper {component: 'pca', sizingHelper: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'svgbox', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'svgbox', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+resizer.js:984 Debug: attachResizableBox helper sizing applied {context: 'svgbox', helperSizing: {…}}
+resizer.js:1067 Debug: attachResizableBox unlimited width enabled {container: 'pcaGraphPanel', helperMaxWidth: true, hasExplicitMaxWidth: true, ignoringHelperMaxWidth: true, allowUnlimitedOverride: true}
+resizer.js:1089 Debug: attachResizableBox unlimited height enabled {container: 'pcaGraphPanel', helperMaxHeight: true, hasExplicitMaxHeight: true, ignoringHelperMaxHeight: true, allowUnlimitedHeightOverride: true}
+resizer.js:1184 Debug: resizer text lock scope resolved {container: 'pcaGraphPanel', scope: 'pcaGraphPanel::@tab:workspace-2', existingScope: 'pcaGraphPanel::@tab:workspace-2', canonicalTabScope: 'pcaGraphPanel::@tab:workspace-2', tabId: 'workspace-2', …}
+resizer.js:1206 Debug: resizer aspect ratio override {container: 'pcaGraphPanel', overrideAspectRatio: 1}
+resizer.js:1239 Debug: resizer aspect ratio set {container: 'pcaGraphPanel', aspectRatio: 1}
+resizer.js:1846 Debug: attachResizableBox defaults {defaultWidth: 427, defaultHeight: 427, MIN_W: 128, MIN_H: 128, MAX_W: Infinity, …}
+chartStyle.js:856 Debug: chartStyle.registerTextSizeLockControl removed existing handler {origin: 'pcaGraphPanel-resizer'}
+chartStyle.js:876 Debug: chartStyle.registerTextSizeLockControl {origin: 'pcaGraphPanel-resizer', locked: false, controlCount: 3, scope: 'pcaGraphPanel::@tab:workspace-2'}
+resizer.js:1963 Debug: resizer text lock registered {container: 'pcaGraphPanel', scope: 'pcaGraphPanel::@tab:workspace-2'}
+resizer.js:673 Debug: resizer known option moved into menu {label: 'pcaGraphPanel-options', selector: '.resizer-aspect-control', menuChildren: 2}
+resizer.js:673 Debug: resizer known option moved into menu {label: 'pcaGraphPanel-options', selector: '.resizer-textlock-control', menuChildren: 3}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pcaGraphPanel', axis: 'both', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1359 Debug: resizer applyResize helper {container: 'pcaGraphPanel', reason: 'initial-lock', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+resizer.js:2169 Debug: attachResizableBox on pcaGraphPanel
+componentLayout.js:1241 Debug: componentLayout attachResizableBox applied {component: 'pca'}
+resizer.js:473 Debug: Shared.resizer.attachPanelDragResizer attached {label: 'pca', hasSync: true}
+componentLayout.js:1267 Debug: componentLayout panel drag resizer attached {component: 'pca'}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 597.3333740234375, graphContentWidth: 597.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 420, graphWidth: 597.3333740234375, configWidth: 385.13543701171875, …}
+componentLayout.js:987 Debug: componentLayout scheduleDraw suppressed by lifecycle {component: 'pca', source: 'sync', tabId: 'workspace-2'}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+componentLayout.js:1401 Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
+componentLayout.js:1669 Debug: componentLayout registry updated {component: 'pca', tabId: 'workspace-2', hasCapture: true, hasApply: true}
+resizer.js:641 Debug: resizer option moved into menu {label: 'pca-legend', className: 'idx-inline-023 resizer-legend-control', menuChildren: 4}
+componentLayout.js:1571 Debug: componentLayout scheduleDraw updated {component: 'pca', hasSchedule: true}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 597.3333740234375, graphContentWidth: 597.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 420, graphWidth: 597.3333740234375, configWidth: 385.13543701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:2242 Debug: chartStyle.renderFontSizeLabel manual control sync {inputId: 'pcaFontSize', basePt: 12, displayPt: 12}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: true}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-export', dropdowns: 2}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-scree-export', dropdowns: 2}
+componentLayout.js:1571 Debug: componentLayout scheduleDraw updated {component: 'pca', hasSchedule: true}
+fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'pca', tabToken: 'workspace-2', role: 'notes', key: 'notes', text: ''}
+pca.js:11565 Debug: Components.pca.setup complete
+domControls.js:1029 Debug: workspace per-tab root bound {tabId: 'workspace-2', type: 'pca', reason: 'cached-workspace-bind'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+pca.js:11304 Debug: pca.createEmptyPayload pure factory invoked {ready: true, boundTabId: 'workspace-2'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+domControls.js:507 Debug: sanitizeDefaultPayloadVolatileState applied {type: 'pca', hasBaselineStats: true, hasBaselineRegression: false, strippedGraphSizing: false}
+domControls.js:196 Debug: resolveDefaultFontSizeForType resolved {type: 'pca', inputId: 'pcaFontSize', defaultPt: 12}
+domControls.js:225 Debug: normalizeDefaultPayloadForType applied {type: 'pca', previousFontSize: 12, normalizedFontSize: 12}
+pca.js:11304 Debug: pca.createEmptyPayload pure factory invoked {ready: true, boundTabId: 'workspace-2'}
+domControls.js:1391 Debug: workspace baseline reset payload created from empty payload {tabId: 'workspace-2', type: 'pca', reason: 'workspace-view'}
+fontControls.js:1432 Debug: fontControls importScopeStyles complete {scope: 'pca', tabToken: 'workspace-2', imported: 0, pruned: undefined}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:2242 Debug: chartStyle.renderFontSizeLabel manual control sync {inputId: 'pcaFontSize', basePt: 12, displayPt: 12}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: true}
+domControls.js:711 Debug: workspace payload applied via custom handler {type: 'pca'}
+domControls.js:1459 Debug: workspace shared state baseline reset applied {tabId: 'workspace-2', type: 'pca', reason: 'workspace-view'}
+domControls.js:682 Debug: workspace payload sizing skipped {type: 'pca', reason: 'authoritative-layout-state'}
+fontControls.js:1432 Debug: fontControls importScopeStyles complete {scope: 'pca', tabToken: 'workspace-2', imported: 0, pruned: undefined}
+chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
+chartStyle.js:2242 Debug: chartStyle.renderFontSizeLabel manual control sync {inputId: 'pcaFontSize', basePt: 12, displayPt: 12}
+chartStyle.js:2283 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'pcaFontSize', manualUpdate: true}
+fontControls.js:1432 Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+chartStyle.js:2197 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+chartStyle.js:2203 Debug: chartStyle.applySvgDefaults {hasSvg: true}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+stats-table.js:33 Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+stats-table.js:33 Debug: statsTable mergeOptions {fileName: 'pca-component-loadings', contextLabel: 'pca-component-loadings', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+stats-table.js:33 Debug: statsTable buildModel {columnCount: 3, rowCount: 4, caption: 'Component Loadings'}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-component-loadings', dropdowns: 2}
+stats-table.js:33 Debug: statsTable render export controls attached {fileName: 'pca-component-loadings'}
+stats-table.js:33 Debug: statsTable render complete {rowCount: 4, columnCount: 3}
+fontControls.js:1432 Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+chartStyle.js:2197 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+chartStyle.js:2203 Debug: chartStyle.applySvgDefaults {hasSvg: true}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+domControls.js:711 Debug: workspace payload applied via custom handler {type: 'pca'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+domControls.js:1539 Debug: workspace layout graph sizing merge skipped {tabId: 'workspace-2', type: 'pca', reason: 'authoritative-layout-state'}
+componentLayout.js:1101 Debug: componentLayout minSvgWidth updated {component: 'pca', value: 0, coerced: 0}
+componentLayout.js:1511 Debug: componentLayout applyState normalized svg sizing authority {component: 'pca', widthPx: 427, heightPx: 427, baseWidth: 427, baseHeight: 427, …}
+resizer.js:1505 Debug: resizer programmatic simulated aspect lock {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', simulateAspectLock: true, previousAspectLocked: true}
+resizer.js:1239 Debug: resizer aspect ratio set {container: 'pcaGraphPanel', aspectRatio: 1}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pcaGraphPanel', axis: 'both', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:1359 Debug: resizer applyResize helper {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', axis: 'both', zoomScale: 1, aspectLocked: true, …}
+resizer.js:1553 Debug: resizer applyProgrammaticResize {container: 'pcaGraphPanel', reason: 'pca-layout-apply-state-sync', authorityMode: 'authoritative', requestedAxis: 'both', requestedWidth: 427, …}
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'programmatic', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 597.3333740234375, graphContentWidth: 597.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 420, graphWidth: 597.3333740234375, configWidth: 385.13543701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 597.3333740234375, graphContentWidth: 597.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 420, graphWidth: 597.3333740234375, configWidth: 385.13543701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: true}
+componentLayout.js:1553 Debug: componentLayout applyState {component: 'pca', applied: true, skipSchedule: true}
+domControls.js:1569 Debug: workspace layout applied {tabId: 'workspace-2', type: 'pca', hasState: true, applied: true}
+session.js:1343 Debug: archive render cache promoted to runtime {tabId: 'workspace-2', type: 'pca', reason: 'render-cache-restored', archivePreserved: true, payloadSignatureLength: 10087, …}
+domControls.js:1653 Debug: workspace render cache restored {tabId: 'workspace-2', type: 'pca'}
+componentLayout.js:1780 Debug: componentLayout tab controls synced {component: 'pca', tabId: 'workspace-2', aspectLocked: true, synced: true}
+session.js:2899 Debug: workspace toolbar uiState applied {tabId: 'workspace-2', type: 'pca', section: 'pca-2-data', reason: 'workspace-view'}
+domControls.js:1680 Debug: workspace displayed {tabId: 'workspace-2', type: 'pca', activationError: null}
+render.js:198 [Violation] 'click' handler took 232ms
+[Violation] Forced reflow while executing JavaScript took 43ms
+previews.js:1538 Debug: preview hover enter {tabId: 'workspace-2', type: 'pca'}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'active-tab'}
+previews.js:1542 Debug: preview hover skipped for active tab {tabId: 'workspace-2', type: 'pca'}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 3}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 2}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 1}
+componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+componentLayout.js:1076 Debug: componentLayout ResizeObserver triggered {component: 'pca', nextSize: {…}}
+resizer.js:2639 Debug: Shared.syncPanelWidths skipped (hidden) {label: 'pca', tableHidden: true, graphHidden: true}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+resizer.js:2545 Debug: resizer observer triggered
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2639 Debug: Shared.syncPanelWidths skipped (hidden) {label: 'pca', tableHidden: true, graphHidden: true}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+componentLayout.js:1068 Debug: componentLayout ResizeObserver ignored unchanged size {component: 'pca', lastSize: {…}, nextSize: {…}}
+resizer.js:2545 Debug: resizer observer triggered
+componentLayout.js:1184 Debug: componentLayout resizable onResize {component: 'pca', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
+resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'pca', storedMinTableWidth: 0, minTableHint: NaN}
+resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'pca', graphWidth: 597.3333740234375, graphContentWidth: 597.3333740234375, graphInset: 0, pad: 0, …}
+resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'pca sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
+resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'pca', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
+resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'pca', appliedWidth: 427, tableWidth: 420, graphWidth: 597.3333740234375, configWidth: 385.13543701171875, …}
+componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'pca', minSvgWidth: 0, layoutChanged: false}
+previews.js:1456 Debug: preview tooltip hidden {reason: 'leave'}
+ Debug: componentLayout programmatic sync released {component: 'pca', depth: 1}
+ Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+ Debug: componentLayout programmatic sync released {component: 'pca', depth: 0}
+ Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9605}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 3301}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) {tabId: 'workspace-2', type: 'pca', reason: 'dirty', origin: 'lifecycle', changedTopLevelKeys: Array(1), …}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9605}
+ Debug: workspace render cache cleared {tabId: 'workspace-2', type: 'pca', reason: 'dirty'}
+ Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+ Debug: preview capture success {tabId: 'workspace-2', type: 'pca', length: 13893, width: 220, height: 220}
+ Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
+ Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 13893, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-component-loadings', contextLabel: 'pca-component-loadings', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 4, caption: 'Component Loadings'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-component-loadings', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-component-loadings'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 3}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+ Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'pca', reason: 'dirty', restored: true}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'pca', hasCache: true}
+session.js:315 Debug: session dirty flag updated {reason: 'dirty', wasDirty: true, userDirty: true, details: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-2', type: 'pca', hasPayload: true, changed: true, previewChanged: true, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9605}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5604}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json', length: 5}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 506}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5861}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 5604}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 2819}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) {tabId: 'workspace-2', type: 'pca', reason: 'dirty', origin: 'lifecycle', changedTopLevelKeys: Array(1), …}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+ Debug: workspace render cache cleared {tabId: 'workspace-2', type: 'pca', reason: 'dirty'}
+ Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: true, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+ Debug: preview capture success {tabId: 'workspace-2', type: 'pca', length: 13893, width: 220, height: 220}
+ Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
+ Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 13893, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-component-loadings', contextLabel: 'pca-component-loadings', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 4, caption: 'Component Loadings'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-component-loadings', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-component-loadings'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 3}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+session.js:1166 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'pca', reason: 'dirty', restored: true}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'pca', hasCache: true}
+session.js:315 Debug: session dirty flag updated {reason: 'dirty', wasDirty: true, userDirty: true, details: {…}}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-2', type: 'pca', hasPayload: true, changed: true, previewChanged: true, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fontControls exportScopeStyles skipped (empty) {scope: 'pca', tabToken: 'workspace-2'}
+ Debug: componentLayout live resizable snapshot normalized {component: 'pca', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
+ Debug: componentLayout captureState {component: 'pca', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
+ Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'pca', aspectLocked: true}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: fastClonePayload using structuredClone {type: 'Object'}
+ Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-pca-existing-layout', current: {…}}
+ Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+ Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: false, hasPayload: true, statsTest: undefined}
+ Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+ Debug: preview capture success {tabId: 'workspace-2', type: 'pca', length: 13893, width: 220, height: 220}
+ Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
+ Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"pca","data":[["Label point",true,false,fa…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 13893, …}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaScreeSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaScreeSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-eigen-summary', contextLabel: 'pca-eigen-summary', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 4, rowCount: 4, caption: 'PCA Eigen Summary'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-eigen-summary', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-eigen-summary'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 4}
+ Debug: statsTable resolveFontFamily {chosen: 'Arial, Helvetica, sans-serif', sharedFont: 'Arial, Helvetica, sans-serif'}
+ Debug: statsTable mergeOptions {fileName: 'pca-component-loadings', contextLabel: 'pca-component-loadings', headerFontSize: 14, bodyFontSize: 13, captionFontSize: 15, …}
+ Debug: statsTable buildModel {columnCount: 3, rowCount: 4, caption: 'Component Loadings'}
+ Debug: exporter mountControls complete {contextLabel: 'pca-component-loadings', dropdowns: 2}
+ Debug: statsTable render export controls attached {fileName: 'pca-component-loadings'}
+ Debug: statsTable render complete {rowCount: 4, columnCount: 3}
+ Debug: fontControls enableForSvg attached {scopeId: 'pcaBiplotSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
+ Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'pcaBiplotSvg'}
+ Debug: chartStyle.applySvgDefaults {hasSvg: true}
+exporter.js:11 Debug: exporter mountControls complete {contextLabel: 'pca-biplot-export', dropdowns: 2}
+session.js:1166 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'pca', reason: 'dirty', restored: true}
+session.js:2660 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'pca', hasCache: true}
+session.js:2709 Debug: workspace state persisted {tabId: 'workspace-2', type: 'pca', hasPayload: true, changed: false, previewChanged: true, …}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9348}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-pca-existing-layout', current: {…}}
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-pca-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 10085}
+session.js:643 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1936}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:378 Debug: fastClonePayload using structuredClone {type: 'Object'}
+session.js:465 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
+session.js:1830 Debug: pca tab data detected in matrix body {tabId: 'workspace-2', rowIndex: 2, colIndex: 0}

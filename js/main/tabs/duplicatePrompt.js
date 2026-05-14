@@ -89,6 +89,44 @@
       }
     }
 
+    function applyDuplicateChoice(tab, sourceTab, type, mode, reasonPrefix = 'duplicate') {
+      if (!tab || !type) {
+        return false;
+      }
+      const cloneFn = session.fastClonePayload || session.clonePayload;
+      const shouldReuse = mode === 'reuse';
+      if (shouldReuse && sourceTab?.payload && typeof cloneFn === 'function') {
+        const clonedPayload = cloneFn.call(session, sourceTab.payload);
+        const clonedLayout = cloneFn.call(session, sourceTab.layoutState);
+        session.assignTabPayload(tab, clonedPayload, { reason: `${reasonPrefix}-reuse` });
+        tab.layoutState = clonedLayout;
+        tab.layoutSignature = session.serializePayloadSignature
+          ? session.serializePayloadSignature(clonedLayout)
+          : null;
+        showWorkspaceForTab(tab, { reason: `${reasonPrefix}-reuse`, skipBaselineReset: true });
+        session.markSessionDirty(`${reasonPrefix}-reuse`, {
+          tabId: tab.id,
+          sourceId: sourceTab?.id || null,
+          type,
+          origin: 'user'
+        });
+        return true;
+      }
+      const emptyPayload = getEmptyWorkspacePayload(type);
+      session.assignTabPayload(tab, emptyPayload, { reason: `${reasonPrefix}-empty` });
+      tab.layoutState = null;
+      tab.layoutSignature = null;
+      clearTabTransientState(tab, type, `${reasonPrefix}-empty`);
+      showWorkspaceForTab(tab, { reason: `${reasonPrefix}-empty`, skipBaselineReset: true });
+      session.markSessionDirty(`${reasonPrefix}-empty`, {
+        tabId: tab.id,
+        sourceId: sourceTab?.id || null,
+        type,
+        origin: 'user'
+      });
+      return true;
+    }
+
     function showDuplicateDecision({ tab, type, sourceTab, canDuplicate }) {
       if (!canDuplicate) {
         console.debug('Debug: duplicate prompt bypassed', {
@@ -110,24 +148,13 @@
       }
       if (!dom.duplicatePrompt || !dom.duplicateEmpty) {
         console.debug('Debug: duplicate prompt unavailable, applying fallback', { type, canDuplicate });
-        const cloneFn = session.fastClonePayload || session.clonePayload;
-        if (canDuplicate && sourceTab?.payload && typeof cloneFn === 'function') {
-          const clonedPayload = cloneFn.call(session, sourceTab.payload);
-          const clonedLayout = cloneFn.call(session, sourceTab.layoutState);
-          session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
-          tab.layoutState = clonedLayout;
-          tab.layoutSignature = session.serializePayloadSignature
-            ? session.serializePayloadSignature(clonedLayout)
-            : null;
-        } else {
-          const emptyPayload = getEmptyWorkspacePayload(type);
-          session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-fallback-empty' });
-          tab.layoutState = null;
-          tab.layoutSignature = null;
-          clearTabTransientState(tab, type, 'duplicate-fallback-empty');
-        }
-        showWorkspaceForTab(tab, { reason: 'duplicate-fallback', skipBaselineReset: true });
-        session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, origin: 'user' });
+        applyDuplicateChoice(
+          tab,
+          sourceTab,
+          type,
+          canDuplicate ? 'reuse' : 'empty',
+          'duplicate-fallback'
+        );
         return;
       }
       if (!dom.duplicateReuse || !dom.duplicateCancel) {
@@ -137,34 +164,13 @@
       dom.duplicatePrompt.dataset.tabId = tab.id;
       dom.duplicatePrompt.removeAttribute('hidden');
       dom.duplicateReuse.textContent = `Reuse ${sourceTab?.title || 'source'} data`;
-      const cloneFn = session.fastClonePayload || session.clonePayload;
       dom.duplicateReuse.onclick = () => {
-        const clonedPayload = (canDuplicate && sourceTab?.payload && typeof cloneFn === 'function')
-          ? cloneFn.call(session, sourceTab.payload)
-          : null;
-        const clonedLayout = (canDuplicate && sourceTab?.layoutState && typeof cloneFn === 'function')
-          ? cloneFn.call(session, sourceTab.layoutState)
-          : null;
-        if (clonedPayload) {
-          session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-accept' });
-        }
-        tab.layoutState = clonedLayout;
-        tab.layoutSignature = session.serializePayloadSignature
-          ? session.serializePayloadSignature(clonedLayout)
-          : null;
         hideDuplicatePrompt();
-        showWorkspaceForTab(tab, { reason: 'duplicate-accept', skipBaselineReset: true });
-        session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
+        applyDuplicateChoice(tab, sourceTab, type, 'reuse', 'duplicate-accept');
       };
       dom.duplicateEmpty.onclick = () => {
-        const emptyPayload = getEmptyWorkspacePayload(type);
-        session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-empty' });
-        tab.layoutState = null;
-        tab.layoutSignature = null;
-        clearTabTransientState(tab, type, 'duplicate-empty');
         hideDuplicatePrompt();
-        showWorkspaceForTab(tab, { reason: 'duplicate-empty', skipBaselineReset: true });
-        session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type, origin: 'user' });
+        applyDuplicateChoice(tab, sourceTab, type, 'empty', 'duplicate-empty');
       };
       dom.duplicateCancel.onclick = () => {
         hideDuplicatePrompt();
@@ -180,7 +186,8 @@
 
     return {
       hideDuplicatePrompt,
-      showDuplicateDecision
+      showDuplicateDecision,
+      applyDuplicateChoice
     };
   };
 })();

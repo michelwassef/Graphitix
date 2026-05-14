@@ -139,6 +139,7 @@
     let setUnsavedPromptBusy;
     let hideDuplicatePrompt;
     let showDuplicateDecision;
+    let applyDuplicateChoice;
 
     const applyTabDragClasses = () => tabDrag.applyTabDragClasses({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty });
     const updateTabDragHover = (targetTabId, insertBefore, meta = {}) => tabDrag.updateTabDragHover({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, targetTabId, insertBefore, meta);
@@ -248,6 +249,7 @@
     });
     hideDuplicatePrompt = duplicateHelpers.hideDuplicatePrompt;
     showDuplicateDecision = duplicateHelpers.showDuplicateDecision;
+    applyDuplicateChoice = duplicateHelpers.applyDuplicateChoice;
 
     console.debug('Debug: Main.tabs helper modules wired', {
       hasRenderHelpers: !!renderTabs,
@@ -337,6 +339,16 @@
         workspaceState.tabs.push(newTab);
         workspaceState.activeTabId = newTab.id;
         renderTabs();
+        if (typeof applyDuplicateChoice === 'function') {
+          applyDuplicateChoice(
+            newTab,
+            sourceTab,
+            newTab.type,
+            preferEmpty ? 'empty' : 'reuse',
+            'duplicate-context'
+          );
+          return;
+        }
         if (preferEmpty) {
           const emptyPayload = (typeof domControls.ensureDefaultPayload === 'function')
             ? domControls.ensureDefaultPayload(session, newTab.type, workspaces?.[newTab.type])

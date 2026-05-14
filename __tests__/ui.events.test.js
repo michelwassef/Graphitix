@@ -276,7 +276,7 @@ function readBoxAxisBaselineMetrics(){
   };
 }
 
-describe.skip('UI events and example loaders', () => {
+describe('UI events and example loaders', () => {
 
   beforeEach(() => {
     jest.resetModules();

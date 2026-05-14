@@ -1,892 +1,1000 @@
-session.js:300 Debug: session dirty flag updated {reason: 'control-input', wasDirty: true, userDirty: true, details: {…}}
-session.js:228 Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'control-input', affectsPayload: true, payloadDirty: true}
- Debug: session dirty flag updated {reason: 'control-change', wasDirty: true, userDirty: true, details: {…}}
- Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'control-change', affectsPayload: true, payloadDirty: true}
- Debug: scatter config changed {id: 'scatterShowLine', checked: true, value: 'on'}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
- Debug: session dirty flag updated {reason: 'scatter-trendline-change', wasDirty: true, userDirty: true, details: {…}}
- Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'scatter-trendline-change', affectsPayload: true, payloadDirty: true}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
- Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
- Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
- Debug: workspace render cache cleared {tabId: 'workspace-2', type: 'scatter', reason: 'scatter-trendline-change'}
- Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'scatter-trendline-change', changed: true, hasPayload: true, statsTest: undefined}
- Debug: tab payload dirty flag cleared {tabId: 'workspace-2', type: 'scatter', reason: 'scatter-trendline-change'}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
- Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 8169, width: 220, height: 220}
- Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
- Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 8169, …}
- Debug: session dirty flag updated {reason: 'scatter-trendline-change', wasDirty: true, userDirty: true, details: {…}}
- Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: true, previewChanged: true, …}
- Debug: scatter config changed {id: 'scatterShowLine', checked: true, value: 'on'}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
- Debug: session dirty flag updated {reason: 'scatter-trendline-change', wasDirty: true, userDirty: true, details: {…}}
- Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'scatter-trendline-change', affectsPayload: true, payloadDirty: true}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
- Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
- Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
- Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'scatter-trendline-change', changed: false, hasPayload: true, statsTest: undefined}
- Debug: tab payload dirty flag cleared {tabId: 'workspace-2', type: 'scatter', reason: 'scatter-trendline-change'}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
- Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview reuse {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', meta: {…}}
- Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: false, previewChanged: false, …}
- Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
- Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
- Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
- Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-2', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
- Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
- Debug: chartStyle.scaleLength {base: 0.85, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.85, context: 'scatter-annotation'}
- Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 12, min: 6, max: 24}
- Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'scatterFontSize', manualUpdate: false}
- Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-grid'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'Cat', font: '16px Arial, Helvetica, sans-serif', width: 24.8984375}
- Debug: chartStyle.measureText {text: 'Dog', font: '16px Arial, Helvetica, sans-serif', width: 29.3515625}
- Debug: chartStyle.measureText {text: 'Rabbit', font: '16px Arial, Helvetica, sans-serif', width: 46.25}
- Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
- Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 100, minSvgWidth: 444, basePlotWidth: 320, …}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
- Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
- Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
- Debug: chartStyle.applySvgDefaults {hasSvg: true}
- Debug: chartStyle.estimateTickCount {spanPx: 396, baseSpacing: 51, rawEstimate: 7.764705882352941, rounded: 8, minTicks: 4, …}
- Debug: chartStyle.estimateTickCount {spanPx: 335, baseSpacing: 51, rawEstimate: 6.568627450980392, rounded: 7, minTicks: 4, …}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'Y title', font: '16px Arial, Helvetica, sans-serif', width: 40.015625}
- Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 0, yTitleWidth: 40.015625, xTickFontSize: 16, …}
- Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
- Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
- Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:2092 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1485 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-2::__graph__', remaining: 80}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '15'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '20'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '25'}
-chartStyle.js:1548 Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: false, angle: -45, disableAuto: false}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '10'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '20'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '30'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '40'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '50'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '60'}
-chartStyle.js:962 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-error-bar'}
-chartStyle.js:2504 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 284, y: 38}
-dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Cat'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'Cat'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Dog'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Dog'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-2', text: 'Rabbit'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Rabbit'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'X title'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'X title'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Y title'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Y title'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-chartStyle.js:962 Debug: chartStyle.scaleLength {base: 1.5, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 1.5, min: 0, max: Infinity, result: 1.5, context: 'scatter-trend'}
-scatter.js:11092 Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -24.463536262512207, minY: -11.666666507720947, viewW: 388.9349060058594, …}
-dom.js:7 Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
-resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
-resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
-resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 407.79168701171875, …}
-componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -23.966022968292236, minY: -11.169153690338135, viewW: 388.72198486328125, …}
-componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
-componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
-componentLayout.js:1401 Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
-componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
-session.js:1507 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: false, hasPayload: true, statsTest: undefined}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
-previews.js:1224 Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:741 Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:935 Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 10640, width: 220, height: 220}
-previews.js:1104 Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
-previews.js:1305 Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 10640, …}
-session.js:1151 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'scatter', reason: 'dirty', restored: true}
-session.js:2591 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'scatter', hasCache: true}
-session.js:2640 Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: false, previewChanged: true, …}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:300 Debug: session dirty flag updated {reason: 'control-click', wasDirty: true, userDirty: true, details: {…}}
-session.js:228 Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'control-click', affectsPayload: true, payloadDirty: true}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
-componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
-componentLayout.js:1401 Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
-componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
-session.js:1507 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: false, hasPayload: true, statsTest: undefined}
-session.js:261 Debug: tab payload dirty flag cleared {tabId: 'workspace-2', type: 'scatter', reason: 'dirty'}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
-previews.js:1224 Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:741 Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:935 Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 10640, width: 220, height: 220}
-previews.js:1104 Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
-previews.js:1305 Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 10640, …}
-session.js:1151 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'scatter', reason: 'dirty', restored: true}
-session.js:2591 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'scatter', hasCache: true}
-session.js:2640 Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: false, previewChanged: true, …}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: session dirty flag updated {reason: 'control-click', wasDirty: true, userDirty: true, details: {…}}
- Debug: tab user modification marked {tabId: 'workspace-2', type: 'scatter', reason: 'control-click', affectsPayload: true, payloadDirty: true}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
- Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
- Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
- Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'color-scheme-pre-scatter', changed: false, hasPayload: true, statsTest: undefined}
- Debug: tab payload dirty flag cleared {tabId: 'workspace-2', type: 'scatter', reason: 'color-scheme-pre-scatter'}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
- Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview reuse {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', meta: {…}}
- Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: false, previewChanged: false, …}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66136}
- Debug: workspace render cache cleared {tabId: 'workspace-2', type: 'scatter', reason: 'color-scheme-scatter'}
- Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'color-scheme-scatter', changed: true, hasPayload: true, statsTest: undefined}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66113}
- Debug: session dirty flag updated {reason: 'color-scheme-scatter', wasDirty: true, userDirty: true, details: {…}}
- Debug: updateTabPayload applied {tabId: 'workspace-2', type: 'scatter', reason: 'color-scheme-scatter'}
- Debug: fontControls importScopeStyles complete {scope: 'scatter', tabToken: 'workspace-2', imported: 0, pruned: undefined}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: true, showCI: false, …}
- Debug: scatter axis settings applied {settings: {…}}
- Debug: scatter axis settings restored {axis: {…}}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: false, baseDisabled: true, showLine: false, showCI: false, …}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: false, baseDisabled: true, showLine: false, showCI: false, …}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: false, baseDisabled: true, showLine: false, showCI: false, …}
- Debug: syncScatterGraphTypeUI complete {type: 'scatter', showThresholds: false}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: false, baseDisabled: true, showLine: false, showCI: false, …}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
- Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
- Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66160}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44480}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44504}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44480}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44504}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
- Debug: persistActiveTabState payload drift observed (auto-healed by live capture) {tabId: 'workspace-2', type: 'scatter', reason: 'color-scheme-post-scatter', origin: 'lifecycle', changedTopLevelKeys: Array(1), …}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 66160}
- Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'color-scheme-post-scatter', changed: true, hasPayload: true, statsTest: undefined}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1958}
- Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
- Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 10640, width: 220, height: 220}
- Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
- Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 10640, …}
- Debug: session dirty flag updated {reason: 'color-scheme-post-scatter', wasDirty: true, userDirty: true, details: {…}}
- Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: true, previewChanged: true, …}
- Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
- Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
- Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
- Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-2', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
- Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
- Debug: chartStyle.scaleLength {base: 0.85, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.85, context: 'scatter-annotation'}
- Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 12, min: 6, max: 24}
- Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'scatterFontSize', manualUpdate: false}
- Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-grid'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'Cat', font: '16px Arial, Helvetica, sans-serif', width: 24.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: 'Dog', font: '16px Arial, Helvetica, sans-serif', width: 29.3515625}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: 'Rabbit', font: '16px Arial, Helvetica, sans-serif', width: 46.25}
-chartStyle.js:2349 Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
-chartStyle.js:2538 Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 100, minSvgWidth: 444, basePlotWidth: 320, …}
-scatter.js:11092 Debug: scatter overlay controls synced {type: 'scatter', statsReady: false, baseDisabled: true, showLine: false, showCI: false, …}
-fontControls.js:1432 Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
-chartStyle.js:2197 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
-chartStyle.js:2203 Debug: chartStyle.applySvgDefaults {hasSvg: true}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 396, baseSpacing: 51, rawEstimate: 7.764705882352941, rounded: 8, minTicks: 4, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 335, baseSpacing: 51, rawEstimate: 6.568627450980392, rounded: 7, minTicks: 4, …}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: 'Y title', font: '16px Arial, Helvetica, sans-serif', width: 40.015625}
-chartStyle.js:2092 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 0, yTitleWidth: 40.015625, xTickFontSize: 16, …}
-chartStyle.js:1485 Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:2092 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1485 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:2092 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1485 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
- Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-2::__graph__', remaining: 100}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '15'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '20'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '25'}
- Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: false, angle: -45, disableAuto: false}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '10'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '20'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '30'}
- Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-2::yTick', remaining: 40}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '40'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '50'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '60'}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-error-bar'}
- Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 284, y: 38}
- Debug: enableLegendDrag bound {element: 'g'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Cat'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'Cat'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Dog'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Dog'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-2', text: 'Rabbit'}
- Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Rabbit'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'X title'}
- Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'X title'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Y title'}
- Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Y title'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
- Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: false, showCI: false, …}
- Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -24.463536262512207, minY: -11.666666507720947, viewW: 388.9349060058594, …}
- Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
- Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
- Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
- Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 407.79168701171875, …}
- Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
- Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -23.966022968292236, minY: -11.169153690338135, viewW: 388.72198486328125, …}
- Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
- Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
- Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
- Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
- Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
- Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'scatterFontSize', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'scatterGraphPanel::@tab:workspace-2', scaledPt: 12, textLocked: false}
- Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
- Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-axis'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'scatter-border'}
- Debug: chartStyle.scaleLength {base: 0.85, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 0.85, min: 0.45, max: Infinity, result: 0.85, context: 'scatter-annotation'}
- Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'scatterFontSize', displayPt: 12, min: 6, max: 24}
- Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'scatterFontSize', manualUpdate: false}
- Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
- Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-grid'}
- Debug: chartStyle.scaleLength {base: 3, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
- Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'Cat', font: '16px Arial, Helvetica, sans-serif', width: 24.8984375}
- Debug: chartStyle.measureText {text: 'Dog', font: '16px Arial, Helvetica, sans-serif', width: 29.3515625}
- Debug: chartStyle.measureText {text: 'Rabbit', font: '16px Arial, Helvetica, sans-serif', width: 46.25}
- Debug: chartStyle.createLegendRenderer metrics {entryCount: 3, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
- Debug: chartStyle.computeLegendLayout {entryCount: 3, legendGapPx: 12, legendWidthForMargin: 100, minSvgWidth: 444, basePlotWidth: 320, …}
- Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: false, showCI: false, …}
- Debug: fontControls enableForSvg attached {scopeId: 'scatterSvg', tabToken: 'workspace-2', hasDatasetScope: false, nodeName: 'svg'}
- Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'scatterSvg'}
- Debug: chartStyle.applySvgDefaults {hasSvg: true}
- Debug: chartStyle.estimateTickCount {spanPx: 396, baseSpacing: 51, rawEstimate: 7.764705882352941, rounded: 8, minTicks: 4, …}
- Debug: chartStyle.estimateTickCount {spanPx: 335, baseSpacing: 51, rawEstimate: 6.568627450980392, rounded: 7, minTicks: 4, …}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
- Debug: chartStyle.measureText {text: 'Y title', font: '16px Arial, Helvetica, sans-serif', width: 40.015625}
- Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 0, yTitleWidth: 40.015625, xTickFontSize: 16, …}
- Debug: chartStyle.computeBottomLayout {labelCount: 0, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
- Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
- Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '30', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '40', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '50', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '60', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
- Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
- Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:2092 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 100, maxYLabelWidth: 17.796875, yTitleWidth: 40.015625, xTickFontSize: 16, …}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '5', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '10', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '15', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '20', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1051 Debug: chartStyle.measureText {text: '25', font: '16px Arial, Helvetica, sans-serif', width: 17.796875}
-chartStyle.js:1485 Debug: chartStyle.computeBottomLayout {labelCount: 6, fontSize: 16, plotWidth: 216, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 216, baseSpacing: 51, rawEstimate: 4.235294117647059, rounded: 4, minTicks: 4, …}
-chartStyle.js:1028 Debug: chartStyle.estimateTickCount {spanPx: 231, baseSpacing: 51, rawEstimate: 4.529411764705882, rounded: 5, minTicks: 4, …}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '5'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '10'}
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-2::xTick', remaining: 40}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '15'}
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup {storeKey: 'scatter::@tab:workspace-2::__graph__', remaining: 120}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '20'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTick', key: 'xTick', text: '25'}
-chartStyle.js:1548 Debug: chartStyle.applyLabelOrientation result {count: 6, rotated: false, angle: -45, disableAuto: false}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '10'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '20'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '30'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '40'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '50'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTick', key: 'yTick', text: '60'}
-chartStyle.js:962 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:998 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'scatter-error-bar'}
-chartStyle.js:2504 Debug: chartStyle.createLegendRenderer.draw applied {entryCount: 3, x: 284, y: 38}
-dom.js:7 Debug: enableLegendDrag bound {element: 'g'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-0', text: 'Cat'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-0', text: 'Cat'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-1', text: 'Dog'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-1', text: 'Dog'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'legend', key: 'legend-2', text: 'Rabbit'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'legend', key: 'legend-2', text: 'Rabbit'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'xTitle', key: 'xTitle', text: 'X title'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'xTitle', key: 'xTitle', text: 'X title'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'yTitle', key: 'yTitle', text: 'Y title'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Y title'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'scatter', tabToken: 'workspace-2', role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-scatter.js:9365 Debug: scatter markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Scatter plot'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-scatter.js:11092 Debug: scatter overlay controls synced {type: 'scatter', statsReady: true, baseDisabled: false, showLine: false, showCI: false, …}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -24.463536262512207, minY: -11.666666507720947, viewW: 388.9349060058594, …}
-dom.js:7 Debug: ensureGraphViewport applied {component: 'scatter', debugLabel: 'scatter-graph', padding: 16, fill: true}
-resizer.js:2733 Debug: Shared.syncPanelWidths table min stored {label: 'scatter', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2781 Debug: Shared.syncPanelWidths graph inset {label: 'scatter', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
-resizer.js:833 Debug: enforceAspectRatio result {debugLabel: 'scatter sync', axis: 'x', output: {…}, ratio: 1, bounds: {…}}
-resizer.js:3001 Debug: Shared.syncPanelWidths aspect enforcement {label: 'scatter', aspectLocked: true, widthToApply: 427, heightToApply: 427, ratio: 1, …}
-resizer.js:3055 Debug: Shared.syncPanelWidths manual lock {label: 'scatter', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 407.79168701171875, …}
-componentLayout.js:1042 Debug: componentLayout syncPanels complete {component: 'scatter', minSvgWidth: 0, layoutChanged: false}
-dom.js:7 Debug: autoResizeSvg applied {debugLabel: 'scatter-graph', bbox: SVGRect, minX: -23.966022968292236, minY: -11.169153690338135, viewW: 388.72198486328125, …}
-componentLayout.js:1036 Debug: componentLayout programmatic sync released {component: 'scatter', depth: 0}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
- Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
- Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
- Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
- Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json', length: 9}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11353}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 12851}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json', length: 5}
- Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44504}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44505}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json', length: 9}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json', length: 9}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 9853}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11353}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 32}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 26}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 11351}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 12851}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json', length: 5}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json', length: 5}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44504}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 44505}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 287}
-session.js:2518 Debug: persistActiveTabState payload drift observed (auto-healed by live capture) {tabId: 'workspace-2', type: 'scatter', reason: 'recovery-interval', origin: 'lifecycle', changedTopLevelKeys: Array(3), …}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
-session.js:1507 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'recovery-interval', changed: true, hasPayload: true, statsTest: undefined}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1952}
-previews.js:1224 Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:741 Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:935 Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 8194, width: 220, height: 220}
-previews.js:1104 Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
-previews.js:1305 Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 8194, …}
-session.js:1151 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'scatter', reason: 'recovery-interval', restored: true}
-session.js:2591 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'scatter', hasCache: true}
-session.js:300 Debug: session dirty flag updated {reason: 'recovery-interval', wasDirty: true, userDirty: true, details: {…}}
-session.js:2640 Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: true, previewChanged: true, …}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1952}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-session.js:1889 Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'scatter', tabToken: 'workspace-2'}
-componentLayout.js:1345 Debug: componentLayout live resizable snapshot normalized {component: 'scatter', context: 'svgBox', widthPx: 427, heightPx: 427, baseWidthPx: 427, …}
-componentLayout.js:1401 Debug: componentLayout captureState {component: 'scatter', tabId: 'workspace-2', hasSvg: true, hasTable: true, minSvgWidth: 0}
-componentLayout.js:603 Debug: componentLayout tab layout override merged {tabId: 'workspace-2', component: 'scatter', aspectLocked: true}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'persist-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'persist-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
-session.js:1507 Debug: assignTabPayload applied {tabId: 'workspace-2', reason: 'dirty', changed: false, hasPayload: true, statsTest: undefined}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1952}
-previews.js:1224 Debug: preview live svg ignored outside tab root {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:741 Debug: preview getter svg ignored outside target tab {type: 'scatter', tabId: 'workspace-2', candidateToken: null, hasPreviewRoot: true}
-previews.js:935 Debug: preview capture success {tabId: 'workspace-2', type: 'scatter', length: 8194, width: 220, height: 220}
-previews.js:1104 Debug: preview indicator synced {tabId: 'workspace-2', hasPreview: true}
-previews.js:1305 Debug: preview stored {tabId: 'workspace-2', signature: '{"type":"scatter","data":[["","X title","Y title",…:true},"export":{"widthPx":427,"heightPx":427}}}}', width: 220, height: 220, size: 8194, …}
-session.js:1151 Debug: live DOM restored after render cache capture {tabId: 'workspace-2', type: 'scatter', reason: 'dirty', restored: true}
-session.js:2591 Debug: workspace render cache captured {tabId: 'workspace-2', type: 'scatter', hasCache: true}
-session.js:2640 Debug: workspace state persisted {tabId: 'workspace-2', type: 'scatter', hasPayload: true, changed: false, previewChanged: true, …}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result {context: 'archive-snapshot-layout-scatter-existing-layout', current: {…}}
-chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing {context: 'archive-snapshot-layout-scatter-existing-layout', refresh: false, minScale: 0.3, maxScale: 3, sizing: {…}}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:363 Debug: fastClonePayload using structuredClone {type: 'Object'}
-session.js:450 Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 69161}
-session.js:628 Debug: serializePayloadSignature computed {method: 'json-matrix-signature', length: 1952}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: fastClonePayload using structuredClone {type: 'Object'}
- Debug: clonePayload completed {method: 'structuredClone', type: 'Object'}
- Debug: tab data detected after header skip {tabId: 'workspace-2', rowIndex: 1, colIndex: 0, type: 'scatter'}
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: scatter overlay controls synced Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: enableLegendDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: scatter overlay controls synced Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: preview hover enter Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview reuse Object
+ Debug: preview hover using stored inactive preview Object
+ Debug: preview tooltip element created
+ Debug: preview tooltip positioned Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: archive render cache preserved across layout signature drift (skip path) Object
+ Debug: live DOM restored after render cache capture Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview getter svg ignored outside target tab Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: persistActiveTabState skipped live payload capture Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: workspace tab selected Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview reuse Object
+ Debug: persistActiveTabState skipped live payload capture Object
+ Debug: preview tooltip hidden Object
+ Debug: preview tooltip hidden Object
+ Debug: workspace same-component render cache unavailable Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: componentLayout root hydrated Object
+ Debug: setAppHeaderVisibility skipped Object
+ Debug: workspace initialization status Object
+ Debug: Components.scatter.setup refreshing stale DOM bindings
+ Debug: Components.scatter.setup start
+ Debug: scatter graph viewport helper configured Object
+ Debug: scatter component DOM helpers resolved Object
+ Debug: componentLayout createStandardPanels init Object
+ Debug: componentLayout resolved selector Object
+ Debug: componentLayout resolved selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved selector Object
+ Debug: componentLayout resolved selector Object
+ Debug: componentLayout resolved selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout ResizeObserver disconnected Object
+ Debug: resizer api destroyed Object
+ Debug: Shared.resizer.attachPanelDragResizer detached Object
+ Debug: componentLayout registry entry removed Object
+ Debug: componentLayout previous instance destroyed Object
+ Debug: componentLayout applying wrapper styles Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: componentLayout using graphSizing helper Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: attachResizableBox helper sizing applied Object
+ Debug: attachResizableBox unlimited width enabled Object
+ Debug: attachResizableBox unlimited height enabled Object
+ Debug: resizer text lock scope resolved Object
+ Debug: resizer aspect ratio override Object
+ Debug: resizer aspect ratio set Object
+ Debug: attachResizableBox defaults Object
+ Debug: chartStyle.registerTextSizeLockControl removed existing handler Object
+ Debug: chartStyle.registerTextSizeLockControl Object
+ Debug: resizer text lock registered Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer known option moved into menu Object
+ Debug: enforceAspectRatio result Object
+ Debug: resizer applyResize helper Object
+ Debug: attachResizableBox on scatterGraphPanel
+ Debug: componentLayout attachResizableBox applied Object
+ Debug: Shared.resizer.attachPanelDragResizer attached Object
+ Debug: componentLayout panel drag resizer attached Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout scheduleDraw suppressed by lifecycle Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout registry updated Object
+ Debug: componentLayout scheduleDraw updated Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: scatter initHot using shared factory Object
+ Debug: scatter font size base initialized Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter overlay controls synced Object
+ Debug: syncScatterGraphTypeUI complete Object
+ Debug: scatter overlay controls synced Object
+ Debug: componentLayout scheduleDraw updated Object
+ Debug: scatter scheduleDraw configured via Shared.debounceFrame Object
+ Debug: exporter mountControls complete Object
+ Debug: scatter export controls mounted Object
+ Debug: fontControls markText applied Object
+ Debug: Components.scatter.setup complete
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab controls synced Object
+ Debug: workspace toolbar uiState applied Object
+ Debug: workspace live DOM fast path reused Object
+ Debug: preview hover enter Object
+ Debug: preview tooltip hidden Object
+ Debug: preview hover skipped for active tab Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout ResizeObserver triggered Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout ResizeObserver ignored unchanged size Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: scatter layout onResize schedule trigger Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: scatter overlay controls synced Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: enableLegendDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: scatter overlay controls synced Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: scatter overlay controls synced Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: enableLegendDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: scatter markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: scatter overlay controls synced Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: preview tooltip hidden Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: tab payload dirty flag cleared Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview getter svg ignored outside target tab Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: live DOM restored after render cache capture Object
+ Debug: workspace render cache captured Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: tab payload dirty flag cleared Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview reuse Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: workspace render cache cleared Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: session dirty flag updated Object
+ Debug: updateTabPayload applied Object
+ Debug: fontControls importScopeStyles complete Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter axis settings applied Object
+ Debug: scatter axis settings restored Object
+ Debug: scatter overlay controls synced Object
+ Debug: scatter overlay controls synced Object
+ Debug: syncScatterGraphTypeUI complete Object
+ Debug: scatter overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview getter svg ignored outside target tab Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview getter svg ignored outside target tab Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: live DOM restored after render cache capture Object
+ Debug: workspace render cache captured Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview getter svg ignored outside target tab Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+session.js:1166 Debug: live DOM restored after render cache capture Object
+session.js:2660 Debug: workspace render cache captured Object
+session.js:2709 Debug: workspace state persisted Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:643 Debug: serializePayloadSignature computed Object
+session.js:643 Debug: serializePayloadSignature computed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:364 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:407 Debug: chartStyle.getSquareGraphSizing Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:643 Debug: serializePayloadSignature computed Object
+session.js:643 Debug: serializePayloadSignature computed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:378 Debug: fastClonePayload using structuredClone Object
+session.js:465 Debug: clonePayload completed Object
+session.js:1936 Debug: tab data detected after header skip Object
+previews.js:1456 Debug: preview tooltip hidden Object

@@ -400,6 +400,17 @@
 
   const lifecycleEventLog = namespace.__eventLog || [];
   namespace.__eventLog = lifecycleEventLog;
+  const lifecycleEventListeners = namespace.__eventListeners || new Set();
+  namespace.__eventListeners = lifecycleEventListeners;
+  namespace.onLifecycleEvent = function onLifecycleEvent(listener){
+    if(typeof listener !== 'function'){
+      return () => {};
+    }
+    lifecycleEventListeners.add(listener);
+    return function unsubscribeLifecycleEvent(){
+      lifecycleEventListeners.delete(listener);
+    };
+  };
   namespace.emitLifecycleEvent = function emitLifecycleEvent(event = {}){
     const normalized = {
       index: Number(namespace.__eventSeq = (Number(namespace.__eventSeq) || 0) + 1),
@@ -418,6 +429,22 @@
     }
     if(isDebugEnabled()){
       console.debug('Debug: lifecycle event', normalized);
+    }
+    lifecycleEventListeners.forEach(listener => {
+      try {
+        listener(normalized);
+      } catch (err) {
+        warn('Debug: lifecycle event listener error', { message: err?.message || String(err) });
+      }
+    });
+    if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
+      try {
+        global.dispatchEvent(new global.CustomEvent('graphitix:lifecycle-event', {
+          detail: normalized
+        }));
+      } catch (err) {
+        warn('Debug: lifecycle event dispatch failed', { message: err?.message || String(err) });
+      }
     }
     return normalized;
   };

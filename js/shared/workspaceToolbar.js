@@ -1774,6 +1774,8 @@
     const autosaveInput = doc.createElement('input');
     autosaveInput.type = 'checkbox';
     autosaveInput.dataset.documentAutosave = '1';
+    autosaveInput.dataset.sessionIgnoreDirty = '1';
+    autosaveInput.dataset.sessionAffectsPayload = '0';
     autosaveLabel.appendChild(autosaveInput);
     const autosaveText = doc.createElement('span');
     autosaveText.textContent = 'Autosave';

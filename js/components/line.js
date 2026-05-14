@@ -382,27 +382,30 @@
 
   function applyLineThemeConfig(config){
     const cfg = config && typeof config === 'object' ? config : {};
-    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
-      ? cfg.colorScheme.trim().toLowerCase()
-      : lineColorSchemeId;
-    const isDark = schemeId === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('line', { config: cfg }) || null;
+    const schemeId = resolved?.schemeId
+      || (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+        ? cfg.colorScheme.trim().toLowerCase()
+        : lineColorSchemeId);
+    const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     lineColorSchemeId = schemeId || 'scientific';
     lineTextColor = normalizeLineThemeColor(
       cfg.textColor,
-      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
     );
     lineBackgroundColor = normalizeLineThemeColor(
       cfg.backgroundColor,
-      isDark ? '#000000' : '#ffffff'
+      resolved?.background || (isDark ? '#000000' : '#ffffff')
     );
     lineOverlayStyles = sanitizeLineOverlayStylesMap(cfg.overlayStyles);
   }
 
   function getLineThemeTextColor(){
-    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineColorSchemeId } });
+    const isDark = resolved ? resolved.isDark === true : (String(lineColorSchemeId || '').toLowerCase() === 'dark');
     return normalizeLineThemeColor(
       lineTextColor,
-      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
     );
   }
 
@@ -414,9 +417,10 @@
     staleBackgrounds.forEach(node => {
       try { node.remove(); } catch (err) {}
     });
-    const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineColorSchemeId } });
+    const isDark = resolved ? resolved.isDark === true : (String(lineColorSchemeId || '').toLowerCase() === 'dark');
     if(isDark){
-      const color = normalizeLineThemeColor(lineBackgroundColor, '#000000');
+      const color = normalizeLineThemeColor(lineBackgroundColor, resolved?.background || '#000000');
       svg.setAttribute('data-color-scheme-bg-color', color);
       if(svg.style){
         svg.style.backgroundColor = color;

@@ -91,12 +91,17 @@ async function forcePreviewCaptureForActiveTab(page) {
 
 async function ensurePreviewForActiveTab(page) {
   let last = { ok: false, hasPreview: false, tabId: null, signature: null };
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     last = await forcePreviewCaptureForActiveTab(page);
     if (last.ok && last.hasPreview) {
+      await page.waitForFunction((tabId) => {
+        const state = window.Main?.session?.workspaceState;
+        const tab = state?.tabs?.find(item => item?.id === tabId);
+        return !!(tab?.previewMarkup && tab?.previewMeta && tab.previewMeta.updatedAt);
+      }, last.tabId, { timeout: 5000 });
       return last;
     }
-    await page.waitForTimeout(350 + attempt * 120);
+    await page.waitForTimeout(300 + attempt * 140);
   }
   return last;
 }
@@ -141,8 +146,7 @@ async function hoverAndAssertPreview(page, tabId) {
   expect(hoverMeta.tooltipIcon, `${tabId} tooltip should not render resizer icon`).toBe(false);
 }
 
-const COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE = COMPONENT_MATRIX
-  .filter(component => component.type !== 'surface');
+const COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE = COMPONENT_MATRIX.slice();
 
 for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
   test(`inactive preview works for both same-type tabs: ${component.type}`, async ({ page }, testInfo) => {

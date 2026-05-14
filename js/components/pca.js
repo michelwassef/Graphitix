@@ -3798,21 +3798,23 @@
 
   function applyPcaThemeConfig(config){
     const cfg = config && typeof config === 'object' ? config : {};
-    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
-      ? cfg.colorScheme.trim().toLowerCase()
-      : (pcaState.theme?.colorScheme || 'scientific');
-    const isDark = schemeId === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('pca', { config: cfg }) || null;
+    const schemeId = resolved?.schemeId
+      || (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+        ? cfg.colorScheme.trim().toLowerCase()
+        : (pcaState.theme?.colorScheme || 'scientific'));
+    const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     if(!pcaState.theme || typeof pcaState.theme !== 'object'){
       pcaState.theme = {};
     }
     pcaState.theme.colorScheme = schemeId || 'scientific';
     pcaState.theme.textColor = normalizePcaThemeColor(
       cfg.textColor,
-      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
     );
     pcaState.theme.backgroundColor = normalizePcaThemeColor(
       cfg.backgroundColor,
-      isDark ? '#000000' : '#ffffff'
+      resolved?.background || (isDark ? '#000000' : '#ffffff')
     );
   }
 
@@ -3824,7 +3826,8 @@
     staleBackgrounds.forEach(node => {
       try { node.remove(); } catch (_err) {}
     });
-    if(String(pcaState.theme?.colorScheme || '').toLowerCase() !== 'dark'){
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('pca', { config: { colorScheme: pcaState.theme?.colorScheme } });
+    if(!(resolved ? resolved.isDark === true : (String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark'))){
       if(svg.style){
         svg.style.removeProperty('background-color');
       }

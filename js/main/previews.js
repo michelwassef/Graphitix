@@ -1148,6 +1148,36 @@
     return isPreviewRefreshSafeWithoutLiveSource(meta);
   }
 
+  function hasComponentAwarePreviewReadiness(tab, config, session) {
+    if (!tab || !config) {
+      return false;
+    }
+    if (typeof config.isPreviewReady === 'function') {
+      try {
+        if (config.isPreviewReady(tab) === true) {
+          return true;
+        }
+      } catch (err) {
+        console.debug('Debug: preview readiness hook failed', {
+          tabId: tab?.id || null,
+          type: tab?.type || null,
+          message: err?.message || String(err)
+        });
+      }
+    }
+    const hasRenderState = !!(
+      tab.renderCache
+      || tab.archiveRenderCache
+      || tab.previewMarkup
+      || tab.payloadSignature
+      || tab.layoutSignature
+    );
+    if (hasRenderState) {
+      return true;
+    }
+    return !!session?.tabHasTableData?.(tab);
+  }
+
   function updateTabPreviewFromWorkspace(tab, config, meta = {}) {
     if (!tab || tab.isWelcome || !tab.type || !config) {
       console.debug('Debug: preview update skipped', { reason: 'invalid-tab', tabId: tab?.id || null, type: tab?.type || null, meta });
@@ -1162,7 +1192,7 @@
     );
     const hasData = meta.forceCapture
       ? true
-      : !!(session?.tabHasTableData?.(tab) || hasStableTabState);
+      : !!(hasComponentAwarePreviewReadiness(tab, config, session) || hasStableTabState);
     if (!hasData) {
       const reasonText = String(meta?.reason || '').trim().toLowerCase();
       const preserveExistingPreview = !!tab.previewMarkup && (
@@ -1242,6 +1272,8 @@
       : null;
     const hasLivePreviewSource = previewSvgHasRenderableContent(rootSvg) || previewSvgHasRenderableContent(liveSvg);
     const renderCacheSequence = getRenderCacheSequence(tab);
+    const payloadVersion = Number(tab.payloadVersion || 0);
+    const layoutVersion = Number(tab.layoutVersion || 0);
     const needsHybridRefresh = shouldForceHybridPreviewCapture(liveSvg || rootSvg || null, config.type)
       && !tab.previewMeta?.hybrid
       && !tab.previewMeta?.canvasBitmap
@@ -1250,6 +1282,8 @@
       && Number(tab.previewMeta?.renderCacheSequence || 0) !== renderCacheSequence;
     const needsLayoutRefresh = layoutSignature
       && tab.previewMeta?.layoutSignature !== layoutSignature;
+    const needsPayloadVersionRefresh = Number(tab.previewMeta?.payloadVersion || 0) !== payloadVersion;
+    const needsLayoutVersionRefresh = Number(tab.previewMeta?.layoutVersion || 0) !== layoutVersion;
     const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
       && !tab.previewMeta?.hybrid
       && !tab.previewMeta?.canvasBitmap
@@ -1266,6 +1300,8 @@
       || needsHybridRefresh
       || needsRenderCacheRefresh
       || needsLayoutRefresh
+      || needsPayloadVersionRefresh
+      || needsLayoutVersionRefresh
       || needsPlaceholderRefresh
       || needsLegacyCanvasGlyphRefresh;
     if (shouldCapture && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource })) {
@@ -1298,9 +1334,20 @@
         hybrid: !!preview.hybrid,
         renderCacheSequence,
         layoutSignature,
+        payloadVersion,
+        layoutVersion,
         updatedAt: Date.now(),
         reason: meta.reason || 'capture'
       };
+      try {
+        session?.markTabRenderCommitted?.(tab, { reason: meta.reason || 'preview-capture' });
+      } catch (err) {
+        console.debug('Debug: preview render commit mark skipped', {
+          tabId: tab.id,
+          type: tab.type,
+          message: err?.message || String(err)
+        });
+      }
       syncTabPreviewIndicator(tab);
       console.debug('Debug: preview stored', {
         tabId: tab.id,

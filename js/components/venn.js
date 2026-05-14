@@ -666,7 +666,8 @@
   }
 
   function isVennDarkScheme() {
-    return getVennSchemeId() === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('venn', { style: { colorScheme: getVennSchemeId() } });
+    return resolved ? resolved.isDark === true : getVennSchemeId() === 'dark';
   }
 
   function applyVennStageTheme(stage) {

@@ -398,18 +398,20 @@
 
   function applyScatterThemeConfig(config){
     const cfg = config && typeof config === 'object' ? config : {};
-    const schemeId = typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
-      ? cfg.colorScheme.trim().toLowerCase()
-      : scatterColorSchemeId;
-    const isDark = schemeId === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('scatter', { config: cfg }) || null;
+    const schemeId = resolved?.schemeId
+      || (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
+        ? cfg.colorScheme.trim().toLowerCase()
+        : scatterColorSchemeId);
+    const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     scatterColorSchemeId = schemeId || 'scientific';
     scatterTextColor = normalizeScatterThemeColor(
       cfg.textColor,
-      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+      resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
     );
     scatterBackgroundColor = normalizeScatterThemeColor(
       cfg.backgroundColor,
-      isDark ? '#000000' : '#ffffff'
+      resolved?.background || (isDark ? '#000000' : '#ffffff')
     );
   }
 

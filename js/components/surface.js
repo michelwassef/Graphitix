@@ -411,7 +411,8 @@
   }
 
   function isSurfaceDarkTheme(){
-    return String(state.settings?.colorScheme || '').toLowerCase() === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('surface', { config: state.settings || {} });
+    return resolved ? resolved.isDark === true : (String(state.settings?.colorScheme || '').toLowerCase() === 'dark');
   }
 
   function createDefaultGridStyle(fallbackThickness){

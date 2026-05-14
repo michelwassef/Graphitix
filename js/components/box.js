@@ -693,7 +693,8 @@
     const schemeId = typeof overrideSchemeId === 'string' && overrideSchemeId.trim()
       ? overrideSchemeId.trim().toLowerCase()
       : getBoxSelectedColorSchemeId();
-    const isDarkScheme = schemeId === 'dark';
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('box', { config: { colorScheme: schemeId } });
+    const isDarkScheme = resolved ? resolved.isDark === true : schemeId === 'dark';
     const surfaceColor = isDarkScheme ? '#000000' : '';
     if(els?.svgBox?.style){
       if(surfaceColor){
@@ -721,9 +722,11 @@
       return false;
     }
     const backgroundRect = svg.querySelector?.('[data-color-scheme-background="1"]') || null;
-    if(schemeId === 'dark'){
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('box', { config: { colorScheme: schemeId } });
+    const isDarkScheme = resolved ? resolved.isDark === true : schemeId === 'dark';
+    if(isDarkScheme){
       if(backgroundRect){
-        backgroundRect.setAttribute('fill', '#000000');
+        backgroundRect.setAttribute('fill', resolved?.background || '#000000');
         return true;
       }
       return false;
