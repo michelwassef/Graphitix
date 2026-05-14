@@ -618,6 +618,37 @@
 
   const state = createInitialState();
   let emptyPayloadTemplate = null;
+  let vennParsedDerivedCache = null;
+
+  function getVennParsedDerivedCache(){
+    if(!vennParsedDerivedCache){
+      vennParsedDerivedCache = Shared.componentLifecycle?.derivedCache?.create
+        ? Shared.componentLifecycle.derivedCache.create('venn:parsed-lists', { serializable: false })
+        : {
+            map: new Map(),
+            get(signature){ return this.map.get(String(signature || '')) || null; },
+            set(signature, value){ if(signature){ this.map.set(String(signature), value); } return value; },
+            getOrBuild(signature, builder){
+              const key = String(signature || '');
+              if(key && this.map.has(key)){ return this.map.get(key); }
+              const value = typeof builder === 'function' ? builder() : null;
+              if(key && value != null){ this.map.set(key, value); }
+              return value;
+            },
+            clear(){ const size = this.map.size; this.map.clear(); return size; }
+          };
+    }
+    return vennParsedDerivedCache;
+  }
+
+  function clearVennDerivedCaches(reason = 'clear-derived-cache'){
+    try{ getVennParsedDerivedCache().clear(reason); }catch(_err){}
+    state.analysis.lastParsedLists = null;
+    state.analysis.lastRegions = null;
+    state.analysis.lastUpSetRegionMap = null;
+    state.analysis.lastUpSetIntersections = null;
+    debugLog('venn derived caches cleared', { reason });
+  }
   const vennBoundRoots = new WeakSet();
   const vennTableBindingsByRoot = new WeakMap();
   let vennDocumentHandlersBound = false;
@@ -944,11 +975,55 @@
     return next;
   }
 
+  function normalizeVennSet(value){
+    if(value instanceof Set){
+      return value;
+    }
+    if(Array.isArray(value)){
+      return new Set(value.map(item => String(item || '').trim()).filter(Boolean));
+    }
+    if(value && typeof value === 'object' && Array.isArray(value.values)){
+      return new Set(value.values.map(item => String(item || '').trim()).filter(Boolean));
+    }
+    return new Set();
+  }
+
+  function normalizeVennRegionSetMap(value){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    const next = {};
+    Object.keys(value).forEach(key => {
+      next[key] = normalizeVennSet(value[key]);
+    });
+    return next;
+  }
+
+  function normalizeVennRegions(value){
+    const normalized = normalizeVennRegionSetMap(value);
+    if(!normalized){
+      return null;
+    }
+    ['A','B','C','Aonly','Bonly','Conly','AB','AC','BC','ABC'].forEach(key => {
+      if(!(normalized[key] instanceof Set)){
+        normalized[key] = new Set();
+      }
+    });
+    return normalized;
+  }
+
+  function normalizeVennIntersections(value){
+    return Array.isArray(value) ? value.map(entry => ({
+      ...entry,
+      items: Array.isArray(entry?.items) ? entry.items.map(item => String(item || '').trim()).filter(Boolean) : []
+    })) : null;
+  }
+
   function resetVennRuntimeState(){
     cancelPendingSpeciesDetection('runtime-reset', { abortActive: true, resetIndicator: false });
     state.persistence.fileHandle = null;
     state.persistence.fileName = 'venn.graph';
-    state.analysis.lastParsedLists = null;
+    clearVennDerivedCaches('runtime-reset');
     state.analysis.significanceCache = null;
     state.analysis.speciesDetection = {
       cache: new Map(),
@@ -998,7 +1073,7 @@
       : {};
     state.persistence.fileHandle = persistence.fileHandle || null;
     state.persistence.fileName = persistence.fileName || 'venn.graph';
-    state.analysis.lastParsedLists = null;
+    clearVennDerivedCaches('runtime-apply');
     state.analysis.significanceCache = analysis.significanceCache ? cloneSimple(analysis.significanceCache) : null;
     const detection = getSpeciesDetectionState();
     const detectionSnapshot = analysis.speciesDetection && typeof analysis.speciesDetection === 'object'
@@ -1629,55 +1704,73 @@
     const signature = makeListSignature(mode, caseSensitive, sources);
     const includeRegions = options.includeRegions === true;
     const reason = options.reason || 'unspecified';
-    let parsed = state.analysis.lastParsedLists;
-    if (parsed && parsed.signature === signature) {
+    const derivedCache = getVennParsedDerivedCache();
+    let parsed = derivedCache.get(signature) || state.analysis.lastParsedLists;
+    const parsedMaps = parsed && parsed.maps;
+    const parsedMapsValid = parsedMaps && parsedMaps.A instanceof Map && parsedMaps.B instanceof Map && parsedMaps.C instanceof Map;
+    if (parsed && parsed.signature === signature && !parsedMapsValid) {
+      // Parsed-list caches are derived, non-serializable state. If a stale
+      // JSON-cloned object reaches this path, clear the derived cache and
+      // rebuild from payload/input text rather than trying to use plain objects
+      // as Maps/Sets.
+      try { derivedCache.clear('invalid-parsed-list-cache'); } catch (_err) {}
+      if (state.analysis.lastParsedLists === parsed) {
+        state.analysis.lastParsedLists = null;
+      }
+      parsed = null;
+      debugLog('parsed lists cache invalidated before rebuild', { signature, reason });
+    }
+    if (parsed && parsed.signature === signature && parsedMapsValid) {
       if (includeRegions && !parsed.regions) {
         parsed.regions = populateRegionSets(parsed.maps, parsed.regions);
         debugLog('parsed lists region cache hydrated', { signature, reason });
       } else {
-        debugLog('parsed lists cache hit', { signature, includeRegions, reason });
+        debugLog('parsed lists derived cache hit', { signature, includeRegions, reason });
       }
+      state.analysis.lastParsedLists = parsed;
       return parsed;
     }
 
-    const lists = {
-      A: parseList(sources.A, caseSensitive, mode),
-      B: parseList(sources.B, caseSensitive, mode),
-      C: parseList(sources.C, caseSensitive, mode)
-    };
-    const maps = buildMapsFromLists(lists);
-    const uniques = buildUniqueSetsFromMaps(maps);
-    const regions = includeRegions ? populateRegionSets(maps, parsed?.regions) : null;
-
-    parsed = {
-      signature,
-      mode,
-      caseSensitive,
-      lists,
-      maps,
-      uniques,
-      regions
-    };
+    parsed = derivedCache.getOrBuild(signature, () => {
+      const lists = {
+        A: parseList(sources.A, caseSensitive, mode),
+        B: parseList(sources.B, caseSensitive, mode),
+        C: parseList(sources.C, caseSensitive, mode)
+      };
+      const maps = buildMapsFromLists(lists);
+      const uniques = buildUniqueSetsFromMaps(maps);
+      const regions = includeRegions ? populateRegionSets(maps, null) : null;
+      return { signature, mode, caseSensitive, lists, maps, uniques, regions };
+    }, { reason });
+    if(includeRegions && parsed && !parsed.regions){
+      parsed.regions = populateRegionSets(parsed.maps, null);
+    }
     state.analysis.lastParsedLists = parsed;
+    const refreshedLists = parsed?.lists || { A: [], B: [], C: [] };
+    const refreshedRegions = parsed?.regions || null;
     debugLog('parsed lists cache refreshed', {
       signature,
       includeRegions,
-      counts: { A: lists.A.length, B: lists.B.length, C: lists.C.length }
+      counts: {
+        A: Array.isArray(refreshedLists.A) ? refreshedLists.A.length : 0,
+        B: Array.isArray(refreshedLists.B) ? refreshedLists.B.length : 0,
+        C: Array.isArray(refreshedLists.C) ? refreshedLists.C.length : 0
+      }
     });
-    if (regions) {
+    if (refreshedRegions) {
       debugLog('parsed lists regions populated', {
         signature,
         sizes: {
-          A: regions.A.size,
-          B: regions.B.size,
-          C: regions.C.size,
-          Aonly: regions.Aonly.size,
-          Bonly: regions.Bonly.size,
-          Conly: regions.Conly.size,
-          AB: regions.AB.size,
-          AC: regions.AC.size,
-          BC: regions.BC.size,
-          ABC: regions.ABC.size
+          A: refreshedRegions.A?.size || 0,
+          B: refreshedRegions.B?.size || 0,
+          C: refreshedRegions.C?.size || 0,
+          Aonly: refreshedRegions.Aonly?.size || 0,
+          Bonly: refreshedRegions.Bonly?.size || 0,
+          Conly: refreshedRegions.Conly?.size || 0,
+          AB: refreshedRegions.AB?.size || 0,
+          AC: refreshedRegions.AC?.size || 0,
+          BC: refreshedRegions.BC?.size || 0,
+          ABC: refreshedRegions.ABC?.size || 0
         }
       });
     }
@@ -2767,9 +2860,17 @@
     const width = bbox.x2 - bbox.x1;
     const height = bbox.y2 - bbox.y1;
     const size = Math.max(width, height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(size) || size <= 0) {
+      console.warn('venn polylabel skipped invalid bounding box', { bbox, width, height, size });
+      return null;
+    }
     const h0 = size / 2;
     const nInit = 4;
     const step = size / nInit;
+    if (!Number.isFinite(step) || step <= 0) {
+      console.warn('venn polylabel skipped invalid step', { bbox, width, height, size, step });
+      return null;
+    }
     const queue = createMaxHeap(cell => cell.max);
     function push(c) { queue.push(c); }
     function pop() { return queue.pop(); }
@@ -2788,17 +2889,35 @@
       best = fallbackBest;
     }
     debug('Debug: venn polylabel heap queue engaged', { initialCells: queue.size() }); // Debug: heap branch engaged
+    let iterations = 0;
+    const maxIterations = 12000;
     while (queue.size()) {
+      iterations += 1;
+      if (iterations > maxIterations) {
+        console.warn('venn polylabel iteration guard reached', {
+          iterations,
+          queueSize: queue.size(),
+          bbox,
+          tolerancePx,
+          bestDistance: best?.d
+        });
+        break;
+      }
       const cell = pop();
-      if (cell.d > best.d) best = cell;
-      if (cell.max - best.d <= tolerancePx) continue;
+      if (!cell || !Number.isFinite(cell.x) || !Number.isFinite(cell.y) || !Number.isFinite(cell.h) || !Number.isFinite(cell.max)) {
+        console.warn('venn polylabel skipped invalid cell', { cell, bbox, tolerancePx });
+        continue;
+      }
+      if (Number.isFinite(cell.d) && (!Number.isFinite(best.d) || cell.d > best.d)) best = cell;
+      if (!Number.isFinite(cell.max - best.d) || cell.max - best.d <= tolerancePx) continue;
       const h = cell.h / 2;
+      if (!Number.isFinite(h) || h <= 0) continue;
       push(makeCell(cell.x - h, cell.y - h, h));
       push(makeCell(cell.x + h, cell.y - h, h));
       push(makeCell(cell.x - h, cell.y + h, h));
       push(makeCell(cell.x + h, cell.y + h, h));
     }
-    return { x: best.x, y: best.y };
+    return best && Number.isFinite(best.x) && Number.isFinite(best.y) ? { x: best.x, y: best.y } : null;
   }
 
   function _findRegionLabelPoint(code, cA, rA, cB, rB, cC, rC, hasC, tolerancePx) {
@@ -4413,11 +4532,31 @@
       let y = center.y + (isTop ? -(circle.r * scale + margin) : (circle.r * scale + margin));
       const t = addText(label + ' (' + count + ')', center.x, y, null, { role: 'setLabel', key: circle?.id ? `set-${circle.id}` : 'setLabel' });
       let box = measureTextBox(t, style.fontSizePx);
+      const overlaps = (a, b) => !!(
+        a && b
+        && Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.width) && Number.isFinite(a.height)
+        && Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.width) && Number.isFinite(b.height)
+        && !(a.x + a.width < b.x || b.x + b.width < a.x || a.y + a.height < b.y || b.y + b.height < a.y)
+      );
       for (const b of labelBoxes) {
-        while (!(box.x + box.width < b.x || b.x + b.width < box.x || box.y + box.height < b.y || b.y + b.height < box.y)) {
+        let attempts = 0;
+        const maxAttempts = 40;
+        while (overlaps(box, b) && attempts < maxAttempts) {
+          attempts += 1;
           y += isTop ? -style.fontSizePx : style.fontSizePx;
           t.setAttribute('y', y);
           box = measureTextBox(t, style.fontSizePx);
+        }
+        if (attempts >= maxAttempts && overlaps(box, b)) {
+          console.warn('venn set label placement guard reached', {
+            label,
+            count,
+            attempts,
+            tabId: Shared.hot?.resolveActiveTabId?.() || null,
+            previousBox: b,
+            currentBox: box
+          });
+          break;
         }
       }
       const minYBound = style.fontSizePx;
@@ -5430,9 +5569,15 @@
   function drawFromLists() {
     const parsed = ensureParsedLists({ includeRegions: true, reason: 'drawFromLists' });
     const inputs = ensureInputs();
+    if (!parsed || !parsed.lists || !parsed.maps) {
+      console.warn('Debug: venn drawFromLists skipped - parsed lists unavailable', { hasParsed: !!parsed });
+      clearSVG();
+      renderVennEmptyPlotNotice();
+      return;
+    }
     const mode = parsed.mode;
     const cs = parsed.caseSensitive;
-    const regions = parsed.regions || setsFromLists(parsed.lists.A, parsed.lists.B, parsed.lists.C, state.analysis.lastRegions);
+    const regions = parsed.regions || setsFromLists(parsed.lists.A || [], parsed.lists.B || [], parsed.lists.C || [], state.analysis.lastRegions);
     state.analysis.lastRegions = regions;
     state.analysis.lastDrawMode = 'lists';
     const counts = {
@@ -5762,6 +5907,7 @@
   }
 
   function getVennGraphPayload(options = {}) {
+    ensureVennDomBindings(options?.tabId || null);
     const inputs = state.ui.inputs;
     if (!inputs) {
       debug('Debug: venn.getPayload skipped - missing inputs reference');
@@ -5999,6 +6145,7 @@
     }
     const d = obj.data || {};
     if(!skipDataLoad){
+      clearVennDerivedCaches(meta?.source ? `payload:${meta.source}` : 'payload');
       const hasListContent = [d.listA, d.listB, d.listC].some(value => String(value == null ? '' : value).trim() !== '');
       const hasOnlyLegacyDefaultLabels = !hasListContent && [d.labelA, d.labelB, d.labelC].every((value, index) => {
         const normalized = String(value == null ? '' : value).trim();
@@ -6182,7 +6329,7 @@
   venn.loadFromPayload = function loadVennFromPayload(payload, options = {}){
     const undoPrevious = options?.undo?.previous;
     const recordUndo = options?.recordUndo ?? false;
-    if(!applyVennPayload(payload, { source: 'payload', undoPrevious, recordUndo, undoLabel: options?.undoLabel })){
+    if(!applyVennPayload(payload, { ...options, source: options?.source || 'payload', undoPrevious, recordUndo, undoLabel: options?.undoLabel })){
       console.warn('venn payload application failed', { source: 'payload' });
     }
   };
@@ -6818,13 +6965,45 @@
     debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
-  function resolveVennRoot(tabLike = null){
-    const activeTabId = tabLike || Main?.session?.getActiveTab?.()?.id || null;
-    const staticRoot = Main?.components?.workspaces?.venn?.element || null;
-    return Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'venn')
-      || state.ui.root
-      || staticRoot
+  function getVennRootTabId(root){
+    if(!root || typeof root.getAttribute !== 'function'){
+      return null;
+    }
+    return root.getAttribute('data-workspace-tab-id')
+      || root?.dataset?.workspaceTabId
+      || root?.closest?.('[data-workspace-tab-id]')?.getAttribute?.('data-workspace-tab-id')
       || null;
+  }
+
+  function normalizeVennTabId(tabLike = null){
+    if(tabLike && typeof tabLike === 'object'){
+      return tabLike.id || tabLike.tabId || null;
+    }
+    return tabLike || Main?.session?.getActiveTab?.()?.id || null;
+  }
+
+  function resolveVennRoot(tabLike = null){
+    const activeTabId = normalizeVennTabId(tabLike);
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(activeTabId, 'venn') || null;
+    if(mountedRoot){
+      return mountedRoot;
+    }
+    const currentRoot = state.ui.root || null;
+    const currentRootTabId = getVennRootTabId(currentRoot);
+    if(currentRoot && (!activeTabId || !currentRootTabId || String(currentRootTabId) === String(activeTabId))){
+      return currentRoot;
+    }
+    const staticRoot = Main?.components?.workspaces?.venn?.element || null;
+    const staticRootTabId = getVennRootTabId(staticRoot);
+    if(staticRoot && (!activeTabId || !staticRootTabId || String(staticRootTabId) === String(activeTabId))){
+      return staticRoot;
+    }
+    debugLog('resolveVennRoot refused stale root fallback', {
+      requestedTabId: activeTabId || null,
+      currentRootTabId: currentRootTabId || null,
+      staticRootTabId: staticRootTabId || null
+    });
+    return null;
   }
 
   function queryVennRoot(selector, tabLike = null){
@@ -7026,8 +7205,36 @@
     });
   }
 
+  function ensureVennDomBindings(tabLike = null){
+    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+      return false;
+    }
+    const result = Shared.workspaceTabs.ensureActiveDomBindings({
+      componentKey: 'venn',
+      tabLike: tabLike || null,
+      sentinelSelector: '#vennHot',
+      getCurrentRoot: () => state.ui.root || null,
+      getCurrentSentinel: () => state.ui.hotContainer || null,
+      rebind: ({ root, tab }) => {
+        const tabId = tab?.id || normalizeVennTabId(tabLike) || null;
+        debugLog('active DOM binding rebind', {
+          previousTabId: venn.__boundTabId || null,
+          targetTabId: tabId,
+          hasRoot: !!root
+        });
+        venn.ready = false;
+        venn.init({
+          root: root || undefined,
+          tabId,
+          reason: 'active-dom-binding-rebind'
+        });
+      }
+    });
+    return !!result?.rebound;
+  }
+
   venn.init = function init(options = {}) {
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = normalizeVennTabId(options?.tabId || null);
     if (venn.ready && (!targetTabId || venn.__boundTabId === targetTabId)) { debugLog('init skipped', { tabId: venn.__boundTabId || null }); return; }
     if(venn.ready){
       debugLog('init rebinding', { previousTabId: venn.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
@@ -7155,29 +7362,70 @@
     return true;
   };
 
-  venn.activateTab = function activateTab(_tab, meta = {}){
-    const targetTabId = (_tab && typeof _tab === 'object' ? _tab.id : _tab) || meta?.tabId || null;
+  function syncVennActivationState(meta = {}){
+    if(typeof state.ui.syncPanels === 'function'){
+      state.ui.syncPanels({ skipSchedule: true });
+      debugLog('tab activated panel sync', {
+        reason: meta.reason || 'activate-tab',
+        tabId: venn.__boundTabId || null
+      });
+    }
+    state.ui.scheduleDraw?.();
+  }
+
+  venn.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: venn,
+    componentKey: 'venn',
+    resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'venn')
+      || resolveVennRoot(tabLike || null)
+      || state.ui.root
+      || null,
+    setRoot: root => { bindUiToRoot(root || state.ui.root || null); },
+    ensureBindings: tabLike => ensureVennDomBindings(tabLike),
+    init: options => venn.init(options),
+    afterReady: (_tabLike, meta = {}) => {
+      if(!venn.ready){
+        return;
+      }
+      syncVennActivationState(meta);
+    },
+    getSentinel: () => state.ui.hotContainer || null
+  }) || function activateTab(_tab, meta = {}){
+    const targetTabId = normalizeVennTabId((_tab && typeof _tab === 'object' ? _tab.id : _tab) || meta?.tabId || null);
+    const previousBoundTabId = venn.__boundTabId || null;
+    const rebound = ensureVennDomBindings(targetTabId);
+    const currentRootTabId = getVennRootTabId(state.ui.root);
+    const rootMismatch = !!targetTabId && !!currentRootTabId && String(currentRootTabId) !== String(targetTabId);
     venn.__boundTabId = targetTabId || venn.__boundTabId || null;
-    if(!venn.ready){
+    if(!venn.ready || rootMismatch){
+      debugLog('activateTab forcing init for target root', {
+        previousBoundTabId,
+        targetTabId,
+        currentRootTabId: currentRootTabId || null,
+        rebound,
+        reason: meta?.reason || 'activate-tab'
+      });
       venn.init({ tabId: targetTabId || null, reason: meta?.reason || 'activate-tab' });
-    }else{
+    }else if(!rebound){
       const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'venn')
-        || Main?.components?.workspaces?.venn?.element
         || resolveVennRoot(targetTabId || null)
         || null;
       bindUiToRoot(mountedRoot);
     }
-    if(typeof state.ui.syncPanels === 'function'){
-      state.ui.syncPanels({ skipSchedule: true });
-      debugLog('tab activated panel sync', {
-        reason: meta.reason || 'activate-tab'
-      });
-    }
-    state.ui.scheduleDraw?.();
+    syncVennActivationState({ ...meta, tabId: targetTabId || null });
     return true;
   };
 
-  venn.deactivateTab = function deactivateTab(_tab, meta = {}){
+  venn.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: venn,
+    componentKey: 'venn',
+    cancel: (_tab, meta = {}) => {
+      cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
+        abortActive: true,
+        resetIndicator: false
+      });
+    }
+  }) || function deactivateTab(_tab, meta = {}){
     cancelPendingSpeciesDetection(meta.reason || 'deactivate-tab', {
       abortActive: true,
       resetIndicator: false
@@ -7365,7 +7613,14 @@
     return false;
   }
 
-  venn.captureRenderCache = function captureRenderCache(){
+  venn.captureRenderCache = function captureRenderCache(meta = {}){
+    const targetTabId = normalizeVennTabId(meta?.tabId || null);
+    ensureVennDomBindings(targetTabId);
+    const rootTabId = getVennRootTabId(state.ui.root);
+    if(targetTabId && rootTabId && String(rootTabId) !== String(targetTabId)){
+      console.warn('venn render cache capture skipped stale root', { targetTabId, rootTabId });
+      return null;
+    }
     const stageCache = detachChildren(state.ui.stage);
     const regionCache = detachChildren(state.ui.regionList);
     const significanceCache = detachChildren(state.ui.significanceResults);
@@ -7383,11 +7638,14 @@
       stringPerformed: !!state.analysis.stringPerformed
     };
     const analysisState = {
-      lastRegions: state.analysis.lastRegions,
-      lastUpSetRegionMap: state.analysis.lastUpSetRegionMap,
-      lastUpSetIntersections: state.analysis.lastUpSetIntersections,
+      // Parsed-list maps and region Sets contain Map/Set instances that do not survive
+      // JSON archive round-tripping. Keep lightweight redraw hints only and rebuild the
+      // expensive parsed structures on demand after cache restore.
+      lastRegions: null,
+      lastUpSetRegionMap: null,
+      lastUpSetIntersections: null,
       lastCounts: state.analysis.lastCounts,
-      lastParsedLists: state.analysis.lastParsedLists,
+      lastParsedLists: null,
       lastDrawMode: state.analysis.lastDrawMode,
       lastSignificance: state.analysis.lastSignificance
     };
@@ -7420,7 +7678,26 @@
     };
   };
 
-  venn.restoreRenderCache = function restoreRenderCache(cache){
+  venn.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'venn',
+      graph: { selectors: ['#stage', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']stage["']|<canvas\b)/i },
+      requiredSections: [],
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  venn.isIdleForSnapshot = function isIdleForSnapshot(){
+    const detection = state.analysis?.speciesDetection || null;
+    return !(detection?.pendingTimeoutId || detection?.active);
+  };
+
+  venn.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(venn, { ...meta, componentKey: 'venn' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  venn.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     restoreSvgRootState(state.ui.stage, cache.stageRootState);
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.stage || cache?.plot || cache?.preview || cache?.graph || cache?.svg;
@@ -7452,11 +7729,12 @@
       }
     }
     if(cache.analysisState){
-      state.analysis.lastRegions = cache.analysisState.lastRegions || null;
-      state.analysis.lastUpSetRegionMap = cache.analysisState.lastUpSetRegionMap || null;
-      state.analysis.lastUpSetIntersections = cache.analysisState.lastUpSetIntersections || null;
+      state.analysis.lastRegions = normalizeVennRegions(cache.analysisState.lastRegions);
+      state.analysis.lastUpSetRegionMap = normalizeVennRegionSetMap(cache.analysisState.lastUpSetRegionMap);
+      state.analysis.lastUpSetIntersections = normalizeVennIntersections(cache.analysisState.lastUpSetIntersections);
       state.analysis.lastCounts = cache.analysisState.lastCounts || null;
-      state.analysis.lastParsedLists = cache.analysisState.lastParsedLists || null;
+      // Parsed Maps/Sets are derived from payload input. Never trust cache/archive copies.
+      state.analysis.lastParsedLists = null;
       state.analysis.lastDrawMode = cache.analysisState.lastDrawMode || null;
       state.analysis.lastSignificance = cache.analysisState.lastSignificance || null;
     }
@@ -7497,8 +7775,26 @@
     return restored;
   };
 
-  venn.draw = function draw() {
+  venn.draw = function draw(meta = {}) {
     try {
+      const nextReason = meta?.reason || 'venn-draw';
+      if(Shared.componentLifecycle?.shouldSuppressDraw?.('venn', { ...(meta || {}), tabId: meta?.tabId || venn.__boundTabId || null, reason: nextReason })){
+        debug('Debug: venn draw suppressed by lifecycle', { reason: nextReason, tabId: meta?.tabId || venn.__boundTabId || null });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || venn.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'venn.draw' } });
+        return;
+      }
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || venn.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'venn.draw' } });
+      const targetTabId = normalizeVennTabId(meta?.tabId || null);
+      ensureVennDomBindings(targetTabId);
+      const rootTabId = getVennRootTabId(state.ui.root);
+      if(targetTabId && rootTabId && String(rootTabId) !== String(targetTabId)){
+        console.warn('venn.draw skipped stale root', {
+          targetTabId,
+          rootTabId,
+          reason: meta?.reason || 'draw'
+        });
+        return;
+      }
       refreshDiagram();
     } catch (e) {
       console.error('venn.draw error', e);
@@ -7506,12 +7802,13 @@
   };
 
   function resolveVennPreviewSourceSvg(tab){
-    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab?.id || tab || null, 'venn')
-      || state.ui.root
-      || Main?.components?.workspaces?.venn?.element
+    const targetTabId = normalizeVennTabId(tab?.id || tab || null);
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'venn')
+      || resolveVennRoot(targetTabId || null)
       || null;
     if(!mountedRoot || typeof mountedRoot.querySelector !== 'function'){
-      return state.ui.stage || null;
+      const stageRootTabId = getVennRootTabId(state.ui.stage?.closest?.('[data-workspace-tab-id]') || state.ui.root || null);
+      return (!targetTabId || !stageRootTabId || String(stageRootTabId) === String(targetTabId)) ? (state.ui.stage || null) : null;
     }
     return mountedRoot.querySelector('#vennPlot #stage')
       || mountedRoot.querySelector('#stage')
@@ -7527,7 +7824,20 @@
     return resolveVennPreviewSourceSvg(tab);
   };
 
-  venn.ensure = function ensure() {
-    if (!venn.ready) venn.init();
+  venn.ensure = function ensure(options = {}) {
+    const targetTabId = normalizeVennTabId(options?.tabId || null);
+    if(ensureVennDomBindings(targetTabId)){
+      return;
+    }
+    if (!venn.ready) venn.init({ tabId: targetTabId || null, reason: options?.reason || 'ensure' });
   };
+
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(venn, {
+    componentKey: 'venn',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'ui', 'analysis'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
+    ]
+  });
 })(window);

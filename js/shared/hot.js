@@ -237,6 +237,15 @@
     return { checked: false, payload: null };
   };
 
+  const SESSION_PAYLOAD_SYNC_SUPPRESSED_SOURCES = new Set([
+    'roc-default-header-seed'
+  ]);
+
+  const isSessionPayloadSyncSuppressedSource = (source) => {
+    const normalized = typeof source === 'string' ? source.trim() : '';
+    return !!normalized && SESSION_PAYLOAD_SYNC_SUPPRESSED_SOURCES.has(normalized);
+  };
+
   const payloadDataMatchesChanges = (payload, changes) => {
     if (!payload || !Array.isArray(payload.data) || !Array.isArray(changes)) {
       return false;
@@ -259,6 +268,15 @@
       return false;
     }
     const effectiveReason = reason || 'table-data-change';
+    if (isSessionPayloadSyncSuppressedSource(meta.source)) {
+      console.debug('Debug: Shared.hot owner-tab payload sync suppressed for system table mutation', {
+        reason: effectiveReason,
+        source: meta.source || null,
+        changeCount: normalizedChanges.length,
+        instanceTabId: meta?.hotInstance?.__workspaceTabId || meta?.hotInstance?.__graphitixTabId || null
+      });
+      return false;
+    }
     const { session, tab } = resolveTableOwnerSessionAndTab({ ...meta, reason: effectiveReason });
     if (!tab || !tab.type) {
       console.debug('Debug: Shared.hot owner-tab payload sync skipped', {
@@ -15619,12 +15637,25 @@
       }
     }
     try{
-      const activeTabId = hotNS.resolveActiveTabId?.() || null;
-      if(activeTabId){
-        captured.tabId = activeTabId;
+      const ownerTabId = normalizeOwnerTabId(
+        instance.__workspaceTabId
+        || instance.__graphitixTabId
+        || instance.__hotWorkspaceTabId
+        || resolveTabIdFromNode(instance.rootElement || null)
+        || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
+        || resolveActiveTabId()
+      );
+      if(ownerTabId){
+        captured.tabId = ownerTabId;
       }
+      hotDebug('Debug: Shared.hot.captureHotUiState owner resolved', {
+        ownerTabId,
+        activeTabId: resolveActiveTabId(),
+        hasInstance: !!instance,
+        reason: 'capture-hot-ui-state'
+      });
     }catch(err){
-      // best-effort tab ownership stamp
+      console.error('Shared.hot.captureHotUiState owner stamp error', err);
     }
     return Object.keys(captured).length ? captured : null;
   }

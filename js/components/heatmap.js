@@ -2173,6 +2173,13 @@
 
   function scheduleDrawHeatmap(options){
     const opts = normalizeDrawOptions(options);
+    const nextReason = opts.reason || opts.source || 'heatmap-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('heatmap', { ...opts, tabId: opts.tabId || heatmap.__boundTabId || null, reason: nextReason })){
+      debugLog('Debug: heatmap draw suppressed by lifecycle', { reason: nextReason, tabId: opts.tabId || heatmap.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: opts.tabId || heatmap.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: opts.tabId || heatmap.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
     if(isHeatmapWorkspaceHidden()){
       const pending = mergeDeferredHiddenDrawOptions(opts);
       debugLog('Debug: heatmap draw deferred while hidden', {
@@ -8542,16 +8549,7 @@
       heatmap.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
     }
   };
-  heatmap.activateTab = function activateTab(tab, meta = {}){
-    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    heatmap.__boundTabId = targetTabId || heatmap.__boundTabId || null;
-    state.root = resolveHeatmapRoot(tab || targetTabId || null) || state.root || null;
-    if(ensureHeatmapDomBindings(tab)){
-      return;
-    }
-    if(!heatmap.ready){
-      heatmap.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
-    }
+  function syncHeatmapActivationState(tabLike = null, options = {}){
     invalidateHeatmapTransientRenderState('activate-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
@@ -8569,13 +8567,50 @@
         syncHeatmapActiveDataViewFromHot(hot, 'activate-tab');
       }
     }
-    scheduleDeferredHiddenDrawFlush('activate-tab');
-    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tab || null, 'heatmap')
+    if(options.passive !== true){
+      scheduleDeferredHiddenDrawFlush('activate-tab');
+    }
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'heatmap')
       || global.document?.getElementById?.('heatmapPage')
       || global.document;
     heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
       || global.document?.getElementById?.('heatmapLoadExample')
       || null;
+  }
+
+  heatmap.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: heatmap,
+    componentKey: 'heatmap',
+    resolveRoot: tabLike => resolveHeatmapRoot(tabLike || null) || state.root || null,
+    setRoot: root => { state.root = root || state.root || null; },
+    ensureBindings: tabLike => ensureHeatmapDomBindings(tabLike),
+    init: options => heatmap.init(options),
+    afterReady: (tabLike, meta = {}) => {
+      if(!heatmap.ready){
+        return;
+      }
+      const passive = !!(meta?.suppressDraw || meta?.suppressAutoDraw || meta?.liveDomFastPath || meta?.passiveControls);
+      syncHeatmapActivationState(tabLike || meta?.tabId || null, { passive });
+    },
+    getSentinel: () => {
+      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(heatmap.__boundTabId || null, 'heatmap')
+        || global.document?.getElementById?.('heatmapPage')
+        || global.document;
+      return mountedRoot?.querySelector?.('#heatmapLoadExample')
+        || global.document?.getElementById?.('heatmapLoadExample')
+        || null;
+    }
+  }) || function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    heatmap.__boundTabId = targetTabId || heatmap.__boundTabId || null;
+    state.root = resolveHeatmapRoot(tab || targetTabId || null) || state.root || null;
+    if(ensureHeatmapDomBindings(tab)){
+      return;
+    }
+    if(!heatmap.ready){
+      heatmap.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
+    }
+    syncHeatmapActivationState(tab || targetTabId || null);
   };
 
   heatmap.captureRuntimeState = function captureRuntimeState(){
@@ -8584,6 +8619,28 @@
 
   heatmap.applyRuntimeState = function applyRuntimeState(snapshot){
     applyHeatmapTabContextSnapshot(snapshot, { syncUi: true });
+    return true;
+  };
+
+  heatmap.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: heatmap,
+    componentKey: 'heatmap',
+    cancel: () => {
+      clearHiddenDrawFlushHandle();
+      pendingDrawOptions = {};
+      deferredHiddenDrawOptions = null;
+      state.drawToken = (Number(state.drawToken) || 0) + 1;
+    }
+  }) || function deactivateHeatmapTab(tab, meta = {}){
+    clearHiddenDrawFlushHandle();
+    pendingDrawOptions = {};
+    deferredHiddenDrawOptions = null;
+    state.drawToken = (Number(state.drawToken) || 0) + 1;
+    debugLog('Debug: heatmap tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      drawToken: state.drawToken,
+      reason: meta?.reason || 'deactivate-tab'
+    });
     return true;
   };
 
@@ -8713,7 +8770,27 @@
     return { plot: svgCache, stats: statsCache, renderState, svgRootState };
   };
 
-  heatmap.restoreRenderCache = function restoreRenderCache(cache){
+  heatmap.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'heatmap',
+      graph: { selectors: ['#heatmapSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']heatmapSvg["']|<canvas\b)/i },
+      graphFallbackSections: ['stats'],
+      requiredSections: [],
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  heatmap.isIdleForSnapshot = function isIdleForSnapshot(){
+    const hasPendingOptions = !!(pendingDrawOptions && Object.keys(pendingDrawOptions).length);
+    return !hiddenDrawFlushHandle && !deferredHiddenDrawOptions && !hasPendingOptions;
+  };
+
+  heatmap.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(heatmap, { ...meta, componentKey: 'heatmap' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  heatmap.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){
       clearCachedRenderState();
       return false;
@@ -8831,5 +8908,14 @@
     })
   });
 
-})(window);
 
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(heatmap, {
+    componentKey: 'heatmap',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] },
+      { key: 'pendingDrawOptions', get: () => pendingDrawOptions, apply: snapshot => { pendingDrawOptions = snapshot && typeof snapshot === 'object' ? Object.assign({}, snapshot) : {}; } }
+    ]
+  });
+})(window);

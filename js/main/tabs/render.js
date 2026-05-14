@@ -182,7 +182,8 @@
         btn.className = 'workspace-tab'
           + (tab.id === workspaceState.activeTabId ? ' is-active' : '')
           + (tab.isWelcome ? ' is-welcome' : '')
-          + (tab.isRenaming ? ' is-renaming' : '');
+          + (tab.isRenaming ? ' is-renaming' : '')
+          + (tab.activationError ? ' has-activation-error' : '');
         btn.dataset.tabId = tab.id;
         btn.dataset.tabIndex = String(index);
         if (tab.previewMarkup) {
@@ -231,11 +232,22 @@
           triggerTabRename(tab, event, { reason: 'native-dblclick', source: 'dblclick-handler' });
         };
         if (!tab.isWelcome) {
-          label.title = 'Double-click to rename this tab';
+          label.title = tab.activationError
+            ? `Activation issue: ${tab.activationError.message || tab.activationError.reason || 'Unable to fully restore this tab'}`
+            : 'Double-click to rename this tab';
           label.addEventListener('dblclick', handleRenameDoubleClick);
           btn.addEventListener('dblclick', handleRenameDoubleClick);
         }
         btn.appendChild(label);
+
+        if (tab.activationError && !tab.isWelcome) {
+          const errorBadge = document.createElement('span');
+          errorBadge.className = 'workspace-tab__activation-error';
+          errorBadge.textContent = '!';
+          errorBadge.title = tab.activationError.message || tab.activationError.reason || 'Workspace activation issue';
+          errorBadge.setAttribute('aria-label', errorBadge.title);
+          btn.appendChild(errorBadge);
+        }
 
         if (tab.isRenaming) {
           const renameInput = document.createElement('input');

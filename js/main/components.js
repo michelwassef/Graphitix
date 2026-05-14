@@ -189,11 +189,222 @@
     };
   }
 
+
+
+  function cloneForLifecycleTest(value) {
+    if (value == null) {
+      return value;
+    }
+    try {
+      if (typeof structuredClone === 'function') {
+        return structuredClone(value);
+      }
+    } catch (_err) {
+      // Fall back to JSON below.
+    }
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (_err) {
+      return value;
+    }
+  }
+
+  function stableStringifyForLifecycle(value) {
+    const seen = new WeakSet();
+    const normalize = input => {
+      if (input === null || typeof input !== 'object') {
+        return input;
+      }
+      if (seen.has(input)) {
+        return '[Circular]';
+      }
+      seen.add(input);
+      if (Array.isArray(input)) {
+        return input.map(item => normalize(item));
+      }
+      const output = {};
+      Object.keys(input).sort().forEach(key => {
+        const value = input[key];
+        if (typeof value === 'function') {
+          return;
+        }
+        output[key] = normalize(value);
+      });
+      return output;
+    };
+    try {
+      return JSON.stringify(normalize(value));
+    } catch (_err) {
+      try { return JSON.stringify(value); } catch (_err2) { return ''; }
+    }
+  }
+
+  function payloadSignatureForLifecycle(value) {
+    try {
+      const session = window.Main?.session;
+      if (session && typeof session.serializePayloadSignature === 'function') {
+        return session.serializePayloadSignature(value);
+      }
+    } catch (_err) {
+      // Fall through to stable stringify.
+    }
+    return stableStringifyForLifecycle(value);
+  }
+
+  function describePayloadRoundTripDrift(before, after) {
+    const left = before && typeof before === 'object' ? before : {};
+    const right = after && typeof after === 'object' ? after : {};
+    const keys = Array.from(new Set([...Object.keys(left), ...Object.keys(right)])).sort();
+    return keys.filter(key => payloadSignatureForLifecycle(left[key]) !== payloadSignatureForLifecycle(right[key]));
+  }
+
+  function shouldRunPayloadRoundTripSelfTest(meta = {}) {
+    if (meta.roundTripSelfTest === false) {
+      return false;
+    }
+    if (meta.roundTripSelfTest === true || meta.forceRoundTripSelfTest === true) {
+      return true;
+    }
+    if (Shared.__payloadRoundTripSelfTest === true || window.GraphitixPayloadRoundTripSelfTest === true) {
+      return true;
+    }
+    try {
+      if (window.localStorage?.getItem?.('graphitix.payloadRoundTripSelfTest') === '1') {
+        return true;
+      }
+    } catch (_err) {
+      // localStorage may be blocked in some shells.
+    }
+    const reason = String(meta.reason || '').toLowerCase();
+    return Shared.__payloadRoundTripSelfTest !== false && (
+      reason.includes('archive-save')
+      || reason.includes('pre-save')
+      || reason.includes('manual-save')
+      || reason.includes('payload-round-trip')
+    );
+  }
+
+  function runWorkspacePayloadRoundTripSelfTest(workspace, type, payload, meta = {}) {
+    if (!workspace || typeof workspace.getPayload !== 'function' || typeof workspace.loadFromPayload !== 'function') {
+      return { skipped: true, reason: 'missing-payload-hooks' };
+    }
+    if (!shouldRunPayloadRoundTripSelfTest(meta)) {
+      return { skipped: true, reason: 'disabled' };
+    }
+    const tabId = meta.tabId || meta.tab?.id || null;
+    const reason = meta.reason || 'payload-round-trip-self-test';
+    let runtimeSnapshot = null;
+    let beforePayload = null;
+    let testPayload = null;
+    try {
+      try {
+        beforePayload = cloneForLifecycleTest(workspace.getPayload());
+      } catch (err) {
+        console.warn('Debug: payload round-trip self-test could not capture pre-test payload', {
+          type,
+          tabId,
+          reason,
+          err: err?.message || String(err)
+        });
+      }
+      try {
+        if (typeof workspace.captureRuntimeState === 'function') {
+          runtimeSnapshot = cloneForLifecycleTest(workspace.captureRuntimeState({
+            ...meta,
+            tabId,
+            type,
+            reason: `${reason}:capture-runtime-before`
+          }));
+        }
+      } catch (err) {
+        console.warn('Debug: payload round-trip self-test runtime capture failed', {
+          type,
+          tabId,
+          reason,
+          err: err?.message || String(err)
+        });
+      }
+      testPayload = cloneForLifecycleTest(payload || beforePayload || null);
+      if (!testPayload || typeof testPayload !== 'object') {
+        return { skipped: true, reason: 'missing-payload' };
+      }
+      const expectedSignature = payloadSignatureForLifecycle(testPayload);
+      workspace.loadFromPayload(cloneForLifecycleTest(testPayload), {
+        ...meta,
+        reason: `${reason}:apply-test-payload`,
+        skipDraw: true,
+        skipInitialDraw: true,
+        skipPayloadSizing: true,
+        roundTripSelfTest: true
+      });
+      const roundTripped = cloneForLifecycleTest(workspace.getPayload());
+      const actualSignature = payloadSignatureForLifecycle(roundTripped);
+      const ok = !!expectedSignature && expectedSignature === actualSignature;
+      const changedTopLevelKeys = ok ? [] : describePayloadRoundTripDrift(testPayload, roundTripped);
+      if (!ok) {
+        console.warn('Debug: payload round-trip self-test mismatch', {
+          type,
+          tabId,
+          reason,
+          changedTopLevelKeys,
+          expectedSignatureLength: expectedSignature ? expectedSignature.length : 0,
+          actualSignatureLength: actualSignature ? actualSignature.length : 0
+        });
+      } else {
+        console.debug('Debug: payload round-trip self-test passed', {
+          type,
+          tabId,
+          reason,
+          signatureLength: expectedSignature.length
+        });
+      }
+      return { ok, skipped: false, expectedSignature, actualSignature, changedTopLevelKeys };
+    } catch (err) {
+      console.error('payload round-trip self-test error', {
+        type,
+        tabId,
+        reason,
+        err
+      });
+      return { ok: false, error: err?.message || String(err) };
+    } finally {
+      try {
+        if (beforePayload && typeof workspace.loadFromPayload === 'function') {
+          workspace.loadFromPayload(cloneForLifecycleTest(beforePayload), {
+            ...meta,
+            reason: `${reason}:restore-pre-test-payload`,
+            skipDraw: true,
+            skipInitialDraw: true,
+            skipPayloadSizing: true,
+            roundTripSelfTestRestore: true
+          });
+        }
+      } catch (err) {
+        console.error('payload round-trip self-test restore payload error', { type, tabId, err });
+      }
+      try {
+        if (runtimeSnapshot && typeof workspace.applyRuntimeState === 'function') {
+          workspace.applyRuntimeState(runtimeSnapshot, {
+            ...meta,
+            tabId,
+            type,
+            reason: `${reason}:restore-runtime-after`
+          });
+        }
+      } catch (err) {
+        console.error('payload round-trip self-test restore runtime error', { type, tabId, err });
+      }
+    }
+  }
+
   function installStandardWorkspaceLifecycle(workspace) {
     if (!workspace || !workspace.type) {
       return workspace;
     }
     const type = workspace.type;
+    if (Shared.componentLifecycle?.attachWorkspace && !workspace.__lifecycleDescriptor) {
+      Shared.componentLifecycle.attachWorkspace(workspace, buildWorkspaceLifecycleDescriptor(type, workspace));
+    }
     if (typeof workspace.activateTab !== 'function') {
       workspace.activateTab = (tab, meta) => {
         const component = resolveComponentFromGlobal(type);
@@ -252,6 +463,20 @@
           : false;
       };
     }
+    if (typeof workspace.awaitReadyForSnapshot !== 'function') {
+      workspace.awaitReadyForSnapshot = meta => {
+        const component = resolveComponentFromGlobal(type);
+        if (component && typeof component.awaitReadyForSnapshot === 'function') {
+          return component.awaitReadyForSnapshot({ ...(meta || {}), componentKey: type, type });
+        }
+        return Shared.componentLifecycle?.awaitReadyForSnapshot?.(component || workspace, { ...(meta || {}), componentKey: type, type })
+          || Promise.resolve({ ok: true, type, skipped: true, reason: 'missing-componentLifecycle' });
+      };
+    }
+    if (typeof workspace.roundTripPayload !== 'function' || workspace.roundTripPayload.__legacyRoundTripPayload === true) {
+      workspace.roundTripPayload = (payload, meta) => Shared.componentLifecycle?.roundTripPayload?.(workspace, payload, { ...(meta || {}), componentKey: type, type })
+        || runWorkspacePayloadRoundTripSelfTest(workspace, type, payload, meta || {});
+    }
     installGenericRenderCacheValidator(workspace, type);
     workspace.__lifecycleContract = {
       activateTab: typeof workspace.activateTab === 'function',
@@ -261,6 +486,8 @@
       applyRuntimeState: typeof workspace.applyRuntimeState === 'function',
       captureUiState: typeof workspace.captureUiState === 'function',
       applyUiState: typeof workspace.applyUiState === 'function',
+      awaitReadyForSnapshot: typeof workspace.awaitReadyForSnapshot === 'function',
+      roundTripPayload: typeof workspace.roundTripPayload === 'function',
       captureRenderCache: typeof workspace.captureRenderCache === 'function',
       canRestoreRenderCache: typeof workspace.canRestoreRenderCache === 'function',
       restoreRenderCache: typeof workspace.restoreRenderCache === 'function'
@@ -272,6 +499,22 @@
   function installComponentLifecycleDefaults(type, component) {
     if (!component || typeof component !== 'object') {
       return component;
+    }
+    const lifecycleDescriptor = Shared.componentLifecycle?.getDescriptor?.(type) || null;
+    if (lifecycleDescriptor) {
+      Shared.componentLifecycle?.attachComponent?.(type, component, lifecycleDescriptor);
+      lifecycleDescriptor.component = component;
+      component.__lifecycleDescriptor = lifecycleDescriptor;
+      component.__stateModel = component.__stateModel || lifecycleDescriptor.stateModel || Shared.componentLifecycle?.createStateModel?.(type, {
+        payload: () => ({}),
+        runtime: () => ({}),
+        ui: () => ({}),
+        layout: () => ({}),
+        cache: () => ({}),
+        async: () => ({})
+      }) || null;
+      component.__asyncScope = component.__asyncScope || lifecycleDescriptor.asyncScope || Shared.componentLifecycle?.createAsyncScope?.(type) || null;
+      component.__componentKey = component.__componentKey || type;
     }
     if (typeof component.deactivateTab !== 'function') {
       component.deactivateTab = (tab, meta) => {
@@ -304,6 +547,10 @@
     }
     if (typeof component.applyUiState !== 'function') {
       component.applyUiState = () => false;
+    }
+    if (typeof component.awaitReadyForSnapshot !== 'function') {
+      component.awaitReadyForSnapshot = meta => Shared.componentLifecycle?.awaitReadyForSnapshot?.(component, { ...(meta || {}), componentKey: type, type })
+        || Promise.resolve({ ok: true, type, skipped: true, reason: 'missing-componentLifecycle' });
     }
     component.__lifecycleDefaultsInstalled = true;
     return component;
@@ -361,6 +608,9 @@
     });
   }
 
+  namespace.getLifecycleDescriptor = type => Shared.componentLifecycle?.getDescriptor?.(type) || null;
+  namespace.getLifecycleSpecs = () => ({ ...WORKSPACE_LIFECYCLE_SPECS });
+
   namespace.loadComponentBundle = function loadComponentBundleForExternal(type, options) {
     return loadComponentBundle(type, options || {});
   };
@@ -379,17 +629,26 @@
   function createRegistryDrawScheduler(componentKey, componentName = componentKey) {
     const raw = Shared.debounceFrame((options = {}) => {
       const meta = options?.__workspaceSessionMeta || null;
+      const tabId = options?.tabId || meta?.tabId || window.Main?.session?.getActiveTab?.()?.id || null;
+      const reason = options?.reason || options?.source || null;
       if (Shared.workspaceTabs?.isSessionMetaCurrent && !Shared.workspaceTabs.isSessionMetaCurrent(componentKey, meta)) {
         console.debug('Debug: registry draw skipped stale tab session', {
           componentKey,
           tabId: meta?.tabId || null,
           sessionGeneration: meta?.sessionGeneration || 0,
-          reason: options?.reason || null
+          reason
         });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-skipped-stale-session', reason });
+        return;
+      }
+      if (Shared.componentLifecycle?.shouldSuppressDraw?.(componentKey, { ...(options || {}), tabId, reason })) {
+        console.debug('Debug: registry draw suppressed by lifecycle transaction', { componentKey, tabId, reason });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-suppressed', reason, details: { source: options?.source || null } });
         return;
       }
       const draw = window.Components?.[componentName]?.draw;
       if (typeof draw === 'function') {
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-executed', reason, details: { scheduler: 'registry' } });
         draw(options || {});
       }
     });
@@ -500,13 +759,14 @@
       perTabDomInstances: true,
       element: document.getElementById('vennPage'),
       ensure: () => ensureComponent('venn'),
-      draw: () => window.Components?.venn?.draw?.(),
+      draw: meta => window.Components?.venn?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
       getPayload: () => window.Components?.venn?.getPayload?.(),
       loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.venn?.createEmptyPayload?.(),
       captureRenderCache: meta => window.Components?.venn?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.venn?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.venn?.restoreRenderCache?.(cache, meta),
       getLayoutState: options => componentLayout.captureStateFor?.('venn', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('venn', options || {}),
@@ -516,6 +776,7 @@
       type: 'box',
       tabLabel: 'Box Plot',
       perTabDomInstances: true,
+      authoritativeLayoutInPayload: true,
       element: document.getElementById('boxPage'),
       ensure: () => ensureComponent('box'),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
@@ -573,6 +834,7 @@
       createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.pca?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pca?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.pca?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.pca?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.pca?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.pca?.applyUiState?.(state, meta || {}),
@@ -617,6 +879,7 @@
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.heatmap?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.heatmap?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.heatmap?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.heatmap?.applyUiState?.(state, meta || {}),
@@ -638,6 +901,7 @@
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.surface?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.surface?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.surface?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.surface?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.surface?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.surface?.applyUiState?.(state, meta || {}),
@@ -651,7 +915,7 @@
       perTabDomInstances: true,
       element: document.getElementById('rocPage'),
       ensure: () => ensureComponent('roc'),
-      draw: () => window.Components?.roc?.draw?.(),
+      draw: meta => window.Components?.roc?.draw?.(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
       getPayload: () => window.Components?.roc?.getPayload?.(),
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
@@ -659,6 +923,7 @@
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.roc?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.roc?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.roc?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.roc?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.roc?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.roc?.applyUiState?.(state, meta || {}),
@@ -680,6 +945,7 @@
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.survival?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.survival?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.survival?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.survival?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.survival?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.survival?.applyUiState?.(state, meta || {}),
@@ -701,6 +967,7 @@
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.hist?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.hist?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.hist?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.hist?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.hist?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.hist?.applyUiState?.(state, meta || {}),
@@ -722,6 +989,7 @@
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
       activateTab: (tab, meta) => window.Components?.pie?.activateTab?.(tab, meta),
       captureRenderCache: meta => window.Components?.pie?.captureRenderCache?.(meta),
+      canRestoreRenderCache: (cache, meta) => window.Components?.pie?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.pie?.restoreRenderCache?.(cache, meta),
       captureUiState: () => window.Components?.pie?.captureUiState?.() || null,
       applyUiState: (state, meta) => window.Components?.pie?.applyUiState?.(state, meta || {}),
@@ -731,7 +999,105 @@
     }
   };
 
+  const WORKSPACE_LIFECYCLE_SPECS = {
+    venn: {
+      root: { pageId: 'vennPage', sentinelSelector: '#vennHot' },
+      table: { wrapperSelector: '#vennHotWrapper', containerSelector: '#vennHot' },
+      renderCache: { selectors: ['#vennGraphPanel svg', '#vennPlot svg', 'svg', 'canvas'], graphSelectors: ['#vennGraphPanel svg', 'svg'], markupPattern: /(<svg\b|data-venn-trace-id|data-upset-trace-id)/i }
+    },
+    box: {
+      root: { pageId: 'boxPage', sentinelSelector: '#boxPlot' },
+      table: { wrapperSelector: '#boxTablePanel', containerSelector: '#boxTablePanel' },
+      layout: { authoritativeInPayload: true },
+      renderCache: { selectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], graphSelectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-significance|data-export-layer)/i }
+    },
+    scatter: {
+      root: { pageId: 'scatterPage', sentinelSelector: '#scatterHot' },
+      table: { wrapperSelector: '#scatterHotWrapper', containerSelector: '#scatterHot' },
+      renderCache: { selectors: ['#scatterPlot svg', '#scatterPlot canvas', 'svg', 'canvas'], graphSelectors: ['#scatterPlot svg', '#scatterPlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-export-layer|data-layer)/i }
+    },
+    pca: {
+      root: { pageId: 'pcaPage', sentinelSelector: '#pcaHot' },
+      table: { wrapperSelector: '#pcaHotWrapper', containerSelector: '#pcaHot' },
+      renderCache: { selectors: ['#pcaPlot svg', '#pcaScreePlot svg', 'svg', 'canvas'], graphSelectors: ['#pcaPlot svg', '#pcaScreePlot svg', 'svg'], markupPattern: /(<svg\b|id=["']pcaSvg["']|id=["']pcaScreePlot["'])/i }
+    },
+    line: {
+      root: { pageId: 'linePage', sentinelSelector: '#lineHot' },
+      table: { wrapperSelector: '#lineHotWrapper', containerSelector: '#lineHot' },
+      renderCache: { selectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], graphSelectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-export-layer|data-layer)/i }
+    },
+    heatmap: {
+      root: { pageId: 'heatmapPage', sentinelSelector: '#heatmapHot' },
+      table: { wrapperSelector: '#heatmapHotWrapper', containerSelector: '#heatmapHot' },
+      renderCache: { selectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg', 'canvas'], graphSelectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg'], markupPattern: /(<svg\b|id=["']heatmapSvg["'])/i }
+    },
+    surface: {
+      root: { pageId: 'surfacePage', sentinelSelector: '#surfaceHot' },
+      table: { wrapperSelector: '#surfaceHotWrapper', containerSelector: '#surfaceHot' },
+      renderCache: { selectors: ['#surfaceSvg', '#surfaceGraphPanel svg', 'svg', 'canvas'], graphSelectors: ['#surfaceSvg', '#surfaceGraphPanel svg', 'svg'], markupPattern: /(<svg\b|id=["']surfaceSvg["'])/i }
+    },
+    roc: {
+      root: { pageId: 'rocPage', sentinelSelector: '#rocHot' },
+      table: { wrapperSelector: '#rocHotWrapper', containerSelector: '#rocHot' },
+      renderCache: { selectors: ['#rocPlot svg', 'svg', 'canvas'], graphSelectors: ['#rocPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']rocSvg["'])/i }
+    },
+    survival: {
+      root: { pageId: 'survivalPage', sentinelSelector: '#survivalHot' },
+      table: { wrapperSelector: '#survivalHotWrapper', containerSelector: '#survivalHot' },
+      renderCache: { selectors: ['#survivalPlot svg', 'svg', 'canvas'], graphSelectors: ['#survivalPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']survivalSvg["'])/i }
+    },
+    hist: {
+      root: { pageId: 'histPage', sentinelSelector: '#histHot' },
+      table: { wrapperSelector: '#histHotWrapper', containerSelector: '#histHot' },
+      renderCache: { selectors: ['#histPlot svg', 'svg', 'canvas'], graphSelectors: ['#histPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']histSvg["'])/i }
+    },
+    pie: {
+      root: { pageId: 'piePage', sentinelSelector: '#pieHot' },
+      table: { wrapperSelector: '#pieHotWrapper', containerSelector: '#pieHot' },
+      renderCache: { selectors: ['#piePlot svg', 'svg', 'canvas'], graphSelectors: ['#piePlot svg', 'svg'], markupPattern: /(<svg\b|id=["']pieSvg["'])/i }
+    }
+  };
+
+  function buildWorkspaceLifecycleDescriptor(type, workspace) {
+    const spec = WORKSPACE_LIFECYCLE_SPECS[type] || {};
+    return {
+      componentKey: type,
+      type,
+      workspace,
+      root: spec.root || {},
+      table: {
+        ...(spec.table || {}),
+        getInstance: () => window.Components?.[type]?.hot || window.Components?.[type]?.grid || null
+      },
+      payload: {
+        get: () => workspace.getPayload?.(),
+        load: (payload, options) => workspace.loadFromPayload?.(payload, options),
+        createEmpty: () => workspace.createEmptyPayload?.()
+      },
+      runtime: {
+        capture: meta => workspace.captureRuntimeState?.(meta),
+        apply: (snapshot, meta) => workspace.applyRuntimeState?.(snapshot, meta)
+      },
+      layout: {
+        authoritativeInPayload: !!(workspace.authoritativeLayoutInPayload || spec.layout?.authoritativeInPayload),
+        capture: meta => workspace.getLayoutState?.(meta),
+        apply: (state, meta) => workspace.applyLayoutState?.(state, meta)
+      },
+      renderCache: spec.renderCache || {},
+      snapshot: {
+        isIdle: meta => window.Components?.[type]?.isIdleForSnapshot?.(meta),
+        cancelPendingWork: (tab, meta) => window.Components?.[type]?.deactivateTab?.(tab, { ...(meta || {}), reason: meta?.reason || 'descriptor-cancel-pending-work' })
+      },
+      draw: {
+        run: meta => workspace.draw?.(meta),
+        acceptsMeta: true
+      }
+    };
+  }
+
   Object.keys(WORKSPACES).forEach(type => {
+    const descriptor = buildWorkspaceLifecycleDescriptor(type, WORKSPACES[type]);
+    Shared.componentLifecycle?.register?.(descriptor);
     installStandardWorkspaceLifecycle(WORKSPACES[type]);
   });
 

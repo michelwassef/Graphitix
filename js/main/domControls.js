@@ -12,6 +12,52 @@
   }
   const namespace = Main.domControls = Main.domControls || {};
 
+
+
+  function refreshWorkspaceTabStrip(reason = 'activation-error-state') {
+    try {
+      const tabsApi = window.Main?.tabs;
+      if (tabsApi && typeof tabsApi.renderTabs === 'function') {
+        tabsApi.renderTabs();
+        console.debug('Debug: workspace tab strip refreshed', { reason });
+      }
+    } catch (err) {
+      console.debug('Debug: workspace tab strip refresh failed', { reason, err: err?.message || String(err) });
+    }
+  }
+
+  function setWorkspaceActivationError(tab, details = {}) {
+    if (!tab || tab.isWelcome) {
+      return;
+    }
+    tab.activationError = {
+      reason: details.reason || 'workspace-activation-error',
+      message: details.message || details.err?.message || String(details.err || details.reason || 'Workspace activation failed'),
+      at: Date.now(),
+      type: tab.type || null
+    };
+    console.warn('Debug: workspace activation error recorded', {
+      tabId: tab.id,
+      type: tab.type,
+      reason: tab.activationError.reason,
+      message: tab.activationError.message
+    });
+    refreshWorkspaceTabStrip('activation-error-recorded');
+  }
+
+  function clearWorkspaceActivationError(tab, details = {}) {
+    if (!tab || !tab.activationError) {
+      return;
+    }
+    delete tab.activationError;
+    console.debug('Debug: workspace activation error cleared', {
+      tabId: tab.id,
+      type: tab.type,
+      reason: details.reason || 'workspace-displayed'
+    });
+    refreshWorkspaceTabStrip('activation-error-cleared');
+  }
+
   const moduleState = {
     appHeaderVisible: true,
     workspaceDefaults: {},
@@ -288,6 +334,39 @@
       return cloneValue(payload, cloneFn);
     }
     return mergePayloadWithDefaultsRecursive(defaults, payload, cloneFn);
+  }
+
+  const WORKSPACE_ENSURE_TIMEOUT_MS = 12000;
+
+  async function workspacePromiseWithTimeout(promise, timeoutMs, meta = {}) {
+    const label = meta.label || 'workspace-promise';
+    const tabId = meta.tabId || null;
+    const type = meta.type || null;
+    let timer = null;
+    let timedOut = false;
+    const timerApi = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+      ? { set: window.setTimeout.bind(window), clear: window.clearTimeout.bind(window) }
+      : { set: setTimeout, clear: clearTimeout };
+    const timeout = new Promise(resolve => {
+      timer = timerApi.set(() => {
+        timedOut = true;
+        console.warn('Debug: workspace async step timed out', {
+          label,
+          tabId,
+          type,
+          timeoutMs
+        });
+        resolve({ timedOut: true, label });
+      }, Math.max(250, Number(timeoutMs) || WORKSPACE_ENSURE_TIMEOUT_MS));
+    });
+    try {
+      const result = await Promise.race([Promise.resolve(promise), timeout]);
+      return timedOut ? { timedOut: true, label } : { timedOut: false, value: result };
+    } finally {
+      if (timer !== null) {
+        try { timerApi.clear(timer); } catch (_err) {}
+      }
+    }
   }
 
   function cloneWorkspaceApplyValue(value, cloneFn, key = null) {
@@ -661,6 +740,7 @@
   };
 
   namespace.showWorkspaceForTab = function showWorkspaceForTab(params) {
+    const activationStartedAt = Date.now();
     const {
       tab,
       options = {},
@@ -700,7 +780,7 @@
           layoutSignature: targetLayoutSignature
         })
       : null;
-    const renderCache = archiveRenderCache || tab.renderCache || null;
+    const renderCache = tab.renderCache || archiveRenderCache || null;
     const renderCacheIsArchiveBacked = !!(archiveRenderCache || renderCache?.archiveBacked);
     const renderPayloadSignature = renderCache?.payloadSignature ?? tab.renderCacheSignature ?? tab.archiveRenderCacheSignature ?? null;
     const renderLayoutSignature = renderCache?.layoutSignature ?? tab.renderCacheLayoutSignature ?? tab.archiveRenderCacheLayoutSignature ?? null;
@@ -955,6 +1035,7 @@
       } catch (err) {
         component.ready = previousReady;
         console.error('workspace per-tab root bind error', { tabId: tab.id, type: tab.type, err });
+        setWorkspaceActivationError(tab, { reason: 'per-tab-root-bind-error', err });
         return false;
       }
     };
@@ -1008,11 +1089,241 @@
         && cachedWorkspace.tabId === tab.id
         && cachedWorkspace.payloadSignature === targetPayloadSignature
         && cachedWorkspace.layoutSignature === targetLayoutSignature
-        && alreadyInitialized
-        && renderedTabForType === tab.id;
+        && alreadyInitialized;
+    };
+
+    const canUseLiveDomFastPath = () => {
+      const reasonText = String(options.reason || '').toLowerCase();
+      const captureLikeReason = reasonText.includes('warmup')
+        || reasonText.includes('archive')
+        || reasonText.includes('save')
+        || reasonText.includes('snapshot')
+        || reasonText.includes('recovery')
+        || reasonText.includes('capture-cache')
+        || reasonText.includes('cache-prime');
+      if (options.forceReload || captureLikeReason || config.perTabDomInstances !== true || canRestoreRender) {
+        return false;
+      }
+      const currentCachedWorkspace = cachedWorkspace && cachedWorkspace.tabId === tab.id ? cachedWorkspace : null;
+      // Never use the live-DOM fast path for a tab that has not completed a normal
+      // workspace initialization cycle. Fresh tabs may already contain template SVG
+      // nodes, so checking for graph-like DOM alone can incorrectly bypass component
+      // setup and prevent AG Grid/table creation. A completed loadedWorkspaces record
+      // is the shared proof that payload, layout, grid/table, and component bindings
+      // were previously established for this exact tab.
+      if (!currentCachedWorkspace) {
+        return false;
+      }
+      const root = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type)
+        || activeWorkspaceElement
+        || Shared.workspaceTabs?.getSessionRecord?.(tab, tab.type)?.dom?.root
+        || null;
+      if (!root) {
+        return false;
+      }
+      return !!Shared.componentLifecycle?.canReuseLiveDom?.(tab, {
+        root,
+        cachedWorkspace: currentCachedWorkspace,
+        payloadSignature: targetPayloadSignature,
+        layoutSignature: targetLayoutSignature,
+        forceReload: options.forceReload
+      });
+    };
+
+    const applyLiveDomFastPath = reason => {
+      const fastReason = reason || 'live-dom-fast-path';
+      if (!canUseLiveDomFastPath()) {
+        return false;
+      }
+      const endPassiveActivation = Shared.componentLifecycle?.beginRestoreTransaction
+        ? Shared.componentLifecycle.beginRestoreTransaction(tab.type, {
+            tab,
+            tabId: tab.id,
+            type: tab.type,
+            componentKey: tab.type,
+            reason: `${fastReason}-passive-bind`,
+            passiveControls: true,
+            suppressDraw: true,
+            suppressAutoDraw: true,
+            suppressResizeDraw: true,
+            suppressStatsRecompute: true,
+            liveDomFastPath: true
+          })
+        : null;
+      try {
+        if (Shared.workspaceTabs?.activateWorkspace) {
+          Shared.workspaceTabs.activateWorkspace(tab, config, {
+            reason: fastReason
+          });
+        }
+        // Important: re-run the component's activation hook in passive mode. Reattaching
+        // the stored DOM alone leaves shared layout registries and toolbar bindings stale,
+        // which later causes exact-layout capture failures. The shared transaction above
+        // suppresses any draw/autodraw work that a component activation might otherwise schedule.
+        if (typeof config.activateTab === 'function') {
+          try {
+            config.activateTab(tab, {
+              tabId: tab.id,
+              type: tab.type,
+              componentKey: tab.type,
+              reason: `${fastReason}-activate`,
+              passiveControls: true,
+              suppressDraw: true,
+              suppressAutoDraw: true,
+              suppressResizeDraw: true,
+              suppressStatsRecompute: true,
+              liveDomFastPath: true
+            });
+          } catch (err) {
+            console.debug('Debug: workspace live DOM passive activation error', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: fastReason,
+              err: err?.message || String(err)
+            });
+          }
+        }
+        if (Shared.componentLayout?.captureStateFor && !Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id, exact: true, reason: `${fastReason}-registry-probe` })) {
+          const component = getWorkspaceComponent();
+          if (component && typeof component.init === 'function') {
+            try {
+              const previousReady = component.ready;
+              component.ready = false;
+              component.init({
+                root: activeWorkspaceElement,
+                tabId: tab.id,
+                type: tab.type,
+                reason: `${fastReason}-registry-rebind`,
+                liveDomFastPath: true,
+                passiveControls: true,
+                skipInitialDraw: true,
+                suppressDraw: true,
+                suppressAutoDraw: true,
+                suppressResizeDraw: true,
+                suppressStatsRecompute: true
+              });
+              if (previousReady === false && component.ready !== true) {
+                component.ready = previousReady;
+              }
+              console.debug('Debug: workspace live DOM registry rebound', {
+                tabId: tab.id,
+                type: tab.type,
+                reason: fastReason
+              });
+            } catch (err) {
+              console.debug('Debug: workspace live DOM registry rebind failed', {
+                tabId: tab.id,
+                type: tab.type,
+                reason: fastReason,
+                err: err?.message || String(err)
+              });
+            }
+          }
+        }
+        loadedWorkspaces[tab.id] = {
+          tabId: tab.id,
+          type: tab.type,
+          payloadSignature: targetPayloadSignature,
+          layoutSignature: targetLayoutSignature
+        };
+        if (workspaceState) {
+          workspaceState.lastActiveGraphId = tab.id;
+          workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
+        }
+        config.__activeRuntimeTabId = tab.id;
+        if (Shared.componentLayout?.syncTabStateToControlsFor) {
+          Shared.componentLayout.syncTabStateToControlsFor(tab.type, {
+            tabId: tab.id,
+            reason: fastReason,
+            passive: true,
+            skipSchedule: true
+          });
+        }
+        if (tab.uiState && typeof session?.applyWorkspaceUiState === 'function') {
+          session.applyWorkspaceUiState(tab, { reason: fastReason });
+        }
+        // Passive activation can still leave delayed resize/autodraw callbacks queued by
+        // component setup. Keep the shared suppression gate active briefly after the
+        // fast path returns so live-DOM reuse remains a true no-redraw path.
+        Shared.componentLifecycle?.markPostRestoreDrawSuppression?.(
+          tab.type,
+          tab.id,
+          {
+            reason: `${fastReason}-post-suppress`,
+            delayMs: 1200,
+            count: 18
+          }
+        );
+        Shared.componentLifecycle?.emitLifecycleEvent?.({
+          componentKey: tab.type,
+          tabId: tab.id,
+          action: 'live-dom-reused',
+          reason: fastReason,
+          details: { cachedWorkspace: true, renderedTabForType, passiveActivation: true }
+        });
+        console.debug('Debug: workspace live DOM fast path reused', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: fastReason,
+          renderedTabForType,
+          passiveActivation: true
+        });
+        clearWorkspaceActivationError(tab, { reason: fastReason });
+        return true;
+      } finally {
+        if (typeof endPassiveActivation === 'function') {
+          endPassiveActivation({ reason: `${fastReason}-passive-bind-complete`, cancelPostSuppress: true });
+        }
+      }
+    };
+
+    let earlyRenderRestoreTransactionEnd = null;
+    const beginEarlyRenderRestoreTransaction = () => {
+      if (!canRestoreRender || earlyRenderRestoreTransactionEnd || !Shared.componentLifecycle?.beginRenderCacheRestoreTransaction) {
+        return null;
+      }
+      earlyRenderRestoreTransactionEnd = Shared.componentLifecycle.beginRenderCacheRestoreTransaction(tab.type, {
+        tab,
+        tabId: tab.id,
+        type: tab.type,
+        componentKey: tab.type,
+        reason: 'workspace-render-cache-restore-activation',
+        passiveControls: true,
+        suppressAutosize: true,
+        authoritativeRenderRestore: true,
+        suppressDraw: true,
+        suppressAutoDraw: true,
+        suppressResizeDraw: true,
+        suppressStatsRecompute: true,
+        postSuppressMs: 1800,
+        postSuppressCount: 24
+      });
+      return earlyRenderRestoreTransactionEnd;
     };
 
     const applyWorkspaceState = () => {
+      const transactionMeta = {
+        tab,
+        tabId: tab.id,
+        type: tab.type,
+        componentKey: tab.type,
+        reason: canRestoreRender ? 'workspace-render-cache-restore' : (options.reason || 'workspace-view-restore'),
+        passiveControls: true,
+        suppressAutosize: true,
+        authoritativeRenderRestore,
+        suppressDraw: canRestoreRender,
+        suppressAutoDraw: canRestoreRender,
+        suppressResizeDraw: canRestoreRender,
+        suppressStatsRecompute: canRestoreRender
+      };
+      const endRestoreTransaction = earlyRenderRestoreTransactionEnd
+        || (canRestoreRender && Shared.componentLifecycle?.beginRenderCacheRestoreTransaction
+          ? Shared.componentLifecycle.beginRenderCacheRestoreTransaction(tab.type, transactionMeta)
+          : (Shared.componentLifecycle?.beginRestoreTransaction
+              ? Shared.componentLifecycle.beginRestoreTransaction(tab.type, transactionMeta)
+              : null));
+      earlyRenderRestoreTransactionEnd = null;
+      try {
       const canReuseWorkspace = canReuseWorkspaceForActivation();
       let sessionRecord = null;
       if (Shared.workspaceTabs?.activateWorkspace) {
@@ -1033,11 +1344,17 @@
             canRestoreRender,
             validationDeferred: renderCacheValidationDeferred
           });
-          if (!canRestoreRender && Shared.componentLayout?.releaseSuppressedSchedulesFor) {
-            Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
-              tabId: tab.id,
-              reason: 'render-cache-restore-validation-failed'
-            });
+          if (!canRestoreRender) {
+            if (typeof endRestoreTransaction === 'function') {
+              endRestoreTransaction({ reason: 'render-cache-restore-validation-failed', cancelPostSuppress: true });
+            }
+            Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, { tabId: tab.id, reason: 'render-cache-restore-validation-failed' });
+            if (Shared.componentLayout?.releaseSuppressedSchedulesFor) {
+              Shared.componentLayout.releaseSuppressedSchedulesFor(tab.type, {
+                tabId: tab.id,
+                reason: 'render-cache-restore-validation-failed'
+              });
+            }
           }
         }
       }
@@ -1184,11 +1501,16 @@
         if (guardWorkspaceMutation('apply-payload')) {
           namespace.applyWorkspacePayload(config, payload, {
             skipDraw: canRestoreRender,
+            skipInitialDraw: canRestoreRender,
             restoreRenderCache: canRestoreRender,
             skipPayloadSizing: canRestoreRender || !!tab.layoutState,
             authoritativeLayoutState: !!tab.layoutState,
             layoutStatePresent: !!tab.layoutState,
             authoritativeRenderRestore,
+            suppressAutoDraw: canRestoreRender,
+            suppressResizeDraw: canRestoreRender,
+            suppressStatsRecompute: canRestoreRender,
+            passiveControls: canRestoreRender,
             ...drawMeta
           });
         }
@@ -1237,6 +1559,10 @@
               resetDataset: true,
               skipSchedule: canRestoreRender,
               authoritativeRenderRestore,
+              suppressAutoDraw: canRestoreRender,
+              suppressResizeDraw: canRestoreRender,
+              suppressStatsRecompute: canRestoreRender,
+              passiveControls: canRestoreRender,
               ...drawMeta
             })
           : false;
@@ -1250,7 +1576,10 @@
       let restored = false;
       if (canRestoreRender) {
         try {
-          restored = guardWorkspaceMutation('restore-render-cache') && !!config.restoreRenderCache(renderCache.cache, {
+          const restoreCachePayload = typeof session?.cloneRenderCacheForRestore === 'function'
+            ? (session.cloneRenderCacheForRestore(renderCache.cache) || renderCache.cache)
+            : renderCache.cache;
+          restored = guardWorkspaceMutation('restore-render-cache') && !!config.restoreRenderCache(restoreCachePayload, {
             tab,
             tabId: tab.id,
             type: tab.type,
@@ -1258,6 +1587,12 @@
             payloadSignature: targetPayloadSignature,
             layoutSignature: targetLayoutSignature,
             authoritativeRenderRestore,
+            suppressDraw: canRestoreRender,
+            suppressAutoDraw: canRestoreRender,
+            suppressResizeDraw: canRestoreRender,
+            suppressStatsRecompute: canRestoreRender,
+            passiveControls: canRestoreRender,
+            reason: canRestoreRender ? 'workspace-render-cache-restore' : (options.reason || 'workspace-view'),
             sessionGeneration
           });
           if (restored && config.perTabDomInstances === true) {
@@ -1268,18 +1603,25 @@
                 type: tab.type,
                 reason: options.reason || 'workspace-view'
               });
+              setWorkspaceActivationError(tab, { reason: 'render-cache-restored-empty-graph', message: 'Restored render cache was empty; falling back to redraw.' });
               restored = false;
             }
           }
           if (restored) {
-            if (renderCacheIsArchiveBacked && typeof session?.clearTabArchiveRenderCache === 'function') {
+            if (renderCacheIsArchiveBacked && typeof session?.promoteArchiveRenderCacheToRuntime === 'function') {
+              session.promoteArchiveRenderCacheToRuntime(tab, renderCache, { reason: 'render-cache-restored' });
+            } else if (renderCacheIsArchiveBacked && typeof session?.clearTabArchiveRenderCache === 'function') {
               session.clearTabArchiveRenderCache(tab, { reason: 'render-cache-restored' });
             } else if (typeof session?.clearTabRenderCache === 'function') {
-              session.clearTabRenderCache(tab, { reason: 'render-cache-consumed' });
+              // Keep the runtime cache after a successful restore so a future activation can
+              // reuse it if the live DOM has been discarded. It is pruned by the normal cache
+              // budget rather than consumed immediately.
+              console.debug('Debug: workspace runtime render cache retained after restore', { tabId: tab.id, type: tab.type, reason: 'render-cache-restored' });
             }
           }
         } catch (err) {
           console.error('workspace render cache restore error', { type: tab.type, err });
+          setWorkspaceActivationError(tab, { reason: 'render-cache-restore-error', err });
           restored = false;
         }
       }
@@ -1295,12 +1637,19 @@
         }
         try {
           if (typeof config.draw === 'function') {
-            config.draw(drawMeta);
+            if (canRestoreRender && typeof endRestoreTransaction === 'function') {
+              endRestoreTransaction({ reason: 'render-cache-restore-fallback-before-draw', cancelPostSuppress: true });
+              Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, { tabId: tab.id, reason: 'render-cache-restore-fallback-before-draw' });
+            }
+            Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: 'draw-executed', reason: drawMeta.reason || 'workspace-draw-fallback', details: { via: 'domControls-fallback' } });
+            config.draw({ ...drawMeta, forceDraw: true, reason: drawMeta.reason || 'workspace-draw-fallback' });
           }
         } catch (err) {
           console.error('workspace draw error', { type: tab.type, err });
+          setWorkspaceActivationError(tab, { reason: 'workspace-draw-error', err });
         }
       } else {
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: renderCacheIsArchiveBacked ? 'saved-render-cache-restored' : 'runtime-render-cache-restored', reason: 'workspace-render-cache-restored' });
         console.debug('Debug: workspace render cache restored', { tabId: tab.id, type: tab.type });
       }
       if (Shared.componentLayout?.syncTabStateToControlsFor) {
@@ -1325,8 +1674,26 @@
       if (tab.uiState && typeof session?.applyWorkspaceUiState === 'function') {
         session.applyWorkspaceUiState(tab, { reason: options.reason || 'workspace-view' });
       }
-      console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
+      if (!(tab.activationError && Number(tab.activationError.at) >= activationStartedAt)) {
+        clearWorkspaceActivationError(tab, { reason: options.reason || 'workspace-displayed' });
+      }
+      console.debug('Debug: workspace displayed', {
+        tabId: tab.id,
+        type: tab.type,
+        activationError: tab.activationError?.reason || null
+      });
+      } finally {
+        if (typeof endRestoreTransaction === 'function') {
+          endRestoreTransaction({ reason: options.reason || 'workspace-view-restore-complete' });
+        }
+      }
     };
+
+    if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {
+      return config;
+    }
+
+    beginEarlyRenderRestoreTransaction();
 
     let ensurePromise = null;
     if (!alreadyInitialized) {
@@ -1334,12 +1701,24 @@
         try {
           const ensureResult = config.ensure();
           if (ensureResult && typeof ensureResult.then === 'function') {
-            ensurePromise = ensureResult.then(() => {
+            ensurePromise = workspacePromiseWithTimeout(ensureResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
+              label: 'workspace-ensure',
+              tabId: tab.id,
+              type: tab.type
+            }).then(outcome => {
+              if (outcome?.timedOut) {
+                setWorkspaceActivationError(tab, {
+                  reason: 'workspace-ensure-timeout',
+                  message: `Workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
+                });
+                return;
+              }
               markInitialized('tab-activation');
               bindPerTabRootIfNeeded('tab-activation-async');
               console.debug('Debug: workspace ensure resolved (async)', { tabId: tab.id, type: tab.type });
             }).catch(err => {
               console.error('workspace ensure async error', { type: tab.type, err });
+              setWorkspaceActivationError(tab, { reason: 'workspace-ensure-async-error', err });
             });
           } else {
             markInitialized('tab-activation');
@@ -1348,6 +1727,7 @@
           }
         } catch (err) {
           console.error('workspace ensure error', { type: tab.type, err });
+          setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
         }
       } else {
         markInitialized('no-ensure-handler');
@@ -1361,12 +1741,24 @@
         try {
           const maybePromise = config.ensure();
           if (maybePromise && typeof maybePromise.then === 'function') {
-            ensurePromise = maybePromise.catch(err => {
+            ensurePromise = workspacePromiseWithTimeout(maybePromise, WORKSPACE_ENSURE_TIMEOUT_MS, {
+              label: 'workspace-ensure-cached',
+              tabId: tab.id,
+              type: tab.type
+            }).then(outcome => {
+              if (outcome?.timedOut) {
+                setWorkspaceActivationError(tab, {
+                  reason: 'workspace-ensure-cached-timeout',
+                  message: `Cached workspace ensure timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`
+                });
+              }
+            }).catch(err => {
               console.error('workspace ensure async error', { type: tab.type, err });
             });
           }
         } catch (err) {
           console.error('workspace ensure error', { type: tab.type, err });
+          setWorkspaceActivationError(tab, { reason: 'workspace-ensure-error', err });
         }
       }
     }

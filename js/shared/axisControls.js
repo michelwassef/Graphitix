@@ -54,6 +54,63 @@
   let panelRefreshFrame = 0;
   const axisLengthUiByScope = new Map();
 
+  function normalizeAxisControlsTabId(value){
+    const text = String(value || '').trim();
+    return text || null;
+  }
+
+  function resolveAxisControlsActiveTabId(){
+    try{
+      return normalizeAxisControlsTabId(global.Main?.session?.getActiveTab?.()?.id || null);
+    }catch(err){
+      return null;
+    }
+  }
+
+  function resolveAxisControlsTabIdFromNode(node){
+    let cursor = node || null;
+    while(cursor && cursor !== global.document){
+      const dataset = cursor.dataset || null;
+      const candidate = normalizeAxisControlsTabId(
+        dataset?.workspaceTabId
+        || dataset?.tabId
+        || dataset?.fontTabId
+        || null
+      );
+      if(candidate){
+        return candidate;
+      }
+      if(typeof cursor.getAttribute === 'function'){
+        const attrCandidate = normalizeAxisControlsTabId(
+          cursor.getAttribute('data-workspace-tab-id')
+          || cursor.getAttribute('data-tab-id')
+          || cursor.getAttribute('data-font-tab-id')
+        );
+        if(attrCandidate){
+          return attrCandidate;
+        }
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function resolveAxisControlsTabId(config){
+    return normalizeAxisControlsTabId(
+      config?.tabId
+      || config?.workspaceTabId
+      || resolveAxisControlsTabIdFromNode(config?.target || config?.svg || config?.host || config?.root || null)
+      || resolveAxisControlsTabIdFromNode(activeHost || panelEl || null)
+      || resolveAxisControlsActiveTabId()
+    );
+  }
+
+  function getAxisLengthUiScopeKey(config){
+    const scopeKey = (config && config.scopeId) ? String(config.scopeId) : '__global__';
+    const tabId = resolveAxisControlsTabId(config);
+    return tabId ? `${scopeKey}::@tab:${tabId}` : scopeKey;
+  }
+
   function resolveToolbarHost(scopeId){
     const toolbarApi = Shared.getWorkspaceToolbarApi();
     if(typeof toolbarApi.resolveHost === 'function'){
@@ -208,7 +265,7 @@
   }
 
   function getAxisLengthUiState(config){
-    const scopeKey = (config && config.scopeId) ? String(config.scopeId) : '__global__';
+    const scopeKey = getAxisLengthUiScopeKey(config);
     let state = axisLengthUiByScope.get(scopeKey);
     if(!state){
       state = {

@@ -413,15 +413,41 @@
   }
 
   function scheduleScatterViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'scatter-view-refresh';
+    const normalizedReason = String(nextReason || '').toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: scatter.__boundTabId || null,
+      reason: nextReason,
+      source: 'scatter-view-refresh',
+      forceDraw: options.force === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('scatter', lifecycleMeta)){
+      scatterDebug('Debug: scatter view refresh suppressed by lifecycle', { reason: nextReason, tabId: scatter.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'scatter', tabId: scatter.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'scatter-view-refresh' } });
+      return;
+    }
     if(typeof scheduleDrawScatter !== 'function'){
       return;
     }
-    const options = Object.assign({}, extraOptions || {}, {
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
       silentOverlay: true,
-      reason: reason || (extraOptions && extraOptions.reason) || 'scatter-view-refresh'
+      reason: nextReason,
+      source: 'scatter-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
-    scheduleDrawScatter(options);
+    scheduleDrawScatter(scheduleOptions);
   }
 
   function invalidateActiveScatterRenderCache(reason){
@@ -22073,7 +22099,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   scatter.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
     return applyScatterRuntimeSnapshot(snapshot, meta.reason || 'apply-runtime-state');
   };
-  scatter.deactivateTab = function deactivateTab(_tab, meta = {}){
+  scatter.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: scatter,
+    componentKey: 'scatter',
+    cancel: (_tab, meta = {}) => {
+      scatterDrawToken += 1;
+      clearScatterScheduledDraw(meta.reason || 'deactivate-tab');
+      scatterState.drawInProgress = false;
+      scatterState.statsComputationPending = false;
+      scatterState.rotationPending = false;
+      scatterState.rotationPendingLogged = false;
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: scatter tab deactivated', {
+          reason: meta.reason || 'deactivate-tab',
+          drawToken: scatterDrawToken,
+          sessionGeneration: meta.sessionGeneration || 0
+        });
+      }
+    }
+  }) || function deactivateTab(_tab, meta = {}){
     scatterDrawToken += 1;
     clearScatterScheduledDraw(meta.reason || 'deactivate-tab');
     scatterState.drawInProgress = false;
@@ -22087,8 +22131,57 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         sessionGeneration: meta.sessionGeneration || 0
       });
     }
+    return true;
   };
-  scatter.activateTab = function activateTab(tab, meta = {}){
+
+  scatter.isIdleForSnapshot = function isIdleForSnapshot(){
+    return !scatterState.drawInProgress
+      && !scatterState.statsComputationPending
+      && !scatterState.rotationPending
+      && !scatterState.pendingDrawOpts;
+  };
+
+  scatter.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(scatter, { ...meta, componentKey: 'scatter' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+  function syncScatterActivationState(tabLike = null, reason = 'activate-tab'){
+    syncScatterActivationControlsFromPayload(tabLike);
+    applyScatterRuntimeSnapshot(getScatterSessionRecord(tabLike || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, reason || 'activate-tab');
+    if(!scatter.ready){
+      return;
+    }
+    scatterLayoutWasHidden = true;
+    if(typeof scatter.__ensureHotForActiveTab === 'function'){
+      scatter.__ensureHotForActiveTab();
+    }
+    if(tabLike?.uiState?.component && typeof scatter.applyUiState === 'function'){
+      try{
+        scatter.applyUiState(tabLike.uiState.component, { reason: 'activate-tab-final-ui-state' });
+      }catch(err){
+        console.debug('Debug: scatter activateTab final uiState apply failed', { message: err?.message || String(err) });
+      }
+    }
+    if(isScatterRuntimeFreshForTab(tabLike) && tabLike?.loadedFromArchive !== true){
+      resetScatterHotViewportToTop(scatter.__getActiveHot?.() || scatterRefs.hot || scatterHot || null);
+    }
+  }
+
+  scatter.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: scatter,
+    componentKey: 'scatter',
+    resolveRoot: tabLike => resolveScatterRoot(tabLike || null) || scatterRoot || null,
+    setRoot: root => { scatterRoot = root || scatterRoot || null; },
+    ensureBindings: tabLike => ensureScatterDomBindings(tabLike),
+    init: options => scatter.init(options),
+    afterReady: (tabLike, meta = {}) => {
+      if(!scatter.ready){
+        return;
+      }
+      syncScatterActivationState(tabLike || null, meta.reason || 'activate-tab');
+    },
+    getSentinel: () => scatter.__domSentinel || getScatterNodeById('scatterShowLine') || null
+  }) || function activateTab(tab, meta = {}){
     const targetTabId = (typeof tab === 'string' ? tab : tab?.id)
       || Shared.hot?.resolveActiveTabId?.()
       || null;
@@ -22103,12 +22196,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
     scatterRoot = resolveScatterRoot(tab || null);
     if(ensureScatterDomBindings(tab)){
-      syncScatterActivationControlsFromPayload(tab);
-      applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      syncScatterActivationState(tab || null, meta.reason || 'activate-tab');
       return;
     }
-    syncScatterActivationControlsFromPayload(tab);
-    applyScatterRuntimeSnapshot(getScatterSessionRecord(tab || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+    syncScatterActivationState(tab || null, meta.reason || 'activate-tab');
     if(!scatter.ready){
       scatter.init({
         root: scatterRoot,
@@ -22116,20 +22207,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         reason: meta.reason || 'activate-tab'
       });
       return;
-    }
-    scatterLayoutWasHidden = true;
-    if(typeof scatter.__ensureHotForActiveTab === 'function'){
-      scatter.__ensureHotForActiveTab();
-    }
-    if(tab?.uiState?.component && typeof scatter.applyUiState === 'function'){
-      try{
-        scatter.applyUiState(tab.uiState.component, { reason: 'activate-tab-final-ui-state' });
-      }catch(err){
-        console.debug('Debug: scatter activateTab final uiState apply failed', { message: err?.message || String(err) });
-      }
-    }
-    if(isScatterRuntimeFreshForTab(tab) && tab?.loadedFromArchive !== true){
-      resetScatterHotViewportToTop(scatter.__getActiveHot?.() || scatterRefs.hot || scatterHot || null);
     }
   };
 
@@ -22450,8 +22527,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     return restored;
   };
   scatter.draw = function draw(options = {}){
-    ensureReady();
     const drawOptions = normalizeScatterSessionOptions(options || {});
+    const drawReason = drawOptions.reason || options?.reason || 'scatter-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('scatter', { ...drawOptions, tabId: drawOptions.tabId || scatter.__boundTabId || null, reason: drawReason })){
+      scatterDebug('Debug: scatter draw suppressed by lifecycle', { reason: drawReason, tabId: drawOptions.tabId || scatter.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'scatter', tabId: drawOptions.tabId || scatter.__boundTabId || null, action: 'draw-suppressed', reason: drawReason, details: { source: 'scatter.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'scatter', tabId: drawOptions.tabId || scatter.__boundTabId || null, action: 'draw-executed', reason: drawReason, details: { source: 'scatter.draw' } });
+    ensureReady();
     if(scatterLayout && typeof scatterLayout.syncPanels === 'function'){
       const graphPanel = scatterLayout.elements?.graphPanel || null;
       const isVisible = !!(graphPanel && graphPanel.offsetParent !== null);
@@ -22669,4 +22753,24 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     })
   });
 
+
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(scatter, {
+    componentKey: 'scatter',
+    targets: [
+      { key: 'scatterState', get: () => scatterState, excludeKeys: ['hot', 'root', 'cachedDrawInput'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] },
+      {
+        key: 'themeSingletons',
+        get: () => ({ scatterColorSchemeId, scatterTextColor, scatterBackgroundColor }),
+        apply: snapshot => {
+          if(snapshot && typeof snapshot === 'object'){
+            scatterColorSchemeId = typeof snapshot.scatterColorSchemeId === 'string' ? snapshot.scatterColorSchemeId : scatterColorSchemeId;
+            scatterTextColor = typeof snapshot.scatterTextColor === 'string' ? snapshot.scatterTextColor : scatterTextColor;
+            scatterBackgroundColor = typeof snapshot.scatterBackgroundColor === 'string' ? snapshot.scatterBackgroundColor : scatterBackgroundColor;
+          }
+        }
+      }
+    ]
+  });
 })(window);

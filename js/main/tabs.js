@@ -547,14 +547,28 @@
         return;
       }
       if (!target.type) {
-        const candidateSource = target.isWelcome
-          ? determineDuplicateSourceCandidate(workspaceState.lastActiveGraphId)
-          : (target.duplicateSource || determineDuplicateSourceCandidate(current?.id));
+        const suppressDuplicateCandidate = !!(
+          options.skipDuplicatePrompt
+          || options.disableDuplicatePrompt
+          || options.forceBlankWorkspace
+          || options.skipDuplicateSource
+        );
+        const candidateSource = suppressDuplicateCandidate
+          ? null
+          : (target.isWelcome
+            ? determineDuplicateSourceCandidate(workspaceState.lastActiveGraphId)
+            : (target.duplicateSource || determineDuplicateSourceCandidate(current?.id)));
         workspaceState.pendingDuplicateSource = candidateSource;
+        if (suppressDuplicateCandidate) {
+          target.duplicateSource = null;
+          target.pendingDuplicatePayload = null;
+          target.pendingDuplicateLayout = null;
+        }
         console.debug('Debug: activateTab showing selection', {
           tabId,
           isWelcome: !!target.isWelcome,
           candidateSource,
+          duplicateCandidateSuppressed: suppressDuplicateCandidate,
           reason: options.reason || 'unconfigured'
         });
         if (window.Shared?.undoManager?.refreshState) {
@@ -650,7 +664,17 @@
       workspaceState.pendingDuplicateSource = null;
       tab.duplicateSource = null;
       const sourceTab = sourceId ? getTabById(sourceId) : null;
-      const canDuplicate = Boolean(sourceTab && sourceTab.type === type && sourceTab.payload);
+      const skipDuplicatePrompt = !!(options.skipDuplicatePrompt || options.forceBlankWorkspace || options.disableDuplicatePrompt);
+      const canDuplicate = !skipDuplicatePrompt && Boolean(sourceTab && sourceTab.type === type && sourceTab.payload);
+      if (skipDuplicatePrompt && sourceTab) {
+        console.debug('Debug: duplicate prompt skipped for graph selection', {
+          tabId: tab.id,
+          type,
+          sourceId,
+          reason: options.reason || 'graph-selection',
+          skipDuplicatePrompt
+        });
+      }
       const pendingDuplicatePayload = tab.pendingDuplicatePayload || null;
       const pendingDuplicateLayout = tab.pendingDuplicateLayout || null;
       tab.pendingDuplicatePayload = null;

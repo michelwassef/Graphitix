@@ -579,14 +579,41 @@
   let survivalFontEventBound = false;
   let survivalDataViewsManager = null;
 
-  function scheduleSurvivalViewRefresh(reason){
+  function scheduleSurvivalViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'survival-view-refresh';
+    const normalizedReason = String(nextReason || '').toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: survival.__boundTabId || null,
+      reason: nextReason,
+      source: 'survival-view-refresh',
+      forceDraw: options.force === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', lifecycleMeta)){
+      survivalDebug('Debug: survival view refresh suppressed by lifecycle', { reason: nextReason, tabId: survival.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: survival.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival-view-refresh' } });
+      return;
+    }
     if(typeof state.scheduleDraw !== 'function'){
       return;
     }
-    state.scheduleDraw({
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
-      reason: reason || 'survival-view-refresh'
+      reason: nextReason,
+      source: 'survival-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
+    state.scheduleDraw(scheduleOptions);
   }
 
   function isSurvivalFontStyleEvent(detail){
@@ -4623,6 +4650,103 @@
     survival.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
     survival.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
   }
+  survival.captureRuntimeState = function captureSurvivalRuntimeState(meta = {}){
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
+    const snapshot = {
+      state: {
+        labelColors: cloneSimple(state.labelColors) || {},
+        labelStrokeWidth: cloneSimple(state.labelStrokeWidth) || {},
+        labelOpacity: cloneSimple(state.labelOpacity) || {},
+        labelLinePattern: cloneSimple(state.labelLinePattern) || {},
+        groupOrder: cloneSimple(state.groupOrder) || [],
+        minSvgWidth: state.minSvgWidth,
+        titleText: state.titleText,
+        lastSummary: cloneSimple(state.lastSummary) || null,
+        lastStats: cloneSimple(state.lastStats) || null,
+        pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
+        covariateSettings: cloneSimple(state.covariateSettings) || {},
+        covariateColumns: cloneSimple(state.covariateColumns) || [],
+        axisSettings: cloneSimple(state.axisSettings) || null,
+        gridStyle: cloneSimple(state.gridStyle) || null,
+        labelPositions: cloneSimple(state.labelPositions) || {}
+      },
+      advisor: cloneSimple(survivalAdvisorState) || null,
+      notes: { text: notesText, open: notesOpen },
+      parseDebugCounter: Number(parseDebugCounter) || 0,
+      reason: meta?.reason || 'survival-runtime-capture'
+    };
+    survivalDebug('Debug: survival runtime snapshot captured', {
+      tabId: meta?.tabId || survival.__boundTabId || null,
+      title: snapshot.state.titleText,
+      notesOpen,
+      reason: snapshot.reason
+    });
+    return snapshot;
+  };
+
+  survival.applyRuntimeState = function applySurvivalRuntimeState(snapshot, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      survivalDebug('Debug: survival runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+      return false;
+    }
+    if(snapshot.state && typeof snapshot.state === 'object'){
+      const nextState = snapshot.state;
+      state.labelColors = cloneSimple(nextState.labelColors) || state.labelColors || {};
+      state.labelStrokeWidth = cloneSimple(nextState.labelStrokeWidth) || state.labelStrokeWidth || {};
+      state.labelOpacity = cloneSimple(nextState.labelOpacity) || state.labelOpacity || {};
+      state.labelLinePattern = cloneSimple(nextState.labelLinePattern) || state.labelLinePattern || {};
+      state.groupOrder = cloneSimple(nextState.groupOrder) || state.groupOrder || [];
+      state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
+      state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
+      if(Object.prototype.hasOwnProperty.call(nextState, 'lastSummary')){ state.lastSummary = cloneSimple(nextState.lastSummary); }
+      if(Object.prototype.hasOwnProperty.call(nextState, 'lastStats')){ state.lastStats = cloneSimple(nextState.lastStats); }
+      state.pairwiseCorrection = typeof nextState.pairwiseCorrection === 'string' ? nextState.pairwiseCorrection : state.pairwiseCorrection;
+      state.covariateSettings = cloneSimple(nextState.covariateSettings) || state.covariateSettings || {};
+      state.covariateColumns = cloneSimple(nextState.covariateColumns) || state.covariateColumns || [];
+      state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
+      if(Object.prototype.hasOwnProperty.call(nextState, 'gridStyle')){ state.gridStyle = cloneSimple(nextState.gridStyle); }
+      state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
+    }
+    if(snapshot.advisor && typeof snapshot.advisor === 'object'){
+      Object.assign(survivalAdvisorState, cloneSimple(snapshot.advisor) || {});
+    }
+    if(snapshot.notes && typeof snapshot.notes === 'object'){
+      notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
+      notesState.open = !!snapshot.notes.open;
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+    }
+    parseDebugCounter = Number(snapshot.parseDebugCounter) || parseDebugCounter || 0;
+    survivalDebug('Debug: survival runtime snapshot applied', {
+      tabId: meta?.tabId || survival.__boundTabId || null,
+      title: state.titleText,
+      reason: meta?.reason || 'survival-runtime-apply'
+    });
+    return true;
+  };
+
+  survival.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: survival,
+    componentKey: 'survival'
+  }) || function deactivateSurvivalTab(tab, meta = {}){
+    survival.__runtimeGeneration = (Number(survival.__runtimeGeneration) || 0) + 1;
+    survivalDebug('Debug: survival tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      generation: survival.__runtimeGeneration,
+      reason: meta?.reason || 'deactivate-tab'
+    });
+    return true;
+  };
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
     const snapshot = survival.createEmptyPayload();
     survivalDebug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
@@ -5293,34 +5417,39 @@
       init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
     }
   };
-  survival.activateTab = function activateTab(tab, meta = {}){
-    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    survival.__boundTabId = targetTabId || survival.__boundTabId || null;
-    refs.root = resolveSurvivalRoot(tab || targetTabId || null);
-    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
+  survival.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: survival,
+    componentKey: 'survival',
+    resolveRoot: tabLike => resolveSurvivalRoot(tabLike || null),
+    setRoot: root => { refs.root = root || refs.root || null; },
+    ensureBindings: (tabLike, meta) => {
+      if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+        return false;
+      }
+      const targetTabId = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || meta?.tabId || null;
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
-        tabLike: tab || null,
+        tabLike: tabLike || null,
         sentinelSelector: '#survivalHot',
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
-        rebind: (info) => {
-          refs.root = info?.root || resolveSurvivalRoot(tab || null) || refs.root || null;
+        rebind: info => {
+          refs.root = info?.root || resolveSurvivalRoot(tabLike || null) || refs.root || null;
           survival.ready = false;
           init({ root: refs.root || undefined, tabId: info?.tab?.id || targetTabId || null, reason: 'activate-tab-rebind' });
         }
       });
-      if(rebound?.rebound){
-        return;
-      }
-    }
-    if(!survival.ready){
-      init({ root: refs.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
-      return;
-    }
-    if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
-    }
+      return !!rebound?.rebound;
+    },
+    init: options => init(options),
+    afterReady: () => { if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); } },
+    getSentinel: () => getSurvivalNodeById('survivalHot')
+  }) || function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    survival.__boundTabId = targetTabId || survival.__boundTabId || null;
+    refs.root = resolveSurvivalRoot(tab || targetTabId || null);
+    if(!survival.ready){ init({ root: refs.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
+    if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
   };
 
@@ -5375,7 +5504,24 @@
     };
   };
 
-  survival.restoreRenderCache = function restoreRenderCache(cache){
+  survival.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'survival',
+      graph: { selectors: ['#survivalSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']survivalSvg["']|<canvas\b)/i },
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  survival.isIdleForSnapshot = function isIdleForSnapshot(){
+    return true;
+  };
+
+  survival.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(survival, { ...meta, componentKey: 'survival' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  survival.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getSurvivalNodeById('survivalPlot');
@@ -5401,7 +5547,16 @@
     }
     return restored;
   };
-  survival.draw = drawSurvival;
+  survival.draw = function drawSurvivalPublic(options = {}){
+    const nextReason = options?.reason || 'survival-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...(options || {}), tabId: options?.tabId || survival.__boundTabId || null, reason: nextReason })){
+      survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || survival.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || survival.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || survival.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
+    return drawSurvival(options);
+  };
   survival.__getState = function(){
     survivalDebug('Debug: survival.__getState invoked');
     return state;
@@ -5423,5 +5578,14 @@
     prepareCoxData: summary => prepareCoxData(summary),
     evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared)
   });
-})(window);
 
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(survival, {
+    componentKey: 'survival',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'survivalAdvisorState', get: () => survivalAdvisorState },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
+    ]
+  });
+})(window);

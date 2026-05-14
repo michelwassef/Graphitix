@@ -1310,15 +1310,23 @@
     return sanitizeTabToken(datasetTab || explicitTab || activeTab || null);
   }
 
-  function getScopeMode(scopeId){
-    const key = scopePreferenceKey(scopeId || currentScope);
+  function getScopePreferenceStoreKey(scopeId, options){
+    const base = scopePreferenceKey(scopeId || currentScope);
+    const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
+    return tabToken ? `${base}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}` : base;
+  }
+
+  function getScopeMode(scopeId, options){
+    const key = getScopePreferenceStoreKey(scopeId || currentScope, options);
     return scopeModePreferences.get(key) || FONT_SCOPE_SELECTION;
   }
 
-  function setScopeMode(scopeId, mode){
+  function setScopeMode(scopeId, mode, options){
     const normalized = mode === FONT_SCOPE_GRAPH ? FONT_SCOPE_GRAPH : FONT_SCOPE_SELECTION;
     activeScopeMode = normalized;
-    scopeModePreferences.set(scopePreferenceKey(scopeId || currentScope), normalized);
+    const key = getScopePreferenceStoreKey(scopeId || currentScope, options);
+    scopeModePreferences.set(key, normalized);
+    logDebug('fontControls scope mode stored', { scopeId: scopeId || currentScope || null, key, mode: normalized });
     if(scopeSelectEl && scopeSelectEl.value !== normalized){
       scopeSelectEl.value = normalized;
     }
@@ -1330,7 +1338,7 @@
   }
 
   function syncScopeModeForCurrentTarget(){
-    const mode = getScopeMode(currentScope);
+    const mode = getScopeMode(currentScope, { target: currentTarget || activeHost || panelEl || null });
     activeScopeMode = mode;
     if(scopeSelectEl){
       scopeSelectEl.value = mode;
@@ -3023,7 +3031,7 @@
     controlsRow.appendChild(scopeFieldEl);
     scopeSelectEl.value = getScopeMode(currentScope);
     scopeSelectEl.addEventListener('change', () => {
-      setScopeMode(currentScope, scopeSelectEl.value);
+      setScopeMode(currentScope, scopeSelectEl.value, { target: currentTarget || activeHost || panelEl || null });
       refreshScopeFooter();
       updatePanelContext();
       // Scope switching must be non-destructive. Do not persist the current node style

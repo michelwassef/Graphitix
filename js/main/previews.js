@@ -120,7 +120,9 @@
     }
     return markup.includes('data-preview-placeholder')
       || markup.includes('Preparing preview')
-      || markup.includes('Preview too large');
+      || markup.includes('Preview too large')
+      || markup.includes('Preview simplified')
+      || markup.includes('Large dataset');
   }
 
   function resolvePreviewSizing(svg) {
@@ -800,7 +802,7 @@
     }
     if (!svg) {
       console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
-      if (shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
+      if (tab?.previewMarkup && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
         console.debug('Debug: preview cache fallback skipped to preserve existing preview', {
           tabId: tab?.id || null,
           type: config.type,
@@ -816,7 +818,7 @@
     const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
     if (!rawMarkup) {
       console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
-      if (shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
+      if (tab?.previewMarkup && shouldPreserveExistingPreviewWithoutLiveSource(tab, meta, { hasLivePreviewSource: false })) {
         console.debug('Debug: preview cache fallback skipped to preserve existing preview', {
           tabId: tab?.id || null,
           type: config.type,

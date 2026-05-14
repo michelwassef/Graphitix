@@ -206,12 +206,15 @@
 
   function cloneChildNodesToFragment(node) {
     const doc = node?.ownerDocument || window.document || null;
-    if (!node || !doc || !node.childNodes) {
+    if (!node || !doc) {
       return null;
     }
     const fragment = doc.createDocumentFragment();
     let count = 0;
-    Array.from(node.childNodes || []).forEach(child => {
+    const nodeName = String(node.nodeName || '').toLowerCase();
+    const includeSelf = nodeName === 'svg' || nodeName === 'canvas';
+    const children = includeSelf ? [node] : Array.from(node.childNodes || []);
+    children.forEach(child => {
       try {
         fragment.appendChild(child.cloneNode(true));
         count += 1;
@@ -335,7 +338,7 @@
   }
 
   function persistActiveTabIfNeeded(context, reason) {
-    const { session, withSessionContext } = context || {};
+    const { session, withSessionContext, workspaceState } = context || {};
     if (!session || typeof session.getActiveTab !== 'function' || typeof session.persistActiveTabState !== 'function') {
       return;
     }
@@ -343,11 +346,16 @@
     if (!active || active.isWelcome || !active.type) {
       return;
     }
+    const reasonText = String(reason || 'archive-save').toLowerCase();
+    const preserveRenderCacheTabIds = reasonText.includes('archive') || reasonText.includes('save')
+      ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
+      : [active.id];
     session.persistActiveTabState(active, withSessionContext({
       reason: reason || 'archive-save',
       forcePreviewCapture: true,
       captureRenderCache: true,
-      preserveRenderCacheTabIds: [active.id],
+      preserveRenderCacheTabIds,
+      disableRenderCachePrune: true,
       origin: 'lifecycle'
     }));
   }
@@ -371,6 +379,35 @@
       payload = cloneWithSession(session, tab.payload || null);
       layout = cloneWithSession(session, tab.layoutState || null);
     }
+    const activeId = session?.getActiveTab?.()?.id || null;
+    const config = workspaces?.[tab.type] || null;
+    let lifecycleSnapshot = null;
+    if (config && tab.id === activeId && Shared.componentLifecycle?.snapshotWorkspaceSync) {
+      try {
+        lifecycleSnapshot = Shared.componentLifecycle.snapshotWorkspaceSync(config, tab, {
+          tabId: tab.id,
+          type: tab.type,
+          componentKey: tab.type,
+          reason: 'archive-save-lifecycle-snapshot'
+        });
+        if (lifecycleSnapshot?.payload) {
+          payload = cloneWithSession(session, lifecycleSnapshot.payload);
+        }
+        if (lifecycleSnapshot?.layoutState) {
+          layout = cloneWithSession(session, lifecycleSnapshot.layoutState);
+        }
+        debug(context, 'buildArchiveTabSnapshot.lifecycleSnapshot', {
+          tabId: tab.id,
+          type: tab.type,
+          hasPayload: !!lifecycleSnapshot?.payload,
+          hasLayout: !!lifecycleSnapshot?.layoutState,
+          hasRenderCache: !!lifecycleSnapshot?.renderCache
+        });
+      } catch (err) {
+        console.error('buildArchiveTabSnapshot lifecycle snapshot error', { tabId: tab.id, type: tab.type, err });
+      }
+    }
+
     const archivePayloadForSignature = rehomeArchiveValue(session, payload, tab.id);
     const archiveLayoutForSignature = rehomeArchiveValue(session, layout, tab.id);
     const archivePayloadSignature = typeof session?.serializePayloadSignature === 'function'
@@ -390,12 +427,16 @@
     let archiveRenderCacheSignature = archiveRenderCache ? archivePayloadSignature : null;
     let archiveRenderCacheLayoutSignature = archiveRenderCache ? archiveLayoutSignature : null;
 
-    const activeId = session?.getActiveTab?.()?.id || null;
-    const config = workspaces?.[tab.type] || null;
     // Only fall back to a live captureRenderCache for the active tab. For inactive tabs
     // the live DOM holds the active tab's content (per-tab DOM instances), so the live
     // capture would record the wrong fragment. Pre-save warmup is responsible for
     // populating tab.renderCache.cache on inactive tabs before this point.
+    if (!archiveRenderCache && lifecycleSnapshot?.renderCache && typeof session?.serializeRenderCacheForArchive === 'function') {
+      archiveRenderCache = session.serializeRenderCacheForArchive(lifecycleSnapshot.renderCache);
+      archiveRenderCacheSignature = archivePayloadSignature;
+      archiveRenderCacheLayoutSignature = archiveLayoutSignature;
+    }
+
     if (!archiveRenderCache && config && typeof config.captureRenderCache === 'function' && tab.id === activeId) {
       try {
         const captured = config.captureRenderCache({
@@ -441,6 +482,45 @@
         archiveRenderCache = session.serializeRenderCacheForArchive(mountedRootCache);
         archiveRenderCacheSignature = archivePayloadSignature;
         archiveRenderCacheLayoutSignature = archiveLayoutSignature;
+      }
+    }
+
+    if ((!tab.previewMarkup || !String(tab.previewMarkup).trim()) && archiveRenderCache && config && context?.previews?.updateTabPreviewFromWorkspace) {
+      const previousRenderCache = tab.renderCache || null;
+      const previousRenderCacheSignature = tab.renderCacheSignature || null;
+      const previousRenderCacheLayoutSignature = tab.renderCacheLayoutSignature || null;
+      const previousRenderCacheTabId = tab.renderCacheTabId || null;
+      try {
+        tab.renderCache = {
+          cache: archiveRenderCache,
+          tabId: tab.id,
+          type: tab.type || null,
+          payloadSignature: archivePayloadSignature || tab.payloadSignature || null,
+          layoutSignature: archiveLayoutSignature || tab.layoutSignature || null,
+          capturedAt: Date.now(),
+          captureSequence: Number(previousRenderCache?.captureSequence || 0)
+        };
+        tab.renderCacheSignature = archivePayloadSignature || tab.payloadSignature || null;
+        tab.renderCacheLayoutSignature = archiveLayoutSignature || tab.layoutSignature || null;
+        tab.renderCacheTabId = tab.id;
+        context.previews.updateTabPreviewFromWorkspace(tab, config, {
+          reason: 'archive-save-preview-from-render-cache',
+          forceCapture: true,
+          allowPreviewClear: false
+        });
+      } catch (err) {
+        console.debug('Debug: archive preview fallback from render cache failed', {
+          tabId: tab.id,
+          type: tab.type,
+          message: err?.message || String(err)
+        });
+      } finally {
+        if (previousRenderCache) {
+          tab.renderCache = previousRenderCache;
+          tab.renderCacheSignature = previousRenderCacheSignature;
+          tab.renderCacheLayoutSignature = previousRenderCacheLayoutSignature;
+          tab.renderCacheTabId = previousRenderCacheTabId;
+        }
       }
     }
 
@@ -542,6 +622,79 @@
     });
   }
 
+  async function awaitWithTimeout(promise, timeoutMs, label, details = {}) {
+    const ms = Math.max(250, Number(timeoutMs) || 0);
+    let timer = null;
+    let timedOut = false;
+    const timerApi = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+      ? { set: window.setTimeout.bind(window), clear: window.clearTimeout.bind(window) }
+      : { set: setTimeout, clear: clearTimeout };
+    const timeout = new Promise(resolve => {
+      timer = timerApi.set(() => {
+        timedOut = true;
+        console.warn('Debug: sessionActions async step timed out', {
+          label,
+          timeoutMs: ms,
+          ...details
+        });
+        resolve({ timedOut: true, label });
+      }, ms);
+    });
+    try {
+      const value = await Promise.race([Promise.resolve(promise), timeout]);
+      return timedOut ? { timedOut: true, label } : { timedOut: false, value };
+    } finally {
+      if (timer !== null) {
+        try { timerApi.clear(timer); } catch (_err) {}
+      }
+    }
+  }
+
+
+
+  async function awaitWorkspaceReadyForSnapshot(context, tab, options = {}) {
+    const { workspaces } = context || {};
+    if (!tab || !tab.type || !workspaces) {
+      return { skipped: true, reason: 'missing-tab-or-workspaces' };
+    }
+    const config = workspaces[tab.type] || null;
+    if (!config || typeof config.awaitReadyForSnapshot !== 'function') {
+      return { skipped: true, reason: 'missing-hook' };
+    }
+    try {
+      const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+        ? Math.max(250, Number(options.timeoutMs))
+        : 4500;
+      const outcome = await awaitWithTimeout(config.awaitReadyForSnapshot({
+        tab,
+        tabId: tab.id,
+        type: tab.type,
+        componentKey: tab.type,
+        reason: options.reason || 'snapshot-ready',
+        timeoutMs: Math.min(timeoutMs, 3500)
+      }), timeoutMs, 'awaitWorkspaceReadyForSnapshot', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: options.reason || 'snapshot-ready'
+      });
+      if (outcome?.timedOut) {
+        return { ok: false, timedOut: true, reason: 'snapshot-ready-timeout' };
+      }
+      const result = outcome?.value || { ok: true };
+      debug(context, 'awaitWorkspaceReadyForSnapshot.complete', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: options.reason || 'snapshot-ready',
+        ok: result?.ok !== false,
+        skipped: !!result?.skipped
+      });
+      return result || { ok: true };
+    } catch (err) {
+      console.error('awaitWorkspaceReadyForSnapshot error', { tabId: tab.id, type: tab.type, err });
+      return { ok: false, error: err?.message || String(err) };
+    }
+  }
+
   function tabHasLiveRenderCache(tab) {
     return !!(tab && tab.renderCache && tab.renderCache.cache);
   }
@@ -579,7 +732,13 @@
       try {
         const ensureResult = config.ensure();
         if (ensureResult && typeof ensureResult.then === 'function') {
-          await ensureResult;
+          const outcome = await awaitWithTimeout(ensureResult, 12000, 'ensureComponentsBeforeWarmup', {
+            type,
+            reason: options.reason || 'pre-warmup-ensure'
+          });
+          if (outcome?.timedOut) {
+            return;
+          }
         }
       } catch (err) {
         console.error('ensureComponentsBeforeWarmup error', { type, err, reason: options.reason || 'pre-warmup-ensure' });
@@ -666,25 +825,78 @@
       for (let i = 0; i < tabsToWarm.length; i += 1) {
         const tab = tabsToWarm[i];
         try {
-          activateTab(tab.id, withSessionContext({
+          const activation = activateTab(tab.id, withSessionContext({
             reason: `${reasonBase}-step`,
             silent: true
           }));
+          if (activation && typeof activation.then === 'function') {
+            const activationOutcome = await awaitWithTimeout(activation, 15000, 'warmTabRenderCaches.activate', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: `${reasonBase}-step`
+            });
+            if (activationOutcome?.timedOut) {
+              console.warn('warmTabRenderCaches activate timeout', { tabId: tab.id, type: tab.type, reason: `${reasonBase}-step` });
+              await awaitDelay(stepDelayMs);
+              continue;
+            }
+          }
         } catch (err) {
           console.error('warmTabRenderCaches activate error', { tabId: tab.id, err });
           await awaitDelay(stepDelayMs);
           continue;
         }
+        await awaitWorkspaceReadyForSnapshot(context, tab, { reason: `${reasonBase}-step-ready` });
+        try {
+          if (typeof session.persistActiveTabState === 'function') {
+            session.persistActiveTabState(tab, withSessionContext({
+              reason: `${reasonBase}-capture-cache`,
+              origin: 'lifecycle',
+              captureRenderCache: true,
+              preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
+              disableRenderCachePrune: true
+            }));
+          }
+        } catch (err) {
+          console.error('warmTabRenderCaches cache capture error', { tabId: tab.id, type: tab.type, err });
+        }
         await awaitDelay(stepDelayMs);
         warmed += 1;
       }
+      let finalTab = null;
       try {
-        activateTab(finalTabId, withSessionContext({
+        const finalActivation = activateTab(finalTabId, withSessionContext({
           reason: `${reasonBase}-finish`,
           silent: true
         }));
+        if (finalActivation && typeof finalActivation.then === 'function') {
+          const finalOutcome = await awaitWithTimeout(finalActivation, 15000, 'warmTabRenderCaches.finalActivate', {
+            tabId: finalTabId,
+            reason: `${reasonBase}-finish`
+          });
+          if (finalOutcome?.timedOut) {
+            console.warn('warmTabRenderCaches final activate timeout', { tabId: finalTabId, reason: `${reasonBase}-finish` });
+          }
+        }
+        finalTab = graphTabs.find(item => item && item.id === finalTabId) || null;
       } catch (err) {
         console.error('warmTabRenderCaches final-activate error', { tabId: finalTabId, err });
+      }
+      if (finalTab) {
+        await awaitWorkspaceReadyForSnapshot(context, finalTab, { reason: `${reasonBase}-finish-ready` });
+        try {
+          if (typeof session.persistActiveTabState === 'function') {
+            session.persistActiveTabState(finalTab, withSessionContext({
+              reason: `${reasonBase}-finish-capture-cache`,
+              origin: 'lifecycle',
+              captureRenderCache: true,
+              preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
+              disableRenderCachePrune: true
+            }));
+          }
+        } catch (err) {
+          console.error('warmTabRenderCaches final cache capture error', { tabId: finalTab.id, type: finalTab.type, err });
+        }
       }
       await awaitDelay(stepDelayMs);
     } finally {
@@ -714,6 +926,7 @@
   }
 
   namespace.warmTabRenderCaches = warmTabRenderCaches;
+  namespace.awaitWorkspaceReadyForSnapshot = awaitWorkspaceReadyForSnapshot;
 
   let pendingPostLoadWarmup = null;
   function schedulePostLoadWarmup(context, reason) {
@@ -722,42 +935,86 @@
     }
     const session = context?.session;
     if (!session || typeof session.getActiveTab !== 'function') {
-      return;
+      pendingPostLoadWarmup = null;
+      return null;
     }
     let cancelled = false;
-    const startup = () => {
-      if (cancelled) return;
-      pendingPostLoadWarmup = null;
-      // Resolve finalTabId at warmup START, not at schedule time. If the user clicked a
-      // different tab during the 250 ms gap, we honour their navigation by warming around
-      // their new selection — they should never be yanked back to the originally-active
-      // tab after they've moved.
-      const finalTabId = session.getActiveTab()?.id || null;
-      if (!finalTabId) {
+    let timerId = null;
+    let resolveWarmup = null;
+    const token = `post-load-warmup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const promise = new Promise(resolve => {
+      resolveWarmup = resolve;
+    });
+    const finish = result => {
+      if (pendingPostLoadWarmup?.token === token) {
+        pendingPostLoadWarmup = null;
+      }
+      if (typeof resolveWarmup === 'function') {
+        resolveWarmup(result || { ok: true, reason: 'post-load-warmup-complete' });
+        resolveWarmup = null;
+      }
+    };
+    const startup = async () => {
+      if (cancelled) {
+        finish({ ok: true, cancelled: true, reason: 'post-load-warmup-cancelled-before-start' });
         return;
       }
-      warmTabRenderCaches(context, {
-        reason,
-        finalTabId
-      }).catch(err => {
+      // Resolve finalTabId at warmup START, not at schedule time. If the user clicked a
+      // different tab during the 250 ms gap, we honour their navigation by warming around
+      // their new selection. Tests can await this promise so the warmup does not race
+      // against explicit tab-switch checks.
+      const finalTabId = session.getActiveTab()?.id || null;
+      if (!finalTabId) {
+        finish({ ok: true, skipped: true, reason: 'post-load-warmup-no-final-tab' });
+        return;
+      }
+      try {
+        const result = await warmTabRenderCaches(context, {
+          reason,
+          finalTabId
+        });
+        finish({ ok: true, result, reason: 'post-load-warmup-complete' });
+      } catch (err) {
         console.error('schedulePostLoadWarmup error', err);
-      });
+        finish({ ok: false, error: err?.message || String(err), reason: 'post-load-warmup-error' });
+      }
     };
-    let timerId = null;
     if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
       timerId = window.setTimeout(startup, 250);
     } else {
       startup();
     }
     pendingPostLoadWarmup = {
+      token,
+      promise,
       cancel: () => {
         cancelled = true;
         if (timerId !== null && typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
           window.clearTimeout(timerId);
+          timerId = null;
         }
+        finish({ ok: true, cancelled: true, reason: 'post-load-warmup-cancelled' });
       }
     };
+    return pendingPostLoadWarmup;
   }
+
+  async function awaitPostLoadWarmup(options = {}) {
+    const pending = pendingPostLoadWarmup;
+    if (!pending || !pending.promise || typeof pending.promise.then !== 'function') {
+      return { ok: true, skipped: true, reason: 'no-pending-post-load-warmup' };
+    }
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(1000, options.timeoutMs) : 60000;
+    const outcome = await awaitWithTimeout(pending.promise, timeoutMs, 'awaitPostLoadWarmup', {
+      reason: options.reason || 'await-post-load-warmup'
+    });
+    if (outcome?.timedOut) {
+      return { ok: false, timedOut: true, reason: 'post-load-warmup-timeout', timeoutMs };
+    }
+    return outcome?.value || { ok: true, reason: 'post-load-warmup-complete' };
+  }
+
+  namespace.awaitPostLoadWarmup = awaitPostLoadWarmup;
 
   async function applyParsedSession(context, parsed, meta = {}) {
     if (!canLoadFile(context)) {
@@ -912,6 +1169,14 @@
       } catch (err) {
         console.error('saveWorkspaceArchiveWithScope warmup error', err);
       }
+    }
+    try {
+      const activeForSnapshot = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
+      if (activeForSnapshot && !activeForSnapshot.isWelcome && activeForSnapshot.type) {
+        await awaitWorkspaceReadyForSnapshot(context, activeForSnapshot, { reason: 'pre-save-active-ready' });
+      }
+    } catch (err) {
+      console.error('saveWorkspaceArchiveWithScope active ready error', err);
     }
     const snapshot = buildScopeSnapshot(context, scope, options);
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
@@ -1218,10 +1483,12 @@
       fileName: meta.fileName || blob?.name || 'recovered.graph'
     });
     return applyParsedSession(context, parsed, {
+      ...meta,
       reason: meta.reason || 'recovery-restore',
       fileHandle: meta.fileHandle || null,
       fileName: meta.fileName || '',
-      loadMode: 'replace'
+      loadMode: meta.loadMode || 'replace',
+      skipWarmup: meta.skipWarmup === true
     });
   };
 

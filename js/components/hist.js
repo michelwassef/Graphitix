@@ -686,14 +686,41 @@
   let histDataToolbarLastActivation = 0;
   let histFontEventBound = false;
 
-  function scheduleHistViewRefresh(reason){
+  function scheduleHistViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'hist-view-refresh';
+    const normalizedReason = String(nextReason || '').toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: hist.__boundTabId || null,
+      reason: nextReason,
+      source: 'hist-view-refresh',
+      forceDraw: options.force === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', lifecycleMeta)){
+      histDebug('Debug: hist view refresh suppressed by lifecycle', { reason: nextReason, tabId: hist.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: hist.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist-view-refresh' } });
+      return;
+    }
     if(typeof state.scheduleDraw !== 'function'){
       return;
     }
-    state.scheduleDraw({
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
-      reason: reason || 'hist-view-refresh'
+      reason: nextReason,
+      source: 'hist-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
+    state.scheduleDraw(scheduleOptions);
   }
 
   function isHistFontStyleEvent(detail){
@@ -3355,6 +3382,130 @@
       hist.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
       hist.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
+    hist.captureRuntimeState = function captureHistRuntimeState(meta = {}){
+      const noteControl = state.notes?.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (state.notes?.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!state.notes?.open;
+      state.notes.text = notesText;
+      state.notes.open = notesOpen;
+      const snapshot = {
+        plotMode: state.plotMode,
+        labels: {
+          title: state.titleText,
+          titleAuto: !!state.titleAuto,
+          x: state.xLabelText,
+          y: state.yLabelText,
+          yAuto: !!state.yLabelAuto,
+          positions: cloneSimple(state.labelPositions) || {}
+        },
+        showLegend: state.showLegend !== false,
+        colors: {
+          series: cloneSimple(state.seriesColors) || {},
+          densityLines: cloneSimple(state.densityLineColors) || {},
+          fill: state.barFill,
+          border: state.barBorder,
+          borderWidth: state.barBorderWidth
+        },
+        axisSettings: cloneSimple(state.axisSettings) || null,
+        gridStyle: cloneSimple(state.gridStyle) || null,
+        frequencySettings: cloneSimple(state.frequencySettings) || null,
+        distributionSettings: cloneSimple(state.distributionSettings) || null,
+        distributionOptions: cloneSimple(state.distributionOptions) || [],
+        statsSettings: cloneSimple(state.statsSettings) || null,
+        notes: { text: notesText, open: notesOpen },
+        autoDraw: {
+          autoDrawEnabled: !!state.autoDrawEnabled,
+          autoDrawReason: state.autoDrawReason || null,
+          autoDrawLockedByThreshold: !!state.autoDrawLockedByThreshold,
+          drawPending: !!state.drawPending,
+          lastDataShape: cloneSimple(state.lastDataShape) || { rows: 0, cols: 0 },
+          lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation) || null
+        },
+        reason: meta?.reason || 'hist-runtime-capture'
+      };
+      histDebug('Debug: hist runtime snapshot captured', {
+        tabId: meta?.tabId || hist.__boundTabId || null,
+        plotMode: snapshot.plotMode,
+        notesOpen,
+        reason: snapshot.reason
+      });
+      return snapshot;
+    };
+
+    hist.applyRuntimeState = function applyHistRuntimeState(snapshot, meta = {}){
+      if(!snapshot || typeof snapshot !== 'object'){
+        histDebug('Debug: hist runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+        return false;
+      }
+      if(snapshot.plotMode){
+        state.plotMode = normalizeHistPlotMode(snapshot.plotMode);
+      }
+      if(snapshot.labels && typeof snapshot.labels === 'object'){
+        state.titleText = typeof snapshot.labels.title === 'string' ? snapshot.labels.title : state.titleText;
+        state.titleAuto = !!snapshot.labels.titleAuto;
+        state.xLabelText = typeof snapshot.labels.x === 'string' ? snapshot.labels.x : state.xLabelText;
+        state.yLabelText = typeof snapshot.labels.y === 'string' ? snapshot.labels.y : state.yLabelText;
+        state.yLabelAuto = !!snapshot.labels.yAuto;
+        state.labelPositions = cloneSimple(snapshot.labels.positions) || state.labelPositions || {};
+      }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'showLegend')){
+        state.showLegend = snapshot.showLegend !== false;
+      }
+      if(snapshot.colors && typeof snapshot.colors === 'object'){
+        state.seriesColors = cloneSimple(snapshot.colors.series) || state.seriesColors || {};
+        state.densityLineColors = cloneSimple(snapshot.colors.densityLines) || state.densityLineColors || {};
+        state.barFill = typeof snapshot.colors.fill === 'string' ? snapshot.colors.fill : state.barFill;
+        state.barBorder = typeof snapshot.colors.border === 'string' ? snapshot.colors.border : state.barBorder;
+        state.barBorderWidth = Number.isFinite(Number(snapshot.colors.borderWidth)) ? Number(snapshot.colors.borderWidth) : state.barBorderWidth;
+      }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'axisSettings')){ state.axisSettings = cloneSimple(snapshot.axisSettings) || state.axisSettings; }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'gridStyle')){ state.gridStyle = cloneSimple(snapshot.gridStyle); }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'frequencySettings')){ state.frequencySettings = cloneSimple(snapshot.frequencySettings) || state.frequencySettings; }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionSettings')){ state.distributionSettings = cloneSimple(snapshot.distributionSettings) || state.distributionSettings; }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionOptions')){ state.distributionOptions = cloneSimple(snapshot.distributionOptions) || []; }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'statsSettings')){ state.statsSettings = cloneSimple(snapshot.statsSettings) || state.statsSettings; }
+      if(snapshot.notes && typeof snapshot.notes === 'object'){
+        state.notes.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
+        state.notes.open = !!snapshot.notes.open;
+        if(state.notes.control){
+          state.notes.control.setValue(state.notes.text);
+          state.notes.control.setOpen(state.notes.open);
+        }
+      }
+      if(snapshot.autoDraw && typeof snapshot.autoDraw === 'object'){
+        state.autoDrawEnabled = !!snapshot.autoDraw.autoDrawEnabled;
+        state.autoDrawReason = snapshot.autoDraw.autoDrawReason || null;
+        state.autoDrawLockedByThreshold = !!snapshot.autoDraw.autoDrawLockedByThreshold;
+        state.drawPending = !!snapshot.autoDraw.drawPending;
+        state.lastDataShape = cloneSimple(snapshot.autoDraw.lastDataShape) || state.lastDataShape;
+        state.lastAutoDrawEvaluation = cloneSimple(snapshot.autoDraw.lastAutoDrawEvaluation) || state.lastAutoDrawEvaluation;
+      }
+      histDebug('Debug: hist runtime snapshot applied', {
+        tabId: meta?.tabId || hist.__boundTabId || null,
+        plotMode: state.plotMode,
+        reason: meta?.reason || 'hist-runtime-apply'
+      });
+      return true;
+    };
+
+    hist.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+      component: hist,
+      componentKey: 'hist',
+      cancel: () => { state.drawPending = false; }
+    }) || function deactivateHistTab(tab, meta = {}){
+      state.drawPending = false;
+      hist.__runtimeGeneration = (Number(hist.__runtimeGeneration) || 0) + 1;
+      histDebug('Debug: hist tab deactivated', {
+        tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+        generation: hist.__runtimeGeneration,
+        reason: meta?.reason || 'deactivate-tab'
+      });
+      return true;
+    };
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
     const snapshot = createImmutableHistDefaultPayload();
     histDebug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
@@ -5393,7 +5544,16 @@
   }
 
   // Public API
-  hist.draw = draw;
+  hist.draw = function drawHistPublic(options = {}){
+    const nextReason = options?.reason || 'hist-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', { ...(options || {}), tabId: options?.tabId || hist.__boundTabId || null, reason: nextReason })){
+      histDebug('Debug: hist draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || hist.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
+    return draw(options);
+  };
   function ensureHistDomBindings(tabLike){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
       return false;
@@ -5574,30 +5734,39 @@
     }
     if (!hist.ready) hist.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
   };
-  hist.activateTab = function activateTab(tab, meta = {}){
+  hist.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: hist,
+    componentKey: 'hist',
+    resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'hist')
+      || state.root
+      || global.document?.getElementById?.('histPage')
+      || global.document,
+    setRoot: root => { state.root = root; },
+    ensureBindings: tabLike => ensureHistDomBindings(tabLike),
+    init: options => hist.init(options),
+    afterReady: () => {
+      if(typeof state.ensureHotForActiveTab === 'function'){
+        const hot = state.ensureHotForActiveTab();
+        if(hot){
+          ensureHistDataViewsForHot(hot, {
+            wrapper: getHistNodeById('histHotWrapper'),
+            container: hot.__histHostContainer || getHistNodeById('histHot')
+          });
+          syncHistActiveDataViewFromHot(hot, 'prepare-tab');
+        }
+      }
+    },
+    getSentinel: () => getHistNodeById('histHot')
+  }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
     hist.__boundTabId = targetTabId || hist.__boundTabId || null;
     state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || targetTabId || null, 'hist')
       || state.root
       || global.document?.getElementById?.('histPage')
       || global.document;
-    if(ensureHistDomBindings(tab)){
-      return;
-    }
-    if(!hist.ready){
-      hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
-      return;
-    }
-    if(typeof state.ensureHotForActiveTab === 'function'){
-      const hot = state.ensureHotForActiveTab();
-      if(hot){
-        ensureHistDataViewsForHot(hot, {
-          wrapper: getHistNodeById('histHotWrapper'),
-          container: hot.__histHostContainer || getHistNodeById('histHot')
-        });
-        syncHistActiveDataViewFromHot(hot, 'prepare-tab');
-      }
-    }
+    if(ensureHistDomBindings(tab)){ return; }
+    if(!hist.ready){ hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
+    if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
     hist.__domSentinel = getHistNodeById('histHot');
   };
 
@@ -5637,7 +5806,24 @@
     return { plot: plotCache, stats: statsCache };
   };
 
-  hist.restoreRenderCache = function restoreRenderCache(cache){
+  hist.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'hist',
+      graph: { selectors: ['#histSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']histSvg["']|<canvas\b)/i },
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  hist.isIdleForSnapshot = function isIdleForSnapshot(){
+    return !state.drawPending;
+  };
+
+  hist.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(hist, { ...meta, componentKey: 'hist' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  hist.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getHistNodeById('histPlot');
@@ -5665,6 +5851,13 @@
     getDefaultFrequencySettings: () => createDefaultHistFrequencySettings()
   });
 
+
+
+    Shared.componentLifecycle?.installInternalStateBridge?.(hist, {
+      componentKey: 'hist',
+      targets: [
+        { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+        { key: 'notesState', get: () => state.notes, excludeKeys: ['control'] }
+      ]
+    });
 })(window);
-
-

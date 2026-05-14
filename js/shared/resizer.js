@@ -1048,6 +1048,8 @@
       MIN_H = minFromDefaultHeight;
     }
     MIN_H = Math.max(MIN_H, minFromDefaultHeight);
+    const BASE_MIN_W = MIN_W;
+    const BASE_MIN_H = MIN_H;
     const parsedMaxWidth = Number(opts.maxWidth);
     const parsedMaxHeight = Number(opts.maxHeight);
     const helperMaxWidth = Number.isFinite(helperSizing?.maxWidth) && helperSizing.maxWidth > 0;
@@ -1730,8 +1732,58 @@
       return applyZoomLevel(numeric / 100, { reason: 'input' });
     }
 
+    function updateIntrinsicMinSize(bounds = {}, options = {}){
+      const nextMinWidth = parsePositive(bounds.minWidth ?? bounds.minWidthPx);
+      const nextMinHeight = parsePositive(bounds.minHeight ?? bounds.minHeightPx);
+      const reason = options.reason || 'intrinsic-min-size';
+      let changed = false;
+      if(Number.isFinite(nextMinWidth) && nextMinWidth > 0 && Math.round(nextMinWidth) !== Math.round(MIN_W)){
+        MIN_W = Math.max(BASE_MIN_W, Math.round(nextMinWidth));
+        data.resizerMinWidth = String(MIN_W);
+        changed = true;
+      }
+      if(Number.isFinite(nextMinHeight) && nextMinHeight > 0 && Math.round(nextMinHeight) !== Math.round(MIN_H)){
+        MIN_H = Math.max(BASE_MIN_H, Math.round(nextMinHeight));
+        data.resizerMinHeight = String(MIN_H);
+        changed = true;
+      }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      container.style.minWidth = px(MIN_W * zoomScale);
+      container.style.minHeight = px(MIN_H * zoomScale);
+      const liveRect = container.getBoundingClientRect?.() || null;
+      const currentBaseWidth = parsePositive(liveRect?.width) ? parsePositive(liveRect.width) / zoomScale : defaultWidth;
+      const currentBaseHeight = parsePositive(liveRect?.height) ? parsePositive(liveRect.height) / zoomScale : defaultHeight;
+      let resized = null;
+      if(options.enforce !== false && (currentBaseWidth + 0.5 < MIN_W || currentBaseHeight + 0.5 < MIN_H)){
+        const targetHeight = Math.max(currentBaseHeight || MIN_H, MIN_H);
+        const targetWidth = aspectLocked
+          ? Math.max(currentBaseWidth || MIN_W, targetHeight * (Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1), MIN_W)
+          : Math.max(currentBaseWidth || MIN_W, MIN_W);
+        resized = applyProgrammaticResize({
+          axis: 'both',
+          width: targetWidth,
+          height: targetHeight,
+          forceExact: true,
+          preserveAspectLock: true,
+          updateAspectRatio: false,
+          updateDefaults: false,
+          reason
+        });
+      }
+      console.debug('Debug: resizer intrinsic min size updated', {
+        container: containerLabel,
+        reason,
+        minWidth: MIN_W,
+        minHeight: MIN_H,
+        changed,
+        enforced: !!resized
+      });
+      return { changed, minWidth: MIN_W, minHeight: MIN_H, enforced: !!resized, resize: resized };
+    }
+
     container.__sharedResizableBoxApi = {
       applySize: applyProgrammaticResize,
+      setIntrinsicMinSize: updateIntrinsicMinSize,
       setZoomLevel: (level, options = {}) => applyZoomLevel(level, options),
       getZoomLevel: () => zoomLevel,
       getState: () => ({

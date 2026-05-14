@@ -243,15 +243,41 @@
   let lineDataToolbarBound = false;
   let lineDataToolbarLastActivation = 0;
   function scheduleLineViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'line-view-refresh';
+    const normalizedReason = String(nextReason || '').toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: line.__boundTabId || null,
+      reason: nextReason,
+      source: 'line-view-refresh',
+      forceDraw: options.force === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('line', lifecycleMeta)){
+      console.debug('Debug: line view refresh suppressed by lifecycle', { reason: nextReason, tabId: line.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: line.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'line-view-refresh' } });
+      return;
+    }
     if(typeof scheduleLineDraw !== 'function'){
       return;
     }
-    const options = Object.assign({}, extraOptions || {}, {
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
       silentOverlay: true,
-      reason: reason || (extraOptions && extraOptions.reason) || 'line-view-refresh'
+      reason: nextReason,
+      source: 'line-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
-    scheduleLineDraw(options);
+    scheduleLineDraw(scheduleOptions);
   }
 
   function invalidateActiveLineRenderCache(reason){
@@ -1498,7 +1524,14 @@
       const viewModeValue = refs.viewMode?.value || lineViewState.viewMode || '2d';
       const replicateModeValue = refs.replicateMode?.value;
       const is3dView = String(viewModeValue).toLowerCase() === '3d' || String(replicateModeValue).toLowerCase() === '3d';
-      const enforceLockRatio = varianceAxesEnabled || is3dView;
+      const reasonText = String(reason || '').toLowerCase();
+      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: line.__boundTabId || null, reason });
+      const restoreContext = lifecycleRestoreContext
+        || reasonText === 'payload'
+        || reasonText.includes('restore')
+        || reasonText.includes('layout')
+        || reasonText.includes('reopen');
+      const enforceLockRatio = !restoreContext && (varianceAxesEnabled || is3dView);
       if(lineEqualAxesInput && lineEqualAxesInput.checked !== equalAxesEnabled){
         lineEqualAxesInput.checked = equalAxesEnabled;
       }
@@ -7440,7 +7473,7 @@
     if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && activeHot){
       console.debug('Debug: line payload refreshing summaries',{ hasHot: !!lineHot, summaryCount: lineLastRegressionSummaries?.length || 0 });
       try{
-        drawLine();
+        drawLine(arguments[0] || {});
       }catch(err){
         console.error('line payload refresh failed',err);
       }
@@ -8233,7 +8266,7 @@
     return clone;
   }
 
-  function drawLine3d(){
+  function drawLine3d(drawOpts = {}){
     try{
       const debugStamp = Date.now();
       console.debug('Debug: drawLine3d start', { debugStamp });
@@ -8570,7 +8603,14 @@
       }
       plotEl.style.display = 'block';
       plotEl.style.position = 'relative';
-      plotEl.style.aspectRatio = `${W3} / ${H3}`;
+      const line3dDrawReason = drawOpts?.reason || 'line-3d-draw';
+      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: line.__boundTabId || null, reason: line3dDrawReason });
+      if(lifecycleRestoreContext){
+        plotEl.style.removeProperty('aspect-ratio');
+        lineDebug('Debug: line 3D plot aspect-ratio write suppressed during restore transaction', { W3, H3, reason: line3dDrawReason });
+      }else{
+        plotEl.style.aspectRatio = `${W3} / ${H3}`;
+      }
       plotEl.style.padding = plotEl.style.padding || '12px';
       plotEl.style.backgroundColor = '';
       plotEl.style.boxSizing = 'border-box';
@@ -9139,14 +9179,14 @@
     }
   }
 
-  function drawLine(){
+  function drawLine(drawOpts = {}){
     try{
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
       hideLineTooltip('redraw-start');
       if(!lineHot || !refs.plot) return;
       if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
-        drawLine3d();
+        drawLine3d(drawOpts);
         return;
       }
       if(refs.plot){
@@ -12780,10 +12820,10 @@
       }
     });
 
-    const runLineDrawCycle = () => {
+    const runLineDrawCycle = (drawOpts = {}) => {
       let status = 'complete';
       try{
-        drawLine();
+        drawLine(drawOpts);
       }catch(err){
         status = 'error';
         throw err;
@@ -12939,15 +12979,7 @@
 
   line.init = setup;
   line.ensure = ensureReady;
-  line.activateTab = function activateTab(tab, meta = {}){
-    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    if(ensureLineDomBindings(tab || targetTabId)){
-      return;
-    }
-    if(!line.ready){
-      line.init({ tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
-      return;
-    }
+  function syncLineActivationState(){
     if(typeof line.__ensureHotForActiveTab === 'function'){
       const hot = line.__ensureHotForActiveTab();
       if(hot){
@@ -12959,6 +12991,35 @@
       }
     }
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
+  }
+
+  line.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: line,
+    componentKey: 'line',
+    resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'line')
+      || refs.root
+      || getLineNodeById('linePage')
+      || global.document,
+    setRoot: root => { refs.root = root || refs.root || null; },
+    ensureBindings: tabLike => ensureLineDomBindings(tabLike),
+    init: options => line.init(options),
+    afterReady: () => {
+      if(!line.ready){
+        return;
+      }
+      syncLineActivationState();
+    },
+    getSentinel: () => refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null
+  }) || function activateTab(tab, meta = {}){
+    const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+    if(ensureLineDomBindings(tab || targetTabId)){
+      return;
+    }
+    if(!line.ready){
+      line.init({ tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
+      return;
+    }
+    syncLineActivationState();
   };
 
   function getLineRenderCacheMetadata(cache){
@@ -13339,6 +13400,15 @@
     return canRestoreLineRenderCache(cache, meta);
   };
 
+  line.isIdleForSnapshot = function isIdleForSnapshot(){
+    return !lineStatsState.computationPending && !lineAutoDrawState.drawPending;
+  };
+
+  line.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(line, { ...meta, componentKey: 'line' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
   line.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
     if(!canRestoreLineRenderCache(cache, meta)){
@@ -13411,6 +13481,13 @@
     return true;
   };
   line.draw = function draw(options = {}){
+    const nextReason = options?.reason || 'component-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('line', { ...(options || {}), tabId: options?.tabId || line.__boundTabId || null, reason: nextReason })){
+      console.debug('Debug: line draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || line.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: options?.tabId || line.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'line.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: options?.tabId || line.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'line.draw' } });
     ensureReady();
     if(typeof scheduleLineDraw === 'function'){
       const drawOptions = Object.assign({}, options || {});
@@ -13445,6 +13522,173 @@
     line.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
     line.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
   }
+  line.captureRuntimeState = function captureLineRuntimeState(meta = {}){
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
+    const snapshot = {
+      notes: { text: notesText, open: notesOpen },
+      displayMode: lineDisplayMode,
+      last2d: {
+        displayMode: lineLast2dDisplayMode,
+        logX: lineLast2dLogX,
+        logY: lineLast2dLogY,
+        showFrame: lineLast2dShowFrame,
+        showTrendLine: lineLast2dShowTrendLine,
+        showIntervals: lineLast2dShowIntervals,
+        showPredictionIntervals: lineLast2dShowPredictionIntervals
+      },
+      logPlusOne: { x: lineLogPlusOneX, y: lineLogPlusOneY },
+      labels: {
+        title: lineTitleText,
+        x: lineXLabelText,
+        y: lineYLabelText,
+        z: lineZLabelText,
+        colors: cloneSimple(lineLabelColors) || {},
+        positions: cloneSimple(lineLabelPositions) || {}
+      },
+      theme: {
+        colorScheme: lineColorSchemeId,
+        textColor: lineTextColor,
+        backgroundColor: lineBackgroundColor
+      },
+      styles: {
+        series: cloneSimple(lineSeriesStyles) || {},
+        overlays: cloneSimple(lineOverlayStyles) || {},
+        overlayToolbarScope: lineOverlayToolbarScope
+      },
+      grouped: {
+        replicates: lineReplicates,
+        lastGroupedReplicateCount: lineLastGroupedReplicateCount,
+        labels: cloneSimple(lineSeriesGroupLabels) || [],
+        shapes: cloneSimple(lineGroupShapes) || []
+      },
+      forecast: cloneSimple(lineForecastOptions) || {},
+      axisSettings: cloneSimple(lineAxisSettings) || null,
+      gridStyle: cloneSimple(lineGridStyle) || null,
+      stats: {
+        signature: lineStatsState.signature || null,
+        version: Number(lineStatsState.version) || 0,
+        lastRunVersion: Number(lineStatsState.lastRunVersion) || 0,
+        computationPending: !!lineStatsState.computationPending,
+        restorePending: cloneSimple(lineStatsState.restorePending) || null,
+        regressionSummaries: cloneSimple(lineLastRegressionSummaries) || []
+      },
+      autoDraw: cloneSimple(lineAutoDrawState) || null,
+      reason: meta?.reason || 'line-runtime-capture'
+    };
+    console.debug('Debug: line runtime snapshot captured', {
+      tabId: meta?.tabId || line.__boundTabId || null,
+      displayMode: snapshot.displayMode,
+      notesOpen: notesOpen,
+      reason: snapshot.reason
+    });
+    return snapshot;
+  };
+
+  line.applyRuntimeState = function applyLineRuntimeState(snapshot, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      console.debug('Debug: line runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+      return false;
+    }
+    if(snapshot.notes && typeof snapshot.notes === 'object'){
+      notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
+      notesState.open = !!snapshot.notes.open;
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+    }
+    lineDisplayMode = sanitizeLineDisplayMode(snapshot.displayMode || lineDisplayMode);
+    if(snapshot.last2d && typeof snapshot.last2d === 'object'){
+      lineLast2dDisplayMode = sanitizeLineDisplayMode(snapshot.last2d.displayMode || lineLast2dDisplayMode);
+      lineLast2dLogX = !!snapshot.last2d.logX;
+      lineLast2dLogY = !!snapshot.last2d.logY;
+      lineLast2dShowFrame = !!snapshot.last2d.showFrame;
+      lineLast2dShowTrendLine = !!snapshot.last2d.showTrendLine;
+      lineLast2dShowIntervals = !!snapshot.last2d.showIntervals;
+      lineLast2dShowPredictionIntervals = !!snapshot.last2d.showPredictionIntervals;
+    }
+    if(snapshot.logPlusOne && typeof snapshot.logPlusOne === 'object'){
+      lineLogPlusOneX = !!snapshot.logPlusOne.x;
+      lineLogPlusOneY = !!snapshot.logPlusOne.y;
+    }
+    if(snapshot.labels && typeof snapshot.labels === 'object'){
+      lineTitleText = typeof snapshot.labels.title === 'string' ? snapshot.labels.title : lineTitleText;
+      lineXLabelText = typeof snapshot.labels.x === 'string' ? snapshot.labels.x : lineXLabelText;
+      lineYLabelText = typeof snapshot.labels.y === 'string' ? snapshot.labels.y : lineYLabelText;
+      lineZLabelText = typeof snapshot.labels.z === 'string' ? snapshot.labels.z : lineZLabelText;
+      lineLabelColors = cloneSimple(snapshot.labels.colors) || lineLabelColors || {};
+      lineLabelPositions = cloneSimple(snapshot.labels.positions) || lineLabelPositions || {};
+    }
+    if(snapshot.theme && typeof snapshot.theme === 'object'){
+      lineColorSchemeId = typeof snapshot.theme.colorScheme === 'string' ? snapshot.theme.colorScheme : lineColorSchemeId;
+      lineTextColor = typeof snapshot.theme.textColor === 'string' ? snapshot.theme.textColor : lineTextColor;
+      lineBackgroundColor = typeof snapshot.theme.backgroundColor === 'string' ? snapshot.theme.backgroundColor : lineBackgroundColor;
+    }
+    if(snapshot.styles && typeof snapshot.styles === 'object'){
+      lineSeriesStyles = cloneSimple(snapshot.styles.series) || lineSeriesStyles || {};
+      lineOverlayStyles = cloneSimple(snapshot.styles.overlays) || lineOverlayStyles || {};
+      lineOverlayToolbarScope = typeof snapshot.styles.overlayToolbarScope === 'string' ? snapshot.styles.overlayToolbarScope : lineOverlayToolbarScope;
+    }
+    if(snapshot.grouped && typeof snapshot.grouped === 'object'){
+      lineReplicates = clampLineReplicateCount(snapshot.grouped.replicates);
+      lineLastGroupedReplicateCount = clampLineReplicateCount(snapshot.grouped.lastGroupedReplicateCount || lineLastGroupedReplicateCount);
+      lineSeriesGroupLabels = Array.isArray(snapshot.grouped.labels) ? snapshot.grouped.labels.slice() : lineSeriesGroupLabels;
+      lineGroupShapes = Array.isArray(snapshot.grouped.shapes) ? snapshot.grouped.shapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx)) : lineGroupShapes;
+    }
+    if(snapshot.forecast && typeof snapshot.forecast === 'object'){
+      lineForecastOptions = cloneSimple(snapshot.forecast) || lineForecastOptions;
+    }
+    if(snapshot.axisSettings && typeof snapshot.axisSettings === 'object'){
+      lineAxisSettings = cloneSimple(snapshot.axisSettings) || lineAxisSettings;
+    }
+    if(snapshot.gridStyle && typeof snapshot.gridStyle === 'object'){
+      lineGridStyle = cloneSimple(snapshot.gridStyle) || lineGridStyle;
+    }
+    if(snapshot.stats && typeof snapshot.stats === 'object'){
+      lineStatsState.signature = snapshot.stats.signature || null;
+      lineStatsState.version = Number(snapshot.stats.version) || 0;
+      lineStatsState.lastRunVersion = Number(snapshot.stats.lastRunVersion) || 0;
+      lineStatsState.computationPending = !!snapshot.stats.computationPending;
+      lineStatsState.restorePending = cloneSimple(snapshot.stats.restorePending) || null;
+      lineLastRegressionSummaries = Array.isArray(snapshot.stats.regressionSummaries) ? snapshot.stats.regressionSummaries.slice() : lineLastRegressionSummaries;
+    }
+    if(snapshot.autoDraw && typeof snapshot.autoDraw === 'object'){
+      Object.assign(lineAutoDrawState, cloneSimple(snapshot.autoDraw) || {});
+    }
+    console.debug('Debug: line runtime snapshot applied', {
+      tabId: meta?.tabId || line.__boundTabId || null,
+      displayMode: lineDisplayMode,
+      reason: meta?.reason || 'line-runtime-apply'
+    });
+    return true;
+  };
+
+  line.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: line,
+    componentKey: 'line',
+    cancel: () => {
+      lineStatsState.computationPending = false;
+      lineAutoDrawState.drawPending = false;
+    }
+  }) || function deactivateLineTab(tab, meta = {}){
+    lineStatsState.computationPending = false;
+    lineAutoDrawState.drawPending = false;
+    line.__runtimeGeneration = (Number(line.__runtimeGeneration) || 0) + 1;
+    console.debug('Debug: line tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      generation: line.__runtimeGeneration,
+      reason: meta?.reason || 'deactivate-tab'
+    });
+    return true;
+  };
   line.captureEmptyPayloadTemplate = function captureLineEmptyPayloadTemplate(){
     const snapshot = line.createEmptyPayload();
     console.debug('Debug: line empty payload template captured', { hasTemplate: !!snapshot });
@@ -13546,5 +13790,16 @@
     )
   });
 
-})(window);
 
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(line, {
+    componentKey: 'line',
+    targets: [
+      { key: 'lineAutoDrawState', get: () => lineAutoDrawState },
+      { key: 'lineViewState', get: () => lineViewState },
+      { key: 'lineStatsState', get: () => lineStatsState },
+      { key: 'lineAdvisorState', get: () => lineAdvisorState },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
+    ]
+  });
+})(window);

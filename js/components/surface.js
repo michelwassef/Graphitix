@@ -344,14 +344,41 @@
     }
   }
 
-  function scheduleSurfaceViewRefresh(reason){
+  function scheduleSurfaceViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'surface-view-refresh';
+    const normalizedReason = String(nextReason || '').toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: surface.__boundTabId || null,
+      reason: nextReason,
+      source: 'surface-view-refresh',
+      forceDraw: options.force === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('surface', lifecycleMeta)){
+      debugLog('Debug: surface view refresh suppressed by lifecycle', { reason: nextReason, tabId: surface.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: surface.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface-view-refresh' } });
+      return;
+    }
     if(typeof state.scheduleDraw !== 'function'){
       return;
     }
-    state.scheduleDraw({
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
-      reason: reason || 'surface-view-refresh'
+      reason: nextReason,
+      source: 'surface-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
+    state.scheduleDraw(scheduleOptions);
   }
 
   function isSurfaceFontStyleEvent(detail){
@@ -2514,7 +2541,16 @@
     });
   }
 
-  surface.draw = () => { runSurfaceDrawCycle(); };
+  surface.draw = function drawSurfacePublic(options = {}){
+    const nextReason = options?.reason || 'surface-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('surface', { ...(options || {}), tabId: options?.tabId || surface.__boundTabId || null, reason: nextReason })){
+      debugLog('Debug: surface draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || surface.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || surface.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || surface.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'surface.draw' } });
+    runSurfaceDrawCycle(options);
+  };
 
   function initNotes(){
     const stack = querySurfaceRoot('#surfaceGraphPanel .surface-plot-stack')
@@ -2754,7 +2790,68 @@
     }
     return Object.keys(runtime).length === 0;
   }
-  surface.activateTab = function activateTab(tab, meta = {}){
+  function syncSurfaceActivationState(tabLike = null){
+    if(state.layout && typeof state.layout.syncPanels === 'function'){
+      state.layout.syncPanels({ skipSchedule: true });
+      syncSurfaceAutoDrawNoticeWidth('activate-tab');
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      const hot = state.ensureHotForActiveTab();
+      if(hot){
+        ensureSurfaceDataViewsForHot(hot, {
+          wrapper: getSurfaceNodeById('surfaceHotWrapper'),
+          container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
+        });
+        syncSurfaceActiveDataViewFromHot(hot, 'activate-tab');
+        if(isSurfaceRuntimeFreshForTab(tabLike) && tabLike?.loadedFromArchive !== true){
+          resetSurfaceHotViewportToTop(hot);
+        }
+      }
+    }
+    if(tabLike?.uiState?.component && typeof surface.applyUiState === 'function'){
+      try{
+        surface.applyUiState(tabLike.uiState.component, { reason: 'activate-tab-final-ui-state' });
+      }catch(err){
+        debugLog('Debug: surface activateTab final uiState apply failed', { message: err?.message || String(err) });
+      }
+    }
+    cacheDom();
+    surface.__domSentinel = getSurfaceNodeById('surfaceHot');
+  }
+
+  surface.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: surface,
+    componentKey: 'surface',
+    resolveRoot: tabLike => resolveSurfaceRoot(tabLike || null) || state.root || null,
+    setRoot: root => { state.root = root || state.root || null; },
+    ensureBindings: (tabLike, meta = {}) => {
+      if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+        return false;
+      }
+      const targetTabId = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || meta?.tabId || null;
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'surface',
+        tabLike: tabLike || null,
+        sentinelSelector: '#surfaceHot',
+        getCurrentRoot: () => state.root || null,
+        getCurrentSentinel: () => surface.__domSentinel || null,
+        rebind: (info) => {
+          state.root = info?.root || resolveSurfaceRoot(tabLike || null) || state.root || null;
+          surface.ready = false;
+          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || targetTabId || surface.__boundTabId || null, reason: 'activate-tab-rebind' });
+        }
+      });
+      return !!rebound?.rebound;
+    },
+    init: options => surface.init(options),
+    afterReady: tabLike => {
+      if(!surface.ready){
+        return;
+      }
+      syncSurfaceActivationState(tabLike || null);
+    },
+    getSentinel: () => getSurfaceNodeById('surfaceHot')
+  }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
     surface.__boundTabId = targetTabId || surface.__boundTabId || null;
     state.root = resolveSurfaceRoot(tab || targetTabId || null);
@@ -2778,60 +2875,7 @@
     if(!surface.ready){
       surface.init({ root: state.root || undefined, tabId: targetTabId || surface.__boundTabId || undefined, reason: meta?.reason || 'activate-tab' });
     }
-    if(state.layout && typeof state.layout.syncPanels === 'function'){
-      state.layout.syncPanels({ skipSchedule: true });
-      syncSurfaceAutoDrawNoticeWidth('activate-tab');
-    }
-    if(typeof state.ensureHotForActiveTab === 'function'){
-      const hot = state.ensureHotForActiveTab();
-      if(hot){
-        ensureSurfaceDataViewsForHot(hot, {
-          wrapper: getSurfaceNodeById('surfaceHotWrapper'),
-          container: hot.__surfaceHostContainer || getSurfaceNodeById('surfaceHot')
-        });
-        syncSurfaceActiveDataViewFromHot(hot, 'activate-tab');
-        if(isSurfaceRuntimeFreshForTab(tab) && tab?.loadedFromArchive !== true){
-          resetSurfaceHotViewportToTop(hot);
-        }
-      }
-    }
-    if(tab?.uiState?.component && typeof surface.applyUiState === 'function'){
-      try{
-        surface.applyUiState(tab.uiState.component, { reason: 'activate-tab-final-ui-state' });
-      }catch(err){
-        debugLog('Debug: surface activateTab final uiState apply failed', { message: err?.message || String(err) });
-      }
-    }
-    cacheDom();
-    const cacheSignature = tab?.renderCacheSignature ?? tab?.renderCache?.payloadSignature ?? null;
-    const layoutSignature = tab?.renderCacheLayoutSignature ?? tab?.renderCache?.layoutSignature ?? null;
-    const canRestore = !!(tab && tab.renderCache && tab.renderCache.cache
-      && cacheSignature === (tab.payloadSignature ?? null)
-      && layoutSignature === (tab.layoutSignature ?? null));
-    if(canRestore){
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        debugLog('Debug: surface activateTab skipped clear (render cache)', { tabId: tab?.id || null });
-      }
-      return;
-    }
-    // When switching to a tab, ensure any prior rendered geometry is cleared
-    try{
-      if(state.svg){
-        const geometryLayer = state.svg.querySelector && state.svg.querySelector('g.surface-layer-geometry');
-        if(geometryLayer){
-          const faceGroup = geometryLayer.querySelector && geometryLayer.querySelector('g.surface-faces');
-          const pointGroup = geometryLayer.querySelector && geometryLayer.querySelector('g.surface-points');
-          try{ if(faceGroup){ while(faceGroup.firstChild){ faceGroup.removeChild(faceGroup.firstChild); } } }catch(e){}
-          try{ if(pointGroup){ while(pointGroup.firstChild){ pointGroup.removeChild(pointGroup.firstChild); } } }catch(e){}
-        }
-        // reset pools so we don't reuse nodes from previous tab
-        try{ if(Array.isArray(state._facePool)){ state._facePool.length = 0; state._facePoolUsed = 0; } }catch(e){}
-        try{ if(Array.isArray(state._pointPool)){ state._pointPool.length = 0; state._pointPoolUsed = 0; } }catch(e){}
-      }
-    }catch(e){ debugLog('Debug: surface activateTab clear failed', { message: e?.message || String(e) }); }
-    // schedule a fresh draw for the active tab
-    state.scheduleDraw?.();
-    surface.__domSentinel = getSurfaceNodeById('surfaceHot');
+    syncSurfaceActivationState(tab || targetTabId || null);
   };
   surface.__getActiveHot = function __getActiveHot(){
     return (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
@@ -2843,6 +2887,23 @@
 
   surface.applyRuntimeState = function applyRuntimeState(snapshot){
     applySurfaceTabContextSnapshot(snapshot, { syncUi: true });
+    return true;
+  };
+
+  surface.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+    component: surface,
+    componentKey: 'surface',
+    cancel: () => {
+      state.drawPending = false;
+    }
+  }) || function deactivateSurfaceTab(tab, meta = {}){
+    state.drawPending = false;
+    surface.__runtimeGeneration = (Number(surface.__runtimeGeneration) || 0) + 1;
+    debugLog('Debug: surface tab deactivated', {
+      tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+      generation: surface.__runtimeGeneration,
+      reason: meta?.reason || 'deactivate-tab'
+    });
     return true;
   };
 
@@ -3374,8 +3435,17 @@
     }
   }
 
-  surface.captureRenderCache = function captureRenderCache(){
+  surface.captureRenderCache = function captureRenderCache(meta = {}){
     cacheDom();
+    const hasGraphNodes = !!(state.svg && state.svg.childNodes && state.svg.childNodes.length > 0);
+    if(!hasGraphNodes && typeof drawSurface === 'function'){
+      try{
+        drawSurface();
+        cacheDom();
+      }catch(err){
+        console.warn('surface render cache capture draw failed', { reason: meta?.reason || 'capture-render-cache', message: err?.message || String(err) });
+      }
+    }
     const svgCache = detachChildren(state.svg);
     const statsCache = detachChildren(state.statsEl);
     const messageCache = detachChildren(state.messageEl);
@@ -3391,7 +3461,26 @@
     return { plot: svgCache, stats: statsCache, message: messageCache, svgRootState };
   };
 
-  surface.restoreRenderCache = function restoreRenderCache(cache){
+  surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'surface',
+      graph: { selectors: ['#surfaceSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']surfaceSvg["']|<canvas\b)/i },
+      graphFallbackSections: ['stats', 'message'],
+      requiredSections: [],
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  surface.isIdleForSnapshot = function isIdleForSnapshot(){
+    return !state.drawPending;
+  };
+
+  surface.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(surface, { ...meta, componentKey: 'surface' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  surface.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.svg || cache?.plot || cache?.preview || cache?.graph || cache?.stage;
     cacheDom();
@@ -3489,5 +3578,13 @@
     module.exports = surface;
   }
 
-})(window);
 
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(surface, {
+    componentKey: 'surface',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
+    ]
+  });
+})(window);

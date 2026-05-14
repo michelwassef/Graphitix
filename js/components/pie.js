@@ -3139,6 +3139,101 @@ let state = {
       pie.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
       pie.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
+    pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
+      const noteControl = notesState.control || null;
+      const notesText = noteControl && typeof noteControl.getValue === 'function'
+        ? noteControl.getValue()
+        : (notesState.text || '');
+      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+        ? noteControl.isOpen()
+        : !!notesState.open;
+      notesState.text = notesText;
+      notesState.open = notesOpen;
+      const snapshot = {
+        state: {
+          titleText: state.titleText,
+          legendWidth: state.legendWidth,
+          colors: cloneSimple(state.colors) || {},
+          minSvgWidth: state.minSvgWidth,
+          axisSettings: cloneSimple(state.axisSettings) || null,
+          labelPositions: cloneSimple(state.labelPositions) || {},
+          columnSignature: state.columnSignature || null,
+          statsDataModel: cloneSimple(state.statsDataModel) || null,
+          statsConfig: cloneSimple(state.statsConfig) || null,
+          colorSignature: state.colorSignature || null,
+          resizeState: cloneSimple(state.resizeState) || null
+        },
+        notes: { text: notesText, open: notesOpen },
+        statsSummaryTabIdCounter: Number(pieStatsSummaryTabIdCounter) || 0,
+        reason: meta?.reason || 'pie-runtime-capture'
+      };
+      pieDebug('Debug: pie runtime snapshot captured', {
+        tabId: meta?.tabId || pie.__boundTabId || null,
+        title: snapshot.state.titleText,
+        notesOpen,
+        reason: snapshot.reason
+      });
+      return snapshot;
+    };
+
+    pie.applyRuntimeState = function applyPieRuntimeState(snapshot, meta = {}){
+      if(!snapshot || typeof snapshot !== 'object'){
+        pieDebug('Debug: pie runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+        return false;
+      }
+      if(snapshot.state && typeof snapshot.state === 'object'){
+        const nextState = snapshot.state;
+        state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
+        state.legendWidth = Number.isFinite(Number(nextState.legendWidth)) ? Number(nextState.legendWidth) : state.legendWidth;
+        state.colors = cloneSimple(nextState.colors) || state.colors || {};
+        state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
+        state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
+        state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
+        state.columnSignature = Object.prototype.hasOwnProperty.call(nextState, 'columnSignature') ? (nextState.columnSignature || null) : (state.columnSignature || null);
+        if(Object.prototype.hasOwnProperty.call(nextState, 'statsDataModel')){ state.statsDataModel = cloneSimple(nextState.statsDataModel); }
+        if(Object.prototype.hasOwnProperty.call(nextState, 'statsConfig')){ state.statsConfig = cloneSimple(nextState.statsConfig) || state.statsConfig; }
+        state.colorSignature = Object.prototype.hasOwnProperty.call(nextState, 'colorSignature') ? (nextState.colorSignature || null) : (state.colorSignature || null);
+        state.resizeState = cloneSimple(nextState.resizeState) || state.resizeState;
+      }
+      if(snapshot.notes && typeof snapshot.notes === 'object'){
+        notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
+        notesState.open = !!snapshot.notes.open;
+        if(notesState.control){
+          notesState.control.setValue(notesState.text);
+          notesState.control.setOpen(notesState.open);
+        }
+      }
+      pieStatsSummaryTabIdCounter = Number(snapshot.statsSummaryTabIdCounter) || pieStatsSummaryTabIdCounter || 0;
+      pieDebug('Debug: pie runtime snapshot applied', {
+        tabId: meta?.tabId || pie.__boundTabId || null,
+        title: state.titleText,
+        reason: meta?.reason || 'pie-runtime-apply'
+      });
+      return true;
+    };
+
+    pie.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+      component: pie,
+      componentKey: 'pie',
+      cancel: () => {
+        if(state.resizeState){
+          state.resizeState.active = false;
+          state.resizeState.phase = null;
+        }
+      }
+    }) || function deactivatePieTab(tab, meta = {}){
+      if(state.resizeState){
+        state.resizeState.active = false;
+        state.resizeState.phase = null;
+      }
+      pie.__runtimeGeneration = (Number(pie.__runtimeGeneration) || 0) + 1;
+      pieDebug('Debug: pie tab deactivated', {
+        tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
+        generation: pie.__runtimeGeneration,
+        reason: meta?.reason || 'deactivate-tab'
+      });
+      return true;
+    };
     pie.captureEmptyPayloadTemplate = function capturePieEmptyPayloadTemplate(){
     const snapshot = pie.createEmptyPayload();
     pieDebug('Debug: pie empty payload template captured', { hasTemplate: !!snapshot });
@@ -4355,7 +4450,16 @@ let state = {
       primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
     }
   }
-  pie.draw = draw;
+  pie.draw = function drawPiePublic(options = {}){
+    const nextReason = options?.reason || 'pie-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('pie', { ...(options || {}), tabId: options?.tabId || pie.__boundTabId || null, reason: nextReason })){
+      pieDebug('Debug: pie draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || pie.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || pie.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'pie.draw' } });
+      return;
+    }
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || pie.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'pie.draw' } });
+    return draw(options);
+  };
   function ensurePieDomBindings(tabLike){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
       return false;
@@ -4544,20 +4648,22 @@ let state = {
     }
     if (!pie.ready) pie.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
   };
-  pie.activateTab = function activateTab(tab, meta = {}){
+  pie.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: pie,
+    componentKey: 'pie',
+    resolveRoot: tabLike => resolvePieRoot(tabLike || null),
+    setRoot: root => { state.root = root; },
+    ensureBindings: tabLike => ensurePieDomBindings(tabLike),
+    init: options => pie.init(options),
+    afterReady: () => { if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); } },
+    getSentinel: () => getPieNodeById('pieHot')
+  }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
     pie.__boundTabId = targetTabId || pie.__boundTabId || null;
     state.root = resolvePieRoot(tab || targetTabId || null);
-    if(ensurePieDomBindings(tab)){
-      return;
-    }
-    if(!pie.ready){
-      pie.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' });
-      return;
-    }
-    if(typeof state.ensureHotForActiveTab === 'function'){
-      state.ensureHotForActiveTab();
-    }
+    if(ensurePieDomBindings(tab)){ return; }
+    if(!pie.ready){ pie.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
+    if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
     pie.__domSentinel = getPieNodeById('pieHot');
   };
 
@@ -4597,7 +4703,24 @@ let state = {
     return { plot: plotCache, stats: statsCache };
   };
 
-  pie.restoreRenderCache = function restoreRenderCache(cache){
+  pie.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
+      componentKey: 'pie',
+      graph: { selectors: ['#pieSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']pieSvg["']|<canvas\b)/i },
+      requireGraph: true
+    }) ?? !!cache;
+  };
+
+  pie.isIdleForSnapshot = function isIdleForSnapshot(){
+    return !(state.resizeState && state.resizeState.active);
+  };
+
+  pie.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
+    return Shared.componentLifecycle?.awaitReadyForSnapshot?.(pie, { ...meta, componentKey: 'pie' })
+      || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+  };
+
+  pie.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getPieNodeById('piePlot');
@@ -4644,5 +4767,13 @@ let state = {
     computeRadialPercentLabelLayout: options => computeRadialPercentLabelLayout(options || {})
   });
 
-})(window);
 
+
+  Shared.componentLifecycle?.installInternalStateBridge?.(pie, {
+    componentKey: 'pie',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
+    ]
+  });
+})(window);

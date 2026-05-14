@@ -743,6 +743,27 @@
         sessionGeneration: nextOptions.sessionGeneration || meta.sessionGeneration || 0,
         __workspaceSessionMeta: meta
       };
+      const suppressMeta = {
+        ...guardedOptions,
+        componentKey,
+        type: componentKey,
+        reason: guardedOptions.reason || guardedOptions.source || `${componentKey}-tab-scoped-schedule`,
+        source: guardedOptions.source || 'workspaceTabs-scheduler'
+      };
+      if(global.Shared?.componentLifecycle?.shouldSuppressDraw?.(componentKey, suppressMeta)){
+        debugLog(`Debug: ${debugLabel} tab-scoped schedule suppressed by lifecycle`, {
+          tabId: guardedOptions.tabId || null,
+          reason: suppressMeta.reason || null
+        });
+        global.Shared.componentLifecycle.emitLifecycleEvent?.({
+          componentKey,
+          tabId: guardedOptions.tabId || null,
+          action: 'draw-suppressed',
+          reason: suppressMeta.reason,
+          details: { source: 'workspaceTabs-scheduler' }
+        });
+        return false;
+      }
       scheduleRaw.call(this, guardedOptions);
       return true;
     };
