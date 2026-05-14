@@ -1494,6 +1494,11 @@
     }
     const changed = previousSignature !== nextSignature;
     if (changed) {
+      // Payload signature changes invalidate any warm runtime render cache.
+      // Keeping a pre-change cache while accepting a post-change payload can
+      // restore stale visuals on tab re-entry (same signature checks pass only
+      // after a later recapture), which causes partial-control replay issues.
+      clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
       clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
       markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-changed' });
     }
@@ -2221,6 +2226,7 @@
     const shouldCaptureLivePayloadForSave = isSaveLikeLiveCaptureReason(reason, options);
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
+      && !tab.userModified
       && !skipCaptureBlockedByReason
       && !shouldCaptureLivePayloadForSave
       && (isLiveCaptureSkippableReason(reason) || isLifecycleOrigin));

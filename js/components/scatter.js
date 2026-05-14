@@ -285,7 +285,8 @@
     cachedGeometry: null,
     significanceRefreshSignature: null,
     significantLabelsUserModified: false,
-    axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' }
+    axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' },
+    preserveOverlayToggleState: false
   };
   let scatterRoot = null;
   function shouldSuppressScatterRestoreDraw(reason){
@@ -11075,20 +11076,21 @@
         const graphTypeControl = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
         const type = graphTypeControl?.value || scatterCurrentGraphType || 'scatter';
         const statsReady = scatterHasComputedStats();
-        const baseDisabled = type !== 'scatter' || !statsReady;
+        const baseDisabled = type !== 'scatter';
+        const clearWhenDisabled = scatterState.preserveOverlayToggleState !== true;
         const baseMessage = type !== 'scatter'
           ? 'Regression overlays are available for scatter plots only.'
-          : (statsReady ? '' : 'Calculate statistics before enabling regression overlays.');
+          : '';
         const showLineControl = getScatterNodeById('scatterShowLine') || scatterShowLine;
         const showPlotStatsControl = getScatterNodeById('scatterShowPlotStats') || scatterShowPlotStats;
         const showCIControl = getScatterNodeById('scatterShowCI') || scatterShowCI;
         const showPIControl = getScatterNodeById('scatterShowPI') || scatterShowPI;
-        setScatterOverlayInputDisabled(showLineControl, baseDisabled, baseMessage);
-        setScatterOverlayInputDisabled(showPlotStatsControl, baseDisabled, baseMessage);
+        setScatterOverlayInputDisabled(showLineControl, baseDisabled, baseMessage, { clearWhenDisabled });
+        setScatterOverlayInputDisabled(showPlotStatsControl, baseDisabled, baseMessage, { clearWhenDisabled });
         const trendReady = !baseDisabled && !!showLineControl?.checked;
         const intervalMessage = trendReady ? '' : (baseMessage || 'Enable the trend line first.');
-        setScatterOverlayInputDisabled(showCIControl, baseDisabled || !trendReady, intervalMessage);
-        setScatterOverlayInputDisabled(showPIControl, baseDisabled || !trendReady, intervalMessage);
+        setScatterOverlayInputDisabled(showCIControl, baseDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
+        setScatterOverlayInputDisabled(showPIControl, baseDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
         console.debug('Debug: scatter overlay controls synced', {
           type,
           statsReady,
@@ -13933,13 +13935,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(regressionModeControl){
           regressionModeControl.disabled=type!=='scatter';
         }
-        const disableRegressionControls = type !== 'scatter' || !scatterHasComputedStats();
+        const disableRegressionControls = type !== 'scatter';
+        const clearWhenDisabled = scatterState.preserveOverlayToggleState !== true;
         // Trend/stat overlay controls are available only after statistics have been calculated.
         try{ syncScatterOverlayControlAvailability(); }catch(e){
-          if(showLineControl){ showLineControl.disabled=disableRegressionControls; if(disableRegressionControls && showLineControl.checked){ showLineControl.checked=false; } }
-          if(showPlotStatsControl){ showPlotStatsControl.disabled=disableRegressionControls; if(disableRegressionControls && showPlotStatsControl.checked){ showPlotStatsControl.checked=false; } }
-          if(showCIControl){ showCIControl.disabled = disableRegressionControls; if(disableRegressionControls && showCIControl.checked){ showCIControl.checked = false; } }
-          if(showPIControl){ showPIControl.disabled = disableRegressionControls; if(disableRegressionControls && showPIControl.checked){ showPIControl.checked = false; } }
+          if(showLineControl){ showLineControl.disabled=disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showLineControl.checked){ showLineControl.checked=false; } }
+          if(showPlotStatsControl){ showPlotStatsControl.disabled=disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showPlotStatsControl.checked){ showPlotStatsControl.checked=false; } }
+          if(showCIControl){ showCIControl.disabled = disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showCIControl.checked){ showCIControl.checked = false; } }
+          if(showPIControl){ showPIControl.disabled = disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showPIControl.checked){ showPIControl.checked = false; } }
         }
         const significanceColors = getScatterSignificanceColors();
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
@@ -14769,12 +14772,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       updateCIEnabled();
       if(scatterShowLine){
         scatterShowLine.addEventListener('change',()=>{
-          if(!scatterHasComputedStats()){
-            scatterShowLine.checked = false;
-            updateCIEnabled();
-            console.debug('Debug: scatter trendline blocked until stats are calculated');
-            return;
-          }
           updateCIEnabled();
           if(!scatterShowLine.checked){
             try{
@@ -14793,11 +14790,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       if(scatterShowCI){
         scatterShowCI.addEventListener('change',()=>{
-          // Prevent enabling CI unless stats are current and the trend line is active.
-          if(!scatterHasComputedStats() || !(scatterShowLine && scatterShowLine.checked)){
+          // Prevent enabling CI unless the trend line is active.
+          if(!(scatterShowLine && scatterShowLine.checked)){
             if(scatterShowCI.checked){ scatterShowCI.checked = false; }
             updateCIEnabled();
-            console.debug('Debug: scatter CI blocked', { statsReady: scatterHasComputedStats(), showLine: !!scatterShowLine?.checked });
+            console.debug('Debug: scatter CI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
           persistTabState('scatter-interval-ci-change');
@@ -14806,10 +14803,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       if(scatterShowPI){
         scatterShowPI.addEventListener('change',()=>{
-          if(!scatterHasComputedStats() || !(scatterShowLine && scatterShowLine.checked)){
+          if(!(scatterShowLine && scatterShowLine.checked)){
             if(scatterShowPI.checked){ scatterShowPI.checked = false; }
             updateCIEnabled();
-            console.debug('Debug: scatter PI blocked', { statsReady: scatterHasComputedStats(), showLine: !!scatterShowLine?.checked });
+            console.debug('Debug: scatter PI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
           persistTabState('scatter-interval-pi-change');
@@ -21392,6 +21389,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
         const scheduleOriginal = typeof scheduleDrawScatter === 'function' ? scheduleDrawScatter : null;
         const shouldSuspendSchedule = !!(scheduleOriginal && (skipDraw || !skipDataLoad));
+        const previousPreserveOverlayToggleState = scatterState.preserveOverlayToggleState === true;
+        if(styleOnly){
+          scatterState.preserveOverlayToggleState = true;
+        }
         if(shouldSuspendSchedule){
           scheduleDrawScatter = () => {};
         }
@@ -21544,17 +21545,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterOriginMode.value=c.originMode||scatterOriginMode.value;
         scatterOriginX.value=c.originX||'';
         scatterOriginY.value=c.originY||'';
-        // If the payload requests CI/PI, ensure the trend line is enabled first
-        if((c.showCI || c.showPI) && scatterShowLine){
-          scatterShowLine.checked = true;
-        } else {
-          scatterShowLine.checked = !!c.showLine;
+        const hasShowLine = Object.prototype.hasOwnProperty.call(c, 'showLine');
+        const hasShowPlotStats = Object.prototype.hasOwnProperty.call(c, 'showPlotStats');
+        const hasShowCI = Object.prototype.hasOwnProperty.call(c, 'showCI');
+        const hasShowPI = Object.prototype.hasOwnProperty.call(c, 'showPI');
+        const nextShowCI = hasShowCI ? !!c.showCI : !!scatterShowCI?.checked;
+        const nextShowPI = hasShowPI ? !!c.showPI : !!scatterShowPI?.checked;
+        let nextShowLine = hasShowLine ? !!c.showLine : !!scatterShowLine?.checked;
+        if((nextShowCI || nextShowPI) && scatterShowLine){
+          nextShowLine = true;
+        }
+        if(scatterShowLine && (!styleOnly || hasShowLine || hasShowCI || hasShowPI)){
+          scatterShowLine.checked = nextShowLine;
         }
         if(scatterShowPlotStats){
-          scatterShowPlotStats.checked = typeof c.showPlotStats === 'boolean' ? c.showPlotStats : !!scatterShowLine.checked;
+          if(hasShowPlotStats){
+            scatterShowPlotStats.checked = !!c.showPlotStats;
+          }else if(!styleOnly){
+            scatterShowPlotStats.checked = !!scatterShowLine?.checked;
+          }
         }
-        if(typeof c.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = !!c.showCI; }
-        if(typeof c.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = !!c.showPI; }
+        if(scatterShowCI && hasShowCI){ scatterShowCI.checked = nextShowCI; }
+        if(scatterShowPI && hasShowPI){ scatterShowPI.checked = nextShowPI; }
         // Ensure CI/PI controls reflect enabled/disabled state after payload applied
         try{ updateCIEnabled(); }catch(e){ /* ignore if unavailable */ }
         if(scatterGraphTypeSelect && c.graphType){
@@ -21684,9 +21696,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           };
         }
         // Restore previously computed statistics results (if present in payload)
+        const hasStatsPayload = !!(c.stats && typeof c.stats === 'object');
         try{
           let restoredComputedStats = false;
-          if(c.stats && typeof c.stats === 'object'){
+          if(hasStatsPayload){
             const savedHtml = c.stats.resultsHtml;
             const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
             const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
@@ -21742,12 +21755,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               scatterState.statsRestorePending = null;
             }
           }
-          if(!restoredComputedStats){
+          if(!restoredComputedStats && !styleOnly){
             resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
           }
         }catch(err){
           console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });
-          resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
+          if(!styleOnly || hasStatsPayload){
+            resetScatterStatsRuntimeState({ placeholder: scatterStatsPlaceholder });
+          }
         }
         syncScatterGraphTypeUI();
         syncScatterErrorBarControls(scatterTableFormat);
@@ -21755,9 +21770,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const postApplyShowLineControl = getScatterNodeById('scatterShowLine') || null;
         const postApplyGraphType = String(c.graphType || postApplyGraphTypeControl?.value || 'scatter').toLowerCase();
         if(postApplyShowLineControl){
-          const shouldShowLine = postApplyGraphType === 'scatter' && !!c.showLine;
           postApplyShowLineControl.disabled = postApplyGraphType !== 'scatter';
-          postApplyShowLineControl.checked = shouldShowLine;
+          if(!styleOnly || hasShowLine){
+            const shouldShowLine = postApplyGraphType === 'scatter' && !!c.showLine;
+            postApplyShowLineControl.checked = shouldShowLine;
+          }
         }
         if(scatterHot){
           const selectedRows = Array.isArray(c.selectedRows)
@@ -21793,6 +21810,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
       }finally{
+        scatterState.preserveOverlayToggleState = previousPreserveOverlayToggleState;
         if(shouldSuspendSchedule && scheduleOriginal){
           scheduleDrawScatter = scheduleOriginal;
         }
@@ -22082,13 +22100,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
     const graphTypeControl = getScatterNodeById('scatterGraphType', tab);
     const showLineControl = getScatterNodeById('scatterShowLine', tab);
+    const showPlotStatsControl = getScatterNodeById('scatterShowPlotStats', tab);
+    const showCIControl = getScatterNodeById('scatterShowCI', tab);
+    const showPIControl = getScatterNodeById('scatterShowPI', tab);
     const targetGraphType = String(payloadConfig.graphType || graphTypeControl?.value || 'scatter').toLowerCase();
     if(graphTypeControl && graphTypeControl.value !== targetGraphType){
       graphTypeControl.value = targetGraphType;
     }
-    if(showLineControl){
+    if(showLineControl && Object.prototype.hasOwnProperty.call(payloadConfig, 'showLine')){
       const shouldShowLine = targetGraphType === 'scatter' && !!payloadConfig.showLine;
       showLineControl.checked = shouldShowLine;
+    }
+    if(showPlotStatsControl && Object.prototype.hasOwnProperty.call(payloadConfig, 'showPlotStats')){
+      showPlotStatsControl.checked = targetGraphType === 'scatter' && !!payloadConfig.showPlotStats;
+    }
+    if(showCIControl && Object.prototype.hasOwnProperty.call(payloadConfig, 'showCI')){
+      showCIControl.checked = targetGraphType === 'scatter' && !!payloadConfig.showCI;
+    }
+    if(showPIControl && Object.prototype.hasOwnProperty.call(payloadConfig, 'showPI')){
+      showPIControl.checked = targetGraphType === 'scatter' && !!payloadConfig.showPI;
     }
   }
 
