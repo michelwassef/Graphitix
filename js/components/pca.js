@@ -3817,18 +3817,25 @@
   }
 
   function appendPca3dBackground(svg, width, height){
-    if(!svg || String(pcaState.theme?.colorScheme || '').toLowerCase() !== 'dark'){
+    if(!svg){
       return;
     }
-    const bg = svg.ownerDocument.createElementNS(NS, 'rect');
-    bg.setAttribute('x', '0');
-    bg.setAttribute('y', '0');
-    bg.setAttribute('width', String(Math.max(1, Number(width) || 0)));
-    bg.setAttribute('height', String(Math.max(1, Number(height) || 0)));
-    bg.setAttribute('fill', normalizePcaThemeColor(pcaState.theme?.backgroundColor, '#000000'));
-    bg.setAttribute('pointer-events', 'none');
-    bg.setAttribute('data-color-scheme-background', '1');
-    svg.appendChild(bg);
+    const staleBackgrounds = svg.querySelectorAll('[data-color-scheme-background="1"]');
+    staleBackgrounds.forEach(node => {
+      try { node.remove(); } catch (_err) {}
+    });
+    if(String(pcaState.theme?.colorScheme || '').toLowerCase() !== 'dark'){
+      if(svg.style){
+        svg.style.removeProperty('background-color');
+      }
+      svg.removeAttribute('data-color-scheme-bg-color');
+      return;
+    }
+    const backgroundColor = normalizePcaThemeColor(pcaState.theme?.backgroundColor, '#000000');
+    if(svg.style){
+      svg.style.backgroundColor = backgroundColor;
+    }
+    svg.setAttribute('data-color-scheme-bg-color', backgroundColor);
   }
 
   function resetPcaRotation(reason){

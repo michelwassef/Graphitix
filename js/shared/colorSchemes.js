@@ -275,7 +275,8 @@
     monitorTimer: null,
     lastActiveSignature: null,
     pendingSyncTimer: null,
-    controlListenersBound: false
+    controlListenersBound: false,
+    darkTextObservers: new WeakMap()
   };
   let openPaletteMenu = null;
 
@@ -406,12 +407,21 @@
 
   function getScheme(id){
     const key = typeof id === 'string' ? id.toLowerCase() : '';
-    return SCHEMES[key] || SCHEMES[DEFAULT_SCHEME_ID];
+    const catalog = Shared.themeCatalog;
+    const fromCatalog = (catalog && typeof catalog.getScheme === 'function')
+      ? catalog.getScheme(key, DEFAULT_SCHEME_ID)
+      : null;
+    return fromCatalog || SCHEMES[key] || SCHEMES[DEFAULT_SCHEME_ID];
   }
 
   function isKnownSchemeId(id){
     const key = typeof id === 'string' ? id.trim().toLowerCase() : '';
-    return !!(key && Object.prototype.hasOwnProperty.call(SCHEMES, key));
+    if(!key) return false;
+    const catalog = Shared.themeCatalog;
+    if(catalog && typeof catalog.getScheme === 'function'){
+      return !!catalog.getScheme(key, null);
+    }
+    return !!Object.prototype.hasOwnProperty.call(SCHEMES, key);
   }
 
   function normalizePresetSchemeId(id, type){
@@ -1024,6 +1034,93 @@
     });
   }
 
+  function disconnectDarkTextObserver(svg){
+    if(!svg || !state.darkTextObservers) return;
+    const entry = state.darkTextObservers.get(svg);
+    if(!entry) return;
+    try{
+      entry.observer?.disconnect?.();
+    }catch(_err){ /* no-op */ }
+    state.darkTextObservers.delete(svg);
+  }
+
+  function ensureDarkTextObserver(svg, color){
+    if(!svg || typeof svg.querySelectorAll !== 'function' || typeof global.MutationObserver !== 'function'){
+      return;
+    }
+    const existing = state.darkTextObservers.get(svg);
+    if(existing && existing.observer){
+      existing.color = color;
+      return;
+    }
+    const observerState = { color };
+    const observer = new global.MutationObserver(mutations => {
+      const nextColor = observerState.color || color;
+      for(let i = 0; i < mutations.length; i += 1){
+        const mutation = mutations[i];
+        if(mutation.type === 'childList'){
+          mutation.addedNodes.forEach(node => {
+            if(!node || node.nodeType !== 1){ return; }
+            const tag = String(node.nodeName || '').toLowerCase();
+            if(tag === 'text' || tag === 'tspan'){
+              if(node.getAttribute('data-color-scheme-text-themed') !== '1'){
+                if(node.hasAttribute('fill')){
+                  node.setAttribute('data-color-scheme-prev-fill', node.getAttribute('fill') || '');
+                }else{
+                  node.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
+                }
+                node.setAttribute('data-color-scheme-text-themed', '1');
+              }
+              if(node.getAttribute('fill') !== nextColor){
+                node.setAttribute('fill', nextColor);
+              }
+            }
+            if(typeof node.querySelectorAll === 'function'){
+              const nested = node.querySelectorAll('text,tspan');
+              nested.forEach(textNode => {
+                if(textNode.getAttribute('data-color-scheme-text-themed') !== '1'){
+                  if(textNode.hasAttribute('fill')){
+                    textNode.setAttribute('data-color-scheme-prev-fill', textNode.getAttribute('fill') || '');
+                  }else{
+                    textNode.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
+                  }
+                  textNode.setAttribute('data-color-scheme-text-themed', '1');
+                }
+                if(textNode.getAttribute('fill') !== nextColor){
+                  textNode.setAttribute('fill', nextColor);
+                }
+              });
+            }
+          });
+        }else if(mutation.type === 'attributes'){
+          const node = mutation.target;
+          if(!node || node.nodeType !== 1){ continue; }
+          const tag = String(node.nodeName || '').toLowerCase();
+          if(tag !== 'text' && tag !== 'tspan'){ continue; }
+          if(node.getAttribute('data-color-scheme-text-themed') !== '1'){
+            if(node.hasAttribute('fill')){
+              node.setAttribute('data-color-scheme-prev-fill', node.getAttribute('fill') || '');
+            }else{
+              node.setAttribute('data-color-scheme-prev-fill', NO_PREVIOUS_FILL);
+            }
+            node.setAttribute('data-color-scheme-text-themed', '1');
+          }
+          if(node.getAttribute('fill') !== nextColor){
+            node.setAttribute('fill', nextColor);
+          }
+        }
+      }
+    });
+    observer.observe(svg, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['fill']
+    });
+    observerState.observer = observer;
+    state.darkTextObservers.set(svg, observerState);
+  }
+
   function restoreTextTheme(svg){
     const nodes = svg.querySelectorAll('text[data-color-scheme-text-themed="1"],tspan[data-color-scheme-text-themed="1"]');
     nodes.forEach(node => {
@@ -1070,7 +1167,6 @@
     const tokens = scheme.tokens || {};
     const isDark = scheme.id === 'dark';
     const background = tokens.background || '#ffffff';
-    const textColor = tokens.textColor || '#f2f2f2';
     svg.setAttribute('data-color-scheme', scheme.id);
     const is3dView = String(svg.dataset?.viewMode || '').toLowerCase() === '3d';
     if(svg.style){
@@ -1081,29 +1177,41 @@
     let backgroundRect = svg.querySelector('[data-color-scheme-background="1"]');
     if(is3dView){
       // Keep 3D interaction surfaces untouched; draw code handles interactive backgrounds.
+      disconnectDarkTextObserver(svg);
       removeNode(backgroundRect);
       restoreTextTheme(svg);
       const styleNode3d = svg.querySelector('[data-color-scheme-style="1"]');
       removeNode(styleNode3d);
+      if(svg.style){
+        svg.style.removeProperty('background-color');
+      }
+      svg.removeAttribute('data-color-scheme-bg-color');
       return;
     }
+    removeNode(backgroundRect);
     if(isDark){
-      if(!backgroundRect){
-        backgroundRect = svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        backgroundRect.setAttribute('data-color-scheme-background', '1');
-        backgroundRect.setAttribute('pointer-events', 'none');
+      svg.setAttribute('data-color-scheme-bg-color', background);
+      if(svg.style){
+        svg.style.backgroundColor = background;
       }
-      const viewport = resolveSvgViewport(svg);
-      backgroundRect.setAttribute('x', String(viewport.x));
-      backgroundRect.setAttribute('y', String(viewport.y));
-      backgroundRect.setAttribute('width', String(viewport.width));
-      backgroundRect.setAttribute('height', String(viewport.height));
-      backgroundRect.setAttribute('fill', background);
-      ensureBackgroundRectPosition(svg, backgroundRect);
-      applyDarkTextTheme(svg, textColor);
+      if(Shared.themeRuntime && typeof Shared.themeRuntime.applySvgTheme === 'function'){
+        Shared.themeRuntime.applySvgTheme(svg, scheme);
+      }else{
+        const textColor = tokens.textColor || '#f2f2f2';
+        applyDarkTextTheme(svg, textColor);
+        ensureDarkTextObserver(svg, textColor);
+      }
     }else{
-      removeNode(backgroundRect);
-      restoreTextTheme(svg);
+      if(Shared.themeRuntime && typeof Shared.themeRuntime.applySvgTheme === 'function'){
+        Shared.themeRuntime.applySvgTheme(svg, scheme);
+      }else{
+        disconnectDarkTextObserver(svg);
+        restoreTextTheme(svg);
+      }
+      svg.removeAttribute('data-color-scheme-bg-color');
+      if(svg.style){
+        svg.style.removeProperty('background-color');
+      }
     }
 
     const styleNode = svg.querySelector('[data-color-scheme-style="1"]');
@@ -1186,7 +1294,7 @@
     global.DEFAULT_SCATTER_COLORS = target;
   }
 
-  function applySchemeToPayload(type, payload, scheme, options){
+  function legacyApplySchemeToPayload(type, payload, scheme, options){
     const next = cloneValue(payload) || { type, config: {} };
     const cfg = next.config = next.config && typeof next.config === 'object' ? next.config : {};
     const opts = ensureObject(options);
@@ -1510,6 +1618,21 @@
     }
 
     return next;
+  }
+
+  function applySchemeToPayload(type, payload, scheme, options){
+    const compiler = Shared.themeCompiler;
+    if(compiler && typeof compiler.compilePayload === 'function' && compiler.hasAdapter && compiler.hasAdapter(type)){
+      const compiled = compiler.compilePayload(type, payload, scheme, {
+        options: ensureObject(options),
+        legacyApply: legacyApplySchemeToPayload,
+        type
+      });
+      if(compiled && typeof compiled === 'object'){
+        return compiled;
+      }
+    }
+    return legacyApplySchemeToPayload(type, payload, scheme, options);
   }
 
   function getActiveTab(){
@@ -2037,10 +2160,8 @@
       if(is3dView){
         return;
       }
-      const backgroundRect = activeSvg.querySelector('[data-color-scheme-background="1"]');
-      const needsBackgroundRepair = !backgroundRect || isBackgroundRectOutdated(activeSvg, backgroundRect);
       const needsTextRepair = hasUnthemedText(activeSvg);
-      if(needsBackgroundRepair || needsTextRepair){
+      if(needsTextRepair){
         syncActiveTabVisuals('dark-repair');
       }
     }, 350);
@@ -2246,6 +2367,14 @@
   }
 
   namespace.getSchemes = function getSchemes(){
+    const catalog = Shared.themeCatalog;
+    if(catalog && typeof catalog.list === 'function'){
+      const out = {};
+      catalog.list().forEach(s => { out[s.id] = cloneValue(s); });
+      if(Object.keys(out).length){
+        return out;
+      }
+    }
     return cloneValue(SCHEMES);
   };
 
@@ -2300,6 +2429,27 @@
     if(state.initialized){
       debugLog('Debug: colorSchemes.init skipped - already initialized');
       return namespace;
+    }
+    try{
+      if(Shared.themeCatalog && typeof Shared.themeCatalog.registerAll === 'function'){
+        Shared.themeCatalog.registerAll(SCHEMES);
+      }
+      if(Shared.themeCatalog && typeof Shared.themeCatalog.setTypeDefault === 'function'){
+        Object.keys(TYPE_DEFAULT_SCHEME_IDS).forEach(type => {
+          Shared.themeCatalog.setTypeDefault(type, TYPE_DEFAULT_SCHEME_IDS[type]);
+        });
+      }
+      if(Shared.themeCatalog && typeof Shared.themeCatalog.setTypeOptions === 'function'){
+        Object.keys(TYPE_TO_PAGE).forEach(type => {
+          const options = type === 'surface' ? SURFACE_SCHEME_OPTION_IDS : BASE_SCHEME_OPTION_IDS;
+          Shared.themeCatalog.setTypeOptions(type, options);
+        });
+      }
+      if(Shared.themeAdapters && typeof Shared.themeAdapters.installDefaultAdapters === 'function'){
+        Shared.themeAdapters.installDefaultAdapters();
+      }
+    }catch(err){
+      console.error('colorSchemes theme module init error', err);
     }
     Object.keys(TYPE_TO_PAGE).forEach(type => {
       renderControlForType(type, TYPE_TO_PAGE[type]);

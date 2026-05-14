@@ -194,12 +194,16 @@
     if (!svg || svg.querySelector('[data-preview-bg="true"]')) {
       return;
     }
+    const schemeId = String(svg.getAttribute?.('data-color-scheme') || '').trim().toLowerCase();
+    const explicitBg = String(svg.getAttribute?.('data-color-scheme-bg-color') || '').trim();
+    const isDark = schemeId === 'dark';
+    const previewBg = isDark ? (explicitBg || '#000000') : '#ffffff';
     const rect = document.createElementNS(TAB_PREVIEW_NS, 'rect');
     rect.setAttribute('x', String(Number.isFinite(sizing.minX) ? sizing.minX : 0));
     rect.setAttribute('y', String(Number.isFinite(sizing.minY) ? sizing.minY : 0));
     rect.setAttribute('width', Number.isFinite(sizing.boxW) ? String(sizing.boxW) : '100%');
     rect.setAttribute('height', Number.isFinite(sizing.boxH) ? String(sizing.boxH) : '100%');
-    rect.setAttribute('fill', '#ffffff');
+    rect.setAttribute('fill', previewBg);
     rect.setAttribute('data-preview-bg', 'true');
     let insertTarget = svg.firstChild;
     while (insertTarget && insertTarget.nodeType === 1 && insertTarget.nodeName.toLowerCase() === 'defs') {

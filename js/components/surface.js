@@ -2169,17 +2169,21 @@
       try{ while(axisLayer.firstChild){ axisLayer.removeChild(axisLayer.firstChild); } }catch(e){}
       try{ while(backgroundLayer.firstChild){ backgroundLayer.removeChild(backgroundLayer.firstChild); } }catch(e){}
       try{ while(frontLayer.firstChild){ frontLayer.removeChild(frontLayer.firstChild); } }catch(e){}
-      svg.style.backgroundColor = surfaceThemeDark ? surfaceBackgroundColor : '';
+      if(svg.style){
+        if(surfaceThemeDark){
+          svg.style.backgroundColor = surfaceBackgroundColor;
+        }else{
+          svg.style.removeProperty('background-color');
+        }
+      }
       if(surfaceThemeDark){
-        const bgRect = doc.createElementNS(NS, 'rect');
-        bgRect.setAttribute('x', '0');
-        bgRect.setAttribute('y', '0');
-        bgRect.setAttribute('width', String(Math.max(1, width)));
-        bgRect.setAttribute('height', String(Math.max(1, height)));
-        bgRect.setAttribute('fill', surfaceBackgroundColor);
-        bgRect.setAttribute('pointer-events', 'none');
-        bgRect.setAttribute('data-color-scheme-background', '1');
-        backgroundLayer.appendChild(bgRect);
+        svg.setAttribute('data-color-scheme-bg-color', surfaceBackgroundColor);
+      }else{
+        svg.removeAttribute('data-color-scheme-bg-color');
+      }
+      if(surfaceThemeDark){
+        // Keep the 3D background out of the plot geometry tree to avoid
+        // dark-mode size side-effects from extra SVG nodes.
       }
       plot3d.renderAxesAndGrid({
         svg: axisLayer,

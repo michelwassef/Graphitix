@@ -526,9 +526,16 @@
     });
     const isDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
     if(isDark){
-      svg.setAttribute('data-color-scheme-bg-color', normalizeScatterThemeColor(scatterBackgroundColor, '#000000'));
+      const color = normalizeScatterThemeColor(scatterBackgroundColor, '#000000');
+      svg.setAttribute('data-color-scheme-bg-color', color);
+      if(svg.style){
+        svg.style.backgroundColor = color;
+      }
     }else{
       svg.removeAttribute('data-color-scheme-bg-color');
+      if(svg.style){
+        svg.style.removeProperty('background-color');
+      }
     }
   }
 

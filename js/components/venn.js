@@ -681,29 +681,20 @@
         state.ui.svgBox.style.removeProperty('background-color');
       }
     }
-    let backgroundRect = stage.querySelector('[data-color-scheme-background="1"]');
+    const staleBackgroundRect = stage.querySelector('[data-color-scheme-background="1"]');
+    if (staleBackgroundRect && staleBackgroundRect.parentNode) {
+      staleBackgroundRect.parentNode.removeChild(staleBackgroundRect);
+    }
     if (dark) {
-      if (!backgroundRect) {
-        backgroundRect = document.createElementNS(NS, 'rect');
-        backgroundRect.setAttribute('data-color-scheme-background', '1');
-        backgroundRect.setAttribute('pointer-events', 'none');
+      stage.setAttribute('data-color-scheme-bg-color', backgroundColor);
+      if (stage.style) {
+        stage.style.backgroundColor = backgroundColor;
       }
-      const viewBox = String(stage.getAttribute('viewBox') || '').trim();
-      const parts = viewBox.split(/[\s,]+/).map(v => Number(v)).filter(Number.isFinite);
-      const x = parts.length === 4 ? parts[0] : 0;
-      const y = parts.length === 4 ? parts[1] : 0;
-      const width = parts.length === 4 ? parts[2] : Number(stage.getAttribute('width')) || DEFAULT_STAGE_WIDTH;
-      const height = parts.length === 4 ? parts[3] : Number(stage.getAttribute('height')) || DEFAULT_STAGE_HEIGHT;
-      backgroundRect.setAttribute('x', String(x));
-      backgroundRect.setAttribute('y', String(y));
-      backgroundRect.setAttribute('width', String(width));
-      backgroundRect.setAttribute('height', String(height));
-      backgroundRect.setAttribute('fill', backgroundColor);
-      if (stage.firstChild !== backgroundRect) {
-        stage.insertBefore(backgroundRect, stage.firstChild || null);
+    } else {
+      stage.removeAttribute('data-color-scheme-bg-color');
+      if (stage.style) {
+        stage.style.removeProperty('background-color');
       }
-    } else if (backgroundRect && backgroundRect.parentNode) {
-      backgroundRect.parentNode.removeChild(backgroundRect);
     }
   }
 

@@ -416,9 +416,16 @@
     });
     const isDark = String(lineColorSchemeId || '').toLowerCase() === 'dark';
     if(isDark){
-      svg.setAttribute('data-color-scheme-bg-color', normalizeLineThemeColor(lineBackgroundColor, '#000000'));
+      const color = normalizeLineThemeColor(lineBackgroundColor, '#000000');
+      svg.setAttribute('data-color-scheme-bg-color', color);
+      if(svg.style){
+        svg.style.backgroundColor = color;
+      }
     }else{
       svg.removeAttribute('data-color-scheme-bg-color');
+      if(svg.style){
+        svg.style.removeProperty('background-color');
+      }
     }
   }
   let lineSvgBoxRef = null;
