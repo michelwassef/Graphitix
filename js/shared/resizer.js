@@ -1894,11 +1894,12 @@
         if(aspectCheckbox.__resizerAspectHandler){
           aspectCheckbox.removeEventListener('change', aspectCheckbox.__resizerAspectHandler);
         }
-        const onAspectChange = () => {
+        const onAspectChange = event => {
           const beforeAspect = makeResizeSnapshot('aspect-toggle-before');
           aspectLocked = !!aspectCheckbox.checked;
           data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
-          persistAspectLockToTab(container, opts, aspectLocked, 'checkbox-change');
+          const aspectPersistReason = event?.isTrusted ? 'checkbox-change' : 'sync-change';
+          persistAspectLockToTab(container, opts, aspectLocked, aspectPersistReason);
           console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
           if(aspectLocked){
             delete data.resizerAxisViewportLockAxis;

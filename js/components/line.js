@@ -6222,9 +6222,11 @@
     const exclusions = typeof lineHot.exportExclusions === 'function'
       ? lineHot.exportExclusions()
       : Shared.hot.exportExclusions(lineHot);
+    const dataSnapshot = cloneSimple(lineHot.getData()) || [];
+    const exclusionSnapshot = cloneSimple(exclusions);
     return {
-      data: lineHot.getData(),
-      exclusions,
+      data: dataSnapshot,
+      exclusions: exclusionSnapshot,
       replicates: lineReplicates,
       tableFormat: refs.replicateMode?.value || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'),
       groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
@@ -6394,9 +6396,28 @@
   function enterLine3dMode(options = {}){
     const skipDraw = options.skipDraw === true;
     const resetRotation = options.resetRotation === true;
-    const was3d = lineViewState.viewMode === '3d';
+    const isAlready3d = lineViewState.viewMode === '3d';
+    const was3d = isAlready3d;
     if(resetRotation && !was3d){
       resetLine3dRotation('view-mode-change');
+    }
+    if(isAlready3d){
+      if(refs.viewMode){
+        refs.viewMode.value = '3d';
+      }
+      if(refs.replicateMode){
+        refs.replicateMode.value = '3d';
+      }
+      updateLineReplicateModeControls('3d');
+      updateLine3dNestedHeaders();
+      renderLine3dList();
+      if(!skipDraw){
+        scheduleLineViewRefresh('line-view-mode-noop-3d', {
+          force: true,
+          skipThresholdEvaluation: true
+        });
+      }
+      return;
     }
     if(!lineHot){
       lineViewState.viewMode = '3d';
@@ -6495,6 +6516,27 @@
 
   function exitLine3dMode(options = {}){
     const skipDraw = options.skipDraw === true;
+    const isAlready2d = lineViewState.viewMode !== '3d';
+    if(isAlready2d){
+      lineViewState.viewMode = '2d';
+      line3dLastSeriesCount = null;
+      if(refs.viewMode){
+        refs.viewMode.value = '2d';
+      }
+      if(refs.replicateMode && refs.replicateMode.value === '3d'){
+        refs.replicateMode.value = lineModeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single';
+      }
+      updateLineReplicateModeControls();
+      updateLineNestedHeaders();
+      syncLineAspectControls('exit-3d-noop');
+      if(!skipDraw){
+        scheduleLineViewRefresh('line-view-mode-noop-2d', {
+          force: true,
+          skipThresholdEvaluation: true
+        });
+      }
+      return;
+    }
     if(!lineHot){
       lineViewState.viewMode = '2d';
       line3dLastSeriesCount = null;
@@ -13592,6 +13634,11 @@
         regressionSummaries: cloneSimple(lineLastRegressionSummaries) || []
       },
       autoDraw: cloneSimple(lineAutoDrawState) || null,
+      modeCache: {
+        twoD: cloneSimple(lineModeCache.twoD) || null,
+        threeD: cloneSimple(lineModeCache.threeD) || null,
+        lastTwoDFormat: lineModeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single'
+      },
       reason: meta?.reason || 'line-runtime-capture'
     };
     console.debug('Debug: line runtime snapshot captured', {
@@ -13605,6 +13652,9 @@
 
   line.applyRuntimeState = function applyLineRuntimeState(snapshot, meta = {}){
     if(!snapshot || typeof snapshot !== 'object'){
+      lineModeCache.twoD = null;
+      lineModeCache.threeD = null;
+      lineModeCache.lastTwoDFormat = 'single';
       console.debug('Debug: line runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
@@ -13673,6 +13723,15 @@
     }
     if(snapshot.autoDraw && typeof snapshot.autoDraw === 'object'){
       Object.assign(lineAutoDrawState, cloneSimple(snapshot.autoDraw) || {});
+    }
+    if(snapshot.modeCache && typeof snapshot.modeCache === 'object'){
+      lineModeCache.twoD = cloneSimple(snapshot.modeCache.twoD) || null;
+      lineModeCache.threeD = cloneSimple(snapshot.modeCache.threeD) || null;
+      lineModeCache.lastTwoDFormat = snapshot.modeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single';
+    }else{
+      lineModeCache.twoD = null;
+      lineModeCache.threeD = null;
+      lineModeCache.lastTwoDFormat = 'single';
     }
     console.debug('Debug: line runtime snapshot applied', {
       tabId: meta?.tabId || line.__boundTabId || null,

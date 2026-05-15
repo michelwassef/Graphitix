@@ -13,6 +13,14 @@
     const getTabById = typeof options.getTabById === 'function' ? options.getTabById : () => null;
     const activateTab = typeof options.activateTab === 'function' ? options.activateTab : () => {};
     const closeTab = typeof options.closeTab === 'function' ? options.closeTab : () => {};
+    const lifecycleSnapshotIntent = Object.freeze({
+      saveLike: false,
+      allowSkipLivePayloadCapture: true,
+      lifecycleSnapshot: true,
+      runSkippedPayloadDriftProbe: false,
+      promoteSkippedPayloadDrift: false,
+      reasonSkippable: true
+    });
 
     if (!dom || !workspaceState || !session) {
       const details = {
@@ -76,7 +84,11 @@
         if (workspaceState.activeTabId !== tab.id) {
           const currentActive = getActiveTab();
           if (currentActive && currentActive.id !== tab.id) {
-            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'unsaved-switch', origin: 'lifecycle' }));
+            session.persistActiveTabState(currentActive, withSessionContext({
+              reason: 'unsaved-switch',
+              origin: 'lifecycle',
+              snapshotIntent: lifecycleSnapshotIntent
+            }));
           }
           console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
           activateTab(tab.id, { reason: 'unsaved-save' });
@@ -102,7 +114,11 @@
           showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
           return;
         }
-        session.persistActiveTabState(tab, withSessionContext({ reason: 'unsaved-save', origin: 'lifecycle' }));
+        session.persistActiveTabState(tab, withSessionContext({
+          reason: 'unsaved-save',
+          origin: 'lifecycle',
+          snapshotIntent: lifecycleSnapshotIntent
+        }));
         workspaceState.pendingClosePrompt = null;
         console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });
         closeTab(tab.id, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-save' });

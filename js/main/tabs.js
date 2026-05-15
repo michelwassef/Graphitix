@@ -94,6 +94,14 @@
     const sessionFileTypes = config.sessionFileTypes || [];
 
     const getActiveTab = () => workspaceState.tabs.find(tab => tab.id === workspaceState.activeTabId) || null;
+    const lifecycleSnapshotIntent = Object.freeze({
+      saveLike: false,
+      allowSkipLivePayloadCapture: true,
+      lifecycleSnapshot: true,
+      runSkippedPayloadDriftProbe: false,
+      promoteSkippedPayloadDrift: false,
+      reasonSkippable: true
+    });
 
     const showWorkspaceForTab = (tab, options = {}) => {
       const result = domControls.showWorkspaceForTab({
@@ -324,7 +332,11 @@
         try {
           const currentActive = getActiveTab();
           if (currentActive && !currentActive.isWelcome) {
-            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'duplicate-before-create', origin: 'lifecycle' }));
+            session.persistActiveTabState(currentActive, withSessionContext({
+              reason: 'duplicate-before-create',
+              origin: 'lifecycle',
+              snapshotIntent: lifecycleSnapshotIntent
+            }));
             deactivateWorkspaceForTab(currentActive, 'duplicate-before-create');
           }
         } catch (e) {
@@ -514,7 +526,11 @@
       const reason = options.reason || 'close-tab';
       let persistedActive = false;
       if (wasActive && !skipPersist) {
-        session.persistActiveTabState(tab, withSessionContext({ reason, origin: 'lifecycle' }));
+        session.persistActiveTabState(tab, withSessionContext({
+          reason,
+          origin: 'lifecycle',
+          snapshotIntent: lifecycleSnapshotIntent
+        }));
         persistedActive = true;
       }
       if (!force && !skipPrompt) {
@@ -526,7 +542,11 @@
         }
       }
       if (force && wasActive && !skipPersist && !persistedActive) {
-        session.persistActiveTabState(tab, withSessionContext({ reason: `${reason}-force`, origin: 'lifecycle' }));
+        session.persistActiveTabState(tab, withSessionContext({
+          reason: `${reason}-force`,
+          origin: 'lifecycle',
+          snapshotIntent: lifecycleSnapshotIntent
+        }));
       }
       workspaceState.pendingClosePrompt = null;
       hideUnsavedPrompt();
@@ -539,6 +559,7 @@
         session.persistActiveTabState(current, withSessionContext({
           reason: options.reason || 'activate-switch',
           origin: 'lifecycle',
+          snapshotIntent: lifecycleSnapshotIntent,
           // Do not capture render cache during ordinary tab switches. Component-level
           // captureRenderCache() implementations detach live graph nodes into fragments;
           // doing that on every switch can leave a tab blank if a later restore path is
@@ -722,7 +743,11 @@
     function handleAddTabClick() {
       const current = getActiveTab();
       if (current && !current.isWelcome) {
-        session.persistActiveTabState(current, withSessionContext({ reason: 'add-tab-before-new', origin: 'lifecycle' }));
+        session.persistActiveTabState(current, withSessionContext({
+          reason: 'add-tab-before-new',
+          origin: 'lifecycle',
+          snapshotIntent: lifecycleSnapshotIntent
+        }));
         deactivateWorkspaceForTab(current, 'add-tab-before-new');
       }
       const candidateSource = determineDuplicateSourceCandidate(current?.id);

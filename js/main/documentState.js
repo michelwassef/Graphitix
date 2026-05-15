@@ -278,7 +278,17 @@
     const blob = await state.sessionActions.buildWorkspaceArchiveBlob(context, {
       reason,
       scope: 'workspace',
-      useWorker: true
+      useWorker: true,
+      snapshotKind: 'lifecycle-checkpoint',
+      captureRenderCacheBeforeSnapshot: false,
+      snapshotIntent: {
+        saveLike: false,
+        allowSkipLivePayloadCapture: true,
+        lifecycleSnapshot: true,
+        runSkippedPayloadDriftProbe: false,
+        promoteSkippedPayloadDrift: false,
+        reasonSkippable: true
+      }
     });
     if (!blob) {
       return null;

@@ -108,6 +108,14 @@
     return String(value || '').trim();
   }
 
+  function resolveSnapshotIntent(options = {}) {
+    const raw = options?.snapshotIntent;
+    if (!raw || typeof raw !== 'object') {
+      return {};
+    }
+    return raw;
+  }
+
   function isLiveCaptureSkippableReason(reason) {
     const normalized = normalizeReason(reason);
     if (!normalized) {
@@ -119,6 +127,13 @@
   }
 
   function isSaveLikeLiveCaptureReason(reason, options = {}) {
+    const snapshotIntent = resolveSnapshotIntent(options);
+    if (snapshotIntent.captureLivePayload === true || snapshotIntent.saveLike === true) {
+      return true;
+    }
+    if (snapshotIntent.captureLivePayload === false || snapshotIntent.saveLike === false) {
+      return false;
+    }
     const normalized = normalizeReason(reason).toLowerCase();
     if (options.manualSave === true || options.forceLivePayloadCapture === true) {
       return true;
@@ -2102,6 +2117,10 @@
   }
 
   function shouldRunSkippedPayloadDriftProbe(reason, options = {}) {
+    const snapshotIntent = resolveSnapshotIntent(options);
+    if (typeof snapshotIntent.runSkippedPayloadDriftProbe === 'boolean') {
+      return snapshotIntent.runSkippedPayloadDriftProbe;
+    }
     if (options.disableDriftProbe === true) {
       return false;
     }
@@ -2139,6 +2158,10 @@
   }
 
   function shouldPromoteSkippedPayloadDrift(reason, options = {}) {
+    const snapshotIntent = resolveSnapshotIntent(options);
+    if (typeof snapshotIntent.promoteSkippedPayloadDrift === 'boolean') {
+      return snapshotIntent.promoteSkippedPayloadDrift;
+    }
     if (options.promoteDriftProbePayload === false) {
       return false;
     }
@@ -2267,6 +2290,7 @@
       return false;
     }
     const reason = options.reason || 'persist-active';
+    const snapshotIntent = resolveSnapshotIntent(options);
     // Skip the live-state read for any persist call where the tab is clean (no
     // user modifications since last flush) AND the call is either autosave-like
     // (recovery-interval, archive-save, etc.) OR a lifecycle event (tab activation
@@ -2276,13 +2300,22 @@
     const isLifecycleOrigin = options.origin === 'lifecycle';
     const skipCaptureBlockedByReason = reason === 'duplicate-before-create'
       || reason === 'add-tab-before-new';
-    const shouldCaptureLivePayloadForSave = isSaveLikeLiveCaptureReason(reason, options);
+    const shouldCaptureLivePayloadForSave = snapshotIntent.captureLivePayload === true
+      || isSaveLikeLiveCaptureReason(reason, options);
+    const allowSkipLivePayloadCapture = snapshotIntent.allowSkipLivePayloadCapture !== false;
+    const lifecycleSkipEligible = snapshotIntent.lifecycleSnapshot === true
+      || (snapshotIntent.lifecycleSnapshot !== false && isLifecycleOrigin);
+    const reasonSkipEligible = snapshotIntent.reasonSkippable === true
+      || (snapshotIntent.reasonSkippable !== false && isLiveCaptureSkippableReason(reason));
+    const explicitSkipLivePayloadCapture = snapshotIntent.skipLivePayloadCapture === true
+      || snapshotIntent.captureLivePayload === false;
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
       && !tab.userModified
       && !skipCaptureBlockedByReason
       && !shouldCaptureLivePayloadForSave
-      && (isLiveCaptureSkippableReason(reason) || isLifecycleOrigin));
+      && allowSkipLivePayloadCapture
+      && (explicitSkipLivePayloadCapture || reasonSkipEligible || lifecycleSkipEligible));
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
         try {
@@ -2469,7 +2502,8 @@
     // match the loaded-from-disk payload — typically returning null/empty because
     // the component's data structures haven't been hydrated yet. Persisting that
     // partial state would overwrite the authoritative archive payload. Skip.
-    const isAutosaveLikeReason = isLiveCaptureSkippableReason(reason);
+    const isAutosaveLikeReason = snapshotIntent.reasonSkippable === true
+      || (snapshotIntent.reasonSkippable !== false && isLiveCaptureSkippableReason(reason));
     if (isAutosaveLikeReason && tab.payload && !workspaceState.loadedWorkspaces?.[tab.id]) {
       console.debug('Debug: persistActiveTabState skipped (tab not bound)', {
         tabId: tab.id,

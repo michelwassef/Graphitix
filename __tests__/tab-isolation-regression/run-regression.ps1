@@ -4,11 +4,11 @@
 
 .EXAMPLE
   From the root of your Graphitix project:
-    .\tests\tab-isolation-regression\run-regression.ps1
+    .\__tests__\tab-isolation-regression\run-regression.ps1
 
 .EXAMPLE
   Limit to three components while debugging:
-    .\tests\tab-isolation-regression\run-regression.ps1 -Components "box,scatter,pca"
+    .\__tests__\tab-isolation-regression\run-regression.ps1 -Components "box,scatter,pca"
 
 .EXAMPLE
   Put artifacts in a custom folder:
@@ -49,7 +49,7 @@ Write-Step "Ensuring Playwright Chromium is installed..."
 npx playwright install chromium | Out-Host
 
 $argsList = @(
-  "tests/tab-isolation-regression/run-regression.js",
+  "__tests__/tab-isolation-regression/run-regression.js",
   "--app-root", $AppRoot,
   "--timeout-ms", $TimeoutMs
 )

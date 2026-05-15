@@ -9,6 +9,9 @@ const { chromium } = require('@playwright/test');
 const { analyzeGraphFile } = require('./analyze-graph-file');
 const { analyzeLogs } = require('./analyze-logs');
 
+const HARNESS_RELATIVE_DIR = '__tests__/tab-isolation-regression';
+const DEFAULT_ARTIFACTS_RELATIVE_DIR = `${HARNESS_RELATIVE_DIR}/artifacts`;
+
 const DEFAULT_COMPONENTS = [
   'box',
   'scatter',
@@ -46,7 +49,7 @@ function parseArgs(argv) {
     else if (arg === '--timeout-ms') out.timeoutMs = Number(next() || out.timeoutMs);
     else if (arg === '--phase-timeout-ms') out.phaseTimeoutMs = Number(next() || 0);
     else if (arg === '--help' || arg === '-h') {
-      console.log(`Usage: node tests/tab-isolation-regression/run-regression.js [options]\n\nOptions:\n  --app-root <path>       Graphitix project root. Default: current directory\n  --out-dir <path>        Output folder. Default: tests/tab-isolation-regression/artifacts/<timestamp>\n  --components <csv>      Components to test. Default: ${DEFAULT_COMPONENTS.join(',')}\n  --headed                Show the browser window\n  --keep-open             Keep browser open after test\n  --port <port>           Static server port. Default: random free port\n  --timeout-ms <ms>       Global timeout. Default: 240000\n  --phase-timeout-ms <ms> Per-phase watchdog timeout. Default: --timeout-ms\n`);
+      console.log(`Usage: node ${HARNESS_RELATIVE_DIR}/run-regression.js [options]\n\nOptions:\n  --app-root <path>       Graphitix project root. Default: current directory\n  --out-dir <path>        Output folder. Default: ${DEFAULT_ARTIFACTS_RELATIVE_DIR}/<timestamp>\n  --components <csv>      Components to test. Default: ${DEFAULT_COMPONENTS.join(',')}\n  --headed                Show the browser window\n  --keep-open             Keep browser open after test\n  --port <port>           Static server port. Default: random free port\n  --timeout-ms <ms>       Global timeout. Default: 240000\n  --phase-timeout-ms <ms> Per-phase watchdog timeout. Default: --timeout-ms\n`);
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -236,7 +239,7 @@ async function main() {
   }
   const outDir = opts.outDir
     ? path.resolve(opts.outDir)
-    : path.resolve(appRoot, 'tests', 'tab-isolation-regression', 'artifacts', timestampForPath());
+    : path.resolve(appRoot, DEFAULT_ARTIFACTS_RELATIVE_DIR, timestampForPath());
   ensureDir(outDir);
 
   const harnessPath = path.resolve(__dirname, 'renderer-harness.js');

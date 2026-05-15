@@ -36,12 +36,12 @@ regression-summary.json
 
 ## Installation
 
-Copy the `tests/tab-isolation-regression` folder and the provided `package.json` into the root of the Graphitix project, next to `index.html`.
+Copy the `__tests__/tab-isolation-regression` folder and the provided `package.json` into the root of the Graphitix project, next to `index.html`.
 
 Then open PowerShell in the project root and run:
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1
+.\__tests__\tab-isolation-regression\run-regression.ps1
 ```
 
 The first run installs the npm dependencies and Playwright Chromium. Later runs are faster.
@@ -72,7 +72,7 @@ The homogeneous same-state switch probe deliberately aligns paired tabs of each 
 ## Running a smaller test while debugging
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1 -Components "box,scatter,pca"
+.\__tests__\tab-isolation-regression\run-regression.ps1 -Components "box,scatter,pca"
 ```
 
 ## Debugging a hang
@@ -80,25 +80,25 @@ The homogeneous same-state switch probe deliberately aligns paired tabs of each 
 The runner now prints phase progress directly to PowerShell and writes a diagnostic JSON plus screenshot if a phase times out. To shorten the watchdog while debugging, use:
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1 -Components "box" -PhaseTimeoutMs 60000
+.\__tests__\tab-isolation-regression\run-regression.ps1 -Components "box" -PhaseTimeoutMs 60000
 ```
 
 ## Running with the browser visible
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1 -Headed
+.\__tests__\tab-isolation-regression\run-regression.ps1 -Headed
 ```
 
 ## Keeping the browser open after the test
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1 -Headed -KeepOpen
+.\__tests__\tab-isolation-regression\run-regression.ps1 -Headed -KeepOpen
 ```
 
 ## Choosing an output folder
 
 ```powershell
-.\tests\tab-isolation-regression\run-regression.ps1 -OutDir "C:\temp\graphitix-regression"
+.\__tests__\tab-isolation-regression\run-regression.ps1 -OutDir "C:\temp\graphitix-regression"
 ```
 
 ## What counts as failure

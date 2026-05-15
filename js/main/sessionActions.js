@@ -70,6 +70,64 @@
     return value;
   }
 
+  function cloneSnapshotIntent(intent) {
+    if (!intent || typeof intent !== 'object') {
+      return {};
+    }
+    return { ...intent };
+  }
+
+  function resolvePersistSnapshotIntent(options = {}) {
+    const explicit = cloneSnapshotIntent(options.snapshotIntent);
+    if (Object.keys(explicit).length) {
+      return explicit;
+    }
+    const kind = String(options.snapshotKind || '').trim().toLowerCase();
+    switch (kind) {
+      case 'archive-save':
+      case 'document-snapshot':
+      case 'append-existing':
+        return {
+          saveLike: true,
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false,
+          runSkippedPayloadDriftProbe: true,
+          promoteSkippedPayloadDrift: true,
+          reasonSkippable: false
+        };
+      case 'warmup-cache':
+        return {
+          saveLike: false,
+          captureLivePayload: false,
+          skipLivePayloadCapture: true,
+          allowSkipLivePayloadCapture: true,
+          lifecycleSnapshot: true,
+          runSkippedPayloadDriftProbe: false,
+          promoteSkippedPayloadDrift: false,
+          reasonSkippable: true
+        };
+      case 'autosave':
+        return {
+          saveLike: false,
+          allowSkipLivePayloadCapture: true,
+          lifecycleSnapshot: true,
+          runSkippedPayloadDriftProbe: false,
+          promoteSkippedPayloadDrift: false,
+          reasonSkippable: true
+        };
+      case 'lifecycle-checkpoint':
+      default:
+        return {
+          saveLike: false,
+          allowSkipLivePayloadCapture: true,
+          lifecycleSnapshot: true,
+          runSkippedPayloadDriftProbe: false,
+          promoteSkippedPayloadDrift: false,
+          reasonSkippable: true
+        };
+    }
+  }
+
 
   function rehomeArchiveValue(session, value, tabId) {
     if (value === null || value === undefined) {
@@ -337,7 +395,7 @@
     return cache;
   }
 
-  function persistActiveTabIfNeeded(context, reason) {
+  function persistActiveTabIfNeeded(context, options = {}) {
     const { session, withSessionContext, workspaceState } = context || {};
     if (!session || typeof session.getActiveTab !== 'function' || typeof session.persistActiveTabState !== 'function') {
       return;
@@ -346,28 +404,20 @@
     if (!active || active.isWelcome || !active.type) {
       return;
     }
-    const reasonText = String(reason || 'archive-save').toLowerCase();
-    // Root-cause guard: recovery/document-dirty snapshots are metadata checkpoints.
-    // Re-capturing runtime render cache on those paths can race with live edits and
-    // reintroduce stale visuals immediately after tab mutation.
-    const shouldCaptureRenderCache = (
-      (reasonText.includes('archive') || reasonText.includes('save') || reasonText.includes('snapshot'))
-      && !reasonText.includes('autosave')
-      && !reasonText.includes('recovery')
-      && !reasonText.endsWith('-private-snapshot')
-      && reasonText !== 'dirty'
-      && reasonText !== 'clean'
-    );
-    const preserveRenderCacheTabIds = reasonText.includes('archive') || reasonText.includes('save')
-      ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
+    const reason = options.reason || 'archive-save';
+    const snapshotIntent = resolvePersistSnapshotIntent(options);
+    const shouldCaptureRenderCache = options.captureRenderCache === true;
+    const preserveRenderCacheTabIds = Array.isArray(options.preserveRenderCacheTabIds)
+      ? options.preserveRenderCacheTabIds.filter(Boolean)
       : [active.id];
     session.persistActiveTabState(active, withSessionContext({
-      reason: reason || 'archive-save',
+      reason,
       forcePreviewCapture: true,
       captureRenderCache: shouldCaptureRenderCache,
       preserveRenderCacheTabIds,
       disableRenderCachePrune: true,
-      origin: 'lifecycle'
+      origin: 'lifecycle',
+      snapshotIntent
     }));
   }
 
@@ -560,7 +610,13 @@
     if (!session || !workspaceState || typeof withSessionContext !== 'function') {
       return null;
     }
-    persistActiveTabIfNeeded(context, options.reason || 'archive-save');
+    persistActiveTabIfNeeded(context, {
+      reason: options.reason || 'archive-save',
+      snapshotKind: options.snapshotKind || 'archive-save',
+      snapshotIntent: options.snapshotIntent || null,
+      captureRenderCache: options.captureRenderCache === true,
+      preserveRenderCacheTabIds: options.preserveRenderCacheTabIds
+    });
 
     if (scope === 'workspace') {
       const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
@@ -863,6 +919,8 @@
             session.persistActiveTabState(tab, withSessionContext({
               reason: `${reasonBase}-capture-cache`,
               origin: 'lifecycle',
+              snapshotKind: 'warmup-cache',
+              snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
               captureRenderCache: true,
               preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
               disableRenderCachePrune: true
@@ -900,6 +958,8 @@
             session.persistActiveTabState(finalTab, withSessionContext({
               reason: `${reasonBase}-finish-capture-cache`,
               origin: 'lifecycle',
+              snapshotKind: 'warmup-cache',
+              snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
               captureRenderCache: true,
               preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
               disableRenderCachePrune: true
@@ -1051,7 +1111,10 @@
 
     if (loadMode === 'append') {
       const existingSnapshot = buildScopeSnapshot(context, 'workspace', {
-        reason: meta.reason || 'graph-load-append-existing'
+        reason: meta.reason || 'graph-load-append-existing',
+        snapshotKind: 'append-existing',
+        captureRenderCache: true,
+        preserveRenderCacheTabIds: getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
       });
       const existingTabs = Array.isArray(existingSnapshot?.tabs) ? existingSnapshot.tabs : [];
       existingTabCount = existingTabs.length;
@@ -1189,7 +1252,19 @@
     } catch (err) {
       console.error('saveWorkspaceArchiveWithScope active ready error', err);
     }
-    const snapshot = buildScopeSnapshot(context, scope, options);
+    const snapshotKind = options.snapshotKind
+      || (options.reason === 'autosave' ? 'autosave' : 'archive-save');
+    const captureRenderCache = options.captureRenderCacheBeforeSnapshot !== false
+      && snapshotKind !== 'autosave';
+    const preserveRenderCacheTabIds = captureRenderCache
+      ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
+      : [session.getActiveTab?.()?.id || null].filter(Boolean);
+    const snapshot = buildScopeSnapshot(context, scope, {
+      ...options,
+      snapshotKind,
+      captureRenderCache,
+      preserveRenderCacheTabIds
+    });
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
       debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });
       return { status: 'cancelled', reason: 'no-tabs' };
@@ -1440,7 +1515,13 @@
     try {
       const active = session.getActiveTab?.();
       if (active && !active.isWelcome) {
-        persistedActive = !!session.persistActiveTabState(active, withSessionContext({ reason: 'beforeunload', origin: 'lifecycle' }));
+        persistedActive = !!session.persistActiveTabState(active, withSessionContext({
+          reason: 'beforeunload',
+          origin: 'lifecycle',
+          snapshotKind: 'lifecycle-checkpoint',
+          snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'lifecycle-checkpoint' }),
+          captureRenderCache: false
+        }));
       }
     } catch (err) {
       console.error('beforeunload persist error', err);
@@ -1465,9 +1546,23 @@
     if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
       throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
     }
-    const snapshot = buildScopeSnapshot(context, options.scope === 'tab' ? 'tab' : 'workspace', {
+    const snapshotScope = options.scope === 'tab' ? 'tab' : 'workspace';
+    const snapshotKind = options.snapshotKind || 'document-snapshot';
+    const preserveRenderCacheTabIds = getGraphTabsFromWorkspaceState(context?.workspaceState || null)
+      .map(tab => tab && tab.id)
+      .filter(Boolean);
+    if (!preserveRenderCacheTabIds.length) {
+      const activeId = context?.session?.getActiveTab?.()?.id || null;
+      if (activeId) {
+        preserveRenderCacheTabIds.push(activeId);
+      }
+    }
+    const snapshot = buildScopeSnapshot(context, snapshotScope, {
       ...options,
-      reason: options.reason || 'document-snapshot'
+      reason: options.reason || 'document-snapshot',
+      snapshotKind,
+      captureRenderCache: options.captureRenderCacheBeforeSnapshot !== false,
+      preserveRenderCacheTabIds
     });
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
       return null;
@@ -1516,6 +1611,8 @@
       return namespace.saveWorkspaceArchiveWithScope(context, {
         ...options,
         reason: options.reason || 'autosave',
+        snapshotKind: 'autosave',
+        captureRenderCacheBeforeSnapshot: false,
         scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
         forcePicker: false,
         allowFallback: false
@@ -1528,6 +1625,8 @@
           return namespace.saveWorkspaceArchiveWithScope(context, {
             ...options,
             reason: options.reason || 'autosave',
+            snapshotKind: 'autosave',
+            captureRenderCacheBeforeSnapshot: false,
             scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
             forcePicker: false,
             allowFallback: false
