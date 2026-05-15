@@ -2879,6 +2879,27 @@ let state = {
     });
   }
 
+  function hasPiePlottableData(hotInstance){
+    const matrix = hotInstance?.getData?.();
+    if(!Array.isArray(matrix) || matrix.length < 2){
+      return false;
+    }
+    for(let r = 1; r < matrix.length; r += 1){
+      const row = matrix[r];
+      if(!Array.isArray(row)){
+        continue;
+      }
+      const label = row[0];
+      const value = row[1];
+      const hasLabel = typeof label === 'string' ? !!label.trim() : (label != null && String(label).trim() !== '');
+      const numericValue = Number(value);
+      if(hasLabel && Number.isFinite(numericValue)){
+        return true;
+      }
+    }
+    return false;
+  }
+
   function ensurePieDataViewsForHot(hotInstance, options = {}){
     if(!hotInstance || typeof hotInstance.getData !== 'function'){
       return null;
@@ -2998,7 +3019,8 @@ let state = {
 
     const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
     getPieNodeById('pieLoadExample').addEventListener('click',()=>{
-      state.hot.loadData(example, {
+      const activeHot = state.ensureHotForActiveTab?.() || state.hot;
+      activeHot?.loadData?.(example, {
         source: 'example-load',
         recordUndo: true,
         undoLabel: 'table:pie:example-load'
@@ -3058,7 +3080,7 @@ let state = {
           state.scheduleDraw?.({ force: true, reason: 'import-prism-style' });
         };
         const result = await tableImport.openFile(pieFileInput,{
-          hot: state.hot,
+          hot: state.ensureHotForActiveTab?.() || state.hot,
           minCols: PIE_DEFAULT_COLS,
           minRows: PIE_DEFAULT_ROWS,
           scheduleDraw: state.scheduleDraw,
@@ -3098,7 +3120,7 @@ let state = {
         : !!notesState.open;
       notesState.text = notesText;
       notesState.open = notesOpen;
-      const activeHot = state.hot || state.ensureHotForActiveTab?.();
+      const activeHot = state.ensureHotForActiveTab?.() || state.hot;
       const activeManager = ensurePieDataViewsForHot(activeHot, {
         wrapper: getPieNodeById('pieHotWrapper'),
         container: activeHot?.__pieHostContainer || getPieNodeById('pieHot')
@@ -4682,6 +4704,9 @@ let state = {
 
   function restoreChildren(node, payload){
     if(!node || !payload || !payload.fragment){ return false; }
+    const count = Number(payload.count);
+    const hasChildNodes = !!(payload.fragment && payload.fragment.childNodes && payload.fragment.childNodes.length);
+    if(Number.isFinite(count) && count <= 0 && !hasChildNodes){ return false; }
     while(node.firstChild){
       node.removeChild(node.firstChild);
     }
@@ -4689,11 +4714,77 @@ let state = {
     return true;
   }
 
+  function pieSvgHasMeaningfulContent(svg){
+    if(!svg){ return false; }
+    const meaningful = Array.from(svg.children || []).some(child => {
+      const name = String(child?.tagName || '').toLowerCase();
+      return name && name !== 'defs' && name !== 'style' && name !== 'title' && name !== 'desc';
+    });
+    return meaningful || String(svg.textContent || '').trim().length > 0;
+  }
+
+  function piePlotHasMeaningfulGraph(plot){
+    if(!plot || typeof plot.querySelector !== 'function'){ return false; }
+    const svg = plot.querySelector('#pieSvg') || plot.querySelector('svg');
+    if(svg && pieSvgHasMeaningfulContent(svg)){ return true; }
+    const canvas = plot.querySelector('canvas');
+    return !!(canvas && (Number(canvas.width) > 0 || Number(canvas.height) > 0));
+  }
+
+  function pieFragmentPayloadHasGraph(payload){
+    if(!payload || typeof payload !== 'object'){ return false; }
+    const fragment = payload.fragment || null;
+    if(fragment && typeof fragment.querySelector === 'function'){
+      const svg = fragment.querySelector('#pieSvg') || fragment.querySelector('svg');
+      if(svg && pieSvgHasMeaningfulContent(svg)){
+        return true;
+      }
+      const canvas = fragment.querySelector('canvas');
+      if(canvas && (Number(canvas.width) > 0 || Number(canvas.height) > 0)){
+        return true;
+      }
+    }
+    if(payload.__graphitixKind === 'fragment-payload' && Array.isArray(payload.nodes)){
+      return payload.nodes.some(node => {
+        const markup = String(node?.markup || '');
+        return /<svg\b/i.test(markup) || /id=["']pieSvg["']/i.test(markup) || /<canvas\b/i.test(markup);
+      });
+    }
+    return false;
+  }
+
   pie.captureRenderCache = function captureRenderCache(){
-    const plot = getPieNodeById('piePlot');
+    let plot = getPieNodeById('piePlot');
+    const activeHot = state.ensureHotForActiveTab?.() || state.hot;
+    const hasGraphBeforeCapture = piePlotHasMeaningfulGraph(plot);
+    if(!hasGraphBeforeCapture && hasPiePlottableData(activeHot)){
+      try{
+        draw();
+        pieDebug('Debug: pie render cache capture self-healed blank graph before capture');
+      }catch(err){
+        console.error('pie captureRenderCache self-heal draw failed', err);
+      }
+      plot = getPieNodeById('piePlot');
+    }
+    if(!plot || !piePlotHasMeaningfulGraph(plot)){
+      pieDebug('Debug: pie render cache capture skipped', {
+        reason: !plot ? 'missing-plot-host' : 'empty-graph',
+        tabId: pie.__boundTabId || null
+      });
+      return null;
+    }
     const stats = getPieNodeById('pieStatsResults');
     const plotCache = detachChildren(plot);
     const statsCache = detachChildren(stats);
+    if(!pieFragmentPayloadHasGraph(plotCache)){
+      restoreChildren(plot, plotCache);
+      restoreChildren(stats, statsCache);
+      pieDebug('Debug: pie render cache capture skipped', {
+        reason: 'empty-runtime-cache',
+        tabId: pie.__boundTabId || null
+      });
+      return null;
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       pieDebug('Debug: pie render cache captured', {
         plotNodes: plotCache?.count || 0,
@@ -4727,12 +4818,23 @@ let state = {
     const stats = getPieNodeById('pieStatsResults');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
-    const restored = restoredPlot || restoredStats;
+    const hasGraph = piePlotHasMeaningfulGraph(plot);
+    if(!restoredPlot || !hasGraph){
+      pieDebug('Debug: pie render cache restore rejected after restore', {
+        reason: !restoredPlot ? 'plot-not-restored' : 'empty-restored-graph',
+        plot: restoredPlot,
+        stats: restoredStats,
+        hasGraph
+      });
+      return false;
+    }
+    const restored = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       pieDebug('Debug: pie render cache restored', {
         restored,
         plot: restoredPlot,
-        stats: restoredStats
+        stats: restoredStats,
+        hasGraph
       });
     }
     return restored;

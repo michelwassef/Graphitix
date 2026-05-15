@@ -1557,7 +1557,16 @@
       // Keeping a pre-change cache while accepting a post-change payload can
       // restore stale visuals on tab re-entry (same signature checks pass only
       // after a later recapture), which causes partial-control replay issues.
-      clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      const preserveRuntimeCache = meta.preserveRuntimeCacheOnPayloadChange === true;
+      if (!preserveRuntimeCache) {
+        clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
+      } else {
+        console.debug('Debug: workspace render cache preserved across payload drift', {
+          tabId: tab.id,
+          type: tab.type || null,
+          reason: meta.reason || 'payload-changed'
+        });
+      }
       clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
       markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-changed' });
     }
@@ -2617,7 +2626,15 @@
           }
         }
       }
-      const changed = assignTabPayload(tab, payloadClone, { reason });
+      const preserveRuntimeCacheOnPayloadChange = isLifecycleOrigin
+        && reason.includes('recovery-interval')
+        && !options.captureRenderCache
+        && !!tab.renderCache;
+      const forceCaptureRenderCacheAfterPayloadChange = preserveRuntimeCacheOnPayloadChange;
+      const changed = assignTabPayload(tab, payloadClone, {
+        reason,
+        preserveRuntimeCacheOnPayloadChange
+      });
       markTabPayloadFlushed(tab, reason);
       tab.layoutState = layoutClone;
       tab.layoutSignature = serializePayloadSignature(layoutClone);
@@ -2655,7 +2672,8 @@
           hasPreviews: !!previews
         });
       }
-      if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
+      if ((options.captureRenderCache || (forceCaptureRenderCacheAfterPayloadChange && changed))
+        && typeof config.captureRenderCache === 'function') {
         try {
           const captured = normalizeRenderCacheShapeForTab(config.captureRenderCache({
             tabId: tab.id,

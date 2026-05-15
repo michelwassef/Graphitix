@@ -11608,7 +11608,24 @@
     }
 
     pca.captureRenderCache = function captureRenderCache(){
-      const plot = getPcaNodeById('pcaPlot');
+      let plot = getPcaNodeById('pcaPlot');
+      const activeHot = ensurePcaHotForActiveTab();
+      const hasGraphBeforeCapture = hasPcaPrimaryGraphContent(pca.__boundTabId || null);
+      if(!hasGraphBeforeCapture && hasPcaPlottableData(activeHot)){
+        try{
+          drawPca({
+            force: true,
+            viewOnly: true,
+            reason: 'capture-render-cache-self-heal'
+          });
+          debugLog('Debug: pca render cache capture self-healed blank graph before capture', {
+            tabId: pca.__boundTabId || null
+          });
+        }catch(err){
+          console.error('pca captureRenderCache self-heal draw failed', err);
+        }
+        plot = getPcaNodeById('pcaPlot');
+      }
       const stats = getPcaNodeById('pcaStatsResults');
       const summary = getPcaNodeById('pcaStatsSummary');
       const scree = getPcaNodeById('pcaScreePlot');
