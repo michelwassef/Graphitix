@@ -8,11 +8,13 @@ This folder automates the manual regression procedure you have been doing:
 4. Create the workspace and record `01_create_workspace.log`.
 5. Switch through all tabs before saving and record `02_initial_switching.log`.
 6. Save a `.graph` file and record `03_file_save.log`.
-7. Reopen the saved `.graph` file and run the first activation pass, recorded as `04_reopened_cold_cache.log`.
-8. Switch through all tabs again and record `05_reopened_live_switching.log`.
-9. Run the resize-after-switch probe and record `06_resize_after_switch.log`.
-10. Run the homogeneous same-state switch probe and record `07_homogeneous_switching.log`.
-11. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
+7. Verify live-edit cache invalidation before reopen and record `03a_initial_live_edit_invalidation.log`.
+8. Reopen the saved `.graph` file and run the first activation pass, recorded as `04_reopened_cold_cache.log`.
+9. Switch through all tabs again and record `05_reopened_live_switching.log`.
+10. Verify live-edit cache invalidation after reopen and record `05a_reopened_live_edit_invalidation.log`.
+11. Run the resize-after-switch probe and record `06_resize_after_switch.log`.
+12. Run the homogeneous same-state switch probe and record `07_homogeneous_switching.log`.
+13. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
 
 The runner produces a folder containing:
 
@@ -21,8 +23,10 @@ The runner produces a folder containing:
 01_create_workspace.log
 02_initial_switching.log
 03_file_save.log
+03a_initial_live_edit_invalidation.log
 04_reopened_cold_cache.log
 05_reopened_live_switching.log
+05a_reopened_live_edit_invalidation.log
 06_resize_after_switch.log
 07_homogeneous_switching.log
 full-console.log
@@ -107,6 +111,7 @@ The suite flags these as failures:
 - duplicate saved graph drawing-zone layout fingerprints between tabs of the same component;
 - render-cache owner tab ID not matching the tab runtime ID;
 - stale `workspace-*` IDs inside layout, preview, cache, or UI state;
+- render cache still present immediately after live user mutation;
 - `persistActiveTabState DRIFT on skipped path` during save;
 - render-cache validation failures;
 - layout application skipped/failing;
@@ -137,8 +142,10 @@ If the status is `FAIL`, inspect:
 ```text
 regression-summary.json
 03_file_save.log
+03a_initial_live_edit_invalidation.log
 04_reopened_cold_cache.log
 05_reopened_live_switching.log
+05a_reopened_live_edit_invalidation.log
 06_resize_after_switch.log
 07_homogeneous_switching.log
 workspace-regression.graph

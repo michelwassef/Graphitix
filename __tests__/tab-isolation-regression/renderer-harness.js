@@ -1959,6 +1959,76 @@
     return Object.assign(switchResult, { previewSummary: summarizeRuntimePreviews(), cacheSummary: summarizeRuntimeCaches() });
   }
 
+  async function runLiveEditCacheInvalidationPhase(options = {}){
+    const phase = options.phase || 'live-edit-cache-invalidation';
+    const failures = [];
+    const rows = [];
+    const tabs = getGraphTabs();
+    progress('live-edit-cache-invalidation:start', { phase, tabCount: tabs.length });
+    for(const tab of tabs){
+      try{
+        await activateTab(tab.id, { reason: `${phase}:activate` });
+        await waitFor(() => getRoot(tab.id, tab.type), 10000, `root after ${phase} activate ${tab.id}`);
+        await settle(180);
+        await persistAndPreview(tab, tab.type, `${phase}:prime-cache`);
+        await settle(120);
+        const hadRuntimeCacheBefore = !!tab.renderCache;
+        const hadArchiveCacheBefore = !!tab.archiveRenderCache;
+        const marked = !!window.Main?.session?.markTabUserModified?.(tab, `${phase}:user-edit`, {
+          origin: 'user',
+          affectsPayload: false,
+          markSessionDirty: false
+        });
+        await settle(120);
+        const hasRuntimeCacheAfter = !!tab.renderCache;
+        const hasArchiveCacheAfter = !!tab.archiveRenderCache;
+        const row = {
+          tabId: tab.id,
+          type: tab.type,
+          marked,
+          hadRuntimeCacheBefore,
+          hadArchiveCacheBefore,
+          hasRuntimeCacheAfter,
+          hasArchiveCacheAfter
+        };
+        rows.push(row);
+        if(!hadRuntimeCacheBefore && !hadArchiveCacheBefore){
+          failures.push(`${tab.type} (${tab.id}): live-edit invalidation probe could not prime a render cache before mutation`);
+        }
+        if(!marked){
+          failures.push(`${tab.type} (${tab.id}): live-edit invalidation probe could not mark tab as user-modified`);
+        }
+        if(hasRuntimeCacheAfter || hasArchiveCacheAfter){
+          failures.push(`${tab.type} (${tab.id}): render cache not cleared after live user mutation (runtime=${hasRuntimeCacheAfter}, archive=${hasArchiveCacheAfter})`);
+        }
+        progress('live-edit-cache-invalidation:tab', {
+          phase,
+          tabId: tab.id,
+          type: tab.type,
+          marked,
+          hadRuntimeCacheBefore,
+          hadArchiveCacheBefore,
+          hasRuntimeCacheAfter,
+          hasArchiveCacheAfter
+        });
+      }catch(err){
+        const message = err?.message || String(err);
+        failures.push(`${tab.type} (${tab.id}) live-edit cache invalidation failed: ${message}`);
+        error('live-edit-cache-invalidation failed', { phase, tabId: tab.id, type: tab.type, message });
+      }
+    }
+    progress('live-edit-cache-invalidation:complete', {
+      phase,
+      checked: rows.length,
+      failures: failures.length
+    });
+    return {
+      rows,
+      failures,
+      cacheSummary: summarizeRuntimeCaches()
+    };
+  }
+
   async function runResizeAfterSwitchPhase(options = {}){
     const failures = [];
     const rows = [];
@@ -2073,6 +2143,7 @@
     runSavePhase,
     runReopenColdCachePhase,
     runReopenAndSwitchPhase,
+    runLiveEditCacheInvalidationPhase,
     runResizeAfterSwitchPhase,
     summarizeRuntimePreviews,
     summarizeRuntimeCaches,

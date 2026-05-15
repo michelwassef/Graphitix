@@ -311,6 +311,10 @@ async function main() {
       return window.GraphitixRegression.runSavePhase({ fileName: 'workspace-regression.graph' });
     }));
 
+    const initialLiveEditInvalidationSummary = await runPhase('03a_initial_live_edit_invalidation', () => page.evaluate(async () => {
+      return window.GraphitixRegression.runLiveEditCacheInvalidationPhase({ phase: 'initial-live-edit-invalidation' });
+    }));
+
     const graphFile = path.join(outDir, 'workspace-regression.graph');
     const graphSize = decodeBase64ToFile(saveResult.base64, graphFile);
 
@@ -320,6 +324,9 @@ async function main() {
 
     const reopenedLiveSwitchSummary = await runPhase('05_reopened_live_switching', () => page.evaluate(async () => {
       return window.GraphitixRegression.runSwitchingPhase({ phase: 'reopened-live-switching', primeRenderCaches: false });
+    }));
+    const reopenedLiveEditInvalidationSummary = await runPhase('05a_reopened_live_edit_invalidation', () => page.evaluate(async () => {
+      return window.GraphitixRegression.runLiveEditCacheInvalidationPhase({ phase: 'reopened-live-edit-invalidation' });
     }));
 
     const resizeAfterSwitchSummary = await runPhase('06_resize_after_switch', () => page.evaluate(async () => {
@@ -355,8 +362,10 @@ async function main() {
       createSummary,
       initialSwitchSummary,
       saveResult: { ...saveResult, base64: undefined, byteLength: graphSize },
+      initialLiveEditInvalidationSummary,
       reopenedColdCacheSummary,
       reopenedLiveSwitchSummary,
+      reopenedLiveEditInvalidationSummary,
       resizeAfterSwitchSummary,
       homogeneousSwitchSummary,
       cacheReuseSummary,
@@ -369,8 +378,10 @@ async function main() {
     if (logAnalysis.failures?.length) failures.push(...logAnalysis.failures.map(x => `logs: ${x}`));
     if (createSummary.failures?.length) failures.push(...createSummary.failures.map(x => `create: ${x}`));
     if (initialSwitchSummary.failures?.length) failures.push(...initialSwitchSummary.failures.map(x => `initial: ${x}`));
+    if (initialLiveEditInvalidationSummary.failures?.length) failures.push(...initialLiveEditInvalidationSummary.failures.map(x => `initial-live-edit: ${x}`));
     if (reopenedColdCacheSummary.failures?.length) failures.push(...reopenedColdCacheSummary.failures.map(x => `reopened-cold: ${x}`));
     if (reopenedLiveSwitchSummary.failures?.length) failures.push(...reopenedLiveSwitchSummary.failures.map(x => `reopened-live: ${x}`));
+    if (reopenedLiveEditInvalidationSummary.failures?.length) failures.push(...reopenedLiveEditInvalidationSummary.failures.map(x => `reopened-live-edit: ${x}`));
     if (resizeAfterSwitchSummary.failures?.length) failures.push(...resizeAfterSwitchSummary.failures.map(x => `resize-after-switch: ${x}`));
     if (homogeneousSwitchSummary.failures?.length) failures.push(...homogeneousSwitchSummary.failures.map(x => `homogeneous-switching: ${x}`));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedCold, 'reopened-cold-cache', { requireSavedCache: true }));

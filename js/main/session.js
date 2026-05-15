@@ -217,6 +217,12 @@
       tab.payloadDirty = true;
       tab.payloadDirtyReason = tab.lastUserModifiedReason;
     }
+    // Root-cause fix: any user mutation makes previously captured render caches stale.
+    // Invalidate both runtime and archive caches immediately so tab switching can never
+    // replay pre-change visuals over post-change controls/data/layout.
+    clearTabRenderCache(tab, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
+    clearTabArchiveRenderCache(tab, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
+    markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
     if (meta.markSessionDirty !== false) {
       markSessionDirty(tab.lastUserModifiedReason, {
         tabId: tab.id,

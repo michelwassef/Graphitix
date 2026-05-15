@@ -347,13 +347,24 @@
       return;
     }
     const reasonText = String(reason || 'archive-save').toLowerCase();
+    // Root-cause guard: recovery/document-dirty snapshots are metadata checkpoints.
+    // Re-capturing runtime render cache on those paths can race with live edits and
+    // reintroduce stale visuals immediately after tab mutation.
+    const shouldCaptureRenderCache = (
+      (reasonText.includes('archive') || reasonText.includes('save') || reasonText.includes('snapshot'))
+      && !reasonText.includes('autosave')
+      && !reasonText.includes('recovery')
+      && !reasonText.endsWith('-private-snapshot')
+      && reasonText !== 'dirty'
+      && reasonText !== 'clean'
+    );
     const preserveRenderCacheTabIds = reasonText.includes('archive') || reasonText.includes('save')
       ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
       : [active.id];
     session.persistActiveTabState(active, withSessionContext({
       reason: reason || 'archive-save',
       forcePreviewCapture: true,
-      captureRenderCache: true,
+      captureRenderCache: shouldCaptureRenderCache,
       preserveRenderCacheTabIds,
       disableRenderCachePrune: true,
       origin: 'lifecycle'
