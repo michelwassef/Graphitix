@@ -83,7 +83,7 @@
       maxWidth: Math.max(baseWidth, Math.round(baseWidth * effectiveMaxScale)),
       maxHeight: Math.max(baseHeight, Math.round(baseHeight * effectiveMaxScale)),
       aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
-      aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED !== false
+      aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED === true
     };
     debug('Debug: graphSizing.computeFallbackSizing', { context, sizing });
     return sizing;
@@ -99,7 +99,7 @@
       maxWidth: Number(source.maxWidth),
       maxHeight: Number(source.maxHeight),
       aspectRatio: Number(source.aspectRatio),
-      aspectLocked: source.aspectLocked !== false
+      aspectLocked: source.aspectLocked === true
     };
   }
 
@@ -181,7 +181,7 @@
       || toPositiveNumber(rawDisplay.maxHeight)
       || Math.max(heightPx, fallback.maxHeight);
     const aspectRatio = toPositiveNumber(rawDisplay.aspectRatio) || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
-    const aspectLocked = rawDisplay.aspectLocked !== false;
+    const aspectLocked = rawDisplay.aspectLocked === true;
     const allowUnlimitedWidth = rawDisplay.allowUnlimitedWidth === true || rawDisplay.maxWidthPx === null || rawDisplay.maxWidth === null;
 
     const exportWidthPx = toPositiveNumber(rawExport.widthPx)
@@ -261,7 +261,7 @@
       data.graphMaxWidthPx = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
       data.graphMaxHeightPx = String(Math.round(display.maxHeightPx));
       data.graphAspectRatio = String(display.aspectRatio);
-      data.graphAspectLocked = display.aspectLocked !== false ? 'true' : 'false';
+      data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
       data.graphSizingVersion = String(record.version || 1);
 
       data.resizerDefaultWidth = String(Math.round(defaultWidthPx));
@@ -271,7 +271,7 @@
       data.resizerMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
       data.resizerMaxHeight = String(Math.round(display.maxHeightPx));
       data.resizerAspectRatio = String(display.aspectRatio);
-      data.resizerAspectLocked = display.aspectLocked !== false ? 'true' : 'false';
+      data.resizerAspectLocked = display.aspectLocked === true ? 'true' : 'false';
       data.resizerUnlimitedWidth = display.allowUnlimitedWidth === true ? 'true' : 'false';
       data.graphDefaultWidth = String(Math.round(defaultWidthPx));
       data.graphDefaultHeight = String(Math.round(defaultHeightPx));
@@ -279,7 +279,7 @@
       data.graphMinHeight = String(Math.round(display.minHeightPx));
       data.graphMaxWidth = display.allowUnlimitedWidth === true ? 'Infinity' : String(Math.round(display.maxWidthPx));
       data.graphMaxHeight = String(Math.round(display.maxHeightPx));
-      data.graphAspectLocked = display.aspectLocked !== false ? 'true' : 'false';
+      data.graphAspectLocked = display.aspectLocked === true ? 'true' : 'false';
     }
 
     debug('Debug: graphSizing.applySizingRecordToElement applied', {
@@ -337,9 +337,9 @@
       || parsePxLike(data.graphAspectRatio)
       || parsePxLike(data.resizerAspectRatio)
       || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
-    const aspectLocked = data.graphAspectLocked === 'false'
-      ? false
-      : (data.resizerAspectLocked === 'false' ? false : fallback.aspectLocked !== false);
+    const aspectLocked = data.graphAspectLocked === 'true'
+      ? true
+      : (data.resizerAspectLocked === 'true' ? true : fallback.aspectLocked === true);
 
     return buildNormalizedSizingRecord({
       display: {

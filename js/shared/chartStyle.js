@@ -93,7 +93,7 @@
   const RESIZE_MIN_SCALE = 0.3;
   const RESIZE_MAX_SCALE = 3;
   const DEFAULT_ASPECT_RATIO = 1;
-  const DEFAULT_ASPECT_LOCKED = true;
+  const DEFAULT_ASPECT_LOCKED = false;
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const GLOBAL_TEXT_SCOPE = '__chartstyle_global__';
   let textSizeLocked = false;

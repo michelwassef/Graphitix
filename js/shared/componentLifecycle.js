@@ -604,23 +604,141 @@
     return false;
   };
 
+  function cssNumber(value){
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  }
+
+  function isElementChainVisible(element){
+    if(!element || !element.isConnected){
+      return false;
+    }
+    let node = element;
+    while(node && node.nodeType === 1){
+      if(node.hasAttribute?.('hidden') || node.getAttribute?.('aria-hidden') === 'true'){
+        return false;
+      }
+      try{
+        const style = typeof global.getComputedStyle === 'function' ? global.getComputedStyle(node) : null;
+        if(style){
+          if(style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse'){
+            return false;
+          }
+          const opacity = cssNumber(style.opacity);
+          if(Number.isFinite(opacity) && opacity <= 0){
+            return false;
+          }
+        }
+      }catch(_err){}
+      node = node.parentElement;
+    }
+    return true;
+  }
+
+  function hasRenderableBox(element){
+    if(!element || typeof element.getBoundingClientRect !== 'function'){
+      return null;
+    }
+    try{
+      const rect = element.getBoundingClientRect();
+      const width = Number(rect?.width);
+      const height = Number(rect?.height);
+      if(!Number.isFinite(width) || !Number.isFinite(height)){
+        return null;
+      }
+      return width > 1 && height > 1;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function hasSvgNodeGeometry(node){
+    if(!node || typeof node !== 'object'){
+      return false;
+    }
+    if(typeof node.getBBox === 'function'){
+      try{
+        const box = node.getBBox();
+        if(box && Number.isFinite(box.width) && Number.isFinite(box.height) && (Number(box.width) > 0 || Number(box.height) > 0)){
+          return true;
+        }
+      }catch(_err){}
+    }
+    const tag = String(node.tagName || '').toLowerCase();
+    if(tag === 'path'){
+      return String(node.getAttribute?.('d') || '').trim().length > 0;
+    }
+    if(tag === 'circle'){
+      return Number(node.getAttribute?.('r')) > 0;
+    }
+    if(tag === 'ellipse'){
+      return Number(node.getAttribute?.('rx')) > 0 || Number(node.getAttribute?.('ry')) > 0;
+    }
+    if(tag === 'line'){
+      const x1 = Number(node.getAttribute?.('x1'));
+      const y1 = Number(node.getAttribute?.('y1'));
+      const x2 = Number(node.getAttribute?.('x2'));
+      const y2 = Number(node.getAttribute?.('y2'));
+      return Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2) && (x1 !== x2 || y1 !== y2);
+    }
+    if(tag === 'polyline' || tag === 'polygon'){
+      const points = String(node.getAttribute?.('points') || '').trim();
+      return points.split(/\s+/).length >= 2;
+    }
+    if(tag === 'text'){
+      return String(node.textContent || '').trim().length > 0;
+    }
+    const width = Number(node.getAttribute?.('width'));
+    const height = Number(node.getAttribute?.('height'));
+    return (Number.isFinite(width) && width > 0) || (Number.isFinite(height) && height > 0);
+  }
+
   namespace.hasRenderableGraphContent = function hasRenderableGraphContent(root){
     if(!root || typeof root.querySelector !== 'function'){
       return false;
     }
+    if(!isElementChainVisible(root)){
+      return false;
+    }
+    const rootBox = hasRenderableBox(root);
+    if(rootBox === false){
+      return false;
+    }
     const canvases = Array.from(root.querySelectorAll('canvas'));
-    if(canvases.some(canvas => Number(canvas.width) > 0 && Number(canvas.height) > 0)){
-      return true;
+    for(let i = 0; i < canvases.length; i += 1){
+      const canvas = canvases[i];
+      if(!isElementChainVisible(canvas)){
+        continue;
+      }
+      const box = hasRenderableBox(canvas);
+      const pixelWidth = Number(canvas.width) || 0;
+      const pixelHeight = Number(canvas.height) || 0;
+      if((box !== false && pixelWidth > 1 && pixelHeight > 1) || box === true){
+        return true;
+      }
     }
     const svgs = Array.from(root.querySelectorAll('.svgbox svg, [id$="Plot"] svg, svg'));
-    return svgs.some(svg => {
-      if(!svg){ return false; }
-      const children = Array.from(svg.children || []).filter(child => {
-        const name = String(child?.tagName || '').toLowerCase();
-        return name && name !== 'defs' && name !== 'style' && name !== 'title' && name !== 'desc';
-      });
-      return children.length > 0 || String(svg.textContent || '').trim().length > 0;
-    });
+    for(let i = 0; i < svgs.length; i += 1){
+      const svg = svgs[i];
+      if(!svg || !isElementChainVisible(svg)){
+        continue;
+      }
+      const svgBox = hasRenderableBox(svg);
+      if(svgBox === false){
+        continue;
+      }
+      const candidates = Array.from(svg.querySelectorAll('path,circle,ellipse,rect,line,polyline,polygon,text,image,foreignObject,foreignobject,use'));
+      for(let j = 0; j < candidates.length; j += 1){
+        const node = candidates[j];
+        if(!isElementChainVisible(node)){
+          continue;
+        }
+        if(hasSvgNodeGeometry(node)){
+          return true;
+        }
+      }
+    }
+    return false;
   };
 
   namespace.canReuseLiveDom = function canReuseLiveDom(tab, meta = {}){

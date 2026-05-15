@@ -26,6 +26,19 @@
     survival: 'survivalFontSize',
     surface: 'surfaceFontSize'
   };
+  const PRIMARY_GRAPH_PROBE_SELECTORS = Object.freeze({
+    box: '#boxPlot',
+    scatter: '#scatterPlot',
+    line: '#linePlot',
+    hist: '#histPlot',
+    pca: '#pcaPlot',
+    pie: '#piePlot',
+    roc: '#rocPlot',
+    survival: '#survivalPlot',
+    heatmap: '#heatmapGraphPanel .svgbox',
+    venn: '#vennGraphPanel .svgbox',
+    surface: '#surfaceGraphPanel .svgbox'
+  });
 
   const VARIANT_FONT_SIZE = Object.freeze({ 1: 10, 2: 18 });
   const VARIANT_COLORS = Object.freeze({
@@ -625,18 +638,134 @@
   function getRoot(tabId, type){
     return window.Shared?.workspaceTabs?.getMountedRoot?.(tabId, type) || document.querySelector(`[data-workspace-tab-id="${tabId}"]`) || null;
   }
+  function numberFromCss(value){
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function isElementChainVisible(el){
+    if(!el || !el.isConnected) return false;
+    let node = el;
+    while(node && node.nodeType === 1){
+      if(node.hasAttribute?.('hidden') || node.getAttribute?.('aria-hidden') === 'true'){
+        return false;
+      }
+      const style = window.getComputedStyle?.(node);
+      if(style){
+        if(style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse'){
+          return false;
+        }
+        if(numberFromCss(style.opacity) === 0){
+          return false;
+        }
+      }
+      node = node.parentElement;
+    }
+    return true;
+  }
+  function hasRenderableBox(el){
+    if(!el) return false;
+    const rect = el.getBoundingClientRect?.();
+    return !!rect && Number(rect.width) > 1 && Number(rect.height) > 1;
+  }
+  function hasSvgNodeGeometry(node){
+    if(!node || typeof node !== 'object'){
+      return false;
+    }
+    if(typeof node.getBBox === 'function'){
+      try{
+        const box = node.getBBox();
+        if(box && Number.isFinite(box.width) && Number.isFinite(box.height) && (Number(box.width) > 0 || Number(box.height) > 0)){
+          return true;
+        }
+      }catch(_err){}
+    }
+    const tag = String(node.tagName || '').toLowerCase();
+    if(tag === 'path'){
+      return String(node.getAttribute?.('d') || '').trim().length > 0;
+    }
+    if(tag === 'circle'){
+      return Number(node.getAttribute?.('r')) > 0;
+    }
+    if(tag === 'ellipse'){
+      return Number(node.getAttribute?.('rx')) > 0 || Number(node.getAttribute?.('ry')) > 0;
+    }
+    if(tag === 'line'){
+      const x1 = Number(node.getAttribute?.('x1'));
+      const y1 = Number(node.getAttribute?.('y1'));
+      const x2 = Number(node.getAttribute?.('x2'));
+      const y2 = Number(node.getAttribute?.('y2'));
+      return Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2) && (x1 !== x2 || y1 !== y2);
+    }
+    if(tag === 'polyline' || tag === 'polygon'){
+      const points = String(node.getAttribute?.('points') || '').trim();
+      return points.split(/\s+/).length >= 2;
+    }
+    if(tag === 'text'){
+      return String(node.textContent || '').trim().length > 0;
+    }
+    const width = Number(node.getAttribute?.('width'));
+    const height = Number(node.getAttribute?.('height'));
+    return (Number.isFinite(width) && width > 0) || (Number.isFinite(height) && height > 0);
+  }
+  function graphProbe(root){
+    if(!root){
+      return { ok: false, reason: 'missing-root' };
+    }
+    if(!isElementChainVisible(root)){
+      return { ok: false, reason: 'root-hidden' };
+    }
+    if(!hasRenderableBox(root)){
+      return { ok: false, reason: 'root-zero-size' };
+    }
+    const canvases = Array.from(root.querySelectorAll?.('canvas') || []);
+    for(const canvas of canvases){
+      if(!isElementChainVisible(canvas)) continue;
+      const width = Number(canvas.width) || Number(canvas.getBoundingClientRect?.().width) || 0;
+      const height = Number(canvas.height) || Number(canvas.getBoundingClientRect?.().height) || 0;
+      if(width > 1 && height > 1){
+        return { ok: true, medium: 'canvas' };
+      }
+    }
+    const svgs = Array.from(root.querySelectorAll?.('.svgbox svg, svg[data-export-layer], svg') || []);
+    for(const svg of svgs){
+      if(!isElementChainVisible(svg)) continue;
+      if(!hasRenderableBox(svg)) continue;
+      const candidates = Array.from(svg.querySelectorAll?.('path,circle,ellipse,rect,line,polyline,polygon,text,image,foreignObject,foreignobject,use') || []);
+      for(const node of candidates){
+        if(!isElementChainVisible(node)) continue;
+        if(hasSvgNodeGeometry(node)){
+          return { ok: true, medium: 'svg' };
+        }
+      }
+    }
+    return { ok: false, reason: 'no-visible-graph-primitives' };
+  }
   function graphHasContent(root){
-    if(!root) return false;
-    const canvas = root.querySelector?.('canvas');
-    if(canvas && (Number(canvas.width) > 0 || Number(canvas.height) > 0)) return true;
-    const svg = root.querySelector?.('.svgbox svg, svg[data-export-layer], svg');
-    if(!svg) return false;
-    if(String(svg.textContent || '').trim().length > 0) return true;
-    const visibleShape = svg.querySelector?.('path,circle,rect,line,polyline,polygon,text,image,foreignObject,foreignobject');
-    if(!visibleShape) return false;
-    const width = Number(svg.getAttribute?.('width')) || Number(svg.viewBox?.baseVal?.width) || Number(svg.getBoundingClientRect?.().width) || 0;
-    const height = Number(svg.getAttribute?.('height')) || Number(svg.viewBox?.baseVal?.height) || Number(svg.getBoundingClientRect?.().height) || 0;
-    return width > 0 && height > 0;
+    return graphProbe(root).ok;
+  }
+  function resolvePrimaryGraphRoot(tabLike, type){
+    const tabId = tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike;
+    const componentType = type || (tabLike && typeof tabLike === 'object' ? tabLike.type : null);
+    const root = getRoot(tabId, componentType) || null;
+    const selector = PRIMARY_GRAPH_PROBE_SELECTORS[componentType] || null;
+    if(!selector || !root || typeof root.querySelector !== 'function'){
+      return root;
+    }
+    return root.querySelector(selector) || root;
+  }
+  function graphProbeForTab(tab){
+    const primaryRoot = resolvePrimaryGraphRoot(tab, tab?.type);
+    const primary = graphProbe(primaryRoot);
+    const workspaceRoot = getRoot(tab?.id, tab?.type) || null;
+    const fallback = workspaceRoot && workspaceRoot !== primaryRoot ? graphProbe(workspaceRoot) : null;
+    return {
+      ok: !!primary.ok,
+      reason: primary.reason || null,
+      medium: primary.medium || null,
+      primarySelector: PRIMARY_GRAPH_PROBE_SELECTORS[tab?.type] || null,
+      fallbackOk: !!fallback?.ok,
+      fallbackReason: fallback?.reason || null
+    };
   }
   function findInRootOrDocument(tabId, type, id){
     const root = getRoot(tabId, type);
@@ -1569,13 +1698,15 @@
         await settle(180);
         stampGraph(tab.id, tab.type, tab.__regressionVariant || (visited.length % 2) + 1);
         const layoutCheck = assertLayoutStable(tab);
-        const hasGraph = graphHasContent(getRoot(tab.id, tab.type));
+        const graphStatus = graphProbeForTab(tab);
+        const hasGraph = graphStatus.ok;
         const cacheProbe = summarizeCacheEventsForTab(tab, cacheProbeCursor, phase, switchStateBefore);
         cacheReuseRows.push(cacheProbe);
         visited.push({
           id: tab.id,
           type: tab.type,
           hasGraph,
+          graphStatus,
           layoutOk: layoutCheck.ok,
           expectedLayout: layoutCheck.expected,
           actualLayout: layoutCheck.actual,
@@ -1602,14 +1733,31 @@
             layoutCheck
           });
         }
+        if(!hasGraph){
+          failures.push(`${tab.id}/${tab.type}: graph missing after switch (${phase || 'switch-tabs'})`);
+          warn('graph missing after switch', {
+            tabId: tab.id,
+            type: tab.type,
+            phase,
+            cacheOutcome: cacheProbe?.outcome || null,
+            cacheAccepted: !!cacheProbe?.cacheAccepted,
+            cacheRejected: !!cacheProbe?.cacheRejected,
+            drawObserved: !!cacheProbe?.drawObserved,
+            graphReason: graphStatus.reason || null,
+            graphFallbackOk: !!graphStatus.fallbackOk
+          });
+        }
       }catch(err){
         cacheProbeState.activeSwitch = null;
         failures.push(`${tab.id}/${tab.type}: ${err.message || String(err)}`);
         error('switch failed', { tabId: tab.id, type: tab.type, phase, message: err.message || String(err) });
       }
     }
-    const divergence = collectVariantDivergenceFailures(phase || 'switch-tabs', expectedPerComponent);
-    if(divergence.failures.length){
+    const skipVariantDivergence = options.skipVariantDivergence === true;
+    const divergence = skipVariantDivergence
+      ? { summary: summarizeVariantDivergence(), failures: [] }
+      : collectVariantDivergenceFailures(phase || 'switch-tabs', expectedPerComponent);
+    if(!skipVariantDivergence && divergence.failures.length){
       failures.push(...divergence.failures);
       warn('variant divergence failures after switch', { phase, failures: divergence.failures, summary: divergence.summary });
     }
@@ -1628,6 +1776,60 @@
     const result = await switchTabsInternal(`${phase}:probe`, Number(options.tabsPerComponent || 2), { cacheProbe: true });
     return Object.assign(result, {
       primeRows,
+      previewSummary: summarizeRuntimePreviews(),
+      cacheSummary: summarizeRuntimeCaches()
+    });
+  }
+  async function alignTabsToSameStateForSwitchPhase(phase, options = {}){
+    const failures = [];
+    const tabsPerComponent = Math.max(1, Number(options.tabsPerComponent || 2));
+    const byType = {};
+    getGraphTabs().forEach(tab => {
+      const type = tab?.type || 'unknown';
+      if(!byType[type]) byType[type] = [];
+      byType[type].push(tab);
+    });
+    for(const [type, rows] of Object.entries(byType)){
+      const targetTabs = rows.slice(0, tabsPerComponent);
+      for(const tab of targetTabs){
+        try{
+          await activateTab(tab.id, { reason: `${phase}:same-state-prepare` });
+          await waitFor(() => getRoot(tab.id, tab.type), 10000, `root after same-state prepare ${tab.id}`);
+          await settle(120);
+          await loadExample(tab, type);
+          applyControlVariation(tab, type, 1);
+          await settle(140);
+          await persistAndPreview(tab, type, `${phase}:same-state`);
+          tab.__regressionVariant = 1;
+          stampGraph(tab.id, type, 1);
+        }catch(err){
+          const message = err?.message || String(err);
+          failures.push(`${type}/${tab.id}: same-state alignment failed: ${message}`);
+          warn('homogeneous switch alignment failed', { phase, type, tabId: tab.id, message });
+        }
+      }
+    }
+    return failures;
+  }
+  async function runHomogeneousSwitchingPhase(options = {}){
+    const phase = options.phase || 'homogeneous-switching';
+    const tabsPerComponent = Math.max(1, Number(options.tabsPerComponent || 2));
+    progress('homogeneous-switch:start', { phase, tabsPerComponent });
+    const prepFailures = await alignTabsToSameStateForSwitchPhase(phase, { tabsPerComponent });
+    const result = await switchTabsInternal(`${phase}:probe`, tabsPerComponent, {
+      cacheProbe: true,
+      skipVariantDivergence: true
+    });
+    if(prepFailures.length){
+      result.failures = prepFailures.concat(result.failures || []);
+    }
+    progress('homogeneous-switch:complete', {
+      phase,
+      prepFailures: prepFailures.length,
+      switchFailures: (result.failures || []).length
+    });
+    return Object.assign(result, {
+      prepFailures,
       previewSummary: summarizeRuntimePreviews(),
       cacheSummary: summarizeRuntimeCaches()
     });
@@ -1867,6 +2069,7 @@
   window.GraphitixRegression = {
     runCreateWorkspace,
     runSwitchingPhase,
+    runHomogeneousSwitchingPhase,
     runSavePhase,
     runReopenColdCachePhase,
     runReopenAndSwitchPhase,

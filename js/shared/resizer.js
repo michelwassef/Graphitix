@@ -1213,7 +1213,7 @@
     }
     const hasPersistedAspectLock = Object.prototype.hasOwnProperty.call(data, 'resizerAspectLocked')
       && (data.resizerAspectLocked === 'true' || data.resizerAspectLocked === 'false');
-    let aspectLocked = hasPersistedAspectLock ? data.resizerAspectLocked === 'true' : true;
+    let aspectLocked = hasPersistedAspectLock ? data.resizerAspectLocked === 'true' : false;
     if(!hasPersistedAspectLock && helperSizing && helperSizing.aspectLocked === false){
       aspectLocked = false;
     }

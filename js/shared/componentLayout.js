@@ -1146,7 +1146,7 @@
           maxWidth: Math.max(Number(chartStyle?.DEFAULT_WIDTH) || 640, Math.round((Number(chartStyle?.DEFAULT_WIDTH) || 640) * Math.max(Number(chartStyle?.RESIZE_MAX_SCALE) || 3, Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
           maxHeight: Math.max(Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640, Math.round((Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640) * Math.max(Number(chartStyle?.RESIZE_MAX_SCALE) || 3, Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
           aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
-          aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED !== false
+          aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED === true
         };
         console.debug('Debug: componentLayout fallback sizing used', { component: componentName, fallbackSizing });
         return fallbackSizing;
@@ -1229,7 +1229,7 @@
         minHeight: sizing.minHeight,
         maxWidth: sizing.maxWidth,
         maxHeight: sizing.maxHeight,
-        defaultAspectLocked: sizing.aspectLocked !== false,
+        defaultAspectLocked: sizing.aspectLocked === true,
         aspectRatio: Number.isFinite(sizing.aspectRatio) ? sizing.aspectRatio : 1,
         allowUnlimitedWidth: true,
         allowUnlimitedHeight: true,

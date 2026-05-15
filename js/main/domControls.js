@@ -870,6 +870,22 @@
       }
     };
     let canRestoreRender = validateRenderCacheForRestore('pre-ensure');
+    // Structural isolation guard:
+    // For per-tab DOM workspaces, runtime (non-archive) render cache restore can
+    // replay serialized markup without guaranteed interactive bindings. That can
+    // leave controls visually present but behaviorally stale after tab switches.
+    // During ordinary in-session activation, prefer live per-tab DOM reuse or a
+    // normal payload/layout draw path. Keep archive-backed restore enabled for
+    // reopen/recovery flows where no live interactive DOM exists.
+    if (canRestoreRender && config.perTabDomInstances === true && !renderCacheIsArchiveBacked) {
+      canRestoreRender = false;
+      renderCacheUnavailableReasons.push('runtime-cache-restore-disabled-for-per-tab');
+      console.debug('Debug: workspace runtime render cache restore disabled for per-tab isolation', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: options.reason || 'workspace-view'
+      });
+    }
     let authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
     const syncAuthoritativeRenderRestoreFlag = reason => {
       authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
@@ -1046,6 +1062,9 @@
       if (config.perTabDomInstances !== true) {
         return true;
       }
+      if (typeof Shared.componentLifecycle?.hasRenderableGraphContent === 'function') {
+        return !!Shared.componentLifecycle.hasRenderableGraphContent(root);
+      }
       if (!root || typeof root.querySelector !== 'function') {
         return false;
       }
@@ -1064,6 +1083,15 @@
         });
         return meaningfulChildren.length > 0 || String(svg.textContent || '').trim().length > 0;
       });
+    };
+    const tabExpectsRenderedGraph = () => {
+      if (!tab || config.perTabDomInstances !== true) {
+        return false;
+      }
+      const hasPreview = typeof tab.previewSvg === 'string' && tab.previewSvg.trim().length > 0;
+      const hasRenderCache = !!(tab.renderCache || tab.archiveRenderCache);
+      const payloadLooksDirty = tab.hasPayloadChanges === true || tab.hasUserModifications === true;
+      return hasPreview || hasRenderCache || payloadLooksDirty;
     };
 
     const canReuseWorkspaceForActivation = () => {
@@ -1241,6 +1269,24 @@
         }
         if (tab.uiState && typeof session?.applyWorkspaceUiState === 'function') {
           session.applyWorkspaceUiState(tab, { reason: fastReason });
+        }
+        if (tabExpectsRenderedGraph()) {
+          const liveRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type)
+            || activeWorkspaceElement
+            || Shared.workspaceTabs?.getSessionRecord?.(tab, tab.type)?.dom?.root
+            || null;
+          if (!hasRenderableGraphContent(liveRoot)) {
+            console.warn('workspace live DOM fast path rejected: missing renderable graph content', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: fastReason
+            });
+            setWorkspaceActivationError(tab, {
+              reason: 'live-dom-fast-path-empty-graph',
+              message: 'Live DOM reuse produced an empty graph; falling back to full restore.'
+            });
+            return false;
+          }
         }
         // Passive activation can still leave delayed resize/autodraw callbacks queued by
         // component setup. Keep the shared suppression gate active briefly after the

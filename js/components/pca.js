@@ -799,6 +799,7 @@
   let pcaDataToolbarLastActivation = 0;
   let pcaAxesLengthLockRatioPrevious = null;
   let pcaAspectSyncing = false;
+  let ensurePcaDomBindings = () => false;
 
   function resolvePcaRoot(tabLike){
     return Shared.workspaceTabs?.resolveComponentRoot?.({
@@ -1629,17 +1630,22 @@
     return pcaHot;
   }
   function ensurePcaHotForActiveTab(){
-    const wrapper = getPcaNodeById('pcaHotWrapper');
-    const baseContainer = getPcaNodeById('pcaHot');
-    const tabId = resolveActiveTabId() || 'pca-default';
-    if(!Shared.hot?.mountTableForTab || !wrapper){
+    const activeTabId = pca.__boundTabId
+      || resolveActiveTabId()
+      || Shared.hot?.resolveActiveTabId?.()
+      || global.Main?.tabs?.getActiveTab?.()?.id
+      || null;
+    const wrapper = getPcaNodeById('pcaHotWrapper', activeTabId) || getPcaNodeById('pcaHotWrapper');
+    const baseContainer = getPcaNodeById('pcaHot', activeTabId) || getPcaNodeById('pcaHot');
+    if(typeof Shared.hot?.ensureTableForTab !== 'function'){
+      const resolvedTabId = activeTabId || 'pca-default';
       if(!pcaHotInstance && baseContainer && typeof Shared.hot?.createStandardTable === 'function'){
         pcaHotInstance = createPcaTableInstance(baseContainer);
         pcaState.hot = pcaHotInstance;
       }
       if(pcaHotInstance){
         pcaHotInstance.__pcaHostContainer = baseContainer || pcaHotInstance.__pcaHostContainer || null;
-        pcaHotInstance.__pcaTabId = tabId;
+        pcaHotInstance.__pcaTabId = resolvedTabId;
         ensurePcaDataViewsForHot(pcaHotInstance, {
           wrapper,
           container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -1648,21 +1654,26 @@
       }
       return pcaHotInstance;
     }
-    const placeholder = wrapper.querySelector('.hot-pool-slot') || wrapper;
-    const entry = Shared.hot.mountTableForTab({
+    if(!wrapper || !baseContainer){
+      const poolEntry = activeTabId
+        ? Shared.hot?.__tabTablePools?.pca?.byTab?.[activeTabId]
+        : null;
+      return poolEntry?.instance || pcaHotInstance || null;
+    }
+    const entry = Shared.hot.ensureTableForTab({
       type: 'pca',
-      tabId,
-      wrapper: wrapper,
-      templateContainer: baseContainer,
-      createInstance: container => createPcaTableInstance(container)
+      tabId: activeTabId || null,
+      wrapper,
+      container: baseContainer,
+      createInstance: createPcaTableInstance
     });
-    if(entry){
+    if(entry?.instance){
       pcaHotInstance = entry.instance;
       pcaState.hot = entry.instance;
     }
     if(pcaHotInstance){
       pcaHotInstance.__pcaHostContainer = entry?.container || baseContainer || pcaHotInstance.__pcaHostContainer || null;
-      pcaHotInstance.__pcaTabId = tabId;
+      pcaHotInstance.__pcaTabId = entry?.tabId || activeTabId || 'pca-default';
       ensurePcaDataViewsForHot(pcaHotInstance, {
         wrapper,
         container: pcaHotInstance.__pcaHostContainer || baseContainer || null
@@ -4717,11 +4728,24 @@
         },
         onAfterSync: () => syncPcaAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
-          onResize: () => {
-            debugLog('Debug: pca layout onResize schedule trigger');
+          onResize: (phase) => {
+            const resizePhase = typeof phase === 'string' ? phase : '';
+            const aspectLocked = pcaSvgBox?.dataset?.resizerAspectLocked === 'true';
+            debugLog('Debug: pca layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            const isResizeFinalize = resizePhase === 'end'
+              || resizePhase === 'reset'
+              || resizePhase === 'undo'
+              || resizePhase === 'redo'
+              || resizePhase === 'programmatic'
+              || resizePhase === 'aspect-toggle';
             schedulePcaNoticeWidth('resize');
-            evaluateAutoDrawThresholds();
-            requestPcaViewRefresh('resize');
+            evaluateAutoDrawThresholds({ source: 'resize', phase: resizePhase || null });
+            scheduleDrawPca({
+              viewOnly: true,
+              reason: 'resize',
+              resizePhase: resizePhase || null,
+              force: isResizeFinalize
+            });
           }
         }
       });
@@ -7425,9 +7449,20 @@
       let skipPerfRecord = false;
       try{
       if(viewOnly && !pcaState.viewDirty && !pcaState.dataDirty){
+        const plotRoot = pcaPlotDiv || getPcaNodeById('pcaPlot');
+        const hasRenderedGraph = typeof Shared.componentLifecycle?.hasRenderableGraphContent === 'function'
+          ? !!Shared.componentLifecycle.hasRenderableGraphContent(plotRoot)
+          : !!plotRoot?.querySelector?.('#pcaSvg, svg, canvas');
+        if(!hasRenderedGraph){
+          pcaState.viewDirty = true;
+          debugLog('Debug: pca clean view refresh promoted to redraw (blank graph root)', {
+            reason: drawOpts.reason || 'view-clean'
+          });
+        }else{
         debugLog('Debug: pca view refresh skipped',{ reason: drawOpts.reason || 'view-clean' });
         skipPerfRecord = true;
         return;
+        }
       }
       if(pcaState.rotationPending){
         debugLog('Debug: pca rotation pending reset at draw');
@@ -11344,57 +11379,176 @@
     };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
-    pca.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
-      component: pca,
-      componentKey: 'pca',
-      resolveRoot: tabLike => resolvePcaRoot(tabLike || null),
-      setRoot: root => { pcaRoot = root || pcaRoot || null; },
-      ensureBindings: (tabLike, meta) => {
-        if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
-          return false;
+    function resolvePcaActivationTab(tabLike){
+      if(tabLike && typeof tabLike === 'object'){
+        return tabLike;
+      }
+      const tabId = (typeof tabLike === 'string' ? tabLike : null)
+        || pca.__boundTabId
+        || Shared.hot?.resolveActiveTabId?.()
+        || null;
+      if(!tabId){
+        return global.Main?.session?.getActiveTab?.() || null;
+      }
+      try{
+        const tabs = Array.isArray(global.Main?.session?.workspaceState?.tabs)
+          ? global.Main.session.workspaceState.tabs
+          : [];
+        return tabs.find(entry => entry && String(entry.id || '') === String(tabId)) || global.Main?.session?.getActiveTab?.() || null;
+      }catch(_err){
+        return global.Main?.session?.getActiveTab?.() || null;
+      }
+    }
+    function hasPcaPlottableData(hot){
+      const matrix = hot?.getData?.();
+      if(!Array.isArray(matrix) || matrix.length < 2){
+        return false;
+      }
+      for(let r = 1; r < matrix.length; r += 1){
+        const row = matrix[r];
+        if(!Array.isArray(row)){
+          continue;
         }
-        const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
-          componentKey: 'pca',
-          tabLike: tabLike || null,
-          sentinelSelector: '#pcaHot',
-          getCurrentRoot: () => pcaRoot || null,
-          getCurrentSentinel: () => pca.__domSentinel || null,
-          rebind: info => {
-            pcaRoot = info?.root || resolvePcaRoot(tabLike || null);
-            pca.ready = false;
-            setup({ root: info?.root || undefined, tabId: info?.tab?.id || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null, reason: 'activate-tab-rebind' });
+        for(let c = 1; c < row.length; c += 1){
+          const value = row[c];
+          if(value == null){
+            continue;
           }
-        });
-        return !!rebound?.rebound;
-      },
-      init: options => setup(options),
-      afterReady: tabLike => {
-        const payloadConfig = tabLike && tabLike.payload && tabLike.payload.config ? tabLike.payload.config : null;
-        applyPcaMethodUiPreActivation(payloadConfig || {});
-        const hot = ensurePcaHotForActiveTab();
-        if(hot){
-          ensurePcaDataViewsForHot(hot, {
-            wrapper: getPcaNodeById('pcaHotWrapper'),
-            container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
-          });
-          syncPcaActiveDataViewFromHot(hot, 'prepare-tab');
+          if(typeof value === 'number'){
+            if(Number.isFinite(value)){
+              return true;
+            }
+            continue;
+          }
+          if(typeof value === 'string'){
+            if(value.trim()){
+              return true;
+            }
+            continue;
+          }
+          return true;
         }
-      },
-      getSentinel: () => getPcaNodeById('pcaHot')
-    }) || function activateTab(tab, meta = {}){
-      const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-      pca.__boundTabId = targetTabId || pca.__boundTabId || null;
-      pcaRoot = resolvePcaRoot(tab || targetTabId || null);
-      const payloadConfig = tab && tab.payload && tab.payload.config ? tab.payload.config : null;
-      applyPcaMethodUiPreActivation(payloadConfig || {});
+      }
+      return false;
+    }
+    function hasPcaPrimaryGraphContent(tabLike){
+      const tabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id)
+        || pca.__boundTabId
+        || Shared.hot?.resolveActiveTabId?.()
+        || null;
+      const plotRoot = getPcaNodeById('pcaPlot', tabId) || getPcaNodeById('pcaPlot');
+      if(typeof Shared.componentLifecycle?.hasRenderableGraphContent === 'function'){
+        return !!Shared.componentLifecycle.hasRenderableGraphContent(plotRoot);
+      }
+      return !!plotRoot?.querySelector?.('#pcaSvg,svg,canvas');
+    }
+    function schedulePcaActivationRecoveryDraw(tabLike, reason, attempt = 0){
+      const tabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id)
+        || pca.__boundTabId
+        || Shared.hot?.resolveActiveTabId?.()
+        || null;
+      if(hasPcaPrimaryGraphContent(tabLike)){
+        return false;
+      }
+      const activeHot = ensurePcaHotForActiveTab();
+      if(!hasPcaPlottableData(activeHot)){
+        return false;
+      }
+      markPcaViewDirty(`${reason || 'activate-tab'}-blank-graph`);
+      scheduleDrawPca({
+        tabId: tabId || null,
+        reason: `${reason || 'activate-tab'}-blank-graph`,
+        viewOnly: true,
+        force: true,
+        forceDraw: true,
+        userInitiated: true
+      });
+      if(attempt < 2){
+        const retryDelay = 80 * (attempt + 1);
+        (global.setTimeout || setTimeout)(() => {
+          if(!hasPcaPrimaryGraphContent(tabLike)){
+            schedulePcaActivationRecoveryDraw(tabLike, reason, attempt + 1);
+          }
+        }, retryDelay);
+      }
+      return true;
+    }
+    function finalizePcaActivation(tabLike, reason = 'activate-tab'){
+      const resolvedTab = resolvePcaActivationTab(tabLike);
+      const payloadConfig = resolvedTab?.payload?.config || {};
+      applyPcaMethodUiPreActivation(payloadConfig);
       const hot = ensurePcaHotForActiveTab();
       if(hot){
         ensurePcaDataViewsForHot(hot, {
           wrapper: getPcaNodeById('pcaHotWrapper'),
           container: hot.__pcaHostContainer || getPcaNodeById('pcaHot')
         });
-        syncPcaActiveDataViewFromHot(hot, 'prepare-tab');
+        syncPcaActiveDataViewFromHot(hot, `${reason || 'activate-tab'}:prepare-tab`);
       }
+      if(!hasPcaPrimaryGraphContent(resolvedTab)){
+        const requested = schedulePcaActivationRecoveryDraw(resolvedTab, reason || 'activate-tab');
+        debugLog('Debug: pca activation graph probe', {
+          tabId: resolvedTab?.id || pca.__boundTabId || null,
+          reason: reason || 'activate-tab',
+          hasGraph: false,
+          scheduledRecoveryDraw: !!requested
+        });
+      }
+    }
+    ensurePcaDomBindings = function ensurePcaDomBindingsForTab(tabLike){
+      if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
+        return false;
+      }
+      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
+        componentKey: 'pca',
+        tabLike: tabLike || null,
+        sentinelSelector: '#pcaHot',
+        getCurrentRoot: () => pcaRoot || null,
+        getCurrentSentinel: () => pca.__domSentinel || null,
+        rebind: info => {
+          pcaRoot = info?.root || resolvePcaRoot(tabLike || info?.tabId || null);
+          console.debug('Debug: Components.pca.setup refreshing stale DOM bindings');
+          pca.ready = false;
+          setup({
+            root: pcaRoot,
+            tabId: info?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null,
+            reason: 'workspace-dom-rebind'
+          });
+          finalizePcaActivation(info?.tab || tabLike || info?.tabId || null, 'workspace-dom-rebind');
+        }
+      });
+      return !!rebound?.rebound;
+    };
+    pca.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+      component: pca,
+      componentKey: 'pca',
+      resolveRoot: tabLike => resolvePcaRoot(tabLike || null),
+      setRoot: root => { pcaRoot = root || pcaRoot || null; },
+      ensureBindings: tabLike => ensurePcaDomBindings(tabLike),
+      init: options => setup(options),
+      afterReady: tabLike => {
+        finalizePcaActivation(tabLike || null, 'activate-tab');
+      },
+      getSentinel: () => getPcaNodeById('pcaHot')
+    }) || function activateTab(tab, meta = {}){
+      const targetTabId = (typeof tab === 'string' ? tab : tab?.id)
+        || Shared.hot?.resolveActiveTabId?.()
+        || null;
+      if(targetTabId && pca.__boundTabId && pca.__boundTabId !== targetTabId){
+        pcaRoot = resolvePcaRoot(tab || null);
+        pca.ready = false;
+        setup({
+          root: pcaRoot,
+          tabId: targetTabId,
+          reason: 'activate-tab-rebind'
+        });
+      }
+      pca.__boundTabId = targetTabId || pca.__boundTabId || null;
+      pcaRoot = resolvePcaRoot(tab || targetTabId || null);
+      if(ensurePcaDomBindings(tab || targetTabId || null)){
+        return;
+      }
+      finalizePcaActivation(tab || targetTabId || null, meta.reason || 'activate-tab');
       pca.__domSentinel = getPcaNodeById('pcaHot');
     };
 
@@ -11567,21 +11721,8 @@
 
   function ensureReady(){
     pcaRoot = resolvePcaRoot();
-    if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
-      const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
-        componentKey: 'pca',
-        sentinelSelector: '#pcaHot',
-        getCurrentRoot: () => pcaRoot || null,
-        getCurrentSentinel: () => pca.__domSentinel || null,
-        rebind: info => {
-          pcaRoot = info?.root || resolvePcaRoot();
-          pca.ready = false;
-          setup({ root: info?.root || undefined, tabId: info?.tab?.id || null, reason: 'ensure-dom-rebind' });
-        }
-      });
-      if(rebound?.rebound){
-        return;
-      }
+    if(ensurePcaDomBindings()){
+      return;
     }
     if(!pca.ready) setup({ tabId: Shared.hot?.resolveActiveTabId?.() || null, reason: 'ensure-ready' });
   }

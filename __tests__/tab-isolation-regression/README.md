@@ -8,8 +8,11 @@ This folder automates the manual regression procedure you have been doing:
 4. Create the workspace and record `01_create_workspace.log`.
 5. Switch through all tabs before saving and record `02_initial_switching.log`.
 6. Save a `.graph` file and record `03_file_save.log`.
-7. Reopen the saved `.graph` file, switch through all tabs again, and record `04_reopened_switching.log`.
-8. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
+7. Reopen the saved `.graph` file and run the first activation pass, recorded as `04_reopened_cold_cache.log`.
+8. Switch through all tabs again and record `05_reopened_live_switching.log`.
+9. Run the resize-after-switch probe and record `06_resize_after_switch.log`.
+10. Run the homogeneous same-state switch probe and record `07_homogeneous_switching.log`.
+11. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
 
 The runner produces a folder containing:
 
@@ -18,7 +21,10 @@ The runner produces a folder containing:
 01_create_workspace.log
 02_initial_switching.log
 03_file_save.log
-04_reopened_switching.log
+04_reopened_cold_cache.log
+05_reopened_live_switching.log
+06_resize_after_switch.log
+07_homogeneous_switching.log
 full-console.log
 workspace-regression.graph
 regression-summary.json
@@ -56,6 +62,8 @@ surface:  gridded surface vs point/scatter surface
 ```
 
 The harness checks this twice: at runtime while switching tabs, and again inside the saved `.graph` archive. If a component silently reuses another tab's state, the variant-property fingerprint or layout fingerprint should become duplicated and the suite should fail.
+
+The homogeneous same-state switch probe deliberately aligns paired tabs of each component to the same configuration before switching. This catches blank-graph and missed-redraw regressions that can stay hidden when variant differences force redraws.
 
 ## Running a smaller test while debugging
 
@@ -129,7 +137,10 @@ If the status is `FAIL`, inspect:
 ```text
 regression-summary.json
 03_file_save.log
-04_reopened_switching.log
+04_reopened_cold_cache.log
+05_reopened_live_switching.log
+06_resize_after_switch.log
+07_homogeneous_switching.log
 workspace-regression.graph
 ```
 
