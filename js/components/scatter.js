@@ -714,6 +714,15 @@
       config: payloadConfig
     });
     const schemeId = schemeFromPayload || String(themeSnapshot?.schemeId || '').trim().toLowerCase() || getScatterDefaultSchemeId();
+    const fromColorSchemesResolver = typeof Shared.colorSchemes?.resolveCategoricalPaletteForType === 'function'
+      ? Shared.colorSchemes.resolveCategoricalPaletteForType('scatter', {
+          schemeId,
+          payload: { config: payloadConfig }
+        })
+      : null;
+    if(Array.isArray(fromColorSchemesResolver) && fromColorSchemesResolver.length){
+      return sanitizeScatterPaletteColors(fromColorSchemesResolver, SCATTER_FALLBACK_COLORS);
+    }
     const themeCatalog = Shared.themeCatalog;
     const fromThemeCatalog = (typeof themeCatalog?.getScheme === 'function')
       ? themeCatalog.getScheme(schemeId, getScatterDefaultSchemeId())

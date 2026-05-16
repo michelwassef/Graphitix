@@ -1137,7 +1137,7 @@
     const wrapper = refs.hotWrapper || getRocNodeById('rocHotWrapper');
     const baseContainer = refs.hotContainer || getRocNodeById('rocHot');
     const tabId = resolveActiveTabId() || 'roc-default';
-    if(!Shared.hot?.mountTableForTab || !wrapper){
+    if(!Shared.hot?.ensureTableForTab || !wrapper){
       if(!state.hot && baseContainer){
         state.hot = createRocTableInstance(baseContainer);
       }
@@ -1148,11 +1148,11 @@
       ensureRocDefaultHeaderRow(state.hot);
       return state.hot;
     }
-    const entry = Shared.hot.mountTableForTab({
+    const entry = Shared.hot.ensureTableForTab({
       type: 'roc',
       tabId,
       wrapper,
-      templateContainer: baseContainer,
+      container: baseContainer,
       createInstance: container => createRocTableInstance(container)
     });
     if(entry){

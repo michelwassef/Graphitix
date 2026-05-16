@@ -689,8 +689,27 @@ let state = {
   }
 
   let pieLegendControl = null;
+  let pieShowLegendInput = null;
+
+  function refreshPieLegendControlBinding(){
+    const legendInput = getPieNodeById('pieShowLegend');
+    if(legendInput){
+      pieShowLegendInput = legendInput;
+      const legendHost = legendInput.closest('label');
+      if(legendHost){
+        pieLegendControl = legendHost;
+      }
+    }
+    if(!state.svgBox || !state.svgBox.isConnected){
+      const nextSvgBox = queryPieRoot('#pieGraphPanel .svgbox');
+      if(nextSvgBox){
+        state.svgBox = nextSvgBox;
+      }
+    }
+  }
 
   function ensurePieLegendControlPlacement(){
+    refreshPieLegendControlBinding();
     if(!pieLegendControl || !state.svgBox){
       return;
     }
@@ -2967,7 +2986,7 @@ let state = {
     const pieFontSize=$('#pieFontSize');
     const pieFontSizeVal=$('#pieFontSizeVal');
     const pieChartType=$('#pieChartType');
-    const pieShowLegendInput=getPieNodeById('pieShowLegend');
+    pieShowLegendInput = getPieNodeById('pieShowLegend');
     const pieBorderColor=getPieNodeById('pieBorderColor');
     const pieBorderWidth=getPieNodeById('pieBorderWidth');
     const pieAutoSizeTargets=[pieChartType];
@@ -4677,7 +4696,12 @@ let state = {
     setRoot: root => { state.root = root; },
     ensureBindings: tabLike => ensurePieDomBindings(tabLike),
     init: options => pie.init(options),
-    afterReady: () => { if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); } },
+    afterReady: () => {
+      if(typeof state.ensureHotForActiveTab === 'function'){
+        state.ensureHotForActiveTab();
+      }
+      ensurePieLegendControlPlacement();
+    },
     getSentinel: () => getPieNodeById('pieHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
@@ -4686,6 +4710,7 @@ let state = {
     if(ensurePieDomBindings(tab)){ return; }
     if(!pie.ready){ pie.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
     if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
+    ensurePieLegendControlPlacement();
     pie.__domSentinel = getPieNodeById('pieHot');
   };
 

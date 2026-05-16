@@ -338,7 +338,10 @@ async function main() {
     const homogeneousSwitchSummary = await runPhase('07_homogeneous_switching', () => page.evaluate(async () => {
       return window.GraphitixRegression.runHomogeneousSwitchingPhase({ phase: 'homogeneous-switching', tabsPerComponent: 2 });
     }));
-    const themeIsolationSummary = await runPhase('08_theme_isolation', () => page.evaluate(async () => {
+    const controlPanelIsolationSummary = await runPhase('08_control_panel_isolation', () => page.evaluate(async () => {
+      return window.GraphitixRegression.runControlPanelIsolationPhase({ phase: 'control-panel-isolation', types: ['pca', 'pie'] });
+    }));
+    const themeIsolationSummary = await runPhase('09_theme_isolation', () => page.evaluate(async () => {
       return window.GraphitixRegression.runThemeIsolationPhase({ phase: 'theme-isolation', types: ['scatter'] });
     }));
 
@@ -374,6 +377,7 @@ async function main() {
       reopenedLiveEditInvalidationSummary,
       resizeAfterSwitchSummary,
       homogeneousSwitchSummary,
+      controlPanelIsolationSummary,
       themeIsolationSummary,
       cacheReuseSummary,
       graphAnalysis,
@@ -391,6 +395,7 @@ async function main() {
     if (reopenedLiveEditInvalidationSummary.failures?.length) failures.push(...reopenedLiveEditInvalidationSummary.failures.map(x => `reopened-live-edit: ${x}`));
     if (resizeAfterSwitchSummary.failures?.length) failures.push(...resizeAfterSwitchSummary.failures.map(x => `resize-after-switch: ${x}`));
     if (homogeneousSwitchSummary.failures?.length) failures.push(...homogeneousSwitchSummary.failures.map(x => `homogeneous-switching: ${x}`));
+    if (controlPanelIsolationSummary.failures?.length) failures.push(...controlPanelIsolationSummary.failures.map(x => `control-panel-isolation: ${x}`));
     if (themeIsolationSummary.failures?.length) failures.push(...themeIsolationSummary.failures.map(x => `theme-isolation: ${x}`));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedCold, 'reopened-cold-cache', { requireSavedCache: true }));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedLive, 'reopened-live-switching'));

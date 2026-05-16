@@ -2047,7 +2047,29 @@
     pcaDataToolbarBound = true;
   }
 
+  function refreshPcaResizerControlBindings(){
+    const legendInput = getPcaNodeById('pcaShowLegend');
+    if(legendInput){
+      pcaShowLegendInput = legendInput;
+      const legendHost = legendInput.closest('label');
+      if(legendHost){
+        pcaLegendControl = legendHost;
+      }
+    }
+    const varianceInput = getPcaNodeById('pcaVarianceAxisScale');
+    if(varianceInput){
+      pcaVarianceAxisScaleInput = varianceInput;
+    }
+    if(!pcaSvgBoxRef || !pcaSvgBoxRef.isConnected){
+      const activeSvgBox = queryPcaRoot('#pcaGraphPanel .svgbox');
+      if(activeSvgBox){
+        pcaSvgBoxRef = activeSvgBox;
+      }
+    }
+  }
+
   function ensurePcaLegendControlPlacement(){
+    refreshPcaResizerControlBindings();
     if(!pcaLegendControl || !pcaSvgBoxRef){
       return;
     }
@@ -2144,6 +2166,7 @@
   }
 
   function ensurePcaAxesLengthControlPlacement(){
+    refreshPcaResizerControlBindings();
     if(!pcaSvgBoxRef){
       return;
     }
@@ -2336,6 +2359,7 @@
   }
 
   function ensurePcaResizerControls(){
+    refreshPcaResizerControlBindings();
     ensurePcaLegendControlPlacement();
     ensurePcaAxesLengthControlPlacement();
   }
@@ -11477,6 +11501,7 @@
       const resolvedTab = resolvePcaActivationTab(tabLike);
       const payloadConfig = resolvedTab?.payload?.config || {};
       applyPcaMethodUiPreActivation(payloadConfig);
+      ensurePcaResizerControls();
       const hot = ensurePcaHotForActiveTab();
       if(hot){
         ensurePcaDataViewsForHot(hot, {

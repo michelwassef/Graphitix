@@ -91,6 +91,10 @@
       2: { values: { surfaceInterpolation: 'scatter' }, checks: { surfaceShowGrid: false, surfaceShowFrame: true, surfaceShowPoints: true } }
     }
   });
+  const CONTROL_RELOCATION_EXPECTATIONS = Object.freeze({
+    pca: Object.freeze(['pcaShowLegend', 'pcaVarianceAxisScale']),
+    pie: Object.freeze(['pieShowLegend'])
+  });
 
   function debug(message, payload){
     console.debug(`Debug: regression.${message}`, payload || {});
@@ -945,6 +949,34 @@
   function findInRootOrDocument(tabId, type, id){
     const root = getRoot(tabId, type);
     return root?.querySelector?.(`#${CSS.escape(id)}`) || document.getElementById(id) || null;
+  }
+  function probeRelocatedControl(tab, controlId){
+    const type = tab?.type || null;
+    const root = getRoot(tab?.id || null, type) || null;
+    const input = root?.querySelector?.(`#${CSS.escape(controlId)}`) || null;
+    if(!input){
+      return {
+        tabId: tab?.id || null,
+        type,
+        controlId,
+        exists: false,
+        connected: false,
+        visible: false,
+        inConfigPanel: false,
+        inOptionsMenu: false
+      };
+    }
+    const host = input.closest?.('label') || input;
+    return {
+      tabId: tab?.id || null,
+      type,
+      controlId,
+      exists: true,
+      connected: !!input.isConnected,
+      visible: isElementChainVisible(host),
+      inConfigPanel: !!host.closest?.('.config-panel'),
+      inOptionsMenu: !!host.closest?.('.resizer-options-menu')
+    };
   }
   function dispatchInput(el){
     if(!el) return;
@@ -2310,6 +2342,51 @@
     progress('resize-after-switch:complete', { checked: rows.length, failures: failures.length });
     return { rows, failures };
   }
+  async function runControlPanelIsolationPhase(options = {}){
+    const phase = options.phase || 'control-panel-isolation';
+    const targetTypes = Array.isArray(options.types) && options.types.length
+      ? options.types.map(type => String(type || '').trim().toLowerCase()).filter(Boolean)
+      : Object.keys(CONTROL_RELOCATION_EXPECTATIONS);
+    const failures = [];
+    const rows = [];
+    progress('control-panel-isolation:start', { phase, targetTypes });
+    for(const type of targetTypes){
+      const expectedControls = CONTROL_RELOCATION_EXPECTATIONS[type] || [];
+      if(!expectedControls.length){
+        continue;
+      }
+      const tabs = getGraphTabs().filter(tab => String(tab?.type || '').toLowerCase() === type).slice(0, 2);
+      if(tabs.length < 2){
+        failures.push(`${type}: requires at least 2 tabs for control-panel relocation probe`);
+        continue;
+      }
+      const probeTab = async (tab, stage) => {
+        await activateTab(tab.id, { reason: `${phase}:${type}:${stage}` });
+        await settle(220);
+        for(const controlId of expectedControls){
+          const probe = probeRelocatedControl(tab, controlId);
+          rows.push({ stage, ...probe });
+          if(probe.exists && !probe.inOptionsMenu){
+            failures.push(`${type}/${tab.id}: ${controlId} remained outside resizer options after ${stage}`);
+          }
+          if(probe.exists && probe.inConfigPanel && probe.visible){
+            failures.push(`${type}/${tab.id}: ${controlId} remained visible in config panel after ${stage}`);
+          }
+        }
+      };
+      try{
+        await probeTab(tabs[0], 'tab-1');
+        await probeTab(tabs[1], 'tab-2');
+        await probeTab(tabs[0], 'tab-1-recheck');
+      }catch(err){
+        const message = err?.message || String(err);
+        failures.push(`${type}: control panel isolation probe failed: ${message}`);
+        error('control panel isolation probe failed', { phase, type, message });
+      }
+    }
+    progress('control-panel-isolation:complete', { phase, checked: rows.length, failures: failures.length });
+    return { rows, failures };
+  }
   async function runThemeIsolationPhase(options = {}){
     const phase = options.phase || 'theme-isolation';
     const targetTypes = Array.isArray(options.types) && options.types.length
@@ -2411,6 +2488,7 @@
     runReopenAndSwitchPhase,
     runLiveEditCacheInvalidationPhase,
     runResizeAfterSwitchPhase,
+    runControlPanelIsolationPhase,
     runThemeIsolationPhase,
     summarizeRuntimePreviews,
     summarizeRuntimeCaches,

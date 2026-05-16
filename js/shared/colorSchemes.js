@@ -461,6 +461,25 @@
     return Array.isArray(override) && override.length ? override : base;
   }
 
+  function resolveCategoricalPaletteForType(type, options = {}){
+    const resolvedType = String(type || '').trim();
+    if(!resolvedType){
+      return [];
+    }
+    const payload = options && typeof options.payload === 'object'
+      ? options.payload
+      : null;
+    const payloadScheme = resolvedType === 'venn'
+      ? payload?.style?.colorScheme
+      : payload?.config?.colorScheme;
+    const rawScheme = options.schemeId || payloadScheme || getDefaultSchemeIdForType(resolvedType);
+    const normalizedSchemeId = resolvedType === 'surface'
+      ? normalizeSurfaceSchemeId(rawScheme)
+      : normalizePresetSchemeId(rawScheme, resolvedType);
+    const scheme = getScheme(normalizedSchemeId);
+    return ensureArray(resolveCategoricalPalette(resolvedType, scheme)).slice();
+  }
+
   function ensureMap(input){
     return input && typeof input === 'object' ? input : {};
   }
@@ -1316,22 +1335,9 @@
   }
 
   function syncSharedScatterPalette(type, scheme){
-    const categorical = resolveCategoricalPalette(type, scheme);
-    if(!categorical.length){
-      return;
-    }
-    const palette = Shared.palette = Shared.palette || {};
-    if(typeof palette.setDefaultScatterColors === 'function'){
-      palette.setDefaultScatterColors(categorical);
-      return;
-    }
-    const target = Array.isArray(palette.DEFAULT_SCATTER_COLORS)
-      ? palette.DEFAULT_SCATTER_COLORS
-      : [];
-    target.length = 0;
-    categorical.forEach(color => target.push(color));
-    palette.DEFAULT_SCATTER_COLORS = target;
-    global.DEFAULT_SCATTER_COLORS = target;
+    // Keep shared palette defaults immutable at runtime.
+    // Per-tab/theme palette selection must be resolved from payload/theme state.
+    return resolveCategoricalPalette(type, scheme);
   }
 
   function legacyApplySchemeToPayload(type, payload, scheme, options){
@@ -2485,6 +2491,10 @@
 
   namespace.getSelectedSchemeId = function getSelectedSchemeId(type){
     return readActiveSchemeForType(type) || getDefaultSchemeIdForType(type);
+  };
+
+  namespace.resolveCategoricalPaletteForType = function resolveCategoricalPaletteForTypeExport(type, options){
+    return resolveCategoricalPaletteForType(type, options);
   };
 
   namespace.resolveThemeState = function resolveThemeState(type, payload){

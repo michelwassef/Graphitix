@@ -13,14 +13,6 @@
     const getTabById = typeof options.getTabById === 'function' ? options.getTabById : () => null;
     const activateTab = typeof options.activateTab === 'function' ? options.activateTab : () => {};
     const closeTab = typeof options.closeTab === 'function' ? options.closeTab : () => {};
-    const lifecycleSnapshotIntent = Object.freeze({
-      saveLike: false,
-      allowSkipLivePayloadCapture: true,
-      lifecycleSnapshot: true,
-      runSkippedPayloadDriftProbe: false,
-      promoteSkippedPayloadDrift: false,
-      reasonSkippable: true
-    });
 
     if (!dom || !workspaceState || !session) {
       const details = {
@@ -87,7 +79,7 @@
             session.persistActiveTabState(currentActive, withSessionContext({
               reason: 'unsaved-switch',
               origin: 'lifecycle',
-              snapshotIntent: lifecycleSnapshotIntent
+              snapshotKind: 'lifecycle-checkpoint'
             }));
           }
           console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
@@ -117,7 +109,7 @@
         session.persistActiveTabState(tab, withSessionContext({
           reason: 'unsaved-save',
           origin: 'lifecycle',
-          snapshotIntent: lifecycleSnapshotIntent
+          snapshotKind: 'lifecycle-checkpoint'
         }));
         workspaceState.pendingClosePrompt = null;
         console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });

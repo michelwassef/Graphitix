@@ -127,6 +127,7 @@
         };
     }
   }
+  namespace.resolvePersistSnapshotIntent = resolvePersistSnapshotIntent;
 
 
   function rehomeArchiveValue(session, value, tabId) {

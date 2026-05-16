@@ -111,6 +111,23 @@
   function resolveSnapshotIntent(options = {}) {
     const raw = options?.snapshotIntent;
     if (!raw || typeof raw !== 'object') {
+      const snapshotKind = String(options?.snapshotKind || '').trim();
+      if (snapshotKind) {
+        const resolver = Main?.sessionActions?.resolvePersistSnapshotIntent;
+        if (typeof resolver === 'function') {
+          try {
+            const resolved = resolver({ snapshotKind });
+            if (resolved && typeof resolved === 'object') {
+              return resolved;
+            }
+          } catch (err) {
+            console.debug('Debug: session snapshot intent resolver failed', {
+              snapshotKind,
+              message: err?.message || String(err)
+            });
+          }
+        }
+      }
       return {};
     }
     return raw;

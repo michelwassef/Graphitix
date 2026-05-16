@@ -94,14 +94,6 @@
     const sessionFileTypes = config.sessionFileTypes || [];
 
     const getActiveTab = () => workspaceState.tabs.find(tab => tab.id === workspaceState.activeTabId) || null;
-    const lifecycleSnapshotIntent = Object.freeze({
-      saveLike: false,
-      allowSkipLivePayloadCapture: true,
-      lifecycleSnapshot: true,
-      runSkippedPayloadDriftProbe: false,
-      promoteSkippedPayloadDrift: false,
-      reasonSkippable: true
-    });
 
     const showWorkspaceForTab = (tab, options = {}) => {
       const result = domControls.showWorkspaceForTab({
@@ -335,7 +327,7 @@
             session.persistActiveTabState(currentActive, withSessionContext({
               reason: 'duplicate-before-create',
               origin: 'lifecycle',
-              snapshotIntent: lifecycleSnapshotIntent
+              snapshotKind: 'lifecycle-checkpoint'
             }));
             deactivateWorkspaceForTab(currentActive, 'duplicate-before-create');
           }
@@ -529,7 +521,7 @@
         session.persistActiveTabState(tab, withSessionContext({
           reason,
           origin: 'lifecycle',
-          snapshotIntent: lifecycleSnapshotIntent
+          snapshotKind: 'lifecycle-checkpoint'
         }));
         persistedActive = true;
       }
@@ -545,7 +537,7 @@
         session.persistActiveTabState(tab, withSessionContext({
           reason: `${reason}-force`,
           origin: 'lifecycle',
-          snapshotIntent: lifecycleSnapshotIntent
+          snapshotKind: 'lifecycle-checkpoint'
         }));
       }
       workspaceState.pendingClosePrompt = null;
@@ -559,7 +551,7 @@
         session.persistActiveTabState(current, withSessionContext({
           reason: options.reason || 'activate-switch',
           origin: 'lifecycle',
-          snapshotIntent: lifecycleSnapshotIntent,
+          snapshotKind: 'lifecycle-checkpoint',
           // Do not capture render cache during ordinary tab switches. Component-level
           // captureRenderCache() implementations detach live graph nodes into fragments;
           // doing that on every switch can leave a tab blank if a later restore path is
@@ -746,7 +738,7 @@
         session.persistActiveTabState(current, withSessionContext({
           reason: 'add-tab-before-new',
           origin: 'lifecycle',
-          snapshotIntent: lifecycleSnapshotIntent
+          snapshotKind: 'lifecycle-checkpoint'
         }));
         deactivateWorkspaceForTab(current, 'add-tab-before-new');
       }

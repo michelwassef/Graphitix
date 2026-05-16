@@ -280,15 +280,7 @@
       scope: 'workspace',
       useWorker: true,
       snapshotKind: 'lifecycle-checkpoint',
-      captureRenderCacheBeforeSnapshot: false,
-      snapshotIntent: {
-        saveLike: false,
-        allowSkipLivePayloadCapture: true,
-        lifecycleSnapshot: true,
-        runSkippedPayloadDriftProbe: false,
-        promoteSkippedPayloadDrift: false,
-        reasonSkippable: true
-      }
+      captureRenderCacheBeforeSnapshot: false
     });
     if (!blob) {
       return null;
