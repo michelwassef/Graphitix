@@ -14,7 +14,8 @@ This folder automates the manual regression procedure you have been doing:
 10. Verify live-edit cache invalidation after reopen and record `05a_reopened_live_edit_invalidation.log`.
 11. Run the resize-after-switch probe and record `06_resize_after_switch.log`.
 12. Run the homogeneous same-state switch probe and record `07_homogeneous_switching.log`.
-13. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
+13. Run the same-type theme-isolation probe and record `08_theme_isolation.log`.
+14. Inspect the saved `.graph` archive and the logs for tab-isolation, preview, render-cache, layout, and drift problems.
 
 The runner produces a folder containing:
 
@@ -29,6 +30,7 @@ The runner produces a folder containing:
 05a_reopened_live_edit_invalidation.log
 06_resize_after_switch.log
 07_homogeneous_switching.log
+08_theme_isolation.log
 full-console.log
 workspace-regression.graph
 regression-summary.json
@@ -112,6 +114,7 @@ The suite flags these as failures:
 - render-cache owner tab ID not matching the tab runtime ID;
 - stale `workspace-*` IDs inside layout, preview, cache, or UI state;
 - render cache still present immediately after live user mutation;
+- same-type tab theme leakage (for example, dark-theme rendering bleeding into sibling scatter tabs);
 - `persistActiveTabState DRIFT on skipped path` during save;
 - render-cache validation failures;
 - layout application skipped/failing;
@@ -148,6 +151,7 @@ regression-summary.json
 05a_reopened_live_edit_invalidation.log
 06_resize_after_switch.log
 07_homogeneous_switching.log
+08_theme_isolation.log
 workspace-regression.graph
 ```
 

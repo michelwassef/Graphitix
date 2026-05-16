@@ -626,8 +626,8 @@
     message: 'Rendering heatmap...',
     getHost: () => (
       state.svgBox
-      || global.document?.getElementById?.('heatmapGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('heatmapGraphPanel')
+      || getHeatmapNodeById('heatmapGraphPanel')?.querySelector?.('.svgbox')
+      || getHeatmapNodeById('heatmapGraphPanel')
     )
   });
 
@@ -1382,8 +1382,8 @@
       });
     }
     const manager = hotInstance.__heatmapDataViewsManager;
-    const hostWrapper = options.wrapper || global.document?.getElementById?.('heatmapHotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null;
+    const hostWrapper = options.wrapper || getHeatmapNodeById('heatmapHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null;
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -1434,8 +1434,8 @@
     }
     const nextData = Array.isArray(matrix) ? matrix : [];
     const manager = ensureHeatmapDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+      wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
     });
     if(manager && typeof manager.initialize === 'function'){
       manager.initialize(nextData, {
@@ -1482,8 +1482,8 @@
       return false;
     }
     const manager = ensureHeatmapDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+      wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
     });
     if(!manager || typeof manager.applyTransform !== 'function'){
       console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
@@ -1578,8 +1578,8 @@
       return false;
     }
     const manager = ensureHeatmapDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+      wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
     });
     if(!manager || typeof manager.applyPipeline !== 'function'){
       console.warn('heatmap data transform pipeline skipped: Shared.dataViews unavailable');
@@ -1924,7 +1924,7 @@
   }
 
   function isHeatmapWorkspaceHidden(){
-    const page = global.document?.getElementById?.('heatmapPage')
+    const page = getHeatmapNodeById('heatmapPage')
       || state.svg?.closest?.('.workspace-page')
       || null;
     if(!page){
@@ -2141,7 +2141,7 @@
     if(state.suspendAutoClusterDefaults || state.clusterControlsTouched || state.clusterDefaultsAutoApplied){
       return false;
     }
-    const hot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
+    const hot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
     if(!hasHeatmapBodyData(hot)){
       return false;
     }
@@ -4982,8 +4982,8 @@
       return false;
     }
     const manager = ensureHeatmapDataViewsForHot(hot, {
-      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-      container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+      wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+      container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
     });
     if(!manager || typeof manager.createDerivedView !== 'function'){
       console.warn('heatmap data transform skipped: Shared.dataViews unavailable');
@@ -8057,7 +8057,7 @@
     });
   }
   function getPayload(){
-    const activeHot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
+    const activeHot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -8068,8 +8068,8 @@
     notesState.text = notesText;
     notesState.open = notesOpen;
     const activeManager = ensureHeatmapDataViewsForHot(activeHot, {
-      wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-      container: activeHot?.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+      wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+      container: activeHot?.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
     });
     syncHeatmapActiveDataViewFromHot(activeHot, 'payload');
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
@@ -8225,7 +8225,7 @@
       state.scheduleDraw = () => {};
     }
     invalidateHeatmapTransientRenderState(`payload:${meta?.source || 'unknown'}`);
-    const hot = state.hot || (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null);
+    const hot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
     if(hot){
       state.hot = hot;
     }
@@ -8234,8 +8234,8 @@
     const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = hot
       ? ensureHeatmapDataViewsForHot(hot, {
-          wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-          container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+          wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+          container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
         })
       : null;
     if(dataManager){
@@ -8513,10 +8513,10 @@
     evaluateHeatmapDataShape();
     ensureEmptyPayloadTemplate();
     const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(null, 'heatmap')
-      || global.document?.getElementById?.('heatmapPage')
+      || resolveHeatmapRoot(null)
       || global.document;
     heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
-      || global.document?.getElementById?.('heatmapLoadExample')
+      || getHeatmapNodeById('heatmapLoadExample')
       || null;
     heatmap.ready = true;
     state.scheduleDraw();
@@ -8555,8 +8555,8 @@
       const hot = state.ensureHotForActiveTab();
       if(hot){
         ensureHeatmapDataViewsForHot(hot, {
-          wrapper: global.document?.getElementById?.('heatmapHotWrapper') || null,
-          container: hot.__heatmapHostContainer || global.document?.getElementById?.('heatmapHot') || null
+          wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+          container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
         });
         applyHeatmapDataTransformControlState(
           resolveHeatmapDataTransformControlStateForView(
@@ -8571,10 +8571,10 @@
       scheduleDeferredHiddenDrawFlush('activate-tab');
     }
     const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'heatmap')
-      || global.document?.getElementById?.('heatmapPage')
+      || resolveHeatmapRoot(tabLike || null)
       || global.document;
     heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
-      || global.document?.getElementById?.('heatmapLoadExample')
+      || getHeatmapNodeById('heatmapLoadExample')
       || null;
   }
 
@@ -8594,10 +8594,10 @@
     },
     getSentinel: () => {
       const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(heatmap.__boundTabId || null, 'heatmap')
-        || global.document?.getElementById?.('heatmapPage')
+        || resolveHeatmapRoot(heatmap.__boundTabId || null)
         || global.document;
       return mountedRoot?.querySelector?.('#heatmapLoadExample')
-        || global.document?.getElementById?.('heatmapLoadExample')
+        || getHeatmapNodeById('heatmapLoadExample')
         || null;
     }
   }) || function activateTab(tab, meta = {}){

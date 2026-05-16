@@ -12649,11 +12649,11 @@
   }
   function ensureBoxSignificanceControlPlacement(){
     const controls = els.boxSignificanceControls
-      || global.document?.getElementById?.('boxSignificanceControls')
+      || getBoxNodeById('boxSignificanceControls')
       || null;
-    const summaryCtl = els.boxIndividualSummaryCtl || global.document?.getElementById?.('boxIndividualSummaryCtl') || null;
-    const signRow = els.boxGraphSignificanceRow || global.document?.getElementById?.('boxGraphSignificanceRow') || null;
-    const whiskerRow = els.boxGraphWhiskerRow || global.document?.getElementById?.('boxGraphWhiskerRow') || null;
+    const summaryCtl = els.boxIndividualSummaryCtl || getBoxNodeById('boxIndividualSummaryCtl') || null;
+    const signRow = els.boxGraphSignificanceRow || getBoxNodeById('boxGraphSignificanceRow') || null;
+    const whiskerRow = els.boxGraphWhiskerRow || getBoxNodeById('boxGraphWhiskerRow') || null;
     const graphTypeValue = String(els.boxGraphType?.value || '').toLowerCase();
     const useGraphSectionRows = graphTypeValue === 'box' || graphTypeValue === 'notched' || graphTypeValue === 'violin';
     if(whiskerRow && whiskerRow.style){
@@ -12788,8 +12788,8 @@
   }
 
   function syncBoxPointConnectionControlState(options = {}){
-    const control = els.boxConnectPointsCtl || global.document?.getElementById?.('boxConnectPointsCtl') || null;
-    const checkbox = els.boxConnectPointsAcrossDatasets || global.document?.getElementById?.('boxConnectPointsAcrossDatasets') || null;
+    const control = els.boxConnectPointsCtl || getBoxNodeById('boxConnectPointsCtl') || null;
+    const checkbox = els.boxConnectPointsAcrossDatasets || getBoxNodeById('boxConnectPointsAcrossDatasets') || null;
     if(!checkbox){
       return false;
     }
@@ -24376,7 +24376,8 @@ Technical analysis record (advanced)
     if(config && typeof config.label === 'string' && config.label){
       els.statsButton.textContent = config.label;
     }
-    const mirrors = global.document?.querySelectorAll?.('#boxComputeStats') || [];
+    const scopeRoot = resolveBoxRoot(box.__boundTabId || null) || boxRoot || null;
+    const mirrors = scopeRoot?.querySelectorAll?.('#boxComputeStats') || [];
     mirrors.forEach(button => {
       if(button === els.statsButton){
         return;
@@ -33094,7 +33095,7 @@ Technical analysis record (advanced)
   }
   // PART: SAVE_OPEN
   function getPayload(){
-    const activeHot = state.hot || state.ensureHotForActiveTab?.();
+    const activeHot = state.ensureHotForActiveTab?.() || state.hot;
     if(!activeHot){
       return null;
     }
@@ -33537,7 +33538,7 @@ Technical analysis record (advanced)
     try{
     const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
     console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
-    const hot = state.hot || state.ensureHotForActiveTab?.();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(hot){
       state.hot = hot;
     }

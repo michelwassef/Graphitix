@@ -2926,7 +2926,7 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    const hot = state.hot || state.ensureHotForActiveTab?.();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(hot){
       state.hot = hot;
     }
@@ -3059,7 +3059,7 @@
   }
 
   function getPayload(){
-    const activeHot = state.hot || state.ensureHotForActiveTab?.();
+    const activeHot = state.ensureHotForActiveTab?.() || state.hot;
     if(!activeHot || typeof activeHot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }

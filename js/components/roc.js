@@ -682,8 +682,8 @@
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('rocGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('rocGraphPanel')
+      || getRocNodeById('rocGraphPanel')?.querySelector?.('.svgbox')
+      || getRocNodeById('rocGraphPanel')
     )
   });
 

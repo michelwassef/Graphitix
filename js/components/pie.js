@@ -3301,7 +3301,7 @@ let state = {
         scheduleBackup = state.scheduleDraw;
         state.scheduleDraw = () => {};
       }
-      const hot = state.hot || state.ensureHotForActiveTab?.();
+      const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(hot){
         state.hot = hot;
       }

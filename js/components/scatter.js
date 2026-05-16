@@ -216,6 +216,19 @@
       global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
     }
   }
+  const SCATTER_FALLBACK_COLORS = (() => {
+    const fromDefault = Array.isArray(DEFAULT_SCATTER_COLORS) ? DEFAULT_SCATTER_COLORS : [];
+    const normalized = fromDefault
+      .map(color => (typeof color === 'string' ? color.trim() : ''))
+      .filter(Boolean);
+    if(normalized.length){
+      return normalized;
+    }
+    return [
+      '#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080',
+      '#00a6d6', '#8b4513', '#ff1493', '#666666'
+    ];
+  })();
 
   const SIGNIFICANT_COLOR = (typeof global.SIGNIFICANT_COLOR !== 'undefined' && global.SIGNIFICANT_COLOR) 
     ? global.SIGNIFICANT_COLOR
@@ -392,27 +405,147 @@
   let scatterTextColor = chartStyle.TEXT_COLOR || '#000000';
   let scatterBackgroundColor = '#ffffff';
 
+  function getScatterDefaultSchemeId(){
+    const fromShared = Shared.colorSchemes?.getDefaultSchemeId?.('scatter');
+    return (typeof fromShared === 'string' && fromShared.trim())
+      ? fromShared.trim().toLowerCase()
+      : 'scientific';
+  }
+
   function normalizeScatterThemeColor(value, fallback){
     return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
   }
 
-  function applyScatterThemeConfig(config){
+  function applyScatterThemeConfig(config, options){
+    const opts = options && typeof options === 'object' ? options : {};
     const cfg = config && typeof config === 'object' ? config : {};
-    const resolved = Shared.colorSchemes?.resolveThemeState?.('scatter', { config: cfg }) || null;
+    const tabId = opts.tabId
+      || scatter.__boundTabId
+      || Shared.hot?.resolveActiveTabId?.()
+      || null;
+    const payloadConfig = getScatterTabPayloadConfig(tabId) || {};
+    const payloadScheme = (typeof payloadConfig.colorScheme === 'string' && payloadConfig.colorScheme.trim())
+      ? payloadConfig.colorScheme.trim().toLowerCase()
+      : '';
+    const requestedScheme = (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim())
+      ? cfg.colorScheme.trim().toLowerCase()
+      : '';
+    const resolvedSchemeId = requestedScheme || payloadScheme || getScatterDefaultSchemeId();
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('scatter', {
+      config: {
+        ...payloadConfig,
+        ...cfg,
+        colorScheme: resolvedSchemeId
+      }
+    }) || null;
     const schemeId = resolved?.schemeId
       || (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
         ? cfg.colorScheme.trim().toLowerCase()
-        : scatterColorSchemeId);
+        : resolvedSchemeId);
     const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     scatterColorSchemeId = schemeId || 'scientific';
+    // Scatter does not expose a user-facing per-tab text/background override UI.
+    // Keep these values scheme-derived so stale payload drift cannot leak styles
+    // across tabs (for example dark text/background copied onto a scientific tab).
     scatterTextColor = normalizeScatterThemeColor(
-      cfg.textColor,
-      resolved?.textColor || (isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000'))
+      resolved?.textColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
     );
     scatterBackgroundColor = normalizeScatterThemeColor(
-      cfg.backgroundColor,
-      resolved?.background || (isDark ? '#000000' : '#ffffff')
+      resolved?.background,
+      isDark ? '#000000' : '#ffffff'
     );
+    return {
+      schemeId: scatterColorSchemeId,
+      textColor: scatterTextColor,
+      backgroundColor: scatterBackgroundColor,
+      isDark
+    };
+  }
+
+  function resolveScatterTab(tabLike){
+    if(tabLike && typeof tabLike === 'object'){
+      return tabLike;
+    }
+    const session = global.Main?.session || null;
+    const tabId = String(tabLike || '').trim();
+    if(tabId){
+      const byGetter = (typeof session?.getTabById === 'function')
+        ? session.getTabById(tabId)
+        : null;
+      if(byGetter){
+        return byGetter;
+      }
+      const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+      return tabs.find(item => item && String(item.id || '') === tabId) || null;
+    }
+    return session?.getActiveTab?.() || null;
+  }
+
+  function getScatterTabPayloadConfig(tabLike){
+    const tab = resolveScatterTab(tabLike);
+    if(!tab || tab.type !== 'scatter'){
+      return null;
+    }
+    const cfg = tab?.payload?.config;
+    return cfg && typeof cfg === 'object' ? cfg : null;
+  }
+
+  function resolveScatterThemeSnapshot(options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const tabId = opts.tabId || scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+    const payloadConfig = getScatterTabPayloadConfig(tabId) || {};
+    const overrideConfig = opts.config && typeof opts.config === 'object' ? opts.config : null;
+    const effectiveConfig = overrideConfig
+      ? { ...payloadConfig, ...overrideConfig }
+      : payloadConfig;
+    const payloadScheme = typeof effectiveConfig.colorScheme === 'string'
+      ? effectiveConfig.colorScheme.trim().toLowerCase()
+      : '';
+    const fallbackPayloadScheme = typeof payloadConfig.colorScheme === 'string'
+      ? payloadConfig.colorScheme.trim().toLowerCase()
+      : '';
+    const root = resolveScatterRoot(tabId);
+    const box = root?.querySelector?.('.svgbox') || null;
+    const rootScheme = String(box?.getAttribute?.('data-color-scheme') || '').trim().toLowerCase();
+    const runtimeTheme = getScatterSessionRecord(tabId, { create: false })?.runtime?.theme || null;
+    const runtimeScheme = typeof runtimeTheme?.schemeId === 'string'
+      ? runtimeTheme.schemeId.trim().toLowerCase()
+      : '';
+    const schemeId = payloadScheme
+      || fallbackPayloadScheme
+      || runtimeScheme
+      || rootScheme
+      || getScatterDefaultSchemeId();
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('scatter', {
+      config: {
+        ...effectiveConfig,
+        colorScheme: schemeId
+      }
+    }) || null;
+    const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
+    const textColor = normalizeScatterThemeColor(
+      resolved?.textColor,
+      isDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
+    );
+    const backgroundColor = normalizeScatterThemeColor(
+      resolved?.background,
+      isDark ? '#000000' : '#ffffff'
+    );
+    return {
+      schemeId: schemeId || 'scientific',
+      textColor,
+      backgroundColor,
+      isDark
+    };
+  }
+
+  function syncScatterThemeSingletonsFromActive(options){
+    const snapshot = resolveScatterThemeSnapshot(options);
+    scatterColorSchemeId = snapshot.schemeId;
+    scatterTextColor = snapshot.textColor;
+    scatterBackgroundColor = snapshot.backgroundColor;
+    return snapshot;
   }
 
   function scheduleScatterViewRefresh(reason, extraOptions){
@@ -519,7 +652,7 @@
     return source.startsWith('scatter-x-axis-') || source.startsWith('scatter-y-axis-');
   }
 
-  function appendScatter3dBackground(svg, width, height){
+  function appendScatter3dBackground(svg, width, height, themeSnapshot){
     if(!svg){
       return;
     }
@@ -527,9 +660,17 @@
     staleBackgrounds.forEach(node => {
       try { node.remove(); } catch (err) {}
     });
-    const isDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
+    const resolvedTheme = themeSnapshot && typeof themeSnapshot === 'object'
+      ? themeSnapshot
+      : resolveScatterThemeSnapshot({
+          tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+        });
+    const isDark = String(resolvedTheme?.schemeId || scatterColorSchemeId || '').toLowerCase() === 'dark';
     if(isDark){
-      const color = normalizeScatterThemeColor(scatterBackgroundColor, '#000000');
+      const color = normalizeScatterThemeColor(
+        resolvedTheme?.backgroundColor,
+        normalizeScatterThemeColor(scatterBackgroundColor, '#000000')
+      );
       svg.setAttribute('data-color-scheme-bg-color', color);
       if(svg.style){
         svg.style.backgroundColor = color;
@@ -542,20 +683,76 @@
     }
   }
 
-  function getActiveScatterPalette(){
-    return Array.isArray(DEFAULT_SCATTER_COLORS) && DEFAULT_SCATTER_COLORS.length
-      ? DEFAULT_SCATTER_COLORS
-      : ['#0000ff', '#ff0000', '#00aa00', '#666666'];
+  function sanitizeScatterPaletteColors(colors, fallback){
+    const normalized = (Array.isArray(colors) ? colors : [])
+      .map(color => (typeof color === 'string' ? color.trim() : ''))
+      .filter(Boolean);
+    if(normalized.length){
+      return normalized;
+    }
+    const fallbackPalette = Array.isArray(fallback) ? fallback : SCATTER_FALLBACK_COLORS;
+    const normalizedFallback = fallbackPalette
+      .map(color => (typeof color === 'string' ? color.trim() : ''))
+      .filter(Boolean);
+    if(normalizedFallback.length){
+      return normalizedFallback;
+    }
+    return ['#0000ff', '#ff0000', '#00aa00', '#666666'];
   }
 
-  function getScatterPrimaryFillColor(){
-    const palette = getActiveScatterPalette();
+  function resolveScatterCategoricalPalette(options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const tabId = opts.tabId || scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+    const payloadConfig = (opts.config && typeof opts.config === 'object')
+      ? opts.config
+      : (getScatterTabPayloadConfig(tabId) || {});
+    const schemeFromPayload = typeof payloadConfig.colorScheme === 'string'
+      ? payloadConfig.colorScheme.trim().toLowerCase()
+      : '';
+    const themeSnapshot = resolveScatterThemeSnapshot({
+      tabId,
+      config: payloadConfig
+    });
+    const schemeId = schemeFromPayload || String(themeSnapshot?.schemeId || '').trim().toLowerCase() || getScatterDefaultSchemeId();
+    const themeCatalog = Shared.themeCatalog;
+    const fromThemeCatalog = (typeof themeCatalog?.getScheme === 'function')
+      ? themeCatalog.getScheme(schemeId, getScatterDefaultSchemeId())
+      : null;
+    if(Array.isArray(fromThemeCatalog?.categorical) && fromThemeCatalog.categorical.length){
+      return sanitizeScatterPaletteColors(fromThemeCatalog.categorical, SCATTER_FALLBACK_COLORS);
+    }
+    const fromColorSchemes = typeof Shared.colorSchemes?.getSchemes === 'function'
+      ? Shared.colorSchemes.getSchemes()
+      : null;
+    if(fromColorSchemes && typeof fromColorSchemes === 'object'){
+      const schemeEntry = fromColorSchemes[schemeId] || fromColorSchemes[getScatterDefaultSchemeId()] || null;
+      if(Array.isArray(schemeEntry?.categorical) && schemeEntry.categorical.length){
+        return sanitizeScatterPaletteColors(schemeEntry.categorical, SCATTER_FALLBACK_COLORS);
+      }
+    }
+    return sanitizeScatterPaletteColors(DEFAULT_SCATTER_COLORS, SCATTER_FALLBACK_COLORS);
+  }
+
+  function getActiveScatterPalette(options){
+    return resolveScatterCategoricalPalette(options);
+  }
+
+  function getScatterPrimaryFillColor(options){
+    const palette = getActiveScatterPalette(options);
     return String((palette[0] || '#0000ff')).toLowerCase();
   }
 
-  function getScatterSignificanceColors(){
+  function getScatterSignificanceColors(theme){
     const palette = getActiveScatterPalette();
-    const schemeId = String(scatterColorSchemeId || '').toLowerCase();
+    const schemeValue = (typeof theme === 'string')
+      ? theme
+      : (theme && typeof theme === 'object' ? theme.schemeId : null);
+    const schemeId = String(
+      schemeValue
+      || resolveScatterThemeSnapshot({ tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null }).schemeId
+      || scatterColorSchemeId
+      || getScatterDefaultSchemeId()
+    ).toLowerCase();
     if(schemeId === 'grayscale'){
       return {
         positive: palette[0] || '#000000',
@@ -1103,8 +1300,36 @@
   }
 
   function captureScatterRuntimeSnapshot(reason){
+    const activeTabId = scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+    const themeSnapshot = resolveScatterThemeSnapshot({ tabId: activeTabId });
+    const fillControl = getScatterNodeById('scatterFill') || null;
+    const borderControl = getScatterNodeById('scatterBorder') || null;
+    const borderWidthControl = getScatterNodeById('scatterBorderWidth') || null;
+    const alphaControl = getScatterNodeById('scatterAlpha') || null;
+    const colorModeControl = getScatterNodeById('scatterColorMode') || null;
+    const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
     const snapshot = {
       dataDirty: scatterState.dataDirty !== false,
+      theme: {
+        schemeId: themeSnapshot?.schemeId || scatterColorSchemeId || getScatterDefaultSchemeId(),
+        textColor: themeSnapshot?.textColor || scatterTextColor || (chartStyle.TEXT_COLOR || '#000000'),
+        backgroundColor: themeSnapshot?.backgroundColor || scatterBackgroundColor || '#ffffff'
+      },
+      styles: {
+        fill: fillControl?.value ?? null,
+        border: borderControl?.value ?? null,
+        borderWidth: borderWidthControl?.value ?? null,
+        alpha: alphaControl?.value ?? null,
+        colorMode: colorModeControl?.value ?? null,
+        densityPalette: densityPaletteControl?.value ?? null,
+        labelColors: cloneSimple(scatterLabelColors) || {},
+        labelShapes: cloneSimple(scatterLabelShapes) || {},
+        labelStyles: cloneSimple(scatterLabelStyles) || {},
+        overlayStyles: cloneSimple(scatterOverlayStyles) || {},
+        overlayToolbarScope: typeof scatterOverlayToolbarScope === 'string' ? scatterOverlayToolbarScope : 'global'
+      },
+      axisSettings: cloneSimple(ensureScatterAxisSettings()) || createScatterAxisSettings(),
+      gridStyle: cloneSimple(ensureScatterGridStyle(getScatterAxisStrokeWidth())) || createDefaultScatterGridStyle(getScatterAxisStrokeWidth()),
       stats: {
         contextSignature: scatterState.statsContextSignature || null,
         contextVersion: Number.isFinite(Number(scatterState.statsContextVersion)) ? Number(scatterState.statsContextVersion) : 0,
@@ -1120,6 +1345,7 @@
       console.debug('Debug: scatter runtime snapshot captured', {
         reason: reason || 'unspecified',
         dataDirty: snapshot.dataDirty,
+        theme: snapshot.theme?.schemeId || null,
         statsContextVersion: snapshot.stats.contextVersion
       });
     }
@@ -1128,6 +1354,62 @@
 
   function applyScatterRuntimeSnapshot(snapshot, reason){
     const runtime = snapshot && typeof snapshot === 'object' ? snapshot : null;
+    const activeTabId = scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+    const fillControl = getScatterNodeById('scatterFill') || null;
+    const borderControl = getScatterNodeById('scatterBorder') || null;
+    const borderWidthControl = getScatterNodeById('scatterBorderWidth') || null;
+    const alphaControl = getScatterNodeById('scatterAlpha') || null;
+    const alphaValueNode = getScatterNodeById('scatterAlphaVal') || null;
+    const colorModeControl = getScatterNodeById('scatterColorMode') || null;
+    const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
+    if(runtime?.theme && typeof runtime.theme === 'object'){
+      applyScatterThemeConfig({
+        colorScheme: runtime.theme.schemeId,
+        textColor: runtime.theme.textColor,
+        backgroundColor: runtime.theme.backgroundColor
+      }, { tabId: activeTabId });
+    }else{
+      applyScatterThemeConfig(getScatterTabPayloadConfig(activeTabId) || {}, { tabId: activeTabId });
+    }
+    if(runtime?.styles && typeof runtime.styles === 'object'){
+      const styles = runtime.styles;
+      if(fillControl && styles.fill != null && String(styles.fill).trim()){
+        fillControl.value = String(styles.fill);
+      }
+      if(borderControl && styles.border != null && String(styles.border).trim()){
+        borderControl.value = String(styles.border);
+      }
+      if(borderWidthControl && styles.borderWidth != null && String(styles.borderWidth).trim()){
+        borderWidthControl.value = String(styles.borderWidth);
+      }
+      if(alphaControl && styles.alpha != null && String(styles.alpha).trim()){
+        alphaControl.value = String(styles.alpha);
+      }
+      if(alphaValueNode && alphaControl){
+        alphaValueNode.textContent = String(alphaControl.value || 0);
+      }
+      if(colorModeControl && styles.colorMode != null && String(styles.colorMode).trim()){
+        colorModeControl.value = normalizeScatterColorMode(styles.colorMode);
+      }
+      if(densityPaletteControl && styles.densityPalette != null && String(styles.densityPalette).trim()){
+        densityPaletteControl.value = normalizeScatterDensityPalette(styles.densityPalette);
+      }
+      scatterLabelColors = (styles.labelColors && typeof styles.labelColors === 'object') ? { ...styles.labelColors } : {};
+      scatterLabelShapes = (styles.labelShapes && typeof styles.labelShapes === 'object') ? { ...styles.labelShapes } : {};
+      scatterLabelStyles = (styles.labelStyles && typeof styles.labelStyles === 'object') ? { ...styles.labelStyles } : {};
+      scatterOverlayStyles = sanitizeScatterOverlayStylesMap(styles.overlayStyles);
+      scatterOverlayToolbarScope = normalizeScatterOverlayToolbarScope(styles.overlayToolbarScope || scatterOverlayToolbarScope);
+      scatterLabelCache.colorsSet = null;
+      scatterLabelCache.shapesSet = null;
+      scatterLabelCache.colorsValid = false;
+      scatterLabelCache.shapesValid = false;
+    }
+    if(runtime?.axisSettings && typeof runtime.axisSettings === 'object'){
+      applyScatterAxisSettings(runtime.axisSettings);
+    }
+    if(runtime?.gridStyle && typeof runtime.gridStyle === 'object'){
+      setScatterGridStyle(runtime.gridStyle, runtime?.axisSettings?.strokeWidth ?? getScatterAxisStrokeWidth());
+    }
     scatterState.dataDirty = runtime ? runtime.dataDirty !== false : true;
     scatterState.statsContextSignature = runtime?.stats?.contextSignature || null;
     scatterState.statsContextVersion = Number.isFinite(Number(runtime?.stats?.contextVersion))
@@ -1151,6 +1433,7 @@
         reason: reason || 'unspecified',
         hasRuntime: !!runtime,
         dataDirty: scatterState.dataDirty,
+        theme: scatterColorSchemeId || null,
         statsContextVersion: scatterState.statsContextVersion,
         drawToken: scatterDrawToken
       });
@@ -5072,7 +5355,7 @@
         hide('no-row-index');
         return;
       }
-      const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+      const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
       const toggled = toggleScatterRowSelected(hot, rowIndex, { ensureVisible: true });
       storeScatterRowSelection(hot, 'point-context-menu');
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -5243,7 +5526,7 @@
     }
     menu.__scatterPointData = data || null;
     const rowIndex = Number.isInteger(data?.rowIndex) ? data.rowIndex : null;
-    const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+    const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
     const alreadySelected = rowIndex !== null && hot ? isScatterRowSelected(hot, rowIndex) : false;
     const labelItem = menu.querySelector?.('button[data-action="toggle-label"]');
     if(labelItem){
@@ -6574,8 +6857,8 @@
     component: 'scatter',
     message: 'Rendering scatter plot...',
     getHost: () => (
-      global.document?.getElementById?.('scatterGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('scatterGraphPanel')
+      getScatterNodeById('scatterGraphPanel')?.querySelector?.('.svgbox')
+      || getScatterNodeById('scatterGraphPanel')
     )
   });
 
@@ -10323,7 +10606,9 @@
           });
           updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
         }
-        const significanceColors = getScatterSignificanceColors();
+        const significanceColors = getScatterSignificanceColors(resolveScatterThemeSnapshot({
+          tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+        }));
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
           scatterFill.value=significanceColors.neutral;
         }
@@ -10850,7 +11135,7 @@
         const sourceFormat = normalizeScatterTableFormat(options.sourceFormat || getScatterReplicateMode());
         const sourceXReplicatesEnabled = normalizeScatterGroupedXReplicates(options.sourceXReplicatesEnabled ?? scatterGroupedXReplicates);
         const targetXReplicatesEnabled = normalizeScatterGroupedXReplicates(options.xReplicatesEnabled ?? scatterGroupedXReplicates);
-        const hot = scatterHot || scatterRefs.hot;
+        const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
         const matrix = Array.isArray(options.dataOverride)
           ? options.dataOverride
           : (hot?.getData?.() || []);
@@ -10904,7 +11189,7 @@
         if(scatterTableFormatSelect && scatterTableFormatSelect.value !== nextMode){
           scatterTableFormatSelect.value = nextMode;
         }
-        const hot = scatterHot || scatterRefs.hot;
+        const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
         if(nextMode === SCATTER_TABLE_FORMAT_GROUPED){
           const matrix = hot?.getData ? (hot.getData() || []) : [];
           const shouldResetGroups = isScatterMatrixEmpty(matrix);
@@ -13946,7 +14231,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(showCIControl){ showCIControl.disabled = disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showCIControl.checked){ showCIControl.checked = false; } }
           if(showPIControl){ showPIControl.disabled = disableRegressionControls; if(clearWhenDisabled && disableRegressionControls && showPIControl.checked){ showPIControl.checked = false; } }
         }
-        const significanceColors = getScatterSignificanceColors();
+        const significanceColors = getScatterSignificanceColors(resolveScatterThemeSnapshot({
+          tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+        }));
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
           scatterFill.value=significanceColors.neutral;
         }
@@ -14983,9 +15270,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const sampleLimit = 5;
         const createdSamples = debugEnabled ? [] : null;
         const prunedSamples = debugEnabled ? [] : null;
+        const labelPalette = getActiveScatterPalette({
+          tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+        });
+        const labelPaletteCount = Math.max(1, labelPalette.length);
         labels.forEach((lab,i)=>{
           if(!scatterLabelColors[lab]){
-            scatterLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+            scatterLabelColors[lab]=labelPalette[i % labelPaletteCount] || '#0000ff';
             createdCount += 1;
             if(createdSamples && createdSamples.length < sampleLimit){
               createdSamples.push({ label: lab, color: scatterLabelColors[lab] });
@@ -15729,10 +16020,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         info('drawScatter called',{token, viewOnly, reason: drawOptions?.reason || null});
         try{
         let statsContextPayload=null;
+        const themeSnapshot = syncScatterThemeSingletonsFromActive({
+          tabId: drawOptions?.tabId || scatter.__boundTabId || null
+        });
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
         hideScatterTooltip('draw-start');
-        const significanceColors = getScatterSignificanceColors();
+        const significanceColors = getScatterSignificanceColors(themeSnapshot);
         const fill=scatterFill.value||significanceColors.neutral;
         const alpha=Number(scatterAlpha.value)||0;
         const borderWidthRaw=Number(scatterBorderWidth.value);
@@ -15750,9 +16044,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const axisStrokeWidthBase = getScatterAxisStrokeWidth();
         const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0, exact: true });
         const axisStroke = getScatterAxisColor();
-        const scatterThemeDark = String(scatterColorSchemeId || '').toLowerCase() === 'dark';
+        const scatterThemeDark = themeSnapshot.isDark === true;
         const scatterThemeTextColor = normalizeScatterThemeColor(
-          scatterTextColor,
+          themeSnapshot.textColor,
           scatterThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
         );
         const dotSizeInputRaw=Number(scatterDotSize.value)||3;
@@ -17304,11 +17598,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             svg3.removeChild(svg3.firstChild);
           }
           svg3.style.backgroundColor = scatterThemeDark
-            ? normalizeScatterThemeColor(scatterBackgroundColor, '#000000')
+            ? normalizeScatterThemeColor(themeSnapshot.backgroundColor, '#000000')
             : '';
           svg3.style.pointerEvents = 'all';
-          svg3.setAttribute('data-color-scheme', scatterColorSchemeId || 'scientific');
-          appendScatter3dBackground(svg3, W3, H3);
+          svg3.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
+          appendScatter3dBackground(svg3, W3, H3, themeSnapshot);
           svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
           plot3d.attachRotationControls(svg3, {
             state: scatterState.rotation,
@@ -18016,6 +18310,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         svg.style.visibility='hidden';
         svg.style.pointerEvents='none';
         chartStyle.applySvgDefaults(svg);
+        svg.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
+        if(scatterThemeDark){
+          const darkBg = normalizeScatterThemeColor(themeSnapshot.backgroundColor, '#000000');
+          svg.style.backgroundColor = darkBg;
+          svg.setAttribute('data-color-scheme-bg-color', darkBg);
+        }else{
+          svg.style.backgroundColor = '';
+          svg.removeAttribute('data-color-scheme-bg-color');
+        }
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
         plotEl.appendChild(svg);
         if(previousPlotChildren.length && svg.style){
@@ -18802,7 +19105,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
-          const txt = add('text',{x, y: xAxisY + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: chartStyle.TEXT_COLOR});
+          const txt = add('text',{x, y: xAxisY + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: scatterThemeTextColor});
           txt.textContent = formatTickX(logX ? Math.pow(10, t) : t);
           Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
           markFontEditable(txt,'xTick');
@@ -18883,7 +19186,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   y: xAxisY + tickLen + tickGap + extra + Math.max(2, fs * 0.85),
                   'font-size': fs,
                   'text-anchor': 'middle',
-                  fill: chartStyle.TEXT_COLOR
+                  fill: scatterThemeTextColor
                 });
                 txt.textContent = label;
                 Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
@@ -18929,7 +19232,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             debug('Debug: scatter y-axis tick label hidden at axis crossing',{ value: t, pixel: y, crossingPixel: xAxisY });
             return;
           }
-          const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+          const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:scatterThemeTextColor});
           txt.textContent=formatTickY(logY?Math.pow(10,t):t);
           markFontEditable(txt,'yTick');
           yTickFontCount+=1;
@@ -19009,7 +19312,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                   'font-size': fs,
                   'text-anchor': 'end',
                   'dominant-baseline': 'middle',
-                  fill: chartStyle.TEXT_COLOR
+                  fill: scatterThemeTextColor
                 });
                 txt.textContent = label;
                 markFontEditable(txt,'yTick');
@@ -19651,7 +19954,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               textNode.setAttribute('x',entry.textX);
               textNode.setAttribute('y',entry.anchorY);
               textNode.setAttribute('font-size',annotationFontPx);
-              textNode.setAttribute('fill',chartStyle.TEXT_COLOR || '#333333');
+              textNode.setAttribute('fill',scatterThemeTextColor || '#333333');
               textNode.setAttribute('text-anchor',entry.textAnchor);
               textNode.setAttribute('dominant-baseline','middle');
               textNode.textContent=entry.label;
@@ -19661,7 +19964,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               const path=`M ${entry.attachX} ${entry.anchorY} L ${entry.pointX} ${entry.pointY}`;
               connector.setAttribute('d',path);
               connector.setAttribute('fill','none');
-              connector.setAttribute('stroke',chartStyle.TEXT_COLOR || '#333333');
+              connector.setAttribute('stroke',scatterThemeTextColor || '#333333');
               connector.setAttribute('stroke-width',annotationStrokeWidth);
               connector.setAttribute('stroke-linecap','round');
               annotationLayer.appendChild(connector);
@@ -19690,7 +19993,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const labelFontSize = Math.min(labelFontSizeRaw, tickFontSizeCap);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label', min: 0.25 });
-          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const labelColor = scatterThemeTextColor || '#333333';
           const plotLeft = margin.left;
           const plotRight = margin.left + plotW;
           const plotTop = margin.top;
@@ -19843,7 +20146,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
         
-        const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:scatterThemeTextColor});
         xText.textContent=scatterState.xLabelText;
         markFontEditable(xText,'xTitle','xTitle');
         const applyScatterXLabel=value=>{
@@ -19874,7 +20177,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             applyScatterXLabel(value);
             
             // Also update the table header to maintain consistency
-            const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+            const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
             scatterLog('Undo sync - HOT instance:', hot);
             
             if(hot && typeof hot.setDataAtCell === 'function'){
@@ -19973,7 +20276,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterLog('X-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
           
           // Update the table header to make the change permanent
-          const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+          const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
           scatterLog('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
           
           if(hot && typeof hot.setDataAtCell === 'function'){
@@ -20151,7 +20454,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         
         info('scatter y-axis position',absoluteYTextX);
-        const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:scatterThemeTextColor});
         yText.textContent=scatterState.yLabelText;
         markFontEditable(yText,'yTitle','yTitle');
         const applyScatterYLabel=value=>{
@@ -20182,7 +20485,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             applyScatterYLabel(value);
             
             // Also update the table header to maintain consistency
-            const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+            const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
             scatterLog('Undo sync - HOT instance:', hot);
             
             if(hot && typeof hot.setDataAtCell === 'function'){
@@ -20281,7 +20584,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterLog('Y-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
           
           // Update the table header to make the change permanent
-          const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+          const hot = scatter.__ensureHotForActiveTab?.() || scatterRefs.hot;
           scatterLog('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
           
           if(hot && typeof hot.setDataAtCell === 'function'){
@@ -20438,7 +20741,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
         
-        const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:scatterThemeTextColor});
         titleText.textContent=scatterTitleText;
         markFontEditable(titleText,'graphTitle','graphTitle');
         const applyScatterTitle=value=>{
@@ -20564,12 +20867,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const groupedVisualSeriesStats = Array.isArray(visualStats?.groupedSeriesStats)
             ? visualStats.groupedSeriesStats
             : [];
+          const activeScatterPalette = getActiveScatterPalette({
+            tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+          });
           const regressionVisualEntries = groupedVisualSeriesStats.length
             ? groupedVisualSeriesStats.map((entry, idx) => {
                 const label = (entry?.label != null && String(entry.label).trim() !== '')
                   ? String(entry.label).trim()
                   : `Series ${idx + 1}`;
-                const fallbackColor = DEFAULT_SCATTER_COLORS[idx % Math.max(1, DEFAULT_SCATTER_COLORS.length)] || '#d00';
+                const fallbackColor = activeScatterPalette[idx % Math.max(1, activeScatterPalette.length)] || '#d00';
                 return {
                   label,
                   color: scatterLabelColors[label] || fallbackColor,
@@ -21168,7 +21474,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat') || scatterTableFormatSelect;
       const payloadScatterHotWrapper = getScatterNodeById('scatterHotWrapper') || scatterHotWrapper;
       const payloadScatterHotContainer = getScatterNodeById('scatterHot') || scatterHotContainer;
-      const activeHot = scatterHot || scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+      const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
       const activeManager = activeHot
         ? ensureScatterDataViewsForHot(activeHot, {
             wrapper: payloadScatterHotWrapper,
@@ -21180,7 +21486,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
-      const persistedLabelColors = compactScatterLabelMapForPayload(scatterLabelColors, DEFAULT_SCATTER_COLORS, 'labelColors');
+      const activeTabId = global.Main?.session?.getActiveTab?.()?.id || scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+      const themeSnapshot = resolveScatterThemeSnapshot({
+        tabId: activeTabId
+      });
+      const persistedPaletteDefaults = getActiveScatterPalette({
+        tabId: activeTabId,
+        config: { colorScheme: themeSnapshot.schemeId }
+      });
+      const persistedLabelColors = compactScatterLabelMapForPayload(scatterLabelColors, persistedPaletteDefaults, 'labelColors');
       const persistedLabelShapes = compactScatterLabelMapForPayload(scatterLabelShapes, SCATTER_SHAPE_DEFAULTS, 'labelShapes');
       const persistedStats = getScatterPersistedStatsSnapshot();
       const selectedRows = activeHot ? getScatterSelectedRowSet(activeHot) : null;
@@ -21203,9 +21517,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             fill:scatterFill.value,
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
             densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
-            colorScheme: scatterColorSchemeId,
-            textColor: scatterTextColor,
-            backgroundColor: scatterBackgroundColor,
+            colorScheme: themeSnapshot.schemeId,
+            textColor: themeSnapshot.textColor,
+            backgroundColor: themeSnapshot.backgroundColor,
             border:scatterBorder.value,
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
@@ -21445,7 +21759,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(scatterStatType){
           scatterStatType.value = defaultStatType;
         }
-        applyScatterThemeConfig(c);
+        applyScatterThemeConfig(c, {
+          tabId: scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null
+        });
         if(c.notes && typeof c.notes === 'object'){
           notesState.text = c.notes.text == null ? '' : String(c.notes.text);
           notesState.open = !!c.notes.open;
@@ -21505,9 +21821,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
         scatterAlpha.value=c.alpha||0;
         scatterAlphaVal.textContent=scatterAlpha.value;
-        scatterLabelColors=c.labelColors||{};
-        scatterLabelStyles=c.labelStyles||{};
-        scatterLabelShapes=c.labelShapes||{};
+        scatterLabelColors = (c.labelColors && typeof c.labelColors === 'object')
+          ? { ...c.labelColors }
+          : {};
+        scatterLabelStyles = (c.labelStyles && typeof c.labelStyles === 'object')
+          ? { ...c.labelStyles }
+          : {};
+        scatterLabelShapes = (c.labelShapes && typeof c.labelShapes === 'object')
+          ? { ...c.labelShapes }
+          : {};
         scatterOverlayStyles=sanitizeScatterOverlayStylesMap(c.overlayStyles);
         scatterLabelCache.colorsSet = null;
         scatterLabelCache.shapesSet = null;
@@ -22124,6 +22446,85 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     }
   }
 
+  function applyScatterActivationVisualStateFromPayload(payloadConfig, tabId){
+    const cfg = (payloadConfig && typeof payloadConfig === 'object') ? payloadConfig : {};
+    const resolvedTheme = Shared.colorSchemes?.resolveThemeState?.('scatter', {
+      config: {
+        ...cfg,
+        colorScheme: cfg.colorScheme || getScatterDefaultSchemeId()
+      }
+    }) || null;
+    const fillControl = getScatterNodeById('scatterFill') || null;
+    const borderControl = getScatterNodeById('scatterBorder') || null;
+    const borderWidthControl = getScatterNodeById('scatterBorderWidth') || null;
+    const alphaControl = getScatterNodeById('scatterAlpha') || null;
+    const alphaValueNode = getScatterNodeById('scatterAlphaVal') || null;
+    const colorModeControl = getScatterNodeById('scatterColorMode') || null;
+    const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
+    applyScatterThemeConfig(cfg, { tabId: tabId || null });
+    const defaultFill = getScatterPrimaryFillColor({
+      tabId: tabId || null,
+      config: cfg
+    });
+    if(fillControl){
+      const fill = (typeof cfg.fill === 'string' && cfg.fill.trim()) ? cfg.fill.trim() : (fillControl.defaultValue || defaultFill);
+      fillControl.value = fill;
+    }
+    if(borderControl){
+      const border = (typeof cfg.border === 'string' && cfg.border.trim())
+        ? cfg.border.trim()
+        : (borderControl.defaultValue || resolvedTheme?.borderColor || '#000000');
+      borderControl.value = border;
+    }
+    if(borderWidthControl){
+      const borderWidth = (cfg.borderWidth !== undefined && cfg.borderWidth !== null && String(cfg.borderWidth).trim())
+        ? String(cfg.borderWidth).trim()
+        : (borderWidthControl.defaultValue || '0');
+      borderWidthControl.value = borderWidth;
+    }
+    if(alphaControl){
+      const alphaValue = (cfg.alpha !== undefined && cfg.alpha !== null && String(cfg.alpha).trim())
+        ? String(cfg.alpha).trim()
+        : (alphaControl.defaultValue || '0');
+      alphaControl.value = alphaValue;
+      if(alphaValueNode){
+        alphaValueNode.textContent = String(alphaControl.value || 0);
+      }
+    }
+    if(colorModeControl){
+      colorModeControl.value = normalizeScatterColorMode(cfg.colorMode || colorModeControl.value);
+    }
+    if(densityPaletteControl){
+      densityPaletteControl.value = normalizeScatterDensityPalette(cfg.densityPalette || densityPaletteControl.value);
+    }
+    scatterLabelColors = (cfg.labelColors && typeof cfg.labelColors === 'object') ? { ...cfg.labelColors } : {};
+    scatterLabelShapes = (cfg.labelShapes && typeof cfg.labelShapes === 'object') ? { ...cfg.labelShapes } : {};
+    scatterLabelStyles = (cfg.labelStyles && typeof cfg.labelStyles === 'object') ? { ...cfg.labelStyles } : {};
+    scatterOverlayStyles = sanitizeScatterOverlayStylesMap(cfg.overlayStyles);
+    scatterLabelCache.colorsSet = null;
+    scatterLabelCache.shapesSet = null;
+    scatterLabelCache.colorsValid = false;
+    scatterLabelCache.shapesValid = false;
+    if(cfg.axis && typeof cfg.axis === 'object'){
+      applyScatterAxisSettings(cfg.axis);
+    }else{
+      const fallbackAxis = createScatterAxisSettings();
+      if(typeof resolvedTheme?.axisColor === 'string' && resolvedTheme.axisColor.trim()){
+        fallbackAxis.color = resolvedTheme.axisColor.trim();
+      }
+      applyScatterAxisSettings(fallbackAxis);
+    }
+    if(cfg.gridStyle && typeof cfg.gridStyle === 'object'){
+      setScatterGridStyle(cfg.gridStyle, cfg.axis?.strokeWidth ?? getScatterAxisStrokeWidth());
+    }else{
+      const fallbackGridStyle = createDefaultScatterGridStyle(getScatterAxisStrokeWidth());
+      if(typeof resolvedTheme?.gridColor === 'string' && resolvedTheme.gridColor.trim()){
+        fallbackGridStyle.color = resolvedTheme.gridColor.trim();
+      }
+      setScatterGridStyle(fallbackGridStyle, getScatterAxisStrokeWidth());
+    }
+  }
+
   scatter.init = setup;
   scatter.ensure = ensureReady;
   scatter.computeAdaptivePointSize = computeAdaptivePointSize;
@@ -22185,7 +22586,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
   function syncScatterActivationState(tabLike = null, reason = 'activate-tab'){
-    syncScatterActivationControlsFromPayload(tabLike);
+    const activationTabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id)
+      || Shared.hot?.resolveActiveTabId?.()
+      || scatter.__boundTabId
+      || null;
+    const activationTab = resolveScatterTab(tabLike || activationTabId) || null;
+    applyScatterActivationVisualStateFromPayload(activationTab?.payload?.config || {}, activationTabId);
+    syncScatterActivationControlsFromPayload(activationTab || tabLike);
     applyScatterRuntimeSnapshot(getScatterSessionRecord(tabLike || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, reason || 'activate-tab');
     if(!scatter.ready){
       return;
@@ -22798,18 +23205,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     componentKey: 'scatter',
     targets: [
       { key: 'scatterState', get: () => scatterState, excludeKeys: ['hot', 'root', 'cachedDrawInput'] },
-      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] },
-      {
-        key: 'themeSingletons',
-        get: () => ({ scatterColorSchemeId, scatterTextColor, scatterBackgroundColor }),
-        apply: snapshot => {
-          if(snapshot && typeof snapshot === 'object'){
-            scatterColorSchemeId = typeof snapshot.scatterColorSchemeId === 'string' ? snapshot.scatterColorSchemeId : scatterColorSchemeId;
-            scatterTextColor = typeof snapshot.scatterTextColor === 'string' ? snapshot.scatterTextColor : scatterTextColor;
-            scatterBackgroundColor = typeof snapshot.scatterBackgroundColor === 'string' ? snapshot.scatterBackgroundColor : scatterBackgroundColor;
-          }
-        }
-      }
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
 })(window);

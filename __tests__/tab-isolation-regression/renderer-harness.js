@@ -638,6 +638,181 @@
   function getRoot(tabId, type){
     return window.Shared?.workspaceTabs?.getMountedRoot?.(tabId, type) || document.querySelector(`[data-workspace-tab-id="${tabId}"]`) || null;
   }
+  function parseColorChannels(value){
+    const text = String(value || '').trim().toLowerCase();
+    if(!text || text === 'transparent' || text === 'none'){
+      return null;
+    }
+    const hex = /^#([0-9a-f]{6})$/i.exec(text);
+    if(hex){
+      const raw = hex[1];
+      return {
+        r: Number.parseInt(raw.slice(0, 2), 16),
+        g: Number.parseInt(raw.slice(2, 4), 16),
+        b: Number.parseInt(raw.slice(4, 6), 16)
+      };
+    }
+    const rgb = /^rgba?\(([^)]+)\)$/i.exec(text);
+    if(!rgb){
+      return null;
+    }
+    const parts = rgb[1].split(',').map(part => Number.parseFloat(String(part).trim()));
+    if(parts.length < 3 || !parts.every((n, idx) => idx > 2 || Number.isFinite(n))){
+      return null;
+    }
+    return {
+      r: Math.max(0, Math.min(255, parts[0])),
+      g: Math.max(0, Math.min(255, parts[1])),
+      b: Math.max(0, Math.min(255, parts[2]))
+    };
+  }
+  function brightnessFromColor(value){
+    const rgb = parseColorChannels(value);
+    if(!rgb){
+      return null;
+    }
+    return (0.299 * rgb.r) + (0.587 * rgb.g) + (0.114 * rgb.b);
+  }
+  function colorToHex(value){
+    const rgb = parseColorChannels(value);
+    if(!rgb){
+      return '';
+    }
+    const toHex = channel => {
+      const clamped = Math.max(0, Math.min(255, Math.round(channel)));
+      return clamped.toString(16).padStart(2, '0');
+    };
+    return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+  }
+  function collectScatterSymbolColors(svg){
+    if(!svg || typeof svg.querySelectorAll !== 'function'){
+      return [];
+    }
+    const nodes = Array.from(svg.querySelectorAll('circle,path,ellipse,polygon,rect'));
+    const out = [];
+    nodes.forEach(node => {
+      if(!node || !node.isConnected){
+        return;
+      }
+      if(node.closest('.axis, .tick, .grid, [data-axis-layer], [data-axis-tick-label], [data-axis-label]')){
+        return;
+      }
+      const tag = String(node.tagName || '').toLowerCase();
+      if(tag === 'rect'){
+        const width = Number(node.getAttribute?.('width'));
+        const height = Number(node.getAttribute?.('height'));
+        if(Number.isFinite(width) && Number.isFinite(height) && width >= 80 && height >= 80){
+          return;
+        }
+      }
+      const fillOpacity = Number.parseFloat(
+        String(
+          node.getAttribute?.('fill-opacity')
+          || window.getComputedStyle?.(node || document.body)?.fillOpacity
+          || window.getComputedStyle?.(node || document.body)?.opacity
+          || '1'
+        )
+      );
+      if(Number.isFinite(fillOpacity) && fillOpacity <= 0.02){
+        return;
+      }
+      const fill = colorToHex(node.getAttribute?.('fill') || window.getComputedStyle?.(node || document.body)?.fill || '');
+      const stroke = colorToHex(node.getAttribute?.('stroke') || window.getComputedStyle?.(node || document.body)?.stroke || '');
+      const color = fill || stroke;
+      if(!color){
+        return;
+      }
+      out.push(color);
+    });
+    return Array.from(new Set(out)).sort();
+  }
+  function collectScatterPayloadColorSignature(tab){
+    const cfg = tab?.payload?.config;
+    if(!cfg || typeof cfg !== 'object'){
+      return '';
+    }
+    const fill = colorToHex(cfg.fill || '');
+    const border = colorToHex(cfg.border || '');
+    const labelColors = cfg.labelColors && typeof cfg.labelColors === 'object'
+      ? Object.keys(cfg.labelColors).sort().map(key => `${key}:${colorToHex(cfg.labelColors[key]) || String(cfg.labelColors[key] || '').trim().toLowerCase()}`)
+      : [];
+    return hashString(JSON.stringify({
+      fill: fill || String(cfg.fill || '').trim().toLowerCase(),
+      border: border || String(cfg.border || '').trim().toLowerCase(),
+      labelColors
+    }));
+  }
+  function resolvePayloadSchemeId(tab){
+    const type = String(tab?.type || '').trim().toLowerCase();
+    const payload = tab?.payload || null;
+    if(type === 'venn'){
+      return String(payload?.style?.colorScheme || payload?.config?.colorScheme || '').trim().toLowerCase();
+    }
+    return String(payload?.config?.colorScheme || payload?.style?.colorScheme || '').trim().toLowerCase();
+  }
+  function probeRenderedTheme(tab){
+    const type = tab?.type || null;
+    const root = getRoot(tab?.id || null, type);
+    const box = root?.querySelector?.('.svgbox') || root?.querySelector?.(`#${type}GraphPanel .svgbox`) || null;
+    const svg = box?.querySelector?.('svg') || root?.querySelector?.('svg') || null;
+    const axisTextNodes = svg?.querySelectorAll
+      ? Array.from(svg.querySelectorAll('[data-axis-tick-label], [data-axis-label], .axis text, .tick text, g.tick text'))
+      : [];
+    const fallbackTextNodes = (!axisTextNodes.length && svg?.querySelectorAll)
+      ? Array.from(svg.querySelectorAll('text'))
+      : [];
+    const sampledTextNodes = axisTextNodes.length ? axisTextNodes : fallbackTextNodes;
+    const textBrightnessSamples = sampledTextNodes
+      .map(node => {
+        const fill = String(node?.getAttribute?.('fill') || window.getComputedStyle?.(node || document.body)?.fill || '').trim().toLowerCase();
+        return brightnessFromColor(fill);
+      })
+      .filter(value => Number.isFinite(value));
+    const sortedBrightness = textBrightnessSamples.slice().sort((a, b) => a - b);
+    const axisTextBrightnessMedian = sortedBrightness.length
+      ? sortedBrightness[Math.floor(sortedBrightness.length / 2)]
+      : null;
+    const axisText = sampledTextNodes[0] || null;
+    const schemeId = String(box?.getAttribute?.('data-color-scheme') || '').trim().toLowerCase();
+    const svgBgColor = String(svg?.getAttribute?.('data-color-scheme-bg-color') || '').trim().toLowerCase();
+    const boxBackground = String(box?.style?.backgroundColor || window.getComputedStyle?.(box || document.body)?.backgroundColor || '').trim().toLowerCase();
+    const textFill = String(axisText?.getAttribute?.('fill') || window.getComputedStyle?.(axisText || document.body)?.fill || '').trim().toLowerCase();
+    const boxBrightness = brightnessFromColor(boxBackground);
+    const textBrightness = brightnessFromColor(textFill);
+    const inferredDarkByVisual = !!svgBgColor
+      || (boxBrightness != null && boxBrightness < 96)
+      || (axisTextBrightnessMedian != null && axisTextBrightnessMedian > 180)
+      || (textBrightness != null && textBrightness > 200);
+    const inferredDark = schemeId ? (schemeId === 'dark') : inferredDarkByVisual;
+    const symbolColors = type === 'scatter' ? collectScatterSymbolColors(svg) : [];
+    const symbolColorSignature = symbolColors.length ? hashString(symbolColors.join('|')) : '';
+    const payloadSymbolSignature = type === 'scatter' ? collectScatterPayloadColorSignature(tab) : '';
+    return {
+      tabId: tab?.id || null,
+      type,
+      schemeId: schemeId || null,
+      payloadSchemeId: resolvePayloadSchemeId(tab) || null,
+      svgBgColor: svgBgColor || null,
+      boxBackground: boxBackground || null,
+      textFill: textFill || null,
+      boxBrightness,
+      textBrightness,
+      axisTextBrightnessMedian,
+      axisTextSampleCount: textBrightnessSamples.length,
+      symbolColorCount: symbolColors.length,
+      symbolColorSignature: symbolColorSignature || null,
+      payloadSymbolSignature: payloadSymbolSignature || null,
+      inferredDarkByVisual,
+      inferredDark
+    };
+  }
+  function isBrightThemeText(probe){
+    const axisBrightness = Number(probe?.axisTextBrightnessMedian);
+    if(Number.isFinite(axisBrightness)){
+      return axisBrightness >= 180;
+    }
+    return Number.isFinite(Number(probe?.textBrightness)) && Number(probe.textBrightness) >= 180;
+  }
   function numberFromCss(value){
     const n = Number.parseFloat(value);
     return Number.isFinite(n) ? n : 0;
@@ -2135,6 +2310,97 @@
     progress('resize-after-switch:complete', { checked: rows.length, failures: failures.length });
     return { rows, failures };
   }
+  async function runThemeIsolationPhase(options = {}){
+    const phase = options.phase || 'theme-isolation';
+    const targetTypes = Array.isArray(options.types) && options.types.length
+      ? options.types.map(type => String(type || '').trim().toLowerCase()).filter(Boolean)
+      : ['scatter'];
+    const failures = [];
+    const rows = [];
+    progress('theme-isolation:start', { phase, targetTypes });
+    for(const type of targetTypes){
+      const tabs = getGraphTabs().filter(tab => String(tab?.type || '').toLowerCase() === type).slice(0, 2);
+      if(tabs.length < 2){
+        failures.push(`${type}: requires at least 2 tabs for cross-tab theme isolation probe`);
+        continue;
+      }
+      const lightTab = tabs[0];
+      const darkTab = tabs[1];
+      try{
+        await activateTab(lightTab.id, { reason: `${phase}:${type}:prepare-light` });
+        await settle(180);
+        window.Shared?.colorSchemes?.applyToActiveTab?.(type, 'scientific');
+        await settle(260);
+        const lightBefore = probeRenderedTheme(lightTab);
+        rows.push({ stage: 'light-before', ...lightBefore });
+
+        await activateTab(darkTab.id, { reason: `${phase}:${type}:prepare-dark` });
+        await settle(180);
+        window.Shared?.colorSchemes?.applyToActiveTab?.(type, 'dark');
+        await settle(260);
+        const darkBefore = probeRenderedTheme(darkTab);
+        rows.push({ stage: 'dark-before', ...darkBefore });
+
+        await activateTab(lightTab.id, { reason: `${phase}:${type}:recheck-light` });
+        await settle(260);
+        const lightAfter = probeRenderedTheme(lightTab);
+        rows.push({ stage: 'light-after', ...lightAfter });
+
+        await activateTab(darkTab.id, { reason: `${phase}:${type}:recheck-dark` });
+        await settle(260);
+        const darkAfter = probeRenderedTheme(darkTab);
+        rows.push({ stage: 'dark-after', ...darkAfter });
+
+        if(lightBefore.inferredDark || isBrightThemeText(lightBefore)){
+          failures.push(`${type}/${lightTab.id}: baseline light tab rendered as dark before switch`);
+        }
+        if((lightBefore.payloadSchemeId || 'scientific') !== 'scientific'){
+          failures.push(`${type}/${lightTab.id}: baseline light tab payload scheme drifted (${lightBefore.payloadSchemeId || 'missing'})`);
+        }
+        if(!darkBefore.inferredDark || !isBrightThemeText(darkBefore)){
+          failures.push(`${type}/${darkTab.id}: baseline dark tab did not render as dark before switch`);
+        }
+        if((darkBefore.payloadSchemeId || 'scientific') !== 'dark'){
+          failures.push(`${type}/${darkTab.id}: baseline dark tab payload scheme drifted (${darkBefore.payloadSchemeId || 'missing'})`);
+        }
+        if(lightAfter.inferredDark || isBrightThemeText(lightAfter)){
+          failures.push(`${type}/${lightTab.id}: dark theme leaked into sibling tab after same-type switch`);
+        }
+        if((lightAfter.payloadSchemeId || 'scientific') !== 'scientific'){
+          failures.push(`${type}/${lightTab.id}: dark theme leaked into sibling payload scheme (${lightAfter.payloadSchemeId || 'missing'})`);
+        }
+        if(type === 'scatter' && lightBefore.symbolColorSignature && lightAfter.symbolColorSignature && lightBefore.symbolColorSignature !== lightAfter.symbolColorSignature){
+          failures.push(`${type}/${lightTab.id}: symbol colors leaked into sibling tab after same-type switch`);
+        }
+        if(type === 'scatter' && lightBefore.payloadSymbolSignature && lightAfter.payloadSymbolSignature && lightBefore.payloadSymbolSignature !== lightAfter.payloadSymbolSignature){
+          failures.push(`${type}/${lightTab.id}: payload symbol color signature drifted after same-type switch`);
+        }
+        if(!darkAfter.inferredDark || !isBrightThemeText(darkAfter)){
+          failures.push(`${type}/${darkTab.id}: dark tab lost dark rendering after same-type switch`);
+        }
+        if((darkAfter.payloadSchemeId || 'scientific') !== 'dark'){
+          failures.push(`${type}/${darkTab.id}: dark tab payload scheme changed unexpectedly (${darkAfter.payloadSchemeId || 'missing'})`);
+        }
+
+        progress('theme-isolation:type-complete', {
+          phase,
+          type,
+          lightTabId: lightTab.id,
+          darkTabId: darkTab.id,
+          lightBeforeDark: !!lightBefore.inferredDark,
+          lightAfterDark: !!lightAfter.inferredDark,
+          darkBeforeDark: !!darkBefore.inferredDark,
+          darkAfterDark: !!darkAfter.inferredDark
+        });
+      }catch(err){
+        const message = err?.message || String(err);
+        failures.push(`${type}: theme isolation probe failed: ${message}`);
+        error('theme isolation probe failed', { phase, type, message });
+      }
+    }
+    progress('theme-isolation:complete', { phase, checked: rows.length, failures: failures.length });
+    return { rows, failures };
+  }
 
   window.GraphitixRegression = {
     runCreateWorkspace,
@@ -2145,6 +2411,7 @@
     runReopenAndSwitchPhase,
     runLiveEditCacheInvalidationPhase,
     runResizeAfterSwitchPhase,
+    runThemeIsolationPhase,
     summarizeRuntimePreviews,
     summarizeRuntimeCaches,
     summarizeCacheReuseRows,

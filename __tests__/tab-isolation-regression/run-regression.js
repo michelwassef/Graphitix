@@ -338,6 +338,9 @@ async function main() {
     const homogeneousSwitchSummary = await runPhase('07_homogeneous_switching', () => page.evaluate(async () => {
       return window.GraphitixRegression.runHomogeneousSwitchingPhase({ phase: 'homogeneous-switching', tabsPerComponent: 2 });
     }));
+    const themeIsolationSummary = await runPhase('08_theme_isolation', () => page.evaluate(async () => {
+      return window.GraphitixRegression.runThemeIsolationPhase({ phase: 'theme-isolation', types: ['scatter'] });
+    }));
 
     fs.writeFileSync(path.join(outDir, 'full-console.log'), allLogs.join('\n') + '\n', 'utf8');
 
@@ -371,6 +374,7 @@ async function main() {
       reopenedLiveEditInvalidationSummary,
       resizeAfterSwitchSummary,
       homogeneousSwitchSummary,
+      themeIsolationSummary,
       cacheReuseSummary,
       graphAnalysis,
       logAnalysis
@@ -387,6 +391,7 @@ async function main() {
     if (reopenedLiveEditInvalidationSummary.failures?.length) failures.push(...reopenedLiveEditInvalidationSummary.failures.map(x => `reopened-live-edit: ${x}`));
     if (resizeAfterSwitchSummary.failures?.length) failures.push(...resizeAfterSwitchSummary.failures.map(x => `resize-after-switch: ${x}`));
     if (homogeneousSwitchSummary.failures?.length) failures.push(...homogeneousSwitchSummary.failures.map(x => `homogeneous-switching: ${x}`));
+    if (themeIsolationSummary.failures?.length) failures.push(...themeIsolationSummary.failures.map(x => `theme-isolation: ${x}`));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedCold, 'reopened-cold-cache', { requireSavedCache: true }));
     failures.push(...collectCacheReuseFailures(cacheReuseSummary.reopenedLive, 'reopened-live-switching'));
     finalSummary.failures = failures;

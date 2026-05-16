@@ -260,21 +260,21 @@
     const requestedView = String(config?.viewMode || DEFAULT_VIEW_MODE).trim().toLowerCase();
     const viewMode = supports3d ? (requestedView === '3d' ? '3d' : '2d') : '2d';
 
-    const tsneControls = global.document?.getElementById?.('pcaTsneControls');
+    const tsneControls = getPcaNodeById('pcaTsneControls');
     if(tsneControls){
       const showTsne = methodName === 'tsne';
       tsneControls.hidden = !showTsne;
       tsneControls.style.display = showTsne ? '' : 'none';
     }
 
-    const umapControls = global.document?.getElementById?.('pcaUmapControls');
+    const umapControls = getPcaNodeById('pcaUmapControls');
     if(umapControls){
       const showUmap = methodName === 'umap';
       umapControls.hidden = !showUmap;
       umapControls.style.display = showUmap ? '' : 'none';
     }
 
-    const viewModeSelect = global.document?.getElementById?.('pcaViewMode');
+    const viewModeSelect = getPcaNodeById('pcaViewMode');
     if(viewModeSelect && viewModeSelect.options){
       Array.from(viewModeSelect.options).forEach(opt => {
         if(opt && opt.value === '3d'){
@@ -285,13 +285,13 @@
       viewModeSelect.value = viewMode;
     }
 
-    const axis3dControl = global.document?.getElementById?.('pcaAxis3DControl');
+    const axis3dControl = getPcaNodeById('pcaAxis3DControl');
     if(axis3dControl){
       const show3dAxis = viewMode === '3d';
       axis3dControl.hidden = !show3dAxis;
       axis3dControl.style.display = show3dAxis ? '' : 'none';
     }
-    const methodAdvanced = global.document?.getElementById?.('pcaMethodAdvancedSection');
+    const methodAdvanced = getPcaNodeById('pcaMethodAdvancedSection');
     if(methodAdvanced){
       const showAdvanced = methodName === 'pca';
       methodAdvanced.hidden = !showAdvanced;
@@ -754,8 +754,8 @@
     message: 'Rendering PCA workspace...',
     getHost: () => (
       pcaSvgBoxRef
-      || global.document?.getElementById?.('pcaGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('pcaGraphPanel')
+      || getPcaNodeById('pcaGraphPanel')?.querySelector?.('.svgbox')
+      || getPcaNodeById('pcaGraphPanel')
     )
   });
 

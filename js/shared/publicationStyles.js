@@ -133,6 +133,56 @@
     return `${tab.id}::${tab.type}`;
   }
 
+  function resolveTabScopedRoot(type, tabLike, options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const allowPageFallback = opts.allowPageFallback === true;
+    const helper = Shared.workspaceTabs || null;
+    const resolvedType = String(type || '').trim();
+    let tab = tabLike && typeof tabLike === 'object' ? tabLike : null;
+    if(!tab && helper && typeof helper.resolveTab === 'function'){
+      tab = helper.resolveTab(tabLike || null) || null;
+    }
+    if(!tab && (!tabLike || tabLike === null || tabLike === undefined)){
+      tab = getActiveTab();
+    }
+    if(helper){
+      const mounted = typeof helper.getMountedRoot === 'function'
+        ? helper.getMountedRoot(tab || tabLike || null, resolvedType)
+        : null;
+      if(mounted){
+        return mounted;
+      }
+      const sessionRoot = typeof helper.getSessionRecord === 'function'
+        ? helper.getSessionRecord(tab || tabLike || null, resolvedType)?.dom?.root
+        : null;
+      if(sessionRoot){
+        return sessionRoot;
+      }
+      if((tab || tabLike) && !allowPageFallback){
+        return null;
+      }
+    }
+    const descriptor = TYPE_TO_PAGE[resolvedType];
+    if(!descriptor){
+      return null;
+    }
+    if(!allowPageFallback && (tab || tabLike)){
+      return null;
+    }
+    return global.document?.getElementById(descriptor.pageId) || null;
+  }
+
+  function resolvePrimarySvgBox(type, tabLike){
+    const scopedRoot = resolveTabScopedRoot(type, tabLike, { allowPageFallback: false });
+    if(scopedRoot && typeof scopedRoot.querySelector === 'function'){
+      const scopedBox = scopedRoot.querySelector('.svgbox');
+      if(scopedBox){
+        return scopedBox;
+      }
+    }
+    return null;
+  }
+
   function isActiveTabForType(type, tabId){
     const active = getActiveTab();
     return !!active
@@ -255,11 +305,7 @@
       });
       return;
     }
-    const descriptor = TYPE_TO_PAGE[type];
-    if(!descriptor) return;
-    const page = global.document?.getElementById(descriptor.pageId);
-    if(!page) return;
-    const box = page.querySelector('.svgbox');
+    const box = resolvePrimarySvgBox(type, getActiveTab());
     if(!box) return;
     const w = Number(sizing?.targetWidthPx);
     const h = Number(sizing?.targetHeightPx);
@@ -576,9 +622,7 @@
       debugLog('Debug: publicationStyles text lock apply skipped', { type, reason: 'missing-chartStyle-setter' });
       return false;
     }
-    const descriptor = TYPE_TO_PAGE[type];
-    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
-    const svgBox = page?.querySelector?.('.svgbox') || null;
+    const svgBox = resolvePrimarySvgBox(type, getActiveTab());
     const scopeId = `${type}GraphPanel`;
     try{
       chartStyle.setTextSizeLock(!!locked, {
@@ -602,7 +646,10 @@
       return false;
     }
     const doc = global.document || null;
-    const input = doc ? doc.getElementById(descriptor.inputId) : null;
+    const scopedRoot = resolveTabScopedRoot(type, getActiveTab(), { allowPageFallback: false });
+    const input = (scopedRoot?.getElementById?.(descriptor.inputId))
+      || (scopedRoot?.querySelector?.(`#${descriptor.inputId}`))
+      || (doc ? doc.getElementById(descriptor.inputId) : null);
     if(!input){
       debugLog('Debug: publicationStyles manual font apply skipped', { type, reason: 'missing-input', inputId: descriptor.inputId });
       return false;
@@ -622,7 +669,11 @@
       input.dataset.fontBasePt = targetValue;
       input.dataset.fontDisplayPt = targetValue;
     }
-    const label = descriptor.labelId && doc ? doc.getElementById(descriptor.labelId) : null;
+    const label = descriptor.labelId
+      ? ((scopedRoot?.getElementById?.(descriptor.labelId))
+        || (scopedRoot?.querySelector?.(`#${descriptor.labelId}`))
+        || (doc ? doc.getElementById(descriptor.labelId) : null))
+      : null;
     if(label && Shared.chartStyle && typeof Shared.chartStyle.renderFontSizeLabel === 'function'){
       try{
         Shared.chartStyle.renderFontSizeLabel({
@@ -651,9 +702,7 @@
   }
 
   function applyPublicationZoomToActiveGraph(type, zoomLevel, options = {}){
-    const descriptor = TYPE_TO_PAGE[type];
-    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
-    const svgBox = page?.querySelector?.('.svgbox') || null;
+    const svgBox = resolvePrimarySvgBox(type, getActiveTab());
     if(!svgBox){
       debugLog('Debug: publicationStyles zoom apply skipped', {
         type,
@@ -685,9 +734,7 @@
   }
 
   function suspendPublicationGraphVisibility(type){
-    const descriptor = TYPE_TO_PAGE[type];
-    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
-    const svgBox = page?.querySelector?.('.svgbox') || null;
+    const svgBox = resolvePrimarySvgBox(type, getActiveTab());
     if(!svgBox || !svgBox.style){
       return () => {};
     }
@@ -959,10 +1006,9 @@
   function syncActiveTabVisuals(reason){
     const tab = getActiveTab();
     if(!tab || !tab.type || tab.isWelcome) return;
-    const descriptor = TYPE_TO_PAGE[tab.type];
-    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
-    const controls = page && typeof page.querySelectorAll === 'function'
-      ? Array.from(page.querySelectorAll(`select[data-publication-style-select="1"][data-component-type="${tab.type}"]`))
+    const scopedRoot = resolveTabScopedRoot(tab.type, tab, { allowPageFallback: false });
+    const controls = scopedRoot && typeof scopedRoot.querySelectorAll === 'function'
+      ? Array.from(scopedRoot.querySelectorAll(`select[data-publication-style-select="1"][data-component-type="${tab.type}"]`))
       : [];
     if(!controls.length){
       const fallback = state.controlsByType[tab.type]?.select || null;

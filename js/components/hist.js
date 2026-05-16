@@ -996,7 +996,7 @@
       }
       return true;
     }
-    const hot = state.hot || state.ensureHotForActiveTab?.() || null;
+    const hot = state.ensureHotForActiveTab?.() || state.hot || null;
     const manager = hot?.__histDataViewsManager || histDataViewsManager || null;
     const activeView = manager?.getActiveView?.() || null;
     if(isHistFrequencyTableDataView(activeView)){
@@ -2003,7 +2003,7 @@
 
   function collectHistSeries(options = {}){
     const explicitMatrix = Array.isArray(options?.matrix) ? options.matrix : null;
-    const hot = state.hot || state.ensureHotForActiveTab?.();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
     const matrix = explicitMatrix || (
       hot && typeof hot.getIncludedDataMatrix === 'function'
         ? hot.getIncludedDataMatrix()
@@ -3066,7 +3066,7 @@
 
     // File Save/Open
     function getPayload(){
-      const activeHot = state.hot || state.ensureHotForActiveTab?.();
+      const activeHot = state.ensureHotForActiveTab?.() || state.hot;
       if(!activeHot){
         return null;
       }
@@ -3176,7 +3176,7 @@
         scheduleBackup = state.scheduleDraw;
         state.scheduleDraw = () => {};
       }
-      const hot = state.hot || state.ensureHotForActiveTab?.();
+      const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(hot){
         state.hot = hot;
       }
@@ -5567,7 +5567,7 @@
         state.root = info?.root
           || Shared.workspaceTabs?.getMountedRoot?.(info?.tab || tabLike || null, 'hist')
           || state.root
-          || global.document?.getElementById?.('histPage')
+          || resolveHistRoot()
           || global.document;
         hist.ready = false;
         hist.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
@@ -5578,7 +5578,7 @@
 
   hist.init = function init(options = {}){
     const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
-    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || global.document?.getElementById?.('histPage') || global.document;
+    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || resolveHistRoot() || global.document;
     if(hist.ready && (!targetTabId || hist.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       histDebug('Debug: Components.hist.init skipped (already ready)', { tabId: hist.__boundTabId || null });
       return;
@@ -5739,7 +5739,7 @@
     componentKey: 'hist',
     resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'hist')
       || state.root
-      || global.document?.getElementById?.('histPage')
+      || resolveHistRoot()
       || global.document,
     setRoot: root => { state.root = root; },
     ensureBindings: tabLike => ensureHistDomBindings(tabLike),
@@ -5762,7 +5762,7 @@
     hist.__boundTabId = targetTabId || hist.__boundTabId || null;
     state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || targetTabId || null, 'hist')
       || state.root
-      || global.document?.getElementById?.('histPage')
+      || resolveHistRoot()
       || global.document;
     if(ensureHistDomBindings(tab)){ return; }
     if(!hist.ready){ hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }

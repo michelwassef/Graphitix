@@ -1219,19 +1219,59 @@
     removeNode(styleNode);
   }
 
-  function getPrimarySvgBoxes(page){
-    if(!page || typeof page.querySelectorAll !== 'function') return [];
-    return Array.from(page.querySelectorAll('.svgbox'));
+  function resolveTabScopedRoot(type, tabLike, options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const allowPageFallback = opts.allowPageFallback === true;
+    const helper = Shared.workspaceTabs || null;
+    const resolvedType = String(type || '').trim();
+    let tab = tabLike && typeof tabLike === 'object' ? tabLike : null;
+    if(!tab && helper && typeof helper.resolveTab === 'function'){
+      tab = helper.resolveTab(tabLike || null) || null;
+    }
+    if(!tab && (!tabLike || tabLike === null || tabLike === undefined)){
+      tab = getActiveTab();
+    }
+    if(helper){
+      const mounted = typeof helper.getMountedRoot === 'function'
+        ? helper.getMountedRoot(tab || tabLike || null, resolvedType)
+        : null;
+      if(mounted){
+        return mounted;
+      }
+      const sessionRoot = typeof helper.getSessionRecord === 'function'
+        ? helper.getSessionRecord(tab || tabLike || null, resolvedType)?.dom?.root
+        : null;
+      if(sessionRoot){
+        return sessionRoot;
+      }
+      if((tab || tabLike) && !allowPageFallback){
+        return null;
+      }
+    }
+    const descriptor = TYPE_TO_PAGE[resolvedType];
+    if(!descriptor){
+      return null;
+    }
+    if(!allowPageFallback && (tab || tabLike)){
+      return null;
+    }
+    return global.document?.getElementById(descriptor.pageId) || null;
   }
 
-  function applyRenderedTheme(type, schemeId){
+  function getPrimarySvgBoxes(root){
+    if(!root || typeof root.querySelectorAll !== 'function') return [];
+    return Array.from(root.querySelectorAll('.svgbox'));
+  }
+
+  function applyRenderedTheme(type, schemeId, options){
+    const opts = options || {};
     const descriptor = TYPE_TO_PAGE[type];
-    if(!descriptor) return;
-    const page = global.document?.getElementById(descriptor.pageId);
-    if(!page) return;
+    if(!descriptor) return false;
+    const root = opts.root || resolveTabScopedRoot(type, opts.tab || opts.tabId || null, { allowPageFallback: false });
+    if(!root) return false;
     const scheme = getScheme(schemeId);
     const tokens = scheme.tokens || {};
-    const boxes = getPrimarySvgBoxes(page);
+    const boxes = getPrimarySvgBoxes(root);
     boxes.forEach(box => {
       if(!box || !box.style) return;
       box.setAttribute('data-color-scheme', scheme.id);
@@ -1244,6 +1284,7 @@
       const svgs = box.querySelectorAll ? Array.from(box.querySelectorAll('svg')) : [];
       svgs.forEach(svg => applySvgVisualTheme(svg, scheme));
     });
+    return boxes.length > 0;
   }
 
   function applyRenderedThemeForTab(type, schemeId, tabId, reason){
@@ -1270,7 +1311,7 @@
       });
       return false;
     }
-    applyRenderedTheme(type, schemeId);
+    applyRenderedTheme(type, schemeId, { tabId, tab: active });
     return true;
   }
 
@@ -1935,7 +1976,17 @@
 
     try{
       if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `color-scheme-pre-${type}`, origin: 'lifecycle' });
+        session.persistActiveTabState(tab, {
+          reason: `color-scheme-pre-${type}`,
+          origin: 'lifecycle',
+          forceLivePayloadCapture: true,
+          snapshotIntent: {
+            captureLivePayload: true,
+            allowSkipLivePayloadCapture: false,
+            reasonSkippable: false,
+            lifecycleSnapshot: false
+          }
+        });
       }
     }catch(err){
       console.error('colorSchemes pre-persist error', { type, err });
@@ -2107,10 +2158,9 @@
     if(!tab || !tab.type || tab.isWelcome) return;
     const schemeId = readActiveSchemeForType(tab.type) || DEFAULT_SCHEME_ID;
     const displayedSchemeId = resolveDisplayedSchemeIdForType(tab.type, options) || schemeId;
-    const descriptor = TYPE_TO_PAGE[tab.type];
-    const page = descriptor ? global.document?.getElementById(descriptor.pageId) : null;
-    const controls = page && typeof page.querySelectorAll === 'function'
-      ? Array.from(page.querySelectorAll(`select[data-color-scheme-select="1"][data-component-type="${tab.type}"]`))
+    const scopedRoot = resolveTabScopedRoot(tab.type, tab, { allowPageFallback: false });
+    const controls = scopedRoot && typeof scopedRoot.querySelectorAll === 'function'
+      ? Array.from(scopedRoot.querySelectorAll(`select[data-color-scheme-select="1"][data-component-type="${tab.type}"]`))
       : [];
     controls.forEach(control => {
       if(control.value !== displayedSchemeId){
@@ -2129,7 +2179,7 @@
       }
     }
     syncSharedScatterPalette(tab.type, getScheme(schemeId));
-    applyRenderedTheme(tab.type, schemeId);
+    applyRenderedThemeForTab(tab.type, schemeId, tab.id, reason || 'sync-active-visuals');
     debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId, displayedScheme: displayedSchemeId });
   }
 
@@ -2150,10 +2200,8 @@
       if(!tab || !tab.type) return;
       const schemeId = readActiveSchemeForType(tab.type);
       if(schemeId !== 'dark') return;
-      const descriptor = TYPE_TO_PAGE[tab.type];
-      if(!descriptor) return;
-      const page = global.document?.getElementById(descriptor.pageId);
-      const activeSvg = page ? page.querySelector('.svgbox svg') : null;
+      const root = resolveTabScopedRoot(tab.type, tab);
+      const activeSvg = root ? root.querySelector?.('.svgbox svg') : null;
       if(!activeSvg) return;
       const is3dView = String(activeSvg.dataset?.viewMode || '').toLowerCase() === '3d';
       if(is3dView){

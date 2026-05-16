@@ -2543,8 +2543,8 @@
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('lineGraphPanel')?.querySelector?.('.svgbox')
-      || global.document?.getElementById?.('lineGraphPanel')
+      || getLineNodeById('lineGraphPanel')?.querySelector?.('.svgbox')
+      || getLineNodeById('lineGraphPanel')
     )
   });
 
@@ -2571,7 +2571,7 @@
 
   const syncLineAutoDrawNoticeWidth = (reason) => {
     const svgBox = refs.svgBox || refs.graphPanel?.querySelector?.('.svgbox');
-    const renderRow = refs.renderRow || global.document?.getElementById?.('lineRenderRow');
+    const renderRow = refs.renderRow || getLineNodeById('lineRenderRow');
     if(!svgBox || !renderRow){
       return;
     }
@@ -2777,8 +2777,8 @@
       });
     }
     const manager = hotInstance.__lineDataViewsManager;
-    const hostWrapper = options.wrapper || refs.hotWrapper || global.document?.getElementById?.('lineHotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null;
+    const hostWrapper = options.wrapper || refs.hotWrapper || getLineNodeById('lineHotWrapper') || null;
+    const hostContainer = options.container || hotInstance.__lineHostContainer || refs.hotContainer || getLineNodeById('lineHot') || null;
     if(hostWrapper && hostContainer){
       manager.mount({
         wrapper: hostWrapper,
@@ -7521,7 +7521,7 @@
   }
 
   function getLineGraphPayload(){
-    const activeHot = lineHot || (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null);
+    const activeHot = (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null) || lineHot;
     if(!activeHot) return null;
     if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && activeHot){
       console.debug('Debug: line payload refreshing summaries',{ hasHot: !!lineHot, summaryCount: lineLastRegressionSummaries?.length || 0 });
@@ -7724,7 +7724,7 @@
       notesState.control.setOpen(notesState.open);
     }
     importFontStyles('line', c.fontStyles || null);
-    const hot = lineHot || (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null);
+    const hot = (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null) || lineHot;
     if(hot){
       lineHot = hot;
       refs.hot = hot;
@@ -7739,11 +7739,11 @@
     const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
     const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
     const dataManager = lineHot
-      ? ensureLineDataViewsForHot(lineHot, {
-          wrapper: refs.hotWrapper || getLineNodeById('lineHotWrapper') || null,
-          container: lineHot.__lineHostContainer || refs.hotContainer || global.document?.getElementById?.('lineHot') || null
-        })
-      : null;
+        ? ensureLineDataViewsForHot(lineHot, {
+            wrapper: refs.hotWrapper || getLineNodeById('lineHotWrapper') || null,
+            container: lineHot.__lineHostContainer || refs.hotContainer || getLineNodeById('lineHot') || null
+          })
+        : null;
     if(dataManager){
       if(serializedViews){
         dataManager.deserialize(serializedViews, {
