@@ -2687,15 +2687,26 @@
         refs.showColumnDendrogram.disabled = hideColumnDendrogram || !refs.clusterArrays?.checked;
       }
 
-      // Disable the resizer "Lock ratio" control when showing Data values
+      // Correlation views enforce Lock ratio; Data values leaves it user-editable.
       try {
         const svgBox = state.svgBox
           || getHeatmapNodeById('heatmapGraphPanel')?.querySelector('.svgbox')
           || (state.svg && state.svg.closest && state.svg.closest('.svgbox'));
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
-          if(!isCorrelation){
-            const wasChecked = !!aspectCheckbox.checked;
+          const wasChecked = !!aspectCheckbox.checked;
+          if(isCorrelation){
+            aspectCheckbox.disabled = true;
+            aspectCheckbox.checked = true;
+            if(svgBox && svgBox.dataset){
+              svgBox.dataset.resizerAspectLocked = 'true';
+            }
+            try{ applySvgBoxAspect(svgBox, { locked: true }); }catch(e){}
+            if(!wasChecked){
+              aspectCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }else{
+            aspectCheckbox.disabled = false;
             aspectCheckbox.checked = false;
             if(svgBox && svgBox.dataset){
               svgBox.dataset.resizerAspectLocked = 'false';
@@ -5985,13 +5996,17 @@
     const scaleY = aspectLocked ? uniformScale : rawScaleY;
     if(!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0){ return; }
     const mode = opts.textScaleMode || 'uniform';
+    const unlockedStyleScaleBase = Number(svgBox?.dataset?.resizerUnlockedStyleScaleBase);
+    const stableUnlockedScale = !aspectLocked && Number.isFinite(unlockedStyleScaleBase) && unlockedStyleScaleBase > 0
+      ? unlockedStyleScaleBase
+      : NaN;
     const uniform = Number.isFinite(viewScale.scale) && viewScale.scale > 0
       ? viewScale.scale
       : Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
     const minScale = Math.min(scaleX, scaleY);
     const defaultScale = (mode === 'min' && Number.isFinite(minScale) && minScale > 0)
       ? minScale
-      : uniform;
+      : (Number.isFinite(stableUnlockedScale) ? stableUnlockedScale : uniform);
     const readableScale = mode === HEATMAP_TEXT_SCALE_MODE
       ? resolveHeatmapReadableTextScale({ scaleX, scaleY, fallbackScale: defaultScale })
       : null;
@@ -6031,6 +6046,7 @@
       cellValueTextScale,
       textScaleMode: mode,
       aspectLocked,
+      stableUnlockedScale: Number.isFinite(stableUnlockedScale) ? stableUnlockedScale : null,
       readableScale: readableScale || null,
       cellValueScale: cellValueScale || null
     });

@@ -2440,6 +2440,9 @@
         container.dataset.resizerWidth = container.style.width;
         container.dataset.resizerHeight = container.style.height;
         console.debug('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H }); // Debug: resizer drag start
+        if (typeof opts.onResize === 'function') {
+          try { opts.onResize('start'); } catch(e) { console.error('resizer onResize error', e); }
+        }
         document.documentElement.style.userSelect = 'none';
         document.documentElement.style.touchAction = 'none';
         const onPointerMove = (ev) => {

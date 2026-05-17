@@ -599,6 +599,177 @@ let state = {
     return true;
   }
 
+  function collectPieTraceLabels(target){
+    const labels = new Set();
+    const addLabel = value => {
+      const normalized = String(value == null ? '' : value).trim();
+      if(normalized){
+        labels.add(normalized);
+      }
+    };
+    const root = state.svgBox || state.root || global.document;
+    if(root?.querySelectorAll){
+      root.querySelectorAll('#pieSvg [data-pie-trace="1"]').forEach(node => {
+        addLabel(node.getAttribute?.('data-pie-trace-label'));
+      });
+    }
+    if(target){
+      addLabel(target.getAttribute?.('data-pie-trace-label'));
+    }
+    Object.keys(state.colors || {}).forEach(addLabel);
+    return Array.from(labels);
+  }
+
+  function resolvePieScopedTraceLabel(context, fallbackLabel){
+    const ctx = context && typeof context === 'object' ? context : {};
+    const scope = String(ctx.scope || '').trim();
+    if(scope === 'global'){
+      return '';
+    }
+    if(String(ctx.scope || '').trim() === 'trace' && String(ctx.scopeDataset || '').trim()){
+      return String(ctx.scopeDataset).trim();
+    }
+    return String(fallbackLabel || '').trim();
+  }
+
+  function showPieTraceFormatControls(target){
+    const doc = global.document;
+    if(!doc){
+      return;
+    }
+    try{
+      if(typeof Shared.hideAllFormatControls === 'function'){
+        Shared.hideAllFormatControls({ force: true });
+      }
+    }catch(_err){}
+    if(!Shared.symbolToolbar || typeof Shared.symbolToolbar.show !== 'function'){
+      pieDebug('Debug: pie trace toolbar unavailable');
+      return;
+    }
+    const targetTraceLabel = String(
+      (typeof target?.getAttribute === 'function' ? target.getAttribute('data-pie-trace-label') : '')
+      || ''
+    ).trim();
+    const traceLabels = collectPieTraceLabels(target);
+    const defaultScopeValue = targetTraceLabel && typeof Shared.encodeScopeValue === 'function'
+      ? Shared.encodeScopeValue('trace', targetTraceLabel)
+      : 'global';
+    const resolveTraceNodes = traceLabel => {
+      const root = state.svgBox || state.root || doc;
+      const nodes = Array.from(root.querySelectorAll?.('#pieSvg [data-pie-trace="1"]') || []);
+      const normalized = String(traceLabel == null ? '' : traceLabel).trim();
+      if(!normalized){
+        return nodes;
+      }
+      return nodes.filter(node => String(node?.getAttribute?.('data-pie-trace-label') || '').trim() === normalized);
+    };
+    const applyTraceFill = (traceLabel, value) => {
+      const nextValue = value || '#888888';
+      const targetLabel = String(traceLabel == null ? '' : traceLabel).trim();
+      if(targetLabel){
+        state.colors[targetLabel] = nextValue;
+        resolveTraceNodes(targetLabel).forEach(node => node.setAttribute('fill', nextValue));
+        return;
+      }
+      traceLabels.forEach(label => {
+        state.colors[label] = nextValue;
+      });
+      resolveTraceNodes('').forEach(node => node.setAttribute('fill', nextValue));
+    };
+    Shared.symbolToolbar.show({
+      document: doc,
+      target,
+      anchorId: 'pieFontHost',
+      scopeId: 'pie',
+      panelTitle: 'Trace',
+      formClass: 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls pie-trace-controls',
+      scope: {
+        label: 'Scope',
+        options: [{ value: 'global', label: 'Global', disabled: false }].concat(traceLabels.map(label => ({
+          value: typeof Shared.encodeScopeValue === 'function' ? Shared.encodeScopeValue('trace', label) : label,
+          label,
+          datasetLabel: label,
+          scopeKind: 'trace',
+          scopeDataset: label,
+          disabled: false
+        }))),
+        value: defaultScopeValue
+      },
+      fillShape: {
+        label: 'Fill',
+        showShapePicker: false,
+        shapeOptions: [{ value: 'square', label: 'Square' }],
+        getColor(context){
+          const scopedTrace = resolvePieScopedTraceLabel(context, targetTraceLabel);
+          if(scopedTrace){
+            return state.colors[scopedTrace] || target?.getAttribute?.('fill') || '#888888';
+          }
+          return target?.getAttribute?.('fill') || '#888888';
+        },
+        getShape(){
+          return 'square';
+        },
+        onColorInput(value, context){
+          const scopedTrace = resolvePieScopedTraceLabel(context, targetTraceLabel);
+          applyTraceFill(scopedTrace, value);
+        },
+        onColorChange(value, context){
+          const scopedTrace = resolvePieScopedTraceLabel(context, targetTraceLabel);
+          applyTraceFill(scopedTrace, value);
+          schedulePieViewRefresh('trace-fill-change');
+        }
+      },
+      border: {
+        label: 'Border',
+        getColor(){
+          return getPieNodeById('pieBorderColor')?.value || '#ffffff';
+        },
+        onColorInput(value){
+          const input = getPieNodeById('pieBorderColor');
+          if(input){
+            input.value = value || '#ffffff';
+          }
+          resolveTraceNodes('').forEach(node => {
+            if(Number(parseFloat(getPieNodeById('pieBorderWidth')?.value)) > 0){
+              node.setAttribute('stroke', value || '#ffffff');
+            }
+          });
+        },
+        onColorChange(value){
+          const input = getPieNodeById('pieBorderColor');
+          if(input){
+            input.value = value || '#ffffff';
+          }
+          schedulePieViewRefresh('trace-border-color-change');
+        },
+        getWidth(){
+          const raw = Number.parseFloat(getPieNodeById('pieBorderWidth')?.value);
+          return Number.isFinite(raw) ? Math.max(0, raw) : 0;
+        },
+        onWidthChange(value){
+          const numeric = Number(value);
+          const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+          const input = getPieNodeById('pieBorderWidth');
+          if(input){
+            input.value = String(normalized);
+          }
+          schedulePieViewRefresh('trace-border-width-change');
+        }
+      },
+      size: {
+        enabled: false,
+        get(){ return 0; },
+        onChange(){ return; }
+      },
+      transparency: {
+        enabled: false
+      }
+    });
+    pieDebug('Debug: pie trace format controls opened', {
+      targetTraceLabel: targetTraceLabel || null
+    });
+  }
+
   function handlePieLegendSwatchClick(payload){
     const entry = payload?.entry;
     const swatch = payload?.swatch;
@@ -4048,10 +4219,20 @@ let state = {
           rect.setAttribute('height',h);
           const fillColor = state.colors[lab] || palette[i % palette.length];
           rect.setAttribute('fill', fillColor);
+          rect.setAttribute('data-pie-trace', '1');
+          rect.setAttribute('data-pie-trace-label', String(lab));
+          rect.setAttribute('data-pie-trace-mode', 'stacked');
           if(borderWidth > 0){
             rect.setAttribute('stroke', borderColor);
             rect.setAttribute('stroke-width', borderWidth);
             rect.setAttribute('stroke-linejoin', 'round');
+          }
+          if(!isResizePreview){
+            rect.style.cursor = 'pointer';
+            rect.addEventListener('click', evt => {
+              try{ evt.stopPropagation(); }catch(_err){}
+              showPieTraceFormatControls(evt.currentTarget);
+            });
           }
           (barLayer||svg).appendChild(rect);
           if(showPerc && frac>0 && labelLayer){
@@ -4361,10 +4542,20 @@ let state = {
         }
         const fillColor = state.colors[lab] || palette2[i % palette2.length];
         path.setAttribute('fill', fillColor);
+        path.setAttribute('data-pie-trace', '1');
+        path.setAttribute('data-pie-trace-label', String(lab));
+        path.setAttribute('data-pie-trace-mode', type === 'donut' ? 'donut' : 'pie');
         if(borderWidth > 0){
           path.setAttribute('stroke', borderColor);
           path.setAttribute('stroke-width', borderWidth);
           path.setAttribute('stroke-linejoin', 'round');
+        }
+        if(!isResizePreview){
+          path.style.cursor = 'pointer';
+          path.addEventListener('click', evt => {
+            try{ evt.stopPropagation(); }catch(_err){}
+            showPieTraceFormatControls(evt.currentTarget);
+          });
         }
         (radialDataLayer || svg).appendChild(path);
         if(showPerc && frac>0){

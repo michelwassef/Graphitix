@@ -1175,7 +1175,56 @@
         return () => false;
       })();
       const isDisplayOnlyZoomPhase = phase => phase === 'zoom';
+      const isResizeStartPhase = phase => phase === 'start' || phase === 'move';
+      const isResizeFinalizePhase = phase => phase === 'end'
+        || phase === 'reset'
+        || phase === 'undo'
+        || phase === 'redo'
+        || phase === 'programmatic'
+        || phase === 'aspect-toggle';
+      let resizeInteractionCacheCleared = false;
+      const clearActiveResizeRenderCache = phase => {
+        if(componentName === 'line'){
+          return;
+        }
+        if(isResizeFinalizePhase(phase)){
+          resizeInteractionCacheCleared = false;
+          return;
+        }
+        if(!isResizeStartPhase(phase) || resizeInteractionCacheCleared){
+          return;
+        }
+        resizeInteractionCacheCleared = true;
+        const sessionApi = global.Main?.session || null;
+        if(!sessionApi){
+          return;
+        }
+        const activeTab = typeof sessionApi.getActiveTab === 'function'
+          ? sessionApi.getActiveTab()
+          : null;
+        if(!activeTab || activeTab.type !== componentName){
+          return;
+        }
+        if(layoutTabId && activeTab.id && String(activeTab.id) !== String(layoutTabId)){
+          return;
+        }
+        let cleared = false;
+        if(typeof sessionApi.clearTabRenderCache === 'function'){
+          cleared = sessionApi.clearTabRenderCache(activeTab, {
+            reason: `${componentName}-resize-start`
+          }) || cleared;
+        }
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: componentLayout resize-start render cache invalidation', {
+            component: componentName,
+            tabId: activeTab.id || null,
+            phase: phase || null,
+            cleared
+          });
+        }
+      };
       const onResize = phase => {
+        clearActiveResizeRenderCache(phase);
         const zoomDisplayOnly = isDisplayOnlyZoomPhase(phase);
         const phaseSkipSchedule = shouldSkipResizePhaseSchedule(phase);
         // Zoom must behave like a pure magnifier: keep geometry/layout data stable
