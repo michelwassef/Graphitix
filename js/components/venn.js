@@ -177,6 +177,80 @@
     return normalizePlotType(state.ui?.plotType?.value || DEFAULT_PLOT_TYPE);
   }
 
+  function getVennLockRatioCheckbox() {
+    if (vennLockRatioInput && vennLockRatioInput.isConnected) {
+      return vennLockRatioInput;
+    }
+    const svgBox = state.ui?.svgBox || queryVennRoot('#vennGraphPanel .svgbox');
+    if (!svgBox) {
+      return null;
+    }
+    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    if (checkbox) {
+      vennLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncVennAspectControls(reason) {
+    if (vennAspectSyncing) {
+      return;
+    }
+    vennAspectSyncing = true;
+    try {
+      const plotType = getActivePlotType();
+      const enforceLockRatio = plotType === 'venn';
+      const lockRatioCheckbox = getVennLockRatioCheckbox();
+      if (!lockRatioCheckbox) {
+        return;
+      }
+      const lockLabel = lockRatioCheckbox.closest('label');
+      if (enforceLockRatio) {
+        if (vennLockRatioPrevious === null) {
+          vennLockRatioPrevious = !!lockRatioCheckbox.checked;
+        }
+        if (!lockRatioCheckbox.checked) {
+          lockRatioCheckbox.checked = true;
+          lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        lockRatioCheckbox.disabled = true;
+        if (lockLabel) {
+          if (!lockLabel.__vennOriginalTitle) {
+            lockLabel.__vennOriginalTitle = lockLabel.title || '';
+          }
+          lockLabel.title = 'Locked for Venn diagram mode';
+        }
+      } else {
+        lockRatioCheckbox.disabled = false;
+        if (lockLabel && lockLabel.__vennOriginalTitle !== undefined) {
+          lockLabel.title = lockLabel.__vennOriginalTitle;
+          delete lockLabel.__vennOriginalTitle;
+        }
+        if (vennLockRatioPrevious !== null) {
+          const restoreValue = vennLockRatioPrevious;
+          vennLockRatioPrevious = null;
+          if (lockRatioCheckbox.checked !== restoreValue) {
+            lockRatioCheckbox.checked = restoreValue;
+            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+      const svgBox = state.ui?.svgBox || lockRatioCheckbox.closest('.svgbox');
+      if (svgBox?.dataset) {
+        svgBox.dataset.resizerAspectLocked = lockRatioCheckbox.checked ? 'true' : 'false';
+      }
+      debugLog('aspect controls synced', {
+        plotType,
+        enforceLockRatio,
+        checked: !!lockRatioCheckbox.checked,
+        disabled: !!lockRatioCheckbox.disabled,
+        reason: reason || null
+      });
+    } finally {
+      vennAspectSyncing = false;
+    }
+  }
+
   function maybeSwapDefaultTitle(nextType) {
     const current = state.titleText != null ? String(state.titleText) : '';
     if (nextType === 'upset' && current === DEFAULT_VENN_TITLE) {
@@ -212,6 +286,7 @@
     if (options.syncPanels && typeof state.ui?.syncPanels === 'function') {
       state.ui.syncPanels({ skipSchedule: true });
     }
+    syncVennAspectControls('plot-mode-sync');
     debugLog('plot mode synced', { plot: normalized });
     return normalized;
   }
@@ -652,6 +727,9 @@
   const vennBoundRoots = new WeakSet();
   const vennTableBindingsByRoot = new WeakMap();
   let vennDocumentHandlersBound = false;
+  let vennLockRatioInput = null;
+  let vennLockRatioPrevious = null;
+  let vennAspectSyncing = false;
 
   function getVennSchemeId() {
     const active = global.Main?.session?.getActiveTab?.();
@@ -5878,6 +5956,7 @@
           state.ui.svgBox = elements.svgBox;
           debugLog('layout svgBox updated', { hasSvgBox: true });
         }
+        syncVennAspectControls('layout-after-sync');
       }
     });
     if (!layout) {
@@ -5890,6 +5969,7 @@
     state.ui.graphPanel = layout.elements.graphPanel || state.ui.graphPanel;
     state.ui.panelResizer = layout.elements.panelResizer || state.ui.panelResizer;
     state.ui.svgBox = layout.elements.svgBox || state.ui.svgBox;
+    syncVennAspectControls('layout-init');
     debugLog('layout initialized', {
       hasTable: !!state.ui.tablePanel,
       hasGraph: !!state.ui.graphPanel,

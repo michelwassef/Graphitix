@@ -1922,6 +1922,9 @@
           }
           const afterAspect = makeResizeSnapshot('aspect-toggle-after');
           notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
+          if(typeof opts.onResize === 'function'){
+            try { opts.onResize('aspect-toggle'); } catch(err) { console.error('resizer onResize aspect-toggle error', err); }
+          }
         };
         aspectCheckbox.addEventListener('change', onAspectChange);
         aspectCheckbox.__resizerAspectHandler = onAspectChange;

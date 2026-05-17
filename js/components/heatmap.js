@@ -1911,7 +1911,14 @@
     if(opts.force){
       next.viewOnly = false;
     }else if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
-      next.viewOnly = !!opts.viewOnly;
+      const requestedViewOnly = !!opts.viewOnly;
+      // A queued full redraw must never be downgraded by a later view-only request
+      // (e.g. resize/aspect callbacks racing with control-driven model switches).
+      if(requestedViewOnly && previous.viewOnly === false){
+        next.viewOnly = false;
+      }else{
+        next.viewOnly = requestedViewOnly;
+      }
     }else if(previous.viewOnly){
       next.viewOnly = true;
     }else{
@@ -1960,7 +1967,12 @@
     if(opts.force){
       next.viewOnly = false;
     }else if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
-      next.viewOnly = !!opts.viewOnly;
+      const requestedViewOnly = !!opts.viewOnly;
+      if(requestedViewOnly && previous.viewOnly === false){
+        next.viewOnly = false;
+      }else{
+        next.viewOnly = requestedViewOnly;
+      }
     }else if(previous.viewOnly){
       next.viewOnly = true;
     }else{
@@ -2579,7 +2591,7 @@
       if(state.suspendControlSchedule){
         return;
       }
-      state.scheduleDraw();
+      state.scheduleDraw({ viewOnly: false, reason: 'control-change' });
     };
     const scheduleViewOnly = reason => {
       if(state.suspendControlSchedule){
@@ -2612,6 +2624,11 @@
       const isCorrelation = view.startsWith('corr');
       const isCorrelationColumns = view === 'corr-columns';
       const isCorrelationRows = view === 'corr-rows';
+      const previousViewState = typeof refs.view?.dataset?.heatmapLastView === 'string'
+        ? refs.view.dataset.heatmapLastView
+        : null;
+      const previousWasCorrelation = previousViewState ? previousViewState.startsWith('corr') : null;
+      const enteringDataValues = !isCorrelation && previousWasCorrelation !== false;
       syncCorrelationClusteringControls(view);
       const correlationOnlyRows = resolveHeatmapRoot()?.querySelectorAll?.('.heatmap-correlation-only') || [];
       correlationOnlyRows.forEach(row => {
@@ -2694,8 +2711,8 @@
           || (state.svg && state.svg.closest && state.svg.closest('.svgbox'));
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
-          const wasChecked = !!aspectCheckbox.checked;
           if(isCorrelation){
+            const wasChecked = !!aspectCheckbox.checked;
             aspectCheckbox.disabled = true;
             aspectCheckbox.checked = true;
             if(svgBox && svgBox.dataset){
@@ -2707,27 +2724,34 @@
             }
           }else{
             aspectCheckbox.disabled = false;
-            aspectCheckbox.checked = false;
-            if(svgBox && svgBox.dataset){
-              svgBox.dataset.resizerAspectLocked = 'false';
-            }
-            try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
-            if(wasChecked){
-              aspectCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            if(enteringDataValues){
+              const wasChecked = !!aspectCheckbox.checked;
+              aspectCheckbox.checked = false;
+              if(svgBox && svgBox.dataset){
+                svgBox.dataset.resizerAspectLocked = 'false';
+              }
+              try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
+              if(wasChecked){
+                aspectCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+              }
             }
           }
         }
 
       // Uncheck Show cell values by default for Data values
-      if(refs.showValues && !isCorrelation){
+      if(refs.showValues && enteringDataValues){
         refs.showValues.checked = false;
       }
       }catch(err){
         debugLog('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
       }
+      if(refs.view?.dataset){
+        refs.view.dataset.heatmapLastView = view;
+      }
       debugLog('Debug: heatmap view state updated', {
         view,
         isCorrelation,
+        enteringDataValues,
         hideRowClustering,
         hideColumnClustering,
         hideRowDendrogram,
@@ -6116,7 +6140,11 @@
         state.svg.appendChild(text);
       }
       markFontEditable(text, 'emptyMessage', 'heatmap-empty');
-      ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
+      ensureGraphViewport(state.svg, {
+        padding: 16,
+        preserveAspectRatio: aspectLocked ? 'xMidYMid meet' : 'none',
+        debugLabel: 'heatmap-empty'
+      });
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
   }
@@ -6942,6 +6970,7 @@
         padding: Math.max(fontSize, 16),
         minWidth: totalWidth,
         minHeight: totalHeight,
+        preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph-corrected',
         remeasure: false
       });
@@ -6960,6 +6989,7 @@
         padding: Math.max(fontSize, 16),
         minWidth: totalWidth,
         minHeight: totalHeight,
+        preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph',
         remeasure: false
       });
@@ -7181,6 +7211,7 @@
         padding: Math.max(fontSize, 16),
         minWidth: totalWidth,
         minHeight: totalHeight,
+        preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph-final',
         remeasure: false
       });
@@ -7276,6 +7307,7 @@
           padding: Math.max(fontSize, 16),
           minWidth: totalWidth,
           minHeight: totalHeight,
+          preserveAspectRatio: preserveAspect,
           debugLabel: `heatmap-graph-clearance-${pass}`,
           remeasure: false
         });

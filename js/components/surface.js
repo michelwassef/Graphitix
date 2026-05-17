@@ -174,6 +174,8 @@
   let surfaceDataToolbarBound = false;
   let surfaceDataToolbarLastActivation = 0;
   let surfaceFontEventBound = false;
+  let surfaceLockRatioInput = null;
+  let surfaceAspectSyncing = false;
 
   function resolveSurfaceRoot(tabLike){
     return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface')
@@ -201,6 +203,57 @@
       }
     }
     return root?.querySelector?.(`#${id}`) || null;
+  }
+
+  function getSurfaceLockRatioCheckbox(){
+    if(surfaceLockRatioInput && surfaceLockRatioInput.isConnected){
+      return surfaceLockRatioInput;
+    }
+    const svgBox = state.svgBox || querySurfaceRoot('#surfaceGraphPanel .svgbox');
+    if(!svgBox){
+      return null;
+    }
+    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    if(checkbox){
+      surfaceLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncSurfaceAspectControls(reason){
+    if(surfaceAspectSyncing){
+      return;
+    }
+    surfaceAspectSyncing = true;
+    try{
+      const lockRatioCheckbox = getSurfaceLockRatioCheckbox();
+      if(!lockRatioCheckbox){
+        return;
+      }
+      const lockLabel = lockRatioCheckbox.closest('label');
+      if(!lockRatioCheckbox.checked){
+        lockRatioCheckbox.checked = true;
+        lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      lockRatioCheckbox.disabled = true;
+      if(lockLabel){
+        if(!lockLabel.__surfaceOriginalTitle){
+          lockLabel.__surfaceOriginalTitle = lockLabel.title || '';
+        }
+        lockLabel.title = 'Locked for 3D surface plots';
+      }
+      const svgBox = state.svgBox || lockRatioCheckbox.closest('.svgbox');
+      if(svgBox?.dataset){
+        svgBox.dataset.resizerAspectLocked = 'true';
+      }
+      debugLog('Debug: surface aspect controls synced', {
+        checked: !!lockRatioCheckbox.checked,
+        disabled: !!lockRatioCheckbox.disabled,
+        reason: reason || null
+      });
+    }finally{
+      surfaceAspectSyncing = false;
+    }
   }
 
   function createDefaultSurfaceSettings(){
@@ -1074,6 +1127,7 @@
     state.controls.importBtn = getSurfaceNodeById('surfaceImport') || state.controls.importBtn;
     state.controls.importFile = getSurfaceNodeById('surfaceFile') || state.controls.importFile;
     state.controls.graphFileInput = getSurfaceNodeById('surfaceGraphFile') || state.controls.graphFileInput;
+    syncSurfaceAspectControls('cache-dom');
   }
 
   function updateAxisOptions(){
@@ -2640,7 +2694,10 @@
           disableAutoWidthClamp: true,
           lockGraphPanelWidth: false
         },
-        onAfterSync: () => syncSurfaceAutoDrawNoticeWidth('panel-sync'),
+        onAfterSync: () => {
+          syncSurfaceAutoDrawNoticeWidth('panel-sync');
+          syncSurfaceAspectControls('panel-sync');
+        },
         resizableBoxOptions: {
           onResize: () => {
             debugLog('Debug: surface layout onResize schedule trigger');
@@ -2659,6 +2716,7 @@
     if(state.layout && typeof state.layout.syncPanels === 'function'){
       state.layout.syncPanels();
     }
+    syncSurfaceAspectControls('init-layout');
     cacheDom();
     scheduleSurfaceNoticeWidth('init');
     initHot();

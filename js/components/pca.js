@@ -2108,7 +2108,7 @@
       const varianceAxesEnabled = !!pcaState.axesVarianceScaled;
       const viewMode = pcaViewModeInput?.value || DEFAULT_VIEW_MODE;
       const is3dView = String(viewMode).toLowerCase() === '3d';
-      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
+      const enforceLockRatio = true;
       if(pcaEqualAxesInput && pcaEqualAxesInput.checked !== equalAxesEnabled){
         pcaEqualAxesInput.checked = equalAxesEnabled;
       }

@@ -1542,7 +1542,7 @@
         || reasonText.includes('restore')
         || reasonText.includes('layout')
         || reasonText.includes('reopen');
-      const enforceLockRatio = !restoreContext && (varianceAxesEnabled || is3dView);
+      const enforceLockRatio = is3dView || (!restoreContext && varianceAxesEnabled);
       if(lineEqualAxesInput && lineEqualAxesInput.checked !== equalAxesEnabled){
         lineEqualAxesInput.checked = equalAxesEnabled;
       }

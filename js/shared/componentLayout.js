@@ -275,7 +275,10 @@
     const dataset = element.dataset;
     const graphWidth = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth);
     const graphHeight = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight);
-    const graphAspectLockedRaw = dataset.graphAspectLocked ?? dataset.aspectLocked;
+    const hasResizerAspectLocked = dataset.resizerAspectLocked === 'true' || dataset.resizerAspectLocked === 'false';
+    const graphAspectLockedRaw = hasResizerAspectLocked
+      ? dataset.resizerAspectLocked
+      : (dataset.graphAspectLocked ?? dataset.aspectLocked);
     const hasGraphAspectLocked = graphAspectLockedRaw !== undefined && graphAspectLockedRaw !== null && String(graphAspectLockedRaw) !== '';
     let changed = false;
     if(Number.isFinite(graphWidth) && graphWidth > 0){
@@ -300,8 +303,14 @@
     }
     if(hasGraphAspectLocked){
       const locked = String(graphAspectLockedRaw).toLowerCase() === 'true';
-      dataset.resizerAspectLocked = locked ? 'true' : 'false';
+      if(!hasResizerAspectLocked){
+        dataset.resizerAspectLocked = locked ? 'true' : 'false';
+      }
       dataset.aspectLocked = locked ? 'true' : 'false';
+      const normalizedLock = locked ? 'true' : 'false';
+      if(dataset.graphAspectLocked !== normalizedLock){
+        dataset.graphAspectLocked = normalizedLock;
+      }
       const checkbox = element.querySelector?.('.resizer-aspect-checkbox') || null;
       if(checkbox && checkbox.checked !== locked){
         checkbox.checked = locked;

@@ -4546,7 +4546,16 @@ input[type=number]::-webkit-inner-spin-button{
 .svgbox .resizer-bottom-tray .resizer-legend-control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .svgbox .resizer-aspect-control input[type="checkbox"],
 .svgbox .resizer-textlock-control input[type="checkbox"],
-.svgbox .resizer-axeslength-menu input[type="checkbox"]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
+.svgbox .resizer-axeslength-menu input[type="checkbox"]{
+    margin:0;
+    width:16px;
+    height:16px;
+    accent-color:#0b63d1;
+    appearance:auto;
+    -webkit-appearance:checkbox;
+    -moz-appearance:checkbox;
+    cursor:pointer;
+}
 .svgbox .resizer-aspect-text,
 .svgbox .resizer-textlock-text,
 .svgbox .resizer-axeslength-text{white-space:nowrap}
