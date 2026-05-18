@@ -1243,6 +1243,15 @@
     const allowPageFallback = opts.allowPageFallback === true;
     const helper = Shared.workspaceTabs || null;
     const resolvedType = String(type || '').trim();
+    if(helper && typeof helper.resolveTabScopedRoot === 'function'){
+      const helperRoot = helper.resolveTabScopedRoot(resolvedType, tabLike, {
+        allowPageFallback,
+        pageId: TYPE_TO_PAGE[resolvedType]?.pageId || null
+      });
+      if(helperRoot){
+        return helperRoot;
+      }
+    }
     let tab = tabLike && typeof tabLike === 'object' ? tabLike : null;
     if(!tab && helper && typeof helper.resolveTab === 'function'){
       tab = helper.resolveTab(tabLike || null) || null;

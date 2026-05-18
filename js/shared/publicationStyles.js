@@ -63,7 +63,9 @@
     controlsByType: {},
     monitorTimer: null,
     lastActiveSignature: null,
-    controlListenersBound: false
+    controlListenersBound: false,
+    lifecycleSyncAttached: false,
+    documentStateSyncAttached: false
   };
 
   function isDebugEnabled(){
@@ -138,6 +140,15 @@
     const allowPageFallback = opts.allowPageFallback === true;
     const helper = Shared.workspaceTabs || null;
     const resolvedType = String(type || '').trim();
+    if(helper && typeof helper.resolveTabScopedRoot === 'function'){
+      const helperRoot = helper.resolveTabScopedRoot(resolvedType, tabLike, {
+        allowPageFallback,
+        pageId: TYPE_TO_PAGE[resolvedType]?.pageId || null
+      });
+      if(helperRoot){
+        return helperRoot;
+      }
+    }
     let tab = tabLike && typeof tabLike === 'object' ? tabLike : null;
     if(!tab && helper && typeof helper.resolveTab === 'function'){
       tab = helper.resolveTab(tabLike || null) || null;
@@ -1030,6 +1041,65 @@
   }
 
   function startActiveMonitor(){
+    const scheduleActivationSync = reason => {
+      const signature = getActiveSignature();
+      if(signature !== state.lastActiveSignature){
+        state.lastActiveSignature = signature;
+      }
+      if(signature){
+        syncActiveTabVisuals(reason || 'tab-change');
+      }
+    };
+    if(!state.documentStateSyncAttached && typeof global.addEventListener === 'function'){
+      global.addEventListener('graphitix:document-state-change', () => {
+        scheduleActivationSync('document-state-change');
+      });
+      state.documentStateSyncAttached = true;
+    }
+    if(!state.lifecycleSyncAttached){
+      const shouldSyncAction = action => {
+        const normalized = String(action || '').trim().toLowerCase();
+        return normalized === 'runtime-render-cache-restored'
+          || normalized === 'saved-render-cache-restored'
+          || normalized === 'draw-executed';
+      };
+      const handleLifecycleEvent = evt => {
+        const detail = evt?.detail || evt || null;
+        if(!detail || !shouldSyncAction(detail.action)){
+          return;
+        }
+        const active = getActiveTab();
+        if(!active || !active.type || active.isWelcome){
+          return;
+        }
+        if(detail.tabId && String(detail.tabId) !== String(active.id)){
+          return;
+        }
+        if(detail.componentKey && String(detail.componentKey) !== String(active.type)){
+          return;
+        }
+        const expectedTabId = String(active.id);
+        const expectedType = String(active.type);
+        const runSync = phase => {
+          const current = getActiveTab();
+          if(!current || current.isWelcome){
+            return;
+          }
+          if(String(current.id) !== expectedTabId || String(current.type || '') !== expectedType){
+            return;
+          }
+          syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`);
+        };
+        global.requestAnimationFrame?.(() => runSync('raf'));
+        global.setTimeout(() => runSync('delay-90'), 90);
+      };
+      if(Shared.componentLifecycle && typeof Shared.componentLifecycle.onLifecycleEvent === 'function'){
+        Shared.componentLifecycle.onLifecycleEvent(handleLifecycleEvent);
+      }else if(typeof global.addEventListener === 'function'){
+        global.addEventListener('graphitix:lifecycle-event', handleLifecycleEvent);
+      }
+      state.lifecycleSyncAttached = true;
+    }
     if(state.monitorTimer) return;
     state.monitorTimer = global.setInterval(() => {
       const signature = getActiveSignature();
@@ -1039,7 +1109,7 @@
           syncActiveTabVisuals('tab-change');
         }
       }
-    }, 400);
+    }, 1200);
   }
 
   namespace.init = function init(){

@@ -456,6 +456,27 @@
     return namespace.getSessionRecord(tab, key)?.dom?.root || null;
   };
 
+  namespace.resolveTabScopedRoot = function resolveTabScopedRoot(componentKey, tabLike, options = {}){
+    const key = String(componentKey || '').trim();
+    if(!key){
+      return null;
+    }
+    const tab = resolveTab(tabLike || null)
+      || ((!tabLike || tabLike === null || tabLike === undefined) ? resolveSession()?.getActiveTab?.() || null : null);
+    const mounted = namespace.getMountedRoot(tab || tabLike || null, key);
+    if(mounted){
+      return mounted;
+    }
+    const sessionRoot = namespace.getSessionRecord(tab || tabLike || null, key)?.dom?.root || null;
+    if(sessionRoot){
+      return sessionRoot;
+    }
+    if(options.allowPageFallback === true && options.pageId && global.document?.getElementById){
+      return global.document.getElementById(options.pageId) || null;
+    }
+    return null;
+  };
+
   namespace.resolveComponentRoot = function resolveComponentRoot(config = {}){
     const componentKey = String(config.componentKey || config.type || '').trim();
     const mounted = namespace.getMountedRoot(config.tabLike || config.tabId || null, componentKey);

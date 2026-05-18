@@ -465,7 +465,11 @@
     const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
     const scaleX = safeWidth / (defaultWidth || 1);
     const scaleY = safeHeight / (defaultHeight || 1);
-    const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
+    const aspectLocked = dataset
+      ? (Shared.aspectLock?.resolveLocked
+        ? Shared.aspectLock.resolveLocked(dataset, { fallback: false })
+        : dataset.resizerAspectLocked === 'true')
+      : false;
     const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y') ? dataset.resizerLastAxis : 'both';
     const unlockedStyleScaleBase = dataset ? Number(dataset.resizerUnlockedStyleScaleBase) : NaN;
     const lockedStyleScaleBase = dataset ? Number(dataset.resizerLockedStyleScaleBase) : NaN;

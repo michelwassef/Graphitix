@@ -3,7 +3,75 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  const aspectLockNS = Shared.aspectLock = Shared.aspectLock || {};
   let resizerScopeCounter = 0;
+
+  function parseAspectLockToken(value){
+    if(value === true || value === 'true'){
+      return 'true';
+    }
+    if(value === false || value === 'false'){
+      return 'false';
+    }
+    return null;
+  }
+
+  function resolveAspectLockState(dataset, options = {}){
+    const live = dataset && typeof dataset === 'object' ? dataset : {};
+    const snapshot = options.snapshotDataset && typeof options.snapshotDataset === 'object'
+      ? options.snapshotDataset
+      : {};
+    const fallbackToken = parseAspectLockToken(options.fallback);
+    const candidates = [
+      { source: 'resizer', token: parseAspectLockToken(live.resizerAspectLocked) },
+      { source: 'graph', token: parseAspectLockToken(live.graphAspectLocked) },
+      { source: 'legacy', token: parseAspectLockToken(live.aspectLocked) },
+      { source: 'snapshot-resizer', token: parseAspectLockToken(snapshot.resizerAspectLocked) },
+      { source: 'snapshot-graph', token: parseAspectLockToken(snapshot.graphAspectLocked) },
+      { source: 'snapshot-legacy', token: parseAspectLockToken(snapshot.aspectLocked) },
+      { source: 'fallback', token: fallbackToken }
+    ];
+    for(let i = 0; i < candidates.length; i += 1){
+      const entry = candidates[i];
+      if(entry.token === 'true' || entry.token === 'false'){
+        return {
+          token: entry.token,
+          locked: entry.token === 'true',
+          source: entry.source,
+          hasExplicit: entry.source !== 'fallback'
+        };
+      }
+    }
+    return {
+      token: fallbackToken || 'false',
+      locked: fallbackToken === 'true',
+      source: 'fallback',
+      hasExplicit: false
+    };
+  }
+
+  function applyAspectLockState(dataset, locked, options = {}){
+    if(!dataset || typeof dataset !== 'object'){
+      return 'false';
+    }
+    const token = locked ? 'true' : 'false';
+    dataset.resizerAspectLocked = token;
+    if(options.syncGraph !== false){
+      dataset.graphAspectLocked = token;
+      dataset.aspectLocked = token;
+    }
+    return token;
+  }
+
+  aspectLockNS.resolve = resolveAspectLockState;
+  aspectLockNS.resolveLocked = function resolveAspectLocked(dataset, options = {}){
+    return resolveAspectLockState(dataset, options).locked;
+  };
+  aspectLockNS.apply = applyAspectLockState;
+  aspectLockNS.parseToken = parseAspectLockToken;
+  aspectLockNS.hasExplicit = function hasExplicitAspectLock(dataset, options = {}){
+    return resolveAspectLockState(dataset, options).hasExplicit;
+  };
 
   function clampDimension(value, min, max){
     if(!Number.isFinite(value)) return NaN;
@@ -1211,9 +1279,9 @@
     if(!Number.isFinite(aspectRatio) || aspectRatio <= 0){
       aspectRatio = Number.isFinite(ratioFromDefaults) ? ratioFromDefaults : 1;
     }
-    const hasPersistedAspectLock = Object.prototype.hasOwnProperty.call(data, 'resizerAspectLocked')
-      && (data.resizerAspectLocked === 'true' || data.resizerAspectLocked === 'false');
-    let aspectLocked = hasPersistedAspectLock ? data.resizerAspectLocked === 'true' : false;
+    const lockState = resolveAspectLockState(data);
+    const hasPersistedAspectLock = lockState.hasExplicit;
+    let aspectLocked = lockState.locked;
     if(!hasPersistedAspectLock && helperSizing && helperSizing.aspectLocked === false){
       aspectLocked = false;
     }
@@ -1231,7 +1299,7 @@
     if(aspectLocked && (!Number.isFinite(aspectRatio) || aspectRatio <= 0)){
       aspectLocked = false;
     }
-    data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
+    applyAspectLockState(data, aspectLocked, { syncGraph: false });
     function setAspectRatio(nextRatio){
       if(!Number.isFinite(nextRatio) || nextRatio <= 0) return;
       aspectRatio = nextRatio;

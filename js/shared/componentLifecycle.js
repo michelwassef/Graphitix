@@ -769,9 +769,12 @@
       if(typeof options.setRoot === 'function'){
         options.setRoot(root, meta);
       }
-      if(typeof options.ensureBindings === 'function' && options.ensureBindings(tab || targetTabId || null, meta)){
-        debug('Debug: component activation handled by shared DOM rebind', { componentKey, tabId: targetTabId, reason: meta.reason || 'activate-tab' });
-        return true;
+      let rebound = false;
+      if(typeof options.ensureBindings === 'function'){
+        rebound = !!options.ensureBindings(tab || targetTabId || null, meta);
+        if(rebound){
+          debug('Debug: component activation handled by shared DOM rebind', { componentKey, tabId: targetTabId, reason: meta.reason || 'activate-tab' });
+        }
       }
       if(component && !component.ready && typeof options.init === 'function'){
         options.init({ root: root || undefined, tabId: targetTabId || undefined, reason: meta.reason || 'activate-tab' });
@@ -779,6 +782,22 @@
       }
       if(typeof options.afterReady === 'function'){
         options.afterReady(tab, meta, { root, tabId: targetTabId });
+      }
+      if(typeof options.ensureRenderReadiness === 'function'){
+        try{
+          options.ensureRenderReadiness(tab, meta, {
+            root,
+            tabId: targetTabId,
+            rebound
+          });
+        }catch(err){
+          warn('Debug: component shared activation render-readiness error', {
+            componentKey,
+            tabId: targetTabId,
+            reason: meta.reason || 'activate-tab',
+            message: err?.message || String(err)
+          });
+        }
       }
       if(typeof options.getSentinel === 'function' && component){
         component.__domSentinel = options.getSentinel() || component.__domSentinel || null;

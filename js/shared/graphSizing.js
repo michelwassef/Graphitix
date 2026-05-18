@@ -337,9 +337,11 @@
       || parsePxLike(data.graphAspectRatio)
       || parsePxLike(data.resizerAspectRatio)
       || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
-    const aspectLocked = data.graphAspectLocked === 'true'
-      ? true
-      : (data.resizerAspectLocked === 'true' ? true : fallback.aspectLocked === true);
+    const aspectLocked = Shared.aspectLock?.resolveLocked
+      ? Shared.aspectLock.resolveLocked(data, { fallback: fallback.aspectLocked === true })
+      : (data.graphAspectLocked === 'true'
+        ? true
+        : (data.resizerAspectLocked === 'true' ? true : fallback.aspectLocked === true));
 
     return buildNormalizedSizingRecord({
       display: {

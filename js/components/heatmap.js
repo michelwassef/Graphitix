@@ -1900,11 +1900,9 @@
   function mergePendingDrawOptions(opts){
     const previous = pendingDrawOptions || {};
     if(!opts || typeof opts !== 'object'){
-      if(previous.viewOnly){
-        pendingDrawOptions = { ...previous };
-        return;
-      }
-      pendingDrawOptions = {};
+      pendingDrawOptions = Object.keys(previous).length
+        ? { ...previous, viewOnly: false }
+        : { viewOnly: false };
       return;
     }
     const next = { ...previous, ...opts };
@@ -1919,12 +1917,10 @@
       }else{
         next.viewOnly = requestedViewOnly;
       }
-    }else if(previous.viewOnly){
-      next.viewOnly = true;
     }else{
       next.viewOnly = false;
     }
-    if(!Object.prototype.hasOwnProperty.call(opts, 'reason') && previous.viewOnly && next.viewOnly){
+    if(!Object.prototype.hasOwnProperty.call(opts, 'reason') && next.viewOnly && previous.reason){
       next.reason = previous.reason;
     }
     pendingDrawOptions = next;
@@ -1960,7 +1956,9 @@
     const opts = normalizeDrawOptions(options);
     const previous = deferredHiddenDrawOptions || {};
     if(!opts || typeof opts !== 'object'){
-      deferredHiddenDrawOptions = previous && Object.keys(previous).length ? { ...previous } : null;
+      deferredHiddenDrawOptions = previous && Object.keys(previous).length
+        ? { ...previous, viewOnly: false }
+        : { viewOnly: false };
       return deferredHiddenDrawOptions;
     }
     const next = { ...previous, ...opts };
@@ -1973,8 +1971,6 @@
       }else{
         next.viewOnly = requestedViewOnly;
       }
-    }else if(previous.viewOnly){
-      next.viewOnly = true;
     }else{
       next.viewOnly = false;
     }

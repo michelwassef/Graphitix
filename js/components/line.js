@@ -9749,6 +9749,15 @@
       svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
       chartStyle.applySvgDefaults(svg);
+      svg.setAttribute('data-color-scheme', lineColorSchemeId || 'scientific');
+      if(lineThemeDark){
+        const darkBg = normalizeLineThemeColor(lineBackgroundColor, '#000000');
+        svg.style.backgroundColor = darkBg;
+        svg.setAttribute('data-color-scheme-bg-color', darkBg);
+      }else{
+        svg.style.backgroundColor = '';
+        svg.removeAttribute('data-color-scheme-bg-color');
+      }
       plotEl.appendChild(svg);
       svg.addEventListener('mouseleave', handleLinePlotMouseLeave);
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -13312,7 +13321,9 @@
       'data-preview-source',
       'data-workspace-tab-id',
       'data-tab-id',
-      'data-tab-token'
+      'data-tab-token',
+      'data-color-scheme',
+      'data-color-scheme-bg-color'
     ]);
     const nodes = [svg, ...Array.from(svg.querySelectorAll('*'))];
     nodes.forEach(node => {

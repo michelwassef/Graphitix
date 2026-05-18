@@ -5362,7 +5362,11 @@
       if(fromContainer){
         return fromContainer;
       }
-      const fromWrapper = fromDataset(wrapper);
+      const wrapperNode = instance?.__hotWrapper
+        || instance?.wrapper
+        || container?.closest?.('.hot-wrap,.hot-wrapper,[data-hot-wrapper="1"]')
+        || null;
+      const fromWrapper = fromDataset(wrapperNode);
       if(fromWrapper){
         return fromWrapper;
       }

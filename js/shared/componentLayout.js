@@ -276,10 +276,15 @@
     const graphWidth = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth);
     const graphHeight = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight);
     const hasResizerAspectLocked = dataset.resizerAspectLocked === 'true' || dataset.resizerAspectLocked === 'false';
-    const graphAspectLockedRaw = hasResizerAspectLocked
-      ? dataset.resizerAspectLocked
-      : (dataset.graphAspectLocked ?? dataset.aspectLocked);
-    const hasGraphAspectLocked = graphAspectLockedRaw !== undefined && graphAspectLockedRaw !== null && String(graphAspectLockedRaw) !== '';
+    const aspectState = Shared.aspectLock?.resolve
+      ? Shared.aspectLock.resolve(dataset)
+      : {
+          locked: hasResizerAspectLocked
+            ? dataset.resizerAspectLocked === 'true'
+            : (String(dataset.graphAspectLocked ?? dataset.aspectLocked ?? '').toLowerCase() === 'true'),
+          hasExplicit: hasResizerAspectLocked || (dataset.graphAspectLocked === 'true' || dataset.graphAspectLocked === 'false' || dataset.aspectLocked === 'true' || dataset.aspectLocked === 'false')
+        };
+    const hasGraphAspectLocked = !!aspectState.hasExplicit;
     let changed = false;
     if(Number.isFinite(graphWidth) && graphWidth > 0){
       const widthPx = `${Math.round(graphWidth)}px`;
@@ -302,14 +307,15 @@
       dataset.resizerDefaultHeight = String(Math.round(graphHeight));
     }
     if(hasGraphAspectLocked){
-      const locked = String(graphAspectLockedRaw).toLowerCase() === 'true';
-      if(!hasResizerAspectLocked){
-        dataset.resizerAspectLocked = locked ? 'true' : 'false';
-      }
-      dataset.aspectLocked = locked ? 'true' : 'false';
-      const normalizedLock = locked ? 'true' : 'false';
-      if(dataset.graphAspectLocked !== normalizedLock){
-        dataset.graphAspectLocked = normalizedLock;
+      const locked = !!aspectState.locked;
+      if(Shared.aspectLock?.apply){
+        Shared.aspectLock.apply(dataset, locked, { syncGraph: true });
+      }else{
+        if(!hasResizerAspectLocked){
+          dataset.resizerAspectLocked = locked ? 'true' : 'false';
+        }
+        dataset.aspectLocked = locked ? 'true' : 'false';
+        dataset.graphAspectLocked = locked ? 'true' : 'false';
       }
       const checkbox = element.querySelector?.('.resizer-aspect-checkbox') || null;
       if(checkbox && checkbox.checked !== locked){
@@ -329,7 +335,7 @@
         reason,
         graphWidth: Number.isFinite(graphWidth) ? Math.round(graphWidth) : null,
         graphHeight: Number.isFinite(graphHeight) ? Math.round(graphHeight) : null,
-        graphAspectLocked: hasGraphAspectLocked ? String(graphAspectLockedRaw) : null
+        graphAspectLocked: hasGraphAspectLocked ? String(!!aspectState.locked) : null
       });
     }
     return changed;
@@ -363,7 +369,9 @@
     }
     const widthPx = String(Math.round(baseWidth));
     const heightPx = String(Math.round(baseHeight));
-    const aspectLocked = dataset.resizerAspectLocked === 'true';
+    const aspectLocked = Shared.aspectLock?.resolveLocked
+      ? Shared.aspectLock.resolveLocked(dataset, { fallback: false })
+      : dataset.resizerAspectLocked === 'true';
     let changed = false;
     if(dataset.graphWidthPx !== widthPx){ dataset.graphWidthPx = widthPx; changed = true; }
     if(dataset.graphHeightPx !== heightPx){ dataset.graphHeightPx = heightPx; changed = true; }
@@ -371,7 +379,9 @@
     if(dataset.svgHeight !== heightPx){ dataset.svgHeight = heightPx; changed = true; }
     if(dataset.graphDefaultWidth !== widthPx){ dataset.graphDefaultWidth = widthPx; changed = true; }
     if(dataset.graphDefaultHeight !== heightPx){ dataset.graphDefaultHeight = heightPx; changed = true; }
-    const graphAspectLocked = aspectLocked ? 'true' : 'false';
+    const graphAspectLocked = Shared.aspectLock?.apply
+      ? Shared.aspectLock.apply(dataset, aspectLocked, { syncGraph: true })
+      : (aspectLocked ? 'true' : 'false');
     if(dataset.graphAspectLocked !== graphAspectLocked){ dataset.graphAspectLocked = graphAspectLocked; changed = true; }
     if(baseHeight > 0){
       const ratio = String(baseWidth / baseHeight);
@@ -421,8 +431,9 @@
       || (parsePositivePx(snapStyle.height) / zoomScale)
       || (parsePositivePx(dataset.resizerHeight) / zoomScale)
       || (parsePositivePx(snapDataset.resizerHeight) / zoomScale);
-    const lockRaw = dataset.resizerAspectLocked ?? dataset.aspectLocked ?? snapDataset.resizerAspectLocked ?? snapDataset.aspectLocked;
-    const aspectLocked = String(lockRaw == null ? '' : lockRaw).toLowerCase() === 'true';
+    const aspectLocked = Shared.aspectLock?.resolveLocked
+      ? Shared.aspectLock.resolveLocked(dataset, { snapshotDataset: snapDataset, fallback: false })
+      : (String((dataset.resizerAspectLocked ?? dataset.aspectLocked ?? snapDataset.resizerAspectLocked ?? snapDataset.aspectLocked) == null ? '' : (dataset.resizerAspectLocked ?? dataset.aspectLocked ?? snapDataset.resizerAspectLocked ?? snapDataset.aspectLocked)).toLowerCase() === 'true');
     if(!Number.isFinite(baseWidth) || baseWidth <= 0 || !Number.isFinite(baseHeight) || baseHeight <= 0){
       return null;
     }
