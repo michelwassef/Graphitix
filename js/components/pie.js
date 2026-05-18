@@ -4574,6 +4574,8 @@ let state = {
       let chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       let chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
       const baseBottom = Number.isFinite(Number(margin.bottom)) ? Number(margin.bottom) : 0;
+      const stackedAxisTitleReserve = Math.max(0, (Number(axisMetrics.axisTitleGap) || 0) + fs);
+      const stackedBaseBottom = Math.max(0, baseBottom - stackedAxisTitleReserve);
       const previousRotate = state.xTickRotateVertical === true;
       const bottomLayout=chartStyle.computeBottomLayout({
         labels:barHeaders,
@@ -4581,7 +4583,7 @@ let state = {
         labelMeasureFont:xTickMeasureProfile.fontSpec,
         labelFontSizePx:xTickMeasureProfile.fontSizePx,
         plotWidth:chartWidth,
-        baseBottom,
+        baseBottom: stackedBaseBottom,
         axisMetrics,
         reserveRotatedLabelSpace:true,
         rotationHysteresis:{
@@ -4592,7 +4594,7 @@ let state = {
       });
       state.xTickRotateVertical = bottomLayout.shouldRotate === true;
       const requiredBottomViewportExtension = computePieStackedBottomReservePx(bottomLayout, { fontSize: fs });
-      margin.bottom = Math.max(baseBottom, baseBottom + requiredBottomViewportExtension);
+      margin.bottom = Math.max(stackedBaseBottom, stackedBaseBottom + requiredBottomViewportExtension);
       margin = chartStyle.stabilizeAxisResizeMargins
         ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: state.svgBox, scopeId: 'pie' })
         : margin;
@@ -4642,6 +4644,8 @@ let state = {
       }
       pieDebug('Debug: pie stacked bottom reserve sync', {
         baseBottom,
+        stackedBaseBottom,
+        stackedAxisTitleReserve,
         computedBottom: margin.bottom,
         bottomLayoutBottom: bottomLayout.bottom,
         requiredBottomViewportExtension,
@@ -5381,7 +5385,15 @@ let state = {
     const schedulePieLayoutDraw = () => {
       const resizeState = normalizePieResizeState();
       const phase = resizeState.phase;
+      const muteUntil = Number(resizeState.observeMuteUntil) || 0;
       if(phase === 'move' || (phase === 'observe' && resizeState.dragging)){
+        return;
+      }
+      if(Date.now() <= muteUntil){
+        pieDebug('Debug: pie layout draw muted during resize finalize window', {
+          phase: phase || null,
+          muteUntil
+        });
         return;
       }
       if(typeof state.scheduleDraw === 'function'){

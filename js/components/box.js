@@ -31021,7 +31021,11 @@ Technical analysis record (advanced)
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
       const existingViewportExtension = 0;
-      const baseCanvasHeight = Math.max(40, H);
+      const shouldInlineBottomViewportReserve = !showSignificance;
+      const inlineBottomReserveBaseHeight = shouldInlineBottomViewportReserve
+        ? Math.max(40, H - Math.max(0, Number(storedBottomViewportExtension) || 0))
+        : H;
+      const baseCanvasHeight = Math.max(40, inlineBottomReserveBaseHeight);
       const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth, {
         labelMode: state.significanceLabelMode,
         scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
@@ -31107,7 +31111,9 @@ Technical analysis record (advanced)
       // reserves. The bottom reserve is preserved unchanged; the top significance
       // reserve is later applied as an automatic frame-height extension so the
       // plot-axis lengths match the no-significance layout after redraw.
-      canvasHeightLocal = baseCanvasHeight;
+      canvasHeightLocal = shouldInlineBottomViewportReserve
+        ? Math.max(40, baseCanvasHeight + Math.max(0, Number(bottomViewportExtension) || 0))
+        : baseCanvasHeight;
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
       const yIntervalSetting = getAxisTickInterval('y');
@@ -31169,7 +31175,9 @@ Technical analysis record (advanced)
         unresolvedDownShift = bottomLayoutResult.unresolvedDownShift;
         marginLocal.bottom = bottomLayout.bottom;
         marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
-        canvasHeightLocal = baseCanvasHeight;
+        canvasHeightLocal = shouldInlineBottomViewportReserve
+          ? Math.max(40, baseCanvasHeight + Math.max(0, Number(bottomViewportExtension) || 0))
+          : baseCanvasHeight;
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
         plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
         if(manualYScale){
@@ -31227,6 +31235,7 @@ Technical analysis record (advanced)
         significanceDownShiftTarget,
         significanceDownShiftUnresolved: unresolvedDownShift,
         bottomViewportExtension,
+        inlineBottomViewportReserve: shouldInlineBottomViewportReserve,
         xLabelReservePx,
         topReservePx,
         bottomReservePx,
@@ -32957,6 +32966,10 @@ Technical analysis record (advanced)
       svg.setAttribute('height', String(viewportHeight));
     }
     if(extensionChanged){
+      const inlineBottomReserveSatisfied = !showSignificance
+        && requiredSignificanceViewportExtension === 0
+        && requiredBottomViewportExtension > 0
+        && Math.abs(viewportHeight - (viewportBaseHeight + requiredBottomViewportExtension)) <= 1;
       const viewportExtensionRedrawSignature = [
         isFlipped ? 'horizontal' : 'vertical',
         requiredSignificanceViewportExtension,
@@ -32967,6 +32980,7 @@ Technical analysis record (advanced)
       ].join('|');
       const shouldScheduleViewportExtensionRedraw = resizeDrawReason !== 'significance-viewport-extension'
         && !resizeDrawReason.startsWith('resize')
+        && !inlineBottomReserveSatisfied
         && state.lastViewportExtensionRedrawSignature !== viewportExtensionRedrawSignature;
       if(shouldScheduleViewportExtensionRedraw){
         state.lastViewportExtensionRedrawSignature = viewportExtensionRedrawSignature;
@@ -32974,6 +32988,7 @@ Technical analysis record (advanced)
       }else if(boxDebugEnabled()){
         console.debug('Debug: box significance viewport redraw suppressed', {
           reason: resizeDrawReason || null,
+          inlineBottomReserveSatisfied,
           signature: viewportExtensionRedrawSignature,
           previousSignature: state.lastViewportExtensionRedrawSignature || null
         });
