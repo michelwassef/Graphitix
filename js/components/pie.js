@@ -80,6 +80,9 @@
   const PIE_DEFAULT_COLS = 6;
   const PIE_DATA_VIEW_MAX = 15;
   const DEFAULT_PIE_FONT_SIZE_PT = 12;
+  const DEFAULT_PIE_FONT_SIZE_PX = Number(chartStyle.ptToPx?.(DEFAULT_PIE_FONT_SIZE_PT)) || 16;
+  const PIE_RESIZE_PREVIEW_PHASES = new Set(['start', 'move', 'observe']);
+  const PIE_RESIZE_FINALIZE_PHASES = new Set(['end', 'reset', 'undo', 'redo', 'programmatic', 'aspect-toggle']);
   const TAU = Math.PI * 2;
   let emptyPayloadTemplate = null;
   let pieDataViewsManager = null;
@@ -465,7 +468,9 @@ let state = {
     colorSignature: null,
     resizeState: {
       active: false,
-      phase: null
+      phase: null,
+      dragging: false,
+      observeMuteUntil: 0
     }
   };
 
@@ -547,6 +552,172 @@ let state = {
       schedulePieViewRefresh('font-style-change');
     });
     pieFontEventBound = true;
+  }
+
+  function normalizePieResizeState(){
+    if(!state.resizeState || typeof state.resizeState !== 'object'){
+      state.resizeState = {
+        active: false,
+        phase: null,
+        dragging: false,
+        observeMuteUntil: 0
+      };
+      return state.resizeState;
+    }
+    if(typeof state.resizeState.active !== 'boolean'){
+      state.resizeState.active = !!state.resizeState.active;
+    }
+    if(typeof state.resizeState.phase !== 'string'){
+      state.resizeState.phase = state.resizeState.phase == null ? null : String(state.resizeState.phase);
+    }
+    if(typeof state.resizeState.dragging !== 'boolean'){
+      state.resizeState.dragging = false;
+    }
+    if(!Number.isFinite(Number(state.resizeState.observeMuteUntil))){
+      state.resizeState.observeMuteUntil = 0;
+    }
+    return state.resizeState;
+  }
+
+  function isPieResizePreviewActive(drawOptions){
+    const resizeState = normalizePieResizeState();
+    if(resizeState.active){
+      return true;
+    }
+    const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
+    if(!drawReason.startsWith('resize')){
+      return false;
+    }
+    const resizePhase = typeof drawOptions?.resizePhase === 'string'
+      ? drawOptions.resizePhase
+      : (typeof resizeState.phase === 'string' ? resizeState.phase : '');
+    if(!PIE_RESIZE_PREVIEW_PHASES.has(resizePhase)){
+      return false;
+    }
+    if(resizePhase === 'observe'){
+      return !!resizeState.dragging;
+    }
+    return true;
+  }
+
+  function updatePieResizeStateForPhase(phase){
+    const resizeState = normalizePieResizeState();
+    const normalizedPhase = typeof phase === 'string' ? phase : '';
+    resizeState.phase = normalizedPhase || null;
+    if(normalizedPhase === 'start' || normalizedPhase === 'move'){
+      resizeState.dragging = true;
+      resizeState.active = true;
+      return resizeState;
+    }
+    if(normalizedPhase === 'observe'){
+      resizeState.active = !!resizeState.dragging;
+      return resizeState;
+    }
+    if(PIE_RESIZE_FINALIZE_PHASES.has(normalizedPhase)){
+      resizeState.dragging = false;
+      resizeState.active = false;
+      resizeState.observeMuteUntil = Date.now() + 180;
+      return resizeState;
+    }
+    resizeState.active = !!resizeState.dragging;
+    return resizeState;
+  }
+
+  function clampPieResizeScale(scale){
+    const numeric = Number(scale);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return 1;
+    }
+    const minScaleRaw = Number(chartStyle.RESIZE_MIN_SCALE);
+    const maxScaleRaw = Number(chartStyle.RESIZE_MAX_SCALE);
+    const minScale = Number.isFinite(minScaleRaw) && minScaleRaw > 0 ? minScaleRaw : 0.3;
+    const maxScale = Number.isFinite(maxScaleRaw) && maxScaleRaw > 0
+      ? Math.max(minScale, maxScaleRaw)
+      : Math.max(minScale, 3);
+    return Math.min(maxScale, Math.max(minScale, numeric));
+  }
+
+  function resolvePieUnlockedStyleScale(scaleInfo){
+    if(!scaleInfo || typeof scaleInfo !== 'object'){
+      return 1;
+    }
+    const fallback = clampPieResizeScale(Number(scaleInfo.styleScale) || Number(scaleInfo.scale) || 1);
+    if(scaleInfo.aspectLocked){
+      return fallback;
+    }
+    const axis = (scaleInfo.resizeAxis === 'x' || scaleInfo.resizeAxis === 'y')
+      ? scaleInfo.resizeAxis
+      : 'both';
+    const scaleX = Number(scaleInfo.scaleX);
+    const scaleY = Number(scaleInfo.scaleY);
+    if(axis === 'x' && Number.isFinite(scaleX) && scaleX > 0){
+      return clampPieResizeScale(scaleX);
+    }
+    if(axis === 'y' && Number.isFinite(scaleY) && scaleY > 0){
+      return clampPieResizeScale(scaleY);
+    }
+    if(Number.isFinite(scaleX) && scaleX > 0 && Number.isFinite(scaleY) && scaleY > 0){
+      return clampPieResizeScale(Math.sqrt(Math.max(scaleX * scaleY, 0)));
+    }
+    return fallback;
+  }
+
+  function applyPieResizeScaleToFontInfo(fontInfo){
+    if(!fontInfo || typeof fontInfo !== 'object' || fontInfo.textLocked){
+      return fontInfo;
+    }
+    const scaleInfo = fontInfo.scaleInfo && typeof fontInfo.scaleInfo === 'object'
+      ? fontInfo.scaleInfo
+      : {};
+    const nextStyleScale = resolvePieUnlockedStyleScale(scaleInfo);
+    const currentStyleScale = Number(scaleInfo.styleScale);
+    if(Number.isFinite(currentStyleScale) && Math.abs(currentStyleScale - nextStyleScale) < 1e-6){
+      return fontInfo;
+    }
+    const basePx = Number(fontInfo.px);
+    const normalizedBasePx = Number.isFinite(basePx) && basePx > 0 ? basePx : DEFAULT_PIE_FONT_SIZE_PX;
+    const scaledPx = Math.max(4, Math.round(normalizedBasePx * nextStyleScale));
+    const scaledPt = chartStyle.pxToPt(scaledPx);
+    const adjustedScaleInfo = {
+      ...scaleInfo,
+      styleScale: nextStyleScale,
+      scale: nextStyleScale,
+      radiusScale: Math.sqrt(nextStyleScale),
+      strokeScale: Math.sqrt(nextStyleScale),
+      textScale: nextStyleScale
+    };
+    const adjusted = {
+      ...fontInfo,
+      scaledPx,
+      scaledPt,
+      displayPt: scaledPt,
+      scaleInfo: adjustedScaleInfo
+    };
+    if(state.svgBox?.dataset){
+      state.svgBox.dataset.fontDisplayPt = String(scaledPt);
+    }
+    pieDebug('Debug: pie unlocked resize style scale applied', {
+      currentStyleScale: Number.isFinite(currentStyleScale) ? currentStyleScale : null,
+      nextStyleScale,
+      scaledPx,
+      scaledPt,
+      resizeAxis: adjustedScaleInfo.resizeAxis || null,
+      scaleX: Number.isFinite(adjustedScaleInfo.scaleX) ? adjustedScaleInfo.scaleX : null,
+      scaleY: Number.isFinite(adjustedScaleInfo.scaleY) ? adjustedScaleInfo.scaleY : null
+    });
+    return adjusted;
+  }
+
+  function applyPieSvgDefaults(svg, options = {}){
+    if(!svg){
+      return;
+    }
+    svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    svg.setAttribute('color', chartStyle.TEXT_COLOR || '#000000');
+    if(options.isResizePreview){
+      return;
+    }
+    chartStyle.applySvgDefaults(svg);
   }
 
   const pieUndoManager = Shared.undoManager || null;
@@ -3406,6 +3577,7 @@ let state = {
         if(Object.prototype.hasOwnProperty.call(nextState, 'statsConfig')){ state.statsConfig = cloneSimple(nextState.statsConfig) || state.statsConfig; }
         state.colorSignature = Object.prototype.hasOwnProperty.call(nextState, 'colorSignature') ? (nextState.colorSignature || null) : (state.colorSignature || null);
         state.resizeState = cloneSimple(nextState.resizeState) || state.resizeState;
+        normalizePieResizeState();
       }
       if(snapshot.notes && typeof snapshot.notes === 'object'){
         notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
@@ -3428,16 +3600,16 @@ let state = {
       component: pie,
       componentKey: 'pie',
       cancel: () => {
-        if(state.resizeState){
-          state.resizeState.active = false;
-          state.resizeState.phase = null;
-        }
+        const resizeState = normalizePieResizeState();
+        resizeState.active = false;
+        resizeState.phase = null;
+        resizeState.dragging = false;
       }
     }) || function deactivatePieTab(tab, meta = {}){
-      if(state.resizeState){
-        state.resizeState.active = false;
-        state.resizeState.phase = null;
-      }
+      const resizeState = normalizePieResizeState();
+      resizeState.active = false;
+      resizeState.phase = null;
+      resizeState.dragging = false;
       pie.__runtimeGeneration = (Number(pie.__runtimeGeneration) || 0) + 1;
       pieDebug('Debug: pie tab deactivated', {
         tabId: (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null,
@@ -3881,20 +4053,23 @@ let state = {
     updatePieColumns(Array.isArray(header) ? header : [], matrix);
   }
 
-  function draw(){
+  function draw(drawOptions = {}){
     const plotEl=getPieNodeById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
-    const isResizePreview = !!state.resizeState?.active;
+    const isResizePreview = isPieResizePreviewActive(drawOptions);
+    const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
+    const isResizeDrivenDraw = drawReason.startsWith('resize');
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const pieFontInput=$('#pieFontSize');
     const rawPieFontSize = pieFontInput?.value || String(DEFAULT_PIE_FONT_SIZE_PT);
-    const fontInfo=chartStyle.resolveScaledFontSize({
+    const rawFontInfo=chartStyle.resolveScaledFontSize({
       rawSize: rawPieFontSize,
       width: containerRect?.width,
       height: containerRect?.height,
       svgBox: state.svgBox,
       input: pieFontInput
     });
+    const fontInfo = applyPieResizeScaleToFontInfo(rawFontInfo);
     const fs=fontInfo.scaledPx || DEFAULT_PIE_FONT_SIZE_PT;
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo, input: pieFontInput });
     pieDebug('Debug: pie font scaling applied',{
@@ -3993,8 +4168,7 @@ let state = {
       svg.setAttribute('width',String(svgWidth));
       svg.setAttribute('height',String(svgHeight));
       svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
-      svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
-      chartStyle.applySvgDefaults(svg);
+      applyPieSvgDefaults(svg, { isResizePreview });
       plotEl.appendChild(svg);
       const doc = svg.ownerDocument || global.document;
       const barLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
@@ -4310,9 +4484,11 @@ let state = {
         });
       }
       svg.appendChild(title);
-      if(!isResizePreview){
-        ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
-      }
+      ensureGraphViewport(svg, {
+        padding: Math.max(fs, 14),
+        debugLabel: 'pie-graph',
+        remeasure: !isResizeDrivenDraw
+      });
       if(!isResizePreview){
         primePieStatsComputation({ matrix: data, reason: 'draw-stacked' });
       }
@@ -4400,8 +4576,7 @@ let state = {
     svg.setAttribute('width',String(svgWidth));
     svg.setAttribute('height',String(svgHeight));
     svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
-    svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
-    chartStyle.applySvgDefaults(svg);
+    applyPieSvgDefaults(svg, { isResizePreview });
     const svgWrapper=document.createElement('div');
     svgWrapper.style.flex='1 1 auto';
     svgWrapper.style.width='100%';
@@ -4661,9 +4836,6 @@ let state = {
       });
     }
     svg.appendChild(title);
-    if(!isResizePreview){
-      ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
-    }
     if(radialLegendVisible){
       const legendRenderer = radialLegendLayout.renderer;
       let defaultLegendX = contentRight + radialLegendLayout.legendGapPx;
@@ -4678,6 +4850,11 @@ let state = {
     }else{
       pieDebug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
     }
+    ensureGraphViewport(svg, {
+      padding: Math.max(fs, 14),
+      debugLabel: 'pie-graph',
+      remeasure: !isResizeDrivenDraw
+    });
     if(!isResizePreview){
       primePieStatsComputation({ matrix: data, reason: 'draw-radial' });
     }
@@ -4787,8 +4964,9 @@ let state = {
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     const schedulePieLayoutDraw = () => {
-      const phase = state.resizeState?.phase;
-      if(phase === 'move' || phase === 'observe'){
+      const resizeState = normalizePieResizeState();
+      const phase = resizeState.phase;
+      if(phase === 'move' || (phase === 'observe' && resizeState.dragging)){
         return;
       }
       if(typeof state.scheduleDraw === 'function'){
@@ -4796,16 +4974,21 @@ let state = {
       }
     };
     const schedulePieResizeDraw = phase => {
-      state.resizeState.phase = phase || null;
-      state.resizeState.active = phase === 'move';
-      if(phase === 'observe'){
+      const resizeState = updatePieResizeStateForPhase(phase);
+      const currentPhase = typeof phase === 'string' ? phase : '';
+      if(
+        currentPhase === 'observe'
+        && (resizeState.dragging || Date.now() <= (Number(resizeState.observeMuteUntil) || 0))
+      ){
         return;
       }
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
-      }
-      if(phase !== 'move'){
-        state.resizeState.active = false;
+        state.scheduleDraw({
+          viewOnly: true,
+          reason: 'resize',
+          resizePhase: currentPhase || null,
+          force: PIE_RESIZE_FINALIZE_PHASES.has(currentPhase)
+        });
       }
     };
     state.layout = Shared.componentLayout?.createStandardPanels({

@@ -9749,6 +9749,10 @@
       svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
       chartStyle.applySvgDefaults(svg);
+      const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineColorSchemeId } }) || null;
+      const lineThemeDark = lineResolvedTheme2d
+        ? lineResolvedTheme2d.isDark === true
+        : String(lineColorSchemeId || '').toLowerCase() === 'dark';
       svg.setAttribute('data-color-scheme', lineColorSchemeId || 'scientific');
       if(lineThemeDark){
         const darkBg = normalizeLineThemeColor(lineBackgroundColor, '#000000');

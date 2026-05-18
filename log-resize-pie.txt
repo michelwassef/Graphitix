@@ -1,0 +1,1000 @@
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer drag end
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer snapshot captured Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: enableLegendDrag bound Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: autoResizeSvg applied Object
+ Debug: resizer snapshot captured Object
+ Debug: graphViewport stable axes captured Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer drag start Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.createLegendRenderer.draw applied Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: autoResizeSvg applied Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer drag end
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer snapshot captured Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: chartStyle.computeLegendLayout Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+dom.js:7 Debug: makeEditable bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+dom.js:7 Debug: autoResizeSvg applied Object
+dom.js:7 Debug: ensureGraphViewport applied Object
+chartStyle.js:2508 Debug: chartStyle.createLegendRenderer.draw applied Object
+fontControls.js:1432 Debug: fontControls markText applied Object
+fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
+fontControls.js:1432 Debug: fontControls markText applied Object
+fontControls.js:1432 Debug: fontControls markText applied Object
+fontControls.js:1432 Debug: fontControls markText applied Object
+dom.js:7 Debug: enableLegendDrag bound Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+stats.js:283 Debug: stats.normalizeMethod direct match Object
+stats.js:2456 Debug: stats.getCorrectionMeta Object
+dom.js:7 Debug: autoResizeSvg applied Object
+session.js:1919 Debug: tab data inspection skipped Object
