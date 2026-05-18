@@ -4711,6 +4711,7 @@
 
   function createBoxCanvasPointRenderState(config = {}){
     const renderer = normalizeBoxCanvasPointRenderer(config.renderer);
+    const layoutMeta = (config.layoutMeta && typeof config.layoutMeta === 'object') ? config.layoutMeta : {};
     const state = {
       doc: config.doc || global.document,
       renderer,
@@ -4722,6 +4723,10 @@
       hitOrientation: config.hitOrientation || config.orientation,
       hitCenter: Number.isFinite(Number(config.hitCenter)) ? Number(config.hitCenter) : config.center,
       hitStrokeWidth: Number.isFinite(Number(config.hitStrokeWidth)) ? Number(config.hitStrokeWidth) : null,
+      layoutMeta: {
+        maxOffsetUsed: Number.isFinite(Number(layoutMeta.maxOffsetUsed)) ? Math.max(0, Number(layoutMeta.maxOffsetUsed)) : null,
+        effectiveRadius: Number.isFinite(Number(layoutMeta.effectiveRadius)) ? Math.max(0, Number(layoutMeta.effectiveRadius)) : null
+      },
       style: createBoxCanvasPointRenderStyle(config.style || {})
     };
     if(isBoxDensityCanvasRenderer(renderer)){
@@ -24223,6 +24228,30 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     });
   }
 
+  function resolvePreviousBoxCanvasPointGroup(previousSvg, traceIndex){
+    if(!previousSvg || traceIndex == null || typeof previousSvg.querySelector !== 'function'){
+      return null;
+    }
+    return previousSvg.querySelector(`g[data-export-layer="box-points"][data-trace="${traceIndex}"]`) || null;
+  }
+
+  function resolveBoxPointResizeSpreadScale(previousSvg, orientation, nextPlotW, nextPlotH){
+    const prevPlotW = Number(previousSvg?.dataset?.boxPlotW);
+    const prevPlotH = Number(previousSvg?.dataset?.boxPlotH);
+    const nextWidth = Number(nextPlotW);
+    const nextHeight = Number(nextPlotH);
+    if(orientation === 'horizontal'){
+      if(Number.isFinite(prevPlotH) && prevPlotH > 0 && Number.isFinite(nextHeight) && nextHeight > 0){
+        return nextHeight / prevPlotH;
+      }
+      return 1;
+    }
+    if(Number.isFinite(prevPlotW) && prevPlotW > 0 && Number.isFinite(nextWidth) && nextWidth > 0){
+      return nextWidth / prevPlotW;
+    }
+    return 1;
+  }
+
   function buildStatsAnalysisSpec(extra){
     const selectedColumns=Array.from(state.selectedCols || []).sort((a,b)=>a-b);
     return {
@@ -27997,14 +28026,31 @@ Technical analysis record (advanced)
     syncBoxThemeSurfaceForCurrentScheme();
     const retainPreviousPlotFrame = shouldRetainPreviousBoxFrame(drawOpts) && !!els.plotDiv?.firstChild;
     const retainedPlotNodes = retainPreviousPlotFrame ? Array.from(els.plotDiv.childNodes || []) : null;
-    const previousBoxSvg2d = retainPreviousPlotFrame && Array.isArray(retainedPlotNodes)
-      ? (retainedPlotNodes.find(node =>
+    const previousBoxSvg2d = (() => {
+      if(!retainPreviousPlotFrame || !Array.isArray(retainedPlotNodes)){
+        return null;
+      }
+      const candidates = retainedPlotNodes.filter(node =>
         node
         && String(node.nodeName || '').toLowerCase() === 'svg'
         && node.getAttribute
         && node.getAttribute('id') === 'boxSvg'
-      ) || null)
-      : null;
+      );
+      if(!candidates.length){
+        return null;
+      }
+      const committed = candidates.find(node => {
+        if(!node || typeof node.getAttribute !== 'function'){
+          return false;
+        }
+        return node.getAttribute('data-box-pending-render') !== '1'
+          && node.getAttribute('aria-hidden') !== 'true';
+      });
+      if(committed){
+        return committed;
+      }
+      return candidates[candidates.length - 1] || candidates[0] || null;
+    })();
     if(!retainPreviousPlotFrame){
       while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
     }else if(debugEnabled){
@@ -29335,6 +29381,64 @@ Technical analysis record (advanced)
         nextPlotW = NaN,
         nextPlotH = NaN
       } = config || {};
+      const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
+      const group = add('g', groupAttributes);
+      const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
+      const isResizeMovePhase = drawOpts?.reason === 'resize' && resizePhase === 'move';
+      const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
+      if(isResizeMovePhase && !forceCanvasRecompute && previousBoxSvg2d && traceIndex != null){
+        const spreadScale = resolveBoxPointResizeSpreadScale(previousBoxSvg2d, orientation, nextPlotW, nextPlotH);
+        const reuseSpreadScale = Number.isFinite(spreadScale) && spreadScale > 0 ? spreadScale : 1;
+        const previousGroup = resolvePreviousBoxCanvasPointGroup(previousBoxSvg2d, traceIndex);
+        const previousRenderState = previousGroup?.__boxCanvasRenderState || null;
+        const previousMeta = previousRenderState?.layoutMeta || null;
+        const reused = tryReuseBoxCanvasPointGroupDuringResizeMove({
+          targetGroup: group,
+          previousSvg: previousBoxSvg2d,
+          traceIndex,
+          nextMargin: { left: Number(nextMarginLeft) || 0, top: Number(nextMarginTop) || 0 },
+          nextPlotW: Number(nextPlotW),
+          nextPlotH: Number(nextPlotH)
+        });
+        if(reused){
+          if(previousRenderState){
+            group.__boxCanvasRenderState = previousRenderState;
+          }
+          const previousMaxOffsetUsed = Number(previousMeta?.maxOffsetUsed);
+          const previousEffectiveRadius = Number(previousMeta?.effectiveRadius);
+          const previousPointRadius = Number(previousRenderState?.pointRadius);
+          const fallbackPreviewRadiusRaw = Number(pointRadiusOverride);
+          const fallbackPreviewRadius = Number.isFinite(fallbackPreviewRadiusRaw) && fallbackPreviewRadiusRaw > 0
+            ? fallbackPreviewRadiusRaw
+            : pointRadius;
+          const scaledMaxOffset = Number.isFinite(previousMaxOffsetUsed) && previousMaxOffsetUsed >= 0
+            ? Math.max(0, previousMaxOffsetUsed * reuseSpreadScale)
+            : 0;
+          let scaledEffectiveRadius = Number.isFinite(previousEffectiveRadius) && previousEffectiveRadius > 0
+            ? previousEffectiveRadius * reuseSpreadScale
+            : NaN;
+          if(!Number.isFinite(scaledEffectiveRadius) || scaledEffectiveRadius <= 0){
+            scaledEffectiveRadius = Number.isFinite(previousPointRadius) && previousPointRadius > 0
+              ? previousPointRadius * reuseSpreadScale
+              : fallbackPreviewRadius;
+          }
+          if(debugEnabled && debugLabel === 'individual'){
+            console.debug('Debug: box resize canvas preview reused during move', {
+              orientation,
+              traceIndex,
+              spreadScale: reuseSpreadScale,
+              scaledMaxOffset,
+              scaledEffectiveRadius
+            });
+          }
+          return {
+            swarm: null,
+            maxOffsetUsed: scaledMaxOffset,
+            effectiveRadius: scaledEffectiveRadius,
+            collectPointsByRow
+          };
+        }
+      }
       const pointLayout = prepareSwarmPointLayoutConfig({
         valueList,
         traceIndex,
@@ -29525,31 +29629,6 @@ Technical analysis record (advanced)
         }
         return Math.max(-limit, Math.min(limit, offset));
       };
-      const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
-      const group = add('g', groupAttributes);
-      const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
-      const isResizeMovePhase = drawOpts?.reason === 'resize' && resizePhase === 'move';
-      const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
-      if(
-        isResizeMovePhase
-        && !forceCanvasRecompute
-        && canvasPointLayerEnabled
-        && tryReuseBoxCanvasPointGroupDuringResizeMove({
-          targetGroup: group,
-          previousSvg: previousBoxSvg2d,
-          traceIndex,
-          nextMargin: { left: Number(nextMarginLeft) || 0, top: Number(nextMarginTop) || 0 },
-          nextPlotW: Number(nextPlotW),
-          nextPlotH: Number(nextPlotH)
-        })
-      ){
-        return {
-          swarm: null,
-          maxOffsetUsed: 0,
-          effectiveRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
-          collectPointsByRow
-        };
-      }
       const pointSelectionData = {
         seriesName: tooltipSeriesName,
         categoryName: tooltipCategoryName,
@@ -29594,6 +29673,10 @@ Technical analysis record (advanced)
             strokeOpacity: effectiveOpacity,
             stroke: effectiveStroke,
             strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+          },
+          layoutMeta: {
+            maxOffsetUsed,
+            effectiveRadius
           }
         });
         renderStoredBoxCanvasPointGroup(group);
@@ -29623,6 +29706,7 @@ Technical analysis record (advanced)
           collectPointsByRow
         });
         maxOffsetUsed = renderedMaxOffsetUsed;
+        const resolvedCanvasMaxOffsetUsed = Math.max(maxOffsetUsed, Number(swarm?.maxOffsetUsed) || 0);
         if(useResizeCanvasPreview){
       const interactionLayout = buildBoxDensityPointLayout({
             coords: pointCoords,
@@ -29655,6 +29739,10 @@ Technical analysis record (advanced)
               strokeOpacity: effectiveOpacity,
               stroke: effectiveStroke,
               strokeWidth: Math.max(0, effectiveStrokeWidth || 0)
+            },
+            layoutMeta: {
+              maxOffsetUsed: resolvedCanvasMaxOffsetUsed,
+              effectiveRadius
             }
           });
           renderStoredBoxCanvasPointGroup(group);

@@ -2320,15 +2320,33 @@
         const stableRenderedSize = readStableRenderedSize(box);
         const lockActive = !aspectLocked && isOrthogonalViewportLockActive(dataset, resizeAxis);
         const frozenAxes = { x: false, y: false };
+        const orthogonalExpansion = { x: false, y: false };
         const frozenRenderedSize = { width: false, height: false };
+        const orthogonalExpansionEpsilon = 0.5;
         if(lockActive && resizeAxis === 'y' && stableViewBox){
-          minX = stableViewBox.minX;
-          viewW = stableViewBox.viewW;
+          const stableMinX = stableViewBox.minX;
+          const stableMaxX = stableViewBox.minX + stableViewBox.viewW;
+          const candidateMinX = minX;
+          const candidateMaxX = minX + viewW;
+          const nextMinX = candidateMinX < (stableMinX - orthogonalExpansionEpsilon) ? candidateMinX : stableMinX;
+          const nextMaxX = candidateMaxX > (stableMaxX + orthogonalExpansionEpsilon) ? candidateMaxX : stableMaxX;
+          minX = nextMinX;
+          const mergedMaxX = nextMaxX;
+          viewW = Math.max(1, mergedMaxX - minX);
           frozenAxes.x = true;
+          orthogonalExpansion.x = minX !== stableMinX || mergedMaxX !== stableMaxX;
         }else if(lockActive && resizeAxis === 'x' && stableViewBox){
-          minY = stableViewBox.minY;
-          viewH = stableViewBox.viewH;
+          const stableMinY = stableViewBox.minY;
+          const stableMaxY = stableViewBox.minY + stableViewBox.viewH;
+          const candidateMinY = minY;
+          const candidateMaxY = minY + viewH;
+          const nextMinY = candidateMinY < (stableMinY - orthogonalExpansionEpsilon) ? candidateMinY : stableMinY;
+          const nextMaxY = candidateMaxY > (stableMaxY + orthogonalExpansionEpsilon) ? candidateMaxY : stableMaxY;
+          minY = nextMinY;
+          const mergedMaxY = nextMaxY;
+          viewH = Math.max(1, mergedMaxY - minY);
           frozenAxes.y = true;
+          orthogonalExpansion.y = minY !== stableMinY || mergedMaxY !== stableMaxY;
         }
         if (fill) {
           svg.setAttribute('width', '100%');
@@ -2372,6 +2390,7 @@
           resizeAxis,
           lockActive,
           frozenAxes,
+          orthogonalExpansion,
           frozenRenderedSize,
           stableRenderedSize,
           preserveAspectRatio: svg.getAttribute('preserveAspectRatio')
