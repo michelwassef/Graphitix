@@ -71,6 +71,128 @@
         hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
       });
     };
+  const PIE_VIEWPORT_EXCLUDE_SELECTOR = '[data-pie-viewport-exclude="1"]';
+  function resolvePieBaseViewportSize(svg){
+    const attrWidth = Number(svg?.getAttribute?.('data-pie-base-width'));
+    const attrHeight = Number(svg?.getAttribute?.('data-pie-base-height'));
+    const rawWidth = Number.isFinite(attrWidth) && attrWidth > 0
+      ? attrWidth
+      : Number(svg?.getAttribute?.('width'));
+    const rawHeight = Number.isFinite(attrHeight) && attrHeight > 0
+      ? attrHeight
+      : Number(svg?.getAttribute?.('height'));
+    const width = Number.isFinite(rawWidth) && rawWidth > 0
+      ? rawWidth
+      : Math.max(1, Number(svg?.clientWidth) || 1);
+    const height = Number.isFinite(rawHeight) && rawHeight > 0
+      ? rawHeight
+      : Math.max(1, Number(svg?.clientHeight) || 1);
+    return { width, height };
+  }
+  function ensurePieViewport(svg, options = {}){
+    if(!svg){
+      return;
+    }
+    const fillParent = options.fillParent !== false;
+    const excludeSelector = typeof options.excludeSelector === 'string' && options.excludeSelector.trim()
+      ? options.excludeSelector.trim()
+      : PIE_VIEWPORT_EXCLUDE_SELECTOR;
+    const excludedNodes = excludeSelector
+      ? Array.from(svg.querySelectorAll(excludeSelector))
+      : [];
+    const padding = Number.isFinite(Number(options.padding))
+      ? Math.max(0, Number(options.padding))
+      : 16;
+    const debugLabel = typeof options.debugLabel === 'string' && options.debugLabel.trim()
+      ? options.debugLabel.trim()
+      : 'pie-graph';
+    const baseViewport = resolvePieBaseViewportSize(svg);
+    const restore = [];
+    excludedNodes.forEach(node => {
+      if(!node || !node.style){
+        return;
+      }
+      restore.push({
+        node,
+        hadInlineDisplay: node.style.display
+      });
+      node.style.display = 'none';
+    });
+    let bbox = null;
+    try{
+      if(typeof svg.getBBox === 'function'){
+        bbox = svg.getBBox();
+      }
+    }finally{
+      restore.forEach(entry => {
+        if(!entry || !entry.node || !entry.node.style){
+          return;
+        }
+        if(entry.hadInlineDisplay){
+          entry.node.style.display = entry.hadInlineDisplay;
+        }else{
+          entry.node.style.removeProperty('display');
+        }
+      });
+    }
+    if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
+      bbox = { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height };
+    }
+    let minX = Math.min(0, bbox.x - padding);
+    let maxX = Math.max(baseViewport.width, bbox.x + bbox.width + padding);
+    let minY = Math.min(0, bbox.y - padding);
+    let maxY = Math.max(baseViewport.height, bbox.y + bbox.height + padding);
+    let viewW = Math.max(1, maxX - minX);
+    let viewH = Math.max(1, maxY - minY);
+    const baseRatio = (Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0)
+      ? (baseViewport.width / baseViewport.height)
+      : 1;
+    const preserveBaseAspect = options.preserveBaseAspect !== false;
+    if(preserveBaseAspect && Number.isFinite(baseRatio) && baseRatio > 0 && Number.isFinite(viewW) && Number.isFinite(viewH) && viewW > 0 && viewH > 0){
+      const currentRatio = viewW / viewH;
+      if(currentRatio > baseRatio){
+        const targetHeight = viewW / baseRatio;
+        const extra = Math.max(0, targetHeight - viewH);
+        minY -= extra / 2;
+        maxY += extra / 2;
+      }else if(currentRatio < baseRatio){
+        const targetWidth = viewH * baseRatio;
+        const extra = Math.max(0, targetWidth - viewW);
+        minX -= extra / 2;
+        maxX += extra / 2;
+      }
+      viewW = Math.max(1, maxX - minX);
+      viewH = Math.max(1, maxY - minY);
+    }
+    svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
+    if(fillParent){
+      svg.setAttribute('width', '100%');
+      svg.setAttribute('height', '100%');
+    }
+    if(svg.style){
+      svg.style.overflow = 'visible';
+    }
+    const parent = svg.parentElement;
+    if(parent && parent.style){
+      parent.style.overflow = 'hidden';
+    }
+    const box = svg.closest?.('.svgbox');
+    if(box && box.style){
+      box.style.removeProperty('overflow');
+    }
+    if(Shared.isDebugEnabled?.()){
+      pieDebug('Debug: pie viewport locked', {
+        debugLabel,
+        excludedCount: restore.length,
+        selector: excludeSelector,
+        baseWidth: baseViewport.width,
+        baseHeight: baseViewport.height,
+        fillParent,
+        preserveBaseAspect,
+        viewBox: { minX, minY, viewW, viewH }
+      });
+    }
+  }
   pieDebug('Debug: pie graph viewport helper configured', {
     hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
@@ -715,6 +837,43 @@ let state = {
   function parsePiePositivePx(value){
     const numeric = Number.parseFloat(String(value == null ? '' : value));
     return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+  }
+
+  function computePieStackedBottomReservePx(bottomLayout, options = {}){
+    const maxLabelWidth = Number.isFinite(Number(bottomLayout?.maxLabelWidth))
+      ? Math.max(0, Number(bottomLayout.maxLabelWidth))
+      : 0;
+    const tickLabelFontSize = Number.isFinite(Number(bottomLayout?.tickLabelFontSize))
+      ? Math.max(1, Number(bottomLayout.tickLabelFontSize))
+      : (Number.isFinite(Number(options.fontSize)) ? Math.max(1, Number(options.fontSize)) : 12);
+    const outerPadding = Number.isFinite(Number(bottomLayout?.outerPadding))
+      ? Math.max(0, Number(bottomLayout.outerPadding))
+      : Math.max(4, Math.round(tickLabelFontSize * 0.6));
+    const rotatedProjection = Math.ceil(Math.SQRT1_2 * maxLabelWidth);
+    const horizontalLabelProjection = Math.ceil(tickLabelFontSize * 0.9);
+    const safetyPad = Math.max(4, Math.round(tickLabelFontSize * 0.35));
+    const forecastReserve = Math.max(
+      0,
+      rotatedProjection - horizontalLabelProjection + Math.round(outerPadding * 0.6) + safetyPad
+    );
+    const minReserve = Math.max(0, Math.round(tickLabelFontSize * 0.6));
+    const maxReserve = Math.max(minReserve, Math.round(tickLabelFontSize * 3.2));
+    const reserve = Math.min(maxReserve, Math.max(minReserve, forecastReserve));
+    if(pieDebugEnabled()){
+      pieDebug('Debug: pie stacked bottom reserve forecast', {
+        maxLabelWidth,
+        tickLabelFontSize,
+        outerPadding,
+        rotatedProjection,
+        horizontalLabelProjection,
+        safetyPad,
+        forecastReserve,
+        minReserve,
+        maxReserve,
+        reserve
+      });
+    }
+    return reserve;
   }
 
   function resolvePieAutoReserveMetrics(svgBox, previousExtension){
@@ -4225,6 +4384,7 @@ let state = {
     const isResizePreview = isPieResizePreviewActive(drawOptions);
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     const isResizeDrivenDraw = drawReason.startsWith('resize');
+    const isResizeViewDraw = isResizeDrivenDraw && drawOptions?.viewOnly === true;
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const pieFontInput=$('#pieFontSize');
     const rawPieFontSize = pieFontInput?.value || String(DEFAULT_PIE_FONT_SIZE_PT);
@@ -4290,7 +4450,7 @@ let state = {
         }
       }
       if(!barHeaders.length||!segmentLabels.length){
-        if(!(isResizePreview && isResizeDrivenDraw)){
+        if(!isResizeViewDraw){
           applyPieBottomViewportExtension(0, {
             reason: 'pie-stacked-empty-bottom-reserve-reset',
             resizeContainer: true
@@ -4341,6 +4501,8 @@ let state = {
       svg.setAttribute('width',String(svgWidth));
       svg.setAttribute('height',String(svgHeight));
       svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
+      svg.setAttribute('data-pie-base-width', String(svgWidth));
+      svg.setAttribute('data-pie-base-height', String(svgHeight));
       applyPieSvgDefaults(svg, { isResizePreview });
       plotEl.appendChild(svg);
       const doc = svg.ownerDocument || global.document;
@@ -4429,14 +4591,14 @@ let state = {
         }
       });
       state.xTickRotateVertical = bottomLayout.shouldRotate === true;
-      margin.bottom=bottomLayout.bottom;
-      const requiredBottomViewportExtension = Math.max(0, Math.ceil(Number(bottomLayout.bottom) - baseBottom));
+      const requiredBottomViewportExtension = computePieStackedBottomReservePx(bottomLayout, { fontSize: fs });
+      margin.bottom = Math.max(baseBottom, baseBottom + requiredBottomViewportExtension);
       margin = chartStyle.stabilizeAxisResizeMargins
         ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: state.svgBox, scopeId: 'pie' })
         : margin;
       chartWidth=Math.max(20,svgWidth-margin.left-margin.right);
       chartHeight=Math.max(20,svgHeight-margin.top-margin.bottom);
-      const shouldDeferBottomReserveSync = isResizePreview && isResizeDrivenDraw;
+      const shouldDeferBottomReserveSync = isResizeViewDraw;
       let extensionUpdate = {
         changed: false,
         previousExtension: Number.isFinite(Number(state.bottomViewportExtensionPx)) ? Math.max(0, Number(state.bottomViewportExtensionPx)) : 0,
@@ -4480,7 +4642,8 @@ let state = {
       }
       pieDebug('Debug: pie stacked bottom reserve sync', {
         baseBottom,
-        computedBottom: bottomLayout.bottom,
+        computedBottom: margin.bottom,
+        bottomLayoutBottom: bottomLayout.bottom,
         requiredBottomViewportExtension,
         changed: !!extensionUpdate?.changed,
         applied: !!extensionUpdate?.applied
@@ -4680,27 +4843,6 @@ let state = {
       });
       pieDebug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount });
       chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-      // Keep a stable forecasted vertical extent in non-rotated mode so
-      // ensureGraphViewport does not scale the plot taller before labels flip.
-      if(!bottomLayout.shouldRotate && requiredBottomViewportExtension > 0){
-        const reserveAnchor = document.createElementNS(NS, 'rect');
-        reserveAnchor.setAttribute('x', String(Math.max(0, Math.round(margin.left))));
-        reserveAnchor.setAttribute('y', String(Math.max(0, Math.round(svgHeight - 1))));
-        reserveAnchor.setAttribute('width', '1');
-        reserveAnchor.setAttribute('height', '1');
-        reserveAnchor.setAttribute('fill', 'transparent');
-        reserveAnchor.setAttribute('fill-opacity', '0');
-        reserveAnchor.setAttribute('stroke', 'none');
-        reserveAnchor.setAttribute('pointer-events', 'none');
-        reserveAnchor.setAttribute('aria-hidden', 'true');
-        reserveAnchor.dataset.pieViewportReserveAnchor = '1';
-        (axisLayer || svg).appendChild(reserveAnchor);
-        pieDebug('Debug: pie stacked viewport reserve anchor inserted', {
-          svgHeight,
-          requiredBottomViewportExtension,
-          rotate: bottomLayout.shouldRotate
-        });
-      }
       // Legend now rendered inside the SVG so it can be repositioned.
       if(stackedLegendVisible){
         const legendRenderer = stackedLegendLayout.renderer;
@@ -4747,10 +4889,11 @@ let state = {
         });
       }
       svg.appendChild(title);
-      ensureGraphViewport(svg, {
+      ensurePieViewport(svg, {
         padding: Math.max(fs, 14),
         debugLabel: 'pie-graph',
-        remeasure: !isResizeDrivenDraw
+        fillParent: true,
+        preserveBaseAspect: true
       });
       if(!isResizePreview){
         primePieStatsComputation({ matrix: data, reason: 'draw-stacked' });
@@ -4759,7 +4902,7 @@ let state = {
     }
 
     const header=data[0]||[];
-    if(!(isResizePreview && isResizeDrivenDraw)){
+    if(!isResizeViewDraw){
       applyPieBottomViewportExtension(0, {
         reason: 'pie-nonstacked-bottom-reserve-reset',
         resizeContainer: true
@@ -4846,6 +4989,8 @@ let state = {
     svg.setAttribute('width',String(svgWidth));
     svg.setAttribute('height',String(svgHeight));
     svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
+    svg.setAttribute('data-pie-base-width', String(svgWidth));
+    svg.setAttribute('data-pie-base-height', String(svgHeight));
     applyPieSvgDefaults(svg, { isResizePreview });
     const svgWrapper=document.createElement('div');
     svgWrapper.style.flex='1 1 auto';
