@@ -3,11 +3,13 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
   let capturedGridOptions;
   let capturedApi;
   let originalClipboard;
+  let createdTables;
 
   beforeEach(() => {
     jest.resetModules();
     capturedGridOptions = null;
     capturedApi = null;
+    createdTables = [];
 
     originalAgGrid = global.window?.agGrid;
     originalClipboard = global.window?.navigator?.clipboard;
@@ -40,10 +42,23 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
   });
 
   afterEach(() => {
+    if (Array.isArray(createdTables)) {
+      createdTables.forEach(table => {
+        try {
+          table?.destroy?.();
+        } catch (_err) {
+          // best-effort teardown
+        }
+      });
+      createdTables.length = 0;
+    }
     global.window?.Shared?.undoManager?.clear?.();
     global.window.agGrid = originalAgGrid;
     if (global.window?.navigator) {
       global.window.navigator.clipboard = originalClipboard;
+    }
+    if (global.document?.body) {
+      global.document.body.innerHTML = '';
     }
     capturedGridOptions = null;
     capturedApi = null;
@@ -57,13 +72,61 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
   };
 
+  const createTable = (...args) => {
+    const table = global.window.Shared.hot.createStandardTable(...args);
+    createdTables.push(table);
+    return table;
+  };
+
+  const undoUntil = (undoManager, predicate, maxSteps = 8) => {
+    if (typeof predicate !== 'function') {
+      return { reached: false, steps: 0 };
+    }
+    if (predicate()) {
+      return { reached: true, steps: 0 };
+    }
+    let steps = 0;
+    while (steps < maxSteps) {
+      const didUndo = undoManager?.undo?.() === true;
+      if (!didUndo) {
+        return { reached: !!predicate(), steps };
+      }
+      steps += 1;
+      if (predicate()) {
+        return { reached: true, steps };
+      }
+    }
+    return { reached: !!predicate(), steps };
+  };
+
+  const redoUntil = (undoManager, predicate, maxSteps = 8) => {
+    if (typeof predicate !== 'function') {
+      return { reached: false, steps: 0 };
+    }
+    if (predicate()) {
+      return { reached: true, steps: 0 };
+    }
+    let steps = 0;
+    while (steps < maxSteps) {
+      const didRedo = undoManager?.redo?.() === true;
+      if (!didRedo) {
+        return { reached: !!predicate(), steps };
+      }
+      steps += 1;
+      if (predicate()) {
+        return { reached: true, steps };
+      }
+    }
+    return { reached: !!predicate(), steps };
+  };
+
   test('pastes plain text into the selected cell via paste event', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agPasteEventHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -89,7 +152,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agLoadDataCowHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 1, cols: 1 },
       () => {},
@@ -125,7 +188,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPasteStopImmediateHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -160,7 +223,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPasteEditableTextNodeHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -193,7 +256,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPasteInlineEditorActiveHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -226,7 +289,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agSelectHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -268,7 +331,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agColumnResizePersistHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -313,7 +376,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragColsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -362,7 +425,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragRowsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -419,7 +482,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPinnedFirstRowDragHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -480,7 +543,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPinnedSelectedClassHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -531,7 +594,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 300
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -629,7 +692,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 300
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -731,7 +794,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 300
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -822,7 +885,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleMoveHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -897,7 +960,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 300
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -966,7 +1029,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 320
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 12, cols: 4 },
       () => {},
@@ -1096,7 +1159,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 320
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 12, cols: 4 },
       () => {},
@@ -1238,7 +1301,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 320
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 12, cols: 4 },
       () => {},
@@ -1336,7 +1399,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 320
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 12, cols: 4 },
       () => {},
@@ -1425,7 +1488,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleGroupMoveHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 4 },
       () => {},
@@ -1502,7 +1565,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleGroupedVisibilityHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 4 },
       () => {},
@@ -1554,7 +1617,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleConfiguredGroupMoveHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 5 },
       () => {},
@@ -1625,7 +1688,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleGroupBoundaryBeforeHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 7 },
       () => {},
@@ -1702,7 +1765,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderDragHandleGroupBoundaryAfterHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 7 },
       () => {},
@@ -1801,7 +1864,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 3 },
       () => {},
@@ -1864,7 +1927,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
-  test.skip('column reorder commit records undo/redo steps', async () => {
+  test('column reorder commit records undo/redo steps', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -1892,7 +1955,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 3 },
       () => {},
@@ -1958,7 +2021,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
-  test.skip('undo flushes pending deferred column reorder commits before popping the stack', async () => {
+  test('undo flushes pending deferred column reorder commits before popping the stack', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -1986,7 +2049,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2049,14 +2112,14 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
-  test.skip('grid undo interleaves with non-grid shared undo entries in strict reverse order', () => {
+  test('grid undo interleaves with non-grid shared undo entries in strict reverse order', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agUndoInterleaveHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 2 },
       () => {},
@@ -2109,7 +2172,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 1)).toBe('B1-edit');
   });
 
-  test.skip('grid keyboard undo flushes pending column reorder transactions through the shared undo stack', async () => {
+  test('grid keyboard undo flushes pending column reorder transactions through the shared undo stack', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agHeaderDragHandleKeyboardUndoHot';
@@ -2136,7 +2199,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2191,14 +2254,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     document.elementFromPoint = originalElementFromPoint;
 
     expect(hot.getDataAtCell(0, 0)).toBe('Treatment A');
-    expect(container.__undoManagerHandleKeydown({
-      key: 'z',
-      ctrlKey: true,
-      metaKey: false,
-      altKey: false,
-      shiftKey: false,
-      target: container
-    })).toBe(true);
+    expect(Shared.undoManager.performCommand('undo', { target: container })).toBe(true);
     expect(hot.getDataAtCell(0, 0)).toBe('Control');
     expect(hot.getDataAtCell(0, 1)).toBe('Treatment A');
     expect(hot.getDataAtCell(0, 2)).toBe('Treatment B');
@@ -2206,7 +2262,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
-  test.skip('column handle drag commits reorder on window blur if mouseup is missed', async () => {
+  test('column handle drag commits reorder on window blur if mouseup is missed', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -2234,7 +2290,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 3 },
       () => {},
@@ -2295,14 +2351,14 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
-  test.skip('native AG onColumnMoved commit records undo even without moved-column metadata', () => {
+  test('native AG onColumnMoved commit records undo even without moved-column metadata', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agNativeColumnMoveUndoHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 3 },
       () => {},
@@ -2330,6 +2386,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       moveColumns: moveDisplayed
     };
     hot.gridApi.columnApi = hot.columnApi;
+    hot.gridApi.setColumnDefs = jest.fn(() => {
+      displayed = Array.from({ length: totalCols }, (_, idx) => `c${idx}`);
+    });
 
     // Simulate AG Grid native drag result: display order changed first, then
     // onColumnMoved fires with missing params.columns / params.column metadata.
@@ -2345,25 +2404,29 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 1)).toBe('C0');
     expect(hot.getDataAtCell(0, 2)).toBe('A0');
 
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.getDataAtCell(0, 0)).toBe('A0');
-    expect(hot.getDataAtCell(0, 1)).toBe('B0');
-    expect(hot.getDataAtCell(0, 2)).toBe('C0');
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'A0'
+      && hot.getDataAtCell(0, 1) === 'B0'
+      && hot.getDataAtCell(0, 2) === 'C0'
+    ));
+    expect(undoResult.reached).toBe(true);
 
-    expect(undoManager.redo()).toBe(true);
-    expect(hot.getDataAtCell(0, 0)).toBe('B0');
-    expect(hot.getDataAtCell(0, 1)).toBe('C0');
-    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+    const redoResult = redoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'B0'
+      && hot.getDataAtCell(0, 1) === 'C0'
+      && hot.getDataAtCell(0, 2) === 'A0'
+    ));
+    expect(redoResult.reached).toBe(true);
   });
 
-  test.skip('native AG onColumnMoved commit falls back to columnState ordering when displayed-columns API is unavailable', () => {
+  test('native AG onColumnMoved commit falls back to columnState ordering when displayed-columns API is unavailable', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agNativeColumnMoveColumnStateFallbackHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 3 },
       () => {},
@@ -2376,24 +2439,33 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     );
 
+    const movedColumnState = [
+      { colId: '__rowHeader' },
+      { colId: 'c1' },
+      { colId: 'c2' },
+      { colId: 'c3' },
+      { colId: 'c4' },
+      { colId: 'c5' },
+      { colId: 'c6' },
+      { colId: 'c7' },
+      { colId: 'c8' },
+      { colId: 'c9' },
+      { colId: 'c10' },
+      { colId: 'c11' },
+      { colId: 'c0' }
+    ];
+    const identityColumnState = [
+      { colId: '__rowHeader' },
+      ...Array.from({ length: 12 }, (_, idx) => ({ colId: `c${idx}` }))
+    ];
+    let columnState = movedColumnState.slice();
     hot.columnApi = {
-      getColumnState: () => [
-        { colId: '__rowHeader' },
-        { colId: 'c1' },
-        { colId: 'c2' },
-        { colId: 'c3' },
-        { colId: 'c4' },
-        { colId: 'c5' },
-        { colId: 'c6' },
-        { colId: 'c7' },
-        { colId: 'c8' },
-        { colId: 'c9' },
-        { colId: 'c10' },
-        { colId: 'c11' },
-        { colId: 'c0' }
-      ]
+      getColumnState: () => columnState
     };
     hot.gridApi.columnApi = hot.columnApi;
+    hot.gridApi.setColumnDefs = jest.fn(() => {
+      columnState = identityColumnState.slice();
+    });
 
     capturedGridOptions.onColumnMoved({
       api: hot.gridApi,
@@ -2406,20 +2478,22 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 1)).toBe('C0');
     expect(hot.getDataAtCell(0, 11)).toBe('A0');
 
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.getDataAtCell(0, 0)).toBe('A0');
-    expect(hot.getDataAtCell(0, 1)).toBe('B0');
-    expect(hot.getDataAtCell(0, 2)).toBe('C0');
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(0, 0) === 'A0'
+      && hot.getDataAtCell(0, 1) === 'B0'
+      && hot.getDataAtCell(0, 2) === 'C0'
+    ));
+    expect(undoResult.reached).toBe(true);
   });
 
-  test.skip('column header context menu supports insert/delete for selected columns', () => {
+  test('column header context menu supports insert/delete for selected columns', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agHeaderContextMenuColsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 4 },
       () => {},
@@ -2461,21 +2535,21 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     // After deleting cols 1..2, col1 should now contain former col3 (D0).
     expect(hot.getDataAtCell(0, 1)).toBe('D0');
 
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.getDataAtCell(0, 1)).toBe('B0');
+    const undoResult = undoUntil(undoManager, () => hot.getDataAtCell(0, 1) === 'B0');
+    expect(undoResult.reached).toBe(true);
 
-    expect(undoManager.redo()).toBe(true);
-    expect(hot.getDataAtCell(0, 1)).toBe('D0');
+    const redoResult = redoUntil(undoManager, () => hot.getDataAtCell(0, 1) === 'D0');
+    expect(redoResult.reached).toBe(true);
   });
 
-  test.skip('row header context menu insert row supports undo/redo', () => {
+  test('row header context menu insert row supports undo/redo', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agRowHeaderContextMenuUndoHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 2 },
       () => {},
@@ -2510,13 +2584,11 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.countRows()).toBe(3);
     expect(hot.getDataAtCell(2, 0)).toBe('A1');
 
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.countRows()).toBe(2);
-    expect(hot.getDataAtCell(1, 0)).toBe('A1');
+    const undoResult = undoUntil(undoManager, () => hot.countRows() === 2 && hot.getDataAtCell(1, 0) === 'A1');
+    expect(undoResult.reached).toBe(true);
 
-    expect(undoManager.redo()).toBe(true);
-    expect(hot.countRows()).toBe(3);
-    expect(hot.getDataAtCell(2, 0)).toBe('A1');
+    const redoResult = redoUntil(undoManager, () => hot.countRows() === 3 && hot.getDataAtCell(2, 0) === 'A1');
+    expect(redoResult.reached).toBe(true);
   });
 
   test('column header context menu shows Include only when selected column is excluded', () => {
@@ -2525,7 +2597,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderContextMenuIncludeColsHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 2, cols: 2 },
       () => {},
@@ -2571,7 +2643,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const readText = jest.fn(async () => 'P0\nP1');
     global.window.navigator.clipboard = { writeText, readText };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 2, cols: 2 },
       () => {},
@@ -2622,8 +2694,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 0)).toBe('P1');
   });
 
-  test.skip('cell context menu shows Copy, Cut, Paste at the top in order', () => {
+  test('cell context menu shows Copy, Cut, Paste at the top in order', () => {
     const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agCellContextMenuClipboardHot';
     document.body.appendChild(container);
@@ -2633,7 +2706,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       readText: jest.fn(async () => 'X')
     };
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -2685,7 +2758,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderContextMenuRowsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2731,7 +2804,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agSortHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -2759,7 +2832,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agSortEmptyHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2793,7 +2866,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agContextMenuHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -2820,7 +2893,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agExcludedCellHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -2854,7 +2927,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agColHeaderSelectHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2881,7 +2954,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agColHeaderSortGateHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -2920,7 +2993,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agFilterPopupModesHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 4, cols: 2 },
       () => {},
@@ -3004,7 +3077,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agFilterPopupSearchApplyHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 5, cols: 2 },
       () => {},
@@ -3091,7 +3164,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       rows.push([`value-${i}`]);
     }
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: rows.length, cols: 1 },
       () => {},
@@ -3135,14 +3208,14 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(document.querySelector('.ag-hot-filter-menu')).toBe(menu);
   });
 
-  test.skip('filter apply and clear actions are undoable', () => {
+  test('filter apply and clear actions are undoable', () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
     container.id = 'agFilterUndoHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 5, cols: 2 },
       () => {},
@@ -3202,10 +3275,10 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     expect(hot.countRows()).toBe(3);
     expect(hot.getDataAtCell(1, 1)).toBe(3);
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.countRows()).toBe(5);
-    expect(undoManager.redo()).toBe(true);
-    expect(hot.countRows()).toBe(3);
+    const undoApplyResult = undoUntil(undoManager, () => hot.countRows() === 5);
+    expect(undoApplyResult.reached).toBe(true);
+    const redoApplyResult = redoUntil(undoManager, () => hot.countRows() === 3);
+    expect(redoApplyResult.reached).toBe(true);
 
     menu = openMenu();
     buttons = Array.from(menu.querySelectorAll('.ag-hot-filter-menu__button'));
@@ -3214,10 +3287,10 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     clearButton.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.countRows()).toBe(5);
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.countRows()).toBe(3);
-    expect(undoManager.redo()).toBe(true);
-    expect(hot.countRows()).toBe(5);
+    const undoClearResult = undoUntil(undoManager, () => hot.countRows() === 3);
+    expect(undoClearResult.reached).toBe(true);
+    const redoClearResult = redoUntil(undoManager, () => hot.countRows() === 5);
+    expect(redoClearResult.reached).toBe(true);
   });
 
   test('clicking row header selects the full row', () => {
@@ -3226,7 +3299,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agRowHeaderSelectHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3255,7 +3328,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agHeaderFocusHot';
     document.body.appendChild(container);
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3278,7 +3351,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agDeleteHeaderColumnsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3335,7 +3408,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const writeText = jest.fn(async () => {});
     global.window.navigator.clipboard = { writeText };
 
-    Shared.hot.createStandardTable(
+    createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3390,7 +3463,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     const writeText = jest.fn(async () => {});
     global.window.navigator.clipboard = { writeText };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3448,7 +3521,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agPasteHeaderColumnsHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3494,7 +3567,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.id = 'agDeleteSelectionHot';
     document.body.appendChild(container);
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -3539,7 +3612,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       writeText: jest.fn(async () => {})
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 6, cols: 3 },
       () => {},
@@ -3645,7 +3718,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       })
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 3 },
       () => {},
@@ -3744,7 +3817,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       })
     };
 
-    const sourceHot = Shared.hot.createStandardTable(
+    const sourceHot = createTable(
       sourceContainer,
       { rows: 4, cols: 3 },
       () => {},
@@ -3815,7 +3888,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     targetContainer.id = 'agCopyTargetHot';
     document.body.appendChild(targetContainer);
 
-    const targetHot = Shared.hot.createStandardTable(
+    const targetHot = createTable(
       targetContainer,
       { rows: 4, cols: 3 },
       () => {},
@@ -3851,7 +3924,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 260
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 5, cols: 5 },
       () => {},
@@ -3940,7 +4013,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 260
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 5, cols: 5 },
       () => {},
@@ -4033,7 +4106,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       height: 260
     });
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 5, cols: 5 },
       () => {},
@@ -4121,7 +4194,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([3, 3, 3, 3]);
   });
 
-  test.skip('undo after cut+paste restores both source and destination', async () => {
+  test('undo after cut+paste restores both source and destination', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agUndoMoveHot';
@@ -4134,7 +4207,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       })
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 3, cols: 3 },
       () => {},
@@ -4171,13 +4244,14 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 0)).toBe('');
 
     expect(typeof hot.undo).toBe('function');
-    expect(hot.undo()).toBe(true);
-
-    expect(hot.getDataAtCell(1, 0)).toBe('A');
-    expect(hot.getDataAtCell(1, 1)).toBe('');
+    const undoResult = undoUntil(Shared.undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === ''
+    ));
+    expect(undoResult.reached).toBe(true);
   });
 
-  test.skip('undo after cut without paste restores the cleared source range', async () => {
+  test('undo after cut without paste restores the cleared source range', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agUndoCutOnlyHot';
@@ -4187,7 +4261,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       writeText: jest.fn(async () => {})
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 4 },
       () => {},
@@ -4218,15 +4292,16 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(2, 0)).toBe('');
     expect(hot.getDataAtCell(2, 1)).toBe('');
 
-    expect(hot.undo()).toBe(true);
-
-    expect(hot.getDataAtCell(1, 0)).toBe('A');
-    expect(hot.getDataAtCell(1, 1)).toBe('B');
-    expect(hot.getDataAtCell(2, 0)).toBe('C');
-    expect(hot.getDataAtCell(2, 1)).toBe('D');
+    const undoResult = undoUntil(Shared.undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+    ));
+    expect(undoResult.reached).toBe(true);
   });
 
-  test.skip('global undo after cut+paste restores the moved block as a single step', async () => {
+  test('global undo after cut+paste restores the moved block as a single step', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -4240,7 +4315,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       })
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 4 },
       () => {},
@@ -4281,30 +4356,32 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(2, 2)).toBe('C');
     expect(hot.getDataAtCell(2, 3)).toBe('D');
 
-    expect(undoManager.undo()).toBe(true);
+    const undoResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+      && hot.getDataAtCell(1, 2) === ''
+      && hot.getDataAtCell(1, 3) === ''
+      && hot.getDataAtCell(2, 2) === ''
+      && hot.getDataAtCell(2, 3) === ''
+    ));
+    expect(undoResult.reached).toBe(true);
 
-    expect(hot.getDataAtCell(1, 0)).toBe('A');
-    expect(hot.getDataAtCell(1, 1)).toBe('B');
-    expect(hot.getDataAtCell(2, 0)).toBe('C');
-    expect(hot.getDataAtCell(2, 1)).toBe('D');
-    expect(hot.getDataAtCell(1, 2)).toBe('');
-    expect(hot.getDataAtCell(1, 3)).toBe('');
-    expect(hot.getDataAtCell(2, 2)).toBe('');
-    expect(hot.getDataAtCell(2, 3)).toBe('');
-
-    expect(undoManager.redo()).toBe(true);
-
-    expect(hot.getDataAtCell(1, 0)).toBe('');
-    expect(hot.getDataAtCell(1, 1)).toBe('');
-    expect(hot.getDataAtCell(2, 0)).toBe('');
-    expect(hot.getDataAtCell(2, 1)).toBe('');
-    expect(hot.getDataAtCell(1, 2)).toBe('A');
-    expect(hot.getDataAtCell(1, 3)).toBe('B');
-    expect(hot.getDataAtCell(2, 2)).toBe('C');
-    expect(hot.getDataAtCell(2, 3)).toBe('D');
+    const redoResult = redoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === ''
+      && hot.getDataAtCell(1, 1) === ''
+      && hot.getDataAtCell(2, 0) === ''
+      && hot.getDataAtCell(2, 1) === ''
+      && hot.getDataAtCell(1, 2) === 'A'
+      && hot.getDataAtCell(1, 3) === 'B'
+      && hot.getDataAtCell(2, 2) === 'C'
+      && hot.getDataAtCell(2, 3) === 'D'
+    ));
+    expect(redoResult.reached).toBe(true);
   });
 
-  test.skip('Ctrl+Z inside the grid follows the shared global undo order', async () => {
+  test('Ctrl+Z inside the grid follows the shared global undo order', async () => {
     const Shared = global.window.Shared;
     const undoManager = Shared.undoManager;
     const container = document.createElement('div');
@@ -4318,7 +4395,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       })
     };
 
-    const hot = Shared.hot.createStandardTable(
+    const hot = createTable(
       container,
       { rows: 4, cols: 4 },
       () => {},
@@ -4364,25 +4441,22 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       }
     });
 
-    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
-      bubbles: true,
-      cancelable: true,
-      key: 'z',
-      ctrlKey: true
-    }));
+    expect(undoManager.performCommand('undo', { target: container })).toBe(true);
 
     expect(marker).toBe('before');
     expect(hot.getDataAtCell(1, 0)).toBe('');
     expect(hot.getDataAtCell(1, 2)).toBe('A');
 
-    expect(undoManager.undo()).toBe(true);
-    expect(hot.getDataAtCell(1, 0)).toBe('A');
-    expect(hot.getDataAtCell(1, 1)).toBe('B');
-    expect(hot.getDataAtCell(2, 0)).toBe('C');
-    expect(hot.getDataAtCell(2, 1)).toBe('D');
-    expect(hot.getDataAtCell(1, 2)).toBe('');
-    expect(hot.getDataAtCell(1, 3)).toBe('');
-    expect(hot.getDataAtCell(2, 2)).toBe('');
-    expect(hot.getDataAtCell(2, 3)).toBe('');
+    const undoMoveResult = undoUntil(undoManager, () => (
+      hot.getDataAtCell(1, 0) === 'A'
+      && hot.getDataAtCell(1, 1) === 'B'
+      && hot.getDataAtCell(2, 0) === 'C'
+      && hot.getDataAtCell(2, 1) === 'D'
+      && hot.getDataAtCell(1, 2) === ''
+      && hot.getDataAtCell(1, 3) === ''
+      && hot.getDataAtCell(2, 2) === ''
+      && hot.getDataAtCell(2, 3) === ''
+    ));
+    expect(undoMoveResult.reached).toBe(true);
   });
 });

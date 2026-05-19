@@ -146,7 +146,7 @@ describe('sessionActions save lazy archive build', () => {
       })
     );
     expect(draw).not.toHaveBeenCalled();
-    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBe(serializedCache);
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toStrictEqual(serializedCache);
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBe('payload-sig');
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
   });
@@ -251,7 +251,7 @@ describe('sessionActions save lazy archive build', () => {
     expect(boxCaptureRenderCache).not.toHaveBeenCalled();
     expect(boxRestoreRenderCache).not.toHaveBeenCalled();
     expect(boxDraw).not.toHaveBeenCalled();
-    expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toBe(boxSerializedCache);
+    expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toStrictEqual(boxSerializedCache);
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe('box-payload-sig');
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
   });
@@ -288,8 +288,8 @@ describe('sessionActions save lazy archive build', () => {
       expect.objectContaining({ contextLabel: 'archive-snapshot' })
     );
     // The payload/layout passed to buildArchiveBlob should be the enriched values, not raw clones.
-    expect(archiveRequest?.tabs?.[0]?.payload).toBe(enrichedPayload);
-    expect(archiveRequest?.tabs?.[0]?.layout).toBe(enrichedLayout);
+    expect(archiveRequest?.tabs?.[0]?.payload).toStrictEqual(enrichedPayload);
+    expect(archiveRequest?.tabs?.[0]?.layout).toStrictEqual(enrichedLayout);
   });
 
   test('warmTabRenderCaches calls config.ensure on cold components before any activateTab', async () => {

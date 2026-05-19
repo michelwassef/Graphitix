@@ -1,5 +1,21 @@
+const { ensureMainSession, ensureWorkspaceTabs, initializeWorkspaceHarness } = require('./setup/workspaceHarness');
+
 describe('Box swarm offset constraints', () => {
   let hooks;
+
+  function bindBoxWorkspaceRoot(root, tabId = 'workspace-test'){
+    ensureWorkspaceTabs({
+      getMountedRoot: () => root
+    });
+    const { session } = ensureMainSession({
+      workspaceState: { tabs: [], activeTabId: tabId },
+      activeTab: { id: tabId, type: 'box' }
+    });
+    session.getActiveTab.mockReturnValue({ id: tabId, type: 'box' });
+    if(window.Components?.box){
+      window.Components.box.__boundTabId = tabId;
+    }
+  }
 
   function hasOverlap(result, coordsInput, minDistanceFactor = 2){
     const offsets = Array.isArray(result?.offsets) ? result.offsets : [];
@@ -31,6 +47,7 @@ describe('Box swarm offset constraints', () => {
 
   beforeAll(() => {
     jest.resetModules();
+    initializeWorkspaceHarness();
     require('../js/components/box.js');
     hooks = window.Components?.box?.__testHooks;
   });
@@ -704,6 +721,7 @@ describe('Box swarm offset constraints', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.findBoxPointNodeForTrace).toBe('function');
     document.body.innerHTML = '<div id="boxPlot"><svg><g data-export-layer="box-points" data-trace="7"><path data-point-proxy="1" data-trace="7"></path></g></svg></div>';
+    bindBoxWorkspaceRoot(document.body);
     const node = hooks.findBoxPointNodeForTrace('7', null);
     expect(node).toBeTruthy();
     expect(node.getAttribute('data-point-proxy')).toBe('1');
@@ -733,6 +751,7 @@ describe('Box swarm offset constraints', () => {
     group.appendChild(proxy);
     svg.appendChild(group);
     plot.appendChild(svg);
+    bindBoxWorkspaceRoot(document.body);
     const node = hooks.findBoxPointNodeForTrace('3', exportPath);
     expect(node).toBe(proxy);
     expect(hooks.resolveBoxToolbarPointSizeValue({ size: 5 }, node)).toBeCloseTo(0.7, 5);
@@ -829,6 +848,7 @@ describe('Box swarm offset constraints', () => {
     };
     svg.appendChild(group);
     plot.appendChild(svg);
+    bindBoxWorkspaceRoot(document.body);
     const previewSvg = window.Components.box.getPreviewSvg();
     expect(previewSvg).toBeTruthy();
     expect(previewSvg.querySelector('foreignObject')).toBeNull();
@@ -853,6 +873,7 @@ describe('Box swarm offset constraints', () => {
     const svgBox = document.querySelector('.svgbox');
     const viewport = document.querySelector('.resizer-zoom-viewport');
     const plot = document.getElementById('boxPlot');
+    bindBoxWorkspaceRoot(document.getElementById('boxPage'));
     svgBox.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
     viewport.getBoundingClientRect = () => ({ width: 303, height: 428, top: 0, left: 0, right: 303, bottom: 428 });
     Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 303 });
@@ -883,6 +904,7 @@ describe('Box swarm offset constraints', () => {
     ].join('');
     const viewport = document.querySelector('.resizer-zoom-viewport');
     const plot = document.getElementById('boxPlot');
+    bindBoxWorkspaceRoot(document.getElementById('boxPage'));
     plot.style.height = '263px';
     plot.style.maxHeight = '263px';
     Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 472 });
@@ -945,6 +967,7 @@ describe('Box swarm offset constraints', () => {
     };
     liveSvg.appendChild(liveGroup);
     plot.appendChild(liveSvg);
+    bindBoxWorkspaceRoot(document.body);
 
     const previewSvg = window.Components.box.getPreviewSvg();
     const rebuiltPath = previewSvg.querySelector('g[data-export-layer="box-points"] path:not([data-point-proxy="1"])');

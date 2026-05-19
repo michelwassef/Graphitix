@@ -55,7 +55,7 @@ describe('Shared resizer graph options menu', () => {
     expect(tray.querySelector(':scope > .resizer-textlock-control')).toBeNull();
   });
 
-  test('lock ratio toggle is geometry-neutral and does not request redraw', () => {
+  test('lock ratio toggle is geometry-neutral and only emits aspect-toggle resize reason', () => {
     const box = createSvgBox();
     const onResize = jest.fn();
 
@@ -82,7 +82,8 @@ describe('Shared resizer graph options menu', () => {
     checkbox.checked = false;
     checkbox.dispatchEvent(new Event('change', { bubbles: true }));
 
-    expect(onResize).not.toHaveBeenCalled();
+    expect(onResize).toHaveBeenCalledTimes(1);
+    expect(onResize).toHaveBeenCalledWith('aspect-toggle');
     expect(box.style.width).toBe(before.width);
     expect(box.style.height).toBe(before.height);
     expect(box.dataset.resizerAspectLocked).toBe('false');
@@ -92,7 +93,8 @@ describe('Shared resizer graph options menu', () => {
     checkbox.checked = true;
     checkbox.dispatchEvent(new Event('change', { bubbles: true }));
 
-    expect(onResize).not.toHaveBeenCalled();
+    expect(onResize).toHaveBeenCalledTimes(2);
+    expect(onResize).toHaveBeenNthCalledWith(2, 'aspect-toggle');
     expect(box.style.width).toBe(before.width);
     expect(box.style.height).toBe(before.height);
     expect(box.dataset.resizerAspectLocked).toBe('true');

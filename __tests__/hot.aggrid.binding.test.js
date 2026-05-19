@@ -399,7 +399,7 @@ describe('Shared.hot AG Grid binding', () => {
     });
   });
 
-  test.skip('loadData with recordUndo can be undone and redone', () => {
+  test('loadData with recordUndo can be undone and redone', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'testAgHotUndo';

@@ -1,14 +1,11 @@
+const { bindElementToTab, initializeWorkspaceHarness } = require('./setup/workspaceHarness');
+
 describe('preview hybrid capture for canvas-backed layers', () => {
   beforeEach(() => {
     jest.resetModules();
-    document.body.innerHTML = '<div id="workspaceTabsList"></div>';
-    window.Main = {
-      session: {
-        workspaceState: {},
-        tabHasTableData: () => true
-      }
-    };
+    initializeWorkspaceHarness({ html: '<div id="workspaceTabsList"></div>' });
     window.Shared = {
+      ...(window.Shared || {}),
       exporter: {
         buildHybridSvg: jest.fn(() => new Promise(() => {}))
       }
@@ -38,6 +35,7 @@ describe('preview hybrid capture for canvas-backed layers', () => {
       type: 'box',
       payloadSignature: 'sig-1'
     };
+    bindElementToTab(element, tab.id);
     const result = previews.captureWorkspacePreview({
       type: 'box',
       element
@@ -73,6 +71,7 @@ describe('preview hybrid capture for canvas-backed layers', () => {
       type: 'scatter',
       payloadSignature: 'scatter-sig-1'
     };
+    bindElementToTab(element, tab.id);
     const result = previews.captureWorkspacePreview({
       type: 'scatter',
       element
@@ -110,7 +109,9 @@ describe('preview hybrid capture for canvas-backed layers', () => {
         }
       }
     };
+    bindElementToTab(element, 'workspace-2');
     window.Main.session.workspaceState.activeTabId = 'workspace-1';
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-1' });
     const tab = {
       id: 'workspace-2',
       type: 'box',
@@ -154,7 +155,9 @@ describe('preview hybrid capture for canvas-backed layers', () => {
         }
       }
     };
+    bindElementToTab(element, 'workspace-2');
     window.Main.session.workspaceState.activeTabId = 'workspace-1';
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-1' });
     const tab = {
       id: 'workspace-2',
       type: 'box',
@@ -196,6 +199,7 @@ describe('preview hybrid capture for canvas-backed layers', () => {
       type: 'box',
       payloadSignature: 'vector-sig'
     };
+    bindElementToTab(element, tab.id);
 
     const result = previews.captureWorkspacePreview({
       type: 'box',
@@ -227,7 +231,10 @@ describe('preview hybrid capture for canvas-backed layers', () => {
         }
       }
     };
+    bindElementToTab(element, 'workspace-2');
+    cleanSvg.setAttribute('data-workspace-tab-id', 'workspace-2');
     window.Main.session.workspaceState.activeTabId = 'workspace-1';
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-1' });
     const tab = {
       id: 'workspace-2',
       type: 'box',
@@ -263,7 +270,10 @@ describe('preview hybrid capture for canvas-backed layers', () => {
         }
       }
     };
+    bindElementToTab(element, 'workspace-3');
+    cleanSvg.setAttribute('data-workspace-tab-id', 'workspace-3');
     window.Main.session.workspaceState.activeTabId = 'workspace-1';
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-1' });
     const tab = {
       id: 'workspace-3',
       type: 'scatter',
@@ -302,7 +312,9 @@ describe('preview hybrid capture for canvas-backed layers', () => {
         }
       }
     };
+    bindElementToTab(element, 'workspace-2');
     window.Main.session.workspaceState.activeTabId = 'workspace-2';
+    window.Main.session.getActiveTab.mockReturnValue({ id: 'workspace-2' });
     const tab = {
       id: 'workspace-2',
       type: 'box',

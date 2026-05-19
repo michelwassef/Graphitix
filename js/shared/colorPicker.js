@@ -22,6 +22,7 @@
   const SHARED_SHAPE_VALUES = new Set(SHARED_SHAPE_OPTIONS.map(opt => opt.value));
 
   let moreSectionIdCounter = 0;
+  let delegatedColorInputClickBound = false;
 
   function hslToHex(h, s, l){
     const hue = ((h % 360) + 360) % 360;
@@ -952,6 +953,10 @@
     overlay.addEventListener('keydown', handleOverlayKeydown);
 
     documentRef.addEventListener('pointerdown', handleDocumentPointerDown, true);
+    if(!delegatedColorInputClickBound){
+      documentRef.addEventListener('click', handleDelegatedColorInputClick, true);
+      delegatedColorInputClickBound = true;
+    }
     documentRef.addEventListener('scroll', handleDocumentScroll, true);
     global.addEventListener('resize', handleWindowResize);
 
@@ -1291,8 +1296,49 @@
     return ensureOverlay();
   };
 
+  function openPickerForInputElement(el, source){
+    if(!el){
+      return null;
+    }
+    logDebug(source || 'attached-click', { id: el.id || null });
+    return Shared.openColorPicker({
+      anchor: el,
+      color: el.value,
+      element: el,
+      onInput(value){
+        el.value = value;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      onChange(value){
+        el.value = value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+  }
+
+  function handleDelegatedColorInputClick(evt){
+    const target = evt?.target?.closest?.('input[type="color"]');
+    if(!target){
+      return;
+    }
+    if(target.__sharedColorPickerBound === true){
+      return;
+    }
+    if(target.closest?.('.shared-color-picker')){
+      return;
+    }
+    if(target.classList?.contains('shared-color-picker__hidden-fallback-input')){
+      return;
+    }
+    evt.preventDefault();
+    openPickerForInputElement(target, 'delegated-click');
+  }
+
   Shared.attachColorPickerNear = function attachColorPickerNear(el){
     if(!el){
+      return;
+    }
+    if(el.__sharedColorPickerBound === true){
       return;
     }
     ensureOverlay();
@@ -1303,22 +1349,10 @@
         console.error('colorPicker normalizeColorInput error', normalizeErr);
       }
     }
+    el.__sharedColorPickerBound = true;
     el.addEventListener('click', (evt)=>{
       evt.preventDefault();
-      logDebug('attached-click', { id: el.id || null });
-      Shared.openColorPicker({
-        anchor: el,
-        color: el.value,
-        element: el,
-        onInput(value){
-          el.value = value;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-        },
-        onChange(value){
-          el.value = value;
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      });
+      openPickerForInputElement(el, 'attached-click');
     });
   };
 })(window);

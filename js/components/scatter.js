@@ -10833,7 +10833,11 @@
         scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
         console.debug('Debug: scatter font size base initialized',{ value: scatterFontSize.value }); // Debug: initial base
       }
-      chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
+      if(scatterFontSize && typeof chartStyle.renderFontSizeLabel === 'function'){
+        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
+      }else if(!scatterFontSize){
+        console.debug('Debug: scatter font size input missing during setup');
+      }
       if(scatterColorMode){
         const normalizedMode = normalizeScatterColorMode(scatterColorMode.value);
         scatterColorMode.value = normalizedMode;
@@ -14874,7 +14878,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         container.appendChild(wrapper);
       }
-      scatterAlphaVal.textContent=scatterAlpha.value;
+      if(scatterAlphaVal && scatterAlpha){
+        scatterAlphaVal.textContent=scatterAlpha.value;
+      }
       renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
       if(scatterGraphTypeSelect){
         scatterGraphTypeSelect.addEventListener('change',()=>{
@@ -14981,23 +14987,31 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterViewRefresh('density-palette-change');
         });
       }
-      scatterFill.addEventListener('input',()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleScatterViewRefresh('fill-change');});
-      scatterBorder.addEventListener('input',()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleScatterViewRefresh('border-color-change');});
-      scatterBorderWidth.addEventListener('input',()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleScatterViewRefresh('border-width-change');});
-      scatterDotSize.addEventListener('input',()=>{
-        const raw = Number(scatterDotSize.value);
-        if(Number.isFinite(raw)){
-          // Enable manual override on user input
-          scatterState.dotSizeOverrideEnabled = true;
-          scatterState.dotSizeOverrideRaw = raw;
-        }else{
-          // Non-finite input disables override and falls back to auto sizing
-          scatterState.dotSizeOverrideEnabled = false;
-          scatterState.dotSizeOverrideRaw = null;
-        }
-        scatterLog('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
-        scheduleScatterViewRefresh('dot-size-change');
-      });
+      if(scatterFill){
+        scatterFill.addEventListener('input',()=>{scatterLog('scatterFill changed', scatterFill.value); scheduleScatterViewRefresh('fill-change');});
+      }
+      if(scatterBorder){
+        scatterBorder.addEventListener('input',()=>{scatterLog('scatterBorder changed', scatterBorder.value); scheduleScatterViewRefresh('border-color-change');});
+      }
+      if(scatterBorderWidth){
+        scatterBorderWidth.addEventListener('input',()=>{scatterLog('scatterBorderWidth changed', scatterBorderWidth.value); scheduleScatterViewRefresh('border-width-change');});
+      }
+      if(scatterDotSize){
+        scatterDotSize.addEventListener('input',()=>{
+          const raw = Number(scatterDotSize.value);
+          if(Number.isFinite(raw)){
+            // Enable manual override on user input
+            scatterState.dotSizeOverrideEnabled = true;
+            scatterState.dotSizeOverrideRaw = raw;
+          }else{
+            // Non-finite input disables override and falls back to auto sizing
+            scatterState.dotSizeOverrideEnabled = false;
+            scatterState.dotSizeOverrideRaw = null;
+          }
+          scatterLog('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
+          scheduleScatterViewRefresh('dot-size-change');
+        });
+      }
       if(scatterShowErrorBars){
         scatterShowErrorBars.addEventListener('change', () => {
           syncScatterErrorBarControls();
@@ -15018,15 +15032,27 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterViewRefresh('error-bar-width-change');
         });
       }
-      scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; scatterLog('scatterAlpha changed',scatterAlpha.value); scheduleScatterViewRefresh('alpha-change');});
-      scatterFontSize.addEventListener('input',()=>{
-        if(scatterFontSize.dataset){
-          scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
-          console.debug('Debug: scatter font size input manual set',{ value: scatterFontSize.value }); // Debug: manual slider update
-        }
-        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
-        scheduleScatterViewRefresh('font-size-change');
-      });
+      if(scatterAlpha){
+        scatterAlpha.addEventListener('input',()=>{
+          if(scatterAlphaVal){
+            scatterAlphaVal.textContent=scatterAlpha.value;
+          }
+          scatterLog('scatterAlpha changed',scatterAlpha.value);
+          scheduleScatterViewRefresh('alpha-change');
+        });
+      }
+      if(scatterFontSize){
+        scatterFontSize.addEventListener('input',()=>{
+          if(scatterFontSize.dataset){
+            scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
+            console.debug('Debug: scatter font size input manual set',{ value: scatterFontSize.value }); // Debug: manual slider update
+          }
+          if(typeof chartStyle.renderFontSizeLabel === 'function'){
+            chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
+          }
+          scheduleScatterViewRefresh('font-size-change');
+        });
+      }
       [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
@@ -15181,7 +15207,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterViewRefresh('regression-mode-change');
         });
       }
-      scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
+      if(scatterShowFrame){
+        scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
+      }
       if(scatterShowLegend){
         scatterShowLegend.addEventListener('change',()=>{
           if(scatterLegendChangeInternal){
@@ -15992,7 +16020,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterPlotDiv.addEventListener('click', onPlotClick);
         scatterPlotDiv.__scatterOverlayToolbarClickHandler = onPlotClick;
       }
-      const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
+      const scatterContainer=(scatterPlotDiv?.closest('.svgbox'))||scatterPlotDiv?.parentElement||null;
       if(!scatterContainer){
         console.debug('Debug: scatter resizer container missing', { hasContainer: !!scatterContainer });
       }
@@ -16036,17 +16064,25 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterState.rotationPendingLogged = false;
         hideScatterTooltip('draw-start');
         const significanceColors = getScatterSignificanceColors(themeSnapshot);
-        const fill=scatterFill.value||significanceColors.neutral;
-        const alpha=Number(scatterAlpha.value)||0;
-        const borderWidthRaw=Number(scatterBorderWidth.value);
-        const borderColor=scatterBorder.value;
+        const fillControl = scatterFill || getScatterNodeById('scatterFill') || null;
+        const alphaControl = scatterAlpha || getScatterNodeById('scatterAlpha') || null;
+        const borderWidthControl = scatterBorderWidth || getScatterNodeById('scatterBorderWidth') || null;
+        const borderControl = scatterBorder || getScatterNodeById('scatterBorder') || null;
+        const fontSizeControl = scatterFontSize || getScatterNodeById('scatterFontSize') || null;
+        const dotSizeControl = scatterDotSize || getScatterNodeById('scatterDotSize') || null;
+        const showGridControl = scatterShowGrid || getScatterNodeById('scatterShowGrid') || null;
+        const showFrameControl = scatterShowFrame || getScatterNodeById('scatterShowFrame') || null;
+        const fill=(fillControl?.value)||significanceColors.neutral;
+        const alpha=Number(alphaControl?.value)||0;
+        const borderWidthRaw=Number(borderWidthControl?.value);
+        const borderColor=(borderControl?.value)||'#000000';
         const containerRect=scatterSvgBox?.getBoundingClientRect?.();
         const fontInfo=chartStyle.resolveScaledFontSize({
-          rawSize: scatterFontSize.value,
+          rawSize: fontSizeControl?.value,
           width: containerRect?.width,
           height: containerRect?.height,
           svgBox: scatterSvgBox,
-          input: scatterFontSize
+          input: fontSizeControl
         });
         const fs=fontInfo.scaledPx;
         const styleScaleInfo=fontInfo.scaleInfo;
@@ -16058,7 +16094,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           themeSnapshot.textColor,
           scatterThemeDark ? '#f2f2f2' : (chartStyle.TEXT_COLOR || '#000000')
         );
-        const dotSizeInputRaw=Number(scatterDotSize.value)||3;
+        const dotSizeInputRaw=Number(dotSizeControl?.value)||3;
         // Initial dotSizePx uses user input; will be recalculated with adaptive sizing after points are collected
         let dotSizeRaw=dotSizeInputRaw;
         let dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
@@ -16078,9 +16114,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           axisStroke,
           styleScale: styleScaleInfo?.styleScale
         }); // Debug: scatter style scaling summary
-        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo, input: scatterFontSize });
+        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo, input: fontSizeControl });
         debug('Debug: scatter font scaling applied',{
-          input: scatterFontSize.value,
+          input: fontSizeControl?.value,
           fontSizePt: fontInfo.pt,
           baseFontPx: fontInfo.px,
           scaledFontPx: fs,
@@ -16090,7 +16126,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }); // Debug: scatter font scaling summary
         const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
         debug('Debug: scatter axis metrics',axisMetrics);
-        const showGrid=scatterShowGrid.checked;
+        const showGrid=!!showGridControl?.checked;
         const gridStyleBase = getScatterGridStyle(axisStrokeWidthBase);
         const gridStrokeStyle = Object.assign({}, gridStyleBase, {
           thickness: chartStyle.scaleStrokeWidth(gridStyleBase.thickness, styleScaleInfo, { context: 'scatter-grid', min: 0 })
@@ -16105,7 +16141,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ? gridControls.getStrokeAttributes(gridStrokeStyle, { fallbackColor: DEFAULT_GRID_COLOR, fallbackThickness: axisStrokeWidth })
           : { stroke: DEFAULT_GRID_COLOR, 'stroke-width': axisStrokeWidth };
         info('scatter showGrid', showGrid);
-        const showFrame=scatterShowFrame.checked;
+        const showFrame=!!showFrameControl?.checked;
         debug('Debug: scatter showFrame state',{showFrame});
         let showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
         debug('Debug: scatter legend toggle state',{ showLegend });
@@ -16160,15 +16196,23 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const log2fcThreshold=Number.isFinite(log2fcThresholdValue)?log2fcThresholdValue:0;
         const negLogPThreshold=Number.isFinite(negLogPThresholdValue)?negLogPThresholdValue:0;
         debug('Debug: scatter threshold values',{graphType,log2fcThreshold,negLogPThreshold});
-        const method=scatterStatType.value;
-        const xMinManual=parseFloat(scatterXMin.value);
-        const xMaxManual=parseFloat(scatterXMax.value);
-        const yMinManual=parseFloat(scatterYMin.value);
-        const yMaxManual=parseFloat(scatterYMax.value);
+        const statTypeControl = scatterStatType || getScatterNodeById('scatterStatType') || null;
+        const xMinControl = scatterXMin || getScatterNodeById('scatterXMin') || null;
+        const xMaxControl = scatterXMax || getScatterNodeById('scatterXMax') || null;
+        const yMinControl = scatterYMin || getScatterNodeById('scatterYMin') || null;
+        const yMaxControl = scatterYMax || getScatterNodeById('scatterYMax') || null;
+        const originModeControl = scatterOriginMode || getScatterNodeById('scatterOriginMode') || null;
+        const originXControl = scatterOriginX || getScatterNodeById('scatterOriginX') || null;
+        const originYControl = scatterOriginY || getScatterNodeById('scatterOriginY') || null;
+        const method=statTypeControl?.value || 'pearson';
+        const xMinManual=parseFloat(xMinControl?.value);
+        const xMaxManual=parseFloat(xMaxControl?.value);
+        const yMinManual=parseFloat(yMinControl?.value);
+        const yMaxManual=parseFloat(yMaxControl?.value);
         info('scatter manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual});
-        const originMode=scatterOriginMode.value;
-        const originXInput=parseFloat(scatterOriginX.value);
-        const originYInput=parseFloat(scatterOriginY.value);
+        const originMode=originModeControl?.value || 'none';
+        const originXInput=parseFloat(originXControl?.value);
+        const originYInput=parseFloat(originYControl?.value);
         info('scatter origin inputs',{originMode,originXInput,originYInput});
         if(scatterThresholdSelectionPending){
           scatterThresholdSelectionPending = false;
@@ -21507,11 +21551,21 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const persistedLabelShapes = compactScatterLabelMapForPayload(scatterLabelShapes, SCATTER_SHAPE_DEFAULTS, 'labelShapes');
       const persistedStats = getScatterPersistedStatsSnapshot();
       const selectedRows = activeHot ? getScatterSelectedRowSet(activeHot) : null;
+      const readValue = (el, fallback = '') => (el && el.value !== undefined ? el.value : fallback);
+      const readChecked = (el, fallback = false) => (el && typeof el.checked === 'boolean' ? !!el.checked : !!fallback);
+      const payloadData = activeHot?.getData?.()
+        || (typeof Shared.hot?.createEmptyData === 'function' ? Shared.hot.createEmptyData(5, 3, 'scatter') : []);
+      const payloadExclusions = activeHot
+        ? (activeHot.exportExclusions?.() || Shared.hot.exportExclusions(activeHot))
+        : null;
+      const payloadFilters = activeHot
+        ? (activeHot.exportFilters?.() || Shared.hot.exportFilters(activeHot))
+        : null;
       return {
         type:'scatter',
-        data:activeHot?.getData?.() || [],
-        exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
-        filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
+        data:payloadData,
+        exclusions: payloadExclusions,
+        filters: payloadFilters,
         dataViews: includeDataViews ? dataViewsPayload : undefined,
         activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
         config:{
@@ -21520,41 +21574,41 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             yLabel:scatterState.yLabelText,
             zLabel:scatterState.zLabelText,
             axisLabelModes: normalizeScatterAxisLabelModes(scatterState.axisLabelModes, { x: 'auto', y: 'auto', z: 'auto' }),
-            dotSize:scatterDotSize.value,
+            dotSize:readValue(scatterDotSize, ''),
             dotSizeOverrideEnabled: !!scatterState.dotSizeOverrideEnabled,
             dotSizeOverrideRaw: Number.isFinite(scatterState.dotSizeOverrideRaw) ? scatterState.dotSizeOverrideRaw : null,
-            fill:scatterFill.value,
+            fill:readValue(scatterFill, ''),
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
             densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
             colorScheme: themeSnapshot.schemeId,
             textColor: themeSnapshot.textColor,
             backgroundColor: themeSnapshot.backgroundColor,
-            border:scatterBorder.value,
-            borderWidth:scatterBorderWidth.value,
-            alpha:scatterAlpha.value,
+            border:readValue(scatterBorder, ''),
+            borderWidth:readValue(scatterBorderWidth, ''),
+            alpha:readValue(scatterAlpha, ''),
             labelColors: persistedLabelColors,
             labelShapes: persistedLabelShapes,
             labelStyles:{ ...scatterLabelStyles },
             overlayStyles: sanitizeScatterOverlayStylesMap(scatterOverlayStyles),
             selectedRows: selectedRows ? Array.from(selectedRows).sort((a, b) => a - b) : [],
-            showGrid:scatterShowGrid.checked,
+            showGrid:readChecked(scatterShowGrid, false),
             gridStyle: getScatterGridStyle(getScatterAxisStrokeWidth()),
-            showFrame:scatterShowFrame.checked,
+            showFrame:readChecked(scatterShowFrame, true),
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
             equalAxes: scatterState.equalAxes,
             equalScaleAxes: scatterState.equalScaleAxes,
             axesVarianceScaled: scatterState.axesVarianceScaled,
-            logX:scatterLogX.checked,
-            logY:scatterLogY.checked,
+            logX:readChecked(scatterLogX, false),
+            logY:readChecked(scatterLogY, false),
             logPlusOneX:!!scatterState.logPlusOneX,
             logPlusOneY:!!scatterState.logPlusOneY,
-            xMin:scatterXMin.value,
-            xMax:scatterXMax.value,
-            yMin:scatterYMin.value,
-            yMax:scatterYMax.value,
-            originMode:scatterOriginMode.value,
-            originX:scatterOriginX.value,
-            originY:scatterOriginY.value,
+            xMin:readValue(scatterXMin, ''),
+            xMax:readValue(scatterXMax, ''),
+            yMin:readValue(scatterYMin, ''),
+            yMax:readValue(scatterYMax, ''),
+            originMode:readValue(scatterOriginMode, 'zero'),
+            originX:readValue(scatterOriginX, ''),
+            originY:readValue(scatterOriginY, ''),
             showLine: !!payloadScatterShowLine?.checked,
             showPlotStats: payloadScatterShowPlotStats ? payloadScatterShowPlotStats.checked : false,
             showCI: payloadScatterShowCI ? !!payloadScatterShowCI.checked : undefined,
@@ -22226,8 +22280,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
       getScatterNodeById('openScatterGraph')?.addEventListener('click',openScatterFile);
       getScatterNodeById('saveScatterGraph')?.addEventListener('click',saveScatterFile);
-      getScatterNodeById('saveAsScatter').addEventListener('click',saveAsScatterFile);
-      getScatterNodeById('scatterGraphFile').addEventListener('change',e=>{
+      getScatterNodeById('saveAsScatter')?.addEventListener('click',saveAsScatterFile);
+      getScatterNodeById('scatterGraphFile')?.addEventListener('change',e=>{
         const f=e.target.files[0];
         if(f){
           scatterFileName=f.name;

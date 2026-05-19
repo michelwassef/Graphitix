@@ -13203,11 +13203,15 @@
     els.violinSamplesValue=byId('boxViolinSamplesValue');
     els.violinSamplesVal=byId('boxViolinSamplesVal');
     if (typeof chartStyle.renderFontSizeLabel === 'function') {
-      if(els.boxFontSize?.dataset){
-        els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
-        console.debug('Debug: box font size base initialized',{ value: els.boxFontSize.value }); // Debug: initial base size
+      if(els.boxFontSize){
+        if(els.boxFontSize.dataset){
+          els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
+          console.debug('Debug: box font size base initialized',{ value: els.boxFontSize.value }); // Debug: initial base size
+        }
+        chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
+      }else{
+        console.debug('Debug: box font size input missing during cacheEls init');
       }
-      chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
     } else {
       console.debug('Debug: box renderFontSizeLabel missing helper'); // Debug: chartStyle guard
     }
@@ -16018,6 +16022,10 @@
       state.scheduleDraw();
     });
     const updateGraphTypeControls = () => {
+      if(!els.boxGraphType){
+        console.debug('Debug: box graph type control missing');
+        return;
+      }
       const graphTypeValue = els.boxGraphType.value;
       const showErrorControls = graphTypeValue === 'bar';
       const showErrorBarThickness = graphTypeValue === 'bar' || graphTypeValue === 'strip' || graphTypeValue === 'box' || graphTypeValue === 'notched';
@@ -16124,10 +16132,10 @@
         let normalized = 'interleaved';
         if(requested === 'separated'){ normalized = 'separated'; }
         else if(requested === 'stacked'){ normalized = 'stacked'; }
-        if(normalized === 'stacked' && els.boxGraphType.value !== 'bar'){
+        if(normalized === 'stacked' && (els.boxGraphType?.value || 'box') !== 'bar'){
           normalized = 'interleaved';
           els.boxLayoutMode.value = 'interleaved';
-          console.debug('Debug: box stacked layout rejected for non-bar graph',{ graphType: els.boxGraphType.value });
+          console.debug('Debug: box stacked layout rejected for non-bar graph',{ graphType: els.boxGraphType?.value || null });
         }
         state.groupLayout = normalized;
         console.debug('Debug: box layout mode change',{ requested, normalized });

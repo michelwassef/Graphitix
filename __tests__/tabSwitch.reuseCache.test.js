@@ -102,10 +102,14 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
       })
     );
     expect(draw).not.toHaveBeenCalled();
-    // After consume → restoreRenderCache → success, the archive cache is consumed and
-    // the live renderCache is cleared (it has been "applied" to the DOM).
-    expect(tab.archiveRenderCache).toBeNull();
-    expect(tab.renderCache).toBeNull();
+    // Runtime now promotes archive cache metadata for future reuse and does not eagerly
+    // consume/archive-clear on first restore unless explicitly requested.
+    expect(tab.archiveRenderCache).toEqual(expect.objectContaining({ kind: 'box-archive-cache' }));
+    expect(tab.renderCache).toEqual(expect.objectContaining({
+      tabId: tab.id,
+      type: 'box',
+      promotedFromArchive: true
+    }));
   });
 
   test('re-activation after first activation: takes the reuse path, draw NOT called', () => {
