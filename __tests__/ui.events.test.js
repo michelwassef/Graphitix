@@ -505,9 +505,7 @@ describe('UI events and example loaders', () => {
     const loadBtn = document.getElementById('boxLoadExample');
     expect(loadBtn).toBeTruthy();
     loadBtn.click();
-    await flushAsyncWork(40);
-
-    const svg = document.querySelector('#boxPlot svg');
+    const svg = await waitFor(() => document.querySelector('#boxPlot svg'), { timeout: 10000 });
     expect(svg).toBeTruthy();
     const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
     const yAxisLine = axisLines.find(line => {

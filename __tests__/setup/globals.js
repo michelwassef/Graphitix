@@ -7,8 +7,10 @@ require('../../js/shared/performance.js');
 require('../../js/shared/workspaceToolbarAccess.js');
 require('../../js/shared/workspaceToolbar.js');
 
-// Console noise control: keep debug but mark clearly
-// (Developers can filter these in CI if needed)
+// Console noise control.
+// - console.error: always passes through so unexpected errors are visible and can be caught
+//   by jest.spyOn(console, 'error') in individual tests. Use TEST_DEBUG_LOGS=1 for full noise.
+// - console.warn/log/debug/time: suppressed by default to keep test output clean.
 const origDebug = console.debug;
 const origLog = console.log;
 const origWarn = console.warn;
@@ -31,7 +33,7 @@ console.debug = (...args) => {
     return;
   }
   origDebug('[test-debug]', ...args);
-}; // Debug: test wrapper for debug logs
+};
 console.log = (...args) => {
   if (!allowDebugLogging) {
     return;
@@ -44,10 +46,10 @@ console.warn = (...args) => {
   }
   origWarn(...args);
 };
+// console.error always passes through — unexpected errors must be visible.
+// Tests that intentionally trigger errors should use:
+//   jest.spyOn(console, 'error').mockImplementation(() => {});
 console.error = (...args) => {
-  if (!allowDebugLogging) {
-    return;
-  }
   origError(...args);
 };
 console.time = (label) => {
@@ -219,3 +221,17 @@ if (global.window && !global.window.agGrid) {
 }
 global.__GRID_CALLS__ = GRID_CALLS;
 global.__resetGrid__ = () => { GRID_CALLS.splice(0, GRID_CALLS.length); };
+
+// Shared polling helper available in all test suites.
+// Polls predicate every `interval` ms until truthy or timeout expires.
+global.waitFor = async function waitFor(predicate, { timeout = 8000, interval = 30 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = predicate();
+    if (value) return value;
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+  const final = predicate();
+  if (final) return final;
+  throw new Error(`waitFor timed out after ${timeout}ms`);
+};

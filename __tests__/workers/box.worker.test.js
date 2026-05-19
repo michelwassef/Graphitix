@@ -74,6 +74,47 @@ describe('box.worker — box-swarm action', () => {
   });
 });
 
+describe('box.worker — box-swarm geometry invariants', () => {
+  let ctx;
+  beforeEach(() => { ctx = loadWorker(); });
+
+  test('single point has offset 0 (no neighbours to dodge)', async () => {
+    const points = makeSwarmPoints([5]);
+    const msg = await send(ctx, 'g0', 'box-swarm', { points, options: { pointRadius: 5 } });
+    expect(msg.ok).toBe(true);
+    expect(msg.result.offsets[0]).toBe(0);
+  });
+
+  test('widely separated points have smaller offsets than closely packed ones', async () => {
+    const sparse = makeSwarmPoints([1, 100, 200]);
+    const dense  = makeSwarmPoints([1, 1.01, 1.02]);
+    const [msgSparse, msgDense] = await Promise.all([
+      send(ctx, 'g1', 'box-swarm', { points: sparse, options: { pointRadius: 6 } }),
+      send(ctx, 'g2', 'box-swarm', { points: dense,  options: { pointRadius: 6 } })
+    ]);
+    const maxSparse = Math.max(...msgSparse.result.offsets.map(Math.abs));
+    const maxDense  = Math.max(...msgDense.result.offsets.map(Math.abs));
+    expect(maxSparse).toBeLessThanOrEqual(maxDense + 0.01);
+  });
+
+  test('larger pointRadius produces larger or equal maxOffsetUsed', async () => {
+    const points = makeSwarmPoints([1, 1.5, 2, 2.5, 3]);
+    const [small, large] = await Promise.all([
+      send(ctx, 'g3', 'box-swarm', { points, options: { pointRadius: 3 } }),
+      send(ctx, 'g4', 'box-swarm', { points, options: { pointRadius: 8 } })
+    ]);
+    expect(small.result.maxOffsetUsed).toBeLessThanOrEqual(large.result.maxOffsetUsed + 0.01);
+  });
+
+  test('offsets array length always equals input points length', async () => {
+    for (const n of [1, 3, 7, 12]) {
+      const points = makeSwarmPoints(Array.from({ length: n }, (_, i) => i * 0.5));
+      const msg = await send(ctx, `g5_${n}`, 'box-swarm', { points, options: { pointRadius: 4 } });
+      expect(msg.result.offsets).toHaveLength(n);
+    }
+  });
+});
+
 describe('box.worker — box-stats action', () => {
   let ctx;
 

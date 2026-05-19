@@ -207,13 +207,12 @@ async function flushAsyncWork(iterations = 40){
   }
 }
 
-async function waitFor(check, { iterations = 80 } = {}){
-  for(let i = 0; i < iterations; i += 1){
+async function waitFor(check, { timeout = 8000, interval = 30 } = {}){
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
     const value = check();
-    if(value){
-      return value;
-    }
-    await flushAsyncWork(2);
+    if (value) return value;
+    await new Promise(resolve => setTimeout(resolve, interval));
   }
   return check();
 }
@@ -354,7 +353,9 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     document.getElementById('boxComputeStats').click();
-    await flushAsyncWork(30);
+    await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(
+      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
+    ));
     expect(document.getElementById('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('boxStatsReportHost');
     expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
@@ -376,7 +377,9 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     document.getElementById('boxComputeStats').click();
-    await flushAsyncWork(30);
+    await waitFor(() => /Friedman|Nemenyi/i.test(
+      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
+    ));
     const repeatedText = `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`;
     expect(repeatedText).toMatch(/Friedman|Nemenyi/i);
 
@@ -397,7 +400,9 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(30);
 
     document.getElementById('boxComputeStats').click();
-    await flushAsyncWork(30);
+    await waitFor(() => /Grouped multiple comparisons|multiple comparison/i.test(
+      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
+    ));
     const groupedText = `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`;
     expect(groupedText).toMatch(/Grouped multiple comparisons|multiple comparison/i);
   }, 30000);
@@ -409,10 +414,9 @@ describe('UI statistical presentation branches', () => {
 
     const computeBtn = document.getElementById('scatterComputeStats');
     expect(computeBtn).toBeTruthy();
-    computeBtn.click();
-    await flushAsyncWork(80);
-
     const statsResults = document.getElementById('scatterStatsResults');
+    computeBtn.click();
+    await waitFor(() => /Overall test summary|Coefficient diagnostics/i.test(statsResults?.textContent || ''));
     const defaultText = statsResults?.textContent || '';
     expect(defaultText).toMatch(/Overall test summary|Coefficient diagnostics/i);
     expect(defaultText).toMatch(/Reporting and reproducibility|Series|r \(95% CI\)/i);
@@ -423,8 +427,7 @@ describe('UI statistical presentation branches', () => {
     regressionSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(20);
     computeBtn.click();
-    await flushAsyncWork(80);
-
+    await waitFor(() => /Overall test summary \(Quadratic|Coefficient diagnostics|Model details/i.test(statsResults?.textContent || ''));
     const nonlinearText = statsResults?.textContent || '';
     expect(nonlinearText).toMatch(/Overall test summary \(Quadratic|Coefficient diagnostics|Model details/i);
   }, 30000);
@@ -436,10 +439,9 @@ describe('UI statistical presentation branches', () => {
 
     const computeBtn = document.getElementById('lineComputeStats');
     expect(computeBtn).toBeTruthy();
-    computeBtn.click();
-    await flushAsyncWork(80);
-
     const statsResults = document.getElementById('lineStatsResults');
+    computeBtn.click();
+    await waitFor(() => /correlation coefficients|Correlation summary/i.test(statsResults?.textContent || ''));
     const defaultText = statsResults?.textContent || '';
     expect(defaultText).toMatch(/correlation coefficients|Correlation summary/i);
     expect(defaultText).toContain('Reporting and reproducibility');
@@ -450,8 +452,7 @@ describe('UI statistical presentation branches', () => {
     regressionMode.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(20);
     computeBtn.click();
-    await flushAsyncWork(80);
-
+    await waitFor(() => /Forecast accuracy metrics|AIC|BIC/i.test(statsResults?.textContent || ''));
     const forecastText = statsResults?.textContent || '';
     expect(forecastText).toMatch(/Forecast accuracy metrics|AIC|BIC/i);
   }, 30000);
@@ -463,10 +464,9 @@ describe('UI statistical presentation branches', () => {
 
     const computeBtn = document.getElementById('pieComputeStats');
     expect(computeBtn).toBeTruthy();
-    computeBtn.click();
-    await flushAsyncWork(40);
-
     const statsResults = document.getElementById('pieStatsResults');
+    computeBtn.click();
+    await waitFor(() => /Goodness-of-fit test|Observed vs expected/i.test(statsResults?.textContent || ''));
     expect(statsResults?.textContent || '').toMatch(/Goodness-of-fit test|Observed vs expected/i);
     expect(statsResults?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('pieStatsReportHost');
@@ -479,7 +479,7 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     computeBtn.click();
-    await flushAsyncWork(40);
+    await waitFor(() => /Overall test summary|Pairwise comparisons/i.test(statsResults?.textContent || ''));
     const pairwiseText = statsResults?.textContent || '';
     expect(pairwiseText).toMatch(/Overall test summary|Pairwise comparisons/i);
   }, 30000);
@@ -490,11 +490,11 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(80);
 
     const hist = window.Components?.hist;
+    const histStatsResults = document.getElementById('histStatsResults');
     hist?.draw?.();
-    await flushAsyncWork(60);
+    await waitFor(() => /Descriptive statistics/.test(histStatsResults?.textContent || ''));
 
-    const statsResults = document.getElementById('histStatsResults');
-    const text = statsResults?.textContent || '';
+    const text = histStatsResults?.textContent || '';
     expect(text).toContain('Descriptive statistics');
     expect(text).toContain('Distribution shape');
     expect(text).toMatch(/Fit diagnostics|Normal fit diagnostics/i);
@@ -506,7 +506,7 @@ describe('UI statistical presentation branches', () => {
     comparisonMode.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(20);
     hist?.draw?.();
-    await flushAsyncWork(60);
+    await waitFor(() => /Distribution comparison|Kolmogorov-Smirnov/i.test(document.getElementById('histStatsResults')?.textContent || ''));
 
     expect(document.getElementById('histStatsResults')?.textContent || '').toMatch(/Distribution comparison|Kolmogorov-Smirnov/i);
   }, 30000);
@@ -515,10 +515,10 @@ describe('UI statistical presentation branches', () => {
     await activateWorkspace('roc');
     document.getElementById('rocLoadExample').click();
     await flushAsyncWork(80);
-    window.Components?.roc?.draw?.();
-    await flushAsyncWork(80);
-
     const statsResults = document.getElementById('rocStatsResults');
+    window.Components?.roc?.draw?.();
+    await waitFor(() => /ROC metrics|cutoff-by-cutoff metrics/i.test(statsResults?.textContent || ''));
+
     const controls = document.getElementById('rocStatsControls');
     const rocControlSelects = Array.from(controls.querySelectorAll('select'));
     expect(rocControlSelects.length).toBeGreaterThanOrEqual(2);
@@ -530,9 +530,9 @@ describe('UI statistical presentation branches', () => {
     const graphType = document.getElementById('rocGraphType');
     graphType.value = 'pr';
     graphType.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(60);
+    await flushAsyncWork(20);
     window.Components?.roc?.draw?.();
-    await flushAsyncWork(80);
+    await waitFor(() => /Precision.?Recall metrics|Average Precision/i.test(document.getElementById('rocStatsResults')?.textContent || ''));
 
     const prControlSelects = Array.from(document.getElementById('rocStatsControls').querySelectorAll('select'));
     expect(Array.from(prControlSelects[0].options).map(option => option.value)).toEqual(expect.arrayContaining(['bootstrap', 'permutation']));
@@ -563,7 +563,9 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     window.Components?.survival?.draw?.();
-    await flushAsyncWork(160);
+    await waitFor(() => /Survival Curve Comparisons|Pairwise Log-rank/i.test(
+      document.getElementById('survivalStatsLogRank')?.textContent || ''
+    ), { timeout: 15000 });
 
     const logRankText = document.getElementById('survivalStatsLogRank')?.textContent || '';
     const hazardText = document.getElementById('survivalStatsHazardRatios')?.textContent || '';
@@ -619,13 +621,12 @@ describe('UI statistical presentation branches', () => {
     const loadBtn = document.getElementById('heatmapLoadExample');
     expect(loadBtn).toBeTruthy();
     loadBtn.click();
-    await flushAsyncWork(120);
-
     const heatmap = window.Components?.heatmap;
-    heatmap?.draw?.();
-    await flushAsyncWork(100);
-
     const statsContent = document.getElementById('heatmapStatsContent');
+    heatmap?.draw?.();
+    await waitFor(() => /Items analysed|Pairs evaluated|Strongest \|r\||Reporting and reproducibility/i.test(statsContent?.textContent || ''),
+      { timeout: 15000 });
+
     expect(statsContent).toBeTruthy();
     const corrText = statsContent?.textContent || '';
     expect(corrText).toMatch(/Items analysed|Pairs evaluated|Strongest \|r\||Reporting and reproducibility/i);
@@ -635,9 +636,11 @@ describe('UI statistical presentation branches', () => {
     expect(viewSelect).toBeTruthy();
     viewSelect.value = 'values';
     viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(100);
+    await flushAsyncWork(20);
     heatmap?.draw?.();
-    await flushAsyncWork(100);
+    await waitFor(() => /Rows|Columns|Cells with data|Minimum|Maximum|Mean|Reporting and reproducibility/i.test(
+      document.getElementById('heatmapStatsContent')?.textContent || ''
+    ), { timeout: 15000 });
 
     const valueText = document.getElementById('heatmapStatsContent')?.textContent || '';
     expect(valueText).toMatch(/Rows|Columns|Cells with data|Minimum|Maximum|Mean|Reporting and reproducibility/i);

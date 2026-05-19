@@ -6,7 +6,8 @@
       "Bash(Format-Table -AutoSize)",
       "Bash(npm test *)",
       "Bash(npx jest *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\Michel\\\\Venn\\\\__tests__\\\\setup\\\\\")"
     ]
   }
 }
