@@ -10595,10 +10595,13 @@
   state.drawCooldownTimer = null;
   state.resizeObserveDrawMutedUntil = 0;
   state.viewportExtensionResizeInProgress = false;
+  state.viewportExtensionResizeGuardToken = null;
+  state.viewportExtensionResizeGuardTimer = null;
   state.lastViewportExtensionRedrawSignature = null;
   state.flipFrameRestoreSnapshot = null;
   state.flipAxisSpanTarget = null;
   state.pendingFlipDrawZoneOverride = null;
+  state.flipHorizontalReserveCarryoverPx = 0;
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -10798,6 +10801,9 @@
         flipFrameRestoreSnapshot: cloneSimple(state.flipFrameRestoreSnapshot),
         flipAxisSpanTarget: cloneSimple(state.flipAxisSpanTarget),
         pendingFlipDrawZoneOverride: cloneSimple(state.pendingFlipDrawZoneOverride),
+        flipHorizontalReserveCarryoverPx: Number.isFinite(Number(state.flipHorizontalReserveCarryoverPx))
+          ? Math.max(0, Number(state.flipHorizontalReserveCarryoverPx))
+          : 0,
         restoredSignificanceGeometryLock: !!state.restoredSignificanceGeometryLock,
         restoredSignificanceGeometry: cloneSimple(state.restoredSignificanceGeometry)
       }
@@ -10820,6 +10826,14 @@
     state.graphGeometry = runtime?.graphGeometry ? cloneSimple(runtime.graphGeometry) : createDefaultBoxGraphGeometry();
     state.resizeObserveDrawMutedUntil = 0;
     state.resizeInteractionActive = false;
+    if(state.viewportExtensionResizeGuardTimer){
+      try{
+        (global.clearTimeout || clearTimeout)(state.viewportExtensionResizeGuardTimer);
+      }catch(_err){}
+    }
+    state.viewportExtensionResizeInProgress = false;
+    state.viewportExtensionResizeGuardToken = null;
+    state.viewportExtensionResizeGuardTimer = null;
     state.drawInProgress = false;
     state.lastDrawAt = 0;
     if(runtime?.notes){
@@ -10847,6 +10861,9 @@
       state.flipFrameRestoreSnapshot = cloneSimple(statsRuntime.flipFrameRestoreSnapshot) || null;
       state.flipAxisSpanTarget = cloneSimple(statsRuntime.flipAxisSpanTarget) || null;
       state.pendingFlipDrawZoneOverride = cloneSimple(statsRuntime.pendingFlipDrawZoneOverride) || null;
+      state.flipHorizontalReserveCarryoverPx = Number.isFinite(Number(statsRuntime.flipHorizontalReserveCarryoverPx))
+        ? Math.max(0, Number(statsRuntime.flipHorizontalReserveCarryoverPx))
+        : 0;
       state.restoredSignificanceGeometryLock = false;
       state.restoredSignificanceGeometry = cloneSimple(statsRuntime.restoredSignificanceGeometry) || null;
     } else {
@@ -10943,6 +10960,15 @@
     state.flipFrameRestoreSnapshot = null;
     state.flipAxisSpanTarget = null;
     state.pendingFlipDrawZoneOverride = null;
+    state.flipHorizontalReserveCarryoverPx = 0;
+    if(state.viewportExtensionResizeGuardTimer){
+      try{
+        (global.clearTimeout || clearTimeout)(state.viewportExtensionResizeGuardTimer);
+      }catch(_err){}
+    }
+    state.viewportExtensionResizeInProgress = false;
+    state.viewportExtensionResizeGuardToken = null;
+    state.viewportExtensionResizeGuardTimer = null;
     state.restoredSignificanceGeometryLock = false;
     state.restoredSignificanceGeometry = null;
     state.graphGeometry = createDefaultBoxGraphGeometry();
@@ -12433,10 +12459,6 @@
         availableHeight -= readBoxCssPx(style, 'border-top-width') + readBoxCssPx(style, 'border-bottom-width');
         availableHeight -= readBoxCssPx(style, 'padding-top') + readBoxCssPx(style, 'padding-bottom');
       }catch(_err){}
-      const controls = els.boxExportControls || getBoxNodeById('boxExportControls') || null;
-      if(controls && controls.closest?.('.svgbox') === svgBox){
-        availableHeight -= resolveBoxElementOuterHeight(controls);
-      }
     }
     const baseAvailableWidth = Number.isFinite(availableWidth) && availableWidth > 0
       ? availableWidth / zoomScale
@@ -12725,6 +12747,85 @@
     return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
   }
 
+  function beginBoxViewportExtensionResizeGuard(options = {}){
+    const holdMsRaw = Number(options.holdMs);
+    const holdMs = Number.isFinite(holdMsRaw) && holdMsRaw > 0
+      ? Math.max(120, Math.round(holdMsRaw))
+      : 420;
+    state.viewportExtensionResizeInProgress = true;
+    state.resizeObserveDrawMutedUntil = Math.max(
+      Number(state.resizeObserveDrawMutedUntil) || 0,
+      Date.now() + holdMs
+    );
+    const previousTimer = state.viewportExtensionResizeGuardTimer || null;
+    if(previousTimer){
+      try{
+        (global.clearTimeout || clearTimeout)(previousTimer);
+      }catch(_err){}
+    }
+    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    state.viewportExtensionResizeGuardToken = token;
+    state.viewportExtensionResizeGuardTimer = (global.setTimeout || setTimeout)(() => {
+      if(state.viewportExtensionResizeGuardToken !== token){
+        return;
+      }
+      state.viewportExtensionResizeInProgress = false;
+      state.viewportExtensionResizeGuardToken = null;
+      state.viewportExtensionResizeGuardTimer = null;
+    }, holdMs);
+    if(boxDebugEnabled()){
+      console.debug('Debug: box viewport extension resize guard started', {
+        reason: options.reason || null,
+        holdMs
+      });
+    }
+  }
+
+  function setBoxGraphDatasetFrameAuthority(svgBox, dimensions, options = {}){
+    if(!svgBox?.dataset || !dimensions || typeof dimensions !== 'object'){
+      return false;
+    }
+    const dataset = svgBox.dataset;
+    const nextWidth = Number.isFinite(Number(dimensions.width)) && Number(dimensions.width) > 0
+      ? Math.max(50, Math.round(Number(dimensions.width)))
+      : null;
+    const nextHeight = Number.isFinite(Number(dimensions.height)) && Number(dimensions.height) > 0
+      ? Math.max(40, Math.round(Number(dimensions.height)))
+      : null;
+    if(!nextWidth && !nextHeight){
+      return false;
+    }
+    if(nextWidth){
+      const widthToken = String(nextWidth);
+      dataset.graphWidthPx = widthToken;
+      dataset.svgWidth = widthToken;
+      dataset.graphDefaultWidth = widthToken;
+      dataset.resizerBaseWidth = widthToken;
+      dataset.resizerWidth = `${widthToken}px`;
+    }
+    if(nextHeight){
+      const heightToken = String(nextHeight);
+      dataset.graphHeightPx = heightToken;
+      dataset.svgHeight = heightToken;
+      dataset.graphDefaultHeight = heightToken;
+      dataset.resizerBaseHeight = heightToken;
+      dataset.resizerHeight = `${heightToken}px`;
+    }
+    if(nextWidth && nextHeight && nextHeight > 0){
+      const ratioToken = String(nextWidth / nextHeight);
+      dataset.graphAspectRatio = ratioToken;
+      dataset.resizerAspectRatio = ratioToken;
+    }
+    if(boxDebugEnabled()){
+      console.debug('Debug: box graph dataset frame authority updated', {
+        reason: options.reason || null,
+        width: nextWidth,
+        height: nextHeight
+      });
+    }
+    return true;
+  }
+
   function resolveBoxAutoExtensionMetrics(svgBox, previousExtension){
     if(!svgBox){
       return null;
@@ -12802,6 +12903,9 @@
     }
     let resizeResult = null;
     try{
+      beginBoxViewportExtensionResizeGuard({
+        reason: options.reason || 'box-auto-content-reserve'
+      });
       resizeResult = Shared.applyResizableBoxSize(svgBox, {
         axis: 'both',
         width: currentWidth,
@@ -12893,6 +12997,12 @@
     if(!metrics || !Number.isFinite(metrics.currentWidth) || !Number.isFinite(metrics.baseWidth)){
       return { applied: false, reason: 'missing-frame-metrics', metrics };
     }
+    if(options.forceBaseFromPrevious === true){
+      const safePreviousExtension = Number.isFinite(Number(previousExtension))
+        ? Math.max(0, Math.round(Number(previousExtension)))
+        : 0;
+      metrics.baseWidth = Math.max(50, Math.round(metrics.currentWidth - safePreviousExtension));
+    }
     const safeNextExtension = Number.isFinite(Number(nextExtension)) ? Math.max(0, Math.round(Number(nextExtension))) : 0;
     const targetWidth = Math.max(50, Math.round(metrics.baseWidth + safeNextExtension));
     const currentWidth = Math.round(metrics.currentWidth);
@@ -12916,6 +13026,15 @@
     }
     let resizeResult = null;
     try{
+      if(options.promoteGraphDatasetAuthority === true){
+        setBoxGraphDatasetFrameAuthority(svgBox, {
+          width: targetWidth,
+          height: currentHeight
+        }, { reason: options.reason || 'box-auto-horizontal-reserve' });
+      }
+      beginBoxViewportExtensionResizeGuard({
+        reason: options.reason || 'box-auto-horizontal-reserve'
+      });
       resizeResult = Shared.applyResizableBoxSize(svgBox, {
         axis: 'both',
         width: targetWidth,
@@ -13008,6 +13127,8 @@
     const previousLeftExtension = normalizeExtension(state.leftViewportExtensionPx);
     const previousRightExtension = normalizeExtension(state.rightViewportExtensionPx);
     const previousExtension = previousLeftExtension + previousRightExtension;
+    const carryoverExtension = normalizeExtension(state.flipHorizontalReserveCarryoverPx);
+    const effectivePreviousExtension = Math.max(previousExtension, carryoverExtension);
     const nextExtension = nextLeftExtension + nextRightExtension;
     const compositionChanged = nextLeftExtension !== previousLeftExtension
       || nextRightExtension !== previousRightExtension;
@@ -13019,10 +13140,20 @@
         rightPx: nextRightExtension
       }
     }, { reason: options.reason || 'box-horizontal-viewport-extension-state' });
-    const resizeResult = applyBoxAutoReserveFrameWidth(nextExtension, previousExtension, options);
+    const shouldPromoteGraphDatasetAuthority = nextRightExtension !== previousRightExtension;
+    const resizeResult = applyBoxAutoReserveFrameWidth(nextExtension, effectivePreviousExtension, {
+      ...options,
+      promoteGraphDatasetAuthority: shouldPromoteGraphDatasetAuthority,
+      forceBaseFromPrevious: carryoverExtension > 0
+    });
+    if(carryoverExtension > 0 && options.resizeContainer === true){
+      state.flipHorizontalReserveCarryoverPx = 0;
+    }
     if(boxDebugEnabled()){
       console.debug('Debug: box horizontal viewport extension stored as automatic graph reserve', {
         previousExtension,
+        effectivePreviousExtension,
+        carryoverExtension,
         nextExtension,
         previousLeftExtension,
         nextLeftExtension,
@@ -16697,6 +16828,16 @@
           const snapshot = captureBoxFlipFrameSnapshot();
           state.flipFrameRestoreSnapshot = snapshot;
           state.pendingFlipDrawZoneOverride = null;
+          const carriedHorizontalReserve = snapshot
+            ? Math.max(
+                0,
+                Math.round(
+                  (Number(snapshot.bottomViewportExtensionPx) || 0)
+                  + (Number(snapshot.significanceViewportExtensionPx) || 0)
+                )
+              )
+            : 0;
+          state.flipHorizontalReserveCarryoverPx = carriedHorizontalReserve;
           if(Number.isFinite(Number(snapshot?.xAxisSpanPx)) && snapshot.xAxisSpanPx > 0
             && Number.isFinite(Number(snapshot?.yAxisSpanPx)) && snapshot.yAxisSpanPx > 0){
             state.flipAxisSpanTarget = {
@@ -16778,14 +16919,17 @@
             baselineFlippedHeight,
             liveFlippedWidth,
             liveFlippedHeight,
+            flipHorizontalReserveCarryoverPx: state.flipHorizontalReserveCarryoverPx,
             pendingFlipDrawZoneOverride: state.pendingFlipDrawZoneOverride
           });
           state.flipFrameRestoreSnapshot = null;
           state.flipAxisSpanTarget = null;
+          state.flipHorizontalReserveCarryoverPx = 0;
         }else{
           applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'flip-axes-reset-vertical-reserve', resizeContainer: false });
           applyBoxHorizontalViewportExtensions({ left: 0, right: 0 }, { reason: 'flip-axes-reset-horizontal-reserve', resizeContainer: false });
           swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
+          state.flipHorizontalReserveCarryoverPx = 0;
         }
         try{
           state.layout?.syncPanels?.({ skipSchedule: true });
@@ -32650,6 +32794,16 @@ Technical analysis record (advanced)
       marginLocal.left = Math.max(baseMarginLeft, tickLen + tickGap + fs * 0.5) + leftLabelReservePx;
       marginLocal.right = Math.max(baseMarginRight, fs) + rightSignificanceReservePx;
       marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
+      if(showSignificance && state.flipAxes){
+        const previousTopReservePx = Number(state.graphGeometry?.reserves?.topPx);
+        const previousBottomReservePx = Number(state.graphGeometry?.reserves?.bottomPx);
+        if(Number.isFinite(previousTopReservePx) && previousTopReservePx > 0){
+          marginLocal.top = Math.max(0, previousTopReservePx);
+        }
+        if(Number.isFinite(previousBottomReservePx) && previousBottomReservePx > 0){
+          marginLocal.bottom = Math.max(0, previousBottomReservePx);
+        }
+      }
       marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
       const flipAxisSpanTarget = state.flipAxisSpanTarget && state.flipAxisSpanTarget.sourceOrientation === 'vertical'
         ? state.flipAxisSpanTarget
@@ -33504,13 +33658,6 @@ Technical analysis record (advanced)
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled before finalize',{ token });
       return;
-    }
-    if(isFlipped && drawOpts?.reason === 'flip-axes-change' && state.flipAxisSpanTarget){
-      // Axis-span targeting is intentionally one-shot: it stabilizes the immediate
-      // flip transition, then manual resize in flipped mode must be free to expand
-      // both axes just like non-flipped mode.
-      state.flipAxisSpanTarget = null;
-      boxDebug('Debug: box flip-axis span target released after transition draw');
     }
     const viewportWidth = Number.isFinite(orientationResult?.canvasWidth) && orientationResult.canvasWidth > 0
       ? orientationResult.canvasWidth
@@ -35320,6 +35467,10 @@ Technical analysis record (advanced)
           }
           if(phase === 'move'){
             state.resizeInteractionActive = true;
+            if(state.flipAxes && state.flipAxisSpanTarget){
+              state.flipAxisSpanTarget = null;
+              boxDebug('Debug: box flip-axis span target released on manual resize');
+            }
           }
           if(
             phase === 'end'
