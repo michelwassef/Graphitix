@@ -181,7 +181,33 @@
       ? config.getHost
       : () => config.host || null;
     let handle = null;
+    let queuedPayload = null;
+    let showTimer = null;
     const baseMessage = config.message;
+    const defaultShowDelayMs = Number.isFinite(Number(config.showDelayMs))
+      ? Math.max(0, Number(config.showDelayMs))
+      : 180;
+    const clearPendingShow = () => {
+      if(showTimer){
+        (global.clearTimeout || clearTimeout)(showTimer);
+        showTimer = null;
+      }
+      queuedPayload = null;
+    };
+    const showNow = payload => {
+      const host = getHost();
+      if(!host){
+        clearPendingShow();
+        return null;
+      }
+      handle = loadingOverlay.show(host, {
+        message: payload?.message || baseMessage || DEFAULT_MESSAGE,
+        reason: payload?.reason || payload?.source || null,
+        component: config.component || null
+      });
+      clearPendingShow();
+      return handle;
+    };
     return {
       queue(meta){
         const payload = typeof meta === 'object' && meta !== null ? meta : { reason: meta };
@@ -192,19 +218,27 @@
         if(handle){
           return handle;
         }
-        const host = getHost();
-        if(!host){
-          return null;
+        const delayMsRaw = payload?.delayMs;
+        const delayMs = Number.isFinite(Number(delayMsRaw))
+          ? Math.max(0, Number(delayMsRaw))
+          : defaultShowDelayMs;
+        queuedPayload = payload;
+        if(delayMs <= 0 || payload?.immediate === true){
+          return showNow(queuedPayload);
         }
-        handle = loadingOverlay.show(host, {
-          message: payload?.message || baseMessage || DEFAULT_MESSAGE,
-          reason: payload?.reason || payload?.source || null,
-          component: config.component || null
-        });
-        return handle;
+        if(!showTimer){
+          showTimer = (global.setTimeout || setTimeout)(() => {
+            if(!queuedPayload){
+              return;
+            }
+            showNow(queuedPayload);
+          }, delayMs);
+        }
+        return null;
       },
       resolve(meta){
         const payload = typeof meta === 'object' && meta !== null ? meta : { reason: meta };
+        clearPendingShow();
         if(handle){
           loadingOverlay.hide(handle, {
             reason: payload?.reason || payload?.source || null,

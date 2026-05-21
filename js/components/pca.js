@@ -4762,17 +4762,10 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = pcaSvgBox?.dataset?.resizerAspectLocked === 'true';
             debugLog('Debug: pca layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
-            const isResizeFinalize = resizePhase === 'end'
-              || resizePhase === 'reset'
-              || resizePhase === 'undo'
-              || resizePhase === 'redo'
-              || resizePhase === 'programmatic'
-              || resizePhase === 'aspect-toggle';
             schedulePcaNoticeWidth('resize');
             evaluateAutoDrawThresholds({ source: 'resize', phase: resizePhase || null });
             requestPcaViewRefresh('resize', {
-              resizePhase: resizePhase || null,
-              force: isResizeFinalize
+              resizePhase: resizePhase || null
             });
           }
         }
