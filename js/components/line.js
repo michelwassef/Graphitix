@@ -13401,14 +13401,6 @@
     if(!clone.getAttribute('viewBox') && Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0){
       clone.setAttribute('viewBox', `0 0 ${formatLinePreviewNumber(width)} ${formatLinePreviewNumber(height)}`);
     }
-    if(clone.style){
-      clone.style.position = '';
-      clone.style.left = '';
-      clone.style.top = '';
-      clone.style.zIndex = '';
-      clone.style.visibility = '';
-      clone.style.pointerEvents = '';
-    }
     compactLinePreviewSvg(clone, tab?.id || line.__boundTabId || null);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       try{

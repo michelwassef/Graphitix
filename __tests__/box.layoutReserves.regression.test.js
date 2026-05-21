@@ -26,8 +26,24 @@ function createBoxDimensionController(initialWidth, initialHeight){
   let width = Math.max(120, Number(initialWidth) || 640);
   let height = Math.max(120, Number(initialHeight) || 520);
 
-  const readWidth = () => width;
-  const readHeight = () => height;
+  const parseStylePx = value => {
+    const numeric = Number.parseFloat(String(value || '').replace('px', '').trim());
+    return Number.isFinite(numeric) ? numeric : NaN;
+  };
+  const readWidth = () => {
+    const liveStyleWidth = parseStylePx(svgBox.style?.width);
+    if(Number.isFinite(liveStyleWidth) && liveStyleWidth > 0){
+      width = Math.max(120, liveStyleWidth);
+    }
+    return width;
+  };
+  const readHeight = () => {
+    const liveStyleHeight = parseStylePx(svgBox.style?.height);
+    if(Number.isFinite(liveStyleHeight) && liveStyleHeight > 0){
+      height = Math.max(120, liveStyleHeight);
+    }
+    return height;
+  };
   const readRect = () => ({
     width: readWidth(),
     height: readHeight(),
@@ -67,10 +83,11 @@ function createBoxDimensionController(initialWidth, initialHeight){
   };
 }
 
-function readVerticalAxisMetrics(){
+function readBoxAxisMetrics(){
   const svg = document.querySelector('#boxPlot svg');
+  const svgBox = document.querySelector('#boxGraphPanel .svgbox');
   const state = window.Components?.box?.__getState?.();
-  if(!svg || !state){
+  if(!svg || !state || !svgBox){
     return null;
   }
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
@@ -103,6 +120,21 @@ function readVerticalAxisMetrics(){
     : Number.isFinite(svgHeightAttr) && svgHeightAttr > 0
       ? svgHeightAttr
       : viewBoxHeight;
+  const axisLabels = Array.isArray(state.lastAxisLabels) ? state.lastAxisLabels.map(label => String(label || '').trim()) : [];
+  const rotatedCategoryLabelCount = Array.from(axisLayer.querySelectorAll('text'))
+    .filter(node => {
+      const label = String(node?.textContent || '').trim();
+      if(!label || !axisLabels.includes(label)){
+        return false;
+      }
+      const transform = String(node.getAttribute('transform') || '');
+      return /rotate\(\s*-90/i.test(transform);
+    })
+    .length;
+  const svgBoxRect = svgBox.getBoundingClientRect();
+  const ratio = Number.isFinite(Number(svgBoxRect?.width)) && Number.isFinite(Number(svgBoxRect?.height)) && Number(svgBoxRect.height) > 0
+    ? Number(svgBoxRect.width) / Number(svgBoxRect.height)
+    : null;
   return {
     xAxisY: xAxis ? xAxis.y1 : null,
     xAxisSpan: xAxis ? Math.abs(xAxis.x2 - xAxis.x1) : null,
@@ -110,11 +142,19 @@ function readVerticalAxisMetrics(){
     yAxisX: yAxis ? yAxis.x1 : null,
     yAxisSpan: yAxis ? Math.abs(yAxis.y2 - yAxis.y1) : null,
     rotated: state.xTickRotateVertical === true,
+    flipAxes: state.flipAxes === true,
     significanceViewportExtensionPx: Number(state.significanceViewportExtensionPx) || 0,
     bottomViewportExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
+    leftViewportExtensionPx: Number(state.leftViewportExtensionPx) || 0,
+    rightViewportExtensionPx: Number(state.rightViewportExtensionPx) || 0,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
-    plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null
+    plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
+    axisLabelCount: axisLabels.length,
+    rotatedCategoryLabelCount,
+    svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
+    svgBoxHeightPx: Number.isFinite(Number(svgBoxRect?.height)) ? Number(svgBoxRect.height) : null,
+    svgBoxAspectRatio: ratio
   };
 }
 
@@ -155,6 +195,18 @@ async function setBoxWidthAndRedraw(controller, width, height){
   expect(boxComponent?.draw).toBeInstanceOf(Function);
   controller.set(width, height);
   await flushAsyncWork(30);
+  await boxComponent.draw();
+  await flushAsyncWork(50);
+}
+
+async function setFlipAxesAndRedraw(enabled){
+  const boxComponent = window.Components?.box;
+  const flipCheckbox = document.getElementById('boxFlipAxes');
+  expect(boxComponent?.draw).toBeInstanceOf(Function);
+  expect(flipCheckbox).toBeTruthy();
+  flipCheckbox.checked = !!enabled;
+  flipCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+  await flushAsyncWork(50);
   await boxComponent.draw();
   await flushAsyncWork(50);
 }
@@ -267,14 +319,14 @@ describe('Box layout reserves under horizontal shrink', () => {
 
     const controller = createBoxDimensionController(1200, 520);
     await setBoxWidthAndRedraw(controller, 1200, 520);
-    const before = readVerticalAxisMetrics();
+    const before = readBoxAxisMetrics();
     expect(before).toBeTruthy();
     expect(before.rotated).toBe(false);
     expect(before.significanceViewportExtensionPx).toBe(0);
 
     const { width: startWidth, height } = controller.get();
     await setBoxWidthAndRedraw(controller, Math.round(startWidth * 0.5), height);
-    const after = readVerticalAxisMetrics();
+    const after = readBoxAxisMetrics();
     expect(after).toBeTruthy();
 
     expect(after.rotated).toBe(true);
@@ -296,7 +348,7 @@ describe('Box layout reserves under horizontal shrink', () => {
 
     const controller = createBoxDimensionController(1200, 520);
     await setBoxWidthAndRedraw(controller, 1200, 520);
-    const before = readVerticalAxisMetrics();
+    const before = readBoxAxisMetrics();
     expect(before).toBeTruthy();
     expect(before.rotated).toBe(false);
     expect(before.significancePathCount).toBeGreaterThan(0);
@@ -304,7 +356,7 @@ describe('Box layout reserves under horizontal shrink', () => {
 
     const { width: startWidth, height } = controller.get();
     await setBoxWidthAndRedraw(controller, Math.round(startWidth * 0.5), height);
-    const after = readVerticalAxisMetrics();
+    const after = readBoxAxisMetrics();
     expect(after).toBeTruthy();
 
     expect(after.rotated).toBe(true);
@@ -317,5 +369,63 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(1.5);
     expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
+  });
+
+  test('flip axes swaps drawable axis lengths while keeping labels fully rotated and preserving frame transpose (no significance)', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    const before = readBoxAxisMetrics();
+    expect(before).toBeTruthy();
+    expect(before.flipAxes).toBe(false);
+    expect(before.significancePathCount).toBe(0);
+    expect(before.significanceViewportExtensionPx).toBe(0);
+
+    await setFlipAxesAndRedraw(true);
+    const after = readBoxAxisMetrics();
+    expect(after).toBeTruthy();
+    expect(after.flipAxes).toBe(true);
+    expect(after.rotated).toBe(false);
+    expect(after.significancePathCount).toBe(0);
+    expect(after.significanceViewportExtensionPx).toBe(0);
+    expect(after.leftViewportExtensionPx + after.rightViewportExtensionPx).toBeGreaterThan(0);
+    expect(after.rotatedCategoryLabelCount).toBe(0);
+    expect(after.xAxisSpan).toBeGreaterThan(0);
+    expect(after.yAxisSpan).toBeGreaterThan(0);
+    expect(after.plotWidthPx).toBeGreaterThan(0);
+    expect(after.plotHeightPx).toBeGreaterThan(0);
+  });
+
+  test('flip axes keeps axis-length swap stable with significance brackets enabled', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+    await ensureStatsAndSignificanceReady();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    const before = readBoxAxisMetrics();
+    expect(before).toBeTruthy();
+    expect(before.flipAxes).toBe(false);
+    expect(before.significancePathCount).toBeGreaterThan(0);
+    expect(before.significanceViewportExtensionPx).toBeGreaterThan(0);
+
+    await setFlipAxesAndRedraw(true);
+    const after = readBoxAxisMetrics();
+    expect(after).toBeTruthy();
+    expect(after.flipAxes).toBe(true);
+    expect(after.rotated).toBe(false);
+    expect(after.significancePathCount).toBeGreaterThan(0);
+    expect(after.significanceViewportExtensionPx).toBe(0);
+    expect(after.leftViewportExtensionPx + after.rightViewportExtensionPx).toBeGreaterThan(0);
+    expect(after.rightViewportExtensionPx).toBeGreaterThan(0);
+    expect(after.rotatedCategoryLabelCount).toBe(0);
+    expect(after.xAxisSpan).toBeGreaterThan(0);
+    expect(after.yAxisSpan).toBeGreaterThan(0);
+    expect(after.plotWidthPx).toBeGreaterThan(0);
+    expect(after.plotHeightPx).toBeGreaterThan(0);
   });
 });

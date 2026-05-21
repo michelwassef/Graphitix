@@ -4232,16 +4232,22 @@
     const options = reason ? { reason } : {};
     scheduleDrawPca(options);
   }
-  function requestPcaViewRefresh(reason){
-    markPcaViewDirty(reason);
+  function requestPcaViewRefresh(reason, drawOptions){
+    const options = (drawOptions && typeof drawOptions === 'object')
+      ? { ...drawOptions }
+      : {};
+    if(reason && !Object.prototype.hasOwnProperty.call(options, 'reason')){
+      options.reason = reason;
+    }
+    markPcaViewDirty(options.reason || reason);
     if(!pcaState.cachedRender){
-      markPcaDataDirty(reason || 'view-refresh-no-cache');
-      const options = reason ? { reason } : {};
+      markPcaDataDirty((options.reason || reason) || 'view-refresh-no-cache');
       scheduleDrawPca(options);
       return;
     }
-    const options = { viewOnly: true };
-    if(reason){ options.reason = reason; }
+    if(!Object.prototype.hasOwnProperty.call(options, 'viewOnly')){
+      options.viewOnly = true;
+    }
     scheduleDrawPca(options);
   }
 
@@ -4764,9 +4770,7 @@
               || resizePhase === 'aspect-toggle';
             schedulePcaNoticeWidth('resize');
             evaluateAutoDrawThresholds({ source: 'resize', phase: resizePhase || null });
-            scheduleDrawPca({
-              viewOnly: true,
-              reason: 'resize',
+            requestPcaViewRefresh('resize', {
               resizePhase: resizePhase || null,
               force: isResizeFinalize
             });

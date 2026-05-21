@@ -1,287 +1,1000 @@
-session.js:353 Debug: session dirty flag updated {reason: 'control-click', wasDirty: true, userDirty: true, details: {…}}
-session.js:266 Debug: tab user modification marked {tabId: 'workspace-3', type: 'box', reason: 'control-click', affectsPayload: true, payloadDirty: true}
-session.js:1919 Debug: tab data inspection skipped {tabId: 'workspace-3', reason: 'no-tab-or-payload'}
-session.js:353 Debug: session dirty flag updated {reason: 'control-input', wasDirty: true, userDirty: true, details: {…}}
-session.js:266 Debug: tab user modification marked {tabId: 'workspace-3', type: 'box', reason: 'control-input', affectsPayload: true, payloadDirty: true}
-session.js:353 Debug: session dirty flag updated {reason: 'control-change', wasDirty: true, userDirty: true, details: {…}}
-session.js:266 Debug: tab user modification marked {tabId: 'workspace-3', type: 'box', reason: 'control-change', affectsPayload: true, payloadDirty: true}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:13363 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
-box.js:13363 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
-chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
-chartStyle.js:506 Debug: chartStyle.computeResizeScale {width: 427, height: 427, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
-chartStyle.js:427 Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'boxFontSize', scaledPt: 12, textLocked: false}
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'boxGraphPanel::@tab:workspace-3', scaledPt: 12, textLocked: false}
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-3'}
-box.js:27299 Debug: box axis settings current {strokeWidth: 1, color: '#000000', tickIntervalX: null, tickIntervalY: null, datasetSpacingX: 1, …}
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-axis'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-grid'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-border'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-errorbar'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 5, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 2, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0.5, max: Infinity, result: 1, context: 'box-annotation'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#000000', percent: -30, newColor: '#000000'}
-box.js:6053 Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
-box.js:6053 Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 25, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 25, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 12, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-box.js:27391 Debug: box showSignificance flag {showSignificance: false}
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'boxFontSize', displayPt: 12, min: 6, max: 24}
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'boxFontSize', manualUpdate: false}
-box.js:27393 Debug: box font scaling applied {input: '12', fontSizePt: 12, baseFontPx: 16, scaledFontPx: 16, scale: 1, …}
-box.js:27404 Debug: box style scaling applied {borderWidthRaw: 1, borderWidthPx: 1, errorBarWidthRaw: 1, errorBarWidthPx: 1, axisStrokeWidth: 1, …}
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
-box.js:27424 Debug: box axis metrics {tickLength: 6, tickLabelGap: 6, axisTitleGap: 12, outerPadding: 10, yTitleGap: 8}
-box.js:27427 Debug: box showFrame state {showFrame: false}
-box.js:27429 Debug: box showLegend state {showLegend: false}
-box.js:27472 Debug: box summary selector mode {graphTypeRaw: 'strip', individualSummaryMode: 'median-point'}
-box.js:27493 Debug: box draw orientation {isFlipped: false}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
-box.js:27497 Debug: box legend initial state {legendWidthForMargin: 0, legendGapPx: 0, entryCount: 0}
-box.js:27668 Debug: box analysis snapshot {nCols: 12, nRows: 7357, excludedCols: 0, excludedRows: 0}
-box.js:27723 boxColCollect_0_6: 2.97607421875 ms
-box.js:27723 boxColCollect_1_6: 2.0458984375 ms
-box.js:27723 boxColCollect_2_6: 1.1748046875 ms
-box.js:27723 boxColCollect_3_6: 0.970947265625 ms
-box.js:27723 boxColCollect_4_6: 0.81982421875 ms
-box.js:27723 boxColCollect_5_6: 1.50390625 ms
-box.js:27723 boxColCollect_6_6: 2.613037109375 ms
-box.js:27723 boxColCollect_7_6: 2.5 ms
-box.js:27723 boxColCollect_8_6: 1.718017578125 ms
-box.js:27723 boxColCollect_9_6: 1.7080078125 ms
-box.js:27723 boxColCollect_10_6: 1.886962890625 ms
-box.js:27723 boxColCollect_11_6: 2.083984375 ms
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
-box.js:27939 Debug: box trace colors primed {traceCount: 2, sample: Array(2)}
-box.js:27941 Debug: box color picker labels resolved {isGroupedMode: false, labelCount: 2, labels: Array(2)}
-stats.js:919 Debug: stats.listCorrections {methods: Array(8)}
-box.js:5978 Debug: box corrections sourced from Shared.stats {methods: Array(8)}
-stats.js:919 Debug: stats.listCorrections {methods: Array(8)}
-box.js:5978 Debug: box corrections sourced from Shared.stats {methods: Array(8)}
-box.js:13103 Debug: box updateStatsCorrectionSummary cleared {count: 1}
-fontControls.js:1432 Debug: fontControls enableForSvg attached {scopeId: 'boxSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'boxSvg'}
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults {hasSvg: true}
-box.js:28230 Debug: box fontControls enableForSvg invoked {width: 396, height: 370}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
-box.js:28599 Debug: box legend disabled {grouped: false, groupCount: 0, showLegend: false}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-3'}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:447 Debug: chartStyle created measurement canvas
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Value', font: '16px Arial, Helvetica, sans-serif', width: 39.734375}
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 0, yTitleWidth: 39.734375, xTickFontSize: 16, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 316, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount {spanPx: 192, baseSpacing: 80, rawEstimate: 2.4, rounded: 2, minTicks: 3, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '250', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '500', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '750', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '1000', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '1250', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 35.59375, yTitleWidth: 39.734375, xTickFontSize: 16, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 292.40625, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount {spanPx: 192, baseSpacing: 80, rawEstimate: 2.4, rounded: 2, minTicks: 3, …}
-box.js:31180 Debug: box tick target evaluation {pass: 0, plotH: 192, tickTargetHeight: 192, yTickTarget: 3, refinedTickTarget: 3}
-resizer.js:1841 Debug: resizer intrinsic min size updated {container: 'boxGraphPanel', reason: 'box-vertical-content-reserves', minWidth: 192, minHeight: 298, changed: true, …}
-box.js:31219 Debug: box layout {margin: {…}, plotW: 292.40625, plotH: 192, rotate: false, yTickTarget: 3, …}
-box.js:30006 Debug: box broken axis {axis: 'y', enabled: false, segments: Array(0), isBroken: undefined}
-debounce.js:81 [Violation] 'requestAnimationFrame' handler took 283ms
-box.js:31314 Debug: box grid stroke scaled {horizontal: 6, gridStrokeStyle: {…}, visible: false}
-box.js:31324 Debug: box axis join span {axisYStart: 38, axisYEnd: 230, xAxisY: 230, yAxisX: 79.59375}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '250'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '500'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '750'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '1000'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '1250'}
-box.js:31540 Debug: box x-axis span {axisXStart: 79.59375, axisXEnd: 372, yAxisX: 79.59375, frameXMax: 372, plotWUsed: 292.40625}
-box.js:31545 Debug: box axes stroke scaled {axisStrokeWidth: 1}
-box.js:29840 Debug: box frame request {stroke: '#000000', showFrame: false, axisStrokeWidth: 1}
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied {sides: Array(2), stroke: '#000000', plotW: 292.40625, plotH: 192, strokeWidth: 1}
-box.js:29854 Debug: box frame stroke scaled {axisStrokeWidth: 1, visible: false}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: 'Libraryrep1'}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: 'Libraryrep2'}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-box.js:31602 Debug: box font tick binding {xTickFontCount: 2, yTickFontCount: 6}
-box.js:31603 Debug: box ticks stroke scaled {yTickCount: 6, xTickCount: 2, axisStrokeWidth: 1}
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result {count: 2, rotated: false, angle: -45, disableAuto: false}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Value'}
-box.js:9023 Debug: box markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Value'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
-session.js:1919 Debug: tab data inspection skipped {tabId: 'workspace-3', reason: 'no-tab-or-payload'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
- Debug: resizer aspect ratio set {container: 'boxGraphPanel', aspectRatio: 0.8522954091816367}
- Debug: resizer applyResize helper {container: 'boxGraphPanel', reason: 'draw-layout', axis: 'both', zoomScale: 1, aspectLocked: false, …}
- Debug: resizer applyProgrammaticResize {container: 'boxGraphPanel', reason: 'draw-layout', authorityMode: 'authoritative', requestedAxis: 'both', requestedWidth: 427, …}
- Debug: componentLayout resizable onResize {component: 'box', phase: 'programmatic', zoomDisplayOnly: false, phaseSkipSchedule: false}
- Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 394.1145935058594, …}
- Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
- Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
- Debug: box markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
- Debug: makeEditable bound {hasOnChange: true}
- Debug: enableLabelDrag bound {element: 'text'}
- Debug: box annotation style forwarded {annotationStyle: {…}, significance: {…}}
- Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
- Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
- Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 394.1145935058594, …}
- Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
-componentLayout.js:1056 Debug: componentLayout programmatic sync released {component: 'box', depth: 1}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:13363 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
-box.js:13363 Debug: box graph-type border width sync {graphType: 'strip', value: '1'}
-chartStyle.js:420 Debug: chartStyle.ptToPx {input: 12, numeric: 12, px: 16}
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize {raw: 12, pt: 12, px: 16}
-chartStyle.js:506 Debug: chartStyle.computeResizeScale {width: 427, height: 501, defaultWidth: 427, defaultHeight: 427, scaleX: 1, …}
-chartStyle.js:427 Debug: chartStyle.pxToPt {input: 16, numeric: 16, pt: 12}
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored {inputId: 'boxFontSize', scaledPt: 12, textLocked: false}
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored {scope: 'boxGraphPanel::@tab:workspace-3', scaledPt: 12, textLocked: false}
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize {raw: '12', normalizedPt: 12, basePx: 16, scaledPx: 16, scaledPt: 12, …}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-3'}
-box.js:27299 Debug: box axis settings current {strokeWidth: 1, color: '#000000', tickIntervalX: null, tickIntervalY: null, datasetSpacingX: 1, …}
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-axis'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-grid'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-border'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0, max: Infinity, result: 1, context: 'box-errorbar'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 5, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 2, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 1, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 1, min: 0.5, max: Infinity, result: 1, context: 'box-annotation'}
-box.js:6053 Debug: shadeColor {color: '#7a7a7a', percent: -30, newColor: '#2e2e2e'}
-box.js:6053 Debug: shadeColor {color: '#000000', percent: -30, newColor: '#000000'}
-box.js:6053 Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
-box.js:6053 Debug: shadeColor {color: '#333333', percent: -30, newColor: '#000000'}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 25, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 25, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 12, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-box.js:27391 Debug: box showSignificance flag {showSignificance: false}
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed {inputId: 'boxFontSize', displayPt: 12, min: 6, max: 24}
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied {pt: 12, px: 16, label: '12 pt (16px)', inputId: 'boxFontSize', manualUpdate: false}
-box.js:27393 Debug: box font scaling applied {input: '12', fontSizePt: 12, baseFontPx: 16, scaledFontPx: 16, scale: 1, …}
-box.js:27404 Debug: box style scaling applied {borderWidthRaw: 1, borderWidthPx: 1, errorBarWidthRaw: 1, errorBarWidthPx: 1, axisStrokeWidth: 1, …}
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics {fontSize: 16, hasScaleInfo: true, scale: 1, resizeScale: 1, baseMetrics: {…}, …}
-box.js:27424 Debug: box axis metrics {tickLength: 6, tickLabelGap: 6, axisTitleGap: 12, outerPadding: 10, yTitleGap: 8}
-box.js:27427 Debug: box showFrame state {showFrame: false}
-box.js:27429 Debug: box showLegend state {showLegend: false}
-box.js:27472 Debug: box summary selector mode {graphTypeRaw: 'strip', individualSummaryMode: 'median-point'}
-box.js:27493 Debug: box draw orientation {isFlipped: false}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
-box.js:27497 Debug: box legend initial state {legendWidthForMargin: 0, legendGapPx: 0, entryCount: 0}
-box.js:27627 Debug: box data collect skipped (view cache) {traces: 2, labels: 2, reason: 'significance-viewport-extension'}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
-box.js:27939 Debug: box trace colors primed {traceCount: 2, sample: Array(2)}
-box.js:27941 Debug: box color picker labels resolved {isGroupedMode: false, labelCount: 2, labels: Array(2)}
-fontControls.js:1432 Debug: fontControls enableForSvg attached {scopeId: 'boxSvg', tabToken: 'workspace-3', hasDatasetScope: false, nodeName: 'svg'}
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached {scope: 'boxSvg'}
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults {hasSvg: true}
-box.js:28230 Debug: box fontControls enableForSvg invoked {width: 396, height: 444}
-box.js:28259 Debug: box distribution cache reused {traces: 2, mode: 'linear:unsorted', reason: 'significance-viewport-extension'}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics {entryCount: 0, fontSize: 16, rowGap: 5, swatchSize: 10, swatchGap: 8, …}
-box.js:28599 Debug: box legend disabled {grouped: false, groupCount: 0, showLegend: false}
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) {scope: 'box', tabToken: 'workspace-3'}
-chartStyle.js:454 Debug: chartStyle.makeFont {size: 16, font: '16px Arial, Helvetica, sans-serif'}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Value', font: '16px Arial, Helvetica, sans-serif', width: 39.734375}
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 0, yTitleWidth: 39.734375, xTickFontSize: 16, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 316, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount {spanPx: 266, baseSpacing: 80, rawEstimate: 3.325, rounded: 3, minTicks: 3, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '0', font: '16px Arial, Helvetica, sans-serif', width: 8.8984375}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '250', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '500', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '750', font: '16px Arial, Helvetica, sans-serif', width: 26.6953125}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '1000', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: '1250', font: '16px Arial, Helvetica, sans-serif', width: 35.59375}
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins {fontSize: 16, legendWidth: 0, maxYLabelWidth: 35.59375, yTitleWidth: 39.734375, xTickFontSize: 16, …}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep1', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1055 Debug: chartStyle.measureText {text: 'Libraryrep2', font: '16px Arial, Helvetica, sans-serif', width: 80.9296875}
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout {labelCount: 2, fontSize: 16, plotWidth: 292.40625, shouldRotate: false, shouldRotateRaw: false, …}
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount {spanPx: 266, baseSpacing: 80, rawEstimate: 3.325, rounded: 3, minTicks: 3, …}
-box.js:31180 Debug: box tick target evaluation {pass: 0, plotH: 266, tickTargetHeight: 266, yTickTarget: 3, refinedTickTarget: 3}
-resizer.js:1841 Debug: resizer intrinsic min size updated {container: 'boxGraphPanel', reason: 'box-vertical-content-reserves', minWidth: 192, minHeight: 298, changed: false, …}
-box.js:31219 Debug: box layout {margin: {…}, plotW: 292.40625, plotH: 266, rotate: false, yTickTarget: 3, …}
-box.js:30006 Debug: box broken axis {axis: 'y', enabled: false, segments: Array(0), isBroken: undefined}
-box.js:31314 Debug: box grid stroke scaled {horizontal: 6, gridStrokeStyle: {…}, visible: false}
-box.js:31324 Debug: box axis join span {axisYStart: 38, axisYEnd: 304, xAxisY: 304, yAxisX: 79.59375}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '0'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '250'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '500'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '750'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '1000'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTick', key: 'yTick', text: '1250'}
-box.js:31540 Debug: box x-axis span {axisXStart: 79.59375, axisXEnd: 372, yAxisX: 79.59375, frameXMax: 372, plotWUsed: 292.40625}
-box.js:31545 Debug: box axes stroke scaled {axisStrokeWidth: 1}
-box.js:29840 Debug: box frame request {stroke: '#000000', showFrame: false, axisStrokeWidth: 1}
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied {sides: Array(2), stroke: '#000000', plotW: 292.40625, plotH: 266, strokeWidth: 1}
-box.js:29854 Debug: box frame stroke scaled {axisStrokeWidth: 1, visible: false}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: 'Libraryrep1'}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'xTick', key: 'xTick', text: 'Libraryrep2'}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-box.js:31602 Debug: box font tick binding {xTickFontCount: 2, yTickFontCount: 6}
-box.js:31603 Debug: box ticks stroke scaled {yTickCount: 6, xTickCount: 2, axisStrokeWidth: 1}
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result {count: 2, rotated: false, angle: -45, disableAuto: false}
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup {storeKey: 'box::@tab:workspace-3::__graph__', remaining: 20}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'yTitle', key: 'yTitle', text: 'Value'}
-box.js:9023 Debug: box markFontEditable {role: 'yTitle', key: 'yTitle', text: 'Value'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 0, colorIndex: 0, rawColorIndex: 0, groupName: undefined, grouped: false}
-componentLayout.js:1056 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
-resizer.js:2620 Debug: resizer observer triggered
-componentLayout.js:1253 Debug: componentLayout resizable onResize {component: 'box', phase: 'observe', zoomDisplayOnly: false, phaseSkipSchedule: false}
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 394.1145935058594, …}
-componentLayout.js:1062 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
-componentLayout.js:1056 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
-box.js:27506 Debug: box resolveTraceColor {traceIndex: 1, colorIndex: 1, rawColorIndex: 1, groupName: undefined, grouped: false}
-chartStyle.js:966 Debug: chartStyle.scaleLength {base: 0, styleScale: 1, resizeOnlyScale: 1, lengthScale: 1, zoomScale: 1, …}
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied {base: 0, min: 0, max: Infinity, result: 0, context: 'box-point-border'}
-fontControls.js:1432 Debug: fontControls markText applied {scopeId: 'box', tabToken: 'workspace-3', role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
-box.js:9023 Debug: box markFontEditable {role: 'graphTitle', key: 'graphTitle', text: 'Individual values'}
-dom.js:7 Debug: makeEditable bound {hasOnChange: true}
-dom.js:7 Debug: enableLabelDrag bound {element: 'text'}
-box.js:33109 Debug: box annotation style forwarded {annotationStyle: {…}, significance: {…}}
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored {label: 'box', storedMinTableWidth: 0, minTableHint: NaN}
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset {label: 'box', graphWidth: 594.3333740234375, graphContentWidth: 594.3333740234375, graphInset: 0, pad: 0, …}
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock {label: 'box', appliedWidth: 427, tableWidth: 423, graphWidth: 594.3333740234375, configWidth: 394.1145935058594, …}
-componentLayout.js:1062 Debug: componentLayout syncPanels complete {component: 'box', minSvgWidth: 0, layoutChanged: false}
-componentLayout.js:1056 Debug: componentLayout programmatic sync released {component: 'box', depth: 0}
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer drag end
+ Debug: resizer orthogonal viewport lock marked Object
+ Debug: resizer snapshot captured Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: tab data inspection skipped Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: resizer aspect ratio set Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset size authority reapplied Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: box flipAxes toggled Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+chartStyle.js:454 Debug: chartStyle.makeFont Object
+chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
+box.js:28917 Debug: box legend disabled Object
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
+chartStyle.js:454 Debug: chartStyle.makeFont Object
+chartStyle.js:1055 Debug: chartStyle.measureText Object
+chartStyle.js:1055 Debug: chartStyle.measureText Object
+chartStyle.js:1055 Debug: chartStyle.measureText Object
+chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
+chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
+resizer.js:1841 Debug: resizer intrinsic min size updated Object
+box.js:30324 Debug: box broken axis Object
+box.js:32597 Debug: box grid stroke scaled Object
+dom.js:7 Debug: enableLabelDrag bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+box.js:30158 Debug: box frame request Object
+chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied Object
+box.js:30172 Debug: box frame stroke scaled Object
+dom.js:7 Debug: makeEditable bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+box.js:27809 Debug: box resolveTraceColor Object
+chartStyle.js:966 Debug: chartStyle.scaleLength Object
+chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
+box.js:27809 Debug: box resolveTraceColor Object
+chartStyle.js:966 Debug: chartStyle.scaleLength Object
+chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
+box.js:27809 Debug: box resolveTraceColor Object
+chartStyle.js:966 Debug: chartStyle.scaleLength Object
+chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
+resizer.js:1307 Debug: resizer aspect ratio set Object
+resizer.js:1427 Debug: resizer applyResize helper Object
+resizer.js:1621 Debug: resizer applyProgrammaticResize Object
+componentLayout.js:1253 Debug: componentLayout resizable onResize Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:333 Debug: componentLayout graph dataset size authority reapplied Object
+componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
+resizer.js:1307 Debug: resizer aspect ratio set Object
+resizer.js:1427 Debug: resizer applyResize helper Object
+resizer.js:1621 Debug: resizer applyProgrammaticResize Object
+componentLayout.js:1253 Debug: componentLayout resizable onResize Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:333 Debug: componentLayout graph dataset size authority reapplied Object
+componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
+fontControls.js:1432 Debug: fontControls markText applied Object
+box.js:9023 Debug: box markFontEditable Object
+dom.js:7 Debug: makeEditable bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+box.js:33564 Debug: box annotation style forwarded Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
+componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
+session.js:1919 Debug: tab data inspection skipped Object
