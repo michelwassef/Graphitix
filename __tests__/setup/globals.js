@@ -2,14 +2,14 @@
 // - Provides DOM-related polyfills and library stubs used by js/main.js
 
 const { TextEncoder, TextDecoder } = require('util');
+const { createJStatTestStub } = require('../helpers/jstatTestStub');
 require('../../js/shared/palette.js');
 require('../../js/shared/performance.js');
 require('../../js/shared/workspaceToolbarAccess.js');
 require('../../js/shared/workspaceToolbar.js');
 
 // Console noise control.
-// - console.error: always passes through so unexpected errors are visible and can be caught
-//   by jest.spyOn(console, 'error') in individual tests. Use TEST_DEBUG_LOGS=1 for full noise.
+// - console.error: tracked and fails tests by default unless explicitly mocked/allowed.
 // - console.warn/log/debug/time: suppressed by default to keep test output clean.
 const origDebug = console.debug;
 const origLog = console.log;
@@ -19,6 +19,8 @@ const origTime = console.time;
 const origTimeEnd = console.timeEnd;
 let debugLoggingDefault = process.env.TEST_DEBUG_LOGS === '1';
 let allowDebugLogging = debugLoggingDefault;
+const strictConsoleErrors = process.env.TEST_STRICT_CONSOLE_ERRORS !== '0';
+let unexpectedConsoleErrors = [];
 global.__restoreTestDebugLogs = () => {
   allowDebugLogging = debugLoggingDefault;
   return allowDebugLogging;
@@ -28,6 +30,15 @@ global.__setTestDebugLoggingDefault = (value) => {
   debugLoggingDefault = !!value;
   allowDebugLogging = debugLoggingDefault;
 };
+global.__clearUnexpectedConsoleErrors = () => {
+  unexpectedConsoleErrors = [];
+};
+global.__consumeUnexpectedConsoleErrors = () => {
+  const consumed = unexpectedConsoleErrors.slice();
+  unexpectedConsoleErrors = [];
+  return consumed;
+};
+global.__isStrictConsoleErrorsEnabled = () => strictConsoleErrors;
 console.debug = (...args) => {
   if (!allowDebugLogging) {
     return;
@@ -46,10 +57,10 @@ console.warn = (...args) => {
   }
   origWarn(...args);
 };
-// console.error always passes through — unexpected errors must be visible.
 // Tests that intentionally trigger errors should use:
 //   jest.spyOn(console, 'error').mockImplementation(() => {});
 console.error = (...args) => {
+  unexpectedConsoleErrors.push(args);
   origError(...args);
 };
 console.time = (label) => {
@@ -164,6 +175,35 @@ global.Chart = ChartStub;
 
 // Minimal XLSX namespace stub (only accessed dynamically; keep soft)
 global.XLSX = undefined; // main.js loads it dynamically when needed
+
+// Minimal SVD-JS stub for PCA/MDS paths in integration suites.
+if (!global.SVDJS) {
+  global.SVDJS = {
+    SVD(matrix = []) {
+      const rows = Array.isArray(matrix) ? matrix.length : 0;
+      const cols = rows > 0 && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+      const components = Math.max(1, Math.min(rows || 1, cols || 1, 3));
+      const q = Array.from({ length: components }, (_, idx) => components - idx + 1);
+      const u = Array.from({ length: rows }, (_, r) =>
+        Array.from({ length: components }, (_, k) => ((r + 1) / (components + k + 1)))
+      );
+      const v = Array.from({ length: cols }, (_, c) =>
+        Array.from({ length: components }, (_, k) => ((c + 1) / (components + k + 1)))
+      );
+      return { u, v, q };
+    }
+  };
+}
+if (global.window && !global.window.SVDJS) {
+  global.window.SVDJS = global.SVDJS;
+}
+
+if (!global.jStat) {
+  global.jStat = createJStatTestStub();
+}
+if (global.window && !global.window.jStat) {
+  global.window.jStat = global.jStat;
+}
 
 // AG Grid stub with basic grid behavior and call tracking
 const GRID_CALLS = [];

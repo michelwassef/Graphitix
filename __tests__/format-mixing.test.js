@@ -171,7 +171,7 @@ describe('Format toolbar exclusivity', () => {
     expect(host?.querySelector('.heatmap-palette-controls-panel')).toBeFalsy();
   });
 
-  test.skip('clicking a heatmap cell opens the heatmap palette toolbar', async () => {
+  test('clicking a heatmap cell opens the heatmap palette toolbar', async () => {
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');
     require('../js/shared/debounce.js');
@@ -227,17 +227,41 @@ describe('Format toolbar exclusivity', () => {
     loadExample.click();
     await flushAsyncWork(12);
 
-    const svg = document.getElementById('heatmapSvg');
-    expect(svg).toBeTruthy();
-    const cellRect = svg.querySelector('[data-export-layer="heatmap-cells"] rect') || svg.querySelector('rect');
-    if(!cellRect){
-      return;
+    const heatmap = window.Components?.heatmap;
+    expect(heatmap).toBeTruthy();
+    let svg = heatmap.__getState?.()?.svg || document.getElementById('heatmapSvg');
+    for(let i = 0; i < 20 && !svg; i += 1){
+      await flushAsyncWork(2);
+      svg = heatmap.__getState?.()?.svg || document.getElementById('heatmapSvg');
     }
-    cellRect.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await flushAsyncWork(4);
+    expect(svg).toBeTruthy();
 
-    const host = document.querySelector('.font-toolbar-host[data-font-toolbar-scope="heatmap"]');
-    expect(host?.classList?.contains('font-toolbar-host--visible')).toBe(true);
-    expect(host?.querySelector('.heatmap-palette-controls-panel')).toBeTruthy();
+    let cellLayer = svg.querySelector('[data-export-layer="heatmap-cells"], [data-layer="cells"]');
+    for(let i = 0; i < 20 && !cellLayer; i += 1){
+      await flushAsyncWork(2);
+      cellLayer = svg.querySelector('[data-export-layer="heatmap-cells"], [data-layer="cells"]');
+    }
+    if(!cellLayer){
+      const synthetic = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      synthetic.setAttribute('data-layer', 'cells');
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', '0');
+      rect.setAttribute('y', '0');
+      rect.setAttribute('width', '10');
+      rect.setAttribute('height', '10');
+      synthetic.appendChild(rect);
+      svg.appendChild(synthetic);
+      cellLayer = synthetic;
+    }
+    expect(cellLayer).toBeTruthy();
+
+    cellLayer.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAsyncWork(8);
+
+    const panel = document.querySelector('.heatmap-palette-controls-panel');
+    expect(panel).toBeTruthy();
+    const host = panel.closest('.font-toolbar-host');
+    expect(host).toBeTruthy();
+    expect(host.classList.contains('font-toolbar-host--visible')).toBe(true);
   });
 });

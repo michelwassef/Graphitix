@@ -101,6 +101,25 @@ describe('Shared formControls auto-sizing', () => {
     const { formControls } = window.Shared;
     const autoSizeSpy = jest.spyOn(formControls, 'autoSizeSelect');
     bootstrapApp();
+    const activateWorkspace = async (type) => {
+      const selectGraph = window.Main?.tabs?.handleGraphSelection;
+      if (typeof selectGraph !== 'function') {
+        return;
+      }
+      const maybePromise = selectGraph(type, { reason: 'form-controls-autosize-test' });
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        await maybePromise;
+      }
+      const duplicatePrompt = document.getElementById('duplicatePrompt');
+      if (duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')) {
+        const emptyButton = document.getElementById('duplicateEmpty');
+        if (emptyButton && typeof emptyButton.click === 'function') {
+          emptyButton.click();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, 0));
+    };
 
     const ensureComponent = (name) => {
       const component = window.Components?.[name];
@@ -115,7 +134,10 @@ describe('Shared formControls auto-sizing', () => {
     };
 
     const componentsToEnsure = ['scatter','line','box','venn','pca','heatmap','roc','pie','survival'];
-    componentsToEnsure.forEach(ensureComponent);
+    for (const componentName of componentsToEnsure) {
+      await activateWorkspace(componentName);
+      ensureComponent(componentName);
+    }
 
     await new Promise(resolve => setTimeout(resolve, 0));
     autoSizeSpy.mockClear();

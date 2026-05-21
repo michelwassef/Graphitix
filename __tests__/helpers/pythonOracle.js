@@ -1,5 +1,6 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
+let oracleAvailabilityNoticeEmitted = false;
 
 function parseOracleOutput(stdout, stderr, commandLabel) {
   const trimmed = (stdout || '').trim();
@@ -64,9 +65,31 @@ function tryPythonOracle(payload) {
 function detectPythonOracleAvailability() {
   const probePayload = JSON.stringify({ cases: [] });
   const probe = tryPythonOracle(probePayload);
-  return probe.ok
-    ? { available: true, reason: '' }
-    : { available: false, reason: probe.detail };
+  if (probe.ok) {
+    return { available: true, reason: '' };
+  }
+  const reason = probe.detail || 'Unknown Python oracle error.';
+  const message = [
+    '[stats-oracle] Python oracle unavailable.',
+    reason,
+    'Set PYTHON_BIN to a valid interpreter to enable oracle-backed differential tests.',
+    'Set TEST_REQUIRE_PYTHON_ORACLE=1 to fail immediately when oracle coverage is missing.',
+    'Set TEST_ALLOW_ORACLE_SKIP=1 to allow skips in CI.'
+  ].join('\n');
+  if (!oracleAvailabilityNoticeEmitted) {
+    oracleAvailabilityNoticeEmitted = true;
+    try {
+      process.stderr.write(`${message}\n`);
+    } catch (_err) {
+      // Ignore stderr write failures in constrained runtimes.
+    }
+  }
+  const requireOracle = process.env.TEST_REQUIRE_PYTHON_ORACLE === '1'
+    || (process.env.CI === 'true' && process.env.TEST_ALLOW_ORACLE_SKIP !== '1');
+  if (requireOracle) {
+    throw new Error(message);
+  }
+  return { available: false, reason };
 }
 
 function runPythonOracle(cases, options = {}) {

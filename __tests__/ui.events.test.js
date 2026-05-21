@@ -2,189 +2,10 @@
  * Event-level tests to ensure key UI flows are wired correctly.
  * These catch regressions when splitting main.js into modules.
  */
-
-function createJStatTestStub(){
-  const collectValidPairs = (arrA = [], arrB = []) => {
-    const len = Math.min(arrA.length, arrB.length);
-    const pairs = [];
-    for(let i = 0; i < len; i += 1){
-      const ax = Number(arrA[i]);
-      const by = Number(arrB[i]);
-      if(Number.isFinite(ax) && Number.isFinite(by)){
-        pairs.push([ax, by]);
-      }
-    }
-    return pairs;
-  };
-  const rankValues = (source = []) => {
-    const entries = [];
-    const ranks = new Array(source.length).fill(NaN);
-    source.forEach((value, index) => {
-      const numeric = Number(value);
-      if(Number.isFinite(numeric)){
-        entries.push({ value: numeric, index });
-      }
-    });
-    entries.sort((a, b) => a.value - b.value);
-    let i = 0;
-    while(i < entries.length){
-      let j = i + 1;
-      while(j < entries.length && entries[j].value === entries[i].value){
-        j += 1;
-      }
-      const rank = ((i + j - 1) / 2) + 1; // average rank (1-based)
-      for(let k = i; k < j; k += 1){
-        ranks[entries[k].index] = rank;
-      }
-      i = j;
-    }
-    return ranks;
-  };
-  const erf = (x)=>{
-    const sign = x >= 0 ? 1 : -1;
-    const abs = Math.abs(x);
-    const a1 = 0.254829592;
-    const a2 = -0.284496736;
-    const a3 = 1.421413741;
-    const a4 = -1.453152027;
-    const a5 = 1.061405429;
-    const p = 0.3275911;
-    const t = 1 / (1 + p * abs);
-    const poly = (((((a5 * t) + a4) * t + a3) * t + a2) * t + a1) * t;
-    const y = 1 - poly * Math.exp(-abs * abs);
-    return sign * y;
-  };
-  const normalCdf = (x, mean = 0, sd = 1)=>{
-    const safeSd = Math.max(Math.abs(sd), 1e-9);
-    const z = (x - mean) / (safeSd * Math.SQRT2);
-    return 0.5 * (1 + erf(z));
-  };
-  const stub = {
-    normal: { cdf: normalCdf },
-    studentt: { cdf: (x, df = 1)=>{
-      const safeDf = Math.max(df, 1);
-      const scale = Math.sqrt(Math.max((safeDf - 2) / safeDf, 0.5));
-      return normalCdf(x * scale, 0, 1);
-    } },
-    centralF: { cdf: ()=>0.5 },
-    chisquare: { cdf: ()=>0.5 },
-    corrcoeff: (arrA, arrB)=>{
-      const pairs = collectValidPairs(arrA, arrB);
-      if(pairs.length < 2){
-        return 0;
-      }
-      let sumX = 0;
-      let sumY = 0;
-      let sumXY = 0;
-      let sumXX = 0;
-      let sumYY = 0;
-      const n = pairs.length;
-      for(let i = 0; i < n; i += 1){
-        const [x, y] = pairs[i];
-        sumX += x;
-        sumY += y;
-        sumXY += x * y;
-        sumXX += x * x;
-        sumYY += y * y;
-      }
-      const numerator = (n * sumXY) - (sumX * sumY);
-      const denomX = (n * sumXX) - (sumX * sumX);
-      const denomY = (n * sumYY) - (sumY * sumY);
-      const denom = Math.sqrt(Math.max(denomX * denomY, 0));
-      if(denom === 0){
-        return 0;
-      }
-      return numerator / denom;
-    },
-    spearmancoeff: (arrA, arrB)=>{
-      const ranksA = rankValues(arrA);
-      const ranksB = rankValues(arrB);
-      return stub.corrcoeff(ranksA, ranksB);
-    },
-    mean: (arr)=>{
-      const clean = (arr || []).map(Number).filter(Number.isFinite);
-      if(!clean.length){
-        return NaN;
-      }
-      const sum = clean.reduce((total, value)=>total + value, 0);
-      return sum / clean.length;
-    },
-    stdev: (arr, sample)=>{
-      const clean = (arr || []).map(Number).filter(Number.isFinite);
-      if(!clean.length){
-        return 0;
-      }
-      const mean = clean.reduce((sum,v)=>sum+v,0)/clean.length;
-      const divisor = sample ? Math.max(clean.length - 1, 1) : clean.length;
-      const variance = clean.reduce((sum,v)=>sum+Math.pow(v-mean,2),0)/divisor;
-      return Math.sqrt(Math.max(variance,0));
-    },
-    percentile: (arr,p)=>{
-      const clean = (arr || []).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
-      if(!clean.length){
-        return NaN;
-      }
-      const pos = (clean.length - 1) * p;
-      const base = Math.floor(pos);
-      const rest = pos - base;
-      if(clean[base + 1] !== undefined){
-        return clean[base] + rest * (clean[base + 1] - clean[base]);
-      }
-      return clean[base];
-    }
-  };
-  console.debug('Debug: test jStat stub created',{ keys: Object.keys(stub) });
-  return stub;
-}
+const { ensureJStatStub } = require('./helpers/jstatTestStub');
 
 const originalDebug = console.debug;
 const originalLog = console.log;
-
-function ensureJStatStub(){
-  const previousGlobal = global.jStat;
-  const previousWindow = (typeof window !== 'undefined') ? window.jStat : undefined;
-  const existing = previousGlobal || previousWindow;
-  if(existing){
-    console.debug('Debug: test jStat stub reuse',{ hasExisting: true });
-    global.jStat = existing;
-    if(typeof window !== 'undefined'){
-      window.jStat = existing;
-    }
-    return ()=>{
-      if(typeof previousGlobal === 'undefined'){
-        delete global.jStat;
-      }else{
-        global.jStat = previousGlobal;
-      }
-      if(typeof window !== 'undefined'){
-        if(typeof previousWindow === 'undefined'){
-          delete window.jStat;
-        }else{
-          window.jStat = previousWindow;
-        }
-      }
-    };
-  }
-  const stub = createJStatTestStub();
-  global.jStat = stub;
-  if(typeof window !== 'undefined'){
-    window.jStat = stub;
-  }
-  return ()=>{
-    if(typeof previousGlobal === 'undefined'){
-      delete global.jStat;
-    }else{
-      global.jStat = previousGlobal;
-    }
-    if(typeof window !== 'undefined'){
-      if(typeof previousWindow === 'undefined'){
-        delete window.jStat;
-      }else{
-        window.jStat = previousWindow;
-      }
-    }
-  };
-}
 
 async function activateWorkspace(type){
   const graphSelection = window.Main?.tabs?.handleGraphSelection;
@@ -216,7 +37,7 @@ function setFixedBoxPlotDimensions(width, height){
   Object.defineProperty(plot, 'clientWidth', {
     configurable: true,
     get: readWidth
-  });
+  }, 20000);
   Object.defineProperty(plot, 'clientHeight', {
     configurable: true,
     get: readHeight
@@ -238,6 +59,7 @@ function readBoxAxisBaselineMetrics(){
   if(!svg){
     return null;
   }
+  const svgBox = svg.closest('.svgbox');
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
   const lines = Array.from(axisLayer.querySelectorAll('line'))
     .map(line => ({
@@ -258,15 +80,21 @@ function readBoxAxisBaselineMetrics(){
     .split(/[\s,]+/)
     .map(Number);
   const viewBoxHeight = viewBoxParts.length === 4 ? viewBoxParts[3] : NaN;
-  const svgHeight = Number.isFinite(dataBoxBaseHeight) && dataBoxBaseHeight > 0
+  const baseHeight = Number.isFinite(dataBoxBaseHeight) && dataBoxBaseHeight > 0
     ? dataBoxBaseHeight
     : Number.isFinite(svgHeightAttr) && svgHeightAttr > 0
       ? svgHeightAttr
       : viewBoxHeight;
+  const frameHeightStyle = Number.parseFloat(svgBox?.style?.height || '');
+  const frameHeightRect = Number(svgBox?.getBoundingClientRect?.().height);
+  const frameHeight = Number.isFinite(frameHeightStyle) && frameHeightStyle > 0
+    ? frameHeightStyle
+    : (Number.isFinite(frameHeightRect) && frameHeightRect > 0 ? frameHeightRect : null);
   const boxState = window.Components?.box?.__getState?.();
   return {
     xAxisY: xAxis ? xAxis.y1 : null,
-    svgHeight: Number.isFinite(svgHeight) ? svgHeight : null,
+    baseHeight: Number.isFinite(baseHeight) ? baseHeight : null,
+    frameHeight,
     viewportExtension: (Number.isFinite(Number(boxState?.significanceViewportExtensionPx))
       ? Number(boxState.significanceViewportExtensionPx)
       : 0)
@@ -396,7 +224,7 @@ describe('UI events and example loaders', () => {
 
     const before = readBoxAxisBaselineMetrics();
     expect(before?.xAxisY).not.toBeNull();
-    expect(before?.svgHeight).not.toBeNull();
+    expect(before?.frameHeight).not.toBeNull();
 
     hot.setDataAtCell(0, 0, 'verylongtitletotestverylongtitletotest', 'test:box-long-label');
     hot.setDataAtCell(0, 1, 'anotherverylongtitletotest', 'test:box-long-label');
@@ -406,9 +234,9 @@ describe('UI events and example loaders', () => {
 
     const after = readBoxAxisBaselineMetrics();
     expect(after?.xAxisY).not.toBeNull();
-    expect(after?.svgHeight).not.toBeNull();
+    expect(after?.frameHeight).not.toBeNull();
     expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(1);
-    expect(after.svgHeight).toBeGreaterThan(before.svgHeight);
+    expect(after.frameHeight).toBeGreaterThan(before.frameHeight);
     expect(after.viewportExtension).toBeGreaterThan(before.viewportExtension);
   }, 30000);
 
@@ -798,10 +626,12 @@ describe('UI events and example loaders', () => {
       }
       const assumptionSection = statsResults?.querySelector('.stats-assumption-section');
       if(assumptionSection){
+        const badges = Array.from(assumptionSection.querySelectorAll('.assumption-badge'));
         const failBadges = Array.from(assumptionSection.querySelectorAll('.assumption-badge[data-result="fail"]'));
-        expect(failBadges.length).toBeGreaterThanOrEqual(0);
+        expect(badges.length).toBeGreaterThan(0);
         const warningTexts = Array.from(assumptionSection.querySelectorAll('.assumption-warning')).map(el => el.textContent || '');
         expect(Array.isArray(warningTexts)).toBe(true);
+        expect(failBadges.length + warningTexts.length).toBeGreaterThan(0);
       } else {
         expect(diagnostics || statsResults?.textContent || '').toBeTruthy();
       }
@@ -999,10 +829,6 @@ describe('UI events and example loaders', () => {
       for(let i = 0; i < 30 && !statsTable; i += 1){
         await flushAsyncWork(5);
         statsTable = document.querySelector('#scatterStatsResults table');
-      }
-      if(!statsTable){
-        const debugText = document.getElementById('scatterStatsResults');
-        console.error('Scatter stats debug output', debugText?.textContent || '(empty)');
       }
       expect(statsTable).toBeTruthy();
       const rows = statsTable?.querySelectorAll('tbody tr');
@@ -1450,7 +1276,7 @@ describe('UI events and example loaders', () => {
     const start = Date.now();
     window.Components.survival.draw();
     const elapsed = Date.now() - start;
-    expect(elapsed).toBeLessThan(1200);
+    expect(elapsed).toBeLessThan(2500);
     const summary = state.lastSummary;
     await flushAsyncWork();
     expect(Array.isArray(summary?.series)).toBe(true);

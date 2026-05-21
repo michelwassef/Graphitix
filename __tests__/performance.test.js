@@ -97,10 +97,12 @@ describe('Performance Optimization Framework', () => {
       const errorFn = jest.fn(() => {
         throw new Error('test-error');
       });
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       expect(() => {
         Shared.Performance.batch(errorFn);
       }).toThrow('test-error');
+      consoleErrorSpy.mockRestore();
     });
   });
 
