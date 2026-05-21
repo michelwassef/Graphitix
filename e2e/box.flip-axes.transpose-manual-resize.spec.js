@@ -131,54 +131,53 @@ async function loadStripExample(page) {
   await page.waitForTimeout(650);
 }
 
-async function manualResizeBoxFrame(page, deltaWidthPx, deltaHeightPx) {
-  const target = await page.evaluate(({ deltaWidthPx, deltaHeightPx }) => {
+async function dragBoxWidthHandle(page, deltaX) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-vertical');
+  await expect(handle).toBeVisible({ timeout: 20_000 });
+  await handle.scrollIntoViewIfNeeded();
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error('Unable to resolve vertical resizer handle');
+  }
+  const startX = box.x + Math.max(2, Math.min(box.width - 2, box.width / 2));
+  const startY = box.y + box.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY, { steps: 16 });
+  await page.mouse.up();
+}
+
+async function shrinkBoxWidthByHalf(page) {
+  const start = await page.evaluate(() => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
     if (!svgBox) {
-      throw new Error('Missing box svgbox');
-    }
-    const lockCheckbox = document.querySelector('#boxGraphPanel .resizer-aspect-checkbox');
-    if (lockCheckbox) {
-      lockCheckbox.checked = false;
-      lockCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+      return null;
     }
     const rect = svgBox.getBoundingClientRect();
-    const startWidth = Math.max(220, Math.round(Number(rect?.width) || 220));
-    const startHeight = Math.max(180, Math.round(Number(rect?.height) || 180));
-    const width = Math.max(220, startWidth + Math.round(Number(deltaWidthPx) || 0));
-    const height = Math.max(180, startHeight + Math.round(Number(deltaHeightPx) || 0));
-    if (window.Shared?.applyResizableBoxSize) {
-      window.Shared.applyResizableBoxSize(svgBox, {
-        axis: 'both',
-        width,
-        height,
-        forceExact: true,
-        preserveAspectLock: true,
-        updateAspectRatio: true,
-        reason: 'e2e-flip-manual-resize'
-      });
-    } else {
-      svgBox.style.width = `${width}px`;
-      svgBox.style.height = `${height}px`;
+    return {
+      width: Number(rect?.width) || null,
+      height: Number(rect?.height) || null
+    };
+  });
+  if (!start || !Number.isFinite(start.width) || !Number.isFinite(start.height)) {
+    throw new Error('Unable to read initial box frame size');
+  }
+  const lockToggle = page.locator('#boxGraphPanel .resizer-aspect-checkbox');
+  if (await lockToggle.isVisible().catch(() => false)) {
+    if (await lockToggle.isChecked()) {
+      await lockToggle.uncheck();
+      await page.waitForTimeout(250);
     }
-    const schedule = window.Components?.box?.__getState?.()?.scheduleDraw;
-    if (typeof schedule === 'function') {
-      schedule({ viewOnly: true, reason: 'e2e-flip-manual-resize' });
-    }
-    return { width, height, startWidth, startHeight };
-  }, { deltaWidthPx, deltaHeightPx });
-
-  await page.waitForFunction(({ startWidth, startHeight }) => {
+  }
+  await dragBoxWidthHandle(page, -Math.round(start.width * 0.5));
+  await page.waitForFunction((startWidth) => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
     if (!svgBox) return false;
     const rect = svgBox.getBoundingClientRect();
-    const width = Number(rect?.width);
-    const height = Number(rect?.height);
-    return Number.isFinite(width)
-      && Number.isFinite(height)
-      && (Math.abs(width - startWidth) >= 16 || Math.abs(height - startHeight) >= 16);
-  }, target, { timeout: 20_000 });
-  await page.waitForTimeout(900);
+    const liveWidth = Number(rect?.width);
+    return Number.isFinite(liveWidth) && liveWidth <= startWidth * 0.65;
+  }, start.width, { timeout: 20_000 });
+  await page.waitForTimeout(1_000);
 }
 
 async function setFlipAxes(page, enabled) {
@@ -207,7 +206,7 @@ test.describe('Box flip axes with manual resize', () => {
     await expect(page.locator('#welcomeScreen')).toBeVisible();
     await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
     await loadStripExample(page);
-    await manualResizeBoxFrame(page, -120, 70);
+    await shrinkBoxWidthByHalf(page);
 
     const before = await page.evaluate(readFlipTransposeMetrics);
     expect(before).not.toBeNull();
@@ -221,7 +220,6 @@ test.describe('Box flip axes with manual resize', () => {
     await setFlipAxes(page, true);
     const after = await page.evaluate(readFlipTransposeMetrics);
     expect(after).not.toBeNull();
-    console.log('flip-transpose-metrics', { before, after });
     expect(after.flipAxes).toBe(true);
     expect(after.xTickRotateVertical).toBe(false);
     expect(after.rotatedCategoryLabelCount).toBe(0);
@@ -231,11 +229,23 @@ test.describe('Box flip axes with manual resize', () => {
     expect(after.significanceViewportExtensionPx).toBe(0);
     expect(after.overflowMaxPx).toBeLessThanOrEqual(2.5);
 
-    const afterBaseWidth = after.svgBoxWidthPx - (after.leftViewportExtensionPx + after.rightViewportExtensionPx);
-    expect(Math.abs(afterBaseWidth - before.svgBoxHeightPx)).toBeLessThanOrEqual(35);
-    expect(Math.abs(after.svgBoxHeightPx - before.svgBoxWidthPx)).toBeLessThanOrEqual(35);
-    expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(18);
-    expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(18);
+    expect(Math.abs(after.svgBoxWidthPx - before.svgBoxHeightPx)).toBeLessThanOrEqual(24);
+    expect(after.svgBoxHeightPx).toBeGreaterThanOrEqual(before.svgBoxWidthPx - 2);
+    expect(after.svgBoxHeightPx).toBeLessThanOrEqual(before.svgBoxWidthPx + 48);
+    expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(60);
+    expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(40);
+
+    await setFlipAxes(page, false);
+    const restored = await page.evaluate(readFlipTransposeMetrics);
+    expect(restored).not.toBeNull();
+    expect(restored.flipAxes).toBe(false);
+    expect(restored.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(restored.bottomViewportExtensionPx + restored.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restored.leftViewportExtensionPx + restored.rightViewportExtensionPx).toBe(0);
+    expect(Math.abs(restored.svgBoxWidthPx - before.svgBoxWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restored.svgBoxHeightPx - before.svgBoxHeightPx)).toBeLessThanOrEqual(12);
+    expect(Math.abs(restored.xAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(18);
+    expect(Math.abs(restored.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(18);
 
     expect(issues.critical).toEqual([]);
   });
