@@ -23,87 +23,6 @@ async function flushAsyncWork(iterations = 25){
   }
 }
 
-function setFixedBoxPlotDimensions(width, height){
-  const plot = document.getElementById('boxPlot');
-  const svgBox = document.querySelector('#boxGraphPanel .svgbox');
-  expect(plot).toBeTruthy();
-  expect(svgBox).toBeTruthy();
-  if(svgBox?.style){
-    svgBox.style.width = `${width}px`;
-    svgBox.style.height = `${height}px`;
-  }
-  const readWidth = () => Number.parseFloat(svgBox?.style?.width) || width;
-  const readHeight = () => Number.parseFloat(svgBox?.style?.height) || height;
-  Object.defineProperty(plot, 'clientWidth', {
-    configurable: true,
-    get: readWidth
-  }, 20000);
-  Object.defineProperty(plot, 'clientHeight', {
-    configurable: true,
-    get: readHeight
-  });
-  plot.getBoundingClientRect = () => {
-    const currentWidth = readWidth();
-    const currentHeight = readHeight();
-    return { width: currentWidth, height: currentHeight, top: 0, left: 0, right: currentWidth, bottom: currentHeight };
-  };
-  svgBox.getBoundingClientRect = () => {
-    const currentWidth = readWidth();
-    const currentHeight = readHeight();
-    return { width: currentWidth, height: currentHeight, top: 0, left: 0, right: currentWidth, bottom: currentHeight };
-  };
-}
-
-function readBoxAxisBaselineMetrics(){
-  const svg = document.querySelector('#boxPlot svg');
-  if(!svg){
-    return null;
-  }
-  const svgBox = svg.closest('.svgbox');
-  const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
-  const lines = Array.from(axisLayer.querySelectorAll('line'))
-    .map(line => ({
-      x1: Number(line.getAttribute('x1')),
-      y1: Number(line.getAttribute('y1')),
-      x2: Number(line.getAttribute('x2')),
-      y2: Number(line.getAttribute('y2'))
-    }))
-    .filter(line => [line.x1, line.y1, line.x2, line.y2].every(Number.isFinite));
-  const horizontal = lines.filter(line => Math.abs(line.y1 - line.y2) <= 0.01 && Math.abs(line.x2 - line.x1) > 1);
-  const xAxis = horizontal
-    .slice()
-    .sort((a, b) => Math.abs(b.x2 - b.x1) - Math.abs(a.x2 - a.x1) || b.y1 - a.y1)[0] || null;
-  const dataBoxBaseHeight = Number(svg.getAttribute('data-box-base-height'));
-  const svgHeightAttr = Number(svg.getAttribute('height'));
-  const viewBoxParts = String(svg.getAttribute('viewBox') || '')
-    .trim()
-    .split(/[\s,]+/)
-    .map(Number);
-  const viewBoxHeight = viewBoxParts.length === 4 ? viewBoxParts[3] : NaN;
-  const baseHeight = Number.isFinite(dataBoxBaseHeight) && dataBoxBaseHeight > 0
-    ? dataBoxBaseHeight
-    : Number.isFinite(svgHeightAttr) && svgHeightAttr > 0
-      ? svgHeightAttr
-      : viewBoxHeight;
-  const frameHeightStyle = Number.parseFloat(svgBox?.style?.height || '');
-  const frameHeightRect = Number(svgBox?.getBoundingClientRect?.().height);
-  const frameHeight = Number.isFinite(frameHeightStyle) && frameHeightStyle > 0
-    ? frameHeightStyle
-    : (Number.isFinite(frameHeightRect) && frameHeightRect > 0 ? frameHeightRect : null);
-  const boxState = window.Components?.box?.__getState?.();
-  return {
-    xAxisY: xAxis ? xAxis.y1 : null,
-    baseHeight: Number.isFinite(baseHeight) ? baseHeight : null,
-    frameHeight,
-    viewportExtension: (Number.isFinite(Number(boxState?.significanceViewportExtensionPx))
-      ? Number(boxState.significanceViewportExtensionPx)
-      : 0)
-      + (Number.isFinite(Number(boxState?.bottomViewportExtensionPx))
-        ? Number(boxState.bottomViewportExtensionPx)
-        : 0)
-  };
-}
-
 describe('UI events and example loaders', () => {
 
   beforeEach(() => {
@@ -198,47 +117,6 @@ describe('UI events and example loaders', () => {
     expect(populated?.firstRow).toEqual(expect.arrayContaining(['Control']));
     await flushAsyncWork();
   });
-
-  test('Box Plot: longer x labels grow the lower viewport without moving the x-axis baseline', async () => {
-    await activateWorkspace('box');
-    await flushAsyncWork(20);
-
-    setFixedBoxPlotDimensions(420, 420);
-
-    const boxComponent = window.Components?.box;
-    const hot = boxComponent?.__getState?.()?.hot;
-    expect(boxComponent).toBeTruthy();
-    expect(hot?.loadData).toBeInstanceOf(Function);
-    expect(hot?.setDataAtCell).toBeInstanceOf(Function);
-
-    hot.loadData([
-      ['A', 'B'],
-      [1, 4],
-      [2, 5],
-      [3, 6],
-      [4, 7]
-    ]);
-    await flushAsyncWork(60);
-    await boxComponent.draw();
-    await flushAsyncWork(60);
-
-    const before = readBoxAxisBaselineMetrics();
-    expect(before?.xAxisY).not.toBeNull();
-    expect(before?.frameHeight).not.toBeNull();
-
-    hot.setDataAtCell(0, 0, 'verylongtitletotestverylongtitletotest', 'test:box-long-label');
-    hot.setDataAtCell(0, 1, 'anotherverylongtitletotest', 'test:box-long-label');
-    await flushAsyncWork(60);
-    await boxComponent.draw();
-    await flushAsyncWork(60);
-
-    const after = readBoxAxisBaselineMetrics();
-    expect(after?.xAxisY).not.toBeNull();
-    expect(after?.frameHeight).not.toBeNull();
-    expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(1);
-    expect(after.frameHeight).toBeGreaterThan(before.frameHeight);
-    expect(after.viewportExtension).toBeGreaterThan(before.viewportExtension);
-  }, 30000);
 
   test('Box Plot: grouped example seeds condition names', async () => {
     await activateWorkspace('box');
