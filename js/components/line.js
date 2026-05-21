@@ -212,6 +212,7 @@
     aspectRatio: 4 / 3
   });
   const LINE_3D_DEFAULT_SERIES_COUNT = 3;
+  // PART: STATE
   let lineDisplayMode = 'line';
   const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
@@ -554,6 +555,7 @@
       }
     });
   }
+  // PART: LEGEND
   function createDefaultLineLegendLayoutInfo(){
     return {
       entryCount: 0,
@@ -775,6 +777,7 @@
     }
     return { mode: 'global', overlayKey: null, seriesKey: '' };
   }
+  // PART: OVERLAY
   function buildLineOverlaySeriesScopeValue(overlayKey, seriesKey){
     const safeKey = sanitizeLineOverlayKey(overlayKey);
     const safeSeriesKey = normalizeLineOverlaySeriesKey(seriesKey);
@@ -1060,6 +1063,7 @@
       .filter(entry => !!entry);
   }
 
+  // PART: AXIS
   function createLineAxisSettings(){
     return {
       strokeWidth: 1,
@@ -4352,6 +4356,7 @@
     return show;
   }
 
+  // PART: ADVISOR
   function buildLineAdvisorContext(series, options){
     const arr=Array.isArray(series)?series:[];
     const context={
@@ -7007,6 +7012,7 @@
     };
   }
 
+  // PART: STATS
   function computeLineStats(points,method,jStatLib,regressionMode,options = {}){
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
@@ -7520,6 +7526,7 @@
     console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,parameterRows:parameterRows.length,seasonalRows:seasonalRows.length,forecastRows:forecastRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }
 
+  // PART: PAYLOAD
   function getLineGraphPayload(){
     const activeHot = (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null) || lineHot;
     if(!activeHot) return null;
@@ -8319,6 +8326,7 @@
     return clone;
   }
 
+  // PART: DRAW
   function drawLine3d(drawOpts = {}){
     try{
       const debugStamp = Date.now();
@@ -11564,6 +11572,7 @@
     });
   }
 
+  // PART: SETUP
   function setup(options = {}){
     const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
     if(line.ready && (!targetTabId || line.__boundTabId === targetTabId)){
@@ -13422,6 +13431,7 @@
     return resolveLinePreviewSourceSvg(tab);
   };
 
+  // PART: CACHE
   line.captureRenderCache = function captureRenderCache(meta = {}){
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
     const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');

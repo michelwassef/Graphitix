@@ -7519,13 +7519,13 @@
     return state;
   };
 
-  venn.__testHooks = {
+  venn.__testHooks = Object.assign({}, venn.__testHooks, {
     state,
     populateRegion,
     clearAnalysis,
     captureRuntimeState: meta => venn.captureRuntimeState(meta),
     applyRuntimeState: (snapshot, meta) => venn.applyRuntimeState(snapshot, meta)
-  };
+  });
 
   function detachChildren(node){
     if(!node){ return null; }

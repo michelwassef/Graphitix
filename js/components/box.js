@@ -10585,7 +10585,7 @@
     console.debug('Debug: box computeEffectSizeMetrics',debugPayload);
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
-  // Local state and element cache
+  // PART: STATE
   const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, authoritativeRenderRestoreSuppressUntil: 0, authoritativeRenderRestoreSuppressCount: 0, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, significanceBasePlotHeightPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, graphGeometry: null, viewportExtensionResizeInProgress: false, resizeObserveDrawMutedUntil: 0, lastViewportExtensionRedrawSignature: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
@@ -35168,7 +35168,45 @@ Technical analysis record (advanced)
     return Shared.componentLifecycle?.awaitReadyForSnapshot?.(box, { ...meta, componentKey: 'box' })
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
-  box.activateTab = function activateTab(tab, meta = {}){
+  box.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
+    component: box,
+    componentKey: 'box',
+    resolveRoot: tabLike => resolveBoxRoot(tabLike || null),
+    setRoot: root => { boxRoot = root || boxRoot || null; },
+    ensureBindings: tabLike => ensureBoxDomBindings(tabLike),
+    init: options => box.init(options),
+    afterReady: (tabLike, meta = {}) => {
+      const targetTabId = resolveBoxTabId(tabLike || null);
+      if(state.statsComputationPending){
+        const ownerTabId = state.statsComputationOwnerTabId || null;
+        if(ownerTabId && targetTabId && String(ownerTabId) !== String(targetTabId)){
+          state.statsComputationPending = false;
+          state.statsComputationOwnerTabId = null;
+        }
+      }
+      applyBoxRuntimeSnapshot(getBoxSessionRecord(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      hydrateBoxStatsSurfaceFromTabPayload(tabLike || targetTabId || null, meta.reason || 'activate-tab');
+      const hasContext = ensureBoxStatsContextForActiveData(tabLike || targetTabId || null, meta.reason || 'activate-tab');
+      updateStatsButtonState({
+        disabled: !!state.statsComputationPending,
+        label: hasContext && state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0
+          ? 'Recalculate statistics'
+          : 'Calculate statistics'
+      });
+      if(typeof state.ensureHotForActiveTab === 'function'){
+        const hot = state.ensureHotForActiveTab();
+        if(hot){
+          ensureBoxDataViewsForHot(hot, {
+            wrapper: els.hotWrapper || getBoxNodeById('hotWrapper') || null,
+            container: hot.__boxHostContainer || els.hotContainer || getBoxNodeById('hot') || null
+          });
+          syncBoxActiveDataViewFromHot(hot, 'prepare-tab');
+        }
+      }
+      ensureBoxStatsContextForActiveData(tabLike || targetTabId || null, meta.reason || 'activate-tab-ready');
+    },
+    getSentinel: () => els.boxGraphType || getBoxNodeById('boxGraphType') || null
+  }) || function activateTab(tab, meta = {}){
     const targetTabId = resolveBoxTabId(tab || null);
     if(state.statsComputationPending){
       const ownerTabId = state.statsComputationOwnerTabId || null;

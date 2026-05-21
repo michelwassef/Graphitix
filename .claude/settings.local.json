@@ -7,7 +7,9 @@
       "Bash(npm test *)",
       "Bash(npx jest *)",
       "Bash(git stash *)",
-      "Bash(Get-ChildItem \"c:\\\\Users\\\\Michel\\\\Venn\\\\__tests__\\\\setup\\\\\")"
+      "Bash(Get-ChildItem \"c:\\\\Users\\\\Michel\\\\Venn\\\\__tests__\\\\setup\\\\\")",
+      "Bash(Get-ChildItem -Path 'C:\\\\Users\\\\Michel\\\\Venn' -Depth 0)",
+      "Bash(Select-Object Name, PSIsContainer)"
     ]
   }
 }

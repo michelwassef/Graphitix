@@ -256,6 +256,7 @@
     : 25;
   if(typeof global.MAX_SIGNIFICANT_ANNOTATIONS === 'undefined') global.MAX_SIGNIFICANT_ANNOTATIONS = MAX_SIGNIFICANT_ANNOTATIONS;
 
+  // PART: STATE
   const scatterState = {
     viewMode: '2d',
     requestedViewMode: null,
@@ -301,6 +302,7 @@
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' },
     preserveOverlayToggleState: false
   };
+  // PART: CACHE
   let scatterRoot = null;
   function shouldSuppressScatterRestoreDraw(reason){
     const value = String(reason || '').trim().toLowerCase();
@@ -491,6 +493,7 @@
     return cfg && typeof cfg === 'object' ? cfg : null;
   }
 
+  // PART: THEME
   function resolveScatterThemeSnapshot(options){
     const opts = options && typeof options === 'object' ? options : {};
     const tabId = opts.tabId || scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
@@ -1831,6 +1834,7 @@
     return 'Pearson';
   }
 
+  // PART: STATS
   function computeScatterStatsCore(points, method, options = {}, deps = {}){
     const safeOptions = options || {};
     const normalizeAssociationSelection = typeof deps.normalizeAssociationSelection === 'function'
@@ -4062,6 +4066,7 @@
     return true;
   }
 
+  // PART: UI
   function buildScatterAnnotationRequests(points, options){
     const enabled = !!options?.enabled;
     const fontSize = Math.max(6, Number(options?.fontSize) || 10);
@@ -6224,6 +6229,7 @@
     }
   }
 
+  // PART: AXIS
   function createScatterAxisSettings(){
     return {
       strokeWidth: 1,
@@ -7061,6 +7067,7 @@
 
     return { summaryRows, advancedRows };
   }
+  // PART: DRAW
   function setup(initOptions = {}){
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
@@ -21507,6 +21514,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return stats;
       }
     
+  // PART: PERSISTENCE
   function getScatterGraphPayload(){
       const noteControl = notesState.control || null;
       const notesText = noteControl && typeof noteControl.getValue === 'function'

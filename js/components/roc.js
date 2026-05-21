@@ -42,6 +42,7 @@
     }
   }
 
+  // PART: UTILS
   function sanitizeRocLinePattern(value){
     const patternRaw = String(value || 'solid').toLowerCase();
     return (patternRaw === 'dashed' || patternRaw === 'dotted' || patternRaw === 'solid') ? patternRaw : 'solid';
@@ -332,6 +333,7 @@
   const ROC_DEFAULT_COLS = 3;
   let emptyPayloadTemplate = null;
 
+  // PART: TABLE
   function seedRocDefaultHeaderRow(matrix){
     if(!Array.isArray(matrix) || !Array.isArray(matrix[0])){
       return matrix;
@@ -512,6 +514,7 @@
   let rocFontEventBound = false;
   let rocDataViewsManager = null;
 
+  // PART: STATE
   function resolveRocRoot(tabLike){
     return Shared.workspaceTabs?.resolveComponentRoot?.({
       tabLike: tabLike || null,
@@ -741,6 +744,7 @@
     return reason => syncRocAutoDrawNoticeWidth(reason || 'immediate');
   })();
 
+  // PART: LEGEND
   function ensureRocLegendControlPlacement(){
     if(!rocLegendControl || !refs.svgBox){
       return;
@@ -925,6 +929,7 @@
     state.scheduleDraw?.();
   }
 
+  // PART: AXIS
   function getAxisStrokeWidthBase(){
     return ensureAxisSettings().strokeWidth;
   }
@@ -1091,6 +1096,7 @@
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
 
+  // PART: TABLE_SETUP
   function createRocTableInstance(container){
     if(!container || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.warn('ROC hot container or table factory missing');
@@ -1273,6 +1279,7 @@
     }
   }
 
+  // PART: ADVISOR
   function buildRocAdvisorContext(raw){
     const graphType=(refs.graphType?.value || raw?.graphType || 'roc').toLowerCase();
     const positives=Number.isFinite(raw?.positives)?raw.positives:0;
@@ -1736,6 +1743,7 @@
     });
   }
 
+  // PART: STATS
   function computeCurveMetric(pairs, graphType){
     const arr = pairs.slice().sort((a, b) => b.score - a.score);
     let tp = 0;
@@ -2063,6 +2071,7 @@
     return formatted;
   }
 
+  // PART: DRAW
   function formatRocDecimal(value, digits){
     if(value === Infinity){
       return 'Inf';
@@ -3179,6 +3188,7 @@
     syncRocAutoDrawNoticeWidth('draw');
   }
 
+  // PART: PERSISTENCE
   function getPayload(){
     const activeHot = ensureHotForActiveTab();
     const activeManager = ensureRocDataViewsForHot(activeHot, {

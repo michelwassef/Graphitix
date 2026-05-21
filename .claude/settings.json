@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(git fsck *)",
+      "Bash(awk -F: '$2 > 2050 && $2 < 2400 {print}')",
+      "Bash(awk -F: '{if \\($1+0 > 2050 && $1+0 < 2400\\) print}')"
+    ]
+  }
+}
