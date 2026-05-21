@@ -147,6 +147,22 @@ async function dragBoxWidthHandle(page, deltaX) {
   await page.mouse.up();
 }
 
+async function dragBoxHeightHandle(page, deltaY) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-horizontal');
+  await expect(handle).toBeVisible({ timeout: 20_000 });
+  await handle.scrollIntoViewIfNeeded();
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error('Unable to resolve horizontal resizer handle');
+  }
+  const startX = box.x + box.width / 2;
+  const startY = box.y + Math.max(2, Math.min(box.height - 2, box.height / 2));
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX, startY + deltaY, { steps: 16 });
+  await page.mouse.up();
+}
+
 async function shrinkBoxWidthByHalf(page) {
   const start = await page.evaluate(() => {
     const svgBox = document.querySelector('#boxGraphPanel .svgbox');
@@ -178,6 +194,86 @@ async function shrinkBoxWidthByHalf(page) {
     return Number.isFinite(liveWidth) && liveWidth <= startWidth * 0.65;
   }, start.width, { timeout: 20_000 });
   await page.waitForTimeout(1_000);
+}
+
+async function resizeBoxWidthByRatio(page, ratio) {
+  const start = await page.evaluate(() => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) {
+      return null;
+    }
+    const rect = svgBox.getBoundingClientRect();
+    return {
+      width: Number(rect?.width) || null
+    };
+  });
+  if (!start || !Number.isFinite(start.width) || start.width <= 0) {
+    throw new Error('Unable to read current box frame width');
+  }
+  const deltaX = Math.round(start.width * Number(ratio));
+  if (!Number.isFinite(deltaX) || deltaX === 0) {
+    return start.width;
+  }
+  await dragBoxWidthHandle(page, deltaX);
+  await page.waitForFunction(({ initialWidth, minDelta }) => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) return false;
+    const rect = svgBox.getBoundingClientRect();
+    const liveWidth = Number(rect?.width);
+    return Number.isFinite(liveWidth) && Math.abs(liveWidth - initialWidth) >= minDelta;
+  }, {
+    initialWidth: start.width,
+    minDelta: Math.max(16, Math.abs(deltaX) * 0.35)
+  }, { timeout: 20_000 });
+  await page.waitForTimeout(900);
+  const end = await page.evaluate(() => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) {
+      return null;
+    }
+    return Number(svgBox.getBoundingClientRect()?.width) || null;
+  });
+  return end;
+}
+
+async function resizeBoxHeightByRatio(page, ratio) {
+  const start = await page.evaluate(() => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) {
+      return null;
+    }
+    const rect = svgBox.getBoundingClientRect();
+    return {
+      height: Number(rect?.height) || null
+    };
+  });
+  if (!start || !Number.isFinite(start.height) || start.height <= 0) {
+    throw new Error('Unable to read current box frame height');
+  }
+  const deltaY = Math.round(start.height * Number(ratio));
+  if (!Number.isFinite(deltaY) || deltaY === 0) {
+    return start.height;
+  }
+  await dragBoxHeightHandle(page, deltaY);
+  await page.waitForFunction(({ initialHeight, minDelta }) => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) return false;
+    const rect = svgBox.getBoundingClientRect();
+    const liveHeight = Number(rect?.height);
+    return Number.isFinite(liveHeight) && Math.abs(liveHeight - initialHeight) >= minDelta;
+  }, {
+    initialHeight: start.height,
+    minDelta: Math.max(16, Math.abs(deltaY) * 0.35)
+  }, { timeout: 20_000 });
+  await page.waitForTimeout(900);
+  const end = await page.evaluate(() => {
+    const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+    if (!svgBox) {
+      return null;
+    }
+    return Number(svgBox.getBoundingClientRect()?.height) || null;
+  });
+  return end;
 }
 
 async function setFlipAxes(page, enabled) {
@@ -235,6 +331,24 @@ test.describe('Box flip axes with manual resize', () => {
     expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(60);
     expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(40);
 
+    const flippedWiderWidth = await resizeBoxWidthByRatio(page, 0.28);
+    const flippedWider = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedWider).not.toBeNull();
+    expect(flippedWider.flipAxes).toBe(true);
+    expect(flippedWider.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(flippedWider.svgBoxWidthPx).toBeGreaterThan(after.svgBoxWidthPx + 24);
+    expect(flippedWider.xAxisSpan).toBeGreaterThan(after.xAxisSpan + 6);
+    expect(flippedWiderWidth).not.toBeNull();
+
+    const flippedTallerHeight = await resizeBoxHeightByRatio(page, 0.28);
+    const flippedExpanded = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedExpanded).not.toBeNull();
+    expect(flippedExpanded.flipAxes).toBe(true);
+    expect(flippedExpanded.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(flippedExpanded.svgBoxHeightPx).toBeGreaterThan(flippedWider.svgBoxHeightPx + 16);
+    expect(flippedExpanded.yAxisSpan).toBeGreaterThan(flippedWider.yAxisSpan + 5);
+    expect(flippedTallerHeight).not.toBeNull();
+
     await setFlipAxes(page, false);
     const restored = await page.evaluate(readFlipTransposeMetrics);
     expect(restored).not.toBeNull();
@@ -242,10 +356,9 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restored.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expect(restored.bottomViewportExtensionPx + restored.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restored.leftViewportExtensionPx + restored.rightViewportExtensionPx).toBe(0);
-    expect(Math.abs(restored.svgBoxWidthPx - before.svgBoxWidthPx)).toBeLessThanOrEqual(4);
-    expect(Math.abs(restored.svgBoxHeightPx - before.svgBoxHeightPx)).toBeLessThanOrEqual(12);
-    expect(Math.abs(restored.xAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(18);
-    expect(Math.abs(restored.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(18);
+    expect(Math.abs(restored.svgBoxWidthPx - flippedExpanded.svgBoxHeightPx)).toBeLessThanOrEqual(24);
+    expect(Math.abs(restored.svgBoxHeightPx - flippedExpanded.svgBoxWidthPx)).toBeLessThanOrEqual(24);
+    expect(Math.abs(restored.svgBoxHeightPx - before.svgBoxHeightPx)).toBeGreaterThanOrEqual(28);
 
     expect(issues.critical).toEqual([]);
   });

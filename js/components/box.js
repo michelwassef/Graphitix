@@ -16712,32 +16712,74 @@
           swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
         }else if(previousFlip && !nextFlip){
           const snapshot = state.flipFrameRestoreSnapshot || null;
-          state.pendingFlipDrawZoneOverride = (snapshot
-            && Number.isFinite(Number(snapshot.plotClientWidthPx)) && Number(snapshot.plotClientWidthPx) > 0
-            && Number.isFinite(Number(snapshot.plotClientHeightPx)) && Number(snapshot.plotClientHeightPx) > 0)
-            ? {
-                width: Math.max(50, Math.round(Number(snapshot.plotClientWidthPx))),
-                height: Math.max(40, Math.round(Number(snapshot.plotClientHeightPx)))
-              }
+          const liveFlippedSnapshot = captureBoxFlipFrameSnapshot();
+          const baselineFlippedWidth = snapshot && Number.isFinite(Number(snapshot.height))
+            ? Math.max(50, Math.round(Number(snapshot.height)))
+            : null;
+          const baselineFlippedHeight = snapshot && Number.isFinite(Number(snapshot.width))
+            ? Math.max(40, Math.round(Number(snapshot.width)))
+            : null;
+          const liveFlippedWidth = Number.isFinite(Number(liveFlippedSnapshot?.width))
+            ? Math.max(50, Math.round(Number(liveFlippedSnapshot.width)))
+            : null;
+          const liveFlippedHeight = Number.isFinite(Number(liveFlippedSnapshot?.height))
+            ? Math.max(40, Math.round(Number(liveFlippedSnapshot.height)))
+            : null;
+          const flippedResizePropagatesBack = (
+            Number.isFinite(baselineFlippedWidth) && Number.isFinite(baselineFlippedHeight)
+            && Number.isFinite(liveFlippedWidth) && Number.isFinite(liveFlippedHeight)
+            && (
+              Math.abs(liveFlippedWidth - baselineFlippedWidth) > 3
+              || Math.abs(liveFlippedHeight - baselineFlippedHeight) > 3
+            )
+          );
+          const reserveSnapshot = snapshot || liveFlippedSnapshot || null;
+          const restoreZoneSource = flippedResizePropagatesBack ? liveFlippedSnapshot : snapshot;
+          state.pendingFlipDrawZoneOverride = (restoreZoneSource
+            && Number.isFinite(Number(restoreZoneSource.plotClientWidthPx)) && Number(restoreZoneSource.plotClientWidthPx) > 0
+            && Number.isFinite(Number(restoreZoneSource.plotClientHeightPx)) && Number(restoreZoneSource.plotClientHeightPx) > 0)
+            ? (flippedResizePropagatesBack
+                ? {
+                    width: Math.max(50, Math.round(Number(restoreZoneSource.plotClientHeightPx))),
+                    height: Math.max(40, Math.round(Number(restoreZoneSource.plotClientWidthPx)))
+                  }
+                : {
+                    width: Math.max(50, Math.round(Number(restoreZoneSource.plotClientWidthPx))),
+                    height: Math.max(40, Math.round(Number(restoreZoneSource.plotClientHeightPx)))
+                  })
             : null;
           applyBoxViewportExtensions({
-            significance: Number.isFinite(Number(snapshot?.significanceViewportExtensionPx)) ? Number(snapshot.significanceViewportExtensionPx) : 0,
-            bottom: Number.isFinite(Number(snapshot?.bottomViewportExtensionPx)) ? Number(snapshot.bottomViewportExtensionPx) : 0
+            significance: Number.isFinite(Number(reserveSnapshot?.significanceViewportExtensionPx)) ? Number(reserveSnapshot.significanceViewportExtensionPx) : 0,
+            bottom: Number.isFinite(Number(reserveSnapshot?.bottomViewportExtensionPx)) ? Number(reserveSnapshot.bottomViewportExtensionPx) : 0
           }, { reason: 'flip-axes-restore-vertical-reserve', resizeContainer: false });
           applyBoxHorizontalViewportExtensions({
-            left: Number.isFinite(Number(snapshot?.leftViewportExtensionPx)) ? Number(snapshot.leftViewportExtensionPx) : 0,
-            right: Number.isFinite(Number(snapshot?.rightViewportExtensionPx)) ? Number(snapshot.rightViewportExtensionPx) : 0
+            left: Number.isFinite(Number(reserveSnapshot?.leftViewportExtensionPx)) ? Number(reserveSnapshot.leftViewportExtensionPx) : 0,
+            right: Number.isFinite(Number(reserveSnapshot?.rightViewportExtensionPx)) ? Number(reserveSnapshot.rightViewportExtensionPx) : 0
           }, { reason: 'flip-axes-restore-horizontal-reserve', resizeContainer: false });
-          if(snapshot && Number.isFinite(Number(snapshot.width)) && snapshot.width > 0
-            && Number.isFinite(Number(snapshot.height)) && snapshot.height > 0){
+          const restoreTargetWidth = flippedResizePropagatesBack
+            ? liveFlippedHeight
+            : (snapshot && Number.isFinite(Number(snapshot.width)) ? Math.max(50, Math.round(Number(snapshot.width))) : null);
+          const restoreTargetHeight = flippedResizePropagatesBack
+            ? liveFlippedWidth
+            : (snapshot && Number.isFinite(Number(snapshot.height)) ? Math.max(40, Math.round(Number(snapshot.height))) : null);
+          if(Number.isFinite(restoreTargetWidth) && restoreTargetWidth > 0
+            && Number.isFinite(restoreTargetHeight) && restoreTargetHeight > 0){
             swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, {
               reason: 'flip-axes-restore-frame',
-              targetWidthPx: Number(snapshot.width),
-              targetHeightPx: Number(snapshot.height)
+              targetWidthPx: restoreTargetWidth,
+              targetHeightPx: restoreTargetHeight
             });
           }else{
             swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
           }
+          boxDebug('Debug: box flip-axes unflip restore source', {
+            flippedResizePropagatesBack,
+            baselineFlippedWidth,
+            baselineFlippedHeight,
+            liveFlippedWidth,
+            liveFlippedHeight,
+            pendingFlipDrawZoneOverride: state.pendingFlipDrawZoneOverride
+          });
           state.flipFrameRestoreSnapshot = null;
           state.flipAxisSpanTarget = null;
         }else{
@@ -33462,6 +33504,13 @@ Technical analysis record (advanced)
     if(token !== state.drawToken){
       boxLog('boxplot draw cancelled before finalize',{ token });
       return;
+    }
+    if(isFlipped && drawOpts?.reason === 'flip-axes-change' && state.flipAxisSpanTarget){
+      // Axis-span targeting is intentionally one-shot: it stabilizes the immediate
+      // flip transition, then manual resize in flipped mode must be free to expand
+      // both axes just like non-flipped mode.
+      state.flipAxisSpanTarget = null;
+      boxDebug('Debug: box flip-axis span target released after transition draw');
     }
     const viewportWidth = Number.isFinite(orientationResult?.canvasWidth) && orientationResult.canvasWidth > 0
       ? orientationResult.canvasWidth
