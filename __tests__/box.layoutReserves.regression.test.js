@@ -154,7 +154,9 @@ function readBoxAxisMetrics(){
     rotatedCategoryLabelCount,
     svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
     svgBoxHeightPx: Number.isFinite(Number(svgBoxRect?.height)) ? Number(svgBoxRect.height) : null,
-    svgBoxAspectRatio: ratio
+    svgBoxAspectRatio: ratio,
+    flipTransitionPhase: state.flipTransition?.phase || null,
+    flipTransitionOrientation: state.flipTransition?.active?.orientation || null
   };
 }
 
@@ -427,5 +429,69 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.yAxisSpan).toBeGreaterThan(0);
     expect(after.plotWidthPx).toBeGreaterThan(0);
     expect(after.plotHeightPx).toBeGreaterThan(0);
+  });
+
+  test('flip transition state machine restores orientation-specific proportions across repeated cycles', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+
+    const controller = createBoxDimensionController(960, 560);
+    await setBoxWidthAndRedraw(controller, 960, 560);
+    const baseline = readBoxAxisMetrics();
+    expect(baseline).toBeTruthy();
+    expect(baseline.flipAxes).toBe(false);
+    expect(baseline.flipTransitionPhase).toBe('steady');
+    expect(baseline.flipTransitionOrientation).toBe('vertical');
+
+    await setFlipAxesAndRedraw(true);
+    const flippedA = readBoxAxisMetrics();
+    expect(flippedA).toBeTruthy();
+    expect(flippedA.flipAxes).toBe(true);
+    expect(flippedA.flipTransitionPhase).toBe('steady');
+    expect(flippedA.flipTransitionOrientation).toBe('horizontal');
+
+    await setFlipAxesAndRedraw(false);
+    const restoredA = readBoxAxisMetrics();
+    expect(restoredA).toBeTruthy();
+    expect(restoredA.flipAxes).toBe(false);
+    expect(restoredA.flipTransitionOrientation).toBe('vertical');
+    expect(restoredA.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(restoredA.svgBoxHeightPx).toBeGreaterThan(0);
+    expect(restoredA.xAxisSpan).toBeGreaterThan(0);
+    expect(restoredA.yAxisSpan).toBeGreaterThan(0);
+
+    await setFlipAxesAndRedraw(true);
+    const flippedB = readBoxAxisMetrics();
+    expect(flippedB).toBeTruthy();
+    expect(flippedB.flipAxes).toBe(true);
+    expect(flippedB.flipTransitionOrientation).toBe('horizontal');
+    expect(flippedB.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(flippedB.svgBoxHeightPx).toBeGreaterThan(0);
+    expect(flippedB.xAxisSpan).toBeGreaterThan(0);
+    expect(flippedB.yAxisSpan).toBeGreaterThan(0);
+
+    await setBoxWidthAndRedraw(controller, 760, 640);
+    const flippedResized = readBoxAxisMetrics();
+    expect(flippedResized).toBeTruthy();
+    expect(flippedResized.flipAxes).toBe(true);
+    expect(flippedResized.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(flippedResized.svgBoxHeightPx).toBeGreaterThan(0);
+
+    await setFlipAxesAndRedraw(false);
+    const unflippedPropagated = readBoxAxisMetrics();
+    expect(unflippedPropagated).toBeTruthy();
+    expect(unflippedPropagated.flipAxes).toBe(false);
+    expect(unflippedPropagated.flipTransitionOrientation).toBe('vertical');
+    expect(unflippedPropagated.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(unflippedPropagated.svgBoxHeightPx).toBeGreaterThan(0);
+
+    await setFlipAxesAndRedraw(true);
+    const flippedRestoredAfterPropagation = readBoxAxisMetrics();
+    expect(flippedRestoredAfterPropagation).toBeTruthy();
+    expect(flippedRestoredAfterPropagation.flipAxes).toBe(true);
+    expect(flippedRestoredAfterPropagation.flipTransitionOrientation).toBe('horizontal');
+    expect(flippedRestoredAfterPropagation.svgBoxWidthPx).toBeGreaterThan(0);
+    expect(flippedRestoredAfterPropagation.svgBoxHeightPx).toBeGreaterThan(0);
   });
 });

@@ -10585,6 +10585,56 @@
     console.debug('Debug: box computeEffectSizeMetrics',debugPayload);
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
+
+  function createDefaultBoxFlipTransitionState(){
+    return {
+      version: 1,
+      phase: 'idle',
+      transitionId: 0,
+      active: null,
+      snapshots: {
+        vertical: null,
+        horizontal: null
+      },
+      pending: {
+        axisSpanTarget: null,
+        drawZoneOverride: null,
+        horizontalReserveCarryoverPx: 0
+      }
+    };
+  }
+
+  function cloneBoxFlipTransitionSnapshot(snapshot){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    const normalizeNullablePositive = value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
+    };
+    const normalizeNonNegative = value => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : 0;
+    };
+    const axisX = Number(snapshot.xAxisSpanPx);
+    const axisY = Number(snapshot.yAxisSpanPx);
+    return {
+      width: normalizeNullablePositive(snapshot.width),
+      height: normalizeNullablePositive(snapshot.height),
+      plotClientWidthPx: normalizeNullablePositive(snapshot.plotClientWidthPx),
+      plotClientHeightPx: normalizeNullablePositive(snapshot.plotClientHeightPx),
+      bottomViewportExtensionPx: normalizeNonNegative(snapshot.bottomViewportExtensionPx),
+      significanceViewportExtensionPx: normalizeNonNegative(snapshot.significanceViewportExtensionPx),
+      leftViewportExtensionPx: normalizeNonNegative(snapshot.leftViewportExtensionPx),
+      rightViewportExtensionPx: normalizeNonNegative(snapshot.rightViewportExtensionPx),
+      xAxisSpanPx: Number.isFinite(axisX) && axisX > 0 ? axisX : null,
+      yAxisSpanPx: Number.isFinite(axisY) && axisY > 0 ? axisY : null
+    };
+  }
+
+  function resolveBoxOrientationFromFlipFlag(flag){
+    return flag ? 'horizontal' : 'vertical';
+  }
   // PART: STATE
   const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, authoritativeRenderRestoreSuppressUntil: 0, authoritativeRenderRestoreSuppressCount: 0, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, leftViewportExtensionPx: 0, rightViewportExtensionPx: 0, significanceBasePlotHeightPx: null, significanceBasePlotWidthPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, graphGeometry: null, viewportExtensionResizeInProgress: false, resizeObserveDrawMutedUntil: 0, lastViewportExtensionRedrawSignature: null, applyingPayload: false };
   state.dataDirty = true;
@@ -10598,10 +10648,12 @@
   state.viewportExtensionResizeGuardToken = null;
   state.viewportExtensionResizeGuardTimer = null;
   state.lastViewportExtensionRedrawSignature = null;
+  state.flipTransition = createDefaultBoxFlipTransitionState();
   state.flipFrameRestoreSnapshot = null;
   state.flipAxisSpanTarget = null;
   state.pendingFlipDrawZoneOverride = null;
   state.flipHorizontalReserveCarryoverPx = 0;
+  syncBoxFlipTransitionLegacyState('state-init');
   let boxDataViewsManager = null;
   let boxDataToolbarBound = false;
   let boxDataToolbarLastActivation = 0;
@@ -10798,12 +10850,7 @@
         rightViewportExtensionPx: Number.isFinite(Number(state.rightViewportExtensionPx)) ? Number(state.rightViewportExtensionPx) : 0,
         significanceBasePlotHeightPx: Number.isFinite(Number(state.significanceBasePlotHeightPx)) ? Number(state.significanceBasePlotHeightPx) : null,
         significanceBasePlotWidthPx: Number.isFinite(Number(state.significanceBasePlotWidthPx)) ? Number(state.significanceBasePlotWidthPx) : null,
-        flipFrameRestoreSnapshot: cloneSimple(state.flipFrameRestoreSnapshot),
-        flipAxisSpanTarget: cloneSimple(state.flipAxisSpanTarget),
-        pendingFlipDrawZoneOverride: cloneSimple(state.pendingFlipDrawZoneOverride),
-        flipHorizontalReserveCarryoverPx: Number.isFinite(Number(state.flipHorizontalReserveCarryoverPx))
-          ? Math.max(0, Number(state.flipHorizontalReserveCarryoverPx))
-          : 0,
+        flipTransition: cloneSimple(ensureBoxFlipTransitionState()),
         restoredSignificanceGeometryLock: !!state.restoredSignificanceGeometryLock,
         restoredSignificanceGeometry: cloneSimple(state.restoredSignificanceGeometry)
       }
@@ -10858,12 +10905,29 @@
       state.rightViewportExtensionPx = Number.isFinite(Number(statsRuntime.rightViewportExtensionPx)) ? Number(statsRuntime.rightViewportExtensionPx) : 0;
       state.significanceBasePlotHeightPx = Number.isFinite(Number(statsRuntime.significanceBasePlotHeightPx)) ? Number(statsRuntime.significanceBasePlotHeightPx) : null;
       state.significanceBasePlotWidthPx = Number.isFinite(Number(statsRuntime.significanceBasePlotWidthPx)) ? Number(statsRuntime.significanceBasePlotWidthPx) : null;
-      state.flipFrameRestoreSnapshot = cloneSimple(statsRuntime.flipFrameRestoreSnapshot) || null;
-      state.flipAxisSpanTarget = cloneSimple(statsRuntime.flipAxisSpanTarget) || null;
-      state.pendingFlipDrawZoneOverride = cloneSimple(statsRuntime.pendingFlipDrawZoneOverride) || null;
-      state.flipHorizontalReserveCarryoverPx = Number.isFinite(Number(statsRuntime.flipHorizontalReserveCarryoverPx))
-        ? Math.max(0, Number(statsRuntime.flipHorizontalReserveCarryoverPx))
-        : 0;
+      if(statsRuntime.flipTransition && typeof statsRuntime.flipTransition === 'object'){
+        state.flipTransition = cloneSimple(statsRuntime.flipTransition) || createDefaultBoxFlipTransitionState();
+      }else{
+        const legacyVerticalSnapshot = cloneBoxFlipTransitionSnapshot(statsRuntime.flipFrameRestoreSnapshot) || null;
+        state.flipTransition = createDefaultBoxFlipTransitionState();
+        state.flipTransition.snapshots.vertical = legacyVerticalSnapshot;
+        state.flipTransition.pending = normalizeBoxFlipTransitionPendingState({
+          axisSpanTarget: cloneSimple(statsRuntime.flipAxisSpanTarget) || null,
+          drawZoneOverride: cloneSimple(statsRuntime.pendingFlipDrawZoneOverride) || null,
+          horizontalReserveCarryoverPx: Number.isFinite(Number(statsRuntime.flipHorizontalReserveCarryoverPx))
+            ? Math.max(0, Number(statsRuntime.flipHorizontalReserveCarryoverPx))
+            : 0
+        });
+        state.flipTransition.phase = 'steady';
+        state.flipTransition.active = {
+          orientation: resolveBoxOrientationFromFlipFlag(!!state.flipAxes),
+          reason: 'runtime-legacy-upgrade',
+          at: Date.now(),
+          manualFrameEdit: false
+        };
+      }
+      ensureBoxFlipTransitionState();
+      syncBoxFlipTransitionLegacyState('runtime-snapshot-apply');
       state.restoredSignificanceGeometryLock = false;
       state.restoredSignificanceGeometry = cloneSimple(statsRuntime.restoredSignificanceGeometry) || null;
     } else {
@@ -10957,10 +11021,7 @@
     state.rightViewportExtensionPx = 0;
     state.significanceBasePlotHeightPx = null;
     state.significanceBasePlotWidthPx = null;
-    state.flipFrameRestoreSnapshot = null;
-    state.flipAxisSpanTarget = null;
-    state.pendingFlipDrawZoneOverride = null;
-    state.flipHorizontalReserveCarryoverPx = 0;
+    resetBoxFlipTransitionState(reason || 'viewport-runtime-reset');
     if(state.viewportExtensionResizeGuardTimer){
       try{
         (global.clearTimeout || clearTimeout)(state.viewportExtensionResizeGuardTimer);
@@ -11670,6 +11731,385 @@
     });
   }
 
+  function normalizeBoxFlipOrientation(orientation){
+    return orientation === 'horizontal' ? 'horizontal' : 'vertical';
+  }
+
+  function normalizeBoxFlipTransitionPendingState(pending){
+    const source = pending && typeof pending === 'object' ? pending : {};
+    const axisSpanTarget = source.axisSpanTarget && typeof source.axisSpanTarget === 'object'
+      ? {
+          sourceOrientation: normalizeBoxFlipOrientation(source.axisSpanTarget.sourceOrientation),
+          xAxisSpanPx: Number.isFinite(Number(source.axisSpanTarget.xAxisSpanPx)) && Number(source.axisSpanTarget.xAxisSpanPx) > 0
+            ? Number(source.axisSpanTarget.xAxisSpanPx)
+            : null,
+          yAxisSpanPx: Number.isFinite(Number(source.axisSpanTarget.yAxisSpanPx)) && Number(source.axisSpanTarget.yAxisSpanPx) > 0
+            ? Number(source.axisSpanTarget.yAxisSpanPx)
+            : null
+        }
+      : null;
+    const drawZoneOverride = source.drawZoneOverride && typeof source.drawZoneOverride === 'object'
+      ? {
+          width: Number.isFinite(Number(source.drawZoneOverride.width)) && Number(source.drawZoneOverride.width) > 0
+            ? Math.max(50, Math.round(Number(source.drawZoneOverride.width)))
+            : null,
+          height: Number.isFinite(Number(source.drawZoneOverride.height)) && Number(source.drawZoneOverride.height) > 0
+            ? Math.max(40, Math.round(Number(source.drawZoneOverride.height)))
+            : null
+        }
+      : null;
+    const horizontalReserveCarryoverPx = Number.isFinite(Number(source.horizontalReserveCarryoverPx))
+      ? Math.max(0, Math.round(Number(source.horizontalReserveCarryoverPx)))
+      : 0;
+    return {
+      axisSpanTarget: (axisSpanTarget && axisSpanTarget.xAxisSpanPx && axisSpanTarget.yAxisSpanPx) ? axisSpanTarget : null,
+      drawZoneOverride: (drawZoneOverride && drawZoneOverride.width && drawZoneOverride.height) ? drawZoneOverride : null,
+      horizontalReserveCarryoverPx
+    };
+  }
+
+  function ensureBoxFlipTransitionState(){
+    const defaults = createDefaultBoxFlipTransitionState();
+    const current = state.flipTransition;
+    if(!current || typeof current !== 'object'){
+      state.flipTransition = defaults;
+      return state.flipTransition;
+    }
+    const snapshots = current.snapshots && typeof current.snapshots === 'object' ? current.snapshots : {};
+    const pending = normalizeBoxFlipTransitionPendingState(current.pending);
+    state.flipTransition = {
+      version: 1,
+      phase: typeof current.phase === 'string' && current.phase ? current.phase : 'idle',
+      transitionId: Number.isFinite(Number(current.transitionId)) ? Math.max(0, Math.round(Number(current.transitionId))) : 0,
+      active: current.active && typeof current.active === 'object'
+        ? {
+            orientation: normalizeBoxFlipOrientation(current.active.orientation),
+            reason: typeof current.active.reason === 'string' ? current.active.reason : null,
+            at: Number.isFinite(Number(current.active.at)) ? Number(current.active.at) : null,
+            manualFrameEdit: !!current.active.manualFrameEdit
+          }
+        : null,
+      snapshots: {
+        vertical: cloneBoxFlipTransitionSnapshot(snapshots.vertical),
+        horizontal: cloneBoxFlipTransitionSnapshot(snapshots.horizontal)
+      },
+      pending
+    };
+    return state.flipTransition;
+  }
+
+  function syncBoxFlipTransitionLegacyState(reason){
+    const transition = ensureBoxFlipTransitionState();
+    state.flipFrameRestoreSnapshot = cloneBoxFlipTransitionSnapshot(transition.snapshots.vertical);
+    state.flipAxisSpanTarget = transition.pending.axisSpanTarget ? cloneSimple(transition.pending.axisSpanTarget) : null;
+    state.pendingFlipDrawZoneOverride = transition.pending.drawZoneOverride ? cloneSimple(transition.pending.drawZoneOverride) : null;
+    state.flipHorizontalReserveCarryoverPx = Number.isFinite(Number(transition.pending.horizontalReserveCarryoverPx))
+      ? Math.max(0, Math.round(Number(transition.pending.horizontalReserveCarryoverPx)))
+      : 0;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box flip-transition legacy mirrors synchronized', {
+        reason: reason || null,
+        phase: transition.phase,
+        transitionId: transition.transitionId,
+        activeOrientation: transition.active?.orientation || null,
+        hasVerticalSnapshot: !!transition.snapshots.vertical,
+        hasHorizontalSnapshot: !!transition.snapshots.horizontal,
+        hasAxisSpanTarget: !!transition.pending.axisSpanTarget,
+        hasDrawZoneOverride: !!transition.pending.drawZoneOverride,
+        horizontalReserveCarryoverPx: transition.pending.horizontalReserveCarryoverPx
+      });
+    }
+  }
+
+  function captureBoxFlipOrientationSnapshot(orientation){
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
+    const snapshot = cloneBoxFlipTransitionSnapshot(captureBoxFlipFrameSnapshot());
+    if(!snapshot){
+      return null;
+    }
+    const transition = ensureBoxFlipTransitionState();
+    transition.snapshots[normalizedOrientation] = snapshot;
+    syncBoxFlipTransitionLegacyState(`capture-${normalizedOrientation}`);
+    return snapshot;
+  }
+
+  function transposeBoxFlipTransitionSnapshot(snapshot){
+    const source = cloneBoxFlipTransitionSnapshot(snapshot);
+    if(!source){
+      return null;
+    }
+    const transposed = cloneBoxFlipTransitionSnapshot({
+      width: source.height,
+      height: source.width,
+      plotClientWidthPx: source.plotClientHeightPx,
+      plotClientHeightPx: source.plotClientWidthPx,
+      bottomViewportExtensionPx: source.leftViewportExtensionPx,
+      significanceViewportExtensionPx: source.rightViewportExtensionPx,
+      leftViewportExtensionPx: source.bottomViewportExtensionPx,
+      rightViewportExtensionPx: source.significanceViewportExtensionPx,
+      xAxisSpanPx: source.yAxisSpanPx,
+      yAxisSpanPx: source.xAxisSpanPx
+    });
+    return transposed;
+  }
+
+  function resolveBoxFlipTransitionTargetSnapshot(nextOrientation, sourceSnapshot){
+    const transition = ensureBoxFlipTransitionState();
+    const normalizedOrientation = normalizeBoxFlipOrientation(nextOrientation);
+    const cachedSnapshot = cloneBoxFlipTransitionSnapshot(transition.snapshots[normalizedOrientation]);
+    if(cachedSnapshot){
+      return cachedSnapshot;
+    }
+    return transposeBoxFlipTransitionSnapshot(sourceSnapshot);
+  }
+
+  function hasBoxFlipSnapshotMaterialChange(previousSnapshot, nextSnapshot, tolerancePx = 3){
+    const a = cloneBoxFlipTransitionSnapshot(previousSnapshot);
+    const b = cloneBoxFlipTransitionSnapshot(nextSnapshot);
+    if(!a || !b){
+      return false;
+    }
+    const tolerance = Number.isFinite(Number(tolerancePx)) ? Math.max(0, Number(tolerancePx)) : 3;
+    const changed = (left, right) => Math.abs((Number(left) || 0) - (Number(right) || 0)) > tolerance;
+    return changed(a.width, b.width)
+      || changed(a.height, b.height);
+  }
+
+  function applyBoxFlipTransitionPendingState(pendingPatch, reason){
+    const transition = ensureBoxFlipTransitionState();
+    transition.pending = normalizeBoxFlipTransitionPendingState({
+      ...transition.pending,
+      ...(pendingPatch && typeof pendingPatch === 'object' ? pendingPatch : {})
+    });
+    syncBoxFlipTransitionLegacyState(reason || 'pending-update');
+    return transition.pending;
+  }
+
+  function consumeBoxFlipTransitionPendingDrawZoneOverride(orientation){
+    const transition = ensureBoxFlipTransitionState();
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
+    const pending = transition.pending?.drawZoneOverride || null;
+    if(!pending){
+      return null;
+    }
+    const activeOrientation = transition.active?.orientation
+      ? normalizeBoxFlipOrientation(transition.active.orientation)
+      : null;
+    if(activeOrientation && activeOrientation !== normalizedOrientation){
+      return null;
+    }
+    const value = cloneSimple(pending);
+    transition.pending.drawZoneOverride = null;
+    syncBoxFlipTransitionLegacyState(`consume-draw-zone-${normalizedOrientation}`);
+    return value;
+  }
+
+  function getBoxFlipTransitionPendingAxisSpanTarget(orientation){
+    const transition = ensureBoxFlipTransitionState();
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
+    const target = transition.pending?.axisSpanTarget || null;
+    if(!target){
+      return null;
+    }
+    if(normalizeBoxFlipOrientation(target.sourceOrientation) !== normalizedOrientation){
+      return null;
+    }
+    return target;
+  }
+
+  function clearBoxFlipTransitionPendingAxisSpanTarget(reason){
+    const transition = ensureBoxFlipTransitionState();
+    if(!transition.pending?.axisSpanTarget){
+      return false;
+    }
+    transition.pending.axisSpanTarget = null;
+    syncBoxFlipTransitionLegacyState(reason || 'clear-axis-span-target');
+    return true;
+  }
+
+  function startBoxFlipTransition(previousOrientation, nextOrientation, reason){
+    const transition = ensureBoxFlipTransitionState();
+    transition.transitionId = Math.max(0, Number(transition.transitionId) || 0) + 1;
+    transition.phase = 'transitioning';
+    transition.active = {
+      orientation: normalizeBoxFlipOrientation(nextOrientation),
+      reason: typeof reason === 'string' ? reason : null,
+      at: Date.now(),
+      manualFrameEdit: false
+    };
+    if(typeof previousOrientation === 'string' && previousOrientation){
+      transition.active.fromOrientation = normalizeBoxFlipOrientation(previousOrientation);
+    }
+    syncBoxFlipTransitionLegacyState(reason || 'transition-start');
+    return transition.transitionId;
+  }
+
+  function settleBoxFlipTransition(orientation, reason){
+    const transition = ensureBoxFlipTransitionState();
+    transition.phase = 'steady';
+    transition.active = {
+      orientation: normalizeBoxFlipOrientation(orientation),
+      reason: typeof reason === 'string' ? reason : null,
+      at: Date.now(),
+      manualFrameEdit: false
+    };
+    syncBoxFlipTransitionLegacyState(reason || 'transition-settle');
+  }
+
+  function markBoxFlipTransitionManualFrameEdit(reason){
+    const transition = ensureBoxFlipTransitionState();
+    if(!transition.active || typeof transition.active !== 'object'){
+      transition.active = {
+        orientation: resolveBoxOrientationFromFlipFlag(!!state.flipAxes),
+        reason: typeof reason === 'string' ? reason : 'manual-frame-edit',
+        at: Date.now(),
+        manualFrameEdit: true
+      };
+      syncBoxFlipTransitionLegacyState(reason || 'manual-frame-edit');
+      return true;
+    }
+    if(transition.active.manualFrameEdit){
+      return false;
+    }
+    transition.active.manualFrameEdit = true;
+    transition.active.reason = typeof reason === 'string' ? reason : transition.active.reason;
+    transition.active.at = Date.now();
+    syncBoxFlipTransitionLegacyState(reason || 'manual-frame-edit');
+    return true;
+  }
+
+  function syncBoxFlipTransitionOrientationFromState(reason){
+    const transition = ensureBoxFlipTransitionState();
+    const orientation = resolveBoxOrientationFromFlipFlag(!!state.flipAxes);
+    if(transition.phase !== 'steady' || normalizeBoxFlipOrientation(transition.active?.orientation) !== orientation){
+      transition.phase = 'steady';
+      transition.active = {
+        orientation,
+        reason: typeof reason === 'string' ? reason : 'orientation-sync',
+        at: Date.now(),
+        manualFrameEdit: false
+      };
+      syncBoxFlipTransitionLegacyState(reason || 'orientation-sync');
+      return true;
+    }
+    return false;
+  }
+
+  function resetBoxFlipTransitionState(reason){
+    state.flipTransition = createDefaultBoxFlipTransitionState();
+    syncBoxFlipTransitionLegacyState(reason || 'transition-reset');
+  }
+
+  function runBoxFlipTransition(previousFlip, nextFlip, options = {}){
+    const previousOrientation = resolveBoxOrientationFromFlipFlag(!!previousFlip);
+    const nextOrientation = resolveBoxOrientationFromFlipFlag(!!nextFlip);
+    if(previousOrientation === nextOrientation){
+      settleBoxFlipTransition(nextOrientation, options.reason || 'flip-noop');
+      return { applied: false, reason: 'no-orientation-change', previousOrientation, nextOrientation };
+    }
+    const transitionBeforeCapture = ensureBoxFlipTransitionState();
+    const cachedTargetSnapshotBefore = cloneBoxFlipTransitionSnapshot(
+      transitionBeforeCapture.snapshots?.[nextOrientation]
+    );
+    const manualFrameEditActive = !!(
+      transitionBeforeCapture.active
+      && normalizeBoxFlipOrientation(transitionBeforeCapture.active.orientation) === previousOrientation
+      && transitionBeforeCapture.active.manualFrameEdit
+    );
+    const previousOrientationSnapshot = cloneBoxFlipTransitionSnapshot(transitionBeforeCapture.snapshots[previousOrientation]);
+    const currentSnapshot = captureBoxFlipOrientationSnapshot(previousOrientation);
+    const currentOrientationChanged = manualFrameEditActive
+      || hasBoxFlipSnapshotMaterialChange(previousOrientationSnapshot, currentSnapshot, 3);
+    const targetSnapshot = currentOrientationChanged
+      ? transposeBoxFlipTransitionSnapshot(currentSnapshot)
+      : (cachedTargetSnapshotBefore || resolveBoxFlipTransitionTargetSnapshot(nextOrientation, currentSnapshot));
+    const axisSpanTarget = (
+      previousOrientation === 'vertical'
+      && nextOrientation === 'horizontal'
+      && currentSnapshot
+      && Number.isFinite(Number(currentSnapshot.xAxisSpanPx)) && Number(currentSnapshot.xAxisSpanPx) > 0
+      && Number.isFinite(Number(currentSnapshot.yAxisSpanPx)) && Number(currentSnapshot.yAxisSpanPx) > 0
+    )
+      ? {
+          sourceOrientation: 'vertical',
+          xAxisSpanPx: Number(currentSnapshot.xAxisSpanPx),
+          yAxisSpanPx: Number(currentSnapshot.yAxisSpanPx)
+        }
+      : null;
+    const pendingDrawZoneOverride = targetSnapshot
+      && Number.isFinite(Number(targetSnapshot.plotClientWidthPx)) && Number(targetSnapshot.plotClientWidthPx) > 0
+      && Number.isFinite(Number(targetSnapshot.plotClientHeightPx)) && Number(targetSnapshot.plotClientHeightPx) > 0
+      ? {
+          width: Math.max(50, Math.round(Number(targetSnapshot.plotClientWidthPx))),
+          height: Math.max(40, Math.round(Number(targetSnapshot.plotClientHeightPx)))
+        }
+      : null;
+    const horizontalReserveCarryoverPx = (
+      previousOrientation === 'vertical'
+      && nextOrientation === 'horizontal'
+      && currentSnapshot
+      && !cachedTargetSnapshotBefore
+    )
+      ? Math.max(
+          0,
+          Math.round(
+            (Number(currentSnapshot.bottomViewportExtensionPx) || 0)
+            + (Number(currentSnapshot.significanceViewportExtensionPx) || 0)
+          )
+        )
+      : 0;
+    startBoxFlipTransition(previousOrientation, nextOrientation, options.reason || 'flip-transition');
+    applyBoxFlipTransitionPendingState({
+      axisSpanTarget,
+      drawZoneOverride: pendingDrawZoneOverride,
+      horizontalReserveCarryoverPx
+    }, options.reason || 'flip-transition-pending');
+
+    const nextVerticalSignificance = nextOrientation === 'vertical' && targetSnapshot
+      ? (Number.isFinite(Number(targetSnapshot.significanceViewportExtensionPx)) ? Number(targetSnapshot.significanceViewportExtensionPx) : 0)
+      : 0;
+    const nextVerticalBottom = nextOrientation === 'vertical' && targetSnapshot
+      ? (Number.isFinite(Number(targetSnapshot.bottomViewportExtensionPx)) ? Number(targetSnapshot.bottomViewportExtensionPx) : 0)
+      : 0;
+    const nextHorizontalLeft = nextOrientation === 'horizontal' && targetSnapshot
+      ? (Number.isFinite(Number(targetSnapshot.leftViewportExtensionPx)) ? Number(targetSnapshot.leftViewportExtensionPx) : 0)
+      : 0;
+    const nextHorizontalRight = nextOrientation === 'horizontal' && targetSnapshot
+      ? (Number.isFinite(Number(targetSnapshot.rightViewportExtensionPx)) ? Number(targetSnapshot.rightViewportExtensionPx) : 0)
+      : 0;
+
+    applyBoxViewportExtensions({
+      significance: nextVerticalSignificance,
+      bottom: nextVerticalBottom
+    }, { reason: `${options.reason || 'flip-transition'}-vertical-reserve`, resizeContainer: false });
+    applyBoxHorizontalViewportExtensions({
+      left: nextHorizontalLeft,
+      right: nextHorizontalRight
+    }, { reason: `${options.reason || 'flip-transition'}-horizontal-reserve`, resizeContainer: false });
+
+    const targetWidthPx = Number(targetSnapshot?.width);
+    const targetHeightPx = Number(targetSnapshot?.height);
+    const hasTargetDimensions = Number.isFinite(targetWidthPx) && targetWidthPx > 0
+      && Number.isFinite(targetHeightPx) && targetHeightPx > 0;
+    const frameResult = swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, hasTargetDimensions
+      ? {
+          reason: options.reason || 'flip-transition-frame',
+          targetWidthPx: targetWidthPx,
+          targetHeightPx: targetHeightPx
+        }
+      : { reason: options.reason || 'flip-transition-frame' });
+    settleBoxFlipTransition(nextOrientation, options.reason || 'flip-transition-settle');
+    captureBoxFlipOrientationSnapshot(nextOrientation);
+    return {
+      applied: true,
+      previousOrientation,
+      nextOrientation,
+      currentOrientationChanged,
+      targetSnapshot: cloneBoxFlipTransitionSnapshot(targetSnapshot),
+      frameResult
+    };
+  }
+
   function resolveCurrentBoxAxisSpansForFlip(svg = null){
     const plot = els.plotDiv || getBoxNodeById('boxPlot');
     const firstPlotSvg = (!svg && plot && typeof plot.querySelector === 'function')
@@ -11828,10 +12268,26 @@
       };
     }
     const dataset = svgBox.dataset || {};
-    dataset.boxAutoReserveBaseWidthPx = String(Math.round(targetWidth));
-    dataset.boxAutoReserveHorizontalExtensionPx = '0';
-    dataset.boxAutoReserveBaseHeightPx = String(Math.round(targetHeight));
-    dataset.boxAutoReserveExtensionPx = '0';
+    const nextHorizontalExtension = Number.isFinite(Number(state.leftViewportExtensionPx))
+      || Number.isFinite(Number(state.rightViewportExtensionPx))
+      ? Math.max(
+          0,
+          Math.round((Number(state.leftViewportExtensionPx) || 0) + (Number(state.rightViewportExtensionPx) || 0))
+        )
+      : 0;
+    const nextVerticalExtension = Number.isFinite(Number(state.significanceViewportExtensionPx))
+      || Number.isFinite(Number(state.bottomViewportExtensionPx))
+      ? Math.max(
+          0,
+          Math.round((Number(state.significanceViewportExtensionPx) || 0) + (Number(state.bottomViewportExtensionPx) || 0))
+        )
+      : 0;
+    const nextBaseWidth = Math.max(50, Math.round(targetWidth - nextHorizontalExtension));
+    const nextBaseHeight = Math.max(40, Math.round(targetHeight - nextVerticalExtension));
+    dataset.boxAutoReserveBaseWidthPx = String(nextBaseWidth);
+    dataset.boxAutoReserveHorizontalExtensionPx = String(nextHorizontalExtension);
+    dataset.boxAutoReserveBaseHeightPx = String(nextBaseHeight);
+    dataset.boxAutoReserveExtensionPx = String(nextVerticalExtension);
     dataset.graphWidthPx = String(Math.round(targetWidth));
     dataset.graphHeightPx = String(Math.round(targetHeight));
     dataset.svgWidth = String(Math.round(targetWidth));
@@ -13127,7 +13583,8 @@
     const previousLeftExtension = normalizeExtension(state.leftViewportExtensionPx);
     const previousRightExtension = normalizeExtension(state.rightViewportExtensionPx);
     const previousExtension = previousLeftExtension + previousRightExtension;
-    const carryoverExtension = normalizeExtension(state.flipHorizontalReserveCarryoverPx);
+    const transition = ensureBoxFlipTransitionState();
+    const carryoverExtension = normalizeExtension(transition.pending?.horizontalReserveCarryoverPx);
     const effectivePreviousExtension = Math.max(previousExtension, carryoverExtension);
     const nextExtension = nextLeftExtension + nextRightExtension;
     const compositionChanged = nextLeftExtension !== previousLeftExtension
@@ -13147,7 +13604,8 @@
       forceBaseFromPrevious: carryoverExtension > 0
     });
     if(carryoverExtension > 0 && options.resizeContainer === true){
-      state.flipHorizontalReserveCarryoverPx = 0;
+      transition.pending.horizontalReserveCarryoverPx = 0;
+      syncBoxFlipTransitionLegacyState('horizontal-reserve-carryover-consumed');
     }
     if(boxDebugEnabled()){
       console.debug('Debug: box horizontal viewport extension stored as automatic graph reserve', {
@@ -16818,125 +17276,29 @@
     bindBoxControlHandler(els.boxYMax, 'change', 'axis-max', handleBoxAxisLimitInput);
     if(els.boxFlipAxes){
       state.flipAxes = !!els.boxFlipAxes.checked;
+      const initialOrientation = resolveBoxOrientationFromFlipFlag(state.flipAxes);
+      const transition = ensureBoxFlipTransitionState();
+      transition.phase = 'steady';
+      transition.active = { orientation: initialOrientation, reason: 'init-ui', at: Date.now(), manualFrameEdit: false };
+      syncBoxFlipTransitionLegacyState('init-ui');
       bindBoxControlHandler(els.boxFlipAxes, 'change', 'flip-axes', ()=>{
         const previousFlip = !!state.flipAxes;
         const nextFlip = !!els.boxFlipAxes.checked;
         state.flipAxes = nextFlip;
         state.resizeObserveDrawMutedUntil = Date.now() + 260;
         syncDatasetSpacingAcrossFlip(previousFlip, nextFlip);
-        if(!previousFlip && nextFlip){
-          const snapshot = captureBoxFlipFrameSnapshot();
-          state.flipFrameRestoreSnapshot = snapshot;
-          state.pendingFlipDrawZoneOverride = null;
-          const carriedHorizontalReserve = snapshot
-            ? Math.max(
-                0,
-                Math.round(
-                  (Number(snapshot.bottomViewportExtensionPx) || 0)
-                  + (Number(snapshot.significanceViewportExtensionPx) || 0)
-                )
-              )
-            : 0;
-          state.flipHorizontalReserveCarryoverPx = carriedHorizontalReserve;
-          if(Number.isFinite(Number(snapshot?.xAxisSpanPx)) && snapshot.xAxisSpanPx > 0
-            && Number.isFinite(Number(snapshot?.yAxisSpanPx)) && snapshot.yAxisSpanPx > 0){
-            state.flipAxisSpanTarget = {
-              sourceOrientation: 'vertical',
-              xAxisSpanPx: Number(snapshot.xAxisSpanPx),
-              yAxisSpanPx: Number(snapshot.yAxisSpanPx)
-            };
-          }else{
-            state.flipAxisSpanTarget = null;
-          }
-          applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'flip-axes-reset-vertical-reserve', resizeContainer: false });
-          applyBoxHorizontalViewportExtensions({ left: 0, right: 0 }, { reason: 'flip-axes-reset-horizontal-reserve', resizeContainer: false });
-          swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
-        }else if(previousFlip && !nextFlip){
-          const snapshot = state.flipFrameRestoreSnapshot || null;
-          const liveFlippedSnapshot = captureBoxFlipFrameSnapshot();
-          const baselineFlippedWidth = snapshot && Number.isFinite(Number(snapshot.height))
-            ? Math.max(50, Math.round(Number(snapshot.height)))
-            : null;
-          const baselineFlippedHeight = snapshot && Number.isFinite(Number(snapshot.width))
-            ? Math.max(40, Math.round(Number(snapshot.width)))
-            : null;
-          const liveFlippedWidth = Number.isFinite(Number(liveFlippedSnapshot?.width))
-            ? Math.max(50, Math.round(Number(liveFlippedSnapshot.width)))
-            : null;
-          const liveFlippedHeight = Number.isFinite(Number(liveFlippedSnapshot?.height))
-            ? Math.max(40, Math.round(Number(liveFlippedSnapshot.height)))
-            : null;
-          const flippedResizePropagatesBack = (
-            Number.isFinite(baselineFlippedWidth) && Number.isFinite(baselineFlippedHeight)
-            && Number.isFinite(liveFlippedWidth) && Number.isFinite(liveFlippedHeight)
-            && (
-              Math.abs(liveFlippedWidth - baselineFlippedWidth) > 3
-              || Math.abs(liveFlippedHeight - baselineFlippedHeight) > 3
-            )
-          );
-          const reserveSnapshot = snapshot || liveFlippedSnapshot || null;
-          const restoreZoneSource = flippedResizePropagatesBack ? liveFlippedSnapshot : snapshot;
-          state.pendingFlipDrawZoneOverride = (restoreZoneSource
-            && Number.isFinite(Number(restoreZoneSource.plotClientWidthPx)) && Number(restoreZoneSource.plotClientWidthPx) > 0
-            && Number.isFinite(Number(restoreZoneSource.plotClientHeightPx)) && Number(restoreZoneSource.plotClientHeightPx) > 0)
-            ? (flippedResizePropagatesBack
-                ? {
-                    width: Math.max(50, Math.round(Number(restoreZoneSource.plotClientHeightPx))),
-                    height: Math.max(40, Math.round(Number(restoreZoneSource.plotClientWidthPx)))
-                  }
-                : {
-                    width: Math.max(50, Math.round(Number(restoreZoneSource.plotClientWidthPx))),
-                    height: Math.max(40, Math.round(Number(restoreZoneSource.plotClientHeightPx)))
-                  })
-            : null;
-          applyBoxViewportExtensions({
-            significance: Number.isFinite(Number(reserveSnapshot?.significanceViewportExtensionPx)) ? Number(reserveSnapshot.significanceViewportExtensionPx) : 0,
-            bottom: Number.isFinite(Number(reserveSnapshot?.bottomViewportExtensionPx)) ? Number(reserveSnapshot.bottomViewportExtensionPx) : 0
-          }, { reason: 'flip-axes-restore-vertical-reserve', resizeContainer: false });
-          applyBoxHorizontalViewportExtensions({
-            left: Number.isFinite(Number(reserveSnapshot?.leftViewportExtensionPx)) ? Number(reserveSnapshot.leftViewportExtensionPx) : 0,
-            right: Number.isFinite(Number(reserveSnapshot?.rightViewportExtensionPx)) ? Number(reserveSnapshot.rightViewportExtensionPx) : 0
-          }, { reason: 'flip-axes-restore-horizontal-reserve', resizeContainer: false });
-          const restoreTargetWidth = flippedResizePropagatesBack
-            ? liveFlippedHeight
-            : (snapshot && Number.isFinite(Number(snapshot.width)) ? Math.max(50, Math.round(Number(snapshot.width))) : null);
-          const restoreTargetHeight = flippedResizePropagatesBack
-            ? liveFlippedWidth
-            : (snapshot && Number.isFinite(Number(snapshot.height)) ? Math.max(40, Math.round(Number(snapshot.height))) : null);
-          if(Number.isFinite(restoreTargetWidth) && restoreTargetWidth > 0
-            && Number.isFinite(restoreTargetHeight) && restoreTargetHeight > 0){
-            swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, {
-              reason: 'flip-axes-restore-frame',
-              targetWidthPx: restoreTargetWidth,
-              targetHeightPx: restoreTargetHeight
-            });
-          }else{
-            swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
-          }
-          boxDebug('Debug: box flip-axes unflip restore source', {
-            flippedResizePropagatesBack,
-            baselineFlippedWidth,
-            baselineFlippedHeight,
-            liveFlippedWidth,
-            liveFlippedHeight,
-            flipHorizontalReserveCarryoverPx: state.flipHorizontalReserveCarryoverPx,
-            pendingFlipDrawZoneOverride: state.pendingFlipDrawZoneOverride
-          });
-          state.flipFrameRestoreSnapshot = null;
-          state.flipAxisSpanTarget = null;
-          state.flipHorizontalReserveCarryoverPx = 0;
-        }else{
-          applyBoxViewportExtensions({ significance: 0, bottom: 0 }, { reason: 'flip-axes-reset-vertical-reserve', resizeContainer: false });
-          applyBoxHorizontalViewportExtensions({ left: 0, right: 0 }, { reason: 'flip-axes-reset-horizontal-reserve', resizeContainer: false });
-          swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, { reason: 'flip-axes-change' });
-          state.flipHorizontalReserveCarryoverPx = 0;
-        }
+        const transitionResult = runBoxFlipTransition(previousFlip, nextFlip, { reason: 'flip-axes-change' });
         try{
           state.layout?.syncPanels?.({ skipSchedule: true });
         }catch(err){
           boxDebug('Debug: box flip-axes syncPanels failed', { message: err?.message || String(err) });
         }
-        console.debug('Debug: box flipAxes toggled',{ flipAxes: state.flipAxes }); // Debug: flip axis change trace
+        console.debug('Debug: box flipAxes toggled',{
+          flipAxes: state.flipAxes,
+          transitionPhase: state.flipTransition?.phase || null,
+          transitionId: state.flipTransition?.transitionId || 0,
+          transitionResult
+        }); // Debug: flip axis change trace
         const scheduleFlipDraw = () => scheduleBoxViewRefresh('flip-axes-change');
         try{
           (global.setTimeout || setTimeout)(scheduleFlipDraw, 280);
@@ -28162,6 +28524,7 @@ Technical analysis record (advanced)
     const errorMode = els.boxErrorMode.value;
     const isFlipped = !!els.boxFlipAxes?.checked;
     state.flipAxes = isFlipped;
+    syncBoxFlipTransitionOrientationFromState('draw-orientation-sync');
     if(els.boxLogScaleLabel){
       els.boxLogScaleLabel.textContent = isFlipped ? 'Log scale (values)' : 'Log scale (Y)';
     }
@@ -28739,15 +29102,14 @@ Technical analysis record (advanced)
     const plotResizeZone = syncBoxPlotResizeZone(drawOpts);
     let W = Math.max(50, Math.floor(plotResizeZone.width || els.plotDiv.clientWidth || 50));
     let H = Math.max(40, Math.floor(plotResizeZone.height || els.plotDiv.clientHeight || 40));
-    if(!state.flipAxes && drawOpts?.reason === 'flip-axes-change'){
-      const pendingZone = state.pendingFlipDrawZoneOverride;
+    if(drawOpts?.reason === 'flip-axes-change'){
+      const pendingZone = consumeBoxFlipTransitionPendingDrawZoneOverride(resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
       if(pendingZone && Number.isFinite(Number(pendingZone.width)) && Number(pendingZone.width) > 0
         && Number.isFinite(Number(pendingZone.height)) && Number(pendingZone.height) > 0){
         W = Math.max(50, Math.round(Number(pendingZone.width)));
         H = Math.max(40, Math.round(Number(pendingZone.height)));
         boxDebug('Debug: box flip restore draw-zone override applied', { width: W, height: H });
       }
-      state.pendingFlipDrawZoneOverride = null;
     }
     const storedSignificanceBaseHeight = Number(state.significanceBasePlotHeightPx);
     const hasStoredSignificanceBaseHeight = Number.isFinite(storedSignificanceBaseHeight) && storedSignificanceBaseHeight > 0;
@@ -32805,9 +33167,7 @@ Technical analysis record (advanced)
         }
       }
       marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
-      const flipAxisSpanTarget = state.flipAxisSpanTarget && state.flipAxisSpanTarget.sourceOrientation === 'vertical'
-        ? state.flipAxisSpanTarget
-        : null;
+      const flipAxisSpanTarget = getBoxFlipTransitionPendingAxisSpanTarget('vertical');
       const targetHorizontalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.yAxisSpanPx))
         ? Math.max(20, Number(flipAxisSpanTarget.yAxisSpanPx))
         : null;
@@ -34029,6 +34389,9 @@ Technical analysis record (advanced)
     });
     commitPendingPlotFrame();
     state.layout?.syncPanels?.({ skipSchedule: true });
+    if(state.flipTransition?.phase === 'steady'){
+      captureBoxFlipOrientationSnapshot(resolveBoxOrientationFromFlipFlag(isFlipped));
+    }
     traceCount = traces.length;
     boxLog('boxplot render complete');
     }catch(err){
@@ -34842,6 +35205,7 @@ Technical analysis record (advanced)
     els.boxYMin.value=c.yMin||'';
     els.boxYMax.value=c.yMax||'';
     state.flipAxes=!!c.flipAxes;
+    syncBoxFlipTransitionOrientationFromState('config-load');
     if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
     if(c.axis && typeof c.axis === 'object'){
       const axisCfg = c.axis;
@@ -35467,8 +35831,8 @@ Technical analysis record (advanced)
           }
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-            if(state.flipAxes && state.flipAxisSpanTarget){
-              state.flipAxisSpanTarget = null;
+            markBoxFlipTransitionManualFrameEdit('resize-move');
+            if(state.flipAxes && clearBoxFlipTransitionPendingAxisSpanTarget('manual-resize-move')){
               boxDebug('Debug: box flip-axis span target released on manual resize');
             }
           }
