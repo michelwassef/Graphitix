@@ -32084,8 +32084,18 @@ Technical analysis record (advanced)
       const tickGap = axisMetrics.tickLabelGap;
       const existingViewportExtension = 0;
       const shouldInlineBottomViewportReserve = !showSignificance;
+      const storedVerticalViewportExtension = Math.max(
+        0,
+        (Number(storedBottomViewportExtension) || 0)
+        + (Number(storedSignificanceViewportExtension) || 0)
+      );
+      // When significance is toggled off after being shown, the previous frame
+      // still includes the former significance top reserve. Base height must be
+      // recovered from the full prior vertical extension, not from bottom labels
+      // alone, otherwise the same container height is reused and the plot axis
+      // stretches instead of preserving axis lengths.
       const inlineBottomReserveBaseHeight = shouldInlineBottomViewportReserve
-        ? Math.max(40, H - Math.max(0, Number(storedBottomViewportExtension) || 0))
+        ? Math.max(40, H - storedVerticalViewportExtension)
         : H;
       const baseCanvasHeight = Math.max(40, inlineBottomReserveBaseHeight);
       const verticalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'vertical', annotationStrokeWidth, {
