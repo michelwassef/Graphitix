@@ -10848,6 +10848,7 @@
         bottomViewportExtensionPx: Number.isFinite(Number(state.bottomViewportExtensionPx)) ? Number(state.bottomViewportExtensionPx) : 0,
         leftViewportExtensionPx: Number.isFinite(Number(state.leftViewportExtensionPx)) ? Number(state.leftViewportExtensionPx) : 0,
         rightViewportExtensionPx: Number.isFinite(Number(state.rightViewportExtensionPx)) ? Number(state.rightViewportExtensionPx) : 0,
+        pendingSignificanceReserveRestoreAuthority: state.pendingSignificanceReserveRestoreAuthority === true,
         significanceBasePlotHeightPx: Number.isFinite(Number(state.significanceBasePlotHeightPx)) ? Number(state.significanceBasePlotHeightPx) : null,
         significanceBasePlotWidthPx: Number.isFinite(Number(state.significanceBasePlotWidthPx)) ? Number(state.significanceBasePlotWidthPx) : null,
         flipTransition: cloneSimple(ensureBoxFlipTransitionState()),
@@ -10903,6 +10904,7 @@
       state.bottomViewportExtensionPx = Number.isFinite(Number(statsRuntime.bottomViewportExtensionPx)) ? Number(statsRuntime.bottomViewportExtensionPx) : 0;
       state.leftViewportExtensionPx = Number.isFinite(Number(statsRuntime.leftViewportExtensionPx)) ? Number(statsRuntime.leftViewportExtensionPx) : 0;
       state.rightViewportExtensionPx = Number.isFinite(Number(statsRuntime.rightViewportExtensionPx)) ? Number(statsRuntime.rightViewportExtensionPx) : 0;
+      state.pendingSignificanceReserveRestoreAuthority = statsRuntime.pendingSignificanceReserveRestoreAuthority === true;
       state.significanceBasePlotHeightPx = Number.isFinite(Number(statsRuntime.significanceBasePlotHeightPx)) ? Number(statsRuntime.significanceBasePlotHeightPx) : null;
       state.significanceBasePlotWidthPx = Number.isFinite(Number(statsRuntime.significanceBasePlotWidthPx)) ? Number(statsRuntime.significanceBasePlotWidthPx) : null;
       if(statsRuntime.flipTransition && typeof statsRuntime.flipTransition === 'object'){
@@ -11019,6 +11021,7 @@
     state.bottomViewportExtensionPx = 0;
     state.leftViewportExtensionPx = 0;
     state.rightViewportExtensionPx = 0;
+    state.pendingSignificanceReserveRestoreAuthority = false;
     state.significanceBasePlotHeightPx = null;
     state.significanceBasePlotWidthPx = null;
     resetBoxFlipTransitionState(reason || 'viewport-runtime-reset');
@@ -13290,12 +13293,26 @@
     const zoomCandidate = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
     const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
     const rect = svgBox.getBoundingClientRect?.() || null;
-    const currentWidth = parseBoxPositivePx(svgBox.style?.width)
-      || parseBoxPositivePx(dataset.resizerWidth)
-      || (Number.isFinite(Number(rect?.width)) && Number(rect.width) > 0 ? Number(rect.width) / zoomScale : NaN);
-    const currentHeight = parseBoxPositivePx(svgBox.style?.height)
-      || parseBoxPositivePx(dataset.resizerHeight)
-      || (Number.isFinite(Number(rect?.height)) && Number(rect.height) > 0 ? Number(rect.height) / zoomScale : NaN);
+    const rectWidth = Number.isFinite(Number(rect?.width)) && Number(rect.width) > 0
+      ? Number(rect.width) / zoomScale
+      : NaN;
+    const rectHeight = Number.isFinite(Number(rect?.height)) && Number(rect.height) > 0
+      ? Number(rect.height) / zoomScale
+      : NaN;
+    const currentWidth = Number.isFinite(rectWidth) && rectWidth > 0
+      ? rectWidth
+      : (
+          parseBoxPositivePx(svgBox.style?.width)
+          || parseBoxPositivePx(dataset.resizerWidth)
+          || NaN
+        );
+    const currentHeight = Number.isFinite(rectHeight) && rectHeight > 0
+      ? rectHeight
+      : (
+          parseBoxPositivePx(svgBox.style?.height)
+          || parseBoxPositivePx(dataset.resizerHeight)
+          || NaN
+        );
     const storedBaseHeight = parseBoxPositivePx(dataset.boxAutoReserveBaseHeightPx);
     const storedAppliedExtension = Number.isFinite(Number(dataset.boxAutoReserveExtensionPx))
       ? Math.max(0, Number(dataset.boxAutoReserveExtensionPx))
@@ -13389,6 +13406,18 @@
         tabId: box.__boundTabId || null
       });
     }
+    if(options.persistGraphFrameAuthority === true){
+      const appliedBaseWidth = Number.isFinite(Number(resizeResult?.baseWidth)) && Number(resizeResult.baseWidth) > 0
+        ? Number(resizeResult.baseWidth)
+        : currentWidth;
+      const appliedBaseHeight = Number.isFinite(Number(resizeResult?.baseHeight)) && Number(resizeResult.baseHeight) > 0
+        ? Number(resizeResult.baseHeight)
+        : targetHeight;
+      setBoxGraphDatasetFrameAuthority(svgBox, {
+        width: appliedBaseWidth,
+        height: appliedBaseHeight
+      }, { reason: options.reason || 'box-auto-content-reserve' });
+    }
     return {
       applied: !!resizeResult,
       resizeResult,
@@ -13407,12 +13436,26 @@
     const zoomCandidate = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
     const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
     const rect = svgBox.getBoundingClientRect?.() || null;
-    const currentWidth = parseBoxPositivePx(svgBox.style?.width)
-      || parseBoxPositivePx(dataset.resizerWidth)
-      || (Number.isFinite(Number(rect?.width)) && Number(rect.width) > 0 ? Number(rect.width) / zoomScale : NaN);
-    const currentHeight = parseBoxPositivePx(svgBox.style?.height)
-      || parseBoxPositivePx(dataset.resizerHeight)
-      || (Number.isFinite(Number(rect?.height)) && Number(rect.height) > 0 ? Number(rect.height) / zoomScale : NaN);
+    const rectWidth = Number.isFinite(Number(rect?.width)) && Number(rect.width) > 0
+      ? Number(rect.width) / zoomScale
+      : NaN;
+    const rectHeight = Number.isFinite(Number(rect?.height)) && Number(rect.height) > 0
+      ? Number(rect.height) / zoomScale
+      : NaN;
+    const currentWidth = Number.isFinite(rectWidth) && rectWidth > 0
+      ? rectWidth
+      : (
+          parseBoxPositivePx(svgBox.style?.width)
+          || parseBoxPositivePx(dataset.resizerWidth)
+          || NaN
+        );
+    const currentHeight = Number.isFinite(rectHeight) && rectHeight > 0
+      ? rectHeight
+      : (
+          parseBoxPositivePx(svgBox.style?.height)
+          || parseBoxPositivePx(dataset.resizerHeight)
+          || NaN
+        );
     const storedBaseWidth = parseBoxPositivePx(dataset.boxAutoReserveBaseWidthPx);
     const storedAppliedExtension = Number.isFinite(Number(dataset.boxAutoReserveHorizontalExtensionPx))
       ? Math.max(0, Number(dataset.boxAutoReserveHorizontalExtensionPx))
@@ -13538,6 +13581,12 @@
     const previousBottomExtension = normalizeExtension(state.bottomViewportExtensionPx);
     const previousExtension = previousSignificanceExtension + previousBottomExtension;
     const nextExtension = nextSignificanceExtension + nextBottomExtension;
+    const significanceIncreased = nextSignificanceExtension > previousSignificanceExtension;
+    const significanceDecreased = nextSignificanceExtension < previousSignificanceExtension;
+    const pendingSignificanceRestore = state.pendingSignificanceReserveRestoreAuthority === true;
+    if(significanceDecreased){
+      state.pendingSignificanceReserveRestoreAuthority = true;
+    }
     const compositionChanged = nextSignificanceExtension !== previousSignificanceExtension
       || nextBottomExtension !== previousBottomExtension;
     state.significanceViewportExtensionPx = nextSignificanceExtension;
@@ -13548,7 +13597,21 @@
         xLabelPx: nextBottomExtension
       }
     }, { reason: options.reason || 'box-viewport-extension-state' });
-    const resizeResult = applyBoxAutoReserveFrameSize(nextExtension, previousExtension, options);
+    const shouldPersistGraphFrameAuthority = options.persistGraphFrameAuthority === true
+      || (options.resizeContainer === true && significanceDecreased)
+      || (options.resizeContainer === true && significanceIncreased && pendingSignificanceRestore);
+    const resizeResult = applyBoxAutoReserveFrameSize(nextExtension, previousExtension, {
+      ...options,
+      persistGraphFrameAuthority: shouldPersistGraphFrameAuthority
+    });
+    if(
+      significanceIncreased
+      && pendingSignificanceRestore
+      && shouldPersistGraphFrameAuthority
+      && state.pendingSignificanceReserveRestoreAuthority === true
+    ){
+      state.pendingSignificanceReserveRestoreAuthority = false;
+    }
     if(boxDebugEnabled()){
       console.debug('Debug: box viewport extension stored as automatic graph reserve', {
         previousExtension,
@@ -16521,9 +16584,13 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterCreateCol(){
-            state.selectedCols.clear();
-            if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box afterCreateCol cleared selection');
+            if(!state.applyingPayload){
+              state.selectedCols.clear();
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: box afterCreateCol cleared selection');
+              }
+            }else if(Shared.isDebugEnabled?.()){
+              console.debug('Debug: box afterCreateCol preserved selection during payload apply');
             }
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
@@ -16532,9 +16599,13 @@
             syncBoxActiveDataViewFromHot(instance, 'afterChange');
           },
           afterRemoveCol(){
-            state.selectedCols.clear();
-            if(Shared.isDebugEnabled?.()){
-              console.debug('Debug: box afterRemoveCol cleared selection');
+            if(!state.applyingPayload){
+              state.selectedCols.clear();
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: box afterRemoveCol cleared selection');
+              }
+            }else if(Shared.isDebugEnabled?.()){
+              console.debug('Debug: box afterRemoveCol preserved selection during payload apply');
             }
             if(isBoxGroupedModeActive()){
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
@@ -25161,6 +25232,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsComputationPending = false;
     state.statsComputationOwnerTabId = null;
     if(hasSavedResults){
+      const columnCount = Array.isArray(tab?.payload?.data)
+        ? tab.payload.data.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0)
+        : 0;
+      const maxIndex = columnCount > 0 ? columnCount - 1 : Number.POSITIVE_INFINITY;
+      let restoredSelection = Array.isArray(stats?.selectedColumns)
+        ? stats.selectedColumns
+            .map(idx => Number(idx))
+            .filter(idx => Number.isInteger(idx) && idx >= 0 && idx <= maxIndex)
+        : [];
+      if(!restoredSelection.length && stats?.annotationModel && Array.isArray(stats.annotationModel.indices)){
+        restoredSelection = stats.annotationModel.indices
+          .map(idx => Number(idx))
+          .filter(idx => Number.isInteger(idx) && idx >= 0 && idx <= maxIndex);
+      }
+      if(restoredSelection.length){
+        state.selectedCols = new Set(restoredSelection);
+      }
       if(els.statsResults){
         els.statsResults.innerHTML = savedHtml;
       }

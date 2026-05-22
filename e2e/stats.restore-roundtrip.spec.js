@@ -10,6 +10,15 @@ async function openWorkspace(page, component) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, component, { first: true });
+  await waitForComponentReady(page, component.type);
+}
+
+async function waitForComponentReady(page, componentType, timeoutMs = 30_000) {
+  await page.waitForFunction(
+    type => !!window.Components?.[type]?.ready,
+    componentType,
+    { timeout: timeoutMs }
+  );
 }
 
 async function setCheckboxes(page, ids, checked = true) {
@@ -112,6 +121,7 @@ test('scatter restores computed trendline intervals, plot stats, and statistics 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await waitForComponentReady(page, 'scatter');
   await page.waitForFunction(() => !!window.Components?.scatter?.loadFromPayload, null, { timeout: 20_000 });
   await page.evaluate(saved => {
     window.Components.scatter.loadFromPayload(saved, { reason: 'e2e-restore' });
@@ -182,6 +192,7 @@ test('scatter restores graph controls, point labels, raw formulas, and excluded 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await waitForComponentReady(page, 'scatter');
   await page.waitForFunction(() => !!window.Components?.scatter?.loadFromPayload, null, { timeout: 20_000 });
   await page.evaluate(saved => {
     window.Components.scatter.loadFromPayload(saved, { reason: 'e2e-restore' });
@@ -240,6 +251,7 @@ test('pie restores computed statistics results and calculated button state from 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'pie', pageId: 'piePage' }, { first: true });
+  await waitForComponentReady(page, 'pie');
   await page.waitForFunction(() => !!window.Components?.pie?.loadFromPayload, null, { timeout: 20_000 });
   await page.evaluate(saved => {
     window.Components.pie.loadFromPayload(saved, { reason: 'e2e-restore' });
@@ -320,6 +332,7 @@ test('line restores persisted statistics results and calculated button state fro
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
+  await waitForComponentReady(page, 'line');
   await page.waitForFunction(() => !!window.Components?.line?.loadFromPayload, null, { timeout: 20_000 });
   await page.evaluate(saved => {
     window.Components.line.loadFromPayload(saved, { reason: 'e2e-restore' });

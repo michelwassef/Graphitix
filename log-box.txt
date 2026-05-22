@@ -1,12 +1,483 @@
-box.js:24333 Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
-measureSignificanceLabelInkOffsetsPx @ box.js:24333
-box.js:26458 Debug: box stored significance annotations applied Object
-box.js:25732 Debug: box stats annotations restored for new svg Object
+ Debug: shared DOM helpers ready Object
+ Debug: exporter module ready Object
+ Debug: chartStyle.computeDefaultGraphSize Object
+ Debug: statsTable module ready Object
+ Debug: fontControls local font query skipped Object
+ Debug: fontControls font datalist initialized Object
+ Debug: fontControls combo measure ready Object
+ Debug: fontControls combo width measured Object
+ Debug: fontControls font menu options created Object
+ Debug: fontControls format toggles initialized Object
+ Debug: fontControls format row fallback width Object
+ Debug: font controls layout refreshed Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: fontControls panel initialized Object
+ Debug: main Shared.debounceFrame schedulers ready Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: workspace lifecycle contract installed Object
+ Debug: Main components module initialized Object
+ Debug: session workspaceState initialized Object
+ Debug: Main session module initialized Object
+ Debug: domControls.js wiring complete Object
+ Debug: sessionActions.js wiring complete Object
+ Debug: graphVariants module initialized Object
+ Debug: tabDrag.js wiring complete Object
+ Debug: Main previews module initialized Object
+ Debug: Main.tabs render helpers module initializing Object
+ Debug: Main.tabs unsaved prompt helpers module initializing Object
+ Debug: Main.tabs duplicate prompt helpers module initializing Object
+ Debug: Main.tabs namespace initialized Object
+ Debug: domControls.createDomHandles generated Object
+ Debug: session getActiveTab fallback Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: chartStyle.normalizeColorInput applied Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: chartStyle.onTextSizeLockChange registered Object
+ Debug: Main.tabs.createManager invoked Object
+ Debug: Main.tabs.createRenderHelpers invoked Object
+ Debug: Main.tabs helper modules wired Object
+ Debug: Main.tabs helpers attached Object
+ Debug: styleSync.init complete Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: session getActiveTab fallback Object
+ Debug: selection cards generated Object
+ Debug: session unique title computed Object
+ Debug: session createTab generated Object
+ Debug: setAppHeaderVisibility skipped Object
+ Debug: welcome screen shown Object
+ Debug: unsaved prompt handlers bound Object
+ Debug: workspace UI initialized via Main.tabs Object
+ Debug: Main session global user-input listener installed
+ Debug: session apply requested duplicate prompt hide Object
+ Debug: session file handle applied Object
+ Debug: session file name applied Object
+ Debug: session file scope applied Object
+ Debug: session unique title computed Object
+ Debug: session createTab generated Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: session runtime workspace ids rehome verified Object
+ Debug: session runtime workspace ids rehome verified Object
+ Debug: session runtime workspace ids rehome verified Object
+ Debug: session runtime workspace ids rehome verified Object
+ Debug: session runtime workspace ids rehome verified Object
+ Debug: session unique title computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: session createTab generated Object
+ Debug: session tab restored Object
+ Debug: workspace render cache validation deferred Object
+ Debug: authoritative render restore flag updated Object
+ Debug: componentLayout root hydrated Object
+ Debug: setAppHeaderVisibility skipped Object
+ Debug: workspace initialization status Object
+ Debug: session dirty flag cleared Object
+ Debug: session applied Object
+ Debug: box component DOM helpers resolved Object
+ Debug: component bundle imported Object
+ Debug: component bundle cached Object
+ Debug: Components.box.init refreshing stale DOM bindings
+ Debug: Components.box.init
+ Debug: box font size base initialized Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box layout mode initialised Object
+ Debug: box individual summary initialised Object
+ Debug: box graph-type border width sync Object
+ Debug: box stats surface hydrated from tab payload Object
+ Debug: componentLayout createStandardPanels init Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout applying wrapper styles Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: componentLayout using graphSizing helper Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: attachResizableBox helper sizing applied Object
+ Debug: attachResizableBox unlimited width enabled Object
+ Debug: attachResizableBox unlimited height enabled Object
+ Debug: resizer text lock scope resolved Object
+ Debug: resizer aspect ratio override Object
+ Debug: resizer aspect ratio set Object
+ Debug: attachResizableBox defaults Object
+ Debug: resizer control tray created Object
+ Debug: resizer aspect control created Object
+ Debug: resizer text lock control created Object
+ Debug: chartStyle.registerTextSizeLockControl Object
+ Debug: resizer text lock registered Object
+ Debug: resizer options menu created Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: attachResizableBox on boxGraphPanel
+ Debug: componentLayout attachResizableBox applied Object
+ Debug: Shared.resizer.attachPanelDragResizer attached Object
+ Debug: componentLayout panel drag resizer attached Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout registry updated Object
+ Debug: example datasets prepared Object
+ Debug: applyTableFormatToHot single
+ Debug: updateTableFormatUI Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: exporter documentListeners bound Object
+ Debug: exporter mountControls complete Object
+ Debug: box export controls mounted Object
+ Debug: fontControls markText applied Object
+ Debug: box scheduleDraw configured via Shared.debounceFrame Object
+ Debug: componentLayout scheduleDraw updated Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: ensureComponent resolved Object
+ Debug: workspace initialization recorded Object
+ Debug: box.__getState invoked
+ Debug: Components.box.init
+ Debug: box authoritative render restore activated Object
+ Debug: box font size base initialized Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box layout mode initialised Object
+ Debug: box individual summary initialised Object
+ Debug: box graph-type border width sync Object
+ Debug: box stats surface hydrated from tab payload Object
+ Debug: componentLayout createStandardPanels init Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout ResizeObserver disconnected Object
+ Debug: resizer api destroyed Object
+ Debug: Shared.resizer.attachPanelDragResizer detached Object
+ Debug: componentLayout registry entry removed Object
+ Debug: componentLayout previous instance destroyed Object
+ Debug: componentLayout applying wrapper styles Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: componentLayout using graphSizing helper Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: attachResizableBox helper sizing applied Object
+ Debug: attachResizableBox unlimited width enabled Object
+ Debug: attachResizableBox unlimited height enabled Object
+ Debug: resizer text lock scope resolved Object
+ Debug: resizer aspect ratio override Object
+ Debug: resizer aspect ratio set Object
+ Debug: attachResizableBox defaults Object
+ Debug: chartStyle.registerTextSizeLockControl removed existing handler Object
+ Debug: chartStyle.registerTextSizeLockControl Object
+ Debug: resizer text lock registered Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: attachResizableBox on boxGraphPanel
+ Debug: componentLayout attachResizableBox applied Object
+ Debug: Shared.resizer.attachPanelDragResizer attached Object
+ Debug: componentLayout panel drag resizer attached Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout registry updated Object
+ Debug: example datasets prepared Object
+ Debug: applyTableFormatToHot single
+ Debug: updateTableFormatUI Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: exporter mountControls complete Object
+ Debug: box export controls mounted Object
+ Debug: box scheduleDraw configured via Shared.debounceFrame Object
+ Debug: componentLayout scheduleDraw updated Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: box init initial draw skipped Object
+ Debug: workspace per-tab root bound Object
+ Debug: workspace ensure resolved (async) Object
+ Debug: box stats surface hydrated from tab payload Object
+ Debug: workspace render cache validation finalized Object
+ Debug: workspace initialization status Object
+ Debug: box.createEmptyPayload pure factory invoked Object
+ Debug: shadeColor Object
+ Debug: ensureDefaultPayload using createEmptyPayload Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: resolveDefaultFontSizeForType resolved Object
+ Debug: normalizeDefaultPayloadForType applied Object
+ Debug: workspace default captured Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: workspace layout default captured Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: resolveDefaultFontSizeForType resolved Object
+ Debug: normalizeDefaultPayloadForType applied Object
+ Debug: workspace payload sizing skipped Object
+ Debug: box.applyPayload version parse Object
+ Debug: box authoritative render restore released Object
+ Debug: fontControls importScopeStyles complete Object
+ Debug: box font size base restored Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: setTableFormat no change Object
+ Debug: updateTableFormatUI Object
+ Debug: applyTableFormatToHot single
+ Debug: box axis settings restored from payload Object
+ Debug: stats.listCorrections Object
+ Debug: box corrections sourced from Shared.stats Object
+ Debug: box assumption diagnostics restored Object
+ Debug: box stats config restored Object
+ Debug: box restore color labels Object
+ Debug: box authoritative render restore activated Object
+ Debug: box payload applied Object
+ Debug: workspace payload applied via custom handler Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: workspace layout graph sizing merge skipped Object
+ Debug: componentLayout minSvgWidth updated Object
+ Debug: box layout min width update Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: resizer programmatic simulated aspect lock Object
+ Debug: resizer aspect ratio set Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout applyState Object
+ Debug: workspace layout applied Object
+ Debug: box render cache restored Object
+ Debug: box authoritative render restore activated Object
+ Debug: box stats surface hydrated from tab payload Object
+ Debug: archive render cache promoted to runtime Object
+ Debug: workspace render cache restored Object
+ Debug: componentLayout tab controls synced Object
+ Debug: workspace toolbar uiState applied Object
+ Debug: workspace displayed Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: componentLayout ResizeObserver ignored unchanged size Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: box payload selectedColumns fallback from annotation model Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: box payload selectedColumns fallback from annotation model Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: box payload selectedColumns fallback from annotation model Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: preview hover enter Object
+ Debug: preview hover skipped for active tab Object
+ Debug: workspace tab selected Object
+componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
+componentLayout.js:1470 Debug: componentLayout captureState Object
+componentLayout.js:623 Debug: componentLayout tab layout override merged Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:2421 Debug: archive render cache preserved across layout signature drift (skip path) Object
+session.js:1405 Debug: authoritative render restore flag updated Object
+previews.js:935 Debug: preview capture success Object
+previews.js:1104 Debug: preview indicator synced Object
+previews.js:1352 Debug: preview stored Object
+session.js:2516 Debug: persistActiveTabState skipped live payload capture Object
+tabs.js:592 Debug: activateTab showing selection Object
+domControls.js:157 Debug: setAppHeaderVisibility skipped Object
+domControls.js:1833 Debug: welcome screen shown Object
+componentLayout.js:1096 Debug: componentLayout ResizeObserver triggered Object
+resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
+componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
+resizer.js:2620 Debug: resizer observer triggered
+componentLayout.js:1253 Debug: componentLayout resizable onResize Object
+resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
+componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
+componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
+previews.js:1538 Debug: preview hover enter Object
+previews.js:1254 Debug: preview live svg ignored outside tab root Object
+previews.js:1320 Debug: preview reuse Object
+previews.js:1555 Debug: preview hover using stored inactive preview Object
+previews.js:1405 Debug: preview tooltip element created
+previews.js:1488 Debug: preview tooltip positioned Object
+render.js:202 Debug: workspace tab selected Object
+previews.js:1456 Debug: preview tooltip hidden Object
+previews.js:1456 Debug: preview tooltip hidden Object
+session.js:1405 Debug: authoritative render restore flag updated Object
+componentLayout.js:623 Debug: componentLayout tab layout override merged Object
+componentLayout.js:595 Debug: componentLayout root hydrated Object
+domControls.js:157 Debug: setAppHeaderVisibility skipped Object
+domControls.js:135 Debug: workspace initialization status Object
+domControls.js:1783 Debug: workspace ensure skipped (cached) Object
+domControls.js:995 Debug: workspace per-tab root already active Object
+components.js:575 Debug: ensureComponent resolved synchronously (cached) Object
+box.js:25244 Debug: box stats surface hydrated from tab payload Object
+domControls.js:1481 Debug: workspace reuse without redraw Object
+previews.js:1538 Debug: preview hover enter Object
+previews.js:1456 Debug: preview tooltip hidden Object
+previews.js:1542 Debug: preview hover skipped for active tab Object
+componentLayout.js:1096 Debug: componentLayout ResizeObserver triggered Object
 resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
 resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
 resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
 componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
 resizer.js:2620 Debug: resizer observer triggered
 componentLayout.js:1253 Debug: componentLayout resizable onResize Object
 resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
@@ -15,988 +486,5 @@ resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
 componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
 componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
 componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-chartStyle.js:420 Debug: chartStyle.ptToPx Object
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize Object
-chartStyle.js:506 Debug: chartStyle.computeResizeScale Object
-chartStyle.js:427 Debug: chartStyle.pxToPt Object
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored Object
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:28336 Debug: box axis settings current Object
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-box.js:28428 Debug: box showSignificance flag Object
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed Object
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied Object
-box.js:28430 Debug: box font scaling applied Object
-box.js:28441 Debug: box style scaling applied Object
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics Object
-box.js:28461 Debug: box axis metrics Object
-box.js:28464 Debug: box showFrame state Object
-box.js:28466 Debug: box showLegend state Object
-box.js:28509 Debug: box summary selector mode Object
-box.js:28531 Debug: box draw orientation Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:28535 Debug: box legend initial state Object
-box.js:28665 Debug: box data collect skipped (view cache) Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28978 Debug: box trace colors primed Object
-box.js:28980 Debug: box color picker labels resolved Object
-fontControls.js:1432 Debug: fontControls enableForSvg attached Object
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached Object
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults Object
-box.js:29292 Debug: box fontControls enableForSvg invoked Object
-box.js:29321 Debug: box distribution cache reused Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:29661 Debug: box legend disabled Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-box.js:32250 Debug: box tick target evaluation Object
-resizer.js:1841 Debug: resizer intrinsic min size updated Object
-box.js:32289 Debug: box layout Object
-box.js:31068 Debug: box broken axis Object
-box.js:32385 Debug: box grid stroke scaled Object
-box.js:32395 Debug: box axis join span Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:32611 Debug: box x-axis span Object
-box.js:32616 Debug: box axes stroke scaled Object
-box.js:30902 Debug: box frame request Object
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied Object
-box.js:30916 Debug: box frame stroke scaled Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:32673 Debug: box font tick binding Object
-box.js:32674 Debug: box ticks stroke scaled Object
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:34341 Debug: box annotation style forwarded Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:26458 Debug: box stored significance annotations applied Object
-box.js:25732 Debug: box stats annotations restored for new svg Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:299 Debug: tab payload dirty flag cleared Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:266 Debug: tab user modification marked Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:266 Debug: tab user modification marked Object
-box.js:17218 Debug: box significance toggle Object
-box.js:26834 Debug: box stats context refresh requested Object
-box.js:26843 Debug: box stats auto-recompute for significance Object
-box.js:20538 Debug: box shapiro-wilk result Object
-box.js:20101 Debug: box QQ points computed Object
-box.js:20538 Debug: box shapiro-wilk result Object
-box.js:20101 Debug: box QQ points computed Object
-box.js:20538 Debug: box shapiro-wilk result Object
-box.js:20101 Debug: box QQ points computed Object
-box.js:20605 Debug: box variance group summary Object
-box.js:20605 Debug: box variance group summary Object
-box.js:20605 Debug: box variance group summary Object
-box.js:20663 Debug: box variance diagnostics Object
-box.js:20904 Debug: box assumption diagnostics Object
-box.js:21023 Debug: box QQ sparkline Object
-box.js:21023 Debug: box QQ sparkline Object
-box.js:21023 Debug: box QQ sparkline Object
-box.js:27242 Debug: box effect meta Object
-box.js:10585 Debug: box computeEffectSizeMetrics Object
-box.js:480 Debug: box pair effect metrics Object
-box.js:10585 Debug: box computeEffectSizeMetrics Object
-box.js:480 Debug: box pair effect metrics Object
-box.js:10585 Debug: box computeEffectSizeMetrics Object
-box.js:480 Debug: box pair effect metrics Object
-stats.js:283 Debug: stats.normalizeMethod direct match Object
-stats.js:413 Debug: stats.adjustPValues start Object
-stats.js:415 Debug: stats.adjustPValues complete Object
-box.js:6035 Debug: box applyPValueCorrection via Shared.stats Object
-stats.js:283 Debug: stats.normalizeMethod direct match Object
-stats.js:2456 Debug: stats.getCorrectionMeta Object
-box.js:6011 Debug: box resolveCorrectionMeta via Shared.stats Object
-box.js:14165 Debug: box updateStatsCorrectionSummary Object
-stats.js:283 Debug: stats.normalizeMethod direct match Object
-stats.js:2456 Debug: stats.getCorrectionMeta Object
-box.js:6011 Debug: box resolveCorrectionMeta via Shared.stats Object
-stats.js:283 Debug: stats.normalizeMethod direct match Object
-stats.js:2456 Debug: stats.getCorrectionMeta Object
-box.js:6011 Debug: box resolveCorrectionMeta via Shared.stats Object
-box.js:14165 Debug: box updateStatsCorrectionSummary Object
-box.js:28021 Debug: box pairwise correction applied Object
-stats-table.js:33 Debug: statsTable resolveFontFamily Object
-stats-table.js:33 Debug: statsTable mergeOptions Object
-stats-table.js:33 Debug: statsTable buildModel Object
-exporter.js:11 Debug: exporter mountControls complete Object
-stats-table.js:33 Debug: statsTable render export controls attached Object
-stats-table.js:33 Debug: statsTable render complete Object
-box.js:26867 Debug: box stats render via Shared.statsTable Object
-stats-table.js:33 Debug: statsTable normalizeColumns tooltip Object
-stats-table.js:33 Debug: statsTable normalizeColumns tooltip Object
-stats-table.js:33 Debug: statsTable resolveFontFamily Object
-stats-table.js:33 Debug: statsTable mergeOptions Object
-stats-table.js:33 Debug: statsTable buildModel Object
-exporter.js:11 Debug: exporter mountControls complete Object
-stats-table.js:33 Debug: statsTable render export controls attached Object
-stats-table.js:33 Debug: statsTable render complete Object
-box.js:26867 Debug: box stats render via Shared.statsTable Object
-box.js:26173 Debug: box significance annotation skipped for pairs Object
-stats-table.js:33 Debug: statsTable resolveFontFamily Object
-stats-table.js:33 Debug: statsTable mergeOptions Object
-stats-table.js:33 Debug: statsTable buildModel Object
-exporter.js:11 Debug: exporter mountControls complete Object
-stats-table.js:33 Debug: statsTable render export controls attached Object
-stats-table.js:33 Debug: statsTable render complete Object
-box.js:25101 Debug: box renderStatsTable using Shared.statsTable Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:266 Debug: tab user modification marked Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:299 Debug: tab payload dirty flag cleared Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:2784 Debug: workspace state persisted Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-chartStyle.js:420 Debug: chartStyle.ptToPx Object
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize Object
-chartStyle.js:506 Debug: chartStyle.computeResizeScale Object
-chartStyle.js:427 Debug: chartStyle.pxToPt Object
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored Object
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:28336 Debug: box axis settings current Object
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-box.js:28428 Debug: box showSignificance flag Object
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed Object
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied Object
-box.js:28430 Debug: box font scaling applied Object
-box.js:28441 Debug: box style scaling applied Object
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics Object
-box.js:28461 Debug: box axis metrics Object
-box.js:28464 Debug: box showFrame state Object
-box.js:28466 Debug: box showLegend state Object
-box.js:28509 Debug: box summary selector mode Object
-box.js:28531 Debug: box draw orientation Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:28535 Debug: box legend initial state Object
-box.js:28665 Debug: box data collect skipped (view cache) Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28978 Debug: box trace colors primed Object
-box.js:28980 Debug: box color picker labels resolved Object
-fontControls.js:1432 Debug: fontControls enableForSvg attached Object
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached Object
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults Object
-box.js:29292 Debug: box fontControls enableForSvg invoked Object
-box.js:29321 Debug: box distribution cache reused Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:29661 Debug: box legend disabled Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-box.js:32250 Debug: box tick target evaluation Object
-resizer.js:1841 Debug: resizer intrinsic min size updated Object
-box.js:32289 Debug: box layout Object
-box.js:31068 Debug: box broken axis Object
-box.js:32385 Debug: box grid stroke scaled Object
-box.js:32395 Debug: box axis join span Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:32611 Debug: box x-axis span Object
-box.js:32616 Debug: box axes stroke scaled Object
-box.js:30902 Debug: box frame request Object
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied Object
-box.js:30916 Debug: box frame stroke scaled Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:32673 Debug: box font tick binding Object
-box.js:32674 Debug: box ticks stroke scaled Object
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-resizer.js:1307 Debug: resizer aspect ratio set Object
-resizer.js:1427 Debug: resizer applyResize helper Object
-resizer.js:1621 Debug: resizer applyProgrammaticResize Object
-componentLayout.js:1253 Debug: componentLayout resizable onResize Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:333 Debug: componentLayout graph dataset size authority reapplied Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:34341 Debug: box annotation style forwarded Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:2642 Debug: persistActiveTabState payload drift observed (auto-healed by live capture) Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:266 Debug: tab user modification marked Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:266 Debug: tab user modification marked Object
-box.js:17218 Debug: box significance toggle Object
-box.js:26834 Debug: box stats context refresh requested Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:26458 Debug: box stored significance annotations applied Object
-box.js:25744 Debug: box stats annotations restored for same svg redraw Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-chartStyle.js:420 Debug: chartStyle.ptToPx Object
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize Object
-chartStyle.js:506 Debug: chartStyle.computeResizeScale Object
-chartStyle.js:427 Debug: chartStyle.pxToPt Object
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored Object
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:28336 Debug: box axis settings current Object
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-box.js:28428 Debug: box showSignificance flag Object
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed Object
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied Object
-box.js:28430 Debug: box font scaling applied Object
-box.js:28441 Debug: box style scaling applied Object
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics Object
-box.js:28461 Debug: box axis metrics Object
-box.js:28464 Debug: box showFrame state Object
-box.js:28466 Debug: box showLegend state Object
-box.js:28509 Debug: box summary selector mode Object
-box.js:28531 Debug: box draw orientation Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:28535 Debug: box legend initial state Object
-box.js:28665 Debug: box data collect skipped (view cache) Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28978 Debug: box trace colors primed Object
-box.js:28980 Debug: box color picker labels resolved Object
-fontControls.js:1432 Debug: fontControls enableForSvg attached Object
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached Object
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults Object
-box.js:29292 Debug: box fontControls enableForSvg invoked Object
-box.js:29321 Debug: box distribution cache reused Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:29661 Debug: box legend disabled Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-box.js:32250 Debug: box tick target evaluation Object
-resizer.js:1841 Debug: resizer intrinsic min size updated Object
-box.js:32289 Debug: box layout Object
-box.js:31068 Debug: box broken axis Object
-box.js:32385 Debug: box grid stroke scaled Object
-box.js:32395 Debug: box axis join span Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:32611 Debug: box x-axis span Object
-box.js:32616 Debug: box axes stroke scaled Object
-box.js:30902 Debug: box frame request Object
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied Object
-box.js:30916 Debug: box frame stroke scaled Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:32673 Debug: box font tick binding Object
-box.js:32674 Debug: box ticks stroke scaled Object
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-resizer.js:1307 Debug: resizer aspect ratio set Object
-resizer.js:1427 Debug: resizer applyResize helper Object
-resizer.js:1621 Debug: resizer applyProgrammaticResize Object
-componentLayout.js:1253 Debug: componentLayout resizable onResize Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:333 Debug: componentLayout graph dataset size authority reapplied Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-fontControls.js:1432 Debug: fontControls registerNodeForKey cleanup Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:34341 Debug: box annotation style forwarded Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:26458 Debug: box stored significance annotations applied Object
-box.js:25732 Debug: box stats annotations restored for new svg Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-chartStyle.js:420 Debug: chartStyle.ptToPx Object
-chartStyle.js:435 Debug: chartStyle.normalizeFontSize Object
-chartStyle.js:506 Debug: chartStyle.computeResizeScale Object
-chartStyle.js:427 Debug: chartStyle.pxToPt Object
-chartStyle.js:619 Debug: chartStyle.resolveScaledFontSize display stored Object
-chartStyle.js:627 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
-chartStyle.js:652 Debug: chartStyle.resolveScaledFontSize Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:28336 Debug: box axis settings current Object
-chartStyle.js:992 Debug: chartStyle.scaleStrokeWidth exact applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-box.js:28428 Debug: box showSignificance flag Object
-chartStyle.js:2270 Debug: chartStyle.renderFontSizeLabel control observed Object
-chartStyle.js:2287 Debug: chartStyle.renderFontSizeLabel applied Object
-box.js:28430 Debug: box font scaling applied Object
-box.js:28441 Debug: box style scaling applied Object
-chartStyle.js:1407 Debug: chartStyle.createAxisMetrics Object
-box.js:28461 Debug: box axis metrics Object
-box.js:28464 Debug: box showFrame state Object
-box.js:28466 Debug: box showLegend state Object
-box.js:28509 Debug: box summary selector mode Object
-box.js:28531 Debug: box draw orientation Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:28535 Debug: box legend initial state Object
-box.js:28665 Debug: box data collect skipped (view cache) Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28544 Debug: box resolveTraceColor Object
-box.js:28978 Debug: box trace colors primed Object
-box.js:28980 Debug: box color picker labels resolved Object
-fontControls.js:1432 Debug: fontControls enableForSvg attached Object
-chartStyle.js:2201 Debug: chartStyle.applySvgDefaults fontControls attached Object
-chartStyle.js:2207 Debug: chartStyle.applySvgDefaults Object
-box.js:29292 Debug: box fontControls enableForSvg invoked Object
-box.js:29321 Debug: box distribution cache reused Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:2353 Debug: chartStyle.createLegendRenderer metrics Object
-box.js:29661 Debug: box legend disabled Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-chartStyle.js:454 Debug: chartStyle.makeFont Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:2096 Debug: chartStyle.computeBaseMargins Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1055 Debug: chartStyle.measureText Object
-chartStyle.js:1489 Debug: chartStyle.computeBottomLayout Object
-chartStyle.js:1032 Debug: chartStyle.estimateTickCount Object
-box.js:32250 Debug: box tick target evaluation Object
-resizer.js:1841 Debug: resizer intrinsic min size updated Object
-box.js:32289 Debug: box layout Object
-box.js:31068 Debug: box broken axis Object
-box.js:32385 Debug: box grid stroke scaled Object
-box.js:32395 Debug: box axis join span Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:32611 Debug: box x-axis span Object
-box.js:32616 Debug: box axes stroke scaled Object
-box.js:30902 Debug: box frame request Object
-chartStyle.js:2593 Debug: chartStyle.drawPlotFrame applied Object
-box.js:30916 Debug: box frame stroke scaled Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:32673 Debug: box font tick binding Object
-box.js:32674 Debug: box ticks stroke scaled Object
-chartStyle.js:1552 Debug: chartStyle.applyLabelOrientation result Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-box.js:28544 Debug: box resolveTraceColor Object
-chartStyle.js:966 Debug: chartStyle.scaleLength Object
-chartStyle.js:1002 Debug: chartStyle.scaleStrokeWidth applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:9023 Debug: box markFontEditable Object
-dom.js:7 Debug: makeEditable bound Object
-dom.js:7 Debug: enableLabelDrag bound Object
-box.js:34341 Debug: box annotation style forwarded Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-fontControls.js:1432 Debug: fontControls markText applied Object
-box.js:26458 Debug: box stored significance annotations applied Object
-box.js:25732 Debug: box stats annotations restored for new svg Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:299 Debug: tab payload dirty flag cleared Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:353 Debug: session dirty flag updated Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-session.js:1983 Debug: tab data detected after header skip Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:6053 Debug: shadeColor Object
-box.js:14368 Debug: box graph-type border width sync Object
-box.js:14368 Debug: box graph-type border width sync Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-box.js:34636 Debug: box.getPayload captured state Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
-componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
-componentLayout.js:1470 Debug: componentLayout captureState Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:2598 Debug: session graph sizing enrich skipped Object
-session.js:2613 Debug: session graph sizing layout merge skipped Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:1592 Debug: assignTabPayload applied Object
-session.js:681 Debug: serializePayloadSignature computed Object
-previews.js:935 Debug: preview capture success Object
-previews.js:1104 Debug: preview indicator synced Object
-previews.js:1352 Debug: preview stored Object
-session.js:2784 Debug: workspace state persisted Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
-session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:681 Debug: serializePayloadSignature computed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:416 Debug: fastClonePayload using structuredClone Object
-session.js:503 Debug: clonePayload completed Object
-session.js:1983 Debug: tab data detected after header skip Object
+previews.js:1456 Debug: preview tooltip hidden Object
+previews.js:1456 Debug: preview tooltip hidden Object

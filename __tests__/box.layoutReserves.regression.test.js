@@ -150,6 +150,8 @@ function readBoxAxisMetrics(){
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation').length,
     plotHeightPx: Number(graphGeometry?.plot?.heightPx) || null,
     plotWidthPx: Number(graphGeometry?.plot?.widthPx) || null,
+    topReservePx: Number(graphGeometry?.reserves?.topPx) || null,
+    bottomReservePx: Number(graphGeometry?.reserves?.bottomPx) || null,
     axisLabelCount: axisLabels.length,
     rotatedCategoryLabelCount,
     svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
@@ -242,6 +244,18 @@ async function ensureStatsAndSignificanceReady(){
   }, { timeout: 30_000, interval: 60 });
 
   await flushAsyncWork(40);
+}
+
+async function setSignificanceAndRedraw(enabled){
+  const boxComponent = window.Components?.box;
+  const toggle = document.getElementById('boxShowSignificance');
+  expect(boxComponent?.draw).toBeInstanceOf(Function);
+  expect(toggle).toBeTruthy();
+  toggle.checked = !!enabled;
+  toggle.dispatchEvent(new Event('change', { bubbles: true }));
+  await flushAsyncWork(60);
+  await boxComponent.draw();
+  await flushAsyncWork(60);
 }
 
 describe('Box layout reserves under horizontal shrink', () => {
@@ -493,5 +507,102 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(flippedRestoredAfterPropagation.flipTransitionOrientation).toBe('horizontal');
     expect(flippedRestoredAfterPropagation.svgBoxWidthPx).toBeGreaterThan(0);
     expect(flippedRestoredAfterPropagation.svgBoxHeightPx).toBeGreaterThan(0);
+  });
+
+  test('non-flip significance off-on restores reserve without stretching axes', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+    await ensureStatsAndSignificanceReady();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    const withSignificance = readBoxAxisMetrics();
+    expect(withSignificance).toBeTruthy();
+    expect(withSignificance.flipAxes).toBe(false);
+    expect(withSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(withSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
+
+    await setSignificanceAndRedraw(false);
+    const withoutSignificance = readBoxAxisMetrics();
+    expect(withoutSignificance).toBeTruthy();
+    expect(withoutSignificance.flipAxes).toBe(false);
+    expect(withoutSignificance.significancePathCount).toBe(0);
+    expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
+    expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
+    expect(withoutSignificance.svgBoxHeightPx).toBeLessThan(withSignificance.svgBoxHeightPx - 4);
+    expect(withoutSignificance.topReservePx).toBeLessThan(withSignificance.topReservePx - 4);
+    expect(Math.abs(withoutSignificance.bottomReservePx - withSignificance.bottomReservePx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(withoutSignificance.plotWidthPx - withSignificance.plotWidthPx)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(withoutSignificance.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(1.5);
+
+    await setSignificanceAndRedraw(true);
+    const restoredAfterReenable = readBoxAxisMetrics();
+    expect(restoredAfterReenable).toBeTruthy();
+    expect(restoredAfterReenable.flipAxes).toBe(false);
+    expect(restoredAfterReenable.significancePathCount).toBeGreaterThan(0);
+    expect(restoredAfterReenable.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restoredAfterReenable.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 4);
+    expect(restoredAfterReenable.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 4);
+    expect(Math.abs(restoredAfterReenable.svgBoxHeightPx - withSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(6);
+    expect(Math.abs(restoredAfterReenable.topReservePx - withSignificance.topReservePx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(restoredAfterReenable.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(restoredAfterReenable.yAxisSpan).toBeGreaterThan(0);
+  });
+
+  test('significance toggle-off after flip-unflip removes reserve without stretching axes', async () => {
+    await activateWorkspace('box');
+    await loadBoxExample();
+    await applyLongBoxLabels();
+    await ensureStatsAndSignificanceReady();
+
+    const controller = createBoxDimensionController(980, 560);
+    await setBoxWidthAndRedraw(controller, 980, 560);
+    const beforeFlip = readBoxAxisMetrics();
+    expect(beforeFlip).toBeTruthy();
+    expect(beforeFlip.flipAxes).toBe(false);
+    expect(beforeFlip.significancePathCount).toBeGreaterThan(0);
+    expect(beforeFlip.significanceViewportExtensionPx).toBeGreaterThan(0);
+
+    await setFlipAxesAndRedraw(true);
+    await setFlipAxesAndRedraw(false);
+    const restoredWithSignificance = readBoxAxisMetrics();
+    expect(restoredWithSignificance).toBeTruthy();
+    expect(restoredWithSignificance.flipAxes).toBe(false);
+    expect(restoredWithSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restoredWithSignificance.xAxisSpan).toBeGreaterThan(0);
+    expect(restoredWithSignificance.yAxisSpan).toBeGreaterThan(0);
+
+    await setSignificanceAndRedraw(false);
+    const withoutSignificance = readBoxAxisMetrics();
+    expect(withoutSignificance).toBeTruthy();
+    expect(withoutSignificance.flipAxes).toBe(false);
+    expect(withoutSignificance.significancePathCount).toBe(0);
+    expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
+    expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
+    expect(Math.abs(withoutSignificance.bottomViewportExtensionPx - restoredWithSignificance.bottomViewportExtensionPx)).toBeLessThanOrEqual(2);
+    expect(withoutSignificance.topReservePx).toBeLessThan(restoredWithSignificance.topReservePx - 4);
+    expect(Math.abs(withoutSignificance.bottomReservePx - restoredWithSignificance.bottomReservePx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(withoutSignificance.plotWidthPx - restoredWithSignificance.plotWidthPx)).toBeLessThanOrEqual(1.5);
+    expect(withoutSignificance.yAxisSpan).toBeGreaterThan(0);
+    expect(withoutSignificance.plotHeightPx).toBeGreaterThan(0);
+
+    await setSignificanceAndRedraw(true);
+    const reenabledSignificance = readBoxAxisMetrics();
+    expect(reenabledSignificance).toBeTruthy();
+    expect(reenabledSignificance.flipAxes).toBe(false);
+    expect(reenabledSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(reenabledSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(reenabledSignificance.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 4);
+    expect(Math.abs(reenabledSignificance.svgBoxHeightPx - restoredWithSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(6);
+    expect(reenabledSignificance.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 4);
+    expect(Math.abs(reenabledSignificance.topReservePx - restoredWithSignificance.topReservePx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(reenabledSignificance.plotHeightPx - restoredWithSignificance.plotHeightPx)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(reenabledSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(reenabledSignificance.yAxisSpan).toBeGreaterThan(0);
   });
 });

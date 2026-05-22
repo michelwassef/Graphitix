@@ -342,11 +342,8 @@ async function setFlipAxes(page, enabled) {
 
 async function computeStatsAndEnableSignificance(page, options = {}) {
   const expectedFlip = options.expectedFlip;
-  const expectedFlipTri = expectedFlip === true ? 1 : (expectedFlip === false ? 0 : -1);
   const computeButton = page.locator('#boxComputeStats');
-  const significanceToggle = page.locator('#boxShowSignificance');
   await expect(computeButton).toBeVisible({ timeout: 20_000 });
-  await expect(significanceToggle).toBeVisible({ timeout: 20_000 });
 
   await computeButton.click();
   await page.waitForFunction(() => {
@@ -358,10 +355,22 @@ async function computeStatsAndEnableSignificance(page, options = {}) {
       && /up to date/i.test(String(status?.textContent || ''));
   }, null, { timeout: 45_000 });
 
-  await significanceToggle.check();
-  await page.waitForFunction((expectedFlipState) => {
+  await setShowSignificance(page, true, { expectedFlip });
+}
+
+async function setShowSignificance(page, enabled, options = {}) {
+  const expectedFlip = options.expectedFlip;
+  const expectedFlipTri = expectedFlip === true ? 1 : (expectedFlip === false ? 0 : -1);
+  const significanceToggle = page.locator('#boxShowSignificance');
+  await expect(significanceToggle).toBeVisible({ timeout: 20_000 });
+  if (enabled) {
+    await significanceToggle.check();
+  } else {
+    await significanceToggle.uncheck();
+  }
+  await page.waitForFunction(({ expectedEnabled, expectedFlipState }) => {
     const state = window.Components?.box?.__getState?.();
-    if (!state || state.showSignificanceBars !== true) {
+    if (!state || state.showSignificanceBars !== expectedEnabled) {
       return false;
     }
     if (expectedFlipState === 1 && state.flipAxes !== true) {
@@ -372,11 +381,21 @@ async function computeStatsAndEnableSignificance(page, options = {}) {
     }
     const count = document.querySelectorAll('#boxPlot path.box-significance-annotation').length;
     const horizontalReserve = (Number(state.leftViewportExtensionPx) || 0) + (Number(state.rightViewportExtensionPx) || 0);
-    if (expectedFlipState === 1) {
-      return count > 0 && horizontalReserve > 0;
+    const verticalReserve = Number(state.significanceViewportExtensionPx) || 0;
+    if (expectedEnabled) {
+      if (expectedFlipState === 1) {
+        return count > 0 && horizontalReserve > 0;
+      }
+      if (expectedFlipState === 0) {
+        return count > 0 && verticalReserve > 0;
+      }
+      return count > 0;
     }
-    return count > 0;
-  }, expectedFlipTri, { timeout: 30_000 });
+    return count === 0 && verticalReserve === 0;
+  }, {
+    expectedEnabled: !!enabled,
+    expectedFlipState: expectedFlipTri
+  }, { timeout: 30_000 });
   await page.waitForFunction(() => {
     const state = window.Components?.box?.__getState?.();
     if (!state) return false;
@@ -692,6 +711,126 @@ test.describe('Box flip axes with manual resize', () => {
       axisTolerance: 16,
       plotTolerance: 22
     });
+
+    expect(issues.critical).toEqual([]);
+  });
+
+  test('non-flip significance off-on restores vertical reserve without plot distortion', async ({ page }) => {
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+    await loadStripExample(page);
+    await computeStatsAndEnableSignificance(page, { expectedFlip: false });
+
+    const withSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(withSignificance).not.toBeNull();
+    expect(withSignificance.flipAxes).toBe(false);
+    expect(withSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(withSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(withSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
+
+    await setShowSignificance(page, false, { expectedFlip: false });
+    const withoutSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(withoutSignificance).not.toBeNull();
+    expect(withoutSignificance.flipAxes).toBe(false);
+    expect(withoutSignificance.significancePathCount).toBe(0);
+    expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
+    expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
+    expect(withoutSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(withoutSignificance.svgBoxHeightPx).toBeLessThan(withSignificance.svgBoxHeightPx - 6);
+    expect(withoutSignificance.topReservePx).toBeLessThan(withSignificance.topReservePx - 6);
+    expect(Math.abs(withoutSignificance.bottomReservePx - withSignificance.bottomReservePx)).toBeLessThanOrEqual(8);
+    expect(Math.abs(withoutSignificance.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.yAxisSpan - withSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotWidthPx - withSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+
+    await setShowSignificance(page, true, { expectedFlip: false });
+    const restoredAfterReenable = await page.evaluate(readFlipTransposeMetrics);
+    expect(restoredAfterReenable).not.toBeNull();
+    expect(restoredAfterReenable.flipAxes).toBe(false);
+    expect(restoredAfterReenable.significancePathCount).toBeGreaterThan(0);
+    expect(restoredAfterReenable.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restoredAfterReenable.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(restoredAfterReenable.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 6);
+    expect(restoredAfterReenable.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 6);
+    expect(Math.abs(restoredAfterReenable.svgBoxHeightPx - withSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(10);
+    expect(Math.abs(restoredAfterReenable.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.yAxisSpan - withSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.plotWidthPx - withSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+
+    expect(issues.critical).toEqual([]);
+  });
+
+  test('significance toggle-off after flip-unflip removes top reserve without axis stretch', async ({ page }) => {
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+    await loadStripExample(page);
+    await computeStatsAndEnableSignificance(page, { expectedFlip: false });
+
+    const beforeFlip = await page.evaluate(readFlipTransposeMetrics);
+    expect(beforeFlip).not.toBeNull();
+    expect(beforeFlip.flipAxes).toBe(false);
+    expect(beforeFlip.significancePathCount).toBeGreaterThan(0);
+    expect(beforeFlip.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(beforeFlip.overflowMaxPx).toBeLessThanOrEqual(2.5);
+
+    await setFlipAxes(page, true);
+    await setFlipAxes(page, false);
+    const restoredWithSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(restoredWithSignificance).not.toBeNull();
+    expect(restoredWithSignificance.flipAxes).toBe(false);
+    expect(restoredWithSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restoredWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expectOrientationStable(restoredWithSignificance, beforeFlip, {
+      label: 'restore before significance off',
+      svgTolerance: 14,
+      axisTolerance: 16,
+      plotTolerance: 22
+    });
+
+    await setShowSignificance(page, false, { expectedFlip: false });
+    const withoutSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(withoutSignificance).not.toBeNull();
+    expect(withoutSignificance.flipAxes).toBe(false);
+    expect(withoutSignificance.significancePathCount).toBe(0);
+    expect(withoutSignificance.significanceViewportExtensionPx).toBe(0);
+    expect(withoutSignificance.bottomViewportExtensionPx).toBeGreaterThan(0);
+    expect(withoutSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(Math.abs(withoutSignificance.bottomViewportExtensionPx - restoredWithSignificance.bottomViewportExtensionPx)).toBeLessThanOrEqual(6);
+    expect(withoutSignificance.svgBoxHeightPx).toBeLessThan(restoredWithSignificance.svgBoxHeightPx - 6);
+    expect(withoutSignificance.topReservePx).not.toBeNull();
+    expect(restoredWithSignificance.topReservePx).not.toBeNull();
+    expect(withoutSignificance.topReservePx).toBeLessThan(restoredWithSignificance.topReservePx - 6);
+    expect(Math.abs(withoutSignificance.bottomReservePx - restoredWithSignificance.bottomReservePx)).toBeLessThanOrEqual(8);
+    expect(Math.abs(withoutSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.yAxisSpan - restoredWithSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotWidthPx - restoredWithSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotHeightPx - restoredWithSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+
+    await setShowSignificance(page, true, { expectedFlip: false });
+    const restoredAfterReenable = await page.evaluate(readFlipTransposeMetrics);
+    expect(restoredAfterReenable).not.toBeNull();
+    expect(restoredAfterReenable.flipAxes).toBe(false);
+    expect(restoredAfterReenable.significancePathCount).toBeGreaterThan(0);
+    expect(restoredAfterReenable.significanceViewportExtensionPx).toBeGreaterThan(0);
+    expect(restoredAfterReenable.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(restoredAfterReenable.svgBoxHeightPx).toBeGreaterThan(withoutSignificance.svgBoxHeightPx + 6);
+    expect(restoredAfterReenable.topReservePx).toBeGreaterThan(withoutSignificance.topReservePx + 6);
+    expect(Math.abs(restoredAfterReenable.svgBoxHeightPx - restoredWithSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(10);
+    expect(Math.abs(restoredAfterReenable.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.yAxisSpan - restoredWithSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.plotWidthPx - restoredWithSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredAfterReenable.plotHeightPx - restoredWithSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
 
     expect(issues.critical).toEqual([]);
   });

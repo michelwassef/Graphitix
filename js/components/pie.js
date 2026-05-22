@@ -592,6 +592,7 @@ let state = {
     bottomViewportExtensionPx: 0,
     viewportExtensionResizeInProgress: false,
     lastViewportExtensionRedrawSignature: null,
+    applyingPayload: false,
     resizeState: {
       active: false,
       phase: null,
@@ -1912,6 +1913,12 @@ let state = {
   }
 
   function requestPieStatsContextRefresh(reason){
+    if(state.applyingPayload){
+      if(pieDebugEnabled()){
+        pieDebug('Debug: pie stats context refresh suppressed during payload apply', { reason: reason || 'unspecified' });
+      }
+      return;
+    }
     const stats = getPieStatsConfig();
     stats.contextSignature = null;
     stats.pending = false;
@@ -3483,7 +3490,11 @@ let state = {
           pieDebug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
-      requestPieStatsContextRefresh('table-edit');
+      if(!state.applyingPayload){
+        requestPieStatsContextRefresh('table-edit');
+      }else if(pieDebugEnabled()){
+        pieDebug('Debug: pie table-edit stats refresh skipped during payload apply');
+      }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }
@@ -3980,6 +3991,9 @@ let state = {
         console.warn('pie payload rejected', { source, hasType: !!payload?.type });
         return false;
       }
+      const previousApplyingPayload = state.applyingPayload === true;
+      state.applyingPayload = true;
+      try{
       const skipDraw = meta?.skipDraw === true;
       const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
       const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
@@ -4075,6 +4089,20 @@ let state = {
         valueColumn: config.valueColumn ?? config.stats?.valueColumn,
         expectedColumn: config.expectedColumn ?? config.stats?.expectedColumn
       });
+      const hasStatsPayload = config.stats && typeof config.stats === 'object';
+      if(hasStatsPayload){
+        const statsState = getPieStatsConfig();
+        const savedLastRunSignature = typeof config.stats.lastRunSignature === 'string'
+          ? config.stats.lastRunSignature
+          : null;
+        const restoredStatsResults = pieStatsPanelHasRenderedResults();
+        if(savedLastRunSignature && restoredStatsResults){
+          statsState.contextSignature = savedLastRunSignature;
+          statsState.lastRunSignature = savedLastRunSignature;
+          setPieStatsStatus('Statistics up to date.');
+          updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        }
+      }
       state.colors = (config.colors && typeof config.colors === 'object') ? { ...config.colors } : {};
       const axisConfig = config.axis || config.axisSettings;
       if(axisConfig){
@@ -4096,6 +4124,9 @@ let state = {
       }
       pieDebug('Debug: pie payload applied', { source, rows: dataToLoad.length });
       return true;
+      }finally{
+        state.applyingPayload = previousApplyingPayload;
+      }
     }
     function collectConfig(){
       const axisSettings = ensureAxisSettings();
