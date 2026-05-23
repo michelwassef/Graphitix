@@ -77,57 +77,52 @@
     return { ...intent };
   }
 
+  function getSnapshotPolicyApi() {
+    const policy = Main?.snapshotPolicy;
+    if (policy && typeof policy === 'object') {
+      return policy;
+    }
+    return null;
+  }
+
   function resolvePersistSnapshotIntent(options = {}) {
+    const snapshotPolicy = getSnapshotPolicyApi();
+    if (snapshotPolicy && typeof snapshotPolicy.resolvePersistSnapshotIntent === 'function') {
+      return snapshotPolicy.resolvePersistSnapshotIntent(options);
+    }
     const explicit = cloneSnapshotIntent(options.snapshotIntent);
     if (Object.keys(explicit).length) {
       return explicit;
     }
-    const kind = String(options.snapshotKind || '').trim().toLowerCase();
-    switch (kind) {
-      case 'archive-save':
-      case 'document-snapshot':
-      case 'append-existing':
-        return {
-          saveLike: true,
-          captureLivePayload: true,
-          allowSkipLivePayloadCapture: false,
-          runSkippedPayloadDriftProbe: true,
-          promoteSkippedPayloadDrift: true,
-          reasonSkippable: false
-        };
-      case 'warmup-cache':
-        return {
-          saveLike: false,
-          captureLivePayload: false,
-          skipLivePayloadCapture: true,
-          allowSkipLivePayloadCapture: true,
-          lifecycleSnapshot: true,
-          runSkippedPayloadDriftProbe: false,
-          promoteSkippedPayloadDrift: false,
-          reasonSkippable: true
-        };
-      case 'autosave':
-        return {
-          saveLike: false,
-          allowSkipLivePayloadCapture: true,
-          lifecycleSnapshot: true,
-          runSkippedPayloadDriftProbe: false,
-          promoteSkippedPayloadDrift: false,
-          reasonSkippable: true
-        };
-      case 'lifecycle-checkpoint':
-      default:
-        return {
-          saveLike: false,
-          allowSkipLivePayloadCapture: true,
-          lifecycleSnapshot: true,
-          runSkippedPayloadDriftProbe: false,
-          promoteSkippedPayloadDrift: false,
-          reasonSkippable: true
-        };
-    }
+    return {
+      saveLike: false,
+      allowSkipLivePayloadCapture: true,
+      lifecycleSnapshot: true,
+      runSkippedPayloadDriftProbe: false,
+      promoteSkippedPayloadDrift: false,
+      reasonSkippable: true
+    };
   }
   namespace.resolvePersistSnapshotIntent = resolvePersistSnapshotIntent;
+
+  function resolveArchiveBuildPolicy(options = {}) {
+    const snapshotPolicy = getSnapshotPolicyApi();
+    if (snapshotPolicy && typeof snapshotPolicy.resolveArchiveBuildPolicy === 'function') {
+      return snapshotPolicy.resolveArchiveBuildPolicy(options);
+    }
+    return {
+      snapshotKind: String(options.snapshotKind || '').trim().toLowerCase() || 'lifecycle-checkpoint',
+      snapshotIntent: resolvePersistSnapshotIntent(options),
+      captureRenderCache: options.captureRenderCacheBeforeSnapshot !== false,
+      preserveRenderCacheTabScope: options.captureRenderCacheBeforeSnapshot !== false ? 'all' : 'active-only',
+      highFidelityEligible: false,
+      highFidelityRecoveryEnabled: !!options.highFidelityRecoveryEnabled,
+      idleForMs: Number(options.idleForMs || 0),
+      idleThresholdMs: 2500,
+      idle: false,
+      policyId: 'fallback'
+    };
+  }
 
 
   function rehomeArchiveValue(session, value, tabId) {
@@ -1253,16 +1248,28 @@
     } catch (err) {
       console.error('saveWorkspaceArchiveWithScope active ready error', err);
     }
-    const snapshotKind = options.snapshotKind
+    const requestedSnapshotKind = options.snapshotKind
       || (options.reason === 'autosave' ? 'autosave' : 'archive-save');
-    const captureRenderCache = options.captureRenderCacheBeforeSnapshot !== false
-      && snapshotKind !== 'autosave';
-    const preserveRenderCacheTabIds = captureRenderCache
+    const snapshotPolicy = resolveArchiveBuildPolicy({
+      mode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
+      snapshotKind: requestedSnapshotKind,
+      snapshotIntent: options.snapshotIntent,
+      reason: options.reason || 'archive-save',
+      scope,
+      captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
+      highFidelityRecoveryEnabled: options.highFidelityRecoveryEnabled,
+      idleForMs: options.idleForMs,
+      idleThresholdMs: options.idleThresholdMs
+    });
+    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
+    const captureRenderCache = snapshotPolicy.captureRenderCache !== false;
+    const preserveRenderCacheTabIds = snapshotPolicy.preserveRenderCacheTabScope === 'all'
       ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
       : [session.getActiveTab?.()?.id || null].filter(Boolean);
     const snapshot = buildScopeSnapshot(context, scope, {
       ...options,
       snapshotKind,
+      snapshotIntent: snapshotPolicy.snapshotIntent,
       captureRenderCache,
       preserveRenderCacheTabIds
     });
@@ -1352,7 +1359,10 @@
     debug(context, 'saveWorkspaceArchiveWithScope.result', {
       scope,
       status: result?.status || null,
-      via: result?.via || null
+      via: result?.via || null,
+      snapshotKind,
+      captureRenderCache,
+      snapshotPolicyId: snapshotPolicy.policyId || 'unknown'
     });
     return Object.assign({ scope }, result || {});
   };
@@ -1548,10 +1558,24 @@
       throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
     }
     const snapshotScope = options.scope === 'tab' ? 'tab' : 'workspace';
-    const snapshotKind = options.snapshotKind || 'document-snapshot';
-    const preserveRenderCacheTabIds = getGraphTabsFromWorkspaceState(context?.workspaceState || null)
-      .map(tab => tab && tab.id)
-      .filter(Boolean);
+    const requestedSnapshotKind = options.snapshotKind || 'document-snapshot';
+    const snapshotPolicy = resolveArchiveBuildPolicy({
+      mode: options.policyMode || options.mode || 'manual-save',
+      snapshotKind: requestedSnapshotKind,
+      snapshotIntent: options.snapshotIntent,
+      reason: options.reason || 'document-snapshot',
+      scope: snapshotScope,
+      captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
+      highFidelityRecoveryEnabled: options.highFidelityRecoveryEnabled,
+      idleForMs: options.idleForMs,
+      idleThresholdMs: options.idleThresholdMs
+    });
+    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
+    const preserveRenderCacheTabIds = snapshotPolicy.preserveRenderCacheTabScope === 'all'
+      ? getGraphTabsFromWorkspaceState(context?.workspaceState || null)
+        .map(tab => tab && tab.id)
+        .filter(Boolean)
+      : [context?.session?.getActiveTab?.()?.id || null].filter(Boolean);
     if (!preserveRenderCacheTabIds.length) {
       const activeId = context?.session?.getActiveTab?.()?.id || null;
       if (activeId) {
@@ -1562,7 +1586,8 @@
       ...options,
       reason: options.reason || 'document-snapshot',
       snapshotKind,
-      captureRenderCache: options.captureRenderCacheBeforeSnapshot !== false,
+      snapshotIntent: snapshotPolicy.snapshotIntent,
+      captureRenderCache: snapshotPolicy.captureRenderCache !== false,
       preserveRenderCacheTabIds
     });
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
@@ -1613,7 +1638,6 @@
         ...options,
         reason: options.reason || 'autosave',
         snapshotKind: 'autosave',
-        captureRenderCacheBeforeSnapshot: false,
         scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
         forcePicker: false,
         allowFallback: false
@@ -1627,7 +1651,6 @@
             ...options,
             reason: options.reason || 'autosave',
             snapshotKind: 'autosave',
-            captureRenderCacheBeforeSnapshot: false,
             scope: workspaceState.sessionFileScope === 'tab' ? 'tab' : 'workspace',
             forcePicker: false,
             allowFallback: false

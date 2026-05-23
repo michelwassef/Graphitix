@@ -5694,6 +5694,27 @@ let state = {
         hasGraph
       });
     }
+    try{
+      const matrix = getPieStatsDataMatrix();
+      const dataModel = buildPieStatsDataModel(matrix);
+      state.statsDataModel = dataModel;
+      ensurePieStatsSelections(dataModel);
+      renderPieStatsControls(dataModel, { reason: 'render-cache-restore' });
+      const statsState = getPieStatsConfig();
+      if(pieStatsPanelHasRenderedResults()){
+        const signature = buildPieStatsContextSignature(dataModel);
+        statsState.contextSignature = signature;
+        statsState.lastRunSignature = signature;
+        statsState.restorePending = null;
+        setPieStatsStatus('Statistics up to date.');
+        updatePieStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        updatePieStatsCorrectionSummary(estimatePieStatsComparisonCount());
+      }else{
+        primePieStatsComputation({ matrix, reason: 'render-cache-restore' });
+      }
+    }catch(err){
+      console.error('pie render cache stats reconcile error', err);
+    }
     return restored;
   };
   function resolvePiePreviewSourceSvg(tab){

@@ -10,6 +10,7 @@ describe('sessionActions save lazy archive build', () => {
         buildArchiveBlob: jest.fn().mockResolvedValue(new Blob(['zip'], { type: 'application/zip' }))
       }
     };
+    require('../js/main/snapshotPolicy.js');
     require('../js/main/sessionActions.js');
     return window.Main.sessionActions;
   }
@@ -89,6 +90,90 @@ describe('sessionActions save lazy archive build', () => {
     expect(window.Shared.graphArchive.buildArchiveBlob).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('saved');
     expect(context.session.clearSessionDirty).toHaveBeenCalledWith('graph-save-success');
+  });
+
+  test('autosave snapshot policy keeps render-cache capture disabled', async () => {
+    const sessionActions = installSessionActions();
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      await options.getPayload();
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
+    });
+    const context = createContext();
+
+    await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace',
+      reason: 'autosave',
+      snapshotKind: 'autosave'
+    });
+
+    const lastPersistCall = context.session.persistActiveTabState.mock.calls.at(-1) || [];
+    expect(lastPersistCall[1]).toEqual(expect.objectContaining({
+      captureRenderCache: false
+    }));
+  });
+
+  test('manual save snapshot policy captures render cache by default', async () => {
+    const sessionActions = installSessionActions();
+    window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
+      await options.getPayload();
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
+    });
+    const context = createContext();
+
+    await sessionActions.saveWorkspaceArchiveWithScope(context, {
+      scope: 'workspace',
+      reason: 'toolbar-save'
+    });
+
+    const lastPersistCall = context.session.persistActiveTabState.mock.calls.at(-1) || [];
+    expect(lastPersistCall[1]).toEqual(expect.objectContaining({
+      captureRenderCache: true
+    }));
+  });
+
+  test('recovery high-fidelity policy captures render cache only when idle and opt-in is enabled', async () => {
+    const sessionActions = installSessionActions();
+    const context = createContext();
+    const persistSpy = context.session.persistActiveTabState;
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      policyMode: 'recovery',
+      snapshotKind: 'lifecycle-checkpoint',
+      highFidelityRecoveryEnabled: true,
+      idleForMs: 5000,
+      reason: 'recovery-interval'
+    });
+    const idleCall = persistSpy.mock.calls.at(-1) || [];
+    expect(idleCall[1]).toEqual(expect.objectContaining({
+      captureRenderCache: true
+    }));
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      policyMode: 'recovery',
+      snapshotKind: 'lifecycle-checkpoint',
+      highFidelityRecoveryEnabled: true,
+      idleForMs: 10,
+      reason: 'recovery-interval'
+    });
+    const activeCall = persistSpy.mock.calls.at(-1) || [];
+    expect(activeCall[1]).toEqual(expect.objectContaining({
+      captureRenderCache: false
+    }));
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      policyMode: 'recovery',
+      snapshotKind: 'lifecycle-checkpoint',
+      highFidelityRecoveryEnabled: false,
+      idleForMs: 9000,
+      reason: 'recovery-interval'
+    });
+    const disabledCall = persistSpy.mock.calls.at(-1) || [];
+    expect(disabledCall[1]).toEqual(expect.objectContaining({
+      captureRenderCache: false
+    }));
   });
 
   test('captures active render cache for archive without entering runtime restore mode', async () => {

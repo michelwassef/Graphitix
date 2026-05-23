@@ -107,7 +107,6 @@
  Debug: Main session global user-input listener installed
  Debug: session apply requested duplicate prompt hide Object
  Debug: session file handle applied Object
- Debug: session file name applied Object
  Debug: session file scope applied Object
  Debug: session unique title computed Object
  Debug: session createTab generated Object
@@ -140,6 +139,7 @@
  Debug: workspace initialization status Object
  Debug: session dirty flag cleared Object
  Debug: session applied Object
+ Debug: session dirty flag updated Object
  Debug: box component DOM helpers resolved Object
  Debug: component bundle imported Object
  Debug: component bundle cached Object
@@ -424,67 +424,307 @@
  Debug: box graph-type border width sync Object
  Debug: fontControls exportScopeStyles skipped (empty) Object
  Debug: box.getPayload captured state Object
- Debug: preview hover enter Object
- Debug: preview hover skipped for active tab Object
- Debug: workspace tab selected Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: archive render cache preserved across layout signature drift (skip path) Object
+ Debug: authoritative render restore flag updated Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: persistActiveTabState skipped live payload capture Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: enrichTabSnapshotForArchive skipped enrich Object
+ Debug: enrichTabSnapshotForArchive skipped layout merge Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: workspace render cache cleared Object
+ Debug: archive render cache cleared Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: box significance toggle Object
+ Debug: box stats context refresh skipped Object
+ Debug: box authoritative render restore released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box analysis snapshot Object
+ boxColCollect_0_4: 0.02197265625 ms
+ boxColCollect_1_4: 0.010009765625 ms
+ boxColCollect_2_4: 0.005859375 ms
+ boxColCollect_3_4: 0.005126953125 ms
+ boxColCollect_4_4: 0.007080078125 ms
+ boxColCollect_5_4: 0.006103515625 ms
+ boxColCollect_6_4: 0.0048828125 ms
+ boxColCollect_7_4: 0.0048828125 ms
+ boxColCollect_8_4: 0.006103515625 ms
+ boxColCollect_9_4: 0.0048828125 ms
+ boxColCollect_10_4: 0.0048828125 ms
+ boxColCollect_11_4: 0.005126953125 ms
+ boxColCollect_12_4: 0.006103515625 ms
+ boxColCollect_13_4: 0.005126953125 ms
+ boxColCollect_14_4: 0.007080078125 ms
+ boxColCollect_15_4: 0.006103515625 ms
+ boxColCollect_16_4: 0.005859375 ms
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle created measurement canvas
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: resizer aspect ratio set Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset size authority reapplied Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset size authority reapplied Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: session graph sizing enrich skipped Object
+ Debug: session graph sizing layout merge skipped Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: tab payload dirty flag cleared Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: enrichTabSnapshotForArchive skipped enrich Object
+ Debug: enrichTabSnapshotForArchive skipped layout merge Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:1983 Debug: tab data detected after header skip Object
+session.js:1983 Debug: tab data detected after header skip Object
+session.js:1983 Debug: tab data detected after header skip Object
+box.js:6053 Debug: shadeColor Object
+box.js:6053 Debug: shadeColor Object
+box.js:6053 Debug: shadeColor Object
+box.js:14431 Debug: box graph-type border width sync Object
+box.js:14431 Debug: box graph-type border width sync Object
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
+box.js:34734 Debug: box.getPayload captured state Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+fontControls.js:1432 Debug: fontControls exportScopeStyles skipped (empty) Object
 componentLayout.js:1414 Debug: componentLayout live resizable snapshot normalized Object
 componentLayout.js:1470 Debug: componentLayout captureState Object
 componentLayout.js:623 Debug: componentLayout tab layout override merged Object
 session.js:416 Debug: fastClonePayload using structuredClone Object
 session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:2598 Debug: session graph sizing enrich skipped Object
+session.js:2613 Debug: session graph sizing layout merge skipped Object
 session.js:681 Debug: serializePayloadSignature computed Object
-session.js:2421 Debug: archive render cache preserved across layout signature drift (skip path) Object
-session.js:1405 Debug: authoritative render restore flag updated Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:1592 Debug: assignTabPayload applied Object
+session.js:681 Debug: serializePayloadSignature computed Object
 previews.js:935 Debug: preview capture success Object
 previews.js:1104 Debug: preview indicator synced Object
 previews.js:1352 Debug: preview stored Object
-session.js:2516 Debug: persistActiveTabState skipped live payload capture Object
-tabs.js:592 Debug: activateTab showing selection Object
-domControls.js:157 Debug: setAppHeaderVisibility skipped Object
-domControls.js:1833 Debug: welcome screen shown Object
-componentLayout.js:1096 Debug: componentLayout ResizeObserver triggered Object
-resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-resizer.js:2620 Debug: resizer observer triggered
-componentLayout.js:1253 Debug: componentLayout resizable onResize Object
-resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-previews.js:1538 Debug: preview hover enter Object
-previews.js:1254 Debug: preview live svg ignored outside tab root Object
-previews.js:1320 Debug: preview reuse Object
-previews.js:1555 Debug: preview hover using stored inactive preview Object
-previews.js:1405 Debug: preview tooltip element created
-previews.js:1488 Debug: preview tooltip positioned Object
-render.js:202 Debug: workspace tab selected Object
-previews.js:1456 Debug: preview tooltip hidden Object
-previews.js:1456 Debug: preview tooltip hidden Object
-session.js:1405 Debug: authoritative render restore flag updated Object
-componentLayout.js:623 Debug: componentLayout tab layout override merged Object
-componentLayout.js:595 Debug: componentLayout root hydrated Object
-domControls.js:157 Debug: setAppHeaderVisibility skipped Object
-domControls.js:135 Debug: workspace initialization status Object
-domControls.js:1783 Debug: workspace ensure skipped (cached) Object
-domControls.js:995 Debug: workspace per-tab root already active Object
-components.js:575 Debug: ensureComponent resolved synchronously (cached) Object
-box.js:25244 Debug: box stats surface hydrated from tab payload Object
-domControls.js:1481 Debug: workspace reuse without redraw Object
-previews.js:1538 Debug: preview hover enter Object
-previews.js:1456 Debug: preview tooltip hidden Object
-previews.js:1542 Debug: preview hover skipped for active tab Object
-componentLayout.js:1096 Debug: componentLayout ResizeObserver triggered Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-resizer.js:2620 Debug: resizer observer triggered
-componentLayout.js:1253 Debug: componentLayout resizable onResize Object
-resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
-resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
-resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
-componentLayout.js:1062 Debug: componentLayout syncPanels complete Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-componentLayout.js:1056 Debug: componentLayout programmatic sync released Object
-previews.js:1456 Debug: preview tooltip hidden Object
-previews.js:1456 Debug: preview tooltip hidden Object
+session.js:2784 Debug: workspace state persisted Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:3014 Debug: enrichTabSnapshotForArchive skipped enrich Object
+session.js:3035 Debug: enrichTabSnapshotForArchive skipped layout merge Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:681 Debug: serializePayloadSignature computed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:416 Debug: fastClonePayload using structuredClone Object
+session.js:503 Debug: clonePayload completed Object
+session.js:1983 Debug: tab data detected after header skip Object

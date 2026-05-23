@@ -17,6 +17,7 @@ Because the module throws immediately, these namespaces have to be loaded in the
 | Namespace | Definition | Responsibilities |
 |-----------|------------|------------------|
 | `Main.session` | [`js/main/session.js`](../../js/main/session.js) | Owns the canonical `workspaceState`, exposes helpers such as `getActiveTab`, `createTab`, `applySessionData`, `enrichTabSnapshotForArchive`, the workspace UI-state capture/apply hooks, and guards the "dirty" flag. It also coordinates preview invalidation for tabs so the preview overlay stays in sync. |
+| `Main.snapshotPolicy` | [`js/main/snapshotPolicy.js`](../../js/main/snapshotPolicy.js) | Centralizes snapshot intent and render-cache capture rules for manual save, autosave, and recovery paths so document restore fidelity and background cost are controlled in one place. |
 | `Main.previews` | [`js/main/previews.js`](../../js/main/previews.js) | Produces and caches hover previews for workspaces. It surfaces `syncTabPreviewIndicator` that `Main.session` calls after payload updates and exposes rendering hooks consumed by `Main.sessionActions`. |
 | `Main.domControls` | [`js/main/domControls.js`](../../js/main/domControls.js) | Generates cached DOM handles, drives workspace visibility, and applies payload defaults to components during tab switches. |
 | `Main.sessionActions` | [`js/main/sessionActions.js`](../../js/main/sessionActions.js) | Binds DOM events (save, load, duplicate, rename) to `Main.session` helpers and to `Main.previews`/`Main.domControls` utilities. |
@@ -27,10 +28,11 @@ Because the module throws immediately, these namespaces have to be loaded in the
 When the page loads, the scripts that define the namespaces above run in order before `js/main.js` executes:
 
 1. `Main.session` seeds `workspaceState` and exports helpers (`getActiveTab`, `createTab`, `persistActiveTabState`, etc.). These helpers satisfy the `requiredSessionHelpers` check inside `js/main.js`.
-2. `Main.previews` registers generators and `syncTabPreviewIndicator`, which `Main.session` uses while tabs change payloads and previews.
-3. `Main.domControls` exposes `createDomHandles()` plus workspace show/hide helpers. `js/main.js` immediately calls `createDomHandles()` once the dependency guard passes to capture DOM references for the rest of startup.
-4. `Main.sessionActions` listens to click/submit events and, during startup, installs handlers that call back into `Main.session` and `Main.previews`.
-5. `Main.tabDrag` wires pointer events to manage tab dragging, using `Main.session.workspaceState` and `Main.sessionActions` callbacks to finalize drops.
+2. `Main.snapshotPolicy` publishes snapshot intent and archive capture defaults consumed by `Main.sessionActions`/`Main.documentState`.
+3. `Main.previews` registers generators and `syncTabPreviewIndicator`, which `Main.session` uses while tabs change payloads and previews.
+4. `Main.domControls` exposes `createDomHandles()` plus workspace show/hide helpers. `js/main.js` immediately calls `createDomHandles()` once the dependency guard passes to capture DOM references for the rest of startup.
+5. `Main.sessionActions` listens to click/submit events and, during startup, installs handlers that call back into `Main.session` and `Main.previews`.
+6. `Main.tabDrag` wires pointer events to manage tab dragging, using `Main.session.workspaceState` and `Main.sessionActions` callbacks to finalize drops.
 
 Only after all five namespaces are registered does `js/main.js` continue bootstrapping the component registry (`Main.components`), color picker overlay, and chart redraw scheduling.
 

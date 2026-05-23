@@ -4,6 +4,7 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.documentState = Main.documentState || {};
   const AUTOSAVE_PREF_KEY = 'graphitix.autosave.enabled';
+  const HIGH_FIDELITY_RECOVERY_PREF_KEY = 'graphitix.recovery.highFidelity.enabled';
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
@@ -25,6 +26,8 @@
   let lastAutosaveNoTargetRevision = 0;
   let savedMessageTimer = null;
   let savedTitleMessage = '';
+  let userActivityListenersBound = false;
+  let userActivityHandler = null;
 
   function getSessionRevision() {
     return Number(state?.workspaceState?.sessionRevision) || 0;
@@ -97,6 +100,41 @@
     } catch (err) {
       debug('autosavePreference.writeSkipped', { message: err?.message || String(err) });
     }
+  }
+
+  function readHighFidelityRecoveryPreference() {
+    try {
+      return window.localStorage.getItem(HIGH_FIDELITY_RECOVERY_PREF_KEY) === '1';
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function writeHighFidelityRecoveryPreference(enabled) {
+    try {
+      window.localStorage.setItem(HIGH_FIDELITY_RECOVERY_PREF_KEY, enabled ? '1' : '0');
+    } catch (err) {
+      debug('highFidelityPreference.writeSkipped', { message: err?.message || String(err) });
+    }
+  }
+
+  function markUserActivity(source = 'unknown') {
+    if (!state) {
+      return;
+    }
+    state.lastUserActivityAt = Date.now();
+    debug('activity.marked', {
+      source,
+      at: state.lastUserActivityAt
+    });
+  }
+
+  function getIdleDurationMs() {
+    const lastActivityAt = Number(state?.lastUserActivityAt || 0);
+    if (!lastActivityAt) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    return Math.max(0, Date.now() - lastActivityAt);
   }
 
   function openWebDb() {
@@ -237,6 +275,7 @@
     const titleEls = Array.from(document.querySelectorAll('[data-document-title="1"]'));
     const statusEls = Array.from(document.querySelectorAll('[data-document-status="1"]'));
     const autosaveEls = Array.from(document.querySelectorAll('input[data-document-autosave="1"]'));
+    const recoveryFidelityEls = Array.from(document.querySelectorAll('input[data-document-recovery-fidelity="1"]'));
     titleEls.forEach(titleEl => {
       titleEl.textContent = titleDisplay;
       titleEl.title = workspaceState.sessionFilePath || fileName;
@@ -248,6 +287,9 @@
     });
     autosaveEls.forEach(autosaveEl => {
       autosaveEl.checked = !!state.autosaveEnabled;
+    });
+    recoveryFidelityEls.forEach(recoveryFidelityEl => {
+      recoveryFidelityEl.checked = !!state.highFidelityRecoveryEnabled;
     });
     document.title = `Graphitix - ${display}`;
     debug('syncTitle', { fileName, dirty, reason: meta.reason || 'sync' });
@@ -275,12 +317,15 @@
       return null;
     }
     const context = state.getSessionActionsContext();
+    const idleForMs = getIdleDurationMs();
     const blob = await state.sessionActions.buildWorkspaceArchiveBlob(context, {
       reason,
       scope: 'workspace',
       useWorker: true,
       snapshotKind: 'lifecycle-checkpoint',
-      captureRenderCacheBeforeSnapshot: false
+      policyMode: 'recovery',
+      highFidelityRecoveryEnabled: !!state.highFidelityRecoveryEnabled,
+      idleForMs
     });
     if (!blob) {
       return null;
@@ -302,6 +347,8 @@
         dirty: !!workspaceState.sessionUserDirty,
         hasData,
         tabCount: graphTabs.length,
+        highFidelityRecoveryEnabled: !!state.highFidelityRecoveryEnabled,
+        idleForMs,
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
         fileScope: workspaceState.sessionFileScope || null
@@ -521,14 +568,40 @@
     syncTitle({ reason: meta.reason || 'autosave-toggle' });
   }
 
+  function setHighFidelityRecoveryEnabled(enabled, meta = {}) {
+    state.highFidelityRecoveryEnabled = !!enabled;
+    writeHighFidelityRecoveryPreference(state.highFidelityRecoveryEnabled);
+    syncTitle({ reason: meta.reason || 'recovery-fidelity-toggle' });
+    if (state.workspaceState?.sessionUserDirty && hasRecoverySnapshotDue()) {
+      scheduleRecoverySnapshot(meta.reason || 'recovery-fidelity-toggle');
+    }
+  }
+
   function bindUi() {
     document.addEventListener('change', event => {
-      const toggle = event.target?.closest?.('input[data-document-autosave="1"]');
-      if (!toggle) {
+      const autosaveToggle = event.target?.closest?.('input[data-document-autosave="1"]');
+      if (autosaveToggle) {
+        setAutosaveEnabled(autosaveToggle.checked, { reason: 'autosave-toggle-ui' });
         return;
       }
-      setAutosaveEnabled(toggle.checked, { reason: 'autosave-toggle-ui' });
+      const recoveryFidelityToggle = event.target?.closest?.('input[data-document-recovery-fidelity="1"]');
+      if (recoveryFidelityToggle) {
+        setHighFidelityRecoveryEnabled(recoveryFidelityToggle.checked, { reason: 'recovery-fidelity-toggle-ui' });
+      }
     }, true);
+
+    if (!userActivityListenersBound) {
+      userActivityHandler = event => {
+        if (!event || event.isTrusted === false) {
+          return;
+        }
+        markUserActivity(event.type || 'activity');
+      };
+      ['pointerdown', 'keydown', 'input', 'wheel', 'mousedown', 'touchstart'].forEach(eventName => {
+        document.addEventListener(eventName, userActivityHandler, true);
+      });
+      userActivityListenersBound = true;
+    }
   }
 
   namespace.init = function init(options = {}) {
@@ -543,7 +616,9 @@
       getSessionActionsContext: options.getSessionActionsContext,
       dom: options.dom || {},
       autosaveEnabled: readAutosavePreference(),
-      restoringRecovery: false
+      highFidelityRecoveryEnabled: readHighFidelityRecoveryPreference(),
+      restoringRecovery: false,
+      lastUserActivityAt: Date.now()
     };
     bindUi();
     documentStateChangeHandler = event => {
@@ -573,11 +648,17 @@
       void runAutosave('autosave-interval');
     }, AUTOSAVE_INTERVAL_MS);
     syncTitle({ reason: 'init' });
-    debug('init', { autosaveEnabled: state.autosaveEnabled, isDesktop: isDesktop() });
+    debug('init', {
+      autosaveEnabled: state.autosaveEnabled,
+      highFidelityRecoveryEnabled: state.highFidelityRecoveryEnabled,
+      isDesktop: isDesktop()
+    });
     return namespace;
   };
 
   namespace.setAutosaveEnabled = setAutosaveEnabled;
+  namespace.setHighFidelityRecoveryEnabled = setHighFidelityRecoveryEnabled;
+  namespace.isHighFidelityRecoveryEnabled = () => !!state?.highFidelityRecoveryEnabled;
   namespace.writeRecoverySnapshot = writeRecoverySnapshot;
   namespace.clearRecoverySnapshot = clearRecoverySnapshot;
   namespace.maybeRestoreRecovery = maybeRestoreRecovery;
@@ -589,10 +670,17 @@
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
     if (documentStateChangeHandler) window.removeEventListener('graphitix:document-state-change', documentStateChangeHandler);
+    if (userActivityListenersBound && userActivityHandler) {
+      ['pointerdown', 'keydown', 'input', 'wheel', 'mousedown', 'touchstart'].forEach(eventName => {
+        document.removeEventListener(eventName, userActivityHandler, true);
+      });
+    }
     recoveryTimer = null;
     recoveryInterval = null;
     autosaveInterval = null;
     documentStateChangeHandler = null;
+    userActivityHandler = null;
+    userActivityListenersBound = false;
     state = null;
   };
 })();

@@ -3263,7 +3263,7 @@
     };
     const isDocumentStateControl = target => {
       if (!target || typeof target.closest !== 'function') return false;
-      return !!target.closest('input[data-document-autosave="1"], [data-document-title="1"], [data-document-status="1"]');
+      return !!target.closest('input[data-document-autosave="1"], input[data-document-recovery-fidelity="1"], [data-document-title="1"], [data-document-status="1"]');
     };
     const shouldIgnoreDirtyTracking = target => {
       if (!target || typeof target.closest !== 'function') return false;

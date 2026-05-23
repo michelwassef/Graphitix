@@ -93,6 +93,19 @@ Autosave is off by default and persisted in `localStorage` under `graphitix.auto
 
 Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes. Recovery scheduling is revision-aware: intervals only write when `sessionUserDirty` is true and `sessionRevision` has advanced since the last successful snapshot, and large payload signatures use a longer debounce before archive construction.
 
+Snapshot capture policy is centralized in `js/main/snapshotPolicy.js` and consumed by `Main.sessionActions` + `Main.documentState`. This keeps manual save, autosave, and recovery behavior consistent:
+
+- Manual save / explicit archive snapshot (`archive-save`, `document-snapshot`):
+  - capture render cache by default (`captureRenderCache=true`) to maximize reopen fidelity
+  - preserve cache metadata for all graph tabs during snapshot flow
+- Autosave (`autosave`):
+  - keep snapshots lean (`captureRenderCache=false`) to reduce background overhead
+  - preserve active-tab metadata only where possible
+- Recovery (`lifecycle-checkpoint` with recovery mode):
+  - default lean capture
+  - optional **Hi-Fi recovery** opt-in (`localStorage` key `graphitix.recovery.highFidelity.enabled` or toolbar toggle)
+  - in Hi-Fi mode, recovery upgrades to render-cache capture only when the workspace is idle (idle gate is policy controlled), so crash restore can rehydrate visuals/stats faster without adding heavy capture on every active edit event
+
 Recovery snapshots are eligible only when the workspace has at least one graph tab with meaningful data according to the same `Main.session.graphTabsHaveData()` / `tabHasTableData()` heuristics used by unload prompts. Explicit discard paths clear the private recovery snapshot before continuing, so discarded changes are not offered again on the next launch.
 
 ## 3. Session Payload Shape (Archive-Level)
