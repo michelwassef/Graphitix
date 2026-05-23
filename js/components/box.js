@@ -36211,6 +36211,99 @@ Technical analysis record (advanced)
     });
   }
 
+  function parseBoxCanvasBitmapDimension(node, attrName, fallback){
+    const direct = Number(node?.getAttribute?.(attrName));
+    if(Number.isFinite(direct) && direct > 0){
+      return Math.max(1, Math.round(direct));
+    }
+    const styleValue = Number.parseFloat(String(node?.style?.[attrName] || '').trim());
+    if(Number.isFinite(styleValue) && styleValue > 0){
+      return Math.max(1, Math.round(styleValue));
+    }
+    if(Number.isFinite(fallback) && fallback > 0){
+      return Math.max(1, Math.round(fallback));
+    }
+    return 1;
+  }
+
+  function rehydrateBoxCanvasBitmapImages(root){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const bitmapImages = Array.from(root.querySelectorAll('img[data-graphitix-render-cache-canvas-bitmap="true"]'));
+    if(!bitmapImages.length){
+      return 0;
+    }
+    let hydrated = 0;
+    bitmapImages.forEach(image => {
+      const parent = image?.parentNode || null;
+      const doc = image?.ownerDocument || global.document || null;
+      if(!parent || !doc || typeof doc.createElement !== 'function'){
+        return;
+      }
+      const canvas = doc.createElement('canvas');
+      canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+      const width = parseBoxCanvasBitmapDimension(
+        image,
+        'width',
+        Number.parseFloat(String(image?.style?.width || '').trim())
+      );
+      const height = parseBoxCanvasBitmapDimension(
+        image,
+        'height',
+        Number.parseFloat(String(image?.style?.height || '').trim())
+      );
+      canvas.width = width;
+      canvas.height = height;
+      canvas.setAttribute('width', String(width));
+      canvas.setAttribute('height', String(height));
+      canvas.style.display = image?.style?.display || 'block';
+      canvas.style.width = image?.style?.width || `${width}px`;
+      canvas.style.height = image?.style?.height || `${height}px`;
+      canvas.style.background = image?.style?.background || 'transparent';
+      canvas.style.pointerEvents = 'none';
+      const className = image?.getAttribute?.('class') || '';
+      if(className){
+        canvas.setAttribute('class', className);
+      }
+      const resolutionScale = image?.getAttribute?.('data-resolution-scale') || '';
+      if(resolutionScale){
+        canvas.setAttribute('data-resolution-scale', resolutionScale);
+      }
+      canvas.setAttribute('data-graphitix-render-cache-canvas-restored', 'true');
+      parent.replaceChild(canvas, image);
+      const ctx = canvas.getContext?.('2d');
+      const drawFromSource = source => {
+        if(!ctx || !source || typeof ctx.drawImage !== 'function'){
+          return false;
+        }
+        try{
+          ctx.clearRect?.(0, 0, width, height);
+          ctx.drawImage(source, 0, 0, width, height);
+          return true;
+        }catch(_err){
+          return false;
+        }
+      };
+      let drew = drawFromSource(image);
+      if(!drew){
+        const src = String(image?.getAttribute?.('src') || '').trim();
+        const ImageCtor = global.Image;
+        if(src && typeof ImageCtor === 'function'){
+          try{
+            const loader = new ImageCtor();
+            loader.onload = () => { drawFromSource(loader); };
+            loader.src = src;
+          }catch(_err){
+            // Keep blank canvas on decode failure; restore path stays deterministic.
+          }
+        }
+      }
+      hydrated += 1;
+    });
+    return hydrated;
+  }
+
   function buildApproximateBoxPreviewPathData(renderState){
     return buildBoxPointInteractionMaskPath({
       bins: Array.isArray(renderState?.bins) ? renderState.bins : [],
@@ -36257,6 +36350,7 @@ Technical analysis record (advanced)
       return null;
     }
     const clone = sourceSvg.cloneNode(true);
+    rehydrateBoxCanvasBitmapImages(clone);
     const baseViewport = resolveBoxBaseViewportSize(sourceSvg);
     if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
       clone.setAttribute('width', String(baseViewport.width));
@@ -36363,6 +36457,10 @@ Technical analysis record (advanced)
       return false;
     }
     const restored = restoreBoxRenderCacheSections(cache);
+    let hydratedBitmaps = 0;
+    if(restored){
+      hydratedBitmaps += rehydrateBoxCanvasBitmapImages(els.plotDiv);
+    }
     if(restored && els.plotDiv?.dataset){
       const restoredTabId = meta?.tabId || getBoxRenderCacheMetadata(cache)?.tabId || null;
       if(restoredTabId){
@@ -36377,7 +36475,8 @@ Technical analysis record (advanced)
     }
     console.debug('Debug: box render cache restored', {
       restored,
-      plot: !!cache.plot
+      plot: !!cache.plot,
+      hydratedBitmaps
     });
     if(restored && meta?.temporaryRestore !== true){
       activateAuthoritativeBoxRenderRestore('render-cache-restore');
