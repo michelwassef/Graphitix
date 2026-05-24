@@ -15,7 +15,7 @@
     --ui-focus-offset: 0;
     --ui-btn-border: 1px solid #8d97a6;
     --ui-btn-bg: #f5f7fb;
-    --ui-btn-bg-hover: #e7ecf5;
+    --ui-btn-bg-hover: #d0d8e0;
     --ui-btn-fg: #111b29;
     --ui-btn-radius: var(--ui-rounded-radius);
     --ui-menu-bg: #ffffff;
@@ -3018,7 +3018,7 @@ select {
     min-height:var(--workspace-toolbar-tabs-height);
     position:relative;
     isolation:isolate;
-    background:#2d5a8c;
+    background:#000087ff;
 }
 .workspace-toolbar__tabs::after{
     content:'';
@@ -3091,8 +3091,7 @@ select {
 }
 .workspace-toolbar__tab{
     appearance:none;
-    border:1px solid transparent;
-    border-bottom:none;
+    border:none;
     background:transparent;
     color:#ffffff;
     font-size:12px;
@@ -3114,8 +3113,8 @@ select {
     outline-offset:1px;
 }
 .workspace-toolbar__tab--active{
-    background:#e5e9f0;
-    border-color:#d0d8e0;
+    background:#f1f4f9;
+    border:none;
     color:#0f172a;
     border-radius:0 !important;
     border-top-left-radius:6px !important;
@@ -3156,7 +3155,7 @@ select {
     justify-content:center;
     gap:0;
     padding:4px 8px;
-    background:#e5e9f0;
+    background:#f1f4f9;
     border-radius:var(--ui-rounded-radius);
     border:none;
     box-shadow:none;
