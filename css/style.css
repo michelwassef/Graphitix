@@ -5636,7 +5636,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 
 
 .font-toolbar-host{margin:0;display:none;flex:0 1 auto;min-width:0;max-width:100%;align-self:center;position:relative;overflow:visible;width:auto;padding:0;justify-content:center;align-items:stretch}
-.font-toolbar-host.font-toolbar-host--visible{display:flex;gap:var(--workspace-toolbar-section-gap);background:#f3f6fb;border-radius:var(--ui-rounded-radius,6px);padding:6px}
+.font-toolbar-host.font-toolbar-host--visible{display:flex;gap:var(--workspace-toolbar-section-gap);background:#f3f6fb;border-radius:var(--ui-rounded-radius,6px)}
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,
 .font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel,
 .font-toolbar-host.font-toolbar-host--visible>.dendrogram-controls-panel,
