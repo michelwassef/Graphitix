@@ -8894,6 +8894,96 @@
     return true;
   }
 
+  function resolveHeatmapPreviewSourceSvg(tab){
+    const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    const targetTabId = tab?.id || null;
+    if(targetTabId && targetTabId !== activeTabId){
+      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(targetTabId, 'heatmap') || null;
+      if(mountedRoot){
+        const mountedSvg = mountedRoot.querySelector?.('#heatmapSvg, .svgbox svg') || null;
+        if(mountedSvg && typeof mountedSvg.innerHTML === 'string' && mountedSvg.innerHTML.trim()){
+          return mountedSvg;
+        }
+      }
+      const cache = tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null;
+      if(cache){
+        const plotPayload = cache.plot;
+        const svgRootAttrs = cache.svgRootState?.attributes || null;
+        if(plotPayload?.fragment && svgRootAttrs?.viewBox){
+          try{
+            const doc = global.document;
+            const NS = 'http://www.w3.org/2000/svg';
+            const reconstructed = doc.createElementNS(NS, 'svg');
+            Object.keys(svgRootAttrs).forEach(name => {
+              try{ reconstructed.setAttribute(name, String(svgRootAttrs[name])); }catch(_){}
+            });
+            reconstructed.appendChild(plotPayload.fragment.cloneNode(true));
+            if(typeof reconstructed.innerHTML === 'string' && reconstructed.innerHTML.trim()){
+              return reconstructed;
+            }
+          }catch(err){
+            debugLog('Debug: heatmap preview cache reconstruct error', { err: err?.message || String(err) });
+          }
+        }
+      }
+    }
+    if(!targetTabId || targetTabId === activeTabId){
+      const liveSvg = state.svg || $('heatmapSvg');
+      if(liveSvg && typeof liveSvg.innerHTML === 'string' && liveSvg.innerHTML.trim()){
+        return liveSvg;
+      }
+    }
+    return null;
+  }
+
+  function buildHeatmapPreviewSvgFromSource(sourceSvg){
+    if(!sourceSvg || typeof sourceSvg.cloneNode !== 'function'){ return null; }
+    const rawViewBox = sourceSvg.getAttribute?.('viewBox') || '';
+    const vbParts = rawViewBox.trim().split(/[\s,]+/).map(Number);
+    const vbW = (vbParts.length === 4 && Number.isFinite(vbParts[2]) && vbParts[2] > 0) ? vbParts[2] : 0;
+    const vbH = (vbParts.length === 4 && Number.isFinite(vbParts[3]) && vbParts[3] > 0) ? vbParts[3] : 0;
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || sourceSvg.closest?.('.svgbox') || null;
+    const rw = Number.parseFloat(svgBox?.dataset?.resizerWidth || '');
+    const rh = Number.parseFloat(svgBox?.dataset?.resizerHeight || '');
+    const sw = Number.parseFloat(svgBox?.style?.width || '');
+    const sh = Number.parseFloat(svgBox?.style?.height || '');
+    const panelWidth = (Number.isFinite(rw) && rw > 0 ? rw : null)
+      || (Number.isFinite(sw) && sw > 0 ? sw : null)
+      || (Number(sourceSvg.clientWidth) > 0 ? Number(sourceSvg.clientWidth) : null)
+      || vbW || 427;
+    const panelHeight = (Number.isFinite(rh) && rh > 0 ? rh : null)
+      || (Number.isFinite(sh) && sh > 0 ? sh : null)
+      || (Number(sourceSvg.clientHeight) > 0 ? Number(sourceSvg.clientHeight) : null)
+      || vbH || 427;
+    const clone = sourceSvg.cloneNode(true);
+    if(clone.style){ clone.style.width = ''; clone.style.height = ''; }
+    const srcPreserveAspect = (sourceSvg.getAttribute?.('preserveAspectRatio') || 'xMidYMid meet').trim().toLowerCase();
+    const isStretched = srcPreserveAspect === 'none';
+    const hasDifferentDims = vbW > 0 && vbH > 0
+      && (Math.abs(panelWidth - vbW) > 0.5 || Math.abs(panelHeight - vbH) > 0.5);
+    if(isStretched && hasDifferentDims){
+      const scaleX = panelWidth / vbW;
+      const scaleY = panelHeight / vbH;
+      const doc = sourceSvg.ownerDocument || global.document;
+      const NS = 'http://www.w3.org/2000/svg';
+      const wrapper = doc.createElementNS(NS, 'g');
+      wrapper.setAttribute('transform', `scale(${Number(scaleX.toFixed(6))},${Number(scaleY.toFixed(6))})`);
+      while(clone.firstChild){ wrapper.appendChild(clone.firstChild); }
+      clone.appendChild(wrapper);
+      clone.setAttribute('viewBox', `0 0 ${Math.round(panelWidth)} ${Math.round(panelHeight)}`);
+    }
+    clone.setAttribute('width', String(Math.round(panelWidth)));
+    clone.setAttribute('height', String(Math.round(panelHeight)));
+    clone.setAttribute('data-preview-source', 'true');
+    return clone;
+  }
+
+  heatmap.getPreviewSvg = function getPreviewSvg(tab){
+    const sourceSvg = resolveHeatmapPreviewSourceSvg(tab);
+    if(!sourceSvg){ return null; }
+    return buildHeatmapPreviewSvgFromSource(sourceSvg);
+  };
+
   heatmap.captureRenderCache = function captureRenderCache(){
     const svg = state.svg || $('heatmapSvg');
     const stats = state.statsEl || $('heatmapStatsContent');

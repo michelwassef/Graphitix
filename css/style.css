@@ -3113,7 +3113,7 @@ select {
     outline-offset:1px;
 }
 .workspace-toolbar__tab--active{
-    background:#f1f4f9;
+    background:#e9eef6ff;
     border:none;
     color:#0f172a;
     border-radius:0 !important;
@@ -3155,7 +3155,7 @@ select {
     justify-content:center;
     gap:0;
     padding:4px 8px;
-    background:#f1f4f9;
+    background:#e9eef6ff;
     border-radius:var(--ui-rounded-radius);
     border:none;
     box-shadow:none;
