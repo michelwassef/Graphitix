@@ -15801,6 +15801,25 @@
   };
 
   hotNS.estimateFilledShape = estimateFilledShape;
+
+  function trimTrailingEmptyCols(data) {
+    if (!Array.isArray(data) || data.length === 0) return data;
+    let maxUsedCol = -1;
+    for (const row of data) {
+      if (!Array.isArray(row)) continue;
+      for (let c = row.length - 1; c >= 0; c--) {
+        if (isMeaningfulCell(row[c])) {
+          if (c > maxUsedCol) maxUsedCol = c;
+          break;
+        }
+      }
+    }
+    const rawColCount = Array.isArray(data[0]) ? data[0].length : 0;
+    if (maxUsedCol < 0 || maxUsedCol >= rawColCount - 1) return data;
+    const trimWidth = maxUsedCol + 1;
+    return data.map(row => Array.isArray(row) ? row.slice(0, trimWidth) : row);
+  }
+  hotNS.trimTrailingEmptyCols = trimTrailingEmptyCols;
   const resolveAutoDrawElement = (value) => {
     if(typeof value === 'function'){
       try{

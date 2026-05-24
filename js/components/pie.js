@@ -3817,7 +3817,7 @@ let state = {
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const payload = {
         type:'pie',
-        data: activeHot?.getData?.() || [],
+        data: Shared.hot.trimTrailingEmptyCols(activeHot?.getData?.() || []),
         exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
         filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
         dataViews: includeDataViews ? dataViewsPayload : undefined,

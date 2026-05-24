@@ -759,7 +759,7 @@
   }
 
   function tabHasLiveRenderCache(tab) {
-    return !!(tab && tab.renderCache && tab.renderCache.cache);
+    return !!(tab && tab.renderCache && tab.renderCache.cache && !tab.renderCache.promotedFromArchive);
   }
 
   function isComponentReadyForWarmup(type) {
@@ -883,6 +883,28 @@
         })
       : null;
     const stepDelayMs = Number.isFinite(options.stepDelayMs) ? Math.max(80, options.stepDelayMs) : 220;
+    // Capture the active (final) tab's render cache NOW, before the warmup loop
+    // re-activates it. Re-activation triggers a fresh debounced draw; isIdleForSnapshot()
+    // would return true before that draw fires → fallback capture grabs the wrong state.
+    const preFinalTab = graphTabs.find(t => t && t.id === finalTabId) || null;
+    if (preFinalTab && !tabHasLiveRenderCache(preFinalTab)) {
+      await awaitWorkspaceReadyForSnapshot(context, preFinalTab, { reason: `${reasonBase}-pre-warmup-active-ready` });
+      try {
+        if (typeof session.persistActiveTabState === 'function') {
+          session.persistActiveTabState(preFinalTab, withSessionContext({
+            reason: `${reasonBase}-pre-warmup-active-capture`,
+            origin: 'lifecycle',
+            snapshotKind: 'warmup-cache',
+            snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'warmup-cache' }),
+            captureRenderCache: true,
+            preserveRenderCacheTabIds: graphTabs.map(item => item && item.id).filter(Boolean),
+            disableRenderCachePrune: true
+          }));
+        }
+      } catch (err) {
+        console.error('warmTabRenderCaches pre-warmup active capture error', { tabId: preFinalTab.id, err });
+      }
+    }
     let warmed = 0;
     try {
       for (let i = 0; i < tabsToWarm.length; i += 1) {
@@ -947,7 +969,7 @@
       } catch (err) {
         console.error('warmTabRenderCaches final-activate error', { tabId: finalTabId, err });
       }
-      if (finalTab) {
+      if (finalTab && !tabHasLiveRenderCache(finalTab)) {
         await awaitWorkspaceReadyForSnapshot(context, finalTab, { reason: `${reasonBase}-finish-ready` });
         try {
           if (typeof session.persistActiveTabState === 'function') {
@@ -994,6 +1016,7 @@
 
   namespace.warmTabRenderCaches = warmTabRenderCaches;
   namespace.awaitWorkspaceReadyForSnapshot = awaitWorkspaceReadyForSnapshot;
+  namespace.tabHasLiveRenderCache = tabHasLiveRenderCache;
 
   let pendingPostLoadWarmup = null;
   function schedulePostLoadWarmup(context, reason) {

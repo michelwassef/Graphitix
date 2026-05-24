@@ -159,7 +159,7 @@
   const SCATTER_ADAPTIVE_SIZE_MAX = 3;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
-  const SCATTER_POINT_BATCH_THRESHOLD = 12000;
+  const SCATTER_POINT_BATCH_THRESHOLD = 7000;
   const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
   const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
@@ -288,6 +288,7 @@
     renderCacheRestoreSuppressCount: 0,
     drawInProgress: false,
     pendingDrawOpts: null,
+    drawScheduled: false,
     lastDrawAt: 0,
     drawCooldownTimer: null,
     lastDrawMeta: null,
@@ -21295,6 +21296,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       };
 
       const runScatterDrawCycle = async (opts = {}) => {
+        scatterState.drawScheduled = false;
         const nextOpts = normalizeScatterSessionOptions(opts || {});
         if(!isCurrentScatterSessionMeta(nextOpts.__workspaceSessionMeta)){
           scatterDebug('Debug: scatter draw skipped (stale session)', {
@@ -21316,6 +21318,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterState.rotationPendingLogged = false;
           resolveScatterOverlay('skipped');
           scatterDebug('Debug: scatter draw skipped (render cache)');
+          return;
+        }
+        // Defence-in-depth: catch debounces that were enqueued before restoreRenderCache ran
+        // and whose skipNextDraw gate was already cleared by a concurrent suppression check.
+        if(consumeScatterRestoreDrawSuppression(nextOpts.reason || 'draw-cycle', !!nextOpts.force)){
+          scatterState.rotationPending = false;
+          scatterState.rotationPendingLogged = false;
+          resolveScatterOverlay('skipped');
+          scatterDebug('Debug: scatter draw suppressed during render cache restore (draw-cycle)');
           return;
         }
         scatterState.drawInProgress = true;
@@ -21365,8 +21376,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
         if(consumeScatterRestoreDrawSuppression(overlayReason, !!nextOpts.force)){
-          scatterState.skipNextDraw = false;
-          scatterState.skipNextDrawReason = null;
+          // Do NOT clear skipNextDraw here — any already-queued runScatterDrawCycle call
+          // must also be blocked by the skipNextDraw gate (race: suppressed schedule fires
+          // after the debounce was already enqueued, then debounce would bypass suppression).
           scatterState.rotationPending = false;
           scatterState.rotationPendingLogged = false;
           resolveScatterOverlay('skipped');
@@ -21420,6 +21432,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             });
             return;
           }
+          scatterState.drawScheduled = true;
           scheduleScatterBase(guarded);
         };
         if(!nextOpts.force && scatterState.lastDrawAt){
@@ -21515,6 +21528,35 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
     
   // PART: PERSISTENCE
+  function computeScatterDataSignature(matrix) {
+    if (!Array.isArray(matrix) || matrix.length === 0) {
+      return 'empty';
+    }
+    const rows = matrix.length;
+    const cols = Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    let h = ((rows * 0x9e3779b9) ^ (cols * 0x6b43a9c5)) >>> 0;
+    const stride = Math.max(1, Math.floor(rows / 20));
+    for (let r = 0; r < rows; r += stride) {
+      const row = matrix[r];
+      if (!Array.isArray(row)) { continue; }
+      for (let c = 0; c < Math.min(cols, 5); c++) {
+        const v = row[c];
+        let nv = 0;
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          nv = Math.abs(Math.round(v * 1e4)) & 0x7FFFFFFF;
+        } else if (v != null && v !== '') {
+          let s = String(v);
+          for (let i = 0; i < Math.min(s.length, 8); i++) {
+            nv = (Math.imul(nv, 31) + s.charCodeAt(i)) & 0x7FFFFFFF;
+          }
+        }
+        h = (Math.imul(h, 0x27d4eb2d) ^ nv) >>> 0;
+      }
+    }
+    return `${rows}x${cols}:${h.toString(16)}`;
+  }
+  scatter.__testComputeDataSignature = (matrix) => computeScatterDataSignature(matrix);
+
   function getScatterGraphPayload(){
       const noteControl = notesState.control || null;
       const notesText = noteControl && typeof noteControl.getValue === 'function'
@@ -21561,8 +21603,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const selectedRows = activeHot ? getScatterSelectedRowSet(activeHot) : null;
       const readValue = (el, fallback = '') => (el && el.value !== undefined ? el.value : fallback);
       const readChecked = (el, fallback = false) => (el && typeof el.checked === 'boolean' ? !!el.checked : !!fallback);
-      const payloadData = activeHot?.getData?.()
-        || (typeof Shared.hot?.createEmptyData === 'function' ? Shared.hot.createEmptyData(5, 3, 'scatter') : []);
+      const payloadData = Shared.hot.trimTrailingEmptyCols(
+        activeHot?.getData?.()
+        || (typeof Shared.hot?.createEmptyData === 'function' ? Shared.hot.createEmptyData(5, 3, 'scatter') : [])
+      );
+      if (Array.isArray(payloadData) && payloadData.length > 0) {
+        payloadData.__graphitixMatrixSignature = computeScatterDataSignature(payloadData);
+      }
       const payloadExclusions = activeHot
         ? (activeHot.exportExclusions?.() || Shared.hot.exportExclusions(activeHot))
         : null;
@@ -22647,6 +22694,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.isIdleForSnapshot = function isIdleForSnapshot(){
     return !scatterState.drawInProgress
+      && !scatterState.drawScheduled
       && !scatterState.statsComputationPending
       && !scatterState.rotationPending
       && !scatterState.pendingDrawOpts;
@@ -23006,8 +23054,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       return null;
     }
     const clone = sourceSvg.cloneNode(true);
-    copyScatterCanvasBitmaps(sourceSvg, clone);
-    rehydrateScatterCanvasBitmapImages(clone);
+    const copiedCanvases = copyScatterCanvasBitmaps(sourceSvg, clone);
+    if (!copiedCanvases) {
+      // Source came from an archived render-cache (img bitmap markers, not live canvas elements).
+      // Converting these to canvases requires async image loading which produces blank bitmaps
+      // in the preview pipeline. Instead, rename the attribute so hydrateCanvasBitmapsForPreview
+      // recognises them as ready bitmaps and skips synthetic glyph simplification.
+      Array.from(clone.querySelectorAll('img[data-graphitix-render-cache-canvas-bitmap="true"]')).forEach(img => {
+        img.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
+        img.setAttribute('data-preview-canvas-bitmap', 'true');
+      });
+    } else {
+      rehydrateScatterCanvasBitmapImages(clone);
+    }
     const baseViewport = resolveScatterBaseViewportSize(sourceSvg);
     if(Number.isFinite(baseViewport.width) && baseViewport.width > 0){
       clone.setAttribute('width', String(baseViewport.width));
@@ -23216,6 +23275,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
     };
   }
+
+  scatter.__testGetState = () => scatterState;
+  scatter.__testTriggerSchedule = (opts) => {
+    if (typeof scheduleDrawScatter === 'function') {
+      scheduleDrawScatter(opts || {});
+    }
+  };
 
   scatter.__testHooks = Object.assign({}, scatter.__testHooks, {
     benchmarkLoad: opts => benchmarkScatterLoad(opts),

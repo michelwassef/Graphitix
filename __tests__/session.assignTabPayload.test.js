@@ -344,6 +344,96 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     }
   });
 
+  // ─── serializePayloadSignature auto-compact regression ─────────────────────
+  // structuredClone (used by clonePayload) strips named properties from arrays
+  // (e.g. arr.__graphitixMatrixSignature). The fix auto-detects large array-of-arrays
+  // inside compactMatrixSignatures without requiring a pre-tagged property.
+
+  test('serializePayloadSignature compacts large untagged data matrices to a short signature', () => {
+    const sig = session.serializePayloadSignature;
+    expect(typeof sig).toBe('function');
+    // Build a 600-row × 5-col matrix (no __graphitixMatrixSignature property).
+    const matrix = Array.from({ length: 600 }, (_, r) => [r, r * 2, r * 3, r + 0.5, `label${r}`]);
+    const payload = { type: 'scatter', data: matrix, config: {} };
+    const serialized = sig(payload);
+    // Must not be a raw JSON dump of 600 rows — keep it well under 1 KB.
+    expect(typeof serialized).toBe('string');
+    expect(serialized.length).toBeLessThan(500);
+    // Must contain the compact matrix placeholder, not raw array values.
+    const parsed = JSON.parse(serialized);
+    expect(parsed.data.__graphitixMatrixSignature).toMatch(/^\d+x\d+:[0-9a-f]+$/);
+    expect(parsed.data.rows).toBe(600);
+  });
+
+  test('serializePayloadSignature compact signatures differ for distinct datasets', () => {
+    const sig = session.serializePayloadSignature;
+    const makeMatrix = (offset) =>
+      Array.from({ length: 600 }, (_, r) => [r + offset, (r + offset) * 2]);
+    const p1 = JSON.parse(sig({ data: makeMatrix(0) }));
+    const p2 = JSON.parse(sig({ data: makeMatrix(1000) }));
+    expect(p1.data.__graphitixMatrixSignature).not.toBe(p2.data.__graphitixMatrixSignature);
+  });
+
+  test('serializePayloadSignature passes small arrays through without compaction', () => {
+    const sig = session.serializePayloadSignature;
+    const matrix = [['A', 'B'], [1, 2], [3, 4]]; // only 3 rows, well under threshold
+    const serialized = sig({ data: matrix });
+    const parsed = JSON.parse(serialized);
+    // Small matrix should be serialized as-is, not compacted.
+    expect(Array.isArray(parsed.data)).toBe(true);
+    expect(parsed.data).toEqual(matrix);
+  });
+
+  test('assignTabPayload preserves render cache and resyncs its payloadSignature when preserveRuntimeCacheOnPayloadChange is set', () => {
+    // Scenario: warmup has just captured scatter render cache (payloadSignature='sig-A').
+    // An async stats callback then calls assignTabPayload with a new payload ('sig-B').
+    // With preserveRuntimeCacheOnPayloadChange: true, the cache must be kept and its
+    // payloadSignature updated to 'sig-B' so the archive correctly matches cache to payload.
+    const tab = createTabWithPayload();
+    tab.renderCache = {
+      cache: { plot: { count: 5, fragment: null } },
+      payloadSignature: 'sig-A',
+      captureSequence: 42
+    };
+    tab.renderCacheSignature = 'sig-A';
+    tab.payloadSignature = 'sig-A';
+
+    const newPayload = { type: 'box', data: [['updated']], config: {} };
+    const changed = session.assignTabPayload(tab, newPayload, {
+      reason: 'scatter-stats-computed',
+      preserveRuntimeCacheOnPayloadChange: true
+    });
+
+    expect(changed).toBe(true);
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.renderCache.cache).toBeTruthy();
+    // Signature must be resynced so archive restore can match cache to payload
+    expect(tab.renderCache.payloadSignature).toBe(tab.payloadSignature);
+    expect(tab.renderCacheSignature).toBe(tab.payloadSignature);
+  });
+
+  test('assignTabPayload still clears render cache when captureRenderCache is true (replacement path)', () => {
+    // When a new render cache IS being captured, the old cache must be cleared first
+    // so the code can replace it cleanly.
+    const tab = createTabWithPayload();
+    tab.renderCache = {
+      cache: { plot: { count: 5, fragment: null } },
+      payloadSignature: 'sig-A',
+      captureSequence: 42
+    };
+
+    const newPayload = { type: 'box', data: [['updated-capture']], config: {} };
+    // preserveRuntimeCacheOnPayloadChange: false means the caller WILL capture a new one
+    const changed = session.assignTabPayload(tab, newPayload, {
+      reason: 'archive-save',
+      preserveRuntimeCacheOnPayloadChange: false
+    });
+
+    expect(changed).toBe(true);
+    // Cache must be cleared so the subsequent capture replaces it
+    expect(tab.renderCache).toBeNull();
+  });
+
   test('persistUserModifiedTabState marks user dirty and flushes mounted payload state', () => {
     const tab = createTabWithPayload();
     session.workspaceState.activeTabId = tab.id;

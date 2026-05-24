@@ -3132,7 +3132,7 @@
     notesState.open = notesOpen;
     const payload = {
       type: 'surface',
-      data: activeHot.getData(),
+      data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
       exclusions: activeHot.exportExclusions ? activeHot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(activeHot) : undefined),
       filters: activeHot.exportFilters ? activeHot.exportFilters() : (Shared.hot && typeof Shared.hot.exportFilters === 'function' ? Shared.hot.exportFilters(activeHot) : undefined),
       stats: state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null,

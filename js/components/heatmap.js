@@ -8120,7 +8120,7 @@
     const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
     const payload = {
       type: 'heatmap',
-      data: activeHot ? activeHot.getData() : [],
+      data: Shared.hot.trimTrailingEmptyCols(activeHot ? activeHot.getData() : []),
       exclusions: activeHot?.exportExclusions?.() || (activeHot ? Shared.hot.exportExclusions(activeHot) : Shared.hot.exportExclusions(null)),
       filters: activeHot?.exportFilters?.() || (activeHot ? Shared.hot.exportFilters(activeHot) : Shared.hot.exportFilters(null)),
       dataViews: includeDataViews ? dataViewsPayload : undefined,

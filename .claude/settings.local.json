@@ -10,7 +10,9 @@
       "Bash(Get-ChildItem \"c:\\\\Users\\\\Michel\\\\Venn\\\\__tests__\\\\setup\\\\\")",
       "Bash(Get-ChildItem -Path 'C:\\\\Users\\\\Michel\\\\Venn' -Depth 0)",
       "Bash(Select-Object Name, PSIsContainer)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(grep -v \"//.*skipData\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

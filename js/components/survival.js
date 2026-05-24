@@ -4585,7 +4585,7 @@
     notesState.open = notesOpen;
     const payload = {
       type: 'survival',
-      data: activeHot.getData(),
+      data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,

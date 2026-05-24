@@ -651,6 +651,38 @@
         matrixSignatureCache.set(input, compact);
         return compact;
       }
+      // Auto-compact large data matrices (e.g. hot.getData() results) whose
+      // __graphitixMatrixSignature was stripped by structuredClone before reaching here.
+      if (Array.isArray(input) && input.length > 500 && Array.isArray(input[0])) {
+        if (matrixSignatureCache.has(input)) {
+          return matrixSignatureCache.get(input);
+        }
+        const rows = input.length;
+        const cols = input[0].length;
+        let h = (Math.imul(rows, 0x9e3779b9) ^ Math.imul(cols, 0x6b43a9c5)) >>> 0;
+        const stride = Math.max(1, Math.floor(rows / 20));
+        for (let r = 0; r < rows; r += stride) {
+          const row = input[r];
+          if (!Array.isArray(row)) { continue; }
+          for (let c = 0; c < Math.min(row.length, 5); c++) {
+            const v = row[c];
+            let nv = 0;
+            if (typeof v === 'number' && isFinite(v)) {
+              nv = Math.abs(Math.round(v * 1e4)) & 0x7FFFFFFF;
+            } else if (v != null && v !== '') {
+              const s = String(v);
+              for (let si = 0; si < Math.min(s.length, 8); si++) {
+                nv = (Math.imul(nv, 31) + s.charCodeAt(si)) & 0x7FFFFFFF;
+              }
+            }
+            h = (Math.imul(h, 0x27d4eb2d) ^ nv) >>> 0;
+          }
+        }
+        const sig = `${rows}x${cols}:${h.toString(16)}`;
+        const compact = { __graphitixMatrixSignature: sig, rows };
+        matrixSignatureCache.set(input, compact);
+        return compact;
+      }
       if (seen.has(input)) {
         return seen.get(input);
       }
@@ -1329,7 +1361,8 @@
       layoutVersion: Number(peeked.layoutVersion || tab.layoutVersion || 0),
       renderCommitVersion: Number(peeked.renderCommitVersion || tab.renderCommitVersion || 0),
       capturedAt,
-      captureSequence: ++renderCacheCaptureSequence
+      captureSequence: ++renderCacheCaptureSequence,
+      promotedFromArchive: true
     };
     tab.renderCacheSignature = tab.renderCache.payloadSignature;
     tab.renderCacheLayoutSignature = tab.renderCache.layoutSignature;
@@ -1570,14 +1603,21 @@
     const changed = previousSignature !== nextSignature;
     if (changed) {
       tab.payloadVersion = Number(tab.payloadVersion || 0) + 1;
-      // Payload signature changes invalidate any warm runtime render cache.
-      // Keeping a pre-change cache while accepting a post-change payload can
-      // restore stale visuals on tab re-entry (same signature checks pass only
-      // after a later recapture), which causes partial-control replay issues.
+      // Payload signature changes ordinarily invalidate the runtime render cache.
+      // Exception: when this call is not explicitly capturing a new render cache
+      // (captureRenderCache not set), preserve the existing cache and resync its
+      // payloadSignature to the new value. This prevents async stat-completion
+      // callbacks from clearing a warmup-captured cache without replacing it.
+      // The updated signature ensures archive-save and in-session restore paths
+      // correctly associate the cache with the new payload.
       const preserveRuntimeCache = meta.preserveRuntimeCacheOnPayloadChange === true;
       if (!preserveRuntimeCache) {
         clearTabRenderCache(tab, { reason: meta.reason || 'payload-changed' });
       } else {
+        if (tab.renderCache) {
+          tab.renderCache.payloadSignature = nextSignature;
+          tab.renderCacheSignature = nextSignature;
+        }
         console.debug('Debug: workspace render cache preserved across payload drift', {
           tabId: tab.id,
           type: tab.type || null,
@@ -2643,11 +2683,16 @@
           }
         }
       }
-      const preserveRuntimeCacheOnPayloadChange = isLifecycleOrigin
+      // Preserve the render cache through payload drift whenever this call is not
+      // explicitly requesting a replacement capture. This handles async callbacks
+      // (e.g. scatter-stats-computed) that update the stored payload after warmup
+      // has already captured a good render cache, but don't supply a new one.
+      const preserveRuntimeCacheOnPayloadChange = !options.captureRenderCache && !!tab.renderCache;
+      // Only force a fresh capture post-drift for recovery paths that explicitly want it.
+      const forceCaptureRenderCacheAfterPayloadChange = isLifecycleOrigin
         && reason.includes('recovery-interval')
         && !options.captureRenderCache
         && !!tab.renderCache;
-      const forceCaptureRenderCacheAfterPayloadChange = preserveRuntimeCacheOnPayloadChange;
       const changed = assignTabPayload(tab, payloadClone, {
         reason,
         preserveRuntimeCacheOnPayloadChange

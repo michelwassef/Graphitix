@@ -443,6 +443,23 @@
     if (hydrated) {
       cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
     }
+    // Handle archived render-cache bitmap markers that are already present in the clone
+    // (e.g. when the source SVG came from a restored render-cache with img elements rather
+    // than live canvas elements). Rename the attribute so the downstream preview pipeline
+    // treats them as ready bitmaps and skips synthetic glyph replacement.
+    if (!hydrated && typeof cloneSvg.querySelectorAll === 'function') {
+      const archiveBitmaps = Array.from(
+        cloneSvg.querySelectorAll('img[data-graphitix-render-cache-canvas-bitmap="true"]')
+      );
+      archiveBitmaps.forEach(img => {
+        img.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
+        img.setAttribute('data-preview-canvas-bitmap', 'true');
+        hydrated += 1;
+      });
+      if (hydrated) {
+        cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
+      }
+    }
     return hydrated;
   }
 
@@ -524,7 +541,7 @@
     }
     const complexity = measurePreviewPointLayerComplexity(layer);
     return complexity.hasCanvasRenderer
-      || complexity.nodeCount > 400
+      || complexity.nodeCount > 7000
       || complexity.pathChars > 20000
       || (type === 'box' && !!layer.querySelector?.('[data-box-export-geometry="1"], [data-box-approx-symbol-geometry="1"]'));
   }
@@ -532,6 +549,22 @@
   function simplifyPointLayerForPreview(layer, type, svg, sizing) {
     if (!layer || typeof layer.appendChild !== 'function') {
       return false;
+    }
+    // For scatter with real circles, down-sample rather than replacing with
+    // synthetic glyphs — preserves accurate spatial distribution in the preview.
+    if (type === 'scatter') {
+      const circles = Array.from(layer.querySelectorAll('circle'));
+      if (circles.length > 0) {
+        const targetCount = 300;
+        const stride = Math.max(1, Math.floor(circles.length / targetCount));
+        const sampled = circles.filter((_, i) => i % stride === 0).slice(0, targetCount);
+        while (layer.firstChild) {
+          layer.removeChild(layer.firstChild);
+        }
+        sampled.forEach(c => layer.appendChild(c));
+        layer.setAttribute('data-preview-canvas-simplified', '1');
+        return true;
+      }
     }
     const box = resolvePreviewNodeBox(layer, svg, sizing);
     while (layer.firstChild) {
@@ -1586,5 +1619,6 @@
     TAB_PREVIEW_MAX_HEIGHT,
     TAB_PREVIEW_MAX_CHARS
   };
+  namespace.__testSimplifyHeavyPointLayers = simplifyHeavyPointLayersForPreview;
   console.debug('Debug: Main previews module initialized', { constants: namespace.constants });
 })();

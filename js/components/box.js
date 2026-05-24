@@ -1203,7 +1203,7 @@
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BOX_POINT_CANVAS_THRESHOLD = 1200;
-  const BOX_POINT_APPROX_THRESHOLD = 8000;
+  const BOX_POINT_APPROX_THRESHOLD = 7000;
   const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const BOX_POINT_CANVAS_PATH_CHUNK_SIZE = 20000;
   const BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT = 20000;
@@ -34515,6 +34515,34 @@ Technical analysis record (advanced)
     }
   }
   // PART: SAVE_OPEN
+  function computeBoxDataSignature(matrix) {
+    if (!Array.isArray(matrix) || matrix.length === 0) {
+      return 'empty';
+    }
+    const rows = matrix.length;
+    const cols = Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    let h = ((rows * 0x9e3779b9) ^ (cols * 0x6b43a9c5)) >>> 0;
+    const stride = Math.max(1, Math.floor(rows / 20));
+    for (let r = 0; r < rows; r += stride) {
+      const row = matrix[r];
+      if (!Array.isArray(row)) { continue; }
+      for (let c = 0; c < Math.min(cols, 5); c++) {
+        const v = row[c];
+        let nv = 0;
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          nv = Math.abs(Math.round(v * 1e4)) & 0x7FFFFFFF;
+        } else if (v != null && v !== '') {
+          let s = String(v);
+          for (let i = 0; i < Math.min(s.length, 8); i++) {
+            nv = (Math.imul(nv, 31) + s.charCodeAt(i)) & 0x7FFFFFFF;
+          }
+        }
+        h = (Math.imul(h, 0x27d4eb2d) ^ nv) >>> 0;
+      }
+    }
+    return `${rows}x${cols}:${h.toString(16)}`;
+  }
+
   function getPayload(){
     const activeHot = state.ensureHotForActiveTab?.() || state.hot;
     if(!activeHot){
@@ -34565,10 +34593,14 @@ Technical analysis record (advanced)
       replicates: getBoxGroupedReplicateCount(),
       minGroupCount: 2
     });
+    const payloadData = Shared.hot.trimTrailingEmptyCols(activeHot.getData());
+    if (Array.isArray(payloadData) && payloadData.length > 0) {
+      payloadData.__graphitixMatrixSignature = computeBoxDataSignature(payloadData);
+    }
     const payload = {
       type:'box',
       version:4,
-      data: activeHot.getData(),
+      data: payloadData,
       exclusions: activeHot?.exportExclusions?.() || Shared.hot.exportExclusions(activeHot),
       filters: activeHot?.exportFilters?.() || Shared.hot.exportFilters(activeHot),
       dataViews: includeDataViews ? dataViewsPayload : undefined,
