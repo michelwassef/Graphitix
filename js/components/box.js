@@ -1203,7 +1203,7 @@
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const BOX_STRIP_BATCH_THRESHOLD = 5000; // force path batching for very large strip traces
   const BOX_POINT_CANVAS_THRESHOLD = 1200;
-  const BOX_POINT_APPROX_THRESHOLD = 7000;
+  const BOX_POINT_APPROX_THRESHOLD = 8000;
   const BOX_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const BOX_POINT_CANVAS_PATH_CHUNK_SIZE = 20000;
   const BOX_POINT_CANVAS_SYNC_SOURCE_LIMIT = 20000;
