@@ -444,20 +444,20 @@ describe('componentLifecycle — createAsyncScope', () => {
 
   test('isCurrent true for fresh getMeta token', () => {
     const scope = lc.createAsyncScope('box');
-    const meta = scope.getMeta({});
+    const meta = scope.getMeta({ tabId: 'tab1' });
     expect(scope.isCurrent(meta)).toBe(true);
   });
 
   test('nextToken increments generation; old token becomes stale', () => {
     const scope = lc.createAsyncScope('box');
-    const old = scope.getMeta({});
-    scope.nextToken({});
+    const old = scope.getMeta({ tabId: 'tab1' });
+    scope.nextToken({ tabId: 'tab1' });
     expect(scope.isCurrent(old)).toBe(false);
   });
 
   test('nextToken result is current', () => {
     const scope = lc.createAsyncScope('box');
-    const token = scope.nextToken({});
+    const token = scope.nextToken({ tabId: 'tab1' });
     expect(scope.isCurrent(token)).toBe(true);
   });
 
@@ -479,9 +479,81 @@ describe('componentLifecycle — createAsyncScope', () => {
   test('separate scopes have independent generations', () => {
     const s1 = lc.createAsyncScope('box');
     const s2 = lc.createAsyncScope('scatter');
-    const m1 = s1.getMeta({});
-    s2.nextToken({});
+    const m1 = s1.getMeta({ tabId: 'tab1' });
+    s2.nextToken({ tabId: 'tab1' });
     expect(s1.isCurrent(m1)).toBe(true);
+  });
+
+  test('missing tab id is rejected instead of using a global scope', () => {
+    const scope = lc.createAsyncScope('box');
+    expect(() => scope.getMeta({})).toThrow(/requires an explicit tab id/);
+    expect(() => scope.nextToken({})).toThrow(/requires an explicit tab id/);
+    expect(() => scope.cancelAllForTab()).toThrow(/requires an explicit tab id/);
+  });
+});
+
+describe('componentLifecycle — createRuntimeOwner', () => {
+  let tabs;
+
+  beforeEach(() => {
+    jest.resetModules();
+    delete window.Shared;
+    tabs = [
+      { id: 'tab-a', type: 'box' },
+      { id: 'tab-b', type: 'box' }
+    ];
+    window.Main = {
+      session: {
+        workspaceState: { tabs },
+        getActiveTab: () => tabs[0]
+      },
+      components: { registry: {} }
+    };
+    require('../js/shared/componentLifecycle.js');
+    require('../js/shared/workspaceTabs.js');
+    lc = window.Shared.componentLifecycle;
+  });
+
+  test('capture stores an owned snapshot in workspace and session runtime', () => {
+    const owner = lc.createRuntimeOwner('box');
+    const stored = owner.capture({ stats: { ready: true } }, { tabId: 'tab-a', reason: 'unit-capture' });
+    const runtime = window.Shared.workspaceTabs.getSessionRuntime('tab-a', 'box');
+
+    expect(stored.__runtimeOwner).toMatchObject({ componentKey: 'box', tabId: 'tab-a' });
+    expect(runtime.componentRuntimeSnapshot).toEqual(stored);
+    expect(window.Shared.workspaceTabs.getRuntimeSnapshot('tab-a', '__workspaceTabs__:box')).toEqual(stored);
+  });
+
+  test('bind rejects snapshots owned by another tab', () => {
+    const owner = lc.createRuntimeOwner('box');
+    const stored = owner.capture({ stats: { ready: true } }, { tabId: 'tab-a', reason: 'unit-capture' });
+
+    expect(() => owner.bind(stored, {
+      tabId: 'tab-b',
+      strictRuntimeOwner: true,
+      reason: 'cross-tab-bind'
+    })).toThrow(/rejected mismatched snapshot/);
+  });
+
+  test('missing tab identity is rejected in strict mode', () => {
+    const owner = lc.createRuntimeOwner('box');
+    expect(() => owner.capture({ stats: { ready: true } }, {
+      strictRuntimeOwner: true,
+      reason: 'missing-tab'
+    })).toThrow(/missing tab id/);
+  });
+
+  test('dispose removes both normalized snapshots and owned runtime records', () => {
+    const owner = lc.createRuntimeOwner('box');
+    owner.capture({ stats: { ready: true } }, { tabId: 'tab-a', reason: 'unit-capture' });
+    const runtime = window.Shared.workspaceTabs.getSessionRuntime('tab-a', 'box');
+    runtime.ownedRuntimeRecord = { hydrated: true };
+
+    expect(owner.dispose('tab-a', { reason: 'unit-dispose' })).toBe(true);
+    expect(runtime.componentRuntimeSnapshot).toBeUndefined();
+    expect(runtime.runtimeOwner).toBeUndefined();
+    expect(runtime.ownedRuntimeRecord).toBeUndefined();
+    expect(window.Shared.workspaceTabs.getRuntimeSnapshot('tab-a', '__workspaceTabs__:box')).toBeNull();
   });
 });
 

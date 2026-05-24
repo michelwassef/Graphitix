@@ -3,6 +3,48 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const surface = Components.surface = Components.surface || {};
+
+  function getSurfaceRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(surface, { componentKey: 'surface' }) || null;
+  }
+
+  function rememberSurfaceOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getSurfaceRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'surface',
+      reason: meta?.reason || 'surface-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolveSurfaceOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    return getSurfaceRuntimeOwner()?.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'surface',
+      reason: meta?.reason || 'surface-owned-runtime-resolve'
+    }) || null;
+  }
+
+  function applyExistingSurfaceOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getSurfaceRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'surface',
+      reason: meta?.reason || 'surface-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof surface.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return surface.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'surface-owned-runtime-activate-apply'
+    });
+  }
+
+
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   const hotNS = Shared.hot = Shared.hot || {};
@@ -205,6 +247,36 @@
     return root?.querySelector?.(`#${id}`) || null;
   }
 
+  function resolveSurfaceDrawableFrame(targetEl){
+    const target = targetEl || state.svg || getSurfaceNodeById('surfaceSvg');
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || target?.closest?.('.svgbox')
+      || querySurfaceRoot('#surfaceGraphPanel .svgbox')
+      || null;
+    const frame = componentLayout?.resolveDrawableFrame?.({
+      componentName: 'surface',
+      plot: target,
+      svgBox,
+      graphPanel: state.graphPanel || state.layout?.elements?.graphPanel || querySurfaceRoot('#surfaceGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(target?.clientWidth) || 0),
+      height: Math.max(0, Number(target?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(target?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(target?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
+  }
+
   function getSurfaceLockRatioCheckbox(){
     if(surfaceLockRatioInput && surfaceLockRatioInput.isConnected){
       return surfaceLockRatioInput;
@@ -345,7 +417,7 @@
       autoDrawEnabled: !!state.autoDrawEnabled,
       autoDrawReason: cloneSimple(state.autoDrawReason),
       autoDrawLockedByThreshold: !!state.autoDrawLockedByThreshold,
-      drawPending: !!state.drawPending,
+      drawPending: false,
       lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
       lastStats: cloneSimple(state.lastStats),
@@ -368,7 +440,7 @@
     state.autoDrawEnabled = !!source.autoDrawEnabled;
     state.autoDrawReason = cloneSimple(source.autoDrawReason) || null;
     state.autoDrawLockedByThreshold = !!source.autoDrawLockedByThreshold;
-    state.drawPending = !!source.drawPending;
+    state.drawPending = false;
     state.lastDataShape = cloneSimple(source.lastDataShape) || { ...defaults.lastDataShape };
     state.lastAutoDrawEvaluation = cloneSimple(source.lastAutoDrawEvaluation) || null;
     state.lastStats = cloneSimple(source.lastStats) || null;
@@ -2034,9 +2106,9 @@
     }
     updateAxisLabelsFromHeaders();
     displayMessage('');
-    const boxRect = svgBox.getBoundingClientRect ? svgBox.getBoundingClientRect() : { width: svg.clientWidth || 640, height: svg.clientHeight || 420 };
-    const width = Math.max(280, Math.floor(boxRect.width || svg.clientWidth || 640));
-    const height = Math.max(240, Math.floor(boxRect.height || svg.clientHeight || 420));
+    const drawableFrame = resolveSurfaceDrawableFrame(svg);
+    const width = Math.max(280, Math.floor(drawableFrame.width || 640));
+    const height = Math.max(240, Math.floor(drawableFrame.height || 420));
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -2907,10 +2979,11 @@
       return !!rebound?.rebound;
     },
     init: options => surface.init(options),
-    afterReady: tabLike => {
+    afterReady: (tabLike, meta = {}) => {
       if(!surface.ready){
         return;
       }
+      applyExistingSurfaceOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'surface-activate-apply-owned-runtime' });
       syncSurfaceActivationState(tabLike || null);
     },
     getSentinel: () => getSurfaceNodeById('surfaceHot')
@@ -2944,12 +3017,34 @@
     return (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
   };
 
-  surface.captureRuntimeState = function captureRuntimeState(){
-    return buildSurfaceTabContextSnapshotFromState();
+  surface.captureRuntimeState = function captureRuntimeState(meta = {}){
+    const snapshot = buildSurfaceTabContextSnapshotFromState();
+    rememberSurfaceOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'surface-runtime-capture'
+    });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(surface, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'surface-runtime-capture'
+    }) || snapshot;
   };
 
-  surface.applyRuntimeState = function applyRuntimeState(snapshot){
-    applySurfaceTabContextSnapshot(snapshot, { syncUi: true });
+  surface.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
+    const resolvedSnapshot = resolveSurfaceOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(surface, snapshot, meta)
+      || snapshot;
+    if(!resolvedSnapshot || typeof resolvedSnapshot !== 'object'){
+      return false;
+    }
+    applySurfaceTabContextSnapshot(resolvedSnapshot, { syncUi: true });
+    rememberSurfaceOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'surface-runtime-apply'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(surface, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'surface-runtime-apply'
+    });
     return true;
   };
 
@@ -3568,6 +3663,9 @@
   };
 
   surface.__getState = () => state;
+  surface.__testHooks = Object.assign({}, surface.__testHooks, {
+    resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl)
+  });
 
   surface.destroy = function destroy(){
     try{
@@ -3646,7 +3744,7 @@
   Shared.componentLifecycle?.installInternalStateBridge?.(surface, {
     componentKey: 'surface',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'drawPending'] },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

@@ -391,6 +391,35 @@
     }
     return scoped || null;
   }
+
+  function resolveScatterDrawableFrame(plotEl){
+    const plot = plotEl || getScatterNodeById('scatterPlot');
+    const svgBox = scatterSvgBoxRef
+      || plot?.closest?.('.svgbox')
+      || queryScatterRoot('#scatterGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'scatter',
+      plot,
+      svgBox,
+      graphPanel: queryScatterRoot('#scatterGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(plot?.clientWidth) || 0),
+      height: Math.max(0, Number(plot?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(plot?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(plot?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
+  }
   let scatterDrawToken = 0;
   function normalizeScatterAxisLabelMode(value){
     return String(value || '').toLowerCase() === 'manual' ? 'manual' : 'auto';
@@ -492,6 +521,443 @@
     }
     const cfg = tab?.payload?.config;
     return cfg && typeof cfg === 'object' ? cfg : null;
+  }
+
+  function resolveScatterOwnedRuntimeTabId(tabLike = null, meta = {}){
+    const direct = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike)
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || scatter.__boundTabId
+      || null;
+    if(direct){
+      return String(direct);
+    }
+    return '';
+  }
+
+  function sanitizeScatterOwnedViewMode(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return (normalized === '3d' || normalized === 'bubble') ? normalized : '2d';
+  }
+
+  function cloneScatterPlainObject(value, fallbackFactory){
+    const cloned = cloneSimple(value);
+    if(cloned && typeof cloned === 'object' && !Array.isArray(cloned)){
+      return cloned;
+    }
+    return typeof fallbackFactory === 'function' ? fallbackFactory() : {};
+  }
+
+  function createDefaultScatterOwnedViewState(){
+    return {
+      viewMode: '2d',
+      requestedViewMode: null,
+      rotation: plot3d.createRotationState({
+        x: SCATTER_3D_DEFAULTS.rotationX,
+        y: SCATTER_3D_DEFAULTS.rotationY
+      }),
+      axesVarianceScaled: false,
+      equalAxes: false,
+      equalScaleAxes: false,
+      supports3d: false,
+      supportsBubble: false,
+      dotSizeOverrideEnabled: false,
+      dotSizeOverrideRaw: null,
+      logPlusOneX: false,
+      logPlusOneY: false,
+      axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' },
+      preserveOverlayToggleState: false,
+      significantLabelsUserModified: false
+    };
+  }
+
+  function normalizeScatterOwnedViewState(value){
+    const defaults = createDefaultScatterOwnedViewState();
+    const next = cloneScatterPlainObject(value, createDefaultScatterOwnedViewState);
+    next.viewMode = sanitizeScatterOwnedViewMode(next.viewMode || defaults.viewMode);
+    next.requestedViewMode = next.requestedViewMode ? sanitizeScatterOwnedViewMode(next.requestedViewMode) : null;
+    next.rotation = next.rotation && typeof next.rotation === 'object'
+      ? next.rotation
+      : defaults.rotation;
+    if(typeof plot3d.normalizeRotation === 'function'){
+      try{ plot3d.normalizeRotation(next.rotation); }catch(_err){}
+    }
+    next.axesVarianceScaled = !!next.axesVarianceScaled;
+    next.equalAxes = !!next.equalAxes;
+    next.equalScaleAxes = !!next.equalScaleAxes;
+    next.supports3d = !!next.supports3d;
+    next.supportsBubble = !!next.supportsBubble;
+    next.dotSizeOverrideEnabled = !!next.dotSizeOverrideEnabled;
+    next.dotSizeOverrideRaw = next.dotSizeOverrideRaw == null ? null : String(next.dotSizeOverrideRaw);
+    next.logPlusOneX = !!next.logPlusOneX;
+    next.logPlusOneY = !!next.logPlusOneY;
+    next.axisLabelModes = normalizeScatterAxisLabelModes(next.axisLabelModes, defaults.axisLabelModes);
+    next.preserveOverlayToggleState = !!next.preserveOverlayToggleState;
+    next.significantLabelsUserModified = !!next.significantLabelsUserModified;
+    return next;
+  }
+
+  function createDefaultScatterOwnedThemeState(){
+    return {
+      colorScheme: getScatterDefaultSchemeId(),
+      textColor: chartStyle.TEXT_COLOR || '#000000',
+      backgroundColor: '#ffffff'
+    };
+  }
+
+  function normalizeScatterOwnedThemeState(value){
+    const defaults = createDefaultScatterOwnedThemeState();
+    const input = value && typeof value === 'object' ? value : {};
+    return {
+      colorScheme: typeof input.colorScheme === 'string' && input.colorScheme.trim() ? input.colorScheme.trim().toLowerCase() : defaults.colorScheme,
+      textColor: normalizeScatterThemeColor(input.textColor, defaults.textColor),
+      backgroundColor: normalizeScatterThemeColor(input.backgroundColor, defaults.backgroundColor)
+    };
+  }
+
+  function createDefaultScatterOwnedStyleState(){
+    return {
+      fill: null,
+      border: null,
+      borderWidth: null,
+      alpha: null,
+      colorMode: null,
+      densityPalette: null,
+      labelColors: {},
+      labelShapes: {},
+      labelStyles: {},
+      overlayStyles: cloneScatterOverlayStyleDefaults(),
+      overlayToolbarScope: 'global'
+    };
+  }
+
+  function normalizeScatterOwnedStyleState(value){
+    const input = value && typeof value === 'object' ? value : {};
+    return {
+      fill: input.fill == null ? null : String(input.fill),
+      border: input.border == null ? null : String(input.border),
+      borderWidth: input.borderWidth == null ? null : String(input.borderWidth),
+      alpha: input.alpha == null ? null : String(input.alpha),
+      colorMode: input.colorMode == null ? null : normalizeScatterColorMode(input.colorMode),
+      densityPalette: input.densityPalette == null ? null : normalizeScatterDensityPalette(input.densityPalette),
+      labelColors: cloneSimple(input.labelColors) || {},
+      labelShapes: cloneSimple(input.labelShapes) || {},
+      labelStyles: cloneSimple(input.labelStyles) || {},
+      overlayStyles: sanitizeScatterOverlayStylesMap(input.overlayStyles),
+      overlayToolbarScope: normalizeScatterOverlayToolbarScope(input.overlayToolbarScope || 'global')
+    };
+  }
+
+  function createDefaultScatterOwnedGroupedState(){
+    return {
+      graphType: 'scatter',
+      tableFormat: SCATTER_TABLE_FORMAT_SINGLE,
+      replicates: SCATTER_MIN_REPLICATES,
+      groupedXReplicates: false,
+      lastGroupedReplicateCount: SCATTER_DEFAULT_GROUPED_REPLICATES,
+      seriesGroupLabels: [],
+      lastGraphType: 'scatter'
+    };
+  }
+
+  function normalizeScatterGraphType(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return (normalized === 'volcano' || normalized === 'ma') ? normalized : 'scatter';
+  }
+
+  function normalizeScatterTableFormat(value){
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === SCATTER_TABLE_FORMAT_GROUPED ? SCATTER_TABLE_FORMAT_GROUPED : SCATTER_TABLE_FORMAT_SINGLE;
+  }
+
+  function normalizeScatterOwnedGroupedState(value){
+    const defaults = createDefaultScatterOwnedGroupedState();
+    const input = value && typeof value === 'object' ? value : {};
+    return {
+      graphType: normalizeScatterGraphType(input.graphType || defaults.graphType),
+      tableFormat: normalizeScatterTableFormat(input.tableFormat || defaults.tableFormat),
+      replicates: clampScatterReplicateCount(input.replicates || defaults.replicates),
+      groupedXReplicates: !!input.groupedXReplicates,
+      lastGroupedReplicateCount: clampScatterReplicateCount(input.lastGroupedReplicateCount || defaults.lastGroupedReplicateCount),
+      seriesGroupLabels: Array.isArray(input.seriesGroupLabels) ? input.seriesGroupLabels.map(item => item == null ? '' : String(item)) : [],
+      lastGraphType: normalizeScatterGraphType(input.lastGraphType || defaults.lastGraphType)
+    };
+  }
+
+  function createDefaultScatterOwnedStatsState(){
+    return {
+      contextSignature: null,
+      contextVersion: 0,
+      lastRunVersion: 0,
+      restorePending: null,
+      lastRegressionSummary: null
+    };
+  }
+
+  function normalizeScatterOwnedStatsState(value){
+    const next = cloneScatterPlainObject(value, createDefaultScatterOwnedStatsState);
+    next.contextSignature = next.contextSignature || null;
+    next.contextVersion = Number(next.contextVersion) || 0;
+    next.lastRunVersion = Number(next.lastRunVersion) || 0;
+    next.restorePending = cloneSimple(next.restorePending) || null;
+    next.lastRegressionSummary = cloneSimple(next.lastRegressionSummary) || null;
+    return next;
+  }
+
+  function createScatterOwnedRuntimeRecord(tabId){
+    return {
+      version: 1,
+      componentKey: 'scatter',
+      tabId: tabId || '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      hydrated: false,
+      dataDirty: true,
+      view: createDefaultScatterOwnedViewState(),
+      theme: createDefaultScatterOwnedThemeState(),
+      styles: createDefaultScatterOwnedStyleState(),
+      grouped: createDefaultScatterOwnedGroupedState(),
+      axisSettings: typeof createScatterAxisSettings === 'function' ? createScatterAxisSettings() : null,
+      gridStyle: null,
+      stats: createDefaultScatterOwnedStatsState()
+    };
+  }
+
+  function getScatterOwnedRuntimeRecord(tabLike = null, meta = {}, options = {}){
+    const tabId = resolveScatterOwnedRuntimeTabId(tabLike, meta);
+    if(!tabId){
+      scatterDebug('Debug: scatter owned runtime requires an explicit tab id', {
+        reason: meta?.reason || 'resolve-scatter-owned-runtime'
+      });
+      return null;
+    }
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'scatter') || null;
+    if(!runtime){
+      return null;
+    }
+    let record = runtime.ownedRuntimeRecord || null;
+    if(!record && options.create === true){
+      record = createScatterOwnedRuntimeRecord(tabId);
+      runtime.ownedRuntimeRecord = record;
+      scatterDebug('Debug: scatter owned runtime record created', {
+        tabId,
+        reason: meta?.reason || 'ensure-scatter-owned-runtime'
+      });
+    }
+    if(!record){
+      return null;
+    }
+    if(options.create !== true && record.hydrated !== true){
+      return null;
+    }
+    record.view = normalizeScatterOwnedViewState(record.view);
+    record.theme = normalizeScatterOwnedThemeState(record.theme);
+    record.styles = normalizeScatterOwnedStyleState(record.styles);
+    record.grouped = normalizeScatterOwnedGroupedState(record.grouped);
+    record.axisSettings = cloneSimple(record.axisSettings) || (typeof createScatterAxisSettings === 'function' ? createScatterAxisSettings() : null);
+    record.gridStyle = cloneSimple(record.gridStyle) || null;
+    record.stats = normalizeScatterOwnedStatsState(record.stats);
+    record.dataDirty = record.dataDirty !== false;
+    runtime.ownedRuntimeRecord = record;
+    return record;
+  }
+
+  function ensureScatterOwnedRuntimeRecord(tabLike = null, meta = {}){
+    return getScatterOwnedRuntimeRecord(tabLike, meta, { create: true });
+  }
+
+  function snapshotScatterOwnedRuntimeRecord(record){
+    if(!record || record.hydrated !== true){
+      return null;
+    }
+    return {
+      dataDirty: record.dataDirty !== false,
+      view: cloneSimple(record.view) || createDefaultScatterOwnedViewState(),
+      theme: {
+        schemeId: record.theme?.colorScheme || getScatterDefaultSchemeId(),
+        textColor: record.theme?.textColor || (chartStyle.TEXT_COLOR || '#000000'),
+        backgroundColor: record.theme?.backgroundColor || '#ffffff'
+      },
+      styles: cloneSimple(record.styles) || createDefaultScatterOwnedStyleState(),
+      grouped: cloneSimple(record.grouped) || createDefaultScatterOwnedGroupedState(),
+      axisSettings: cloneSimple(record.axisSettings) || (typeof createScatterAxisSettings === 'function' ? createScatterAxisSettings() : null),
+      gridStyle: cloneSimple(record.gridStyle) || null,
+      stats: {
+        contextSignature: record.stats?.contextSignature || null,
+        contextVersion: Number(record.stats?.contextVersion) || 0,
+        lastRunVersion: Number(record.stats?.lastRunVersion) || 0,
+        restorePending: cloneSimple(record.stats?.restorePending) || null,
+        lastRegressionSummary: cloneSimple(record.stats?.lastRegressionSummary) || null
+      },
+      reason: 'scatter-owned-runtime'
+    };
+  }
+
+  function bindScatterOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensureScatterOwnedRuntimeRecord(tabLike, meta);
+    if(!record || record.hydrated !== true){
+      return record || null;
+    }
+    scatterState.viewMode = record.view.viewMode;
+    scatterState.requestedViewMode = record.view.requestedViewMode;
+    scatterState.rotation = record.view.rotation;
+    scatterState.axesVarianceScaled = !!record.view.axesVarianceScaled;
+    scatterState.equalAxes = !!record.view.equalAxes;
+    scatterState.equalScaleAxes = !!record.view.equalScaleAxes;
+    scatterState.supports3d = !!record.view.supports3d;
+    scatterState.supportsBubble = !!record.view.supportsBubble;
+    scatterState.dotSizeOverrideEnabled = !!record.view.dotSizeOverrideEnabled;
+    scatterState.dotSizeOverrideRaw = record.view.dotSizeOverrideRaw == null ? null : String(record.view.dotSizeOverrideRaw);
+    scatterState.logPlusOneX = !!record.view.logPlusOneX;
+    scatterState.logPlusOneY = !!record.view.logPlusOneY;
+    scatterState.axisLabelModes = normalizeScatterAxisLabelModes(record.view.axisLabelModes);
+    scatterState.preserveOverlayToggleState = !!record.view.preserveOverlayToggleState;
+    scatterState.significantLabelsUserModified = !!record.view.significantLabelsUserModified;
+    scatterColorSchemeId = record.theme.colorScheme || getScatterDefaultSchemeId();
+    scatterTextColor = record.theme.textColor || (chartStyle.TEXT_COLOR || '#000000');
+    scatterBackgroundColor = record.theme.backgroundColor || '#ffffff';
+    scatterLabelColors = cloneSimple(record.styles.labelColors) || {};
+    scatterLabelShapes = cloneSimple(record.styles.labelShapes) || {};
+    scatterLabelStyles = cloneSimple(record.styles.labelStyles) || {};
+    scatterOverlayStyles = sanitizeScatterOverlayStylesMap(record.styles.overlayStyles);
+    scatterOverlayToolbarScope = normalizeScatterOverlayToolbarScope(record.styles.overlayToolbarScope || 'global');
+    scatterCurrentGraphType = normalizeScatterGraphType(record.grouped.graphType);
+    scatterTableFormat = normalizeScatterTableFormat(record.grouped.tableFormat);
+    scatterReplicates = clampScatterReplicateCount(record.grouped.replicates);
+    scatterGroupedXReplicates = !!record.grouped.groupedXReplicates;
+    scatterLastGroupedReplicateCount = clampScatterReplicateCount(record.grouped.lastGroupedReplicateCount);
+    scatterSeriesGroupLabels = Array.isArray(record.grouped.seriesGroupLabels) ? record.grouped.seriesGroupLabels.slice() : [];
+    scatterLastGraphType = normalizeScatterGraphType(record.grouped.lastGraphType);
+    scatterAxisSettings = cloneSimple(record.axisSettings) || scatterAxisSettings || createScatterAxisSettings();
+    scatterGridStyle = cloneSimple(record.gridStyle) || scatterGridStyle || null;
+    scatterState.dataDirty = record.dataDirty !== false;
+    scatterState.statsContextSignature = record.stats.contextSignature || null;
+    scatterState.statsContextVersion = Number(record.stats.contextVersion) || 0;
+    scatterState.statsLastRunVersion = Number(record.stats.lastRunVersion) || 0;
+    scatterState.statsRestorePending = cloneSimple(record.stats.restorePending) || null;
+    scatterLastRegressionSummary = cloneSimple(record.stats.lastRegressionSummary) || null;
+    scatter.__scatterOwnedRuntimeTabId = record.tabId;
+    return record;
+  }
+
+  function bindExistingScatterOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = getScatterOwnedRuntimeRecord(tabLike, meta, { create: false });
+    if(!record){
+      return null;
+    }
+    return bindScatterOwnedRuntimeRecord(record.tabId, { ...(meta || {}), tabId: record.tabId });
+  }
+
+  function rememberScatterOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensureScatterOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    record.updatedAt = Date.now();
+    record.hydrated = true;
+    record.reason = meta?.reason || 'remember-scatter-owned-runtime';
+    record.dataDirty = scatterState.dataDirty !== false;
+    record.view = normalizeScatterOwnedViewState({
+      viewMode: scatterState.viewMode,
+      requestedViewMode: scatterState.requestedViewMode,
+      rotation: scatterState.rotation,
+      axesVarianceScaled: scatterState.axesVarianceScaled,
+      equalAxes: scatterState.equalAxes,
+      equalScaleAxes: scatterState.equalScaleAxes,
+      supports3d: scatterState.supports3d,
+      supportsBubble: scatterState.supportsBubble,
+      dotSizeOverrideEnabled: scatterState.dotSizeOverrideEnabled,
+      dotSizeOverrideRaw: scatterState.dotSizeOverrideRaw,
+      logPlusOneX: scatterState.logPlusOneX,
+      logPlusOneY: scatterState.logPlusOneY,
+      axisLabelModes: scatterState.axisLabelModes,
+      preserveOverlayToggleState: scatterState.preserveOverlayToggleState,
+      significantLabelsUserModified: scatterState.significantLabelsUserModified
+    });
+    record.theme = normalizeScatterOwnedThemeState({
+      colorScheme: scatterColorSchemeId,
+      textColor: scatterTextColor,
+      backgroundColor: scatterBackgroundColor
+    });
+    record.styles = normalizeScatterOwnedStyleState({
+      labelColors: scatterLabelColors,
+      labelShapes: scatterLabelShapes,
+      labelStyles: scatterLabelStyles,
+      overlayStyles: scatterOverlayStyles,
+      overlayToolbarScope: scatterOverlayToolbarScope
+    });
+    record.grouped = normalizeScatterOwnedGroupedState({
+      graphType: scatterCurrentGraphType,
+      tableFormat: scatterTableFormat,
+      replicates: scatterReplicates,
+      groupedXReplicates: scatterGroupedXReplicates,
+      lastGroupedReplicateCount: scatterLastGroupedReplicateCount,
+      seriesGroupLabels: scatterSeriesGroupLabels,
+      lastGraphType: scatterLastGraphType
+    });
+    record.axisSettings = cloneSimple(ensureScatterAxisSettings()) || createScatterAxisSettings();
+    record.gridStyle = cloneSimple(ensureScatterGridStyle(getScatterAxisStrokeWidth())) || createDefaultScatterGridStyle(getScatterAxisStrokeWidth());
+    record.stats = normalizeScatterOwnedStatsState({
+      contextSignature: scatterState.statsContextSignature,
+      contextVersion: scatterState.statsContextVersion,
+      lastRunVersion: scatterState.statsLastRunVersion,
+      restorePending: scatterState.statsRestorePending,
+      lastRegressionSummary: scatterLastRegressionSummary
+    });
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'scatter') || null;
+    if(runtime){
+      runtime.ownedRuntimeRecord = record;
+    }
+    return record;
+  }
+
+  function applyScatterOwnedRuntimeSlicesFromSnapshot(snapshot, tabLike = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    const record = ensureScatterOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    record.hydrated = true;
+    record.reason = meta?.reason || 'apply-scatter-owned-runtime-slices';
+    if(snapshot.dataDirty != null){
+      record.dataDirty = snapshot.dataDirty !== false;
+    }
+    if(snapshot.view && typeof snapshot.view === 'object'){
+      record.view = normalizeScatterOwnedViewState({ ...record.view, ...cloneSimple(snapshot.view) });
+    }
+    if(snapshot.theme && typeof snapshot.theme === 'object'){
+      record.theme = normalizeScatterOwnedThemeState({
+        colorScheme: snapshot.theme.schemeId || snapshot.theme.colorScheme || record.theme.colorScheme,
+        textColor: snapshot.theme.textColor || record.theme.textColor,
+        backgroundColor: snapshot.theme.backgroundColor || record.theme.backgroundColor
+      });
+    }
+    if(snapshot.styles && typeof snapshot.styles === 'object'){
+      record.styles = normalizeScatterOwnedStyleState({ ...record.styles, ...cloneSimple(snapshot.styles) });
+    }
+    if(snapshot.grouped && typeof snapshot.grouped === 'object'){
+      record.grouped = normalizeScatterOwnedGroupedState({ ...record.grouped, ...cloneSimple(snapshot.grouped) });
+    }
+    if(snapshot.axisSettings && typeof snapshot.axisSettings === 'object'){
+      record.axisSettings = cloneSimple(snapshot.axisSettings) || record.axisSettings;
+    }
+    if(snapshot.gridStyle && typeof snapshot.gridStyle === 'object'){
+      record.gridStyle = cloneSimple(snapshot.gridStyle) || record.gridStyle;
+    }
+    if(snapshot.stats && typeof snapshot.stats === 'object'){
+      record.stats = normalizeScatterOwnedStatsState({
+        ...record.stats,
+        contextSignature: snapshot.stats.contextSignature ?? record.stats.contextSignature,
+        contextVersion: snapshot.stats.contextVersion ?? record.stats.contextVersion,
+        lastRunVersion: snapshot.stats.lastRunVersion ?? record.stats.lastRunVersion,
+        restorePending: snapshot.stats.restorePending ?? record.stats.restorePending,
+        lastRegressionSummary: snapshot.stats.lastRegressionSummary ?? record.stats.lastRegressionSummary
+      });
+    }
+    return bindScatterOwnedRuntimeRecord(record.tabId, { ...(meta || {}), reason: meta?.reason || 'scatter-owned-runtime-apply' });
   }
 
   // PART: THEME
@@ -1323,6 +1789,32 @@
     const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
     const snapshot = {
       dataDirty: scatterState.dataDirty !== false,
+      view: {
+        viewMode: scatterState.viewMode || '2d',
+        requestedViewMode: scatterState.requestedViewMode || null,
+        rotation: cloneSimple(scatterState.rotation) || null,
+        axesVarianceScaled: !!scatterState.axesVarianceScaled,
+        equalAxes: !!scatterState.equalAxes,
+        equalScaleAxes: !!scatterState.equalScaleAxes,
+        supports3d: !!scatterState.supports3d,
+        supportsBubble: !!scatterState.supportsBubble,
+        dotSizeOverrideEnabled: !!scatterState.dotSizeOverrideEnabled,
+        dotSizeOverrideRaw: scatterState.dotSizeOverrideRaw == null ? null : String(scatterState.dotSizeOverrideRaw),
+        logPlusOneX: !!scatterState.logPlusOneX,
+        logPlusOneY: !!scatterState.logPlusOneY,
+        axisLabelModes: normalizeScatterAxisLabelModes(scatterState.axisLabelModes),
+        preserveOverlayToggleState: !!scatterState.preserveOverlayToggleState,
+        significantLabelsUserModified: !!scatterState.significantLabelsUserModified
+      },
+      grouped: {
+        graphType: scatterCurrentGraphType || 'scatter',
+        tableFormat: scatterTableFormat || SCATTER_TABLE_FORMAT_SINGLE,
+        replicates: scatterReplicates,
+        groupedXReplicates: !!scatterGroupedXReplicates,
+        lastGroupedReplicateCount: scatterLastGroupedReplicateCount,
+        seriesGroupLabels: Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [],
+        lastGraphType: scatterLastGraphType || 'scatter'
+      },
       theme: {
         schemeId: themeSnapshot?.schemeId || scatterColorSchemeId || getScatterDefaultSchemeId(),
         textColor: themeSnapshot?.textColor || scatterTextColor || (chartStyle.TEXT_COLOR || '#000000'),
@@ -1347,18 +1839,23 @@
         contextSignature: scatterState.statsContextSignature || null,
         contextVersion: Number.isFinite(Number(scatterState.statsContextVersion)) ? Number(scatterState.statsContextVersion) : 0,
         lastRunVersion: Number.isFinite(Number(scatterState.statsLastRunVersion)) ? Number(scatterState.statsLastRunVersion) : 0,
-        restorePending: cloneSimple(scatterState.statsRestorePending) || null
+        restorePending: cloneSimple(scatterState.statsRestorePending) || null,
+        lastRegressionSummary: cloneSimple(scatterLastRegressionSummary) || null
       },
       view: {
         lastDrawAt: Number.isFinite(Number(scatterState.lastDrawAt)) ? Number(scatterState.lastDrawAt) : 0,
         lastDrawMeta: cloneSimple(scatterState.lastDrawMeta) || null
       }
     };
+    applyScatterOwnedRuntimeSlicesFromSnapshot(snapshot, activeTabId, { reason: reason || 'scatter-runtime-capture' });
+    rememberScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-capture' });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: scatter runtime snapshot captured', {
         reason: reason || 'unspecified',
         dataDirty: snapshot.dataDirty,
         theme: snapshot.theme?.schemeId || null,
+        viewMode: snapshot.view?.viewMode || null,
+        ownedRuntimeTabId: scatter.__scatterOwnedRuntimeTabId || null,
         statsContextVersion: snapshot.stats.contextVersion
       });
     }
@@ -1368,6 +1865,11 @@
   function applyScatterRuntimeSnapshot(snapshot, reason){
     const runtime = snapshot && typeof snapshot === 'object' ? snapshot : null;
     const activeTabId = scatter.__boundTabId || Shared.hot?.resolveActiveTabId?.() || null;
+    if(runtime){
+      applyScatterOwnedRuntimeSlicesFromSnapshot(runtime, activeTabId, { reason: reason || 'scatter-runtime-apply' });
+    }else{
+      bindExistingScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-apply-missing-snapshot-bind-existing-owned-runtime' });
+    }
     const fillControl = getScatterNodeById('scatterFill') || null;
     const borderControl = getScatterNodeById('scatterBorder') || null;
     const borderWidthControl = getScatterNodeById('scatterBorderWidth') || null;
@@ -1375,6 +1877,34 @@
     const alphaValueNode = getScatterNodeById('scatterAlphaVal') || null;
     const colorModeControl = getScatterNodeById('scatterColorMode') || null;
     const densityPaletteControl = getScatterNodeById('scatterDensityPalette') || null;
+    if(runtime?.view && typeof runtime.view === 'object'){
+      const view = normalizeScatterOwnedViewState(runtime.view);
+      scatterState.viewMode = view.viewMode;
+      scatterState.requestedViewMode = view.requestedViewMode;
+      scatterState.rotation = view.rotation;
+      scatterState.axesVarianceScaled = !!view.axesVarianceScaled;
+      scatterState.equalAxes = !!view.equalAxes;
+      scatterState.equalScaleAxes = !!view.equalScaleAxes;
+      scatterState.supports3d = !!view.supports3d;
+      scatterState.supportsBubble = !!view.supportsBubble;
+      scatterState.dotSizeOverrideEnabled = !!view.dotSizeOverrideEnabled;
+      scatterState.dotSizeOverrideRaw = view.dotSizeOverrideRaw == null ? null : String(view.dotSizeOverrideRaw);
+      scatterState.logPlusOneX = !!view.logPlusOneX;
+      scatterState.logPlusOneY = !!view.logPlusOneY;
+      scatterState.axisLabelModes = normalizeScatterAxisLabelModes(view.axisLabelModes);
+      scatterState.preserveOverlayToggleState = !!view.preserveOverlayToggleState;
+      scatterState.significantLabelsUserModified = !!view.significantLabelsUserModified;
+    }
+    if(runtime?.grouped && typeof runtime.grouped === 'object'){
+      const grouped = normalizeScatterOwnedGroupedState(runtime.grouped);
+      scatterCurrentGraphType = grouped.graphType;
+      scatterTableFormat = grouped.tableFormat;
+      scatterReplicates = grouped.replicates;
+      scatterGroupedXReplicates = !!grouped.groupedXReplicates;
+      scatterLastGroupedReplicateCount = grouped.lastGroupedReplicateCount;
+      scatterSeriesGroupLabels = grouped.seriesGroupLabels.slice();
+      scatterLastGraphType = grouped.lastGraphType;
+    }
     if(runtime?.theme && typeof runtime.theme === 'object'){
       applyScatterThemeConfig({
         colorScheme: runtime.theme.schemeId,
@@ -1432,6 +1962,7 @@
       ? Number(runtime.stats.lastRunVersion)
       : 0;
     scatterState.statsRestorePending = cloneSimple(runtime?.stats?.restorePending) || null;
+    scatterLastRegressionSummary = cloneSimple(runtime?.stats?.lastRegressionSummary) || scatterLastRegressionSummary || null;
     scatterState.statsContext = null;
     scatterState.statsComputationPending = false;
     scatterState.pendingDrawOpts = null;
@@ -1441,12 +1972,15 @@
       : 0;
     scatterState.lastDrawMeta = cloneSimple(runtime?.view?.lastDrawMeta) || null;
     scatterDrawToken += 1;
+    rememberScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-apply' });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: scatter runtime snapshot applied', {
         reason: reason || 'unspecified',
         hasRuntime: !!runtime,
         dataDirty: scatterState.dataDirty,
         theme: scatterColorSchemeId || null,
+        viewMode: scatterState.viewMode || null,
+        ownedRuntimeTabId: scatter.__scatterOwnedRuntimeTabId || null,
         statsContextVersion: scatterState.statsContextVersion,
         drawToken: scatterDrawToken
       });
@@ -16084,11 +16618,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const alpha=Number(alphaControl?.value)||0;
         const borderWidthRaw=Number(borderWidthControl?.value);
         const borderColor=(borderControl?.value)||'#000000';
-        const containerRect=scatterSvgBox?.getBoundingClientRect?.();
+        const drawableFrame = resolveScatterDrawableFrame(scatterPlotDiv);
         const fontInfo=chartStyle.resolveScaledFontSize({
           rawSize: fontSizeControl?.value,
-          width: containerRect?.width,
-          height: containerRect?.height,
+          width: drawableFrame.width,
+          height: drawableFrame.height,
           svgBox: scatterSvgBox,
           input: fontSizeControl
         });
@@ -16129,8 +16663,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           baseFontPx: fontInfo.px,
           scaledFontPx: fs,
           scale: fontInfo.scaleInfo?.scale,
-          containerWidth: containerRect?.width,
-          containerHeight: containerRect?.height
+          containerWidth: drawableFrame.width,
+          containerHeight: drawableFrame.height
         }); // Debug: scatter font scaling summary
         const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
         debug('Debug: scatter axis metrics',axisMetrics);
@@ -17617,9 +18151,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const targetAspect = Number.isFinite(SCATTER_3D_DEFAULTS.aspectRatio) && SCATTER_3D_DEFAULTS.aspectRatio > 0 ? SCATTER_3D_DEFAULTS.aspectRatio : (4/3);
           const fallbackWidth = 420;
           const fallbackHeight = Math.round(fallbackWidth / targetAspect);
-          const bounds = typeof plotEl.getBoundingClientRect === 'function' ? plotEl.getBoundingClientRect() : { width: 0, height: 0 };
-          const availableWidth = Math.floor(bounds.width || plotEl.clientWidth || 0);
-          const availableHeight = Math.floor(bounds.height || plotEl.clientHeight || 0);
+          const availableWidth = Math.floor(drawableFrame.width || 0);
+          const availableHeight = Math.floor(drawableFrame.height || 0);
           let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
           let H3 = Math.round(W3 / targetAspect);
           if(availableHeight > 0 && H3 > availableHeight){
@@ -18356,8 +18889,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ) || null;
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
-        const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
-        const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+        const W=Math.max(50,Math.floor(drawableFrame.width||50));
+        const H=Math.max(40,Math.floor(drawableFrame.height||40));
         plotEl.style.position='relative';
         const svg=document.createElementNS(NS,'svg');
         svg.setAttribute('id','scatterSvg');
@@ -22648,25 +23181,35 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   scatter.computeAdaptivePointSize = computeAdaptivePointSize;
   scatter.captureRuntimeState = function captureRuntimeState(meta = {}){
     const snapshot = captureScatterRuntimeSnapshot(meta.reason || 'capture-runtime-state');
-    const sessionRecord = getScatterSessionRecord(meta.tabId || Shared.hot?.resolveActiveTabId?.(), { create: true });
-    if(sessionRecord){
-      sessionRecord.runtime = snapshot;
-    }
-    return snapshot;
+    rememberScatterOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'capture-runtime-state' });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(scatter, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'capture-runtime-state'
+    }) || snapshot;
   };
   scatter.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
-    return applyScatterRuntimeSnapshot(snapshot, meta.reason || 'apply-runtime-state');
+    const resolvedSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(scatter, snapshot, meta) || snapshot;
+    const applied = applyScatterRuntimeSnapshot(resolvedSnapshot, meta.reason || 'apply-runtime-state');
+    if(applied && resolvedSnapshot && typeof resolvedSnapshot === 'object'){
+      rememberScatterOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'apply-runtime-state' });
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(scatter, resolvedSnapshot, {
+        ...(meta || {}),
+        reason: meta.reason || 'apply-runtime-state'
+      });
+    }
+    return applied;
   };
   scatter.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
     component: scatter,
     componentKey: 'scatter',
-    cancel: (_tab, meta = {}) => {
+    cancel: (tab, meta = {}) => {
       scatterDrawToken += 1;
       clearScatterScheduledDraw(meta.reason || 'deactivate-tab');
       scatterState.drawInProgress = false;
       scatterState.statsComputationPending = false;
       scatterState.rotationPending = false;
       scatterState.rotationPendingLogged = false;
+      rememberScatterOwnedRuntimeRecord(tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'scatter-deactivate-remember-owned-runtime' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: scatter tab deactivated', {
           reason: meta.reason || 'deactivate-tab',
@@ -22675,13 +23218,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
       }
     }
-  }) || function deactivateTab(_tab, meta = {}){
+  }) || function deactivateTab(tab, meta = {}){
     scatterDrawToken += 1;
     clearScatterScheduledDraw(meta.reason || 'deactivate-tab');
     scatterState.drawInProgress = false;
     scatterState.statsComputationPending = false;
     scatterState.rotationPending = false;
     scatterState.rotationPendingLogged = false;
+    rememberScatterOwnedRuntimeRecord(tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'scatter-deactivate-remember-owned-runtime' });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: scatter tab deactivated', {
         reason: meta.reason || 'deactivate-tab',
@@ -22710,9 +23254,23 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       || scatter.__boundTabId
       || null;
     const activationTab = resolveScatterTab(tabLike || activationTabId) || null;
+    const ownedRuntime = getScatterOwnedRuntimeRecord(tabLike || activationTabId || null, { tabId: activationTabId, reason: reason || 'activate-tab' }, { create: false });
+    if(ownedRuntime){
+      bindScatterOwnedRuntimeRecord(activationTab || activationTabId || null, { tabId: activationTabId, reason: reason || 'activate-tab-bind-owned-runtime' });
+    }
     applyScatterActivationVisualStateFromPayload(activationTab?.payload?.config || {}, activationTabId);
     syncScatterActivationControlsFromPayload(activationTab || tabLike);
-    applyScatterRuntimeSnapshot(getScatterSessionRecord(tabLike || Shared.hot?.resolveActiveTabId?.(), { create: true })?.runtime || null, reason || 'activate-tab');
+    const sessionRuntime = getScatterSessionRecord(tabLike || activationTabId || Shared.hot?.resolveActiveTabId?.(), { create: false })?.runtime || null;
+    const ownedSnapshot = ownedRuntime ? snapshotScatterOwnedRuntimeRecord(ownedRuntime) : null;
+    const runtimeSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(scatter, sessionRuntime || ownedSnapshot, { tabId: activationTabId, reason: reason || 'activate-tab-runtime' })
+      || sessionRuntime
+      || ownedSnapshot
+      || null;
+    if(runtimeSnapshot){
+      applyScatterRuntimeSnapshot(runtimeSnapshot, reason || 'activate-tab');
+    }else{
+      rememberScatterOwnedRuntimeRecord(activationTab || activationTabId || null, { tabId: activationTabId, reason: reason || 'activate-tab-seed-owned-runtime' });
+    }
     if(!scatter.ready){
       return;
     }
@@ -23285,6 +23843,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.__testHooks = Object.assign({}, scatter.__testHooks, {
     benchmarkLoad: opts => benchmarkScatterLoad(opts),
+    resolveDrawableFrame: plotEl => resolveScatterDrawableFrame(plotEl),
     resolveLargeDatasetPolicy: opts => resolveScatterLargeDatasetPolicy(opts || {}),
     resolveColorMode: opts => resolveScatterColorMode(opts || {}),
     getLargeDatasetRenderSummary: () => Object.assign({}, scatter.__lastLargeDatasetRenderSummary || {}, {
@@ -23441,7 +24000,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
   Shared.componentLifecycle?.installInternalStateBridge?.(scatter, {
     componentKey: 'scatter',
     targets: [
-      { key: 'scatterState', get: () => scatterState, excludeKeys: ['hot', 'root', 'cachedDrawInput'] },
+      {
+        key: 'scatterState',
+        get: () => scatterState,
+        excludeKeys: [
+          'hot', 'root', 'cachedDrawInput', 'statsContext', 'statsCacheBySignature',
+          'statsComputationPending', 'statsRestorePending', 'pendingDrawOpts',
+          'pendingDrawReasons', 'activeDrawReasons', 'drawScheduled', 'drawCooldownTimer',
+          'drawInProgress', 'rotationPending', 'rotationPendingLogged', 'skipNextDraw',
+          'skipNextDrawReason', 'cachedCollect', 'cachedGeometry', 'lastDrawMeta'
+        ]
+      },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

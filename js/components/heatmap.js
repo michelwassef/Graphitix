@@ -4,6 +4,48 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const heatmap = Components.heatmap = Components.heatmap || {};
+
+  function getHeatmapRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(heatmap, { componentKey: 'heatmap' }) || null;
+  }
+
+  function rememberHeatmapOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getHeatmapRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'heatmap',
+      reason: meta?.reason || 'heatmap-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolveHeatmapOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    return getHeatmapRuntimeOwner()?.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'heatmap',
+      reason: meta?.reason || 'heatmap-owned-runtime-resolve'
+    }) || null;
+  }
+
+  function applyExistingHeatmapOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getHeatmapRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'heatmap',
+      reason: meta?.reason || 'heatmap-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof heatmap.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return heatmap.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'heatmap-owned-runtime-activate-apply'
+    });
+  }
+
+
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const dendrogramControls = Shared.dendrogramControls = Shared.dendrogramControls || {};
@@ -494,6 +536,36 @@
       }
     }
     return root?.querySelector?.(`#${id}`) || null;
+  }
+
+  function resolveHeatmapDrawableFrame(targetEl){
+    const target = targetEl || state.svg || getHeatmapNodeById('heatmapSvg');
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || target?.closest?.('.svgbox')
+      || queryHeatmapRoot('#heatmapGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'heatmap',
+      plot: target,
+      svgBox,
+      graphPanel: state.layout?.elements?.graphPanel || queryHeatmapRoot('#heatmapGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(target?.clientWidth) || 0),
+      height: Math.max(0, Number(target?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(target?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(target?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
   }
 
   function createDefaultHeatmapTabContext(){
@@ -6362,15 +6434,15 @@
     while(state.svg.firstChild){
       state.svg.removeChild(state.svg.firstChild);
     }
-    const containerRect = state.svgBox?.getBoundingClientRect?.();
+    const drawableFrame = resolveHeatmapDrawableFrame(state.svg);
     const svgRect = state.svg?.getBoundingClientRect?.();
     let fontInfo = null;
     if(typeof chartStyle.resolveScaledFontSize === 'function'){
       fontInfo = chartStyle.resolveScaledFontSize({
         rawSize: refs.fontSize?.value ?? fontSize,
         basePt: fontSize,
-        width: containerRect?.width,
-        height: containerRect?.height,
+        width: drawableFrame.width,
+        height: drawableFrame.height,
         svgBox: state.svgBox,
         input: refs.fontSize,
         scopeId: 'heatmap'
@@ -6467,8 +6539,8 @@
       if(aspectLocked){
         return { adjustX: 1, adjustY: 1 };
       }
-      const displayWidth = Number(containerRect?.width);
-      const displayHeight = Number(containerRect?.height);
+      const displayWidth = Number(drawableFrame.width);
+      const displayHeight = Number(drawableFrame.height);
       if(!Number.isFinite(displayWidth) || !Number.isFinite(displayHeight) || displayWidth <= 0 || displayHeight <= 0){
         return { adjustX: 1, adjustY: 1 };
       }
@@ -6826,8 +6898,8 @@
       : heatmapHeight;
     const scaleStartY = dataStartY;
     // Scale strokes using the minimum axis factor so thickness only changes when both axes stretch.
-    const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
-    const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
+    const scaleX = drawableFrame.width && totalWidth ? drawableFrame.width / totalWidth : 1;
+    const scaleY = drawableFrame.height && totalHeight ? drawableFrame.height / totalHeight : 1;
     const minScale = Math.min(scaleX, scaleY);
     const hasScaleX = Number.isFinite(scaleX) && scaleX > 0;
     const hasScaleY = Number.isFinite(scaleY) && scaleY > 0;
@@ -8634,6 +8706,7 @@
         return;
       }
       const passive = !!(meta?.suppressDraw || meta?.suppressAutoDraw || meta?.liveDomFastPath || meta?.passiveControls);
+      applyExistingHeatmapOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'heatmap-activate-apply-owned-runtime' });
       syncHeatmapActivationState(tabLike || meta?.tabId || null, { passive });
     },
     getSentinel: () => {
@@ -8657,12 +8730,37 @@
     syncHeatmapActivationState(tab || targetTabId || null);
   };
 
-  heatmap.captureRuntimeState = function captureRuntimeState(){
-    return buildHeatmapTabContextSnapshotFromState();
+  heatmap.captureRuntimeState = function captureRuntimeState(meta = {}){
+    const snapshot = buildHeatmapTabContextSnapshotFromState();
+    rememberHeatmapOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'heatmap-runtime-capture'
+    });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(heatmap, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'heatmap-runtime-capture'
+    }) || snapshot;
   };
 
-  heatmap.applyRuntimeState = function applyRuntimeState(snapshot){
-    applyHeatmapTabContextSnapshot(snapshot, { syncUi: true });
+  heatmap.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
+    const resolvedSnapshot = resolveHeatmapOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(heatmap, snapshot, meta)
+      || snapshot;
+    if(!resolvedSnapshot || typeof resolvedSnapshot !== 'object'){
+      return false;
+    }
+    applyHeatmapTabContextSnapshot(resolvedSnapshot, { syncUi: true });
+    rememberHeatmapOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'heatmap-runtime-apply'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(heatmap, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'heatmap-runtime-apply'
+    });
+    clearHiddenDrawFlushHandle();
+    pendingDrawOptions = {};
+    deferredHiddenDrawOptions = null;
     return true;
   };
 
@@ -8945,6 +9043,7 @@
 
   heatmap.__testHooks = Object.assign({}, heatmap.__testHooks, {
     benchmarkLoad: opts => benchmarkHeatmapLoad(opts),
+    resolveDrawableFrame: targetEl => resolveHeatmapDrawableFrame(targetEl),
     getPerformance: () => ({
       performance: cloneSimple(state.performance),
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
@@ -8957,9 +9056,8 @@
   Shared.componentLifecycle?.installInternalStateBridge?.(heatmap, {
     componentKey: 'heatmap',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
-      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] },
-      { key: 'pendingDrawOptions', get: () => pendingDrawOptions, apply: snapshot => { pendingDrawOptions = snapshot && typeof snapshot === 'object' ? Object.assign({}, snapshot) : {}; } }
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'drawToken'] },
+      { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });
 })(window);

@@ -541,6 +541,7 @@
     }
     const complexity = measurePreviewPointLayerComplexity(layer);
     return complexity.hasCanvasRenderer
+      || (type === 'scatter' && complexity.nodeCount > 400)
       || complexity.nodeCount > 7000
       || complexity.pathChars > 20000
       || (type === 'box' && !!layer.querySelector?.('[data-box-export-geometry="1"], [data-box-approx-symbol-geometry="1"]'));

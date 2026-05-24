@@ -497,13 +497,6 @@
 
   graphSizing.mergePayloadSizingIntoLayout = function mergePayloadSizingIntoLayout(layoutState, payload, options = {}){
     const context = options.context || 'merge-payload-into-layout';
-    if((options?.type || payload?.type || '').toLowerCase() === 'box'){
-      debug('Debug: graphSizing.mergePayloadSizingIntoLayout skipped', {
-        context,
-        reason: 'box-layout-state-authoritative'
-      });
-      return cloneValue(layoutState) || null;
-    }
     const record = graphSizing.getPayloadSizing(payload, { context });
     if(!record){
       return cloneValue(layoutState) || null;
@@ -567,14 +560,6 @@
   };
 
   graphSizing.enrichPayloadWithLayout = function enrichPayloadWithLayout(type, payload, layoutState, options = {}){
-    if(String(type || '').toLowerCase() === 'box'){
-      debug('Debug: graphSizing.enrichPayloadWithLayout skipped', {
-        type,
-        context: options.context || null,
-        reason: 'box-layout-state-authoritative'
-      });
-      return cloneValue(payload);
-    }
     let record = graphSizing.captureLayoutSizing(layoutState, {
       context: options.context || `${type || 'graph'}-layout-capture`
     });
@@ -633,14 +618,6 @@
         type,
         context,
         reason: 'authoritative-layout-state'
-      });
-      return false;
-    }
-    if(type === 'box'){
-      debug('Debug: graphSizing.applyPayloadSizingForType skipped', {
-        type,
-        context,
-        reason: 'box-layout-state-authoritative'
       });
       return false;
     }

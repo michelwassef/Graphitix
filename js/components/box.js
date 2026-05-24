@@ -3,6 +3,13 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const box = Components.box = Components.box || {};
+  if(typeof Shared.componentLayout?.resolveDrawableFrame !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/componentLayout.js');
+    }catch(err){
+      console.debug('Debug: box component componentLayout helper require failed', { message: err?.message || String(err) });
+    }
+  }
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisExtras = Shared.axisExtras = Shared.axisExtras || {};
@@ -10673,6 +10680,508 @@
     }
   }
 
+  const BOX_OWNED_RUNTIME_STATE_KEYS = Object.freeze([
+    'titleText', 'yLabelText', 'lastDefaultFill', 'selectedCols', 'statsTest',
+    'statsMode', 'statsRef', 'statsPaired', 'statsOneSampleValue', 'statsPairsText',
+    'statsCustomPairs', 'statsCorrection', 'statsAlpha', 'statsAdvancedOpen',
+    'statsCiLevel', 'statsAlternative', 'statsNormalityMethod', 'statsVarianceMethod',
+    'statsDistributionDiagnostic', 'statsTrendTest', 'statsSeed', 'statsResamplingMode',
+    'statsMonteCarloIterations', 'statsOutlierMode', 'statsOutlierAlpha', 'statsOutlierQ',
+    'statsEffectParametric', 'statsEffectNonParametric', 'statsPostHoc',
+    'statsParametricVariant', 'statsNonParametricVariant', 'statsReportPScientific',
+    'statsResultsTab', 'groupedStats', 'statsAdvisor', 'statsContextVersion',
+    'statsLastRunVersion', 'statsContextSignature', 'colOrder', 'fillColors',
+    'borderColors', 'flipAxes', 'tableFormat', 'grouped', 'groupLayout',
+    'individualSummary', 'barSummary', 'graphTypeBorderWidths', 'lastAxisLabels',
+    'showSignificanceBars', 'significanceLabelMode', 'significanceStyle', 'axisSettings',
+    'gridStyle', 'violin', 'whiskerRule', 'whiskerCustomMultiplier', 'logPlusOne',
+    'labelPositions', 'xTickRotateVertical', 'statsLastSignificanceEnabled',
+    'statsLastAnnotationModel', 'statsRestoredNeedsSignificanceReapply',
+    'suppressNextStatsSvgReapply', 'significanceMaxLevel', 'significanceViewportExtensionPx',
+    'bottomViewportExtensionPx', 'leftViewportExtensionPx', 'rightViewportExtensionPx',
+    'significanceBasePlotHeightPx', 'significanceBasePlotWidthPx',
+    'restoredSignificanceGeometryLock', 'restoredSignificanceGeometry', 'traceShapeStyles',
+    'traceShapeGlobalStyle', 'pointStyles', 'pointGlobalStyle', 'summaryStyles',
+    'summaryGlobalStyle', 'connectPointsAcrossDatasets', 'connectionLineStyle',
+    'flipTransition', 'flipFrameRestoreSnapshot', 'flipAxisSpanTarget',
+    'pendingFlipDrawZoneOverride', 'flipHorizontalReserveCarryoverPx'
+  ]);
+
+  function resolveBoxOwnedRuntimeTabId(tabLike = null, meta = {}){
+    const direct = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike)
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || box.__boundTabId
+      || null;
+    if(direct){
+      return String(direct);
+    }
+    return '';
+  }
+
+  function cloneBoxPlainObject(value, fallbackFactory){
+    const cloned = cloneSimple(value);
+    if(cloned && typeof cloned === 'object' && !Array.isArray(cloned)){
+      return cloned;
+    }
+    return typeof fallbackFactory === 'function' ? fallbackFactory() : {};
+  }
+
+  function normalizeBoxOwnedSetArray(value){
+    const source = value instanceof Set ? Array.from(value) : (Array.isArray(value) ? value : []);
+    return source.map(item => Number(item)).filter(item => Number.isInteger(item) && item >= 0);
+  }
+
+  function normalizeBoxOwnedString(value, fallback = ''){
+    return typeof value === 'string' ? value : fallback;
+  }
+
+  function normalizeBoxOwnedNumber(value, fallback = 0){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+  }
+
+  function createDefaultBoxOwnedRuntimeRecord(tabId){
+    return {
+      version: 1,
+      componentKey: 'box',
+      tabId: tabId || '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      hydrated: false,
+      controls: {},
+      labels: {},
+      selection: { selectedCols: [] },
+      stats: {},
+      visual: {},
+      significance: {},
+      layout: {},
+      styles: {},
+      geometry: {},
+      notes: { text: '', open: false }
+    };
+  }
+
+  function ensureBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const tabId = resolveBoxOwnedRuntimeTabId(tabLike, meta);
+    if(!tabId){
+      console.debug('Debug: box owned runtime requires an explicit tab id', {
+        reason: meta?.reason || 'ensure-box-owned-runtime'
+      });
+      return null;
+    }
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'box') || null;
+    if(!runtime){
+      return null;
+    }
+    let record = runtime.ownedRuntimeRecord || null;
+    if(!record){
+      record = createDefaultBoxOwnedRuntimeRecord(tabId);
+      runtime.ownedRuntimeRecord = record;
+      console.debug('Debug: box owned runtime record created', {
+        tabId,
+        reason: meta?.reason || 'ensure-box-owned-runtime'
+      });
+    }
+    record.controls = cloneBoxPlainObject(record.controls);
+    record.labels = cloneBoxPlainObject(record.labels);
+    record.selection = cloneBoxPlainObject(record.selection, () => ({ selectedCols: [] }));
+    record.stats = cloneBoxPlainObject(record.stats);
+    record.visual = cloneBoxPlainObject(record.visual);
+    record.significance = cloneBoxPlainObject(record.significance);
+    record.layout = cloneBoxPlainObject(record.layout);
+    record.styles = cloneBoxPlainObject(record.styles);
+    record.geometry = cloneBoxPlainObject(record.geometry);
+    record.notes = cloneBoxPlainObject(record.notes, () => ({ text: '', open: false }));
+    record.selection.selectedCols = normalizeBoxOwnedSetArray(record.selection.selectedCols);
+    runtime.ownedRuntimeRecord = record;
+    return record;
+  }
+
+  function readBoxOwnedRuntimeControls(){
+    return {
+      tableFormat: normalizeBoxTableFormat(state.tableFormat),
+      graphType: normalizeBoxGraphType(els.boxGraphType?.value || 'box'),
+      pointMode: normalizeBoxOwnedString(els.boxPointMode?.value, 'auto'),
+      layoutMode: normalizeBoxOwnedString(els.boxLayoutMode?.value || state.groupLayout, 'interleaved'),
+      individualSummary: normalizeIndividualSummaryValue(state.individualSummary),
+      barSummary: normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT),
+      errorMode: normalizeBoxOwnedString(els.boxErrorMode?.value, 'sd'),
+      whiskerRule: normalizeBoxOwnedString(state.whiskerRule, DEFAULT_WHISKER_RULE),
+      whiskerCustomMultiplier: normalizeBoxOwnedNumber(state.whiskerCustomMultiplier, DEFAULT_WHISKER_MULTIPLIER),
+      showGrid: !!els.boxShowGrid?.checked,
+      showFrame: !!els.boxShowFrame?.checked,
+      logScale: !!els.boxLogScale?.checked,
+      showCaps: !!els.boxShowCaps?.checked,
+      flipAxes: !!state.flipAxes,
+      yMin: normalizeBoxOwnedString(els.boxYMin?.value, ''),
+      yMax: normalizeBoxOwnedString(els.boxYMax?.value, ''),
+      colorMode: getBoxColorMode(),
+      colorScheme: getBoxSelectedColorSchemeId(),
+      fill: getBoxFillColorValue(),
+      border: getBoxBorderColorValue(),
+      borderWidth: getBoxBorderWidthValue(),
+      errorBarWidth: getBoxErrorBarWidthValue(),
+      fontSize: normalizeBoxOwnedString(els.boxFontSize?.value, ''),
+      groupedReplicates: normalizeBoxOwnedNumber(state.grouped?.replicatesPerGroup, 3)
+    };
+  }
+
+  function captureBoxOwnedRuntimeSlices(reason){
+    const noteControl = notesState.control || null;
+    const notesText = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = notesText;
+    notesState.open = notesOpen;
+    return {
+      version: 1,
+      reason: reason || 'capture-box-owned-runtime-slices',
+      controls: readBoxOwnedRuntimeControls(),
+      labels: {
+        titleText: normalizeBoxOwnedString(state.titleText, getDefaultBoxGraphTitle('strip')),
+        yLabelText: normalizeBoxOwnedString(state.yLabelText, 'Value'),
+        labelPositions: cloneSimple(state.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null }
+      },
+      selection: {
+        selectedCols: normalizeBoxOwnedSetArray(state.selectedCols),
+        colOrder: Array.isArray(state.colOrder) ? state.colOrder.slice() : []
+      },
+      stats: {
+        statsTest: state.statsTest,
+        statsMode: state.statsMode,
+        statsRef: state.statsRef,
+        statsPaired: !!state.statsPaired,
+        statsOneSampleValue: state.statsOneSampleValue,
+        statsPairsText: state.statsPairsText,
+        statsCustomPairs: cloneSimple(state.statsCustomPairs) || [],
+        statsCorrection: state.statsCorrection,
+        statsAlpha: state.statsAlpha,
+        statsAdvancedOpen: !!state.statsAdvancedOpen,
+        statsCiLevel: state.statsCiLevel,
+        statsAlternative: state.statsAlternative,
+        statsNormalityMethod: state.statsNormalityMethod,
+        statsVarianceMethod: state.statsVarianceMethod,
+        statsDistributionDiagnostic: state.statsDistributionDiagnostic,
+        statsTrendTest: !!state.statsTrendTest,
+        statsSeed: state.statsSeed,
+        statsResamplingMode: state.statsResamplingMode,
+        statsMonteCarloIterations: state.statsMonteCarloIterations,
+        statsOutlierMode: state.statsOutlierMode,
+        statsOutlierAlpha: state.statsOutlierAlpha,
+        statsOutlierQ: state.statsOutlierQ,
+        statsEffectParametric: state.statsEffectParametric,
+        statsEffectNonParametric: state.statsEffectNonParametric,
+        statsPostHoc: state.statsPostHoc,
+        statsParametricVariant: state.statsParametricVariant,
+        statsNonParametricVariant: state.statsNonParametricVariant,
+        statsReportPScientific: !!state.statsReportPScientific,
+        statsResultsTab: state.statsResultsTab,
+        groupedStats: cloneSimple(state.groupedStats) || {},
+        statsAdvisor: cloneSimple(state.statsAdvisor) || { open: false, answers: {} },
+        statsContextVersion: Number(state.statsContextVersion) || 0,
+        statsLastRunVersion: Number(state.statsLastRunVersion) || 0,
+        statsContextSignature: state.statsContextSignature || null
+      },
+      visual: {
+        lastDefaultFill: state.lastDefaultFill,
+        fillColors: Array.isArray(state.fillColors) ? state.fillColors.slice() : [],
+        borderColors: Array.isArray(state.borderColors) ? state.borderColors.slice() : [],
+        graphTypeBorderWidths: cloneSimple(state.graphTypeBorderWidths) || {},
+        groupLayout: state.groupLayout,
+        grouped: cloneSimple(state.grouped) || { replicatesPerGroup: 3 },
+        individualSummary: state.individualSummary,
+        barSummary: state.barSummary,
+        violin: cloneSimple(state.violin) || null,
+        whiskerRule: state.whiskerRule,
+        whiskerCustomMultiplier: state.whiskerCustomMultiplier,
+        logPlusOne: !!state.logPlusOne,
+        xTickRotateVertical: !!state.xTickRotateVertical,
+        connectPointsAcrossDatasets: !!state.connectPointsAcrossDatasets,
+        connectionLineStyle: cloneSimple(state.connectionLineStyle) || null,
+        pointGlobalStyle: cloneSimple(state.pointGlobalStyle) || { size: 5 },
+        traceShapeGlobalStyle: cloneSimple(state.traceShapeGlobalStyle) || null,
+        summaryGlobalStyle: cloneSimple(state.summaryGlobalStyle) || null
+      },
+      significance: {
+        showSignificanceBars: !!state.showSignificanceBars,
+        significanceLabelMode: state.significanceLabelMode === 'p' ? 'p' : 'stars',
+        significanceStyle: cloneSimple(state.significanceStyle) || null,
+        statsLastAnnotationModel: cloneSimple(state.statsLastAnnotationModel) || null,
+        statsLastSignificanceEnabled: !!state.statsLastSignificanceEnabled,
+        statsRestoredNeedsSignificanceReapply: !!state.statsRestoredNeedsSignificanceReapply,
+        suppressNextStatsSvgReapply: !!state.suppressNextStatsSvgReapply,
+        significanceMaxLevel: Number.isFinite(Number(state.significanceMaxLevel)) ? Number(state.significanceMaxLevel) : null,
+        significanceViewportExtensionPx: Number.isFinite(Number(state.significanceViewportExtensionPx)) ? Number(state.significanceViewportExtensionPx) : 0,
+        bottomViewportExtensionPx: Number.isFinite(Number(state.bottomViewportExtensionPx)) ? Number(state.bottomViewportExtensionPx) : 0,
+        leftViewportExtensionPx: Number.isFinite(Number(state.leftViewportExtensionPx)) ? Number(state.leftViewportExtensionPx) : 0,
+        rightViewportExtensionPx: Number.isFinite(Number(state.rightViewportExtensionPx)) ? Number(state.rightViewportExtensionPx) : 0,
+        significanceBasePlotHeightPx: Number.isFinite(Number(state.significanceBasePlotHeightPx)) ? Number(state.significanceBasePlotHeightPx) : null,
+        significanceBasePlotWidthPx: Number.isFinite(Number(state.significanceBasePlotWidthPx)) ? Number(state.significanceBasePlotWidthPx) : null,
+        restoredSignificanceGeometryLock: !!state.restoredSignificanceGeometryLock,
+        restoredSignificanceGeometry: cloneSimple(state.restoredSignificanceGeometry) || null
+      },
+      layout: {
+        axisSettings: cloneSimple(state.axisSettings) || createDefaultAxisSettings(),
+        gridStyle: cloneSimple(state.gridStyle) || null,
+        minSvgWidth: Number.isFinite(Number(state.minSvgWidth)) ? Number(state.minSvgWidth) : 0,
+        lastAxisLabels: Array.isArray(state.lastAxisLabels) ? state.lastAxisLabels.slice() : []
+      },
+      styles: {
+        traceShapeStyles: cloneSimple(state.traceShapeStyles) || {},
+        pointStyles: cloneSimple(state.pointStyles) || {},
+        summaryStyles: cloneSimple(state.summaryStyles) || {},
+        summaryGlobalStyle: cloneSimple(state.summaryGlobalStyle) || null,
+        traceShapeGlobalStyle: cloneSimple(state.traceShapeGlobalStyle) || null,
+        pointGlobalStyle: cloneSimple(state.pointGlobalStyle) || { size: 5 }
+      },
+      geometry: {
+        graphGeometry: cloneSimple(state.graphGeometry) || null,
+        flipTransition: cloneSimple(ensureBoxFlipTransitionState()) || createDefaultBoxFlipTransitionState()
+      },
+      notes: {
+        text: notesText,
+        open: notesOpen
+      }
+    };
+  }
+
+  function applyBoxControlValue(control, value){
+    if(control && value != null){
+      control.value = String(value);
+    }
+  }
+
+  function applyBoxControlChecked(control, value){
+    if(control){
+      control.checked = !!value;
+    }
+  }
+
+  function applyBoxOwnedRuntimeControls(record){
+    const controls = record?.controls || {};
+    if(!controls || typeof controls !== 'object'){
+      return;
+    }
+    applyBoxControlValue(els.tableFormat, controls.tableFormat);
+    applyBoxControlValue(els.boxGraphType, controls.graphType);
+    applyBoxControlValue(els.boxPointMode, controls.pointMode);
+    applyBoxControlValue(els.boxLayoutMode, controls.layoutMode || record.visual?.groupLayout);
+    applyBoxControlValue(els.boxIndividualSummary, controls.individualSummary || record.visual?.individualSummary);
+    applyBoxControlValue(els.boxErrorMode, controls.errorMode);
+    applyBoxControlValue(els.boxWhiskerRule, controls.whiskerRule || record.visual?.whiskerRule);
+    applyBoxControlValue(els.boxWhiskerCustom, controls.whiskerCustomMultiplier ?? record.visual?.whiskerCustomMultiplier);
+    applyBoxControlValue(els.boxYMin, controls.yMin);
+    applyBoxControlValue(els.boxYMax, controls.yMax);
+    applyBoxControlValue(els.boxFill, controls.fill);
+    applyBoxControlValue(els.boxBorder, controls.border);
+    applyBoxControlValue(els.boxBorderWidth, controls.borderWidth);
+    applyBoxControlValue(els.boxErrorBarWidth, controls.errorBarWidth);
+    applyBoxControlValue(els.boxFontSize, controls.fontSize);
+    applyBoxControlValue(els.groupedReplicates, controls.groupedReplicates ?? record.visual?.grouped?.replicatesPerGroup);
+    applyBoxControlChecked(els.boxShowGrid, controls.showGrid);
+    applyBoxControlChecked(els.boxShowFrame, controls.showFrame);
+    applyBoxControlChecked(els.boxLogScale, controls.logScale);
+    applyBoxControlChecked(els.boxShowCaps, controls.showCaps);
+    applyBoxControlChecked(els.boxFlipAxes, controls.flipAxes ?? record.visual?.flipAxes);
+    applyBoxControlChecked(els.boxConnectPointsAcrossDatasets, record.visual?.connectPointsAcrossDatasets);
+    applyBoxControlChecked(els.boxShowSignificance, record.significance?.showSignificanceBars);
+    applyBoxControlValue(els.boxSignificanceLabelMode, record.significance?.significanceLabelMode);
+    ensureBoxColorModeControls();
+    if(controls.colorMode === 'unified'){
+      applyBoxControlChecked(els.boxColorUnified, true);
+      applyBoxControlChecked(els.boxColorIndividual, false);
+    }else if(controls.colorMode === 'individual'){
+      applyBoxControlChecked(els.boxColorUnified, false);
+      applyBoxControlChecked(els.boxColorIndividual, true);
+    }
+  }
+
+  function bindBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensureBoxOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    if(!record.hydrated){
+      return record;
+    }
+    const visual = record.visual || {};
+    const stats = record.stats || {};
+    const significance = record.significance || {};
+    const layout = record.layout || {};
+    const styles = record.styles || {};
+    state.titleText = normalizeBoxOwnedString(record.labels?.titleText, state.titleText);
+    state.yLabelText = normalizeBoxOwnedString(record.labels?.yLabelText, state.yLabelText);
+    state.labelPositions = cloneSimple(record.labels?.labelPositions) || state.labelPositions || { title: null, xLabel: null, yLabel: null, legend: null };
+    state.selectedCols = new Set(normalizeBoxOwnedSetArray(record.selection?.selectedCols));
+    state.colOrder = Array.isArray(record.selection?.colOrder) ? record.selection.colOrder.slice() : (Array.isArray(state.colOrder) ? state.colOrder : []);
+    state.statsTest = stats.statsTest || state.statsTest;
+    state.statsMode = stats.statsMode || state.statsMode;
+    state.statsRef = Number.isInteger(Number(stats.statsRef)) ? Number(stats.statsRef) : state.statsRef;
+    state.statsPaired = !!stats.statsPaired;
+    state.statsOneSampleValue = stats.statsOneSampleValue ?? state.statsOneSampleValue;
+    state.statsPairsText = normalizeBoxOwnedString(stats.statsPairsText, state.statsPairsText || '');
+    state.statsCustomPairs = cloneSimple(stats.statsCustomPairs) || [];
+    state.statsCorrection = stats.statsCorrection || state.statsCorrection;
+    state.statsAlpha = stats.statsAlpha ?? state.statsAlpha;
+    state.statsAdvancedOpen = !!stats.statsAdvancedOpen;
+    state.statsCiLevel = stats.statsCiLevel ?? state.statsCiLevel;
+    state.statsAlternative = stats.statsAlternative || state.statsAlternative;
+    state.statsNormalityMethod = stats.statsNormalityMethod || state.statsNormalityMethod;
+    state.statsVarianceMethod = stats.statsVarianceMethod || state.statsVarianceMethod;
+    state.statsDistributionDiagnostic = stats.statsDistributionDiagnostic || state.statsDistributionDiagnostic;
+    state.statsTrendTest = !!stats.statsTrendTest;
+    state.statsSeed = stats.statsSeed ?? state.statsSeed;
+    state.statsResamplingMode = stats.statsResamplingMode || state.statsResamplingMode;
+    state.statsMonteCarloIterations = stats.statsMonteCarloIterations ?? state.statsMonteCarloIterations;
+    state.statsOutlierMode = stats.statsOutlierMode || state.statsOutlierMode;
+    state.statsOutlierAlpha = stats.statsOutlierAlpha ?? state.statsOutlierAlpha;
+    state.statsOutlierQ = stats.statsOutlierQ ?? state.statsOutlierQ;
+    state.statsEffectParametric = stats.statsEffectParametric || state.statsEffectParametric;
+    state.statsEffectNonParametric = stats.statsEffectNonParametric || state.statsEffectNonParametric;
+    state.statsPostHoc = stats.statsPostHoc || state.statsPostHoc;
+    state.statsParametricVariant = stats.statsParametricVariant || state.statsParametricVariant;
+    state.statsNonParametricVariant = stats.statsNonParametricVariant || state.statsNonParametricVariant;
+    state.statsReportPScientific = !!stats.statsReportPScientific;
+    state.statsResultsTab = stats.statsResultsTab || state.statsResultsTab;
+    state.groupedStats = cloneSimple(stats.groupedStats) || state.groupedStats || {};
+    state.statsAdvisor = cloneSimple(stats.statsAdvisor) || state.statsAdvisor || { open: false, answers: {} };
+    state.statsContextVersion = Number(stats.statsContextVersion) || state.statsContextVersion || 0;
+    state.statsLastRunVersion = Number(stats.statsLastRunVersion) || state.statsLastRunVersion || 0;
+    state.statsContextSignature = stats.statsContextSignature || state.statsContextSignature || null;
+    state.lastDefaultFill = visual.lastDefaultFill || state.lastDefaultFill;
+    state.fillColors = Array.isArray(visual.fillColors) ? visual.fillColors.slice() : state.fillColors;
+    state.borderColors = Array.isArray(visual.borderColors) ? visual.borderColors.slice() : state.borderColors;
+    state.graphTypeBorderWidths = cloneSimple(visual.graphTypeBorderWidths) || state.graphTypeBorderWidths || {};
+    state.groupLayout = visual.groupLayout || state.groupLayout;
+    state.grouped = cloneSimple(visual.grouped) || state.grouped || { replicatesPerGroup: 3 };
+    state.individualSummary = normalizeIndividualSummaryValue(visual.individualSummary || state.individualSummary);
+    state.barSummary = normalizeIndividualSummaryValue(visual.barSummary || state.barSummary || BAR_SUMMARY_DEFAULT);
+    state.violin = cloneSimple(visual.violin) || state.violin;
+    state.whiskerRule = visual.whiskerRule || state.whiskerRule;
+    state.whiskerCustomMultiplier = visual.whiskerCustomMultiplier ?? state.whiskerCustomMultiplier;
+    state.logPlusOne = !!visual.logPlusOne;
+    state.xTickRotateVertical = !!visual.xTickRotateVertical;
+    state.connectPointsAcrossDatasets = !!visual.connectPointsAcrossDatasets;
+    state.connectionLineStyle = cloneSimple(visual.connectionLineStyle) || null;
+    state.pointGlobalStyle = cloneSimple(visual.pointGlobalStyle) || state.pointGlobalStyle || { size: 5 };
+    state.traceShapeGlobalStyle = cloneSimple(visual.traceShapeGlobalStyle) || null;
+    state.summaryGlobalStyle = cloneSimple(visual.summaryGlobalStyle) || null;
+    state.showSignificanceBars = !!significance.showSignificanceBars;
+    state.significanceLabelMode = significance.significanceLabelMode === 'p' ? 'p' : 'stars';
+    state.significanceStyle = cloneSimple(significance.significanceStyle) || state.significanceStyle;
+    state.statsLastAnnotationModel = cloneSimple(significance.statsLastAnnotationModel) || null;
+    state.statsLastSignificanceEnabled = !!significance.statsLastSignificanceEnabled;
+    state.statsRestoredNeedsSignificanceReapply = !!significance.statsRestoredNeedsSignificanceReapply;
+    state.suppressNextStatsSvgReapply = !!significance.suppressNextStatsSvgReapply;
+    state.significanceMaxLevel = Number.isFinite(Number(significance.significanceMaxLevel)) ? Number(significance.significanceMaxLevel) : null;
+    state.significanceViewportExtensionPx = Number.isFinite(Number(significance.significanceViewportExtensionPx)) ? Number(significance.significanceViewportExtensionPx) : 0;
+    state.bottomViewportExtensionPx = Number.isFinite(Number(significance.bottomViewportExtensionPx)) ? Number(significance.bottomViewportExtensionPx) : 0;
+    state.leftViewportExtensionPx = Number.isFinite(Number(significance.leftViewportExtensionPx)) ? Number(significance.leftViewportExtensionPx) : 0;
+    state.rightViewportExtensionPx = Number.isFinite(Number(significance.rightViewportExtensionPx)) ? Number(significance.rightViewportExtensionPx) : 0;
+    state.significanceBasePlotHeightPx = Number.isFinite(Number(significance.significanceBasePlotHeightPx)) ? Number(significance.significanceBasePlotHeightPx) : null;
+    state.significanceBasePlotWidthPx = Number.isFinite(Number(significance.significanceBasePlotWidthPx)) ? Number(significance.significanceBasePlotWidthPx) : null;
+    state.restoredSignificanceGeometryLock = !!significance.restoredSignificanceGeometryLock;
+    state.restoredSignificanceGeometry = cloneSimple(significance.restoredSignificanceGeometry) || null;
+    state.axisSettings = cloneSimple(layout.axisSettings) || state.axisSettings || createDefaultAxisSettings();
+    state.gridStyle = cloneSimple(layout.gridStyle) || state.gridStyle || null;
+    state.minSvgWidth = Number.isFinite(Number(layout.minSvgWidth)) ? Number(layout.minSvgWidth) : state.minSvgWidth;
+    state.lastAxisLabels = Array.isArray(layout.lastAxisLabels) ? layout.lastAxisLabels.slice() : state.lastAxisLabels;
+    state.traceShapeStyles = cloneSimple(styles.traceShapeStyles) || {};
+    state.pointStyles = cloneSimple(styles.pointStyles) || {};
+    state.summaryStyles = cloneSimple(styles.summaryStyles) || {};
+    state.summaryGlobalStyle = cloneSimple(styles.summaryGlobalStyle) || state.summaryGlobalStyle || null;
+    state.traceShapeGlobalStyle = cloneSimple(styles.traceShapeGlobalStyle) || state.traceShapeGlobalStyle || null;
+    state.pointGlobalStyle = cloneSimple(styles.pointGlobalStyle) || state.pointGlobalStyle || { size: 5 };
+    state.graphGeometry = cloneSimple(record.geometry?.graphGeometry) || state.graphGeometry || createDefaultBoxGraphGeometry();
+    if(record.geometry?.flipTransition){
+      state.flipTransition = cloneSimple(record.geometry.flipTransition) || state.flipTransition || createDefaultBoxFlipTransitionState();
+      syncBoxFlipTransitionLegacyState('box-owned-runtime-bind');
+    }
+    if(record.notes){
+      notesState.text = typeof record.notes.text === 'string' ? record.notes.text : notesState.text || '';
+      notesState.open = !!record.notes.open;
+      if(notesState.control){
+        try{ notesState.control.setValue?.(notesState.text || ''); }catch(_err){}
+        try{ notesState.control.setOpen?.(!!notesState.open); }catch(_err){}
+      }
+    }
+    applyBoxOwnedRuntimeControls(record);
+    box.__boxOwnedRuntimeTabId = record.tabId;
+    console.debug('Debug: box owned runtime record bound', {
+      tabId: record.tabId,
+      reason: meta?.reason || 'bind-box-owned-runtime'
+    });
+    return record;
+  }
+
+  function rememberBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensureBoxOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    const slices = captureBoxOwnedRuntimeSlices(meta?.reason || 'remember-box-owned-runtime');
+    Object.assign(record, slices, {
+      tabId: record.tabId,
+      componentKey: 'box',
+      hydrated: true,
+      updatedAt: Date.now()
+    });
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'box') || null;
+    if(runtime){
+      runtime.ownedRuntimeRecord = record;
+    }
+    return record;
+  }
+
+  function applyBoxOwnedRuntimeSlicesFromSnapshot(snapshot, tabLike = null, meta = {}){
+    const incoming = snapshot?.ownedRuntime || snapshot?.boxOwnedRuntime || null;
+    if(!incoming || typeof incoming !== 'object'){
+      return null;
+    }
+    const record = ensureBoxOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    ['controls','labels','selection','stats','visual','significance','layout','styles','geometry','notes'].forEach(key => {
+      if(incoming[key] && typeof incoming[key] === 'object'){
+        record[key] = cloneSimple(incoming[key]) || record[key] || {};
+      }
+    });
+    record.hydrated = true;
+    record.updatedAt = Date.now();
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'box') || null;
+    if(runtime){
+      runtime.ownedRuntimeRecord = record;
+    }
+    return bindBoxOwnedRuntimeRecord(record.tabId, {
+      ...(meta || {}),
+      reason: meta?.reason || 'apply-box-owned-runtime-slices'
+    });
+  }
+
+  function getBoxWorkspaceRuntimeSnapshot(tabLike = null, meta = {}){
+    const tabId = resolveBoxTabId(tabLike || meta?.tab || meta?.tabId || null);
+    const key = '__workspaceTabs__:box';
+    const snapshot = Shared.workspaceTabs?.getRuntimeSnapshot?.(tabLike || tabId || null, key) || null;
+    if(snapshot && typeof snapshot === 'object'){
+      return snapshot;
+    }
+    const record = getBoxSessionRecord(tabLike || tabId || null, { create: false });
+    const runtime = record?.runtime || null;
+    if(runtime?.componentRuntimeSnapshot && typeof runtime.componentRuntimeSnapshot === 'object'){
+      return runtime.componentRuntimeSnapshot;
+    }
+    if(runtime && typeof runtime === 'object' && (runtime.ownedRuntime || runtime.statsRuntime || Object.prototype.hasOwnProperty.call(runtime, 'dataDirty'))){
+      return runtime;
+    }
+    return null;
+  }
+
   function getBoxSessionRecord(tabLike, options = {}){
     const helper = Shared.workspaceTabs;
     if(options.create === false){
@@ -10856,11 +11365,18 @@
         restoredSignificanceGeometry: cloneSimple(state.restoredSignificanceGeometry)
       }
     };
+    const ownedRecord = rememberBoxOwnedRuntimeRecord(resolveBoxWorkspaceTab(null) || resolveBoxTabId(null), {
+      reason: reason || 'capture-box-runtime-owned-record'
+    });
+    if(ownedRecord?.hydrated){
+      snapshot.ownedRuntime = cloneSimple(ownedRecord);
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box runtime snapshot captured', {
         reason: reason || 'unspecified',
         hasCachedDrawInput: !!snapshot.cachedDrawInput,
-        dataDirty: snapshot.dataDirty
+        dataDirty: snapshot.dataDirty,
+        ownedRuntimeTabId: ownedRecord?.tabId || null
       });
     }
     return snapshot;
@@ -10868,6 +11384,9 @@
 
   function applyBoxRuntimeSnapshot(snapshot, reason){
     const runtime = snapshot && typeof snapshot === 'object' ? snapshot : null;
+    applyBoxOwnedRuntimeSlicesFromSnapshot(runtime, resolveBoxWorkspaceTab(null) || resolveBoxTabId(null), {
+      reason: reason || 'apply-box-runtime-owned-slices'
+    });
     clearBoxScheduledDraw(reason || 'apply-runtime-state');
     state.dataDirty = runtime ? runtime.dataDirty !== false : true;
     state.cachedDrawInput = runtime ? (cloneSimple(runtime.cachedDrawInput) || null) : null;
@@ -12902,6 +13421,15 @@
     const svgBox = els.svgBox || plot?.closest?.('.svgbox') || els.graphPanel?.querySelector?.('.svgbox') || null;
     const rawWidth = Math.max(0, Number(plot?.clientWidth) || 0);
     const rawHeight = Math.max(0, Number(plot?.clientHeight) || 0);
+    const sharedFrame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'box',
+      plot,
+      svgBox,
+      graphPanel: els.graphPanel
+    });
+    if(sharedFrame){
+      return sharedFrame;
+    }
     if(!svgBox || typeof svgBox.getBoundingClientRect !== 'function'){
       return { width: rawWidth, height: rawHeight, constrained: false };
     }
@@ -12926,9 +13454,9 @@
       ? availableHeight / zoomScale
       : NaN;
     // `plot.clientWidth/clientHeight` can be stale for one render frame right
-    // after an authoritative .svgbox resize (notably flip-axes transpose). The
-    // zoom viewport dimensions are sourced from the resizer frame and therefore
-    // become the canonical drawing-zone size whenever available.
+    // after an authoritative resizer update (notably flip-axes transpose). The
+    // zoom viewport is the live content frame and therefore becomes the
+    // canonical drawing-zone size whenever it is measurable.
     const width = Number.isFinite(baseAvailableWidth) && baseAvailableWidth > 0
       ? baseAvailableWidth
       : rawWidth;
@@ -36553,14 +37081,21 @@ Technical analysis record (advanced)
   };
   box.captureRuntimeState = function captureRuntimeState(meta = {}){
     const snapshot = captureBoxRuntimeSnapshot(meta.reason || 'capture-runtime-state');
-    const sessionRecord = getBoxSessionRecord(meta.tabId || getActiveBoxWorkspaceTabId(), { create: true });
-    if(sessionRecord){
-      sessionRecord.runtime = snapshot;
-    }
-    return snapshot;
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(box, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'capture-runtime-state'
+    }) || snapshot;
   };
   box.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
-    return applyBoxRuntimeSnapshot(snapshot, meta.reason || 'apply-runtime-state');
+    const resolvedSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(box, snapshot, meta) || snapshot;
+    const applied = applyBoxRuntimeSnapshot(resolvedSnapshot, meta.reason || 'apply-runtime-state');
+    if(applied && resolvedSnapshot && typeof resolvedSnapshot === 'object'){
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(box, resolvedSnapshot, {
+        ...(meta || {}),
+        reason: meta.reason || 'apply-runtime-state'
+      });
+    }
+    return applied;
   };
   box.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
     component: box,
@@ -36578,6 +37113,7 @@ Technical analysis record (advanced)
           label: 'Calculate statistics'
         });
       }
+      rememberBoxOwnedRuntimeRecord(_tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'box-deactivate-remember-owned-runtime' });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: box tab deactivated', {
           reason: meta.reason || 'deactivate-tab',
@@ -36599,6 +37135,7 @@ Technical analysis record (advanced)
         label: 'Calculate statistics'
       });
     }
+    rememberBoxOwnedRuntimeRecord(_tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'box-deactivate-remember-owned-runtime' });
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box tab deactivated', {
         reason: meta.reason || 'deactivate-tab',
@@ -36633,7 +37170,8 @@ Technical analysis record (advanced)
           state.statsComputationOwnerTabId = null;
         }
       }
-      applyBoxRuntimeSnapshot(getBoxSessionRecord(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      bindBoxOwnedRuntimeRecord(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
       hydrateBoxStatsSurfaceFromTabPayload(tabLike || targetTabId || null, meta.reason || 'activate-tab');
       const hasContext = ensureBoxStatsContextForActiveData(tabLike || targetTabId || null, meta.reason || 'activate-tab');
       updateStatsButtonState({
@@ -36684,7 +37222,8 @@ Technical analysis record (advanced)
       boxRoot = targetRoot;
     }
     if(ensureBoxDomBindings(tab)){
-      applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+      bindBoxOwnedRuntimeRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
       hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
       const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
       updateStatsButtonState({
@@ -36695,7 +37234,8 @@ Technical analysis record (advanced)
       });
       return;
     }
-    applyBoxRuntimeSnapshot(getBoxSessionRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { create: true })?.runtime || null, meta.reason || 'activate-tab');
+    bindBoxOwnedRuntimeRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
     hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
     const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
     updateStatsButtonState({
@@ -36831,7 +37371,22 @@ Technical analysis record (advanced)
   Shared.componentLifecycle?.installInternalStateBridge?.(box, {
     componentKey: 'box',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'scheduleDraw', 'fileHandle', 'layout', 'cachedDrawInput'] },
+      {
+        key: 'state',
+        get: () => state,
+        excludeKeys: [
+          'hot', 'scheduleDraw', 'fileHandle', 'layout', 'cachedDrawInput',
+          'drawToken', 'statsContext', 'statsContextTabId', 'statsComputationPending',
+          'statsComputationOwnerTabId', 'pendingAutoShowSignificance',
+          'authoritativeRenderRestoreActive', 'authoritativeRenderRestoreSuppressUntil',
+          'authoritativeRenderRestoreSuppressCount', 'resizeInteractionActive',
+          'resizeObserveDrawMutedUntil', 'viewportExtensionResizeInProgress',
+          'viewportExtensionResizeGuardToken', 'viewportExtensionResizeGuardTimer',
+          'lastViewportExtensionRedrawSignature', 'drawInProgress', 'lastDrawAt',
+          'pendingDrawOpts', 'pendingDrawReasons', 'applyingPayload', 'graphGeometry',
+          ...BOX_OWNED_RUNTIME_STATE_KEYS
+        ]
+      },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

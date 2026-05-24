@@ -165,27 +165,6 @@
       || normalized.includes('snapshot');
   }
 
-
-
-  function workspaceUsesAuthoritativeLayoutPayload(type) {
-    const resolvedType = String(type || '').trim();
-    if (!resolvedType) {
-      return false;
-    }
-    try {
-      const workspace = Main.components?.get?.(resolvedType) || Main.components?.registry?.[resolvedType] || null;
-      if (workspace && workspace.authoritativeLayoutInPayload === true) {
-        return true;
-      }
-    } catch (err) {
-      console.debug('Debug: session workspace layout policy lookup failed', {
-        type: resolvedType,
-        message: err?.message || String(err)
-      });
-    }
-    return resolvedType === 'box';
-  }
-
   function assertNoStaleRuntimeWorkspaceIds(label, targetTabId, value) {
     const expected = String(targetTabId || '').trim();
     if (!expected || !value || typeof collectRuntimeWorkspaceIds !== 'function') {
@@ -2626,7 +2605,7 @@
           previousLayoutSignature: tab.layoutSignature || null
         });
       }
-      if (!workspaceUsesAuthoritativeLayoutPayload(tab.type) && Shared.graphSizing?.enrichPayloadWithLayout) {
+      if (Shared.graphSizing?.enrichPayloadWithLayout) {
         try {
           payloadClone = Shared.graphSizing.enrichPayloadWithLayout(tab.type, payloadClone, layoutClone, {
             context: `persist-${tab.type}`
@@ -2634,14 +2613,8 @@
         } catch (err) {
           console.error('persistActiveTabState graph sizing enrich error', { tabId: tab.id, type: tab.type, err });
         }
-      } else if (workspaceUsesAuthoritativeLayoutPayload(tab.type)) {
-        console.debug('Debug: session graph sizing enrich skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: 'box-layout-state-authoritative'
-        });
       }
-      if (!workspaceUsesAuthoritativeLayoutPayload(tab.type) && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+      if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
         try {
           layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
             context: `persist-layout-${tab.type}`
@@ -2649,12 +2622,6 @@
         } catch (err) {
           console.error('persistActiveTabState graph sizing layout merge error', { tabId: tab.id, type: tab.type, err });
         }
-      } else if (workspaceUsesAuthoritativeLayoutPayload(tab.type)) {
-        console.debug('Debug: session graph sizing layout merge skipped', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: 'box-layout-state-authoritative'
-        });
       }
       const previousLayoutSignature = tab.layoutSignature || null;
       // Drift detector: when the live read produces a different signature than the
@@ -3041,8 +3008,7 @@
     let payloadClone = clonePayload(tab.payload || null);
     let layoutClone = clonePayload(tab.layoutState || null);
     const type = tab.type || (payloadClone && payloadClone.type) || null;
-    const authoritativeLayoutInPayload = workspaceUsesAuthoritativeLayoutPayload(type);
-    if (!authoritativeLayoutInPayload && Shared.graphSizing?.enrichPayloadWithLayout) {
+    if (Shared.graphSizing?.enrichPayloadWithLayout) {
       try {
         payloadClone = Shared.graphSizing.enrichPayloadWithLayout(type, payloadClone, layoutClone, {
           context: `${contextLabel}-${type || 'unknown'}`
@@ -3055,15 +3021,8 @@
           err
         });
       }
-    } else if (authoritativeLayoutInPayload) {
-      console.debug('Debug: enrichTabSnapshotForArchive skipped enrich', {
-        tabId: tab.id,
-        type,
-        reason: 'box-layout-state-authoritative',
-        context: contextLabel
-      });
     }
-    if (!authoritativeLayoutInPayload && Shared.graphSizing?.mergePayloadSizingIntoLayout) {
+    if (Shared.graphSizing?.mergePayloadSizingIntoLayout) {
       try {
         layoutClone = Shared.graphSizing.mergePayloadSizingIntoLayout(layoutClone, payloadClone, {
           context: `${contextLabel}-layout-${type || 'unknown'}`
@@ -3076,13 +3035,6 @@
           err
         });
       }
-    } else if (authoritativeLayoutInPayload) {
-      console.debug('Debug: enrichTabSnapshotForArchive skipped layout merge', {
-        tabId: tab.id,
-        type,
-        reason: 'box-layout-state-authoritative',
-        context: contextLabel
-      });
     }
     return { payload: payloadClone, layout: layoutClone };
   }

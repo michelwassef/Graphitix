@@ -61,6 +61,48 @@
   };
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
+
+  function getVennRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(venn, { componentKey: 'venn' }) || null;
+  }
+
+  function rememberVennOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getVennRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'venn',
+      reason: meta?.reason || 'venn-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolveVennOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    return getVennRuntimeOwner()?.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'venn',
+      reason: meta?.reason || 'venn-owned-runtime-resolve'
+    }) || null;
+  }
+
+  function applyExistingVennOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getVennRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'venn',
+      reason: meta?.reason || 'venn-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof venn.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return venn.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'venn-owned-runtime-activate-apply'
+    });
+  }
+
+
   venn.__installed = true;
   venn.ready = false;
 
@@ -1263,6 +1305,36 @@
   const DEFAULT_STAGE_HEIGHT = 340;
   const DEFAULT_STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
 
+  function resolveVennDrawableFrame(targetEl) {
+    const target = targetEl || state.ui?.stage || getVennNodeById('stage');
+    const svgBox = state.ui?.svgBox
+      || target?.closest?.('.svgbox')
+      || state.ui?.graphPanel?.querySelector?.('.svgbox')
+      || queryVennRoot('#vennGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'venn',
+      plot: target,
+      svgBox,
+      graphPanel: state.ui?.graphPanel || queryVennRoot('#vennGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(target?.clientWidth) || 0),
+      height: Math.max(0, Number(target?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(target?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(target?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
+  }
+
   function parsePositiveFloat(value) {
     if (typeof value === 'number') {
       return Number.isFinite(value) && value > 0 ? value : NaN;
@@ -2011,7 +2083,7 @@
       fontInput.dataset.fontBasePt = String(fontInput.value || rawSize || '');
       debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
     }
-    const rect = svgBox?.getBoundingClientRect?.();
+    const drawableFrame = resolveVennDrawableFrame(stageEl);
     const dataset = svgBox?.dataset || {};
     const parsedDefaultWidth = parsePositiveFloat(chartStyle.DEFAULT_WIDTH);
     const parsedDefaultHeight = parsePositiveFloat(chartStyle.DEFAULT_HEIGHT);
@@ -2019,12 +2091,12 @@
       || (Number.isFinite(parsedDefaultWidth) ? parsedDefaultWidth : DEFAULT_STAGE_WIDTH);
     const defaultHeight = parsePositiveFloat(dataset.resizerDefaultHeight)
       || (Number.isFinite(parsedDefaultHeight) ? parsedDefaultHeight : DEFAULT_STAGE_HEIGHT);
-    const width = parsePositiveFloat(rect?.width);
-    const height = parsePositiveFloat(rect?.height);
     const storedWidth = parsePositiveFloat(dataset.resizerWidth);
     const storedHeight = parsePositiveFloat(dataset.resizerHeight);
-    const effectiveWidth = Number.isFinite(width) ? width : storedWidth;
-    const effectiveHeight = Number.isFinite(height) ? height : storedHeight;
+    const frameWidth = parsePositiveFloat(drawableFrame.width);
+    const frameHeight = parsePositiveFloat(drawableFrame.height);
+    const effectiveWidth = Number.isFinite(frameWidth) ? frameWidth : storedWidth;
+    const effectiveHeight = Number.isFinite(frameHeight) ? frameHeight : storedHeight;
     if (typeof chartStyle.resolveScaledFontSize === 'function') {
       const info = chartStyle.resolveScaledFontSize({
         rawSize,
@@ -4302,13 +4374,17 @@
       state.ui.svgBox = svgBox;
       debug('Debug: venn configureStage captured svgBox', { hasSvgBox: true });
     }
-    const svgBoxRect = svgBox?.getBoundingClientRect?.();
+    const drawableFrame = resolveVennDrawableFrame(stage);
+    const svgBoxRect = {
+      width: drawableFrame.width,
+      height: drawableFrame.height
+    };
     const dataset = svgBox?.dataset || {};
     const scaleInfo = style.scaleInfo || {};
     let stageWidth = parsePositiveFloat(scaleInfo.width);
     let stageHeight = parsePositiveFloat(scaleInfo.height);
-    if (!Number.isFinite(stageWidth)) stageWidth = parsePositiveFloat(svgBoxRect?.width);
-    if (!Number.isFinite(stageHeight)) stageHeight = parsePositiveFloat(svgBoxRect?.height);
+    if (!Number.isFinite(stageWidth)) stageWidth = parsePositiveFloat(drawableFrame.width);
+    if (!Number.isFinite(stageHeight)) stageHeight = parsePositiveFloat(drawableFrame.height);
     if (!Number.isFinite(stageWidth)) stageWidth = parsePositiveFloat(dataset.resizerWidth);
     if (!Number.isFinite(stageHeight)) stageHeight = parsePositiveFloat(dataset.resizerHeight);
     const defaultWidth = parsePositiveFloat(dataset.resizerDefaultWidth)
@@ -7051,7 +7127,7 @@
     if(tabLike && typeof tabLike === 'object'){
       return tabLike.id || tabLike.tabId || null;
     }
-    return tabLike || Main?.session?.getActiveTab?.()?.id || null;
+    return tabLike || global.Main?.session?.getActiveTab?.()?.id || null;
   }
 
   function resolveVennRoot(tabLike = null){
@@ -7065,7 +7141,7 @@
     if(currentRoot && (!activeTabId || !currentRootTabId || String(currentRootTabId) === String(activeTabId))){
       return currentRoot;
     }
-    const staticRoot = Main?.components?.workspaces?.venn?.element || null;
+    const staticRoot = global.Main?.components?.workspaces?.venn?.element || null;
     const staticRootTabId = getVennRootTabId(staticRoot);
     if(staticRoot && (!activeTabId || !staticRootTabId || String(staticRootTabId) === String(activeTabId))){
       return staticRoot;
@@ -7319,7 +7395,7 @@
     Object.assign(state.persistence, freshState.persistence);
     const mountedRoot = options?.root
       || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'venn')
-      || Main?.components?.workspaces?.venn?.element
+      || global.Main?.components?.workspaces?.venn?.element
       || resolveVennRoot(targetTabId || null)
       || null;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
@@ -7417,19 +7493,41 @@
 
   venn.captureRuntimeState = function captureRuntimeState(meta = {}){
     const snapshot = captureVennRuntimeStateSnapshot();
+    rememberVennOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'capture-runtime-state'
+    });
+    const ownedSnapshot = Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(venn, snapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'capture-runtime-state'
+    }) || snapshot;
     debugLog('runtime state captured', {
       reason: meta.reason || 'capture-runtime-state',
       hasParsedLists: !!snapshot?.analysis?.lastParsedLists,
       speciesCacheSize: snapshot?.analysis?.speciesDetection?.cacheEntries?.length || 0
     });
-    return snapshot;
+    return ownedSnapshot;
   };
 
   venn.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
-    applyVennRuntimeStateSnapshot(snapshot);
+    const resolvedSnapshot = resolveVennOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(venn, snapshot, meta)
+      || snapshot;
+    if(!resolvedSnapshot || typeof resolvedSnapshot !== 'object'){
+      return false;
+    }
+    applyVennRuntimeStateSnapshot(resolvedSnapshot);
+    rememberVennOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'apply-runtime-state'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(venn, resolvedSnapshot, {
+      ...(meta || {}),
+      reason: meta.reason || 'apply-runtime-state'
+    });
     debugLog('runtime state applied', {
       reason: meta.reason || 'apply-runtime-state',
-      hasSnapshot: !!snapshot
+      hasSnapshot: !!resolvedSnapshot
     });
     return true;
   };
@@ -7459,6 +7557,7 @@
       if(!venn.ready){
         return;
       }
+      applyExistingVennOwnedRuntimeRecord(_tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'venn-activate-apply-owned-runtime' });
       syncVennActivationState(meta);
     },
     getSentinel: () => state.ui.hotContainer || null
@@ -7521,6 +7620,7 @@
 
   venn.__testHooks = Object.assign({}, venn.__testHooks, {
     state,
+    resolveDrawableFrame: targetEl => resolveVennDrawableFrame(targetEl),
     populateRegion,
     clearAnalysis,
     captureRuntimeState: meta => venn.captureRuntimeState(meta),
@@ -7908,7 +8008,7 @@
   Shared.componentLifecycle?.installInternalStateBridge?.(venn, {
     componentKey: 'venn',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'ui', 'analysis'] },
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'ui', 'analysis', 'derivedCache'] },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

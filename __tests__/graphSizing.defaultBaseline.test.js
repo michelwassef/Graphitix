@@ -119,4 +119,81 @@ describe('graphSizing preserves resize baseline', () => {
     expect(merged?.svgBox?.dataset?.graphDefaultWidth).toBe('455');
     expect(merged?.svgBox?.dataset?.graphDefaultHeight).toBe('455');
   });
+
+  test('box uses the same payload graph sizing enrichment path as other components', () => {
+    const graphSizing = window.Shared?.graphSizing;
+    expect(graphSizing).toBeTruthy();
+
+    const payload = { type: 'box', meta: {} };
+    const layoutState = {
+      version: 1,
+      svgBox: {
+        style: {
+          width: '612px',
+          height: '418px'
+        },
+        dataset: {
+          graphWidthPx: '612',
+          graphHeightPx: '418',
+          graphDefaultWidth: '640',
+          graphDefaultHeight: '420',
+          resizerDefaultWidth: '640',
+          resizerDefaultHeight: '420',
+          resizerAspectLocked: 'false'
+        }
+      }
+    };
+
+    const enriched = graphSizing.enrichPayloadWithLayout('box', payload, layoutState, {
+      context: 'test-box-layout-enrich'
+    });
+
+    expect(enriched).not.toBe(payload);
+    expect(enriched?.meta?.graphSizing?.display?.widthPx).toBe(612);
+    expect(enriched?.meta?.graphSizing?.display?.heightPx).toBe(418);
+    expect(enriched?.meta?.graphSizing?.display?.defaultWidthPx).toBe(640);
+    expect(enriched?.meta?.graphSizing?.display?.defaultHeightPx).toBe(420);
+  });
+
+  test('box payload graph sizing can seed layout when no authoritative layout exists', () => {
+    const graphSizing = window.Shared?.graphSizing;
+    expect(graphSizing).toBeTruthy();
+
+    const payload = {
+      type: 'box',
+      meta: {
+        graphSizing: {
+          version: 1,
+          display: {
+            widthPx: 512,
+            heightPx: 384,
+            defaultWidthPx: 640,
+            defaultHeightPx: 420,
+            minWidthPx: 120,
+            minHeightPx: 120,
+            maxWidthPx: 1600,
+            maxHeightPx: 1200,
+            aspectRatio: 4 / 3,
+            aspectLocked: false,
+            allowUnlimitedWidth: true
+          },
+          export: {
+            widthPx: 512,
+            heightPx: 384
+          }
+        }
+      }
+    };
+
+    const merged = graphSizing.mergePayloadSizingIntoLayout(null, payload, {
+      context: 'test-box-layout-merge'
+    });
+
+    expect(merged?.svgBox?.style?.width).toBe('512px');
+    expect(merged?.svgBox?.style?.height).toBe('384px');
+    expect(merged?.svgBox?.dataset?.graphWidthPx).toBe('512');
+    expect(merged?.svgBox?.dataset?.graphHeightPx).toBe('384');
+    expect(merged?.svgBox?.dataset?.resizerDefaultWidth).toBe('640');
+    expect(merged?.svgBox?.dataset?.resizerDefaultHeight).toBe('420');
+  });
 });

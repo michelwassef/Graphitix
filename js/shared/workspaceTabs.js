@@ -996,11 +996,39 @@
       resolvedConfig.activeElement = activeRoot;
     }
     stampWorkspaceScopeDeep(activeRoot || config?.element || null, tab.id);
+    const component = resolvedType ? global.Components?.[resolvedType] || null : null;
+    const activationReason = meta.reason || 'activate-workspace';
+    if(component?.activateTab?.__supportsPrepareRuntimeTarget === true){
+      try{
+        component.activateTab(tab, {
+          ...meta,
+          reason: `${activationReason}:prepare-runtime-target`,
+          prepareRuntimeTarget: true,
+          passiveControls: true,
+          suppressAutoDraw: true,
+          suppressResizeDraw: true,
+          sessionGeneration: sessionRecord?.generation || 0,
+          sessionRecord: sessionRecord || null
+        });
+        debugLog('Debug: workspaceTabs prepared runtime target before applying snapshot', {
+          tabId: tab.id,
+          type: resolvedType || null,
+          reason: activationReason
+        });
+      }catch(err){
+        console.error('workspaceTabs prepare runtime target error', {
+          tabId: tab.id,
+          type: resolvedType || null,
+          err
+        });
+      }
+    }
     namespace.applyRuntimeState(tab, resolvedType, resolvedConfig, {
-      reason: meta.reason || 'activate-workspace'
+      reason: `${activationReason}:apply-runtime-state`
     });
     invokeWorkspaceHook(resolvedConfig, 'activateTab', [tab, {
-      reason: meta.reason || 'activate-workspace',
+      reason: activationReason,
+      runtimeStateApplied: true,
       sessionGeneration: sessionRecord?.generation || 0,
       sessionRecord: sessionRecord || null
     }], meta);
@@ -1086,6 +1114,19 @@
     }
     const record = namespace.getSessionRecord(tab, resolvedType);
     detachRoot(record?.dom?.root || null);
+    try{
+      if(resolvedType){
+        global.Shared?.componentLifecycle?.createRuntimeOwner?.(resolvedType)?.dispose?.(tab, {
+          reason: meta.reason || 'dispose-tab'
+        });
+      }
+    }catch(err){
+      console.error('workspaceTabs runtime owner dispose error', {
+        tabId: tab.id,
+        type: resolvedType || null,
+        err
+      });
+    }
     delete tab.sharedState;
     debugLog('Debug: workspaceTabs disposed tab shared state', {
       tabId: tab.id,

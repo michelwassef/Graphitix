@@ -19,6 +19,52 @@
     }
   }
   const pie = Components.pie = Components.pie || {};
+
+  function getPieRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(pie, { componentKey: 'pie' }) || null;
+  }
+
+  function rememberPieOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getPieRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'pie',
+      reason: meta?.reason || 'pie-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolvePieOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    const owner = getPieRuntimeOwner();
+    if(!owner){
+      return snapshot || null;
+    }
+    return owner.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'pie',
+      reason: meta?.reason || 'pie-owned-runtime-resolve'
+    });
+  }
+
+  function applyExistingPieOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getPieRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'pie',
+      reason: meta?.reason || 'pie-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof pie.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return pie.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'pie-owned-runtime-activate-apply'
+    });
+  }
+
+
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const notesHelper = Shared.notes = Shared.notes || {};
@@ -630,6 +676,36 @@ let state = {
       }
     }
     return root?.querySelector?.(`#${id}`) || null;
+  }
+
+  function resolvePieDrawableFrame(plotEl){
+    const plot = plotEl || getPieNodeById('piePlot');
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || plot?.closest?.('.svgbox')
+      || queryPieRoot('#pieGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'pie',
+      plot,
+      svgBox,
+      graphPanel: state.graphPanel || state.layout?.elements?.graphPanel || queryPieRoot('#pieGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(plot?.clientWidth) || 0),
+      height: Math.max(0, Number(plot?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(plot?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(plot?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
   }
   function ensurePieStatsReportHost(target){
     const reporting = Shared.statsReporting;
@@ -3884,10 +3960,20 @@ let state = {
         notesOpen,
         reason: snapshot.reason
       });
-      return snapshot;
+      rememberPieOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'pie-runtime-capture'
+      });
+      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'pie-runtime-capture'
+      }) || snapshot;
     };
 
     pie.applyRuntimeState = function applyPieRuntimeState(snapshot, meta = {}){
+      snapshot = resolvePieOwnedRuntimeSnapshot(snapshot, meta)
+        || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(pie, snapshot, meta)
+        || snapshot;
       if(!snapshot || typeof snapshot !== 'object'){
         pieDebug('Debug: pie runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
         return false;
@@ -3924,6 +4010,14 @@ let state = {
         }
       }
       pieStatsSummaryTabIdCounter = Number(snapshot.statsSummaryTabIdCounter) || pieStatsSummaryTabIdCounter || 0;
+      rememberPieOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'pie-runtime-apply'
+      });
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pie, snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'pie-runtime-apply'
+      });
       pieDebug('Debug: pie runtime snapshot applied', {
         tabId: meta?.tabId || pie.__boundTabId || null,
         title: state.titleText,
@@ -4412,17 +4506,17 @@ let state = {
   function draw(drawOptions = {}){
     const plotEl=getPieNodeById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
+    const drawableFrame = resolvePieDrawableFrame(plotEl);
     const isResizePreview = isPieResizePreviewActive(drawOptions);
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     const isResizeDrivenDraw = drawReason.startsWith('resize');
     const isResizeViewDraw = isResizeDrivenDraw && drawOptions?.viewOnly === true;
-    const containerRect=state.svgBox?.getBoundingClientRect?.();
     const pieFontInput=$('#pieFontSize');
     const rawPieFontSize = pieFontInput?.value || String(DEFAULT_PIE_FONT_SIZE_PT);
     const rawFontInfo=chartStyle.resolveScaledFontSize({
       rawSize: rawPieFontSize,
-      width: containerRect?.width,
-      height: containerRect?.height,
+      width: drawableFrame.width,
+      height: drawableFrame.height,
       svgBox: state.svgBox,
       input: pieFontInput
     });
@@ -4435,8 +4529,8 @@ let state = {
       baseFontPx:fontInfo.px,
       scaledFontPx:fs,
       scale:fontInfo.scaleInfo?.scale,
-      containerWidth:containerRect?.width,
-      containerHeight:containerRect?.height
+      containerWidth:drawableFrame.width,
+      containerHeight:drawableFrame.height
     });
     const styleScaleInfo=fontInfo.scaleInfo;
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
@@ -4525,8 +4619,8 @@ let state = {
       });
       plotEl.style.display='flex';
       plotEl.style.alignItems='flex-start';
-      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
-      const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
+      const svgWidth=Math.max(50,Math.floor(drawableFrame.width||50));
+      const svgHeight=Math.max(50,Math.floor(drawableFrame.height||50));
       const svg=document.createElementNS(NS,'svg');
       svg.setAttribute('id','pieSvg');
       svg.setAttribute('width',String(svgWidth));
@@ -5004,8 +5098,8 @@ let state = {
     });
     plotEl.style.display='flex';
     plotEl.style.alignItems='flex-start';
-    const plotWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
-    const plotHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
+    const plotWidth=Math.max(50,Math.floor(drawableFrame.width||50));
+    const plotHeight=Math.max(50,Math.floor(drawableFrame.height||50));
     const svgWidth=Math.max(50, plotWidth);
     const svgHeight=Math.max(50,plotHeight);
     pieDebug('Debug: pie radial layout metrics', {
@@ -5528,7 +5622,8 @@ let state = {
     setRoot: root => { state.root = root; },
     ensureBindings: tabLike => ensurePieDomBindings(tabLike),
     init: options => pie.init(options),
-    afterReady: () => {
+    afterReady: (tabLike, meta = {}) => {
+      applyExistingPieOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pie-activate-apply-owned-runtime' });
       if(typeof state.ensureHotForActiveTab === 'function'){
         state.ensureHotForActiveTab();
       }
@@ -5744,7 +5839,8 @@ let state = {
     computeGofStats: (observed, expected, options) => computePieGofStats(observed, expected, options || {}),
     computeContingencyTest: (table, options) => computePieContingencyTest(table, options || {}),
     updatePieStats: (labels, observed, expected) => updatePieStats(labels, observed, expected),
-    computeRadialPercentLabelLayout: options => computeRadialPercentLabelLayout(options || {})
+    computeRadialPercentLabelLayout: options => computeRadialPercentLabelLayout(options || {}),
+    resolveDrawableFrame: plot => resolvePieDrawableFrame(plot)
   });
 
 
@@ -5752,7 +5848,7 @@ let state = {
   Shared.componentLifecycle?.installInternalStateBridge?.(pie, {
     componentKey: 'pie',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'resizeState'] },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

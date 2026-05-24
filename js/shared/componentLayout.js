@@ -1,11 +1,9 @@
 // Shared helper for component panel layout, resizers, and wrapper styling
 // Exposes Shared.componentLayout.createStandardPanels(config)
 // Layout serialization policy:
-// Most components treat layout.json as the authoritative graph/table sizing state.
-// Components can opt out with workspace.authoritativeLayoutInPayload === true
-// when their own payload already carries authoritative sizing information. Box
-// currently uses that policy; session.js reads the registry flag instead of
-// hard-coding component-specific layout behavior.
+// layout.json is the authoritative graph/table sizing state. Component payloads
+// may carry graph sizing metadata for portable/archive restore, but renderer
+// internals must not become frame-size authorities.
 (function(global){
   'use strict';
 
@@ -267,6 +265,106 @@
     const numeric = Number.parseFloat(String(value == null ? '' : value));
     return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
   }
+
+  function readCssPx(style, prop){
+    if(!style || !prop){
+      return 0;
+    }
+    const value = Number.parseFloat(style.getPropertyValue?.(prop) || style[prop] || '0');
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function measureContentBox(node, options = {}){
+    if(!node || typeof node.getBoundingClientRect !== 'function'){
+      return null;
+    }
+    let rect = null;
+    try{
+      rect = node.getBoundingClientRect();
+    }catch(err){
+      console.error('Shared.componentLayout drawable frame rect error', {
+        source: options.source || null,
+        err
+      });
+      return null;
+    }
+    let width = Number(rect?.width);
+    let height = Number(rect?.height);
+    const hasRect = (Number.isFinite(width) && width > 0) || (Number.isFinite(height) && height > 0);
+    if(!hasRect){
+      return null;
+    }
+    if(options.subtractInsets !== false && typeof global.getComputedStyle === 'function'){
+      try{
+        const style = global.getComputedStyle(node);
+        width -= readCssPx(style, 'border-left-width') + readCssPx(style, 'border-right-width');
+        width -= readCssPx(style, 'padding-left') + readCssPx(style, 'padding-right');
+        height -= readCssPx(style, 'border-top-width') + readCssPx(style, 'border-bottom-width');
+        height -= readCssPx(style, 'padding-top') + readCssPx(style, 'padding-bottom');
+      }catch(err){
+        console.error('Shared.componentLayout drawable frame style error', {
+          source: options.source || null,
+          err
+        });
+      }
+    }
+    return {
+      node,
+      source: options.source || 'frame',
+      width: Number.isFinite(width) && width > 0 ? width : NaN,
+      height: Number.isFinite(height) && height > 0 ? height : NaN
+    };
+  }
+
+  componentLayout.resolveDrawableFrame = function resolveDrawableFrame(options = {}){
+    const plot = options.plot || options.target || null;
+    const svgBox = options.svgBox
+      || plot?.closest?.('.svgbox')
+      || options.graphPanel?.querySelector?.('.svgbox')
+      || null;
+    const viewport = options.viewport
+      || svgBox?.querySelector?.('.resizer-zoom-viewport')
+      || plot?.closest?.('.resizer-zoom-viewport')
+      || null;
+    const rawWidth = Math.max(0, Number(plot?.clientWidth) || 0);
+    const rawHeight = Math.max(0, Number(plot?.clientHeight) || 0);
+    const zoomCandidate = Number(svgBox?.dataset?.resizerZoomLevel || svgBox?.dataset?.resizerZoom);
+    const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const frame = measureContentBox(viewport, { source: 'zoom-viewport', subtractInsets: options.subtractInsets })
+      || measureContentBox(svgBox, { source: 'svgbox', subtractInsets: options.subtractInsets });
+    const availableWidth = Number.isFinite(frame?.width) && frame.width > 0 ? frame.width / zoomScale : NaN;
+    const availableHeight = Number.isFinite(frame?.height) && frame.height > 0 ? frame.height / zoomScale : NaN;
+    const width = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : rawWidth;
+    const height = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : rawHeight;
+    const source = frame?.source || (plot ? 'plot-fallback' : 'none');
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: componentLayout drawable frame resolved', {
+        component: options.componentName || null,
+        source,
+        width,
+        height,
+        rawWidth,
+        rawHeight,
+        zoomScale
+      });
+    }
+    return {
+      width,
+      height,
+      constrained: (Number.isFinite(availableWidth) && rawWidth > availableWidth + 0.5)
+        || (Number.isFinite(availableHeight) && rawHeight > availableHeight + 0.5),
+      availableWidth,
+      availableHeight,
+      rawWidth,
+      rawHeight,
+      source,
+      authority: source,
+      frameNode: frame?.node || null,
+      svgBox,
+      viewport,
+      zoomScale
+    };
+  };
 
   function harmonizeSvgBoxStyleWithGraphDataset(element, componentName, reason = 'graph-dataset-authority'){
     if(!element?.dataset || !element.style){

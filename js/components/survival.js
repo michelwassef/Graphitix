@@ -18,6 +18,48 @@
     }
   }
   const survival = Components.survival = Components.survival || {};
+
+  function getSurvivalRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(survival, { componentKey: 'survival' }) || null;
+  }
+
+  function rememberSurvivalOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getSurvivalRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'survival',
+      reason: meta?.reason || 'survival-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolveSurvivalOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    return getSurvivalRuntimeOwner()?.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'survival',
+      reason: meta?.reason || 'survival-owned-runtime-resolve'
+    }) || null;
+  }
+
+  function applyExistingSurvivalOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getSurvivalRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'survival',
+      reason: meta?.reason || 'survival-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof survival.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return survival.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-owned-runtime-activate-apply'
+    });
+  }
+
+
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const notesHelper = Shared.notes = Shared.notes || {};
@@ -904,6 +946,36 @@
       }
     }
     return root?.querySelector?.(`#${id}`) || null;
+  }
+
+  function resolveSurvivalDrawableFrame(plotEl){
+    const plot = plotEl || refs.plotDiv || getSurvivalNodeById('survivalPlot');
+    const svgBox = refs.svgBox
+      || state.layout?.elements?.svgBox
+      || plot?.closest?.('.svgbox')
+      || resolveSurvivalRoot()?.querySelector?.('#survivalGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'survival',
+      plot,
+      svgBox,
+      graphPanel: refs.graphPanel || resolveSurvivalRoot()?.querySelector?.('#survivalGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(plot?.clientWidth) || 0),
+      height: Math.max(0, Number(plot?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(plot?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(plot?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
   }
   function ensureSurvivalCoxReportHost(){
     const reporting = Shared.statsReporting;
@@ -3541,9 +3613,9 @@
       updateStats(summary);
       return;
     }
-    const containerRect = refs.svgBox?.getBoundingClientRect?.();
-    const width = Math.max(200, Math.floor(refs.plotDiv.clientWidth || containerRect?.width || 400));
-    const height = Math.max(200, Math.floor(refs.plotDiv.clientHeight || containerRect?.height || 320));
+    const drawableFrame = resolveSurvivalDrawableFrame(refs.plotDiv);
+    const width = Math.max(200, Math.floor(drawableFrame.width || 400));
+    const height = Math.max(200, Math.floor(drawableFrame.height || 320));
     logDebug('draw dimensions resolved', { width, height });
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('id', 'survivalSvg');
@@ -3564,8 +3636,8 @@
 
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
       rawSize: refs.fontSize?.value,
-      width: containerRect?.width,
-      height: containerRect?.height,
+      width: drawableFrame.width,
+      height: drawableFrame.height,
       svgBox: refs.svgBox,
       input: refs.fontSize
     }) : { scaledPx: Number(refs.fontSize?.value) || 12, pt: Number(refs.fontSize?.value) || 12, scaleInfo: { styleScale: 1 } };
@@ -4689,10 +4761,20 @@
       notesOpen,
       reason: snapshot.reason
     });
-    return snapshot;
+    rememberSurvivalOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: snapshot.reason || meta?.reason || 'survival-runtime-capture'
+    });
+    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(survival, snapshot, {
+      ...(meta || {}),
+      reason: snapshot.reason || meta?.reason || 'survival-runtime-capture'
+    }) || snapshot;
   };
 
   survival.applyRuntimeState = function applySurvivalRuntimeState(snapshot, meta = {}){
+    snapshot = resolveSurvivalOwnedRuntimeSnapshot(snapshot, meta)
+      || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(survival, snapshot, meta)
+      || snapshot;
     if(!snapshot || typeof snapshot !== 'object'){
       survivalDebug('Debug: survival runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
@@ -4727,6 +4809,14 @@
       }
     }
     parseDebugCounter = Number(snapshot.parseDebugCounter) || parseDebugCounter || 0;
+    rememberSurvivalOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-runtime-apply'
+    });
+    Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(survival, snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-runtime-apply'
+    });
     survivalDebug('Debug: survival runtime snapshot applied', {
       tabId: meta?.tabId || survival.__boundTabId || null,
       title: state.titleText,
@@ -5442,7 +5532,10 @@
       return !!rebound?.rebound;
     },
     init: options => init(options),
-    afterReady: () => { if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); } },
+    afterReady: (tabLike, meta = {}) => {
+      applyExistingSurvivalOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'survival-activate-apply-owned-runtime' });
+      if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
+    },
     getSentinel: () => getSurvivalNodeById('survivalHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
@@ -5576,14 +5669,15 @@
       options || {}
     ),
     prepareCoxData: summary => prepareCoxData(summary),
-    evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared)
+    evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared),
+    resolveDrawableFrame: plot => resolveSurvivalDrawableFrame(plot)
   });
 
 
   Shared.componentLifecycle?.installInternalStateBridge?.(survival, {
     componentKey: 'survival',
     targets: [
-      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'lastParsedRows', 'lastDesignMatrix'] },
       { key: 'survivalAdvisorState', get: () => survivalAdvisorState },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]

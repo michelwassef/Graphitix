@@ -3620,6 +3620,12 @@ select {
 .workspace-toolbar__dock--active .workspace-toolbar__hint{
     display:none;
 }
+.workspace-toolbar__dock--active .workspace-toolbar__dock-anchor{
+    display:none;
+}
+.workspace-toolbar__dock--active ~ .workspace-toolbar__caption{
+    display:none;
+}
 .workspace-toolbar__dock-anchor{
     width:0;
     height:0;

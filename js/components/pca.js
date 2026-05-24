@@ -832,6 +832,35 @@
     return root?.querySelector?.(`#${id}`) || null;
   }
 
+  function resolvePcaDrawableFrame(plotEl){
+    const plot = plotEl || getPcaNodeById('pcaPlot');
+    const svgBox = pcaSvgBoxRef
+      || plot?.closest?.('.svgbox')
+      || queryPcaRoot('#pcaGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'pca',
+      plot,
+      svgBox,
+      graphPanel: queryPcaRoot('#pcaGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(plot?.clientWidth) || 0),
+      height: Math.max(0, Number(plot?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(plot?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(plot?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
+  }
+
   function ensurePcaGroupedDefaults(){
     if(!pcaState.grouped || typeof pcaState.grouped !== 'object'){
       pcaState.grouped = { replicatesPerGroup: 2, colors: [], shapes: [] };
@@ -1685,7 +1714,7 @@
 
   function resolveActiveTabId(){
     try{
-      const tab = Main?.session?.getActiveTab?.();
+      const tab = global.Main?.session?.getActiveTab?.();
       return tab?.id || null;
     }catch(err){
       console.error('pca resolveActiveTabId error', err);
@@ -3826,6 +3855,236 @@
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
   let emptyPayloadTemplate = null;
+
+  function resolvePcaOwnedRuntimeTabId(tabLike = null, meta = {}){
+    if(tabLike && typeof tabLike === 'object' && tabLike.id != null){
+      return String(tabLike.id || '').trim();
+    }
+    if(typeof tabLike === 'string' && tabLike.trim()){
+      return tabLike.trim();
+    }
+    const explicit = meta?.tabId || meta?.workspaceTabId || meta?.tab?.id || null;
+    if(explicit){
+      return String(explicit || '').trim();
+    }
+    const bound = pca.__boundTabId || null;
+    if(bound){
+      return String(bound || '').trim();
+    }
+    return '';
+  }
+
+  function snapshotPcaOwnedStateFromActive(){
+    return {
+      axisSelection: cloneSimple(pcaState.axisSelection) || { x: 1, y: 2, z: 3 },
+      axisMeta: cloneSimple(pcaState.axisMeta) || [],
+      rotation: cloneSimple(pcaState.rotation) || plot3d.createRotationState({ x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY }),
+      axesVarianceScaled: !!pcaState.axesVarianceScaled,
+      equalScaleAxes: pcaState.equalScaleAxes !== false,
+      equalAxes: !!pcaState.equalAxes,
+      axisSettings: cloneSimple(pcaState.axisSettings) || createDefaultAxisSettings(),
+      gridStyle: cloneSimple(pcaState.gridStyle) || null,
+      tableFormat: pcaState.tableFormat || 'standard',
+      grouped: cloneSimple(pcaState.grouped) || { replicatesPerGroup: 2, colors: [], shapes: [] },
+      componentSelection: cloneSimple(pcaState.componentSelection) || {
+        rule: PCA_DEFAULT_COMPONENT_SELECTION_RULE,
+        eigenThreshold: PCA_DEFAULT_EIGEN_THRESHOLD,
+        parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS,
+        includeNonRetainedAxes: false
+      },
+      biplotShowSampleScores: sanitizePcaBiplotShowSampleScores(pcaState.biplotShowSampleScores),
+      screeShowParallel: sanitizePcaScreeShowParallel(pcaState.screeShowParallel),
+      loadingsLimit: Number.isFinite(Number(pcaState.loadingsLimit)) ? Number(pcaState.loadingsLimit) : PCA_LOADINGS_ROW_LIMIT,
+      labels: cloneSimple(pcaState.labels) || { title: getDefaultTitleForMethod('pca') },
+      lastMethod: pcaState.lastMethod || 'pca',
+      fastPointMode: !!pcaState.fastPointMode,
+      dataDirty: !!pcaState.dataDirty,
+      viewDirty: !!pcaState.viewDirty,
+      labelPositions: cloneSimple(pcaState.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null },
+      theme: cloneSimple(pcaState.theme) || {
+        colorScheme: 'scientific',
+        textColor: chartStyle.TEXT_COLOR || '#000000',
+        backgroundColor: '#ffffff'
+      }
+    };
+  }
+
+  function createPcaOwnedRuntimeRecord(tabId){
+    return {
+      version: 1,
+      componentKey: 'pca',
+      tabId: tabId || '',
+      hydrated: false,
+      state: snapshotPcaOwnedStateFromActive(),
+      stats: cloneSimple(lastPcaStats) || null,
+      notes: { text: notesState.text || '', open: !!notesState.open }
+    };
+  }
+
+  function getPcaOwnedRuntimeRecord(tabLike = null, meta = {}, options = {}){
+    const tabId = resolvePcaOwnedRuntimeTabId(tabLike, meta);
+    if(!tabId){
+      console.warn('Debug: pca owned runtime missing tab id', { reason: meta?.reason || 'pca-owned-runtime' });
+      return null;
+    }
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'pca') || null;
+    if(!runtime){
+      console.warn('Debug: pca owned runtime missing shared runtime', { tabId, reason: meta?.reason || 'pca-owned-runtime' });
+      return null;
+    }
+    let record = runtime.ownedRuntimeRecord || null;
+    if(!record && options.create === true){
+      record = createPcaOwnedRuntimeRecord(tabId);
+      runtime.ownedRuntimeRecord = record;
+    }
+    if(record && options.create !== true && record.hydrated !== true){
+      return null;
+    }
+    return record;
+  }
+
+  function ensurePcaOwnedRuntimeRecord(tabLike = null, meta = {}){
+    return getPcaOwnedRuntimeRecord(tabLike, meta, { create: true });
+  }
+
+  function applyPcaOwnedStateToActive(state, meta = {}){
+    if(!state || typeof state !== 'object'){
+      return false;
+    }
+    pcaState.axisSelection = cloneSimple(state.axisSelection) || pcaState.axisSelection || { x: 1, y: 2, z: 3 };
+    pcaState.axisMeta = cloneSimple(state.axisMeta) || pcaState.axisMeta || [];
+    pcaState.rotation = cloneSimple(state.rotation) || pcaState.rotation || plot3d.createRotationState({ x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY });
+    pcaState.rotationPending = false;
+    pcaState.rotationPendingLogged = false;
+    pcaState.axesVarianceScaled = !!state.axesVarianceScaled;
+    pcaState.equalScaleAxes = state.equalScaleAxes !== false;
+    pcaState.equalAxes = !!state.equalAxes;
+    if(Object.prototype.hasOwnProperty.call(state, 'axisSettings')){
+      pcaState.axisSettings = cloneSimple(state.axisSettings) || pcaState.axisSettings || createDefaultAxisSettings();
+    }
+    if(Object.prototype.hasOwnProperty.call(state, 'gridStyle')){
+      pcaState.gridStyle = cloneSimple(state.gridStyle) || null;
+    }
+    pcaState.tableFormat = typeof state.tableFormat === 'string' && state.tableFormat ? state.tableFormat : (pcaState.tableFormat || 'standard');
+    pcaState.grouped = cloneSimple(state.grouped) || pcaState.grouped || { replicatesPerGroup: 2, colors: [], shapes: [] };
+    pcaState.componentSelection = cloneSimple(state.componentSelection) || pcaState.componentSelection || {
+      rule: PCA_DEFAULT_COMPONENT_SELECTION_RULE,
+      eigenThreshold: PCA_DEFAULT_EIGEN_THRESHOLD,
+      parallelIterations: PCA_DEFAULT_PARALLEL_ITERATIONS,
+      includeNonRetainedAxes: false
+    };
+    pcaState.biplotShowSampleScores = sanitizePcaBiplotShowSampleScores(state.biplotShowSampleScores);
+    pcaState.screeShowParallel = sanitizePcaScreeShowParallel(state.screeShowParallel);
+    pcaState.loadingsLimit = Number.isFinite(Number(state.loadingsLimit)) ? Number(state.loadingsLimit) : (pcaState.loadingsLimit || PCA_LOADINGS_ROW_LIMIT);
+    pcaState.labels = cloneSimple(state.labels) || pcaState.labels || { title: getDefaultTitleForMethod('pca') };
+    pcaState.lastMethod = typeof state.lastMethod === 'string' && state.lastMethod ? state.lastMethod : (pcaState.lastMethod || 'pca');
+    pcaState.fastPointMode = !!state.fastPointMode;
+    pcaState.dataDirty = !!state.dataDirty;
+    pcaState.viewDirty = !!state.viewDirty;
+    pcaState.labelPositions = cloneSimple(state.labelPositions) || pcaState.labelPositions || { title: null, xLabel: null, yLabel: null, legend: null };
+    pcaState.theme = cloneSimple(state.theme) || pcaState.theme || {
+      colorScheme: 'scientific',
+      textColor: chartStyle.TEXT_COLOR || '#000000',
+      backgroundColor: '#ffffff'
+    };
+    pcaState.cachedRender = pcaState.cachedRender || null;
+    debugLog('Debug: pca owned runtime state bound', {
+      tabId: meta?.tabId || pca.__boundTabId || null,
+      tableFormat: pcaState.tableFormat,
+      viewDirty: pcaState.viewDirty,
+      reason: meta?.reason || 'pca-owned-runtime-bind'
+    });
+    return true;
+  }
+
+  function bindPcaOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensurePcaOwnedRuntimeRecord(tabLike, meta);
+    if(!record || record.hydrated !== true){
+      return false;
+    }
+    pca.__pcaOwnedRuntimeTabId = record.tabId;
+    applyPcaOwnedStateToActive(record.state, { ...(meta || {}), tabId: record.tabId });
+    if(Object.prototype.hasOwnProperty.call(record, 'stats')){
+      lastPcaStats = cloneSimple(record.stats) || null;
+    }
+    if(record.notes && typeof record.notes === 'object'){
+      notesState.text = record.notes.text == null ? '' : String(record.notes.text);
+      notesState.open = !!record.notes.open;
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
+      }
+    }
+    return true;
+  }
+
+  function bindExistingPcaOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = getPcaOwnedRuntimeRecord(tabLike, meta, { create: false });
+    if(!record){
+      return false;
+    }
+    return bindPcaOwnedRuntimeRecord(record.tabId, { ...(meta || {}), tabId: record.tabId });
+  }
+
+  function rememberPcaOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const record = ensurePcaOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
+    }
+    const noteControl = notesState.control || null;
+    if(noteControl && typeof noteControl.getValue === 'function'){
+      notesState.text = noteControl.getValue();
+    }
+    if(noteControl && typeof noteControl.isOpen === 'function'){
+      notesState.open = noteControl.isOpen();
+    }
+    record.hydrated = true;
+    record.state = snapshotPcaOwnedStateFromActive();
+    record.stats = cloneSimple(lastPcaStats) || null;
+    record.notes = { text: notesState.text || '', open: !!notesState.open };
+    record.updatedAt = Date.now();
+    record.reason = meta?.reason || 'pca-owned-runtime-remember';
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'pca') || null;
+    if(runtime){ runtime.ownedRuntimeRecord = record; }
+    pca.__pcaOwnedRuntimeTabId = record.tabId;
+    debugLog('Debug: pca owned runtime remembered', {
+      tabId: record.tabId,
+      tableFormat: record.state?.tableFormat || null,
+      reason: record.reason
+    });
+    return record;
+  }
+
+  function applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, tabLike = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return false;
+    }
+    const record = ensurePcaOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return false;
+    }
+    record.hydrated = true;
+    if(snapshot.state && typeof snapshot.state === 'object'){
+      record.state = { ...record.state, ...(cloneSimple(snapshot.state) || {}) };
+      record.state.rotationPending = false;
+      record.state.rotationPendingLogged = false;
+    }
+    if(Object.prototype.hasOwnProperty.call(snapshot, 'stats')){
+      record.stats = cloneSimple(snapshot.stats) || null;
+    }
+    if(snapshot.notes && typeof snapshot.notes === 'object'){
+      record.notes = {
+        text: snapshot.notes.text == null ? '' : String(snapshot.notes.text),
+        open: !!snapshot.notes.open
+      };
+    }
+    record.updatedAt = Date.now();
+    record.reason = meta?.reason || 'pca-owned-runtime-apply-snapshot';
+    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'pca') || null;
+    if(runtime){ runtime.ownedRuntimeRecord = record; }
+    return bindPcaOwnedRuntimeRecord(record.tabId, { ...(meta || {}), tabId: record.tabId });
+  }
+
 
   function normalizePcaThemeColor(value, fallback){
     return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
@@ -7585,11 +7844,11 @@
       const alpha = Number(pcaAlpha.value) || 0;
       const borderWidthRaw = Number(pcaBorderWidth.value);
       const borderColor = pcaBorder.value;
-      const containerRect=pcaSvgBox?.getBoundingClientRect?.();
+      const drawableFrame = resolvePcaDrawableFrame(pcaPlotDiv);
       const fontInfo=chartStyle.resolveScaledFontSize({
         rawSize: pcaFontSize.value,
-        width: containerRect?.width,
-        height: containerRect?.height,
+        width: drawableFrame.width,
+        height: drawableFrame.height,
         svgBox: pcaSvgBox,
         input: pcaFontSize
       });
@@ -7622,8 +7881,8 @@
         baseFontPx:fontInfo.px,
         scaledFontPx:fs,
         scale:styleScaleInfo?.styleScale || styleScaleInfo?.scale,
-        containerWidth:containerRect?.width,
-        containerHeight:containerRect?.height
+        containerWidth:drawableFrame.width,
+        containerHeight:drawableFrame.height
       });
       const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
       debugLog('Debug: pca axis metrics',axisMetrics);
@@ -8808,9 +9067,8 @@
         const targetAspect = Number.isFinite(PCA_3D_DEFAULTS.aspectRatio) && PCA_3D_DEFAULTS.aspectRatio > 0 ? PCA_3D_DEFAULTS.aspectRatio : (4 / 3);
         const fallbackWidth = 480;
         const fallbackHeight = Math.round(fallbackWidth / targetAspect);
-        const bounds = typeof plotEl.getBoundingClientRect === 'function' ? plotEl.getBoundingClientRect() : { width: 0, height: 0 };
-        const availableWidth = Math.floor(bounds.width || plotEl.clientWidth || 0);
-        const availableHeight = Math.floor(bounds.height || plotEl.clientHeight || 0);
+        const availableWidth = Math.floor(drawableFrame.width || 0);
+        const availableHeight = Math.floor(drawableFrame.height || 0);
         let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
         let H3 = Math.round(W3 / targetAspect);
         if(availableHeight > 0 && H3 > availableHeight){
@@ -9626,8 +9884,9 @@
 
       plotEl.style.aspectRatio = '';
       plotEl.style.padding = '';
-      let W = Math.max(50, Math.floor(plotEl.clientWidth || 50));
-      const H = Math.max(40, Math.floor(plotEl.clientHeight || 40));
+      const baseDrawableWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
+      let W = baseDrawableWidth;
+      const H = Math.max(40, Math.floor(drawableFrame.height || 40));
 
       function niceNum(range, round) {
         const exp = Math.floor(Math.log10(range));
@@ -9862,7 +10121,7 @@
         }
       }
       plotEl.style.position = 'relative';
-      plotEl.style.minWidth = W > Math.max(50, Math.floor(plotEl.clientWidth || 50)) ? `${W}px` : '';
+      plotEl.style.minWidth = W > baseDrawableWidth ? `${W}px` : '';
       const layeredRoot = document.createElement('div');
       layeredRoot.className = 'pca-layered-plot';
       layeredRoot.style.position = 'relative';
@@ -11223,8 +11482,8 @@
           axisSelection: cloneSimple(pcaState.axisSelection) || { x: 1, y: 2, z: 3 },
           axisMeta: cloneSimple(pcaState.axisMeta) || [],
           rotation: cloneSimple(pcaState.rotation) || plot3d.createRotationState({ x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY }),
-          rotationPending: !!pcaState.rotationPending,
-          rotationPendingLogged: !!pcaState.rotationPendingLogged,
+          rotationPending: false,
+          rotationPendingLogged: false,
           axesVarianceScaled: !!pcaState.axesVarianceScaled,
           equalScaleAxes: pcaState.equalScaleAxes !== false,
           equalAxes: !!pcaState.equalAxes,
@@ -11249,30 +11508,47 @@
         },
         stats: cloneSimple(lastPcaStats) || null,
         notes: { text: notesText, open: notesOpen },
-        pendingDrawOptions: cloneSimple(pendingDrawOptions) || {},
+        pendingDrawOptions: {},
         reason: meta?.reason || 'pca-runtime-capture'
       };
+      const ownedRecord = rememberPcaOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'pca-runtime-capture'
+      });
       debugLog('Debug: pca runtime snapshot captured', {
         tabId: meta?.tabId || pca.__boundTabId || null,
+        ownedRuntimeTabId: ownedRecord?.tabId || pca.__pcaOwnedRuntimeTabId || null,
         viewMode: pcaViewMode?.value || pcaViewModeInput?.value || null,
         notesOpen,
         reason: snapshot.reason
       });
-      return snapshot;
+      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pca, snapshot, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'pca-runtime-capture'
+      }) || snapshot;
     };
 
     pca.applyRuntimeState = function applyPcaRuntimeState(snapshot, meta = {}){
+      snapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(pca, snapshot, meta) || snapshot;
       if(!snapshot || typeof snapshot !== 'object'){
         debugLog('Debug: pca runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+        bindExistingPcaOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, {
+          ...(meta || {}),
+          reason: meta?.reason || 'pca-runtime-apply-missing-snapshot-bind-owned-runtime'
+        });
         return false;
       }
+      applyPcaOwnedRuntimeSlicesFromSnapshot(snapshot, meta?.tab || meta?.tabId || null, {
+        ...(meta || {}),
+        reason: meta?.reason || 'pca-runtime-apply-owned-slices'
+      });
       if(snapshot.state && typeof snapshot.state === 'object'){
         const nextState = snapshot.state;
         pcaState.axisSelection = cloneSimple(nextState.axisSelection) || pcaState.axisSelection;
         pcaState.axisMeta = cloneSimple(nextState.axisMeta) || pcaState.axisMeta || [];
         pcaState.rotation = cloneSimple(nextState.rotation) || pcaState.rotation;
-        pcaState.rotationPending = !!nextState.rotationPending;
-        pcaState.rotationPendingLogged = !!nextState.rotationPendingLogged;
+        pcaState.rotationPending = false;
+        pcaState.rotationPendingLogged = false;
         pcaState.axesVarianceScaled = !!nextState.axesVarianceScaled;
         pcaState.equalScaleAxes = nextState.equalScaleAxes !== false;
         pcaState.equalAxes = !!nextState.equalAxes;
@@ -11306,9 +11582,18 @@
           notesState.control.setOpen(notesState.open);
         }
       }
-      pendingDrawOptions = cloneSimple(snapshot.pendingDrawOptions) || pendingDrawOptions || {};
+      pendingDrawOptions = {};
+      const ownedRecord = rememberPcaOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, {
+        ...(meta || {}),
+        reason: meta?.reason || 'pca-runtime-apply'
+      });
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(pca, snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'pca-runtime-apply'
+      });
       debugLog('Debug: pca runtime snapshot applied', {
         tabId: meta?.tabId || pca.__boundTabId || null,
+        ownedRuntimeTabId: ownedRecord?.tabId || pca.__pcaOwnedRuntimeTabId || null,
         tableFormat: pcaState.tableFormat,
         reason: meta?.reason || 'pca-runtime-apply'
       });
@@ -11318,7 +11603,8 @@
     pca.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
       component: pca,
       componentKey: 'pca',
-      cancel: () => {
+      cancel: (tab, meta = {}) => {
+        rememberPcaOwnedRuntimeRecord(tab || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pca-deactivate-remember-owned-runtime' });
         pcaState.drawToken = (Number(pcaState.drawToken) || 0) + 1;
         pcaState.rotationPending = false;
         if(pcaDataDrawTimer){
@@ -11327,6 +11613,7 @@
         }
       }
     }) || function deactivatePcaTab(tab, meta = {}){
+      rememberPcaOwnedRuntimeRecord(tab || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pca-deactivate-remember-owned-runtime' });
       pcaState.drawToken = (Number(pcaState.drawToken) || 0) + 1;
       pcaState.rotationPending = false;
       if(pcaDataDrawTimer){
@@ -11546,10 +11833,16 @@
       componentKey: 'pca',
       resolveRoot: tabLike => resolvePcaRoot(tabLike || null),
       setRoot: root => { pcaRoot = root || pcaRoot || null; },
-      ensureBindings: tabLike => ensurePcaDomBindings(tabLike),
+      ensureBindings: (tabLike, meta = {}) => {
+        const rebound = ensurePcaDomBindings(tabLike);
+        bindExistingPcaOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pca-activate-bind-existing-owned-runtime' });
+        return rebound;
+      },
       init: options => setup(options),
-      afterReady: tabLike => {
+      afterReady: (tabLike, meta = {}) => {
+        bindExistingPcaOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pca-activate-bind-owned-runtime' });
         finalizePcaActivation(tabLike || null, 'activate-tab');
+        rememberPcaOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'pca-activate-seed-owned-runtime' });
       },
       getSentinel: () => getPcaNodeById('pcaHot')
     }) || function activateTab(tab, meta = {}){
@@ -11567,10 +11860,13 @@
       }
       pca.__boundTabId = targetTabId || pca.__boundTabId || null;
       pcaRoot = resolvePcaRoot(tab || targetTabId || null);
+      bindExistingPcaOwnedRuntimeRecord(tab || targetTabId || null, { ...(meta || {}), tabId: targetTabId, reason: meta.reason || 'pca-activate-bind-owned-runtime' });
       if(ensurePcaDomBindings(tab || targetTabId || null)){
+        rememberPcaOwnedRuntimeRecord(tab || targetTabId || null, { ...(meta || {}), tabId: targetTabId, reason: meta.reason || 'pca-activate-seed-owned-runtime' });
         return;
       }
       finalizePcaActivation(tab || targetTabId || null, meta.reason || 'activate-tab');
+      rememberPcaOwnedRuntimeRecord(tab || targetTabId || null, { ...(meta || {}), tabId: targetTabId, reason: meta.reason || 'pca-activate-seed-owned-runtime' });
       pca.__domSentinel = getPcaNodeById('pcaHot');
     };
 
@@ -11832,6 +12128,7 @@
 
   pca.__testHooks = Object.assign({}, pca.__testHooks, {
     benchmarkLoad: opts => benchmarkPcaLoad(opts),
+    resolveDrawableFrame: plotEl => resolvePcaDrawableFrame(plotEl),
     getPerformance: () => ({
       performance: cloneSimple(pcaState.performance),
       lastAutoDrawEvaluation: cloneSimple(pcaState.lastAutoDrawEvaluation),
@@ -11849,9 +12146,8 @@
     Shared.componentLifecycle?.installInternalStateBridge?.(pca, {
       componentKey: 'pca',
       targets: [
-        { key: 'pcaState', get: () => pcaState, excludeKeys: ['hot', 'root', 'cachedRender'] },
-        { key: 'notesState', get: () => notesState, excludeKeys: ['control'] },
-        { key: 'pendingDrawOptions', get: () => pendingDrawOptions, apply: snapshot => { pendingDrawOptions = snapshot && typeof snapshot === 'object' ? Object.assign({}, snapshot) : {}; } }
+        { key: 'pcaState', get: () => pcaState, excludeKeys: ['hot', 'root', 'cachedRender', 'drawToken', 'rotationPending', 'rotationPendingLogged', 'lastAutoDrawEvaluation', 'performance'] },
+        { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
       ]
     });
 })(window);

@@ -266,4 +266,57 @@ describe('componentLayout zoom behavior contract', () => {
     const lastSyncCall = syncPanelSpy.mock.calls[syncPanelSpy.mock.calls.length - 1];
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
+
+  test('drawable frame resolves the zoom viewport before stale plot dimensions', () => {
+    document.body.innerHTML = `
+      <div class="svgbox" data-resizer-zoom-level="1">
+        <div class="resizer-zoom-viewport">
+          <div class="resizer-zoom-content">
+            <div id="boxPlot"></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const svgBox = document.querySelector('.svgbox');
+    const viewport = document.querySelector('.resizer-zoom-viewport');
+    const plot = document.getElementById('boxPlot');
+    viewport.getBoundingClientRect = () => ({ width: 472, height: 383, top: 0, left: 0, right: 472, bottom: 383 });
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 472 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 263 });
+
+    const frame = window.Shared.componentLayout.resolveDrawableFrame({
+      componentName: 'box',
+      svgBox,
+      plot
+    });
+
+    expect(frame.source).toBe('zoom-viewport');
+    expect(frame.width).toBe(472);
+    expect(frame.height).toBe(383);
+    expect(frame.rawHeight).toBe(263);
+  });
+
+  test('drawable frame falls back to svgbox instead of promoting plot output to authority', () => {
+    document.body.innerHTML = `
+      <div class="svgbox" data-resizer-zoom-level="1">
+        <div id="linePlot"></div>
+      </div>
+    `;
+    const svgBox = document.querySelector('.svgbox');
+    const plot = document.getElementById('linePlot');
+    svgBox.getBoundingClientRect = () => ({ width: 510, height: 340, top: 0, left: 0, right: 510, bottom: 340 });
+    Object.defineProperty(plot, 'clientWidth', { configurable: true, get: () => 800 });
+    Object.defineProperty(plot, 'clientHeight', { configurable: true, get: () => 620 });
+
+    const frame = window.Shared.componentLayout.resolveDrawableFrame({
+      componentName: 'line',
+      svgBox,
+      plot
+    });
+
+    expect(frame.source).toBe('svgbox');
+    expect(frame.width).toBe(510);
+    expect(frame.height).toBe(340);
+    expect(frame.constrained).toBe(true);
+  });
 });

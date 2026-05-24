@@ -76,7 +76,57 @@
     }
   }
 
+  if(typeof Shared.componentLayout?.resolveDrawableFrame !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/componentLayout.js');
+    }catch(err){
+      histDebug('Debug: hist component componentLayout helper require failed', { message: err?.message || String(err) });
+    }
+  }
+
   const hist = Components.hist = Components.hist || {};
+
+  function getHistRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(hist, { componentKey: 'hist' }) || null;
+  }
+
+  function rememberHistOwnedRuntimeRecord(tabLike = null, snapshot = null, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return null;
+    }
+    return getHistRuntimeOwner()?.capture(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'hist',
+      reason: meta?.reason || 'hist-owned-runtime-remember'
+    }) || snapshot;
+  }
+
+  function resolveHistOwnedRuntimeSnapshot(snapshot = null, meta = {}){
+    return getHistRuntimeOwner()?.bind(snapshot || null, {
+      ...(meta || {}),
+      componentKey: 'hist',
+      reason: meta?.reason || 'hist-owned-runtime-resolve'
+    }) || null;
+  }
+
+  function applyExistingHistOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const snapshot = getHistRuntimeOwner()?.bind(null, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      componentKey: 'hist',
+      reason: meta?.reason || 'hist-owned-runtime-activate-apply'
+    });
+    if(!snapshot || typeof hist.applyRuntimeState !== 'function'){
+      return false;
+    }
+    return hist.applyRuntimeState(snapshot, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-owned-runtime-activate-apply'
+    });
+  }
+
+
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
@@ -594,6 +644,36 @@
       return null;
     }
     return queryHistRoot(`#${id}`) || null;
+  }
+
+  function resolveHistDrawableFrame(plotEl){
+    const plot = plotEl || getHistNodeById('histPlot');
+    const svgBox = state.svgBox
+      || state.layout?.elements?.svgBox
+      || plot?.closest?.('.svgbox')
+      || queryHistRoot('#histGraphPanel .svgbox')
+      || null;
+    const frame = Shared.componentLayout?.resolveDrawableFrame?.({
+      componentName: 'hist',
+      plot,
+      svgBox,
+      graphPanel: state.layout?.elements?.graphPanel || queryHistRoot('#histGraphPanel')
+    });
+    if(frame){
+      return frame;
+    }
+    return {
+      width: Math.max(0, Number(plot?.clientWidth) || 0),
+      height: Math.max(0, Number(plot?.clientHeight) || 0),
+      rawWidth: Math.max(0, Number(plot?.clientWidth) || 0),
+      rawHeight: Math.max(0, Number(plot?.clientHeight) || 0),
+      constrained: false,
+      source: 'plot-fallback',
+      authority: 'plot-fallback',
+      svgBox,
+      viewport: null,
+      zoomScale: 1
+    };
   }
 
   function createImmutableHistDefaultConfig(){
@@ -3421,7 +3501,7 @@
           autoDrawEnabled: !!state.autoDrawEnabled,
           autoDrawReason: state.autoDrawReason || null,
           autoDrawLockedByThreshold: !!state.autoDrawLockedByThreshold,
-          drawPending: !!state.drawPending,
+          drawPending: false,
           lastDataShape: cloneSimple(state.lastDataShape) || { rows: 0, cols: 0 },
           lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation) || null
         },
@@ -3433,10 +3513,20 @@
         notesOpen,
         reason: snapshot.reason
       });
-      return snapshot;
+      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
+      });
+      return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
+        ...(meta || {}),
+        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
+      }) || snapshot;
     };
 
     hist.applyRuntimeState = function applyHistRuntimeState(snapshot, meta = {}){
+      snapshot = resolveHistOwnedRuntimeSnapshot(snapshot, meta)
+        || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(hist, snapshot, meta)
+        || snapshot;
       if(!snapshot || typeof snapshot !== 'object'){
         histDebug('Debug: hist runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
         return false;
@@ -3480,10 +3570,18 @@
         state.autoDrawEnabled = !!snapshot.autoDraw.autoDrawEnabled;
         state.autoDrawReason = snapshot.autoDraw.autoDrawReason || null;
         state.autoDrawLockedByThreshold = !!snapshot.autoDraw.autoDrawLockedByThreshold;
-        state.drawPending = !!snapshot.autoDraw.drawPending;
+        state.drawPending = false;
         state.lastDataShape = cloneSimple(snapshot.autoDraw.lastDataShape) || state.lastDataShape;
         state.lastAutoDrawEvaluation = cloneSimple(snapshot.autoDraw.lastAutoDrawEvaluation) || state.lastAutoDrawEvaluation;
       }
+      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'hist-runtime-apply'
+      });
+      Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(hist, snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'hist-runtime-apply'
+      });
       histDebug('Debug: hist runtime snapshot applied', {
         tabId: meta?.tabId || hist.__boundTabId || null,
         plotMode: state.plotMode,
@@ -4647,8 +4745,9 @@
       }
       manualYMax = null;
     }
-    const baseWidth=Math.max(50,Math.floor(plotEl.clientWidth||50));
-    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    const drawableFrame = resolveHistDrawableFrame(plotEl);
+    const baseWidth = Math.max(50, Math.floor(drawableFrame.width || 50));
+    const H = Math.max(40, Math.floor(drawableFrame.height || 40));
     if(xMax === xMin || !Number.isFinite(xMax - xMin)){
       const basePad = Number.isFinite(xMin) ? Math.abs(xMin) : 0;
       let pad = basePad > 1 ? basePad * 0.05 : 1;
@@ -4669,11 +4768,10 @@
         adjustedMax: xMax
       });
     }
-    const containerRect=state.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: histFontSize.value,
-      width: containerRect?.width,
-      height: containerRect?.height,
+      width: drawableFrame.width,
+      height: drawableFrame.height,
       svgBox: state.svgBox,
       input: histFontSize
     });
@@ -4811,8 +4909,8 @@
       baseFontPx:fontInfo.px,
       scaledFontPx:fs,
       scale:styleScaleInfo?.styleScale || styleScaleInfo?.scale,
-      containerWidth:containerRect?.width,
-      containerHeight:containerRect?.height
+      containerWidth:drawableFrame.width,
+      containerHeight:drawableFrame.height
     });
     const axisMetrics=chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     histDebug('Debug: hist axis metrics',axisMetrics);
@@ -5594,25 +5692,25 @@
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'hist',
-        tabId: targetTabId || undefined,
-        root: state.root || undefined,
-        reason: options?.reason || 'hist-init',
-        selectors: {
-          tablePanel: '#histTablePanel',
-          graphPanel: '#histGraphPanel',
-          panelResizer: '#histPanelResizer',
-          hotWrapper: '#histHotWrapper',
-          hotContainer: '#histHot',
-          svgBox: () => queryHistRoot('#histGraphPanel .svgbox'),
-          resizeTarget: () => queryHistRoot('#histGraphPanel .svgbox')
-        },
-        scheduleDraw: state.scheduleDraw,
-        preserveGraphContent: false,
-        panelSyncOptions: {
-          disableAutoWidthClamp: true,
-          lockGraphPanelWidth: false
-        },
-        onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
+      tabId: targetTabId || undefined,
+      root: state.root || undefined,
+      reason: options?.reason || 'hist-init',
+      selectors: {
+        tablePanel: '#histTablePanel',
+        graphPanel: '#histGraphPanel',
+        panelResizer: '#histPanelResizer',
+        hotWrapper: '#histHotWrapper',
+        hotContainer: '#histHot',
+        svgBox: () => queryHistRoot('#histGraphPanel .svgbox'),
+        resizeTarget: () => queryHistRoot('#histGraphPanel .svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      preserveGraphContent: false,
+      panelSyncOptions: {
+        disableAutoWidthClamp: true,
+        lockGraphPanelWidth: false
+      },
+      onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         histDebug('Debug: hist layout min width update', { value: state.minSvgWidth });
@@ -5744,7 +5842,8 @@
     setRoot: root => { state.root = root; },
     ensureBindings: tabLike => ensureHistDomBindings(tabLike),
     init: options => hist.init(options),
-    afterReady: () => {
+    afterReady: (tabLike, meta = {}) => {
+      applyExistingHistOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'hist-activate-apply-owned-runtime' });
       if(typeof state.ensureHotForActiveTab === 'function'){
         const hot = state.ensureHotForActiveTab();
         if(hot){
@@ -5848,16 +5947,15 @@
     kolmogorovSmirnovTwoSample: (a, b) => computeHistKolmogorovSmirnovTwoSample(a, b),
     computeAutoBinWidth: (seriesEntries, options = {}) => computeHistAutoBinWidth(seriesEntries, options || {}),
     buildFrequencyModel: (seriesEntries, options = {}) => buildHistFrequencyModel(seriesEntries, options || {}),
-    getDefaultFrequencySettings: () => createDefaultHistFrequencySettings()
+    getDefaultFrequencySettings: () => createDefaultHistFrequencySettings(),
+    resolveDrawableFrame: plot => resolveHistDrawableFrame(plot)
   });
 
-
-
-    Shared.componentLifecycle?.installInternalStateBridge?.(hist, {
-      componentKey: 'hist',
-      targets: [
-        { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox'] },
-        { key: 'notesState', get: () => state.notes, excludeKeys: ['control'] }
-      ]
-    });
+  Shared.componentLifecycle?.installInternalStateBridge?.(hist, {
+    componentKey: 'hist',
+    targets: [
+      { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'drawPending'] },
+      { key: 'notesState', get: () => state.notes, excludeKeys: ['control'] }
+    ]
+  });
 })(window);

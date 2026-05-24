@@ -776,7 +776,6 @@
       type: 'box',
       tabLabel: 'Box Plot',
       perTabDomInstances: true,
-      authoritativeLayoutInPayload: true,
       element: document.getElementById('boxPage'),
       ensure: () => ensureComponent('box'),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
@@ -1008,7 +1007,6 @@
     box: {
       root: { pageId: 'boxPage', sentinelSelector: '#boxPlot' },
       table: { wrapperSelector: '#boxTablePanel', containerSelector: '#boxTablePanel' },
-      layout: { authoritativeInPayload: true },
       renderCache: { selectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], graphSelectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-significance|data-export-layer)/i }
     },
     scatter: {
@@ -1079,7 +1077,6 @@
         apply: (snapshot, meta) => workspace.applyRuntimeState?.(snapshot, meta)
       },
       layout: {
-        authoritativeInPayload: !!(workspace.authoritativeLayoutInPayload || spec.layout?.authoritativeInPayload),
         capture: meta => workspace.getLayoutState?.(meta),
         apply: (state, meta) => workspace.applyLayoutState?.(state, meta)
       },

@@ -760,8 +760,9 @@
   namespace.bindTabActivation = function bindTabActivation(options = {}){
     const component = options.component || null;
     const componentKey = options.componentKey || component?.type || null;
-    return function sharedActivateTab(tab, meta = {}){
+    function sharedActivateTab(tab, meta = {}){
       const targetTabId = extractTabId(tab, meta);
+      const prepareRuntimeTargetOnly = meta?.prepareRuntimeTarget === true || meta?.bindOnly === true;
       if(component){
         component.__boundTabId = targetTabId || component.__boundTabId || null;
       }
@@ -773,15 +774,38 @@
       if(typeof options.ensureBindings === 'function'){
         rebound = !!options.ensureBindings(tab || targetTabId || null, meta);
         if(rebound){
-          debug('Debug: component activation handled by shared DOM rebind', { componentKey, tabId: targetTabId, reason: meta.reason || 'activate-tab' });
+          debug('Debug: component activation handled by shared DOM rebind', {
+            componentKey,
+            tabId: targetTabId,
+            reason: meta.reason || 'activate-tab',
+            prepareRuntimeTargetOnly
+          });
         }
       }
       if(component && !component.ready && typeof options.init === 'function'){
         options.init({ root: root || undefined, tabId: targetTabId || undefined, reason: meta.reason || 'activate-tab' });
+        if(prepareRuntimeTargetOnly){
+          if(typeof options.getSentinel === 'function'){
+            component.__domSentinel = options.getSentinel() || component.__domSentinel || null;
+          }
+          debug('Debug: component runtime target prepared during init', { componentKey, tabId: targetTabId, reason: meta.reason || 'prepare-runtime-target' });
+        }
+        return true;
+      }
+      if(prepareRuntimeTargetOnly){
+        if(typeof options.getSentinel === 'function' && component){
+          component.__domSentinel = options.getSentinel() || component.__domSentinel || null;
+        }
+        debug('Debug: component runtime target prepared', {
+          componentKey,
+          tabId: targetTabId,
+          rebound,
+          reason: meta.reason || 'prepare-runtime-target'
+        });
         return true;
       }
       if(typeof options.afterReady === 'function'){
-        options.afterReady(tab, meta, { root, tabId: targetTabId });
+        options.afterReady(tab, meta, { root, tabId: targetTabId, rebound });
       }
       if(typeof options.ensureRenderReadiness === 'function'){
         try{
@@ -804,23 +828,38 @@
       }
       debug('Debug: component shared activation complete', { componentKey, tabId: targetTabId, reason: meta.reason || 'activate-tab' });
       return true;
-    };
+    }
+    sharedActivateTab.__supportsPrepareRuntimeTarget = true;
+    return sharedActivateTab;
   };
 
   namespace.createDeactivateHandler = function createDeactivateHandler(options = {}){
     const component = options.component || null;
     const componentKey = options.componentKey || component?.type || null;
     return function sharedDeactivateTab(tab, meta = {}){
+      const tabId = extractTabId(tab, meta);
       if(typeof options.cancel === 'function'){
         try{ options.cancel(tab, meta); }
         catch(err){ warn('Debug: component deactivate cancel error', { componentKey, err: err?.message || String(err) }); }
       }
       if(component){
         component.__runtimeGeneration = (Number(component.__runtimeGeneration) || 0) + 1;
+        try{
+          if(tabId){
+            component.__asyncScope?.cancelAllForTab?.(tabId, meta.reason || 'deactivate-tab');
+          }else{
+            warn('Debug: component deactivate skipped async-scope cancel without tab id', {
+              componentKey,
+              reason: meta.reason || 'deactivate-tab'
+            });
+          }
+        }catch(err){
+          warn('Debug: component deactivate async-scope cancel error', { componentKey, tabId, err: err?.message || String(err) });
+        }
       }
       debug('Debug: component shared deactivation complete', {
         componentKey,
-        tabId: extractTabId(tab, meta),
+        tabId,
         generation: component?.__runtimeGeneration || null,
         reason: meta.reason || 'deactivate-tab'
       });
@@ -914,6 +953,10 @@
 
   function resolveTabIdFromMeta(meta = {}){
     return String(meta.tabId || meta.workspaceTabId || meta.tab?.id || global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
+  }
+
+  function resolveExplicitTabIdFromMeta(meta = {}){
+    return String(meta.tabId || meta.workspaceTabId || meta.tab?.id || '').trim() || null;
   }
 
   namespace.normalizePayloadEnvelope = function normalizePayloadEnvelope(payload, descriptor = {}, meta = {}){
@@ -1115,8 +1158,28 @@
   namespace.createAsyncScope = function createAsyncScope(componentKey, options = {}){
     const key = String(componentKey || options.componentKey || 'component');
     const tabScopes = new Map();
-    function getScope(tabId){
-      const id = String(tabId || global.Main?.session?.getActiveTab?.()?.id || '__global__');
+    function isStrict(meta = {}){
+      return !!(
+        meta.strictAsyncScope === true
+        || meta.strictRuntimeOwner === true
+        || namespace.__strictRuntimeOwnership === true
+        || isDebugEnabled()
+        || (typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test')
+      );
+    }
+    function missingTab(action, meta = {}){
+      const payload = { componentKey: key, reason: meta.reason || action };
+      if(isStrict(meta)){
+        throw new Error(`componentLifecycle async scope requires an explicit tab id: ${JSON.stringify(payload)}`);
+      }
+      warn('Debug: component lifecycle async scope missing tab id', payload);
+      return null;
+    }
+    function getScope(tabId, action = 'async-scope', meta = {}){
+      const id = String(tabId || '').trim();
+      if(!id){
+        return missingTab(action, meta);
+      }
       let scope = tabScopes.get(id);
       if(!scope){
         scope = { generation: 0, timers: new Set(), rafs: new Set(), promises: new Set() };
@@ -1125,26 +1188,38 @@
       return scope;
     }
     function makeMeta(meta = {}){
-      const tabId = resolveTabIdFromMeta(meta) || '__global__';
-      const scope = getScope(tabId);
+      const tabId = resolveExplicitTabIdFromMeta(meta);
+      const scope = getScope(tabId, 'get-meta', meta);
+      if(!scope){
+        return null;
+      }
       return { ...meta, componentKey: key, tabId, asyncGeneration: scope.generation };
     }
     function isCurrent(meta = {}){
-      const tabId = String(meta.tabId || '__global__');
-      const scope = getScope(tabId);
+      const tabId = resolveExplicitTabIdFromMeta(meta);
+      const scope = getScope(tabId, 'is-current', meta);
+      if(!scope){
+        return false;
+      }
       return Number(meta.asyncGeneration) === Number(scope.generation);
     }
     return {
       getMeta: makeMeta,
       isCurrent,
       nextToken(meta = {}){
-        const tabId = resolveTabIdFromMeta(meta) || '__global__';
-        const scope = getScope(tabId);
+        const tabId = resolveExplicitTabIdFromMeta(meta);
+        const scope = getScope(tabId, 'next-token', meta);
+        if(!scope){
+          return null;
+        }
         scope.generation += 1;
         return { ...meta, componentKey: key, tabId, asyncGeneration: scope.generation };
       },
       setTimeout(meta, fn, delay = 0){
         const scoped = makeMeta(meta || {});
+        if(!scoped){
+          return null;
+        }
         const scope = getScope(scoped.tabId);
         const timer = global.setTimeout(() => {
           scope.timers.delete(timer);
@@ -1159,6 +1234,9 @@
       },
       requestAnimationFrame(meta, fn){
         const scoped = makeMeta(meta || {});
+        if(!scoped){
+          return null;
+        }
         const scope = getScope(scoped.tabId);
         const schedule = typeof global.requestAnimationFrame === 'function'
           ? global.requestAnimationFrame.bind(global)
@@ -1183,6 +1261,9 @@
       },
       runPromise(meta, promise, onResolve, onReject){
         const scoped = makeMeta(meta || {});
+        if(!scoped){
+          return Promise.resolve(promise);
+        }
         const scope = getScope(scoped.tabId);
         const wrapped = Promise.resolve(promise)
           .then(value => {
@@ -1203,8 +1284,11 @@
         return wrapped;
       },
       cancelAllForTab(tabId, reason = 'cancel-all'){
-        const id = String(tabId || '__global__');
-        const scope = getScope(id);
+        const id = String(tabId || '').trim();
+        const scope = getScope(id, 'cancel-all', { tabId: id, reason });
+        if(!scope){
+          return false;
+        }
         scope.generation += 1;
         scope.timers.forEach(timer => { try{ global.clearTimeout(timer); }catch(_err){} });
         scope.timers.clear();
@@ -1212,6 +1296,7 @@
         scope.rafs.clear();
         scope.promises.clear();
         debug('Debug: lifecycle async scope cancelled', { componentKey: key, tabId: id, generation: scope.generation, reason });
+        return true;
       }
     };
   };
@@ -1274,13 +1359,325 @@
 
 
 
+  function resolveRuntimeOwnerKey(componentOrKey){
+    if(componentOrKey && typeof componentOrKey === 'object'){
+      return String(componentOrKey.__componentKey || componentOrKey.type || componentOrKey.componentKey || '').trim();
+    }
+    return String(componentOrKey || '').trim();
+  }
+
+  function resolveRuntimeOwnerStateModel(componentOrKey, componentKey){
+    if(componentOrKey && typeof componentOrKey === 'object' && componentOrKey.__stateModel){
+      return componentOrKey.__stateModel;
+    }
+    return namespace.getDescriptor?.(componentKey)?.stateModel || null;
+  }
+
+  function getRuntimeOwnerSnapshotKey(componentKey){
+    const key = String(componentKey || '').trim();
+    return key ? `__workspaceTabs__:${key}` : '';
+  }
+
+  function runtimeOwnerStrict(meta = {}){
+    return !!(
+      meta.strictRuntimeOwner === true
+      || namespace.__strictRuntimeOwnership === true
+      || (isDebugEnabled() && meta.allowMissingTabId !== true)
+    );
+  }
+
+  function resolveRuntimeOwnerTab(meta = {}){
+    const tabLike = meta.tab || meta.tabLike || meta.tabId || meta.workspaceTabId || null;
+    const hasExplicitTab = !!(tabLike && (typeof tabLike === 'object' ? tabLike.id != null : String(tabLike).trim()));
+    const tab = hasExplicitTab
+      ? (global.Shared?.workspaceTabs?.resolveTab?.(tabLike) || null)
+      : null;
+    const tabId = String(tab?.id || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || '').trim();
+    return { tab, tabId };
+  }
+
+  function reportRuntimeOwnerViolation(message, payload = {}, meta = {}){
+    if(runtimeOwnerStrict(meta)){
+      throw new Error(`${message}: ${JSON.stringify(payload)}`);
+    }
+    warn(message, payload);
+    return null;
+  }
+
+  function runtimeSnapshotMatchesOwner(snapshot, componentKey, tabId){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return false;
+    }
+    const owner = snapshot.__runtimeOwner || {};
+    const ownerComponent = String(owner.componentKey || snapshot.componentKey || componentKey || '').trim();
+    const ownerTabId = String(owner.tabId || snapshot.tabId || snapshot.workspaceTabId || '').trim();
+    if(componentKey && ownerComponent && ownerComponent !== componentKey){
+      return false;
+    }
+    if(tabId && ownerTabId && ownerTabId !== tabId){
+      return false;
+    }
+    return true;
+  }
+
+  function buildOwnedRuntimeSnapshot(componentKey, snapshot, tabId, meta = {}){
+    const owned = cloneForLifecycle(snapshot) || {};
+    owned.__runtimeOwner = {
+      version: 2,
+      componentKey,
+      tabId,
+      storedAt: Date.now(),
+      reason: meta.reason || 'runtime-owner-hydrate'
+    };
+    if(!owned.tabId && tabId){
+      owned.tabId = tabId;
+    }
+    if(!owned.componentKey){
+      owned.componentKey = componentKey;
+    }
+    return owned;
+  }
+
+  function storeOwnedRuntimeSnapshot(componentOrKey, componentKey, tab, tabId, owned, meta = {}){
+    const snapshotKey = getRuntimeOwnerSnapshotKey(componentKey);
+    const stateModel = resolveRuntimeOwnerStateModel(componentOrKey, componentKey);
+    try{
+      stateModel?.merge?.(tab || tabId || null, 'runtime', { componentRuntimeSnapshot: owned });
+    }catch(err){
+      warn('Debug: component runtime owner state-model store failed', { componentKey, tabId, err: err?.message || String(err) });
+    }
+    try{
+      global.Shared?.workspaceTabs?.setRuntimeSnapshot?.(tab || tabId || null, snapshotKey, owned, {
+        reason: meta.reason || 'runtime-owner-hydrate'
+      });
+    }catch(err){
+      warn('Debug: component runtime owner workspace store failed', { componentKey, tabId, err: err?.message || String(err) });
+    }
+    try{
+      const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(tab || tabId || null, componentKey) || null;
+      if(runtime){
+        runtime.componentRuntimeSnapshot = owned;
+        runtime.runtimeOwner = {
+          componentKey,
+          tabId,
+          snapshotKey,
+          updatedAt: Date.now(),
+          reason: meta.reason || 'runtime-owner-hydrate'
+        };
+      }
+    }catch(err){
+      warn('Debug: component runtime owner session store failed', { componentKey, tabId, err: err?.message || String(err) });
+    }
+    return owned;
+  }
+
+  namespace.createRuntimeOwner = function createRuntimeOwner(componentOrKey, options = {}){
+    const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(options.componentKey || options.type);
+    if(!componentKey){
+      throw new Error('componentLifecycle.createRuntimeOwner requires a component key');
+    }
+    const snapshotKey = getRuntimeOwnerSnapshotKey(componentKey);
+    const resolveOwner = (meta = {}) => {
+      const resolved = resolveRuntimeOwnerTab(meta);
+      if(!resolved.tabId){
+        return reportRuntimeOwnerViolation('Debug: component runtime owner missing tab id', {
+          componentKey,
+          reason: meta.reason || 'runtime-owner'
+        }, meta);
+      }
+      return resolved;
+    };
+    const read = (meta = {}) => {
+      const resolved = resolveOwner(meta);
+      if(!resolved){ return null; }
+      let snapshot = null;
+      try{
+        const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(resolved.tab || resolved.tabId, componentKey) || null;
+        snapshot = runtime?.componentRuntimeSnapshot || null;
+      }catch(err){
+        warn('Debug: component runtime owner session read failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
+      }
+      if(!snapshot){
+        try{
+          snapshot = global.Shared?.workspaceTabs?.getRuntimeSnapshot?.(resolved.tab || resolved.tabId, snapshotKey) || null;
+        }catch(err){
+          warn('Debug: component runtime owner workspace read failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
+        }
+      }
+      if(snapshot && !runtimeSnapshotMatchesOwner(snapshot, componentKey, resolved.tabId)){
+        return reportRuntimeOwnerViolation('Debug: component runtime owner snapshot rejected', {
+          componentKey,
+          tabId: resolved.tabId,
+          owner: snapshot.__runtimeOwner || null,
+          reason: meta.reason || 'runtime-owner-read'
+        }, meta);
+      }
+      return snapshot ? cloneForLifecycle(snapshot) : null;
+    };
+    return {
+      componentKey,
+      snapshotKey,
+      hydrate(snapshot, meta = {}){
+        const resolved = resolveOwner(meta);
+        if(!resolved || !snapshot || typeof snapshot !== 'object'){
+          return null;
+        }
+        if(!runtimeSnapshotMatchesOwner(snapshot, componentKey, resolved.tabId)){
+          const owner = snapshot.__runtimeOwner || null;
+          if(owner && typeof owner === 'object'){
+            return reportRuntimeOwnerViolation('Debug: component runtime owner hydrate rejected mismatched snapshot', {
+              componentKey,
+              tabId: resolved.tabId,
+              owner,
+              reason: meta.reason || 'runtime-owner-hydrate'
+            }, meta);
+          }
+        }
+        const owned = buildOwnedRuntimeSnapshot(componentKey, snapshot, resolved.tabId, meta);
+        return storeOwnedRuntimeSnapshot(componentOrKey, componentKey, resolved.tab, resolved.tabId, owned, meta);
+      },
+      bind(existing = null, meta = {}){
+        const snapshot = existing && typeof existing === 'object' ? existing : read(meta);
+        const resolved = resolveOwner(meta);
+        if(!resolved || !snapshot || typeof snapshot !== 'object'){
+          return null;
+        }
+        if(!runtimeSnapshotMatchesOwner(snapshot, componentKey, resolved.tabId)){
+          return reportRuntimeOwnerViolation('Debug: component runtime owner bind rejected mismatched snapshot', {
+            componentKey,
+            tabId: resolved.tabId,
+            owner: snapshot.__runtimeOwner || null,
+            reason: meta.reason || 'runtime-owner-bind'
+          }, meta);
+        }
+        return cloneForLifecycle(snapshot);
+      },
+      capture(snapshotOrFactory, meta = {}){
+        const snapshot = typeof snapshotOrFactory === 'function'
+          ? snapshotOrFactory(meta)
+          : snapshotOrFactory;
+        if(!snapshot || typeof snapshot !== 'object'){
+          return null;
+        }
+        return this.hydrate(snapshot, { ...meta, reason: meta.reason || 'runtime-owner-capture' });
+      },
+      get(meta = {}){
+        return read(meta);
+      },
+      dispose(tabLike = null, meta = {}){
+        const resolved = resolveRuntimeOwnerTab({ ...(meta || {}), tab: tabLike || meta.tab || null });
+        const tabId = resolved.tabId;
+        if(!tabId){
+          return reportRuntimeOwnerViolation('Debug: component runtime owner dispose missing tab id', {
+            componentKey,
+            reason: meta.reason || 'runtime-owner-dispose'
+          }, meta) || false;
+        }
+        let cleared = false;
+        try{
+          cleared = !!global.Shared?.workspaceTabs?.clearRuntimeSnapshot?.(resolved.tab || tabId, snapshotKey, {
+            reason: meta.reason || 'runtime-owner-dispose'
+          }) || cleared;
+        }catch(err){
+          warn('Debug: component runtime owner workspace dispose failed', { componentKey, tabId, err: err?.message || String(err) });
+        }
+        try{
+          const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(resolved.tab || tabId, componentKey) || null;
+          if(runtime && Object.prototype.hasOwnProperty.call(runtime, 'componentRuntimeSnapshot')){
+            delete runtime.componentRuntimeSnapshot;
+            delete runtime.runtimeOwner;
+            cleared = true;
+          }
+          if(runtime && Object.prototype.hasOwnProperty.call(runtime, 'ownedRuntimeRecord')){
+            delete runtime.ownedRuntimeRecord;
+            cleared = true;
+          }
+        }catch(err){
+          warn('Debug: component runtime owner session dispose failed', { componentKey, tabId, err: err?.message || String(err) });
+        }
+        debug('Debug: component runtime owner disposed', {
+          componentKey,
+          tabId,
+          cleared,
+          reason: meta.reason || 'runtime-owner-dispose'
+        });
+        return cleared;
+      }
+    };
+  };
+
+  namespace.rememberComponentRuntimeSnapshot = function rememberComponentRuntimeSnapshot(componentOrKey, snapshot, meta = {}){
+    const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(meta.componentKey || meta.type);
+    if(!componentKey || !snapshot || typeof snapshot !== 'object'){
+      return snapshot || null;
+    }
+    const owner = namespace.createRuntimeOwner(componentOrKey || componentKey);
+    const owned = owner.hydrate(snapshot, {
+      ...(meta || {}),
+      allowMissingTabId: meta.allowMissingTabId === true,
+      reason: meta.reason || 'remember-component-runtime'
+    }) || snapshot;
+    const tabId = owned?.__runtimeOwner?.tabId || resolveTabIdFromMeta(meta);
+    debug('Debug: component runtime snapshot remembered', {
+      componentKey,
+      tabId,
+      reason: meta.reason || 'remember-component-runtime'
+    });
+    return owned;
+  };
+
+  namespace.getComponentRuntimeSnapshot = function getComponentRuntimeSnapshot(componentOrKey, meta = {}){
+    const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(meta.componentKey || meta.type);
+    if(!componentKey){
+      return null;
+    }
+    const owner = namespace.createRuntimeOwner(componentOrKey || componentKey);
+    return owner.get(meta);
+  };
+
+  namespace.resolveComponentRuntimeSnapshot = function resolveComponentRuntimeSnapshot(componentOrKey, snapshot, meta = {}){
+    const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(meta.componentKey || meta.type);
+    const tabId = resolveTabIdFromMeta(meta);
+    if(snapshot && typeof snapshot === 'object'){
+      if(runtimeSnapshotMatchesOwner(snapshot, componentKey, tabId)){
+        return snapshot;
+      }
+      warn('Debug: component runtime snapshot argument rejected for owner mismatch', {
+        componentKey,
+        tabId,
+        owner: snapshot.__runtimeOwner || null,
+        reason: meta.reason || 'resolve-component-runtime'
+      });
+    }
+    return namespace.getComponentRuntimeSnapshot(componentOrKey, meta);
+  };
+
+
+
+
+
   const INTERNAL_STATE_DEFAULT_EXCLUDE = new Set([
     'hot', 'root', 'svg', 'svgBox', 'layout', 'fileHandle', 'control', 'controls',
     'container', 'wrapper', 'element', 'panel', 'host', 'doc', 'document', 'window',
     'scheduleDraw', 'ensureHotForActiveTab', 'ensureTableForActiveTab', 'gridApi',
     'columnApi', 'api', 'chart', 'plot', 'stage', 'worker', 'workers', 'timer',
-    'timeout', 'interval', 'raf', 'listener', 'listeners'
+    'timeout', 'interval', 'raf', 'listener', 'listeners',
+    'drawToken', 'renderToken', 'workerToken', 'statsWorker', 'renderWorker',
+    'drawCooldownTimer', 'dataDrawTimer', 'statsComputationTimer',
+    'statsComputationPending', 'statsComputationOwnerTabId',
+    'drawInProgress', 'rotationPending', 'rotationPendingLogged',
+    'pendingDrawOpts', 'pendingDrawReasons', 'resizeInteractionActive',
+    'resizeObserveDrawMutedUntil', 'observer', 'observers', 'mutationObserver',
+    'resizeObserver', 'abortController', 'controller', 'controllers'
   ]);
+
+  function shouldExcludeInternalStateKey(keyName, exclude){
+    const key = String(keyName || '');
+    if(!key || key.startsWith('__') || exclude.has(key)){
+      return true;
+    }
+    return /(Timer|Timeout|Interval|Raf|RAF|Worker|Observer|Controller|Token|Handler|Listener|Subscription)$/.test(key);
+  }
 
   function isDomLike(value){
     return !!(value && typeof value === 'object' && (
@@ -1340,7 +1737,7 @@
     const exclude = options.excludeKeys || INTERNAL_STATE_DEFAULT_EXCLUDE;
     const output = {};
     Object.keys(value).forEach(keyName => {
-      if(exclude.has(keyName) || keyName.startsWith('__')){
+      if(shouldExcludeInternalStateKey(keyName, exclude)){
         return;
       }
       const cloned = snapshotInternalValue(value[keyName], options, depth + 1, seen);
@@ -1357,7 +1754,7 @@
     if(depth > maxDepth){ return false; }
     const exclude = options.excludeKeys || INTERNAL_STATE_DEFAULT_EXCLUDE;
     Object.keys(snapshot).forEach(keyName => {
-      if(exclude.has(keyName) || keyName.startsWith('__')){
+      if(shouldExcludeInternalStateKey(keyName, exclude)){
         return;
       }
       const incoming = snapshot[keyName];
@@ -1417,8 +1814,32 @@
     });
     component.__stateModel = component.__stateModel || stateModel;
 
+    function resolveSnapshotOwnerTabId(snapshot, meta = {}){
+      const direct = snapshot?.tabId || snapshot?.workspaceTabId || null;
+      const internal = snapshot?.__internalState?.tabId || (snapshot?.targets ? snapshot.tabId : null) || null;
+      return String(direct || internal || '').trim() || null;
+    }
+
+    function snapshotMatchesTargetTab(snapshot, meta = {}){
+      if(meta.allowCrossTabInternalStateApply === true){
+        return true;
+      }
+      const ownerTabId = resolveSnapshotOwnerTabId(snapshot, meta);
+      const targetTabId = resolveTabIdFromMeta(meta);
+      return !(ownerTabId && targetTabId && ownerTabId !== targetTabId);
+    }
+
     function capture(meta = {}){
-      const snapshot = { version: 1, componentKey, capturedAt: Date.now(), targets: {} };
+      const tabId = resolveTabIdFromMeta(meta);
+      const snapshot = {
+        version: 2,
+        componentKey,
+        tabId,
+        capturedAt: Date.now(),
+        reason: meta.reason || 'capture-internal-state',
+        runtimeGeneration: Number(component.__runtimeGeneration) || 0,
+        targets: {}
+      };
       targets.forEach(target => {
         try{
           const object = target.get(meta);
@@ -1429,17 +1850,27 @@
             }
           }
         }catch(err){
-          warn('Debug: internal state capture target failed', { componentKey, target: target.key, err: err?.message || String(err) });
+          warn('Debug: internal state capture target failed', { componentKey, tabId, target: target.key, err: err?.message || String(err) });
         }
       });
       try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: snapshot }); }catch(_err){}
-      debug('Debug: internal state bridge captured', { componentKey, tabId: meta.tabId || meta.tab?.id || null, targetCount: Object.keys(snapshot.targets).length, reason: meta.reason || 'capture-internal-state' });
+      debug('Debug: internal state bridge captured', { componentKey, tabId, targetCount: Object.keys(snapshot.targets).length, reason: snapshot.reason });
       return snapshot;
     }
 
     function apply(snapshot, meta = {}){
       const incoming = snapshot && snapshot.targets ? snapshot : snapshot?.__internalState;
       if(!incoming || !incoming.targets){
+        return false;
+      }
+      const tabId = resolveTabIdFromMeta(meta);
+      if(!snapshotMatchesTargetTab(incoming, meta)){
+        warn('Debug: internal state apply rejected for wrong tab', {
+          componentKey,
+          tabId,
+          ownerTabId: resolveSnapshotOwnerTabId(incoming, meta),
+          reason: meta.reason || 'apply-internal-state'
+        });
         return false;
       }
       let applied = 0;
@@ -1459,13 +1890,13 @@
           }
           applied += 1;
         }catch(err){
-          warn('Debug: internal state apply target failed', { componentKey, target: target.key, err: err?.message || String(err) });
+          warn('Debug: internal state apply target failed', { componentKey, tabId, target: target.key, err: err?.message || String(err) });
         }
       });
       if(applied){
         try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: incoming }); }catch(_err){}
       }
-      debug('Debug: internal state bridge applied', { componentKey, tabId: meta.tabId || meta.tab?.id || null, applied, reason: meta.reason || 'apply-internal-state' });
+      debug('Debug: internal state bridge applied', { componentKey, tabId, applied, reason: meta.reason || 'apply-internal-state' });
       return applied > 0;
     }
 
@@ -1473,22 +1904,35 @@
     const originalApplyRuntime = component.applyRuntimeState;
     const originalDeactivate = component.deactivateTab;
     component.captureRuntimeState = function bridgedCaptureRuntimeState(meta = {}){
-      const base = typeof originalCaptureRuntime === 'function' ? (originalCaptureRuntime.call(component, meta) || {}) : {};
-      const internalState = capture(meta || {});
-      return { ...base, __internalState: internalState };
+      const tabId = resolveTabIdFromMeta(meta);
+      const base = typeof originalCaptureRuntime === 'function' ? (originalCaptureRuntime.call(component, { ...(meta || {}), tabId, componentKey }) || {}) : {};
+      const internalState = capture({ ...(meta || {}), tabId, componentKey });
+      return { ...base, tabId: base?.tabId || tabId || null, __internalState: internalState };
     };
     component.applyRuntimeState = function bridgedApplyRuntimeState(snapshot, meta = {}){
-      const result = typeof originalApplyRuntime === 'function' ? originalApplyRuntime.call(component, snapshot, meta) : false;
-      apply(snapshot, meta || {});
+      const tabId = resolveTabIdFromMeta(meta);
+      if(snapshot && typeof snapshot === 'object' && !snapshotMatchesTargetTab(snapshot, meta)){
+        warn('Debug: bridged runtime apply rejected for wrong tab', {
+          componentKey,
+          tabId,
+          ownerTabId: resolveSnapshotOwnerTabId(snapshot, meta),
+          reason: meta.reason || 'apply-runtime-state'
+        });
+        return false;
+      }
+      const nextMeta = { ...(meta || {}), tabId, componentKey };
+      const result = typeof originalApplyRuntime === 'function' ? originalApplyRuntime.call(component, snapshot, nextMeta) : false;
+      apply(snapshot, nextMeta);
       return result;
     };
     component.deactivateTab = function bridgedDeactivateTab(tab, meta = {}){
       const tabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-      capture({ ...(meta || {}), tab, tabId, componentKey, reason: meta?.reason || 'deactivate-internal-state' });
+      let result = true;
       if(typeof originalDeactivate === 'function'){
-        return originalDeactivate.call(component, tab, meta);
+        result = originalDeactivate.call(component, tab, meta);
       }
-      return true;
+      capture({ ...(meta || {}), tab, tabId, componentKey, reason: meta?.reason || 'deactivate-internal-state' });
+      return result;
     };
     const bridge = { componentKey, targets, capture, apply, stateModel };
     component.__internalStateBridge = bridge;
