@@ -1279,7 +1279,8 @@
     let beforeRuntime = null;
     let beforePayload = null;
     try{
-      beforePayload = cloneForLifecycle(workspace.getPayload());
+      const payloadReadMeta = { ...meta, componentKey, reason: `${meta.reason || 'round-trip'}:capture-before-payload` };
+      beforePayload = cloneForLifecycle(workspace.getPayload(payloadReadMeta));
       if(typeof workspace.captureRuntimeState === 'function'){
         beforeRuntime = cloneForLifecycle(workspace.captureRuntimeState({ ...meta, componentKey, reason: `${meta.reason || 'round-trip'}:capture-runtime` }));
       }
@@ -1297,7 +1298,10 @@
         skipPayloadSizing: true,
         roundTripSelfTest: true
       });
-      const after = cloneForLifecycle(workspace.getPayload());
+      const after = cloneForLifecycle(workspace.getPayload({
+        ...payloadReadMeta,
+        reason: `${meta.reason || 'round-trip'}:capture-after-payload`
+      }));
       const diff = namespace.diffPayload(testPayload, after, descriptor, meta);
       const changedTopLevelKeys = summarizeTopLevelChangedKeys(diff.changedPaths);
       if(!diff.ok){

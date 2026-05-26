@@ -297,8 +297,14 @@
     let beforePayload = null;
     let testPayload = null;
     try {
+      const payloadReadMeta = {
+        ...meta,
+        tabId,
+        type,
+        reason: `${reason}:round-trip-capture`
+      };
       try {
-        beforePayload = cloneForLifecycleTest(workspace.getPayload());
+        beforePayload = cloneForLifecycleTest(workspace.getPayload(payloadReadMeta));
       } catch (err) {
         console.warn('Debug: payload round-trip self-test could not capture pre-test payload', {
           type,
@@ -337,7 +343,10 @@
         skipPayloadSizing: true,
         roundTripSelfTest: true
       });
-      const roundTripped = cloneForLifecycleTest(workspace.getPayload());
+      const roundTripped = cloneForLifecycleTest(workspace.getPayload({
+        ...payloadReadMeta,
+        reason: `${reason}:round-trip-readback`
+      }));
       const actualSignature = payloadSignatureForLifecycle(roundTripped);
       const ok = !!expectedSignature && expectedSignature === actualSignature;
       const changedTopLevelKeys = ok ? [] : describePayloadRoundTripDrift(testPayload, roundTripped);
@@ -773,7 +782,7 @@
       ensure: options => ensureWorkspaceComponent('venn', options),
       draw: meta => window.Components?.venn?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
-      getPayload: () => window.Components?.venn?.getPayload?.(),
+      getPayload: (meta) => window.Components?.venn?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.venn?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.venn?.createEmptyPayload?.(),
@@ -792,7 +801,7 @@
       ensure: options => ensureWorkspaceComponent('box', options),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.box?.getThumbnailSvg?.(tab) || window.Components?.box?.getPreviewSvg?.(tab),
-      getPayload: () => window.Components?.box?.getPayload?.(),
+      getPayload: (meta) => window.Components?.box?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.box?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.box?.applyColorSchemePayload?.(payload, options),
@@ -801,7 +810,7 @@
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.box?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.box?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.box?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.box?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('box', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('box', options || {}),
@@ -815,7 +824,7 @@
       ensure: options => ensureWorkspaceComponent('scatter', options),
       draw: meta => window.Components?.scatter?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.scatter?.getPreviewSvg?.(tab) || window.Components?.scatter?.getThumbnailSvg?.(tab),
-      getPayload: () => window.Components?.scatter?.getPayload?.(),
+      getPayload: (meta) => window.Components?.scatter?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.scatter?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.scatter?.applyColorSchemePayload?.(payload, options),
@@ -824,7 +833,7 @@
       captureRenderCache: meta => window.Components?.scatter?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.scatter?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.scatter?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.scatter?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.scatter?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.scatter?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('scatter', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('scatter', options || {}),
@@ -838,7 +847,7 @@
       ensure: options => ensureWorkspaceComponent('pca', options),
       draw: meta => scheduleDrawPca(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
-      getPayload: () => window.Components?.pca?.getPayload?.(),
+      getPayload: (meta) => window.Components?.pca?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.pca?.applyColorSchemePayload?.(payload, options),
@@ -847,7 +856,7 @@
       captureRenderCache: meta => window.Components?.pca?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.pca?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.pca?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.pca?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.pca?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.pca?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('pca', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('pca', options || {}),
@@ -861,7 +870,7 @@
       ensure: options => ensureWorkspaceComponent('line', options),
       draw: meta => scheduleDrawLine(meta || {}),
       getPreviewSvg: tab => window.Components?.line?.getPreviewSvg?.(tab) || window.Components?.line?.getThumbnailSvg?.(tab) || resolveWorkspacePreviewSvg('line', tab),
-      getPayload: () => window.Components?.line?.getPayload?.(),
+      getPayload: (meta) => window.Components?.line?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.line?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.line?.applyColorSchemePayload?.(payload, options),
@@ -870,7 +879,7 @@
       captureRenderCache: meta => window.Components?.line?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.line?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.line?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.line?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.line?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.line?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('line', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('line', options || {}),
@@ -884,7 +893,7 @@
       ensure: options => ensureWorkspaceComponent('heatmap', options),
       draw: meta => scheduleDrawHeatmap(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('heatmap', tab),
-      getPayload: () => window.Components?.heatmap?.getPayload?.(),
+      getPayload: (meta) => window.Components?.heatmap?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
@@ -892,7 +901,7 @@
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.heatmap?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.heatmap?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.heatmap?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.heatmap?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('heatmap', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('heatmap', options || {}),
@@ -906,7 +915,7 @@
       ensure: options => ensureWorkspaceComponent('surface', options),
       draw: meta => scheduleDrawSurface(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('surface', tab),
-      getPayload: () => window.Components?.surface?.getPayload?.(),
+      getPayload: (meta) => window.Components?.surface?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.surface?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
@@ -914,7 +923,7 @@
       captureRenderCache: meta => window.Components?.surface?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.surface?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.surface?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.surface?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.surface?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.surface?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('surface', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('surface', options || {}),
@@ -928,7 +937,7 @@
       ensure: options => ensureWorkspaceComponent('roc', options),
       draw: meta => window.Components?.roc?.draw?.(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
-      getPayload: () => window.Components?.roc?.getPayload?.(),
+      getPayload: (meta) => window.Components?.roc?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.roc?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
@@ -936,7 +945,7 @@
       captureRenderCache: meta => window.Components?.roc?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.roc?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.roc?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.roc?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.roc?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.roc?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('roc', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('roc', options || {}),
@@ -950,7 +959,7 @@
       ensure: options => ensureWorkspaceComponent('survival', options),
       draw: meta => scheduleDrawSurvival(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('survival', tab),
-      getPayload: () => window.Components?.survival?.getPayload?.(),
+      getPayload: (meta) => window.Components?.survival?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.survival?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
@@ -958,7 +967,7 @@
       captureRenderCache: meta => window.Components?.survival?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.survival?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.survival?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.survival?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.survival?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.survival?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('survival', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('survival', options || {}),
@@ -972,7 +981,7 @@
       ensure: options => ensureWorkspaceComponent('hist', options),
       draw: meta => scheduleDrawHist(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('hist', tab),
-      getPayload: () => window.Components?.hist?.getPayload?.(),
+      getPayload: (meta) => window.Components?.hist?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.hist?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
@@ -980,7 +989,7 @@
       captureRenderCache: meta => window.Components?.hist?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.hist?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.hist?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.hist?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.hist?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.hist?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('hist', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('hist', options || {}),
@@ -994,7 +1003,7 @@
       ensure: options => ensureWorkspaceComponent('pie', options),
       draw: meta => scheduleDrawPie(meta || {}),
       getPreviewSvg: tab => window.Components?.pie?.getThumbnailSvg?.(tab) || window.Components?.pie?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('pie', tab),
-      getPayload: () => window.Components?.pie?.getPayload?.(),
+      getPayload: (meta) => window.Components?.pie?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pie?.loadFromPayload?.(payload, options),
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
@@ -1002,7 +1011,7 @@
       captureRenderCache: meta => window.Components?.pie?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.pie?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.pie?.restoreRenderCache?.(cache, meta),
-      captureUiState: () => window.Components?.pie?.captureUiState?.() || null,
+      captureUiState: (meta) => window.Components?.pie?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.pie?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('pie', options || {}),
       getDefaultLayoutState: options => componentLayout.getDefaultStateFor?.('pie', options || {}),

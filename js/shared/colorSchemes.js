@@ -1975,7 +1975,12 @@
       const workspace = getWorkspace(type);
       if(workspace && typeof workspace.getPayload === 'function'){
         try{
-          const livePayload = workspace.getPayload();
+          const livePayload = workspace.getPayload({
+            tabId: active.id,
+            type,
+            reason: `color-scheme-compare-${type}`,
+            origin: 'colorSchemes'
+          });
           if(livePayload){
             return cloneValue(livePayload);
           }
@@ -2036,7 +2041,12 @@
     }
 
     const sourcePayload = cloneValue(tab.payload)
-      || (typeof workspace.getPayload === 'function' ? workspace.getPayload() : null)
+      || (typeof workspace.getPayload === 'function' ? workspace.getPayload({
+        tabId: tab.id,
+        type,
+        reason: `color-scheme-source-${type}`,
+        origin: 'colorSchemes'
+      }) : null)
       || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
     const nextPayload = applySchemeToPayload(type, sourcePayload, scheme, { forceColors: true });

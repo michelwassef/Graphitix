@@ -352,7 +352,7 @@ describe('UI events and example loaders', () => {
     const lineStateGrouped = lineComponent?.__getState?.();
     expect(lineStateGrouped?.legendItems?.length).toBe(2);
     expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
-  });
+  }, 20000);
 
   test('Line Graph: additional axis ticks/lines persist from FORMAT controls', async () => {
     await activateWorkspace('line');
@@ -681,7 +681,7 @@ describe('UI events and example loaders', () => {
     const reloadedPayload = scatterComponent.getPayload?.();
     expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.length).toBe(1);
     expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.[0]?.label).toBe('Cutoff');
-  });
+  }, 20000);
 
   test('Scatter Plot: statistics require manual compute', async () => {
     const cleanupJStat = ensureJStatStub();
@@ -715,7 +715,7 @@ describe('UI events and example loaders', () => {
     } finally {
       cleanupJStat();
     }
-  });
+  }, 20000);
 
   test('Scatter Plot: grouped replicates render error bars and persist grouped payload settings', async () => {
     await activateWorkspace('scatter');

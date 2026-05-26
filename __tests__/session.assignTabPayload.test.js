@@ -145,6 +145,12 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(tab.payload.data).toEqual([['A'], [42]]);
     expect(tab.payloadDirty).toBe(false);
     expect(tab.userModified).toBe(true);
+    const [metaArg] = window.Main.components.registry.box.getPayload.mock.calls[0] || [];
+    expect(metaArg).toEqual(expect.objectContaining({
+      tabId: tab.id,
+      type: tab.type,
+      reason: 'archive-save:authoritative-capture'
+    }));
   });
 
   test('lifecycle dirty reasons do not create user-dirty session state', () => {

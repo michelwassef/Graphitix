@@ -190,6 +190,25 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
     expect(Number.isFinite(fs)).toBe(true);
     expect(fs).toBeGreaterThan(0);
   });
+
+  test('workspace payload fallback propagates explicit tab ownership metadata', () => {
+    scaffold.tab.payload = null;
+    scaffold.workspace.getPayload.mockReturnValue({
+      type: 'scatter',
+      config: { colorScheme: 'scientific' }
+    });
+
+    clickApplyButton('scatter');
+
+    expect(scaffold.workspace.getPayload).toHaveBeenCalled();
+    const [metaArg] = scaffold.workspace.getPayload.mock.calls.at(-1) || [];
+    expect(metaArg).toEqual(expect.objectContaining({
+      tabId: 'workspace-1',
+      type: 'scatter',
+      origin: 'publicationStyles'
+    }));
+    expect(String(metaArg.reason || '')).toContain('publication-style-source-scatter');
+  });
 });
 
 // ─── Apply preset via DOM click — box (single format) ──────────────────────

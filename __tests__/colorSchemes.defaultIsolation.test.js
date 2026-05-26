@@ -87,4 +87,46 @@ describe('color scheme default isolation', () => {
 
     expect(schemes.getSelectedSchemeId('line')).toBe('scientific');
   });
+
+  test('workspace payload fallback propagates explicit tab ownership metadata', () => {
+    const activeTab = {
+      id: 'workspace-meta-line',
+      type: 'line',
+      payload: null
+    };
+    const lineWorkspace = {
+      createEmptyPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } })),
+      getPayload: jest.fn(() => ({ type: 'line', config: { colorScheme: 'scientific' } }))
+    };
+
+    window.Main = {
+      session: {
+        getActiveTab: jest.fn(() => activeTab),
+        persistActiveTabState: jest.fn(),
+        assignTabPayload: jest.fn((tab, payload) => {
+          tab.payload = deepClone(payload);
+        }),
+        markSessionDirty: jest.fn()
+      },
+      domControls: {
+        setWorkspaceDefaultPayload: jest.fn(),
+        applyWorkspacePayload: jest.fn()
+      },
+      components: {
+        get: jest.fn(type => (type === 'line' ? lineWorkspace : null))
+      }
+    };
+
+    require('../js/shared/colorSchemes.js');
+    const schemes = window.Shared?.colorSchemes;
+    expect(schemes.applyToActiveTab('line', 'dark')).toBe(true);
+    expect(lineWorkspace.getPayload).toHaveBeenCalled();
+    const [metaArg] = lineWorkspace.getPayload.mock.calls.at(-1) || [];
+    expect(metaArg).toEqual(expect.objectContaining({
+      tabId: 'workspace-meta-line',
+      type: 'line',
+      origin: 'colorSchemes'
+    }));
+    expect(String(metaArg.reason || '')).toContain('color-scheme-source-line');
+  });
 });

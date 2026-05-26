@@ -45,6 +45,13 @@ async function openSecondHeatmapTab(page, reuse = false) {
 
 test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
   test.setTimeout(120_000);
+  const lifecycleOwnershipWarnings = [];
+  page.on('console', msg => {
+    const text = msg.text();
+    if (text.includes('component lifecycle skipped without explicit tab id')) {
+      lifecycleOwnershipWarnings.push(text);
+    }
+  });
   await installLocalCdnOverrides(page);
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
 
@@ -77,4 +84,5 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
   const restoredFirst = await activeHeatmapStatus(page);
   expect(restoredFirst.overlay).toBe(false);
   expect(restoredFirst.cells).toBeGreaterThanOrEqual(9);
+  expect(lifecycleOwnershipWarnings).toEqual([]);
 });

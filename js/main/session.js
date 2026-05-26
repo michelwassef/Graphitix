@@ -2574,7 +2574,12 @@
       let driftHealed = false;
       if (shouldRunSkippedPayloadDriftProbe(reason, options) && typeof config.getPayload === 'function') {
         try {
-          const probe = config.getPayload();
+          const probe = config.getPayload({
+            tabId: tab.id,
+            type: tab.type,
+            reason: `${reason}:skipped-drift-probe`,
+            origin: options.origin || null
+          });
           if (probe) {
             const probeSig = serializePayloadSignature(probe);
             if (probeSig && tab.payloadSignature && probeSig !== tab.payloadSignature) {
@@ -2650,7 +2655,12 @@
       return false;
     }
     try {
-      const payload = config.getPayload();
+      const payload = config.getPayload({
+        tabId: tab.id,
+        type: tab.type,
+        reason: `${reason}:authoritative-capture`,
+        origin: options.origin || null
+      });
       let payloadClone = clonePayload(payload);
       if (Shared.workspaceTabs?.captureSharedPayloadState) {
         Shared.workspaceTabs.captureSharedPayloadState(tab, tab.type, payloadClone, config, {

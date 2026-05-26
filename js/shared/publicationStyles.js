@@ -835,7 +835,12 @@
       }
 
       const sourcePayload = cloneValue(tab.payload)
-        || (typeof workspace.getPayload === 'function' ? workspace.getPayload() : null)
+        || (typeof workspace.getPayload === 'function' ? workspace.getPayload({
+          tabId: tab.id,
+          type,
+          reason: `publication-style-source-${type}`,
+          origin: 'publicationStyles'
+        }) : null)
         || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
 
       let nextPayload = patchCommonPayload(type, sourcePayload, preset);
