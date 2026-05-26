@@ -97,6 +97,7 @@
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const GLOBAL_TEXT_SCOPE = '__chartstyle_global__';
   let textSizeLocked = false;
+  // DOM/runtime registries for text-lock controls. Durable text style state is not stored here.
   const textLockState = new Map();
   const textLockInputs = new Map();
   const textLockListeners = new Map();

@@ -1,0 +1,1001 @@
+ Debug: fastClonePayload using structuredClone Object
+ Debug: line.createEmptyPayload pure factory invoked Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: sanitizeDefaultPayloadVolatileState applied Object
+ Debug: resolveDefaultFontSizeForType resolved Object
+ Debug: normalizeDefaultPayloadForType applied Object
+ Debug: workspace baseline reset skipped Object
+ Debug: applyLineGraphPayload payload Object
+ Debug: fontControls importScopeStyles complete Object
+ Debug: clampLineReplicateCount Object
+ Debug: computeUsedSeriesColumns Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: computeUsedSeriesColumns Object
+ Debug: inferSeriesBaseName Object
+ Debug: inferSeriesBaseName Object
+ Debug: inferSeriesBaseName Object
+ Debug: inferSeriesBaseName Object
+ Debug: inferSeriesBaseName Object
+ Debug: line group labels synchronized Object
+ Debug: buildLineReplicateMatrix Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: updateLineNestedHeaders disabled Object
+ Debug: applyLineReplicateChange Object
+ Debug: line font size base restored Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line axis settings applied Object
+ Debug: line axis settings restored Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: ensureLineLabelColors sync complete Object
+ Debug: resizer known option moved into menu Object
+ Debug: line payload applied Object
+ Debug: workspace payload applied via custom handler Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: componentLayout minSvgWidth updated Object
+ Debug: line layout min width update Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: resizer programmatic simulated aspect lock Object
+ Debug: resizer aspect ratio set Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout scheduleDraw invoked Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: line layout onResize schedule trigger Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout applyState Object
+ Debug: workspace layout applied Object
+ Debug: componentLayout tab controls synced Object
+ Debug: workspace displayed Object
+ Debug: session dirty flag updated Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: componentLayout ResizeObserver triggered Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout ResizeObserver ignored unchanged size Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: line layout onResize schedule trigger Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: line payload refreshing summaries Object
+ Debug: drawLine start Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line style scaling applied Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: line font scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: line axis metrics Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: line showFrame state Object
+ Debug: line showLegend state Object
+ Debug: line display mode Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: resolveForecastOptions Object
+ Debug: line regression configuration Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: inferSeriesBaseName Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: line series names resolved Object
+ Debug: line empty series filtered Object
+ Debug: line render state reset Object
+ Debug: line regression overlay controls synced Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: component lifecycle skipped without explicit tab id Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: line owned runtime record ensured Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampLineReplicateCount Object
+ Debug: clampForecastHorizon Object
+ Debug: clampSeasonLength Object
+ Debug: line runtime snapshot captured Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:2532 Debug: archive render cache preserved across layout signature drift (skip path) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+previews.js:817 Debug: preview getter svg rejected Object
+previews.js:842 Debug: preview capture skipped Object
+previews.js:1414 Debug: preview capture unavailable Object
+session.js:2627 Debug: persistActiveTabState skipped live payload capture Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+chartStyle.js:365 Debug: chartStyle.getDefaultGraphSize cached result Object
+chartStyle.js:408 Debug: chartStyle.getSquareGraphSizing Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:2094 Debug: tab data detected after header skip Object

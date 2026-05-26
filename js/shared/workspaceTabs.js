@@ -24,6 +24,97 @@
     return text || '';
   }
 
+  function hasExplicitTabLike(tabLike){
+    if(tabLike && typeof tabLike === 'object'){
+      return !!normalizeTabId(tabLike.id);
+    }
+    return !!normalizeTabId(tabLike);
+  }
+
+  function isOwnedRuntimeStrict(meta = {}){
+    if(meta?.strictRuntimeOwner === true || namespace.__strictOwnedRuntime === true){
+      return true;
+    }
+    try{
+      if(global.Shared?.componentLifecycle?.__strictRuntimeOwnership === true){
+        return true;
+      }
+    }catch(_err){}
+    try{
+      if(typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test'){
+        return meta?.allowMissingTabId !== true;
+      }
+    }catch(_err){}
+    return false;
+  }
+
+  function reportOwnedRuntimeViolation(message, payload = {}, meta = {}){
+    if(isOwnedRuntimeStrict(meta)){
+      throw new Error(`${message}: ${JSON.stringify(payload)}`);
+    }
+    debugLog(message, payload);
+    return null;
+  }
+
+  function isStrictTabOwnership(meta = {}){
+    if(meta?.strictTabOwnership === true || meta?.strictLifecycleOwnership === true || meta?.strictRuntimeOwner === true){
+      return true;
+    }
+    try{
+      if(global.Shared?.componentLifecycle?.__strictRuntimeOwnership === true){
+        return true;
+      }
+    }catch(_err){}
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        return meta?.allowMissingTabId !== true;
+      }
+    }catch(_err){}
+    try{
+      if(typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test'){
+        return meta?.allowMissingTabId !== true;
+      }
+    }catch(_err){}
+    return false;
+  }
+
+  function reportTabOwnershipViolation(message, payload = {}, meta = {}){
+    if(isStrictTabOwnership(meta)){
+      throw new Error(`${message}: ${JSON.stringify(payload)}`);
+    }
+    debugLog(message, payload);
+    return null;
+  }
+
+  function resolveExplicitTab(tabLike, meta = {}, action = 'workspace-tab'){
+    const candidate = hasExplicitTabLike(tabLike)
+      ? tabLike
+      : (hasExplicitTabLike(meta?.tab) ? meta.tab : (hasExplicitTabLike(meta?.tabId) ? meta.tabId : meta?.workspaceTabId));
+    if(!hasExplicitTabLike(candidate)){
+      reportTabOwnershipViolation('Debug: workspaceTabs lifecycle path requires explicit tab', {
+        componentKey: String(meta?.componentKey || meta?.type || '').trim() || null,
+        action,
+        reason: meta?.reason || action
+      }, meta);
+      return { tab: null, tabId: '' };
+    }
+    const tab = resolveTab(candidate);
+    const tabId = normalizeTabId(tab?.id || (candidate && typeof candidate === 'object' ? candidate.id : candidate));
+    return { tab, tabId };
+  }
+
+  function resolveExplicitOwnedRuntimeTab(tabLike, meta = {}){
+    const candidate = hasExplicitTabLike(tabLike)
+      ? tabLike
+      : (hasExplicitTabLike(meta?.tab) ? meta.tab : (hasExplicitTabLike(meta?.tabId) ? meta.tabId : meta?.workspaceTabId));
+    if(!hasExplicitTabLike(candidate)){
+      return { tab: null, tabId: '' };
+    }
+    const tab = resolveTab(candidate);
+    const tabId = normalizeTabId(tab?.id || (candidate && typeof candidate === 'object' ? candidate.id : candidate));
+    return { tab, tabId };
+  }
+
   function resolveSession(){
     return global.Main?.session || null;
   }
@@ -44,6 +135,9 @@
     return key ? (registry[key] || null) : null;
   }
 
+  // Permissive resolver for UI/DOM boundary helpers only. Lifecycle, runtime,
+  // cache, and async paths must use resolveExplicitTab() so a missing tab id
+  // cannot silently bind state to whatever tab happens to be active.
   function resolveTab(tabLike){
     if(tabLike && typeof tabLike === 'object' && tabLike.id != null){
       return tabLike;
@@ -85,8 +179,9 @@
     return sharedState;
   }
 
-  function ensureSessionRecord(tabLike, componentKey){
-    const tab = resolveTab(tabLike);
+  function ensureSessionRecord(tabLike, componentKey, meta = {}){
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'ensure-session-record');
+    const tab = resolved.tab;
     const sharedState = ensureRecordShape(tab);
     const key = String(componentKey || '').trim() || '__default__';
     if(!sharedState){
@@ -347,8 +442,9 @@
   namespace.stampWorkspaceScopeDeep = stampWorkspaceScopeDeep;
 
   namespace.ensureComponentInstance = function ensureComponentInstance(tabLike, componentKey, factory, meta = {}){
-    const tab = resolveTab(tabLike);
-    const record = ensureSessionRecord(tab, componentKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'ensure-component-instance');
+    const tab = resolved.tab;
+    const record = ensureSessionRecord(tab || resolved.tabId, componentKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'ensure-component-instance' });
     if(!record || !tab){
       return null;
     }
@@ -382,12 +478,17 @@
     return record.instance.value || null;
   };
 
-  namespace.getComponentInstance = function getComponentInstance(tabLike, componentKey){
-    return namespace.getSessionRecord(tabLike, componentKey)?.instance?.value || null;
+  namespace.getComponentInstance = function getComponentInstance(tabLike, componentKey, meta = {}){
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'get-component-instance');
+    if(!resolved.tabId){
+      return null;
+    }
+    return namespace.getSessionRecord(resolved.tab || resolved.tabId, componentKey)?.instance?.value || null;
   };
 
   namespace.ensureMountedRoot = function ensureMountedRoot(tabLike, config, meta = {}){
-    const tab = resolveTab(tabLike);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: config?.type || meta.type || null }, meta.reason || 'ensure-mounted-root');
+    const tab = resolved.tab;
     const type = String(tab?.type || config?.type || '').trim();
     if(!tab || !type || !config?.element){
       return config?.element || null;
@@ -401,7 +502,7 @@
       stampWorkspaceScopeDeep(config.element, tab.id);
       return config.element;
     }
-    const record = ensureSessionRecord(tab, type);
+    const record = ensureSessionRecord(tab, type, { ...(meta || {}), tabId: tab.id, reason: meta.reason || 'ensure-mounted-root' });
     if(!record.dom || typeof record.dom !== 'object'){
       record.dom = {};
     }
@@ -453,7 +554,18 @@
   namespace.getMountedRoot = function getMountedRoot(tabLike, componentKey){
     const tab = resolveTab(tabLike);
     const key = String(componentKey || tab?.type || '').trim();
-    return namespace.getSessionRecord(tab, key)?.dom?.root || null;
+    const candidate = hasExplicitTabLike(tabLike)
+      ? tabLike
+      : (tab || resolveSession()?.getActiveTab?.() || null);
+    if(!candidate){
+      return null;
+    }
+    return namespace.getSessionRecord(candidate, key, {
+      allowMissingTabId: true,
+      strictTabOwnership: false,
+      uiBoundary: true,
+      reason: 'get-mounted-root'
+    })?.dom?.root || null;
   };
 
   namespace.resolveTabScopedRoot = function resolveTabScopedRoot(componentKey, tabLike, options = {}){
@@ -467,7 +579,12 @@
     if(mounted){
       return mounted;
     }
-    const sessionRoot = namespace.getSessionRecord(tab || tabLike || null, key)?.dom?.root || null;
+    const sessionRoot = namespace.getSessionRecord(tab || tabLike || null, key, {
+      allowMissingTabId: true,
+      strictTabOwnership: false,
+      uiBoundary: true,
+      reason: 'resolve-tab-scoped-root'
+    })?.dom?.root || null;
     if(sessionRoot){
       return sessionRoot;
     }
@@ -568,16 +685,17 @@
     };
   };
 
-  namespace.getSessionRecord = function getSessionRecord(tabLike, componentKey){
-    const tab = resolveTab(tabLike);
-    const sharedState = ensureRecordShape(tab);
-    const key = String(componentKey || '').trim() || '__default__';
+  namespace.getSessionRecord = function getSessionRecord(tabLike, componentKey, meta = {}){
+    const key = String(componentKey || meta?.componentKey || meta?.type || '').trim() || '__default__';
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'get-session-record');
+    const sharedState = ensureRecordShape(resolved.tab);
     return sharedState?.sessions?.[key] || null;
   };
 
   namespace.activateSession = function activateSession(tabLike, componentKey, meta = {}){
-    const tab = resolveTab(tabLike);
-    const record = ensureSessionRecord(tab, componentKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'activate-session');
+    const tab = resolved.tab;
+    const record = ensureSessionRecord(tab || resolved.tabId, componentKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'activate-session' });
     if(!record || !tab){
       return null;
     }
@@ -603,14 +721,15 @@
   };
 
   namespace.ensureActiveSession = function ensureActiveSession(tabLike, componentKey, meta = {}){
-    const tab = resolveTab(tabLike);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'ensure-active-session');
+    const tab = resolved.tab;
     const componentKeyText = String(componentKey || '').trim() || '__default__';
     if(!tab){
       return null;
     }
     const active = namespace.__activeSessions?.[componentKeyText] || null;
     if(active && String(active.tabId || '') === String(tab.id || '')){
-      const record = ensureSessionRecord(tab, componentKeyText);
+      const record = ensureSessionRecord(tab || resolved.tabId, componentKeyText, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'ensure-active-session' });
       if(record){
         record.mounted = true;
         record.metadata.lastReason = meta.reason || record.metadata.lastReason || 'ensure-active-session';
@@ -627,8 +746,9 @@
   };
 
   namespace.deactivateSession = function deactivateSession(tabLike, componentKey, meta = {}){
-    const tab = resolveTab(tabLike);
-    const record = ensureSessionRecord(tab, componentKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'deactivate-session');
+    const tab = resolved.tab;
+    const record = ensureSessionRecord(tab || resolved.tabId, componentKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'deactivate-session' });
     const componentKeyText = String(componentKey || '').trim() || '__default__';
     if(!record || !tab){
       return null;
@@ -680,10 +800,11 @@
   namespace.buildSessionMeta = function buildSessionMeta(componentKey, options = {}){
     const componentKeyText = String(componentKey || options?.type || options?.componentType || '').trim() || '__default__';
     const active = namespace.getActiveSessionInfo(componentKeyText) || null;
-    const explicitTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId || '');
-    const fallbackTab = resolveSession()?.getActiveTab?.() || null;
-    const tabId = explicitTabId || active?.tabId || fallbackTab?.id || null;
-    const tab = findWorkspaceTabById(tabId) || fallbackTab || null;
+    const explicitTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId || options?.tab?.id || '');
+    const allowActiveFallback = options?.allowActiveTabFallback === true || options?.uiBoundary === true;
+    const fallbackTab = allowActiveFallback ? (resolveSession()?.getActiveTab?.() || null) : null;
+    const tabId = explicitTabId || (allowActiveFallback ? (active?.tabId || fallbackTab?.id || null) : null);
+    const tab = findWorkspaceTabById(tabId) || (allowActiveFallback ? fallbackTab : null);
     const explicitGeneration = Number(options?.sessionGeneration ?? options?.generation);
     return {
       tabId,
@@ -741,7 +862,29 @@
 
     const schedule = function scheduleTabScoped(options = {}){
       const nextOptions = options && typeof options === 'object' ? options : {};
-      const meta = nextOptions.__workspaceSessionMeta || namespace.buildSessionMeta(componentKey, nextOptions);
+      let configuredTabId = normalizeTabId(config.tabId || config.workspaceTabId || config.tab?.id || '');
+      if(!configuredTabId && typeof config.getTabId === 'function'){
+        try{ configuredTabId = normalizeTabId(config.getTabId(nextOptions) || ''); }
+        catch(err){
+          debugLog(`Debug: ${debugLabel} tab id resolver failed`, {
+            componentKey,
+            reason: nextOptions.reason || 'tab-scoped-schedule',
+            err: err?.message || String(err)
+          });
+        }
+      }
+      const scheduleOptions = {
+        ...nextOptions,
+        tabId: normalizeTabId(nextOptions.tabId || nextOptions.workspaceTabId || nextOptions.tab?.id || '') || configuredTabId || null
+      };
+      const meta = nextOptions.__workspaceSessionMeta || namespace.buildSessionMeta(componentKey, scheduleOptions);
+      if(!meta?.tabId){
+        reportTabOwnershipViolation(`Debug: ${debugLabel} tab-scoped schedule requires explicit tab`, {
+          componentKey,
+          reason: nextOptions.reason || 'tab-scoped-schedule'
+        }, nextOptions);
+        return false;
+      }
       if(!namespace.isSessionMetaCurrent(componentKey, meta)){
         debugLog(`Debug: ${debugLabel} tab-scoped schedule skipped`, {
           tabId: meta?.tabId || null,
@@ -803,12 +946,183 @@
     return namespace.__activeSessions?.[componentKeyText] || null;
   };
 
-  namespace.getSessionRuntime = function getSessionRuntime(tabLike, componentKey){
-    return ensureSessionRecord(tabLike, componentKey)?.runtime || null;
+  namespace.getSessionRuntime = function getSessionRuntime(tabLike, componentKey, meta = {}){
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey }, meta.reason || 'get-session-runtime');
+    if(!resolved.tabId){
+      return null;
+    }
+    return ensureSessionRecord(resolved.tab || resolved.tabId, componentKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'get-session-runtime' })?.runtime || null;
+  };
+
+  function normalizeRuntimeComponentKey(componentKey){
+    const raw = String(componentKey || '').trim();
+    const match = raw.match(/^__workspaceTabs__:(.+)$/);
+    return (match ? match[1] : raw).trim() || '__default__';
+  }
+
+  function ensureLifecycleRuntime(tabLike, componentKey, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'ensure-lifecycle-runtime');
+    if(!resolved.tabId){
+      return null;
+    }
+    const runtime = namespace.getSessionRuntime(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'ensure-lifecycle-runtime' });
+    if(!runtime){
+      return null;
+    }
+    const tab = resolved.tab || findWorkspaceTabById(resolved.tabId);
+    if(!runtime.lifecycle || typeof runtime.lifecycle !== 'object'){
+      runtime.lifecycle = {};
+    }
+    const lifecycle = runtime.lifecycle;
+    lifecycle.version = 1;
+    lifecycle.componentKey = key;
+    lifecycle.tabId = tab?.id || lifecycle.tabId || null;
+    if(!lifecycle.owner || typeof lifecycle.owner !== 'object'){
+      lifecycle.owner = null;
+    }
+    return lifecycle;
+  }
+
+  function getLifecycleRuntime(tabLike, componentKey, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'get-lifecycle-runtime');
+    if(!resolved.tabId){
+      return null;
+    }
+    const runtime = namespace.getSessionRecord(resolved.tab || resolved.tabId, key)?.runtime || null;
+    const lifecycle = runtime?.lifecycle || null;
+    return lifecycle && typeof lifecycle === 'object' ? lifecycle : null;
+  }
+
+  namespace.getLifecycleRuntime = getLifecycleRuntime;
+
+  namespace.setLifecycleRuntimeSnapshot = function setLifecycleRuntimeSnapshot(tabLike, componentKey, snapshot, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const lifecycle = ensureLifecycleRuntime(tabLike, key, meta);
+    if(!lifecycle){
+      return null;
+    }
+    const sanitizeRuntimeSnapshot = global.Shared?.componentLifecycle?.sanitizeRuntimeSnapshot;
+    lifecycle.snapshot = snapshot && typeof snapshot === 'object'
+      ? (typeof sanitizeRuntimeSnapshot === 'function'
+          ? (sanitizeRuntimeSnapshot(snapshot, {
+              ...(meta || {}),
+              componentKey: key,
+              tabId: lifecycle.tabId || null,
+              reason: meta.reason || 'set-lifecycle-runtime-snapshot'
+            }) || {})
+          : snapshot)
+      : null;
+    lifecycle.owner = lifecycle.snapshot
+      ? {
+          componentKey: key,
+          tabId: lifecycle.tabId || null,
+          updatedAt: Date.now(),
+          reason: meta.reason || 'set-lifecycle-runtime-snapshot'
+        }
+      : null;
+    debugLog('Debug: workspaceTabs lifecycle runtime snapshot stored', {
+      tabId: lifecycle.tabId || null,
+      componentKey: key,
+      reason: meta.reason || 'set-lifecycle-runtime-snapshot'
+    });
+    return lifecycle.snapshot;
+  };
+
+  namespace.getLifecycleRuntimeSnapshot = function getLifecycleRuntimeSnapshot(tabLike, componentKey, meta = {}){
+    return getLifecycleRuntime(tabLike, componentKey, { ...(meta || {}), reason: meta.reason || 'get-lifecycle-runtime-snapshot' })?.snapshot || null;
+  };
+
+  namespace.clearLifecycleRuntimeSnapshot = function clearLifecycleRuntimeSnapshot(tabLike, componentKey, meta = {}){
+    const lifecycle = getLifecycleRuntime(tabLike, componentKey, meta);
+    if(!lifecycle || !Object.prototype.hasOwnProperty.call(lifecycle, 'snapshot')){
+      return false;
+    }
+    delete lifecycle.snapshot;
+    lifecycle.owner = null;
+    debugLog('Debug: workspaceTabs lifecycle runtime snapshot cleared', {
+      tabId: lifecycle.tabId || null,
+      componentKey: normalizeRuntimeComponentKey(componentKey),
+      reason: meta.reason || 'clear-lifecycle-runtime-snapshot'
+    });
+    return true;
+  };
+
+  namespace.getOwnedRuntimeRecord = function getOwnedRuntimeRecord(tabLike, componentKey, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const resolved = resolveExplicitOwnedRuntimeTab(tabLike, meta);
+    if(!resolved.tabId){
+      return reportOwnedRuntimeViolation('Debug: workspaceTabs owned runtime read requires explicit tab', {
+        componentKey: key,
+        reason: meta.reason || 'get-owned-runtime-record'
+      }, meta);
+    }
+    return getLifecycleRuntime(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId })?.ownedRecord || null;
+  };
+
+  namespace.setOwnedRuntimeRecord = function setOwnedRuntimeRecord(tabLike, componentKey, record, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const resolved = resolveExplicitOwnedRuntimeTab(tabLike, meta);
+    if(!resolved.tabId){
+      return reportOwnedRuntimeViolation('Debug: workspaceTabs owned runtime write requires explicit tab', {
+        componentKey: key,
+        reason: meta.reason || 'set-owned-runtime-record'
+      }, meta);
+    }
+    const lifecycle = ensureLifecycleRuntime(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId });
+    if(!lifecycle){
+      return null;
+    }
+    if(record && typeof record === 'object'){
+      const owner = record.__runtimeOwner && typeof record.__runtimeOwner === 'object' ? record.__runtimeOwner : null;
+      const ownerComponent = normalizeRuntimeComponentKey(owner?.componentKey || record.componentKey || key);
+      const ownerTabId = normalizeTabId(owner?.tabId || record.tabId || resolved.tabId);
+      if((ownerComponent && ownerComponent !== key) || (ownerTabId && ownerTabId !== resolved.tabId)){
+        return reportOwnedRuntimeViolation('Debug: workspaceTabs owned runtime write rejected owner mismatch', {
+          componentKey: key,
+          tabId: resolved.tabId,
+          owner: owner || { componentKey: record.componentKey || null, tabId: record.tabId || null },
+          reason: meta.reason || 'set-owned-runtime-record'
+        }, meta);
+      }
+      record.componentKey = record.componentKey || key;
+      record.tabId = record.tabId || resolved.tabId;
+      record.__runtimeOwner = {
+        version: 2,
+        componentKey: key,
+        tabId: resolved.tabId,
+        storedAt: Date.now(),
+        reason: meta.reason || 'set-owned-runtime-record'
+      };
+    }
+    lifecycle.ownedRecord = record && typeof record === 'object' ? record : null;
+    lifecycle.ownedRecordUpdatedAt = lifecycle.ownedRecord ? Date.now() : null;
+    lifecycle.ownedRecordReason = meta.reason || 'set-owned-runtime-record';
+    return lifecycle.ownedRecord;
+  };
+
+  namespace.clearOwnedRuntimeRecord = function clearOwnedRuntimeRecord(tabLike, componentKey, meta = {}){
+    const key = normalizeRuntimeComponentKey(componentKey);
+    const resolved = resolveExplicitOwnedRuntimeTab(tabLike, meta);
+    if(!resolved.tabId){
+      return !!reportOwnedRuntimeViolation('Debug: workspaceTabs owned runtime clear requires explicit tab', {
+        componentKey: key,
+        reason: meta.reason || 'clear-owned-runtime-record'
+      }, meta);
+    }
+    const lifecycle = getLifecycleRuntime(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId });
+    if(!lifecycle || !Object.prototype.hasOwnProperty.call(lifecycle, 'ownedRecord')){
+      return false;
+    }
+    delete lifecycle.ownedRecord;
+    lifecycle.ownedRecordUpdatedAt = null;
+    lifecycle.ownedRecordReason = meta.reason || 'clear-owned-runtime-record';
+    return true;
   };
 
   namespace.replaceSessionRuntime = function replaceSessionRuntime(tabLike, componentKey, runtime, meta = {}){
-    const record = ensureSessionRecord(tabLike, componentKey);
+    const record = ensureSessionRecord(tabLike, componentKey, meta);
     if(!record){
       return null;
     }
@@ -823,16 +1137,17 @@
 
   namespace.resolveTab = resolveTab;
 
-  namespace.ensureTabState = function ensureTabState(tabLike){
-    const tab = resolveTab(tabLike);
-    if(!tab){
+  namespace.ensureTabState = function ensureTabState(tabLike, meta = {}){
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'ensure-tab-state');
+    const tab = resolved.tab;
+    if(!resolved.tabId || !tab){
       return null;
     }
     return ensureRecordShape(tab);
   };
 
-  namespace.ensureRuntimeBucket = function ensureRuntimeBucket(tabLike, componentKey){
-    const sharedState = namespace.ensureTabState(tabLike);
+  namespace.ensureRuntimeBucket = function ensureRuntimeBucket(tabLike, componentKey, meta = {}){
+    const sharedState = namespace.ensureTabState(tabLike, { ...(meta || {}), componentKey, reason: meta.reason || 'ensure-runtime-bucket' });
     const key = String(componentKey || '').trim() || '__default__';
     if(!sharedState){
       return null;
@@ -843,36 +1158,147 @@
     return sharedState.runtime[key];
   };
 
-  namespace.getRuntimeSnapshot = function getRuntimeSnapshot(tabLike, componentKey){
-    const sharedState = namespace.ensureTabState(tabLike);
+  function normalizeSharedControlKey(value){
+    return String(value || '').trim() || '__default__';
+  }
+
+  namespace.ensureSharedControlState = function ensureSharedControlState(tabLike, controlKey, meta = {}){
+    const key = normalizeSharedControlKey(controlKey || meta?.controlKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), controlKey: key }, meta.reason || 'ensure-shared-control-state');
+    const sharedState = ensureRecordShape(resolved.tab);
+    if(!sharedState || !resolved.tabId){
+      return null;
+    }
+    if(!sharedState.controls || typeof sharedState.controls !== 'object'){
+      sharedState.controls = {};
+    }
+    if(!sharedState.controls[key] || typeof sharedState.controls[key] !== 'object'){
+      sharedState.controls[key] = {
+        controlKey: key,
+        tabId: resolved.tabId,
+        values: {},
+        metadata: {}
+      };
+    }
+    const record = sharedState.controls[key];
+    if(!record.values || typeof record.values !== 'object'){
+      record.values = {};
+    }
+    if(!record.metadata || typeof record.metadata !== 'object'){
+      record.metadata = {};
+    }
+    record.controlKey = key;
+    record.tabId = resolved.tabId;
+    record.metadata.lastReason = meta.reason || record.metadata.lastReason || 'ensure-shared-control-state';
+    return record.values;
+  };
+
+  namespace.getSharedControlState = function getSharedControlState(tabLike, controlKey, meta = {}){
+    const key = normalizeSharedControlKey(controlKey || meta?.controlKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), controlKey: key }, meta.reason || 'get-shared-control-state');
+    if(!resolved.tabId || !resolved.tab){
+      return null;
+    }
+    const sharedState = ensureRecordShape(resolved.tab);
+    const record = sharedState?.controls?.[key] || null;
+    return record && typeof record === 'object' ? (record.values || null) : null;
+  };
+
+  namespace.clearSharedControlState = function clearSharedControlState(tabLike, controlKey, meta = {}){
+    const key = normalizeSharedControlKey(controlKey || meta?.controlKey);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), controlKey: key }, meta.reason || 'clear-shared-control-state');
+    if(!resolved.tabId || !resolved.tab?.sharedState?.controls){
+      return false;
+    }
+    if(Object.prototype.hasOwnProperty.call(resolved.tab.sharedState.controls, key)){
+      delete resolved.tab.sharedState.controls[key];
+      debugLog('Debug: workspaceTabs shared control state cleared', {
+        tabId: resolved.tabId,
+        controlKey: key,
+        reason: meta.reason || 'clear-shared-control-state'
+      });
+      return true;
+    }
+    return false;
+  };
+
+  namespace.registerSharedControlDisposer = function registerSharedControlDisposer(controlKey, disposer){
+    const key = normalizeSharedControlKey(controlKey);
+    if(typeof disposer !== 'function'){
+      return false;
+    }
+    namespace.__sharedControlDisposers = namespace.__sharedControlDisposers || new Map();
+    namespace.__sharedControlDisposers.set(key, disposer);
+    return true;
+  };
+
+  namespace.getRuntimeSnapshot = function getRuntimeSnapshot(tabLike, componentKey, meta = {}){
     const key = String(componentKey || '').trim() || '__default__';
-    return sharedState?.runtime?.[key] || null;
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'get-runtime-snapshot');
+    if(!resolved.tabId){
+      return null;
+    }
+    const lifecycleSnapshot = namespace.getLifecycleRuntimeSnapshot(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'get-runtime-snapshot' });
+    if(lifecycleSnapshot){
+      return lifecycleSnapshot;
+    }
+    const sharedState = ensureRecordShape(resolved.tab || findWorkspaceTabById(resolved.tabId));
+    const legacy = sharedState?.runtime?.[key] || null;
+    if(legacy && typeof legacy === 'object'){
+      namespace.setLifecycleRuntimeSnapshot(resolved.tab || resolved.tabId, key, legacy, { ...(meta || {}), tabId: resolved.tabId, reason: 'migrate-legacy-runtime-snapshot' });
+      delete sharedState.runtime[key];
+      return namespace.getLifecycleRuntimeSnapshot(resolved.tab || resolved.tabId, key, { ...(meta || {}), tabId: resolved.tabId, reason: 'migrate-legacy-runtime-snapshot' });
+    }
+    return null;
   };
 
   namespace.setRuntimeSnapshot = function setRuntimeSnapshot(tabLike, componentKey, snapshot, meta = {}){
-    const sharedState = namespace.ensureTabState(tabLike);
     const key = String(componentKey || '').trim() || '__default__';
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'set-runtime-snapshot');
+    if(!resolved.tabId){
+      return null;
+    }
+    const stored = namespace.setLifecycleRuntimeSnapshot(resolved.tab || resolved.tabId, key, snapshot, {
+      ...(meta || {}),
+      tabId: resolved.tabId,
+      reason: meta.reason || 'set-runtime-snapshot'
+    });
+    const sharedState = ensureRecordShape(resolved.tab || findWorkspaceTabById(resolved.tabId));
+    if(sharedState?.runtime && Object.prototype.hasOwnProperty.call(sharedState.runtime, key)){
+      delete sharedState.runtime[key];
+    }
     if(!sharedState){
       return null;
     }
-    sharedState.runtime[key] = snapshot && typeof snapshot === 'object' ? snapshot : {};
     debugLog('Debug: workspaceTabs runtime snapshot stored', {
-      tabId: resolveTab(tabLike)?.id || null,
+      tabId: resolved.tabId,
       componentKey: key,
       reason: meta.reason || 'set-runtime-snapshot'
     });
-    return sharedState.runtime[key];
+    return stored;
   };
 
   namespace.clearRuntimeSnapshot = function clearRuntimeSnapshot(tabLike, componentKey, meta = {}){
-    const sharedState = namespace.ensureTabState(tabLike);
     const key = String(componentKey || '').trim() || '__default__';
-    if(!sharedState?.runtime || !Object.prototype.hasOwnProperty.call(sharedState.runtime, key)){
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: key }, meta.reason || 'clear-runtime-snapshot');
+    if(!resolved.tabId){
       return false;
     }
-    delete sharedState.runtime[key];
+    const sharedState = ensureRecordShape(resolved.tab || findWorkspaceTabById(resolved.tabId));
+    let cleared = namespace.clearLifecycleRuntimeSnapshot(resolved.tab || resolved.tabId, key, {
+      ...(meta || {}),
+      tabId: resolved.tabId,
+      reason: meta.reason || 'clear-runtime-snapshot'
+    });
+    if(sharedState?.runtime && Object.prototype.hasOwnProperty.call(sharedState.runtime, key)){
+      delete sharedState.runtime[key];
+      cleared = true;
+    }
+    if(!cleared){
+      return false;
+    }
     debugLog('Debug: workspaceTabs runtime snapshot cleared', {
-      tabId: resolveTab(tabLike)?.id || null,
+      tabId: resolved.tabId,
       componentKey: key,
       reason: meta.reason || 'clear-runtime-snapshot'
     });
@@ -880,59 +1306,63 @@
   };
 
   namespace.captureRuntimeState = function captureRuntimeState(tabLike, type, config, meta = {}){
-    const tab = resolveTab(tabLike);
-    const resolvedType = String(type || tab?.type || '').trim();
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'capture-runtime-state');
+    const tab = resolved.tab;
+    const resolvedType = String(type || tab?.type || meta.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, config);
-    if(!tab || !resolvedType || !resolvedConfig){
+    if(!resolved.tabId || !tab || !resolvedType || !resolvedConfig){
       return null;
     }
     const snapshotKey = resolveRuntimeSnapshotKey(resolvedType, resolvedConfig);
-    const snapshot = invokeWorkspaceHook(resolvedConfig, 'captureRuntimeState', [{
-      tabId: tab.id,
+    const hookMeta = {
+      ...(meta || {}),
+      tab,
+      tabId: resolved.tabId,
       type: resolvedType,
       reason: meta.reason || 'capture-runtime-state'
-    }], meta);
+    };
+    const snapshot = invokeWorkspaceHook(resolvedConfig, 'captureRuntimeState', [hookMeta], hookMeta);
     if(snapshot === undefined){
-      return namespace.getRuntimeSnapshot(tab, snapshotKey);
+      return namespace.getRuntimeSnapshot(tab, snapshotKey, hookMeta);
     }
     if(snapshot === null){
-      namespace.clearRuntimeSnapshot(tab, snapshotKey, {
-        reason: meta.reason || 'capture-runtime-state'
-      });
+      namespace.clearRuntimeSnapshot(tab, snapshotKey, hookMeta);
       return null;
     }
-    namespace.setRuntimeSnapshot(tab, snapshotKey, snapshot, {
-      reason: meta.reason || 'capture-runtime-state'
-    });
-    return snapshot;
+    return namespace.setRuntimeSnapshot(tab, snapshotKey, snapshot, hookMeta);
   };
 
   namespace.applyRuntimeState = function applyRuntimeState(tabLike, type, config, meta = {}){
-    const tab = resolveTab(tabLike);
-    const resolvedType = String(type || tab?.type || '').trim();
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'apply-runtime-state');
+    const tab = resolved.tab;
+    const resolvedType = String(type || tab?.type || meta.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, config);
-    if(!tab || !resolvedType || !resolvedConfig){
+    if(!resolved.tabId || !tab || !resolvedType || !resolvedConfig){
       return false;
     }
     const snapshotKey = resolveRuntimeSnapshotKey(resolvedType, resolvedConfig);
-    const snapshot = namespace.getRuntimeSnapshot(tab, snapshotKey) || null;
-    invokeWorkspaceHook(resolvedConfig, 'applyRuntimeState', [snapshot, {
-      tabId: tab.id,
+    const hookMeta = {
+      ...(meta || {}),
+      tab,
+      tabId: resolved.tabId,
       type: resolvedType,
       reason: meta.reason || 'apply-runtime-state'
-    }], meta);
+    };
+    const snapshot = namespace.getRuntimeSnapshot(tab, snapshotKey, hookMeta) || null;
+    invokeWorkspaceHook(resolvedConfig, 'applyRuntimeState', [snapshot, hookMeta], hookMeta);
     debugLog('Debug: workspaceTabs runtime snapshot applied', {
-      tabId: tab.id,
+      tabId: resolved.tabId,
       type: resolvedType,
       hasSnapshot: !!snapshot,
-      reason: meta.reason || 'apply-runtime-state'
+      reason: hookMeta.reason
     });
     return true;
   };
 
   namespace.captureSharedPayloadState = function captureSharedPayloadState(tabLike, type, payload, config, meta = {}){
-    const tab = resolveTab(tabLike);
-    if(!tab || !payload || typeof payload !== 'object'){
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'capture-shared-payload');
+    const tab = resolved.tab;
+    if(!resolved.tabId || !tab || !payload || typeof payload !== 'object'){
       return payload;
     }
     const sharedState = ensureRecordShape(tab);
@@ -952,8 +1382,9 @@
   };
 
   namespace.applySharedPayloadState = function applySharedPayloadState(tabLike, type, payload, config, meta = {}){
-    const tab = resolveTab(tabLike);
-    if(!tab){
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'apply-shared-payload');
+    const tab = resolved.tab;
+    if(!resolved.tabId || !tab){
       return false;
     }
     const sharedState = ensureRecordShape(tab);
@@ -976,7 +1407,8 @@
   };
 
   namespace.activateWorkspace = function activateWorkspace(tabLike, config, meta = {}){
-    const tab = resolveTab(tabLike);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: config?.type || meta.type || null }, meta.reason || 'activate-workspace');
+    const tab = resolved.tab;
     const resolvedType = String(tab?.type || config?.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, config);
     if(!tab){
@@ -984,12 +1416,16 @@
     }
     const sharedState = ensureRecordShape(tab);
     const sessionRecord = namespace.ensureActiveSession(tab, resolvedType, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: meta.reason || 'activate-workspace'
     });
     sharedState.metadata.active = true;
     sharedState.metadata.lastActivatedAt = Date.now();
     sharedState.metadata.activeSessionGeneration = sessionRecord?.generation || 0;
     const activeRoot = namespace.ensureMountedRoot(tab, resolvedConfig || config, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: meta.reason || 'activate-workspace'
     });
     if(activeRoot && resolvedConfig && resolvedConfig.perTabDomInstances === true){
@@ -1002,6 +1438,8 @@
       try{
         component.activateTab(tab, {
           ...meta,
+          tabId: tab.id,
+          type: resolvedType || null,
           reason: `${activationReason}:prepare-runtime-target`,
           prepareRuntimeTarget: true,
           passiveControls: true,
@@ -1024,9 +1462,13 @@
       }
     }
     namespace.applyRuntimeState(tab, resolvedType, resolvedConfig, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: `${activationReason}:apply-runtime-state`
     });
     invokeWorkspaceHook(resolvedConfig, 'activateTab', [tab, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: activationReason,
       runtimeStateApplied: true,
       sessionGeneration: sessionRecord?.generation || 0,
@@ -1041,7 +1483,8 @@
   };
 
   namespace.deactivateWorkspace = function deactivateWorkspace(tabLike, config, meta = {}){
-    const tab = resolveTab(tabLike);
+    const resolved = resolveExplicitTab(tabLike, { ...(meta || {}), componentKey: config?.type || meta.type || null }, meta.reason || 'deactivate-workspace');
+    const tab = resolved.tab;
     const resolvedType = String(tab?.type || config?.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, config);
     if(!tab){
@@ -1068,14 +1511,20 @@
       });
     }
     const sessionRecord = namespace.deactivateSession(tab, resolvedType, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: meta.reason || 'deactivate-workspace'
     });
     invokeWorkspaceHook(resolvedConfig, 'deactivateTab', [tab, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: meta.reason || 'deactivate-workspace',
       sessionGeneration: sessionRecord?.generation || 0,
       sessionRecord: sessionRecord || null
     }], meta);
     namespace.captureRuntimeState(tab, resolvedType, resolvedConfig, {
+      tabId: tab.id,
+      type: resolvedType || null,
       reason: meta.reason || 'deactivate-workspace'
     });
     if(resolvedConfig?.perTabDomInstances === true){
@@ -1091,15 +1540,39 @@
   };
 
   namespace.disposeTab = function disposeTab(tabLike, meta = {}){
-    const tab = resolveTab(tabLike);
-    const resolvedType = String(tab?.type || '').trim();
+    const resolved = resolveExplicitTab(tabLike, meta, meta.reason || 'dispose-tab');
+    const tab = resolved.tab;
+    const resolvedType = String(meta.type || tab?.type || '').trim();
     const resolvedConfig = resolveWorkspaceConfig(resolvedType, null);
     if(!tab){
       return false;
     }
+    const tabId = tab.id || meta.tabId || null;
     invokeWorkspaceHook(resolvedConfig, 'disposeTab', [tab, {
+      ...meta,
+      tabId,
+      type: resolvedType || null,
       reason: meta.reason || 'dispose-tab'
     }], meta);
+    const component = resolvedType ? global.Components?.[resolvedType] || null : null;
+    const cancelAsyncScope = (target, label) => {
+      if(!target?.__asyncScope || typeof target.__asyncScope.cancelAllForTab !== 'function' || !tabId){
+        return false;
+      }
+      try{
+        return !!target.__asyncScope.cancelAllForTab(tabId, meta.reason || `${label}-dispose-tab`);
+      }catch(err){
+        console.error('workspaceTabs async scope dispose error', {
+          tabId,
+          type: resolvedType || null,
+          label,
+          err
+        });
+        return false;
+      }
+    };
+    cancelAsyncScope(resolvedConfig, 'workspace');
+    cancelAsyncScope(component, 'component');
     try{
       global.Shared?.hot?.disposeTab?.(tab, {
         type: resolvedType || null,
@@ -1112,17 +1585,51 @@
         err
       });
     }
-    const record = namespace.getSessionRecord(tab, resolvedType);
+    const record = namespace.getSessionRecord(tab, resolvedType, {
+      tabId,
+      type: resolvedType || null,
+      reason: meta.reason || 'dispose-tab'
+    });
     detachRoot(record?.dom?.root || null);
     try{
       if(resolvedType){
         global.Shared?.componentLifecycle?.createRuntimeOwner?.(resolvedType)?.dispose?.(tab, {
+          ...meta,
+          type: resolvedType,
           reason: meta.reason || 'dispose-tab'
         });
       }
     }catch(err){
       console.error('workspaceTabs runtime owner dispose error', {
         tabId: tab.id,
+        type: resolvedType || null,
+        err
+      });
+    }
+    try{
+      if(namespace.__sharedControlDisposers instanceof Map){
+        namespace.__sharedControlDisposers.forEach((disposer, controlKey) => {
+          try{
+            disposer(tab, {
+              ...meta,
+              tabId,
+              type: resolvedType || null,
+              controlKey,
+              reason: meta.reason || 'dispose-tab'
+            });
+          }catch(disposeErr){
+            console.error('workspaceTabs shared control dispose error', {
+              tabId,
+              type: resolvedType || null,
+              controlKey,
+              err: disposeErr
+            });
+          }
+        });
+      }
+    }catch(err){
+      console.error('workspaceTabs shared control disposer registry error', {
+        tabId,
         type: resolvedType || null,
         err
       });

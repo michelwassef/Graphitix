@@ -957,8 +957,11 @@
     surfaceOverlayController?.markPending(reason);
     debugLog('Debug: surface overlay pending flagged', { reason: reason || 'data-change' });
     try{
-      if(_surfaceOverlayTimeout){ clearTimeout(_surfaceOverlayTimeout); }
-      _surfaceOverlayTimeout = (global.setTimeout || setTimeout)(() => {
+      if(_surfaceOverlayTimeout){ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); }
+      _surfaceOverlayTimeout = Shared.componentLifecycle?.scheduleComponentTimeout?.(surface, 'surface', {
+        tabId: surface.__boundTabId || null,
+        reason: reason || 'surface-overlay-timeout'
+      }, () => {
         try{ resolveSurfaceOverlay('timeout'); }catch(e){}
         debugLog('Debug: surface overlay auto-resolved due to timeout', { reason });
       }, SURFACE_OVERLAY_TIMEOUT_MS);
@@ -971,7 +974,7 @@
 
   function resolveSurfaceOverlay(reason){
     surfaceOverlayController?.resolve(reason);
-    try{ if(_surfaceOverlayTimeout){ clearTimeout(_surfaceOverlayTimeout); _surfaceOverlayTimeout = null; } }catch(e){}
+    try{ if(_surfaceOverlayTimeout){ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); _surfaceOverlayTimeout = null; } }catch(e){}
   }
 
   function forceSurfaceOverlay(reason, options = {}){
@@ -1004,15 +1007,18 @@
     }
   };
   const scheduleSurfaceNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncSurfaceAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncSurfaceAutoDrawNoticeWidth(reason || 'immediate');
+    let lastReason = 'frame';
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(surface, 'surface', () => syncSurfaceAutoDrawNoticeWidth(lastReason), { reason: 'surface-notice-width' })
+      : null;
+    return reason => {
+      lastReason = reason || 'frame';
+      if(debounced){
+        debounced({ tabId: surface.__boundTabId || null, reason: 'surface-notice-width' });
+        return;
+      }
+      syncSurfaceAutoDrawNoticeWidth(lastReason);
+    };
   })();
   let scheduleDrawSurfaceRaw = () => {};
   const surfaceUndoManager = Shared.undoManager || null;
@@ -1362,19 +1368,22 @@
       return instance;
     };
     const ensureSurfaceHotForActiveTab = () => {
-      const activeTabId = Shared.hot.resolveActiveTabId?.()
-        || surface.__boundTabId
-        || global.Main?.tabs?.getActiveTab?.()?.id
-        || null;
       const wrapper = getSurfaceNodeById('surfaceHotWrapper');
       const baseContainer = getSurfaceNodeById('surfaceHot');
+      const activeTabId = Shared.hot?.resolveTableTabId?.({
+        type: 'surface',
+        component: surface,
+        wrapper,
+        container: baseContainer,
+        reason: 'surface-ensure-hot'
+      }) || null;
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createSurfaceTable(baseContainer);
         }
         if(state.hot){
           state.hot.__surfaceHostContainer = baseContainer;
-          state.hot.__surfaceTabId = activeTabId || 'surface-default';
+          state.hot.__surfaceTabId = activeTabId;
           ensureSurfaceDataViewsForHot(state.hot, {
             wrapper,
             container: baseContainer
@@ -1395,7 +1404,7 @@
       }
       if(state.hot){
         state.hot.__surfaceHostContainer = entry?.container || baseContainer;
-        state.hot.__surfaceTabId = entry?.tabId || activeTabId || 'surface-default';
+        state.hot.__surfaceTabId = entry?.tabId || activeTabId;
         ensureSurfaceDataViewsForHot(state.hot, {
           wrapper,
           container: entry?.container || baseContainer
@@ -1842,9 +1851,6 @@
 
     if(typeof plot3d.applyLegendPointerGuards === 'function'){
       plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
-      plot3d.applyLegendPointerGuards(rect, { label: 'surface-scale' });
-      plot3d.applyLegendPointerGuards(minText, { label: 'surface-scale' });
-      plot3d.applyLegendPointerGuards(maxText, { label: 'surface-scale' });
     }
 
     if(typeof Shared.enableLegendDrag === 'function' && legend.dataset){
@@ -2722,7 +2728,7 @@
   }
 
   surface.init = function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || surface.__boundTabId || null;
+    const targetTabId = options?.tabId || surface.__boundTabId || null;
     const targetRoot = options?.root || resolveSurfaceRoot(targetTabId || null) || null;
     if(surface.ready && (!targetTabId || surface.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       debugLog('Debug: surface.init skipped', { reason: 'ready', tabId: surface.__boundTabId || null });
@@ -2812,9 +2818,9 @@
         debugLog
       });
     }
-    const scheduleSurfaceDrawBase = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(runSurfaceDrawCycle)
-      : (() => setTimeout(runSurfaceDrawCycle, 16));
+    const scheduleSurfaceDrawBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(surface, 'surface', runSurfaceDrawCycle, { reason: 'surface-draw-frame' })
+      : runSurfaceDrawCycle;
     const scheduleSurfaceDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
@@ -2831,11 +2837,10 @@
           debugLog('Debug: surface autoDraw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
+        Shared.componentLifecycle?.scheduleComponentFrame?.(surface, 'surface', {
+          tabId: nextOpts.tabId || surface.__boundTabId || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
         return;
       }
       runSchedule();
@@ -2844,6 +2849,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'surface',
           debugLabel: 'surface',
+          getTabId: () => surface.__boundTabId || null,
           scheduleRaw: scheduleSurfaceDrawInstrumented
         })
       : scheduleSurfaceDrawInstrumented;
@@ -2876,10 +2882,11 @@
     state.scheduleDraw();
   };
 
-  surface.ensure = function ensure(){
+  surface.ensure = function ensure(options = {}){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
+        tabLike: options.tab || options.tabId || null,
         sentinelSelector: '#surfaceHot',
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
@@ -2893,7 +2900,7 @@
         return;
       }
     }
-    if(!surface.ready){ surface.init({ tabId: Shared.hot?.resolveActiveTabId?.() || surface.__boundTabId || undefined, reason: 'ensure' }); }
+    if(!surface.ready){ surface.init({ ...options, tabId: options.tabId || options.tab?.id || surface.__boundTabId || undefined, reason: options.reason || 'ensure' }); }
   };
   function resetSurfaceHotViewportToTop(hotInstance){
     const hot = hotInstance || null;
@@ -2918,7 +2925,7 @@
     }
   }
   function isSurfaceRuntimeFreshForTab(tabLike){
-    const record = Shared.workspaceTabs?.getSessionRecord?.(tabLike || Shared.hot?.resolveActiveTabId?.() || null, 'surface') || null;
+    const record = Shared.workspaceTabs?.getSessionRecord?.(tabLike || surface.__boundTabId || null, 'surface') || null;
     const runtime = record?.runtime;
     if(!runtime || typeof runtime !== 'object'){
       return true;

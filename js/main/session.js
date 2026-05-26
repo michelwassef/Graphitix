@@ -215,6 +215,98 @@
     return workspaceState.tabs.find(tab => tab && tab.id === tabId) || null;
   }
 
+  function cleanupDisposedTabBookkeeping(tab, meta = {}) {
+    const tabId = tab?.id || null;
+    if (!tabId) {
+      return false;
+    }
+    if (workspaceState.loadedWorkspaces && typeof workspaceState.loadedWorkspaces === 'object') {
+      if (workspaceState.loadedWorkspaces[tabId]) {
+        delete workspaceState.loadedWorkspaces[tabId];
+      }
+      Object.keys(workspaceState.loadedWorkspaces).forEach(key => {
+        const entry = workspaceState.loadedWorkspaces[key];
+        if (entry && entry.tabId === tabId) {
+          delete workspaceState.loadedWorkspaces[key];
+        }
+      });
+    }
+    if (workspaceState.pendingDuplicateSource === tabId) {
+      workspaceState.pendingDuplicateSource = null;
+    }
+    if (window.Shared?.undoManager?.clearTab) {
+      try {
+        window.Shared.undoManager.clearTab(tabId, {
+          reason: meta.reason || 'dispose-tab'
+        });
+      } catch (err) {
+        console.error('disposeWorkspaceTabResources undo cleanup error', { tabId, err });
+      }
+    }
+    return true;
+  }
+
+  function disposeWorkspaceTabResources(tabLike, meta = {}) {
+    const tab = resolveTab(tabLike) || (tabLike && typeof tabLike === 'object' ? tabLike : null);
+    if (!tab || !tab.id) {
+      console.debug('Debug: disposeWorkspaceTabResources skipped', {
+        reason: meta.reason || 'dispose-tab',
+        hasTab: !!tab
+      });
+      return false;
+    }
+    const reason = meta.reason || 'dispose-tab';
+    const type = String(meta.type || tab.type || '').trim();
+    let disposed = false;
+    try {
+      if (window.Shared?.workspaceTabs?.disposeTab) {
+        disposed = !!window.Shared.workspaceTabs.disposeTab(tab, {
+          ...meta,
+          type,
+          reason
+        }) || disposed;
+      }
+    } catch (err) {
+      console.error('disposeWorkspaceTabResources workspace dispose error', {
+        tabId: tab.id,
+        type,
+        reason,
+        err
+      });
+    }
+    cleanupDisposedTabBookkeeping(tab, { ...meta, reason });
+    console.debug('Debug: workspace tab resources disposed', {
+      tabId: tab.id,
+      type: type || null,
+      reason,
+      disposed
+    });
+    return disposed;
+  }
+
+  function disposeWorkspaceTabs(tabList, meta = {}) {
+    const tabs = Array.isArray(tabList) ? tabList.slice() : [];
+    let count = 0;
+    tabs.forEach(tab => {
+      if (!tab || typeof tab !== 'object') {
+        return;
+      }
+      if (disposeWorkspaceTabResources(tab, {
+        ...meta,
+        type: meta.type || tab.type || null,
+        reason: meta.reason || 'dispose-tabs'
+      })) {
+        count += 1;
+      }
+    });
+    console.debug('Debug: workspace tabs resources disposed', {
+      count,
+      total: tabs.length,
+      reason: meta.reason || 'dispose-tabs'
+    });
+    return count;
+  }
+
   function markTabUserModified(tabLike, reason, meta = {}) {
     const tab = resolveTab(tabLike);
     if (!tab || tab.isWelcome) {
@@ -3048,6 +3140,9 @@
       options.hideDuplicatePrompt();
       console.debug('Debug: session apply requested duplicate prompt hide', { reason: options.reason || 'session-load' });
     }
+    disposeWorkspaceTabs(workspaceState.tabs, {
+      reason: options.reason || 'session-load-replace'
+    });
     workspaceState.tabs = [];
     workspaceState.activeTabId = null;
     workspaceState.pendingDuplicateSource = null;
@@ -3198,6 +3293,8 @@
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.markTabUserModified = markTabUserModified;
   namespace.markActiveTabUserModified = markActiveTabUserModified;
+  namespace.disposeWorkspaceTabResources = disposeWorkspaceTabResources;
+  namespace.disposeWorkspaceTabs = disposeWorkspaceTabs;
   namespace.markTabRenderCommitted = markTabRenderCommitted;
   namespace.assignTabPayload = assignTabPayload;
   namespace.updateTabPayload = updateTabPayload;

@@ -3,7 +3,11 @@ const { ensureJStatStub } = require('./helpers/jstatTestStub');
 
 async function flushAsyncWork(iterations = 10){
   for(let i = 0; i < iterations; i += 1){
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
+    if(typeof jest.getTimerCount === 'function' && jest.getTimerCount() > 0){
+      jest.advanceTimersByTime(5);
+    }
+    await Promise.resolve();
   }
 }
 
@@ -13,9 +17,17 @@ async function waitForBoxSvg(iterations = 80){
     if(svg){
       return svg;
     }
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await flushAsyncWork(1);
   }
   return null;
+}
+
+async function advanceAsyncTime(ms){
+  const duration = Math.max(0, Number(ms) || 0);
+  await Promise.resolve();
+  jest.advanceTimersByTime(duration);
+  await Promise.resolve();
+  await flushAsyncWork(2);
 }
 
 async function activateWorkspace(type){
@@ -82,6 +94,7 @@ describe('Box stats controls tab isolation with render cache', () => {
   let restoreJStat;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.resetModules();
     initializeWorkspaceHarness({ mode: 'full-app', resetNamespaces: true });
     restoreJStat = ensureJStatStub();
@@ -138,6 +151,12 @@ describe('Box stats controls tab isolation with render cache', () => {
   });
 
   afterEach(() => {
+    try{
+      if(typeof jest.getTimerCount === 'function' && jest.getTimerCount() > 0){
+        jest.runOnlyPendingTimers();
+      }
+    }catch(_err){}
+    jest.useRealTimers();
     if(restoreJStat){
       restoreJStat();
       restoreJStat = null;
@@ -335,7 +354,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(tabB.payload?.config?.colorScheme).toBe('dark');
 
     await activateTabById(tabA.id, 'test-theme-switch-back-before-delayed-dark');
-    await new Promise(resolve => setTimeout(resolve, 230));
+    await advanceAsyncTime(230);
     await flushAsyncWork(20);
 
     const active = main.session.getActiveTab();

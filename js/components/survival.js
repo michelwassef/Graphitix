@@ -1127,6 +1127,13 @@
     const ensureSurvivalHotForActiveTab = () => {
       const wrapper = $('#survivalHotWrapper');
       const baseContainer = refs.hotContainer || $('#survivalHot');
+      const tableTabId = Shared.hot?.resolveTableTabId?.({
+        type: 'survival',
+        component: survival,
+        wrapper,
+        container: baseContainer,
+        reason: 'survival-ensure-hot'
+      }) || null;
       if(!baseContainer || typeof Shared.hot?.ensureTableForTab !== 'function'){
         if(!state.hot && baseContainer){
           state.hot = createSurvivalTable(baseContainer);
@@ -1139,7 +1146,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'survival',
-        tabId: Shared.hot.resolveActiveTabId?.() || null,
+        tabId: tableTabId,
         wrapper,
         container: baseContainer,
         createInstance: createSurvivalTable
@@ -5393,7 +5400,7 @@
   }
 
   function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = options?.tabId || survival.__boundTabId || null;
     const targetRoot = options?.root || resolveSurvivalRoot(targetTabId || null) || refs.root || null;
     if(survival.ready && (!targetTabId || survival.__boundTabId === targetTabId) && (!targetRoot || refs.root === targetRoot)){
       logDebug('init skipped', { tabId: survival.__boundTabId || null });
@@ -5409,15 +5416,18 @@
       console.warn('Survival component init skipped: required elements missing');
       return;
     }
-    const scheduleSurvivalBase = Shared.debounceFrame ? Shared.debounceFrame(() => drawSurvival()) : (() => drawSurvival());
+    const scheduleSurvivalBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(survival, 'survival', () => drawSurvival(), { reason: 'survival-draw-frame' })
+      : (() => drawSurvival());
     state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'survival',
           debugLabel: 'survival',
+          getTabId: () => survival.__boundTabId || null,
           scheduleRaw: scheduleSurvivalBase
         })
       : scheduleSurvivalBase;
-    logDebug('scheduleDraw configured', { hasDebounce: typeof Shared.debounceFrame === 'function' });
+    logDebug('scheduleDraw configured', { scheduler: 'tab-scoped lifecycle frame' });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'survival',
         tabId: targetTabId || undefined,
@@ -5456,14 +5466,10 @@
       refs.svgBox = state.layout.elements.svgBox;
       ensureSurvivalLegendControlPlacement();
     }
-    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(() => ensureSurvivalLegendControlPlacement())
-      : null;
-    if(scheduleLegendPlacement){
-      scheduleLegendPlacement();
-    }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(() => ensureSurvivalLegendControlPlacement());
-    }
+    Shared.componentLifecycle?.scheduleComponentFrame?.(survival, 'survival', {
+      tabId: survival.__boundTabId || null,
+      reason: 'survival-legend-placement'
+    }, () => ensureSurvivalLegendControlPlacement());
     initHot();
     initControls();
     initNotes();
@@ -5486,10 +5492,11 @@
   }
 
   survival.init = init;
-  survival.ensure = function ensure(){
+  survival.ensure = function ensure(options = {}){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
+        tabLike: options.tab || options.tabId || null,
         sentinelSelector: '#survivalHot',
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
@@ -5504,7 +5511,7 @@
       }
     }
     if(!survival.ready){
-      init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
+      init({ ...options, tabId: options.tabId || options.tab?.id || survival.__boundTabId || undefined, reason: options.reason || 'ensure' });
     }
   };
   survival.activateTab = Shared.componentLifecycle?.bindTabActivation?.({

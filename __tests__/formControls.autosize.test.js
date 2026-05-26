@@ -133,26 +133,43 @@ describe('Shared formControls auto-sizing', () => {
       }
     };
 
-    const componentsToEnsure = ['scatter','line','box','venn','pca','heatmap','roc','pie','survival'];
-    for (const componentName of componentsToEnsure) {
-      await activateWorkspace(componentName);
-      ensureComponent(componentName);
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    autoSizeSpy.mockClear();
+    const interactWithSelect = (id, value) => {
+      const select = document.getElementById(id);
+      expect(select).toBeTruthy();
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return select;
+    };
 
     const interactions = [
-      { id: 'scatterGraphType', value: 'volcano' },
-      { id: 'lineRegressionMode', value: 'quadratic' },
-      { id: 'boxGraphType', value: 'violin' },
-      { id: 'regionSelect', value: 'B' },
-      { id: 'pcaViewMode', value: '3d' },
-      { id: 'heatmapView', value: 'values' },
-      { id: 'rocGraphType', value: 'pr' },
-      { id: 'pieChartType', value: 'donut' }
+      { component: 'scatter', id: 'scatterGraphType', value: 'volcano' },
+      { component: 'line', id: 'lineRegressionMode', value: 'quadratic' },
+      { component: 'box', id: 'boxGraphType', value: 'violin' },
+      { component: 'venn', id: 'regionSelect', value: 'B' },
+      { component: 'pca', id: 'pcaViewMode', value: '3d' },
+      { component: 'heatmap', id: 'heatmapView', value: 'values' },
+      { component: 'roc', id: 'rocGraphType', value: 'pr' },
+      { component: 'pie', id: 'pieChartType', value: 'donut' }
     ];
 
+    for (const interaction of interactions) {
+      await activateWorkspace(interaction.component);
+      ensureComponent(interaction.component);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    autoSizeSpy.mockClear();
+
+    for (const interaction of interactions) {
+      await activateWorkspace(interaction.component);
+      ensureComponent(interaction.component);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      interactWithSelect(interaction.id, interaction.value);
+    }
+
+    await activateWorkspace('survival');
+    ensureComponent('survival');
+    await new Promise(resolve => setTimeout(resolve, 0));
     let survivalCovariateSelect = document.querySelector('#survivalCovariateControls select');
     if(!survivalCovariateSelect){
       const survivalState = window.Components?.survival?.__getState?.();
@@ -173,14 +190,11 @@ describe('Shared formControls auto-sizing', () => {
       survivalCovariateSelect.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    interactions.forEach(({ id, value }) => {
-      const select = document.getElementById(id);
-      expect(select).toBeTruthy();
-      select.value = value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-
+    await activateWorkspace('scatter');
+    ensureComponent('scatter');
+    await new Promise(resolve => setTimeout(resolve, 0));
     const scatterSelect = document.getElementById('scatterGraphType');
+    expect(scatterSelect).toBeTruthy();
     const preMutationCalls = autoSizeSpy.mock.calls.length;
     const longOption = document.createElement('option');
     longOption.value = 'long-option';

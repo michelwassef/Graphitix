@@ -284,19 +284,27 @@
     scheduleLineDraw(scheduleOptions);
   }
 
-  function invalidateActiveLineRenderCache(reason){
+  function invalidateLineRenderCacheForTab(tabLike, reason){
     try{
+      const tabId = typeof tabLike === 'string' ? tabLike.trim() : String(tabLike?.id || '').trim();
+      if(!tabId){
+        lineDebug('Debug: line render cache invalidation skipped without explicit tab', { reason: reason || null });
+        return false;
+      }
       const sess = (global.Main && global.Main.session) ? global.Main.session : null;
-      const active = typeof sess?.getActiveTab === 'function' ? sess.getActiveTab() : null;
-      if(!active || active.type !== 'line'){
+      const tabs = Array.isArray(sess?.workspaceState?.tabs) ? sess.workspaceState.tabs : [];
+      const tab = (tabLike && typeof tabLike === 'object' && tabLike.id)
+        ? tabLike
+        : (tabs.find(item => item && String(item.id || '') === tabId) || null);
+      if(!tab || tab.type !== 'line'){
         return false;
       }
       let cleared = false;
-      if(typeof sess.clearTabRenderCache === 'function'){
-        cleared = sess.clearTabRenderCache(active, { reason: reason || 'line-view-change' }) || cleared;
+      if(typeof sess?.clearTabRenderCache === 'function'){
+        cleared = sess.clearTabRenderCache(tab, { tabId, reason: reason || 'line-view-change' }) || cleared;
       }
-      if(typeof sess.clearTabArchiveRenderCache === 'function'){
-        cleared = sess.clearTabArchiveRenderCache(active, { reason: reason || 'line-view-change' }) || cleared;
+      if(typeof sess?.clearTabArchiveRenderCache === 'function'){
+        cleared = sess.clearTabArchiveRenderCache(tab, { tabId, reason: reason || 'line-view-change' }) || cleared;
       }
       return cleared;
     }catch(err){
@@ -985,11 +993,37 @@
     context:null
   };
 
+  function resolveLineTabIdFromNode(node){
+    let cursor = node || null;
+    const doc = global.document || null;
+    while(cursor && cursor !== doc){
+      const dataset = cursor.dataset || null;
+      const candidate = String(dataset?.workspaceTabId || dataset?.tabId || '').trim();
+      if(candidate){
+        return candidate;
+      }
+      if(typeof cursor.getAttribute === 'function'){
+        const attrCandidate = String(
+          cursor.getAttribute('data-workspace-tab-id')
+          || cursor.getAttribute('data-tab-id')
+          || ''
+        ).trim();
+        if(attrCandidate){
+          return attrCandidate;
+        }
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
   function resolveLineOwnedRuntimeTabId(tabLike = null, meta = {}){
     const direct = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike)
       || meta?.tabId
       || meta?.workspaceTabId
       || meta?.tab?.id
+      || lineHot?.__lineTabId
+      || resolveLineTabIdFromNode(refs?.root || null)
       || line.__boundTabId
       || null;
     if(direct){
@@ -1208,25 +1242,9 @@
     };
   }
 
-  function ensureLineOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const tabId = resolveLineOwnedRuntimeTabId(tabLike, meta);
-    if(!tabId){
-      console.warn('Debug: line owned runtime record missing tab id', { reason: meta?.reason || 'ensure-line-owned-runtime' });
+  function normalizeLineOwnedRuntimeRecord(record){
+    if(!record || typeof record !== 'object'){
       return null;
-    }
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'line') || null;
-    if(!runtime){
-      console.warn('Debug: line owned runtime record missing shared runtime', { tabId, reason: meta?.reason || 'ensure-line-owned-runtime' });
-      return null;
-    }
-    let record = runtime.ownedRuntimeRecord || null;
-    if(!record){
-      record = createLineOwnedRuntimeRecord(tabId);
-      runtime.ownedRuntimeRecord = record;
-      console.debug('Debug: line owned runtime record created', {
-        tabId,
-        reason: meta?.reason || 'ensure-line-owned-runtime'
-      });
     }
     record.displayMode = sanitizeLineDisplayMode(record.displayMode || 'line');
     record.last2d = normalizeLineOwnedLast2dState(record.last2d);
@@ -1248,15 +1266,45 @@
     return record;
   }
 
-  function getLineOwnedRuntimeRecord(tabLike = null, meta = {}){
+  function getLineRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(line, {
+      componentKey: 'line',
+      createDefaultRecord: createLineOwnedRuntimeRecord,
+      normalizeRecord: normalizeLineOwnedRuntimeRecord,
+      requireSessionRuntime: true
+    }) || null;
+  }
+
+  function ensureLineOwnedRuntimeRecord(tabLike = null, meta = {}){
     const tabId = resolveLineOwnedRuntimeTabId(tabLike, meta);
-    const record = tabId
-      ? (Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'line')?.ownedRuntimeRecord || null)
-      : null;
-    if(!record || record.hydrated !== true){
+    if(!tabId){
+      console.warn('Debug: line owned runtime record missing tab id', { reason: meta?.reason || 'ensure-line-owned-runtime' });
       return null;
     }
-    return ensureLineOwnedRuntimeRecord(tabId, { ...(meta || {}), tabId });
+    const record = getLineRuntimeOwner()?.ensureRecord?.(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'ensure-line-owned-runtime'
+    }, { create: true }) || null;
+    if(record && record.hydrated !== true){
+      console.debug('Debug: line owned runtime record ensured', {
+        tabId,
+        reason: meta?.reason || 'ensure-line-owned-runtime'
+      });
+    }
+    return record;
+  }
+
+  function getLineOwnedRuntimeRecord(tabLike = null, meta = {}){
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike, meta);
+    if(!tabId){
+      return null;
+    }
+    return getLineRuntimeOwner()?.bindRecord?.(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'get-line-owned-runtime'
+    }, { requireHydrated: true }) || null;
   }
 
   function bindExistingLineOwnedRuntimeRecord(tabLike = null, meta = {}){
@@ -1268,9 +1316,9 @@
   }
 
   function bindLineOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const record = ensureLineOwnedRuntimeRecord(tabLike, meta);
-    if(!record || record.hydrated !== true){
-      return record || null;
+    const record = getLineOwnedRuntimeRecord(tabLike, meta);
+    if(!record){
+      return null;
     }
     lineDisplayMode = sanitizeLineDisplayMode(record.displayMode || lineDisplayMode);
     lineLast2dDisplayMode = sanitizeLineDisplayMode(record.last2d.displayMode || lineLast2dDisplayMode);
@@ -1385,9 +1433,11 @@
     record.hydrated = true;
     record.updatedAt = Date.now();
     record.reason = meta?.reason || 'remember-line-owned-runtime';
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'line') || null;
-    if(runtime){ runtime.ownedRuntimeRecord = record; }
-    return record;
+    return getLineRuntimeOwner()?.rememberRecord?.(record.tabId, record, {
+      ...(meta || {}),
+      tabId: record.tabId,
+      reason: meta?.reason || 'remember-line-owned-runtime'
+    }) || record;
   }
 
   function applyLineOwnedRuntimeSlicesFromSnapshot(snapshot, tabLike = null, meta = {}){
@@ -1446,8 +1496,11 @@
     record.hydrated = true;
     record.updatedAt = Date.now();
     record.reason = meta?.reason || 'apply-line-owned-runtime-slices';
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'line') || null;
-    if(runtime){ runtime.ownedRuntimeRecord = record; }
+    getLineRuntimeOwner()?.setRecord?.(record.tabId, record, {
+      ...(meta || {}),
+      tabId: record.tabId,
+      reason: meta?.reason || 'apply-line-owned-runtime-slices'
+    });
     return bindLineOwnedRuntimeRecord(record.tabId, {
       ...(meta || {}),
       reason: meta?.reason || 'apply-line-owned-runtime-slices'
@@ -3110,15 +3163,18 @@
     }
   };
   const scheduleLineNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncLineAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncLineAutoDrawNoticeWidth(reason || 'immediate');
+    let lastReason = 'frame';
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(line, 'line', () => syncLineAutoDrawNoticeWidth(lastReason), { reason: 'line-notice-width' })
+      : null;
+    return reason => {
+      lastReason = reason || 'frame';
+      if(debounced){
+        debounced({ tabId: line.__boundTabId || null, reason: 'line-notice-width' });
+        return;
+      }
+      syncLineAutoDrawNoticeWidth(lastReason);
+    };
   })();
 
   function lineDebug(label, payload){
@@ -6603,15 +6659,18 @@
   }
 
   const scheduleLine3dDatasetSync = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncLine3dDatasetsFromTable(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncLine3dDatasetsFromTable(reason || 'immediate');
+    let lastReason = 'frame';
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(line, 'line', () => syncLine3dDatasetsFromTable(lastReason), { reason: 'line-3d-dataset-sync' })
+      : null;
+    return reason => {
+      lastReason = reason || 'frame';
+      if(debounced){
+        debounced({ tabId: line.__boundTabId || null, reason: 'line-3d-dataset-sync' });
+        return;
+      }
+      syncLine3dDatasetsFromTable(lastReason);
+    };
   })();
 
   function syncLine3dDatasetsFromTable(reason){
@@ -7023,7 +7082,7 @@
     renderLine3dList();
     syncLineAspectControls('enter-3d');
     if(!skipDraw){
-      invalidateActiveLineRenderCache('line-view-mode-change');
+      invalidateLineRenderCacheForTab(line.__boundTabId || null, 'line-view-mode-change');
       scheduleLineViewRefresh('line-view-mode-change', {
         force: true,
         skipThresholdEvaluation: true
@@ -7124,7 +7183,7 @@
     updateLineNestedHeaders();
     syncLineAspectControls('exit-3d');
     if(!skipDraw){
-      invalidateActiveLineRenderCache('line-view-mode-change');
+      invalidateLineRenderCacheForTab(line.__boundTabId || null, 'line-view-mode-change');
       scheduleLineViewRefresh('line-view-mode-change', {
         force: true,
         skipThresholdEvaluation: true
@@ -9658,12 +9717,6 @@
               }
             });
           }
-          if(typeof legendGroup.querySelectorAll === 'function'){
-            const interactiveNodes = legendGroup.querySelectorAll('[data-legend-key]');
-            interactiveNodes.forEach(node => {
-              plot3d.applyLegendPointerGuards(node, { label: node.dataset.legendKey || null });
-            });
-          }
           const textNodes = legendGroup.querySelectorAll('text');
           legendRenderer.entries.forEach((legendEntry, idx) => {
             const textNode = textNodes[idx];
@@ -12085,7 +12138,7 @@
 
   // PART: SETUP
   function setup(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = resolveLineOwnedRuntimeTabId(options?.tabId || options?.tab || null, options) || null;
     if(line.ready && (!targetTabId || line.__boundTabId === targetTabId)){
       console.debug('Debug: Components.line.setup skipped', { tabId: line.__boundTabId || null });
       return;
@@ -12630,14 +12683,10 @@
     lineLayout?.syncPanels?.();
     scheduleLineNoticeWidth('init');
     ensureLineResizerControls();
-    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(()=>ensureLineResizerControls())
-      : null;
-    if(scheduleLegendPlacement){
-      scheduleLegendPlacement();
-    }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(()=>ensureLineResizerControls());
-    }
+    Shared.componentLifecycle?.scheduleComponentFrame?.(line, 'line', {
+      tabId: line.__boundTabId || null,
+      reason: 'line-resizer-controls'
+    }, () => ensureLineResizerControls());
     if(lineLayout && typeof lineLayout.updateSvgBox === 'function'){
       const originalUpdateSvgBox = lineLayout.updateSvgBox.bind(lineLayout);
       lineLayout.updateSvgBox = node => {
@@ -12887,6 +12936,13 @@
     const ensureLineHotForActiveTab = () => {
       const wrapper = refs.hotWrapper || refs.root?.querySelector?.('#lineHotWrapper') || getLineNodeById('lineHotWrapper');
       const baseContainer = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot');
+      const tableTabId = Shared.hot?.resolveTableTabId?.({
+        type: 'line',
+        component: line,
+        wrapper,
+        container: baseContainer,
+        reason: 'line-ensure-hot'
+      }) || null;
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!lineHot){
           lineHot = createLineTable(baseContainer);
@@ -12894,7 +12950,7 @@
         refs.hotContainer = baseContainer;
         if(lineHot){
           lineHot.__lineHostContainer = baseContainer;
-          lineHot.__lineTabId = Shared.hot.resolveActiveTabId?.() || 'line-default';
+          lineHot.__lineTabId = tableTabId;
           refs.hot = lineHot;
           ensureLineDataViewsForHot(lineHot, {
             wrapper,
@@ -12906,7 +12962,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'line',
-        tabId: Shared.hot.resolveActiveTabId?.() || null,
+        tabId: tableTabId,
         wrapper,
         container: baseContainer,
         createInstance: createLineTable
@@ -12917,7 +12973,7 @@
       }
       if(lineHot){
         lineHot.__lineHostContainer = entry?.container || baseContainer;
-        lineHot.__lineTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'line-default';
+        lineHot.__lineTabId = entry?.tabId || tableTabId;
         refs.hot = lineHot;
         ensureLineDataViewsForHot(lineHot, {
           wrapper,
@@ -13051,7 +13107,10 @@
           recordUndo: true,
           undoLabel: 'table:line:example-load'
         });
-        setTimeout(()=>{
+        Shared.componentLifecycle?.scheduleComponentTimeout?.(line, 'line', {
+          tabId: line.__boundTabId || null,
+          reason: 'line-example-load-sync'
+        }, () => {
           try{
             lineHot.loadData(example.data, {
               source: 'example-load-sync',
@@ -13417,7 +13476,9 @@
         resolveLineOverlay(status);
       }
     };
-    const scheduleLineBase = Shared.debounceFrame ? Shared.debounceFrame(runLineDrawCycle) : runLineDrawCycle;
+    const scheduleLineBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(line, 'line', runLineDrawCycle, { reason: 'line-draw-frame' })
+      : runLineDrawCycle;
     const scheduleLineInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
@@ -13439,11 +13500,10 @@
           lineDebug('Debug: line autoDraw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
+        Shared.componentLifecycle?.scheduleComponentFrame?.(line, 'line', {
+          tabId: nextOpts.tabId || line.__boundTabId || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
         return;
       }
       runSchedule();
@@ -13452,6 +13512,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'line',
           debugLabel: 'line',
+          getTabId: () => line.__boundTabId || null,
           scheduleRaw: scheduleLineInstrumented
         })
       : scheduleLineInstrumented;
@@ -13471,13 +13532,19 @@
     }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     ensureLineFontEventListener();
-    console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
+    console.debug('Debug: line scheduleLineDraw configured via tab-scoped lifecycle frame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
     initNotes();
     ensureEmptyPayloadTemplate();
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
     line.ready = true;
     if(options.skipInitialDraw !== true){
-      scheduleLineDraw();
+      if(targetTabId){
+        scheduleLineDraw({ tabId: targetTabId, reason: 'line-setup-initial-draw' });
+      }else{
+        console.debug('Debug: line setup initial draw skipped (missing tab ownership)', {
+          reason: options.reason || 'setup'
+        });
+      }
     }else{
       console.debug('Debug: line init initial draw skipped', {
         reason: options.reason || 'setup',
@@ -13556,11 +13623,11 @@
     return !!result?.rebound;
   }
 
-  function ensureReady(){
-    if(ensureLineDomBindings()){
+  function ensureReady(options = {}){
+    if(ensureLineDomBindings(options.tab || options.tabId || null)){
       return;
     }
-    if(!line.ready) setup();
+    if(!line.ready) setup({ ...options, tabId: options.tabId || options.tab?.id || line.__boundTabId || null, reason: options.reason || 'ensure-ready' });
   }
 
   line.init = setup;
@@ -13690,10 +13757,10 @@
   }
 
   function captureLineRenderCacheMetadata(meta = {}, sourceSvg = null){
-    const tab = meta?.tab || global.Main?.session?.getActiveTab?.() || null;
+    const tabId = resolveLineOwnedRuntimeTabId(meta?.tabId || null, meta);
     const svg = sourceSvg || (refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot'))?.querySelector?.('#lineSvg') || null;
     return {
-      tabId: meta?.tabId || tab?.id || line.__boundTabId || null,
+      tabId: tabId || null,
       type: 'line',
       complete: false,
       viewMode: svg?.dataset?.viewMode || null,
@@ -14180,38 +14247,46 @@
       statsState: normalizeLineOwnedStatsState(lineStatsState),
       reason: meta?.reason || 'line-runtime-capture'
     };
-    rememberLineOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, { ...(meta || {}), reason: snapshot.reason || 'line-runtime-capture' });
+    const effectiveMeta = {
+      ...(meta || {}),
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || line.__boundTabId || null,
+      reason: snapshot.reason || meta?.reason || 'line-runtime-capture'
+    };
+    rememberLineOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, effectiveMeta);
     console.debug('Debug: line runtime snapshot captured', {
-      tabId: meta?.tabId || line.__boundTabId || null,
+      tabId: effectiveMeta.tabId || null,
       displayMode: snapshot.displayMode,
       notesOpen: notesOpen,
       ownedRuntimeTabId: line.__lineOwnedRuntimeTabId || null,
       reason: snapshot.reason
     });
-    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(line, snapshot, {
-      ...(meta || {}),
-      reason: snapshot.reason || meta?.reason || 'line-runtime-capture'
-    }) || snapshot;
+    const remembered = Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(line, snapshot, effectiveMeta);
+    return remembered || (!Shared.componentLifecycle ? snapshot : null);
   };
 
   line.applyRuntimeState = function applyLineRuntimeState(snapshot, meta = {}){
-    snapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(line, snapshot, meta) || snapshot;
+    const effectiveMeta = {
+      ...(meta || {}),
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || line.__boundTabId || null,
+      reason: meta?.reason || 'line-runtime-apply'
+    };
+    snapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(line, snapshot, effectiveMeta) || (!Shared.componentLifecycle ? snapshot : null);
     if(!snapshot || typeof snapshot !== 'object'){
-      const rebound = bindExistingLineOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, {
-        ...(meta || {}),
-        reason: meta?.reason || 'line-runtime-apply-missing-snapshot-bind-existing-owned-runtime'
+      const rebound = bindExistingLineOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, {
+        ...effectiveMeta,
+        reason: effectiveMeta.reason || 'line-runtime-apply-missing-snapshot-bind-existing-owned-runtime'
       });
       if(rebound){
-        console.debug('Debug: line runtime snapshot apply used existing owned runtime', { tabId: rebound.tabId || meta?.tabId || null, reason: meta?.reason || 'missing-snapshot-existing-owned-runtime' });
+        console.debug('Debug: line runtime snapshot apply used existing owned runtime', { tabId: rebound.tabId || effectiveMeta.tabId || null, reason: effectiveMeta.reason || 'missing-snapshot-existing-owned-runtime' });
         return true;
       }
       lineModeCache.twoD = null;
       lineModeCache.threeD = null;
       lineModeCache.lastTwoDFormat = 'single';
-      console.debug('Debug: line runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
+      console.debug('Debug: line runtime snapshot apply skipped', { tabId: effectiveMeta.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
-    applyLineOwnedRuntimeSlicesFromSnapshot(snapshot, meta?.tab || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'line-runtime-apply-owned-slices' });
+    applyLineOwnedRuntimeSlicesFromSnapshot(snapshot, effectiveMeta.tab || effectiveMeta.tabId || null, { ...effectiveMeta, reason: effectiveMeta.reason || 'line-runtime-apply-owned-slices' });
     if(snapshot.notes && typeof snapshot.notes === 'object'){
       notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
       notesState.open = !!snapshot.notes.open;

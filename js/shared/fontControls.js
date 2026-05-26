@@ -234,12 +234,14 @@
   const FONT_SCOPE_GRAPH = 'graph';
   const GRAPH_SCOPE_TOKEN = '__graph__';
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
-  const scopeModePreferences = new Map();
+  const FONT_CONTROLS_STATE_KEY = 'fontControls';
+  const FONT_CONTROLS_DEFAULT_SCOPE = '__global__';
+  const fontControlsStateFallbackByTab = new Map();
 
-  const styleStore = new Map();
   const svgRegistry = new WeakSet();
   const svgScopeMap = new WeakMap();
   const supportsWeakRef = typeof global.WeakRef === 'function';
+  // DOM-only registries. Persistent/tab-specific font state is stored in workspaceTabs shared control state.
   const nodeGroupStore = new Map();
   const toolbarHostMap = new Map();
   const undoManager = Shared.undoManager || null;
@@ -1254,7 +1256,7 @@
   }
 
   function scopePreferenceKey(scopeId){
-    return scopeId || '__global__';
+    return scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
   }
 
   function normalizeTabId(raw){
@@ -1301,6 +1303,106 @@
     return sanitizeStoreToken(tabId);
   }
 
+  function ensureFontControlBuckets(state){
+    if(!state || typeof state !== 'object'){
+      return null;
+    }
+    if(!state.scopeModes || typeof state.scopeModes !== 'object'){
+      state.scopeModes = Object.create(null);
+    }
+    if(!state.styles || typeof state.styles !== 'object'){
+      state.styles = Object.create(null);
+    }
+    return state;
+  }
+
+  function getFontControlStateByTabToken(tabToken, options = {}){
+    const token = sanitizeTabToken(tabToken);
+    if(!token){
+      return null;
+    }
+    const workspaceTabs = Shared.workspaceTabs || null;
+    if(workspaceTabs){
+      const state = options.create === false
+        ? workspaceTabs.getSharedControlState?.(token, FONT_CONTROLS_STATE_KEY, {
+            tabId: token,
+            controlKey: FONT_CONTROLS_STATE_KEY,
+            reason: options.reason || 'font-controls-read-state',
+            strictTabOwnership: true
+          })
+        : workspaceTabs.ensureSharedControlState?.(token, FONT_CONTROLS_STATE_KEY, {
+            tabId: token,
+            controlKey: FONT_CONTROLS_STATE_KEY,
+            reason: options.reason || 'font-controls-ensure-state',
+            strictTabOwnership: true
+          });
+      return ensureFontControlBuckets(state);
+    }
+    if(options.create === false){
+      return ensureFontControlBuckets(fontControlsStateFallbackByTab.get(token) || null);
+    }
+    let fallbackState = fontControlsStateFallbackByTab.get(token) || null;
+    if(!fallbackState || typeof fallbackState !== 'object'){
+      fallbackState = {};
+      fontControlsStateFallbackByTab.set(token, fallbackState);
+    }
+    return ensureFontControlBuckets(fallbackState);
+  }
+
+  function resolveTabTokenFromStoreKey(storeKey){
+    const text = String(storeKey || '');
+    const marker = `::${TAB_SCOPE_TOKEN_PREFIX}`;
+    const start = text.indexOf(marker);
+    if(start < 0){ return null; }
+    const rest = text.slice(start + marker.length);
+    const end = rest.indexOf('::');
+    return sanitizeTabToken(end >= 0 ? rest.slice(0, end) : rest);
+  }
+
+  function getFontControlStateForStoreKey(storeKey, options = {}){
+    const tabToken = resolveTabTokenFromStoreKey(storeKey) || sanitizeTabToken(options.tabId || options.workspaceTabId || null);
+    return getFontControlStateByTabToken(tabToken, options);
+  }
+
+  function getStoredStyle(storeKey, options = {}){
+    const state = getFontControlStateForStoreKey(storeKey, { ...options, create: false, reason: options.reason || 'font-style-read' });
+    return state?.styles?.[storeKey] || null;
+  }
+
+  function hasStoredStyle(storeKey, options = {}){
+    const state = getFontControlStateForStoreKey(storeKey, { ...options, create: false, reason: options.reason || 'font-style-has' });
+    return !!(state?.styles && Object.prototype.hasOwnProperty.call(state.styles, storeKey));
+  }
+
+  function setStoredStyle(storeKey, style, options = {}){
+    const state = getFontControlStateForStoreKey(storeKey, { ...options, create: true, reason: options.reason || 'font-style-write' });
+    if(!state){ return false; }
+    const snapshot = cloneStyleSnapshot(style);
+    if(snapshot){
+      state.styles[storeKey] = snapshot;
+    }else{
+      delete state.styles[storeKey];
+    }
+    return true;
+  }
+
+  function deleteStoredStyle(storeKey, options = {}){
+    const state = getFontControlStateForStoreKey(storeKey, { ...options, create: false, reason: options.reason || 'font-style-delete' });
+    if(!state?.styles){ return false; }
+    if(Object.prototype.hasOwnProperty.call(state.styles, storeKey)){
+      delete state.styles[storeKey];
+      return true;
+    }
+    return false;
+  }
+
+  function forEachStoredStyle(tabToken, callback, options = {}){
+    const state = getFontControlStateByTabToken(tabToken, { create: false, reason: options.reason || 'font-style-iterate' });
+    const styles = state?.styles || null;
+    if(!styles || typeof callback !== 'function'){ return; }
+    Object.keys(styles).forEach(storeKey => callback(styles[storeKey], storeKey));
+  }
+
   function resolveStoreTabToken(options){
     const opts = options || {};
     const node = opts.node || opts.target || null;
@@ -1310,23 +1412,23 @@
     return sanitizeTabToken(datasetTab || explicitTab || activeTab || null);
   }
 
-  function getScopePreferenceStoreKey(scopeId, options){
-    const base = scopePreferenceKey(scopeId || currentScope);
-    const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
-    return tabToken ? `${base}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}` : base;
-  }
-
   function getScopeMode(scopeId, options){
-    const key = getScopePreferenceStoreKey(scopeId || currentScope, options);
-    return scopeModePreferences.get(key) || FONT_SCOPE_SELECTION;
+    const key = scopePreferenceKey(scopeId || currentScope);
+    const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
+    const state = getFontControlStateByTabToken(tabToken, { create: false, reason: 'font-scope-mode-read' });
+    return state?.scopeModes?.[key] || FONT_SCOPE_SELECTION;
   }
 
   function setScopeMode(scopeId, mode, options){
     const normalized = mode === FONT_SCOPE_GRAPH ? FONT_SCOPE_GRAPH : FONT_SCOPE_SELECTION;
     activeScopeMode = normalized;
-    const key = getScopePreferenceStoreKey(scopeId || currentScope, options);
-    scopeModePreferences.set(key, normalized);
-    logDebug('fontControls scope mode stored', { scopeId: scopeId || currentScope || null, key, mode: normalized });
+    const key = scopePreferenceKey(scopeId || currentScope);
+    const tabToken = resolveStoreTabToken(options || { target: currentTarget || activeHost || panelEl || null });
+    const state = getFontControlStateByTabToken(tabToken, { create: true, reason: 'font-scope-mode-write' });
+    if(state){
+      state.scopeModes[key] = normalized;
+    }
+    logDebug('fontControls scope mode stored', { scopeId: scopeId || currentScope || null, key, tabToken: tabToken || null, mode: normalized });
     if(scopeSelectEl && scopeSelectEl.value !== normalized){
       scopeSelectEl.value = normalized;
     }
@@ -1664,13 +1766,13 @@
     if(typeof toolbarApi.resolveHost === 'function'){
       const sharedHost = toolbarApi.resolveHost(scopeId);
       if(sharedHost){
-        toolbarHostMap.set(scopeId || '__global__', sharedHost);
+        toolbarHostMap.set(scopeId || FONT_CONTROLS_DEFAULT_SCOPE, sharedHost);
         return sharedHost;
       }
     }
     if(!global.document){ return null; }
     const doc = global.document;
-    const key = scopeId || '__global__';
+    const key = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
     if(toolbarHostMap.has(key)){
       return toolbarHostMap.get(key);
     }
@@ -2498,7 +2600,7 @@
   }
 
   function buildStoreKey(scopeId, key, options){
-    const scope = scopeId || '__global__';
+    const scope = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
     const token = key || '__default__';
     const tabToken = resolveStoreTabToken(options);
     if(tabToken){
@@ -2741,11 +2843,11 @@
     }
     const normalized = cloneStyleSnapshot(style);
     if(!normalized){
-      styleStore.delete(storeKey);
+      deleteStoredStyle(storeKey, { tabId, reason: 'store-style-for-node-clear' });
       broadcastStyle(storeKey, null, node);
       logDebug('storeStyleForNode cleared', { scope, key, storeKey });
     } else {
-      styleStore.set(storeKey, normalized);
+      setStoredStyle(storeKey, normalized, { tabId, reason: 'store-style-for-node-save' });
       broadcastStyle(storeKey, normalized, node);
       logDebug('storeStyleForNode saved', {
         scope,
@@ -2795,19 +2897,20 @@
   }
 
   function exportScopeStyles(scopeId, options){
-    const scope = scopeId || '__global__';
+    const scope = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
     const opts = options || {};
     const tabToken = resolveStoreTabToken(opts);
     const tabPrefix = tabToken ? `${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::` : null;
     const legacyPrefix = `${scope}::`;
     const payload = {};
     let count = 0;
-    styleStore.forEach((style, storeKey) => {
+    const collect = (style, storeKey, allowTabbedKeys) => {
       let token = null;
-      if(tabPrefix){
+      if(tabPrefix && storeKey.startsWith(tabPrefix)){
         token = extractStoreTokenFromKey(storeKey, tabPrefix);
+      }else if(!allowTabbedKeys && isTabbedStoreKey(storeKey, scope)){
+        return;
       }else{
-        if(isTabbedStoreKey(storeKey, scope)){ return; }
         token = extractStoreTokenFromKey(storeKey, legacyPrefix);
       }
       if(!token){ return; }
@@ -2815,17 +2918,10 @@
       if(!snapshot){ return; }
       payload[token] = snapshot;
       count += 1;
-    });
-    if(!count && tabPrefix){
-      styleStore.forEach((style, storeKey) => {
-        if(isTabbedStoreKey(storeKey, scope)){ return; }
-        const token = extractStoreTokenFromKey(storeKey, legacyPrefix);
-        if(!token){ return; }
-        const snapshot = cloneStyleSnapshot(style);
-        if(!snapshot){ return; }
-        payload[token] = snapshot;
-        count += 1;
-      });
+    };
+    forEachStoredStyle(tabToken, (style, storeKey) => collect(style, storeKey, true), { reason: 'export-scope-styles' });
+    if(!count && tabToken){
+      forEachStoredStyle(null, (style, storeKey) => collect(style, storeKey, false), { reason: 'export-scope-styles-legacy-fallback' });
     }
     if(!count){
       logDebug('exportScopeStyles skipped (empty)', { scope, tabToken: tabToken || null });
@@ -2836,7 +2932,7 @@
   }
 
   function importScopeStyles(scopeId, styles, options){
-    const scope = scopeId || '__global__';
+    const scope = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
     const opts = options || {};
     const tabToken = resolveStoreTabToken(opts);
     const prefix = tabToken ? `${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::` : `${scope}::`;
@@ -2850,30 +2946,28 @@
         const snapshot = cloneStyleSnapshot(incoming[key]);
         keep.add(storeKey);
         if(snapshot){
-          styleStore.set(storeKey, snapshot);
+          setStoredStyle(storeKey, snapshot, { tabId: tabToken, reason: 'import-scope-styles-set' });
           if(opts.broadcast !== false){
             broadcastStyle(storeKey, snapshot, null);
           }
-          logDebug('importScopeStyles applied', { scope, token });
+          logDebug('importScopeStyles applied', { scope, token, tabToken: tabToken || null });
         } else {
-          styleStore.delete(storeKey);
+          deleteStoredStyle(storeKey, { tabId: tabToken, reason: 'import-scope-styles-clear' });
           if(opts.broadcast !== false){
             broadcastStyle(storeKey, null, null);
           }
-          logDebug('importScopeStyles cleared empty style', { scope, token });
+          logDebug('importScopeStyles cleared empty style', { scope, token, tabToken: tabToken || null });
         }
       });
     }
     if(opts.prune !== false){
       const stale = [];
-      styleStore.forEach((_, storeKey) => {
+      forEachStoredStyle(tabToken, (_, storeKey) => {
         if(!storeKey || keep.has(storeKey)){
           return;
         }
         if(tabToken){
-          const isCurrentTabKey = storeKey.startsWith(prefix);
-          const isLegacyScopeKey = storeKey.startsWith(legacyPrefix) && !isTabbedStoreKey(storeKey, scope);
-          if(isCurrentTabKey || isLegacyScopeKey){
+          if(storeKey.startsWith(prefix)){
             stale.push(storeKey);
           }
           return;
@@ -2881,9 +2975,16 @@
         if(storeKey.startsWith(prefix) && !isTabbedStoreKey(storeKey, scope)){
           stale.push(storeKey);
         }
-      });
+      }, { reason: 'import-scope-styles-prune-current' });
+      if(tabToken){
+        forEachStoredStyle(null, (_, storeKey) => {
+          if(storeKey && storeKey.startsWith(legacyPrefix) && !isTabbedStoreKey(storeKey, scope)){
+            stale.push(storeKey);
+          }
+        }, { reason: 'import-scope-styles-prune-legacy' });
+      }
       stale.forEach(storeKey => {
-        styleStore.delete(storeKey);
+        deleteStoredStyle(storeKey, { tabId: resolveTabTokenFromStoreKey(storeKey), reason: 'import-scope-styles-prune' });
         if(opts.broadcast !== false){
           broadcastStyle(storeKey, null, null);
         }
@@ -3518,7 +3619,7 @@
       const normalizedPatch = (patch && typeof patch === 'object') ? patch : {};
       const nextSnapshot = cloneStyleSnapshot(nextStyle || null) || {};
       if(storeContext?.mode === FONT_SCOPE_GRAPH){
-        const existingSnapshot = cloneStyleSnapshot(styleStore.get(storeContext.storeKey)) || {};
+        const existingSnapshot = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'graph-scope-patch-read' })) || {};
         const merged = { ...existingSnapshot };
         Object.keys(normalizedPatch).forEach(key => {
           if(!Object.prototype.hasOwnProperty.call(normalizedPatch, key)){ return; }
@@ -4103,11 +4204,11 @@
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
     }
-    if(styleStore.has(graphStoreKey)){
-      applyStyleToNode(node, styleStore.get(graphStoreKey));
+    if(hasStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'mark-text-graph-style' })){
+      applyStyleToNode(node, getStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'mark-text-graph-style' }));
     }
-    if(styleStore.has(storeKey)){
-      applyStyleToNode(node, styleStore.get(storeKey));
+    if(hasStoredStyle(storeKey, { tabId: tabToken, reason: 'mark-text-style' })){
+      applyStyleToNode(node, getStoredStyle(storeKey, { tabId: tabToken, reason: 'mark-text-style' }));
     }
     logDebug('markText applied', { scopeId, tabToken: tabToken || null, role, key, text: node?.textContent });
   }
@@ -4119,13 +4220,44 @@
     const tabToken = resolveStoreTabToken({ node, tabId: node.dataset?.fontTabId || null });
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
-    if(styleStore.has(graphStoreKey)){
-      applyStyleToNode(node, styleStore.get(graphStoreKey));
+    if(hasStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'apply-saved-graph-style' })){
+      applyStyleToNode(node, getStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'apply-saved-graph-style' }));
     }
-    if(styleStore.has(storeKey)){
-      applyStyleToNode(node, styleStore.get(storeKey));
+    if(hasStoredStyle(storeKey, { tabId: tabToken, reason: 'apply-saved-style' })){
+      applyStyleToNode(node, getStoredStyle(storeKey, { tabId: tabToken, reason: 'apply-saved-style' }));
     }
   }
+
+  function isStoreKeyOwnedByTab(storeKey, tabToken){
+    if(!storeKey || !tabToken){ return false; }
+    return String(storeKey).includes(`::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::`);
+  }
+
+  function disposeTab(tabLike, meta = {}){
+    const tabToken = sanitizeTabToken(meta?.tabId || tabLike?.id || tabLike);
+    if(!tabToken){ return false; }
+    Array.from(nodeGroupStore.keys()).forEach(storeKey => {
+      if(isStoreKeyOwnedByTab(storeKey, tabToken)){
+        nodeGroupStore.delete(storeKey);
+      }
+    });
+    Array.from(toolbarHostMap.entries()).forEach(([key, host]) => {
+      if(!host || host.isConnected === false){
+        toolbarHostMap.delete(key);
+      }
+    });
+    const activeTabToken = sanitizeTabToken(currentTarget?.dataset?.fontTabId || activeHost?.dataset?.workspaceTabId || panelEl?.dataset?.workspaceTabId || null);
+    if(activeTabToken === tabToken){
+      closePanel('dispose-tab');
+    }
+    logDebug('disposeTab complete', { tabToken });
+    return true;
+  }
+
+  fontControls.disposeTab = disposeTab;
+  try{
+    Shared.workspaceTabs?.registerSharedControlDisposer?.(FONT_CONTROLS_STATE_KEY, disposeTab);
+  }catch(_err){}
 
   fontControls.ensurePanel = ensurePanel;
   fontControls.enableForSvg = enableForSvg;

@@ -61,6 +61,12 @@ describe('Scatter stats defaults isolation', () => {
     if(typeof global.__resetGrid__ === 'function'){
       global.__resetGrid__();
     }
+    if(window.Components){
+      delete window.Components.scatter;
+    }
+    if(global.Components){
+      delete global.Components.scatter;
+    }
 
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');

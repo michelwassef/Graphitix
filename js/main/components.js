@@ -608,6 +608,12 @@
     });
   }
 
+  function ensureWorkspaceComponent(type, options) {
+    return ensureComponent(type, {
+      ensureOptions: options || {}
+    });
+  }
+
   namespace.getLifecycleDescriptor = type => Shared.componentLifecycle?.getDescriptor?.(type) || null;
   namespace.getLifecycleSpecs = () => ({ ...WORKSPACE_LIFECYCLE_SPECS });
 
@@ -627,9 +633,10 @@
   };
 
   function createRegistryDrawScheduler(componentKey, componentName = componentKey) {
-    const raw = Shared.debounceFrame((options = {}) => {
+    const registryAsyncOwner = { __componentKey: componentKey };
+    const runRegistryDraw = (options = {}) => {
       const meta = options?.__workspaceSessionMeta || null;
-      const tabId = options?.tabId || meta?.tabId || window.Main?.session?.getActiveTab?.()?.id || null;
+      const tabId = options?.tabId || meta?.tabId || null;
       const reason = options?.reason || options?.source || null;
       if (Shared.workspaceTabs?.isSessionMetaCurrent && !Shared.workspaceTabs.isSessionMetaCurrent(componentKey, meta)) {
         console.debug('Debug: registry draw skipped stale tab session', {
@@ -651,15 +658,20 @@
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-executed', reason, details: { scheduler: 'registry' } });
         draw(options || {});
       }
-    });
+    };
+    const raw = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(registryAsyncOwner, componentKey, runRegistryDraw, { reason: 'registry-draw-frame' })
+      : runRegistryDraw;
     return Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey,
           debugLabel: `registry-${componentKey}`,
+          getTabId: options => options?.tabId || options?.workspaceTabId || options?.tab?.id || null,
           scheduleRaw: raw
         })
       : raw;
-  }
+  };
+
   function resolveWorkspacePreviewSvg(type, tab) {
     const tabId = tab?.id || null;
     const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabId, type) || null;
@@ -750,7 +762,7 @@
     pie: scheduleDrawPie,
     survival: scheduleDrawSurvival
   };
-  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
+  console.debug('Debug: main tab-scoped lifecycle schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
 
   const WORKSPACES = {
     venn: {
@@ -758,7 +770,7 @@
       tabLabel: 'Venn',
       perTabDomInstances: true,
       element: document.getElementById('vennPage'),
-      ensure: () => ensureComponent('venn'),
+      ensure: options => ensureWorkspaceComponent('venn', options),
       draw: meta => window.Components?.venn?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.venn?.getThumbnailSvg?.(tab) || window.Components?.venn?.getPreviewSvg?.(tab),
       getPayload: () => window.Components?.venn?.getPayload?.(),
@@ -777,7 +789,7 @@
       tabLabel: 'Box Plot',
       perTabDomInstances: true,
       element: document.getElementById('boxPage'),
-      ensure: () => ensureComponent('box'),
+      ensure: options => ensureWorkspaceComponent('box', options),
       draw: meta => window.Components?.box?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.box?.getThumbnailSvg?.(tab) || window.Components?.box?.getPreviewSvg?.(tab),
       getPayload: () => window.Components?.box?.getPayload?.(),
@@ -800,7 +812,7 @@
       tabLabel: 'Scatter',
       perTabDomInstances: true,
       element: document.getElementById('scatterPage'),
-      ensure: () => ensureComponent('scatter'),
+      ensure: options => ensureWorkspaceComponent('scatter', options),
       draw: meta => window.Components?.scatter?.draw?.(meta || {}),
       getPreviewSvg: tab => window.Components?.scatter?.getPreviewSvg?.(tab) || window.Components?.scatter?.getThumbnailSvg?.(tab),
       getPayload: () => window.Components?.scatter?.getPayload?.(),
@@ -823,7 +835,7 @@
       tabLabel: 'PCA / MDS',
       perTabDomInstances: true,
       element: document.getElementById('pcaPage'),
-      ensure: () => ensureComponent('pca'),
+      ensure: options => ensureWorkspaceComponent('pca', options),
       draw: meta => scheduleDrawPca(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
       getPayload: () => window.Components?.pca?.getPayload?.(),
@@ -846,7 +858,7 @@
       tabLabel: 'Line Graph',
       perTabDomInstances: true,
       element: document.getElementById('linePage'),
-      ensure: () => ensureComponent('line'),
+      ensure: options => ensureWorkspaceComponent('line', options),
       draw: meta => scheduleDrawLine(meta || {}),
       getPreviewSvg: tab => window.Components?.line?.getPreviewSvg?.(tab) || window.Components?.line?.getThumbnailSvg?.(tab) || resolveWorkspacePreviewSvg('line', tab),
       getPayload: () => window.Components?.line?.getPayload?.(),
@@ -869,7 +881,7 @@
       tabLabel: 'Heatmap',
       perTabDomInstances: true,
       element: document.getElementById('heatmapPage'),
-      ensure: () => ensureComponent('heatmap'),
+      ensure: options => ensureWorkspaceComponent('heatmap', options),
       draw: meta => scheduleDrawHeatmap(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('heatmap', tab),
       getPayload: () => window.Components?.heatmap?.getPayload?.(),
@@ -891,7 +903,7 @@
       tabLabel: 'Surface Plot',
       perTabDomInstances: true,
       element: document.getElementById('surfacePage'),
-      ensure: () => ensureComponent('surface'),
+      ensure: options => ensureWorkspaceComponent('surface', options),
       draw: meta => scheduleDrawSurface(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('surface', tab),
       getPayload: () => window.Components?.surface?.getPayload?.(),
@@ -913,7 +925,7 @@
       tabLabel: 'ROC / PR',
       perTabDomInstances: true,
       element: document.getElementById('rocPage'),
-      ensure: () => ensureComponent('roc'),
+      ensure: options => ensureWorkspaceComponent('roc', options),
       draw: meta => window.Components?.roc?.draw?.(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('roc', tab),
       getPayload: () => window.Components?.roc?.getPayload?.(),
@@ -935,7 +947,7 @@
       tabLabel: 'Survival',
       perTabDomInstances: true,
       element: document.getElementById('survivalPage'),
-      ensure: () => ensureComponent('survival'),
+      ensure: options => ensureWorkspaceComponent('survival', options),
       draw: meta => scheduleDrawSurvival(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('survival', tab),
       getPayload: () => window.Components?.survival?.getPayload?.(),
@@ -957,7 +969,7 @@
       tabLabel: 'Histogram',
       perTabDomInstances: true,
       element: document.getElementById('histPage'),
-      ensure: () => ensureComponent('hist'),
+      ensure: options => ensureWorkspaceComponent('hist', options),
       draw: meta => scheduleDrawHist(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('hist', tab),
       getPayload: () => window.Components?.hist?.getPayload?.(),
@@ -979,7 +991,7 @@
       tabLabel: 'Proportion',
       perTabDomInstances: true,
       element: document.getElementById('piePage'),
-      ensure: () => ensureComponent('pie'),
+      ensure: options => ensureWorkspaceComponent('pie', options),
       draw: meta => scheduleDrawPie(meta || {}),
       getPreviewSvg: tab => window.Components?.pie?.getThumbnailSvg?.(tab) || window.Components?.pie?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('pie', tab),
       getPayload: () => window.Components?.pie?.getPayload?.(),

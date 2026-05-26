@@ -1037,7 +1037,20 @@ describe('UI events and example loaders', () => {
       return ['Gene', 'Baseline_A', 'Stress_A'].every(label => call.firstRow.includes(label));
     });
     expect(populated?.firstRow).toEqual(expect.arrayContaining(['Gene', 'Baseline_A', 'Stress_A']));
-    await flushAsyncWork();
+    let overlayCleared = false;
+    for(let i = 0; i < 80; i += 1){
+      await flushAsyncWork(4);
+      const overlay = document.querySelector('#heatmapGraphPanel .venn-loading-overlay');
+      const visible = !!overlay
+        && overlay.hidden !== true
+        && overlay.getAttribute('aria-hidden') !== 'true'
+        && overlay.classList.contains('is-visible');
+      if(!visible){
+        overlayCleared = true;
+        break;
+      }
+    }
+    expect(overlayCleared).toBe(true);
   });
 
   test('Surface Plot: Load Example populates data', async () => {

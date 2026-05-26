@@ -290,7 +290,10 @@
 
   namespace.beginRestoreTransaction = function beginRestoreTransaction(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || 'component');
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = requireExplicitTabId(meta, 'restore-transaction', key);
+    if(!tabId){
+      return function endMissingRestoreTransaction(){ return false; };
+    }
     const token = {
       componentKey: key,
       tabId,
@@ -324,7 +327,10 @@
 
   namespace.getRestoreTransaction = function getRestoreTransaction(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || '');
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = resolveExplicitTabIdFromMeta(meta);
+    if(!tabId){
+      return null;
+    }
     for(let i = restoreTransactionStack.length - 1; i >= 0; i -= 1){
       const entry = restoreTransactionStack[i];
       if(key && entry.componentKey && entry.componentKey !== key){ continue; }
@@ -462,28 +468,35 @@
 
   function buildSuppressionKey(componentKey, tabId){
     const key = normalizeLifecycleComponentKey(componentKey || 'component') || 'component';
-    return `${key}::${tabId || '__active__'}`;
+    return `${key}::${tabId || '__missing__'}`;
   }
 
   function markPostRestoreDrawSuppression(componentKey, tabId, meta = {}){
-    const key = buildSuppressionKey(componentKey, tabId);
+    const resolvedTabId = String(tabId || '').trim() || requireExplicitTabId(meta, 'post-restore-draw-suppression', componentKey);
+    if(!resolvedTabId){
+      return null;
+    }
+    const key = buildSuppressionKey(componentKey, resolvedTabId);
     const delayMs = Number.isFinite(Number(meta.delayMs)) ? Math.max(0, Number(meta.delayMs)) : 1400;
     const count = Number.isFinite(Number(meta.count)) ? Math.max(0, Math.floor(Number(meta.count))) : 16;
     postRestoreDrawSuppressions[key] = {
       componentKey: normalizeLifecycleComponentKey(componentKey || 'component'),
-      tabId: tabId || null,
+      tabId: resolvedTabId,
       until: Date.now() + delayMs,
       count,
       reason: meta.reason || 'post-render-cache-restore'
     };
-    namespace.emitLifecycleEvent({ componentKey, tabId, action: 'post-restore-draw-suppression-start', reason: meta.reason || 'post-render-cache-restore', details: { delayMs, count } });
+    namespace.emitLifecycleEvent({ componentKey, tabId: resolvedTabId, action: 'post-restore-draw-suppression-start', reason: meta.reason || 'post-render-cache-restore', details: { delayMs, count } });
     return postRestoreDrawSuppressions[key];
   }
 
   function consumePostRestoreSuppression(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || 'component');
-    const tabId = resolveTabIdFromMeta(meta);
-    const candidates = [buildSuppressionKey(key, tabId), buildSuppressionKey(key, '')];
+    const tabId = resolveExplicitTabIdFromMeta(meta);
+    if(!tabId){
+      return null;
+    }
+    const candidates = [buildSuppressionKey(key, tabId)];
     const now = Date.now();
     for(const candidate of candidates){
       const entry = postRestoreDrawSuppressions[candidate];
@@ -505,9 +518,11 @@
   namespace.markPostRestoreDrawSuppression = markPostRestoreDrawSuppression;
   namespace.clearPostRestoreDrawSuppression = function clearPostRestoreDrawSuppression(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || 'component');
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = requireExplicitTabId(meta, 'clear-post-restore-suppression', key);
+    if(!tabId){
+      return false;
+    }
     delete postRestoreDrawSuppressions[buildSuppressionKey(key, tabId)];
-    delete postRestoreDrawSuppressions[buildSuppressionKey(key, '')];
     namespace.emitLifecycleEvent({ componentKey: key, tabId, action: 'post-restore-draw-suppression-cleared', reason: meta.reason || 'clear-post-restore-suppression' });
     return true;
   };
@@ -528,7 +543,10 @@
 
   namespace.beginRenderCacheRestoreTransaction = function beginRenderCacheRestoreTransaction(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || 'component');
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = requireExplicitTabId(meta, 'render-cache-restore-transaction', key);
+    if(!tabId){
+      return function endMissingRenderCacheRestoreTransaction(){ return false; };
+    }
     const flags = normalizeTransactionFlags({ suppressDraw: true, suppressAutoDraw: true, suppressResizeDraw: true, suppressStatsRecompute: true, authoritativeRenderRestore: true, ...meta });
     const token = {
       componentKey: key,
@@ -574,7 +592,10 @@
 
   namespace.getRenderCacheRestoreTransaction = function getRenderCacheRestoreTransaction(componentKey, meta = {}){
     const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || '');
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = resolveExplicitTabIdFromMeta(meta);
+    if(!tabId){
+      return null;
+    }
     for(let i = renderRestoreTransactionStack.length - 1; i >= 0; i -= 1){
       const entry = renderRestoreTransactionStack[i];
       if(key && entry.componentKey && entry.componentKey !== key){ continue; }
@@ -883,6 +904,166 @@
     catch(_err){ return value; }
   }
 
+  const TRANSIENT_RUNTIME_KEYS = new Set([
+    'activecontroller',
+    'activepromise',
+    'activetask',
+    'animationframeid',
+    'asyncstate',
+    'asynctoken',
+    'controller',
+    'deferredhiddendrawoptions',
+    'drawasyncstate',
+    'drawinprogress',
+    'drawscheduled',
+    'drawtoken',
+    'intervalid',
+    'pendingdrawoptions',
+    'pendingdrawopts',
+    'pendingpromise',
+    'pendingrequests',
+    'pendingtask',
+    'promise',
+    'rafid',
+    'requestanimationframeid',
+    'restorepending',
+    'rotationpending',
+    'rotationpendinglogged',
+    'signal',
+    'skipnextdraw',
+    'statscomputationpending',
+    'statsrestorepending',
+    'statstoken',
+    'timeoutid',
+    'timerid',
+    'worker',
+    'workerapi',
+    'workers'
+  ]);
+
+  function isTransientRuntimeKey(key){
+    const normalized = String(key || '').replace(/[-_\s]/g, '').toLowerCase();
+    if(!normalized || normalized === '__runtimeowner'){
+      return false;
+    }
+    if(TRANSIENT_RUNTIME_KEYS.has(normalized)){
+      return true;
+    }
+    return /^pending[a-z0-9]/.test(normalized)
+      || /pending$/.test(normalized)
+      || /promise$/.test(normalized)
+      || /controller$/.test(normalized)
+      || /worker$/.test(normalized)
+      || /(timeout|interval|timer|raf|animationframe).*id$/.test(normalized);
+  }
+
+  function isPlainRuntimeObject(value){
+    if(!value || typeof value !== 'object'){
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  }
+
+  function sanitizeRuntimeValue(value, state, path){
+    if(value == null){
+      return value;
+    }
+    const valueType = typeof value;
+    if(valueType === 'function' || valueType === 'symbol' || valueType === 'bigint'){
+      state.removed.push(path || '<root>');
+      return undefined;
+    }
+    if(valueType !== 'object'){
+      return value;
+    }
+    if(typeof value.then === 'function'){
+      state.removed.push(path || '<root>');
+      return undefined;
+    }
+    if(value.nodeType || value === global || value === global.window || value instanceof WeakMap || value instanceof WeakSet){
+      state.removed.push(path || '<root>');
+      return undefined;
+    }
+    if(state.seen.has(value)){
+      state.removed.push(path || '<root>');
+      return undefined;
+    }
+    state.seen.add(value);
+    if(value instanceof Date){
+      return value.toISOString();
+    }
+    if(Array.isArray(value)){
+      const next = [];
+      value.forEach((item, index) => {
+        const sanitized = sanitizeRuntimeValue(item, state, `${path || '<root>'}[${index}]`);
+        if(sanitized !== undefined){
+          next.push(sanitized);
+        }
+      });
+      return next;
+    }
+    if(value instanceof Map){
+      const next = {};
+      value.forEach((entryValue, entryKey) => {
+        const key = String(entryKey);
+        if(isTransientRuntimeKey(key)){
+          state.removed.push(path ? `${path}.${key}` : key);
+          return;
+        }
+        const sanitized = sanitizeRuntimeValue(entryValue, state, path ? `${path}.${key}` : key);
+        if(sanitized !== undefined){
+          next[key] = sanitized;
+        }
+      });
+      return next;
+    }
+    if(value instanceof Set){
+      const next = [];
+      Array.from(value).forEach((item, index) => {
+        const sanitized = sanitizeRuntimeValue(item, state, `${path || '<root>'}[${index}]`);
+        if(sanitized !== undefined){
+          next.push(sanitized);
+        }
+      });
+      return next;
+    }
+    if(!isPlainRuntimeObject(value)){
+      state.removed.push(path || '<root>');
+      return undefined;
+    }
+    const next = {};
+    Object.keys(value).forEach(key => {
+      const childPath = path ? `${path}.${key}` : key;
+      if(isTransientRuntimeKey(key)){
+        state.removed.push(childPath);
+        return;
+      }
+      const sanitized = sanitizeRuntimeValue(value[key], state, childPath);
+      if(sanitized !== undefined){
+        next[key] = sanitized;
+      }
+    });
+    return next;
+  }
+
+  namespace.sanitizeRuntimeSnapshot = function sanitizeRuntimeSnapshot(snapshot, meta = {}){
+    if(!snapshot || typeof snapshot !== 'object'){
+      return snapshot || null;
+    }
+    const state = { seen: new WeakSet(), removed: [] };
+    const sanitized = sanitizeRuntimeValue(snapshot, state, '') || {};
+    if(state.removed.length){
+      debug('Debug: transient runtime snapshot fields removed', {
+        componentKey: meta.componentKey || meta.type || null,
+        tabId: meta.tabId || meta.tab?.id || null,
+        removed: state.removed,
+        reason: meta.reason || 'sanitize-runtime-snapshot'
+      });
+    }
+    return sanitized;
+  };
+
   function stableStringify(value){
     const seen = new WeakSet();
     const normalize = input => {
@@ -951,12 +1132,44 @@
     return String(value?.componentKey || value?.type || value?.component || value?.key || '').trim();
   }
 
-  function resolveTabIdFromMeta(meta = {}){
-    return String(meta.tabId || meta.workspaceTabId || meta.tab?.id || global.Main?.session?.getActiveTab?.()?.id || '').trim() || null;
-  }
-
   function resolveExplicitTabIdFromMeta(meta = {}){
     return String(meta.tabId || meta.workspaceTabId || meta.tab?.id || '').trim() || null;
+  }
+
+  function isStrictTabOwnership(meta = {}){
+    return !!(
+      meta.strictTabOwnership === true
+      || meta.strictLifecycleOwnership === true
+      || meta.strictRuntimeOwner === true
+      || namespace.__strictRuntimeOwnership === true
+      || isDebugEnabled()
+      || (typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test')
+    );
+  }
+
+  function reportMissingTabOwnership(action, componentKey, meta = {}){
+    const payload = {
+      componentKey: String(componentKey || meta.componentKey || meta.type || '').trim() || null,
+      action: action || meta.reason || 'lifecycle',
+      reason: meta.reason || action || 'lifecycle'
+    };
+    if(isStrictTabOwnership(meta)){
+      throw new Error(`componentLifecycle requires explicit tab id: ${JSON.stringify(payload)}`);
+    }
+    warn('Debug: component lifecycle skipped without explicit tab id', payload);
+    return null;
+  }
+
+  function requireExplicitTabId(meta = {}, action = 'lifecycle', componentKey = null){
+    const tabId = resolveExplicitTabIdFromMeta(meta);
+    if(tabId){
+      return tabId;
+    }
+    return reportMissingTabOwnership(action, componentKey, meta);
+  }
+
+  function resolveTabIdFromMeta(meta = {}){
+    return resolveExplicitTabIdFromMeta(meta);
   }
 
   namespace.normalizePayloadEnvelope = function normalizePayloadEnvelope(payload, descriptor = {}, meta = {}){
@@ -1182,7 +1395,7 @@
       }
       let scope = tabScopes.get(id);
       if(!scope){
-        scope = { generation: 0, timers: new Set(), rafs: new Set(), promises: new Set() };
+        scope = { generation: 0, timers: new Set(), rafs: new Set(), promises: new Set(), cleanups: new Set() };
         tabScopes.set(id, scope);
       }
       return scope;
@@ -1232,6 +1445,20 @@
         scope.timers.add(timer);
         return timer;
       },
+      clearTimeout(timer){
+        if(timer == null){
+          return false;
+        }
+        let cleared = false;
+        tabScopes.forEach(scope => {
+          if(scope?.timers?.has?.(timer)){
+            try{ global.clearTimeout(timer); }catch(_err){}
+            scope.timers.delete(timer);
+            cleared = true;
+          }
+        });
+        return cleared;
+      },
       requestAnimationFrame(meta, fn){
         const scoped = makeMeta(meta || {});
         if(!scoped){
@@ -1258,6 +1485,42 @@
         entry = { id: raf, cancel };
         scope.rafs.add(entry);
         return raf;
+      },
+      cancelAnimationFrame(rafId){
+        if(rafId == null){
+          return false;
+        }
+        let cancelled = false;
+        tabScopes.forEach(scope => {
+          if(!scope?.rafs){
+            return;
+          }
+          Array.from(scope.rafs).forEach(entry => {
+            if(entry?.id === rafId){
+              try{ entry.cancel(entry.id); }catch(_err){}
+              scope.rafs.delete(entry);
+              cancelled = true;
+            }
+          });
+        });
+        return cancelled;
+      },
+      registerCleanup(meta, cleanup){
+        if(typeof cleanup !== 'function'){
+          return () => {};
+        }
+        const scoped = makeMeta(meta || {});
+        if(!scoped){
+          return () => {};
+        }
+        const scope = getScope(scoped.tabId);
+        if(!scope){
+          return () => {};
+        }
+        scope.cleanups.add(cleanup);
+        return () => {
+          try{ scope.cleanups.delete(cleanup); }catch(_err){}
+        };
       },
       runPromise(meta, promise, onResolve, onReject){
         const scoped = makeMeta(meta || {});
@@ -1290,6 +1553,10 @@
           return false;
         }
         scope.generation += 1;
+        scope.cleanups?.forEach(cleanup => {
+          try{ cleanup({ componentKey: key, tabId: id, reason }); }
+          catch(err){ warn('Debug: lifecycle async cleanup failed', { componentKey: key, tabId: id, reason, err: err?.message || String(err) }); }
+        });
         scope.timers.forEach(timer => { try{ global.clearTimeout(timer); }catch(_err){} });
         scope.timers.clear();
         scope.rafs.forEach(entry => { try{ entry.cancel(entry.id); }catch(_err){} });
@@ -1301,23 +1568,171 @@
     };
   };
 
+  namespace.scheduleComponentFrame = function scheduleComponentFrame(component, componentKey, meta = {}, fn){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    const tabId = requireExplicitTabId({ ...(meta || {}), tab: meta?.tab || meta?.tabLike || null }, 'component-frame', componentKey || component?.__componentKey || null);
+    if(!tabId){
+      return null;
+    }
+    const key = componentKey || component?.__componentKey || meta?.componentKey || 'component';
+    const scope = component.__asyncScope || namespace.createAsyncScope(key);
+    component.__asyncScope = scope;
+    return scope.requestAnimationFrame({
+      ...(meta || {}),
+      tabId,
+      componentKey: key,
+      reason: meta?.reason || 'component-frame'
+    }, scoped => fn(scoped));
+  };
+
+  namespace.scheduleComponentTimeout = function scheduleComponentTimeout(component, componentKey, meta = {}, fn, delay = 0){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    const tabId = requireExplicitTabId({ ...(meta || {}), tab: meta?.tab || meta?.tabLike || null }, 'component-timeout', componentKey || component?.__componentKey || null);
+    if(!tabId){
+      return null;
+    }
+    const key = componentKey || component?.__componentKey || meta?.componentKey || 'component';
+    const scope = component.__asyncScope || namespace.createAsyncScope(key);
+    component.__asyncScope = scope;
+    return scope.setTimeout({
+      ...(meta || {}),
+      tabId,
+      componentKey: key,
+      reason: meta?.reason || 'component-timeout'
+    }, scoped => fn(scoped), delay);
+  };
+
+  namespace.clearComponentTimeout = function clearComponentTimeout(component, timer){
+    if(timer == null){
+      return false;
+    }
+    const scope = component?.__asyncScope || null;
+    if(scope && typeof scope.clearTimeout === 'function' && scope.clearTimeout(timer)){
+      return true;
+    }
+    try{ global.clearTimeout(timer); return true; }catch(_err){ return false; }
+  };
+
+  namespace.cancelComponentFrame = function cancelComponentFrame(component, frameId){
+    if(frameId == null){
+      return false;
+    }
+    const scope = component?.__asyncScope || null;
+    if(scope && typeof scope.cancelAnimationFrame === 'function' && scope.cancelAnimationFrame(frameId)){
+      return true;
+    }
+    try{
+      if(typeof global.cancelAnimationFrame === 'function'){
+        global.cancelAnimationFrame(frameId);
+      }else{
+        global.clearTimeout(frameId);
+      }
+      return true;
+    }catch(_err){
+      return false;
+    }
+  };
+
+  namespace.createTabScopedFrameDebouncer = function createTabScopedFrameDebouncer(component, componentKey, fn, options = {}){
+    if(typeof fn !== 'function'){
+      return function noopScopedFrameDebounce(){ return null; };
+    }
+    const key = String(componentKey || component?.__componentKey || options.componentKey || 'component');
+    const pendingByTab = new Map();
+    const cleanupRegistered = new Set();
+
+    function clearTab(tabId){
+      const id = String(tabId || '').trim();
+      if(id){
+        pendingByTab.delete(id);
+      }
+    }
+
+    function ensureCleanup(tabId){
+      const id = String(tabId || '').trim();
+      if(!id || cleanupRegistered.has(id)){
+        return;
+      }
+      const scope = component.__asyncScope || namespace.createAsyncScope(key);
+      component.__asyncScope = scope;
+      if(scope && typeof scope.registerCleanup === 'function'){
+        scope.registerCleanup({ tabId: id, componentKey: key, reason: 'tab-scoped-frame-debouncer-cleanup' }, () => {
+          pendingByTab.delete(id);
+        });
+      }
+      cleanupRegistered.add(id);
+    }
+
+    const debounced = function tabScopedFrameDebounced(...args){
+      const firstArg = args[0] && typeof args[0] === 'object' ? args[0] : {};
+      const meta = {
+        ...(firstArg || {}),
+        tabId: firstArg.tabId || firstArg.workspaceTabId || firstArg.tab?.id || firstArg.__workspaceSessionMeta?.tabId || null,
+        componentKey: key,
+        reason: firstArg.reason || firstArg.source || options.reason || 'tab-scoped-frame-debounce'
+      };
+      const tabId = requireExplicitTabId(meta, 'tab-scoped-frame-debounce', key);
+      if(!tabId){
+        return null;
+      }
+      ensureCleanup(tabId);
+      const existing = pendingByTab.get(tabId) || { scheduled: false, args: null, context: null };
+      existing.args = args;
+      existing.context = this;
+      pendingByTab.set(tabId, existing);
+      if(existing.scheduled){
+        return existing.handle || true;
+      }
+      existing.scheduled = true;
+      const handle = namespace.scheduleComponentFrame(component, key, { ...meta, tabId }, () => {
+        const pending = pendingByTab.get(tabId);
+        if(!pending){
+          return;
+        }
+        pendingByTab.delete(tabId);
+        pending.scheduled = false;
+        fn.apply(pending.context, pending.args || []);
+      });
+      existing.handle = handle;
+      return handle;
+    };
+
+    debounced.clear = function clearDebounced(tabLike){
+      const tabId = typeof tabLike === 'string' ? tabLike : tabLike?.id;
+      clearTab(tabId);
+    };
+    debounced.clearAll = function clearAllDebounced(){
+      pendingByTab.clear();
+    };
+    return debounced;
+  };
+
   namespace.createStateModel = function createStateModel(componentKey, factories = {}){
     const key = String(componentKey || 'component');
-    const getRecord = tabLike => {
-      const tabId = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || global.Main?.session?.getActiveTab?.()?.id || null;
-      const record = Shared.workspaceTabs?.ensureSessionRecord?.(tabId || null, key, { create: true }) || null;
-      if(record){
-        record.runtime = record.runtime || {};
-        record.runtime.__stateModel = record.runtime.__stateModel || {};
-        record.runtime.__stateModel[key] = record.runtime.__stateModel[key] || {};
-        return record.runtime.__stateModel[key];
+    const getRecord = (tabLike, meta = {}) => {
+      const tabId = String((tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || meta.tabId || meta.workspaceTabId || meta.tab?.id || '').trim();
+      if(!tabId){
+        return reportMissingTabOwnership('state-model', key, meta);
       }
-      const fallback = namespace.__fallbackStateModels = namespace.__fallbackStateModels || {};
-      fallback[key] = fallback[key] || {};
-      return fallback[key];
+      const record = Shared.workspaceTabs?.ensureSessionRecord?.(tabId, key, { ...(meta || {}), reason: meta.reason || 'state-model' }) || null;
+      if(!record){
+        warn('Debug: lifecycle state model missing session record', { componentKey: key, tabId, reason: meta.reason || 'state-model' });
+        return null;
+      }
+      record.runtime = record.runtime || {};
+      record.runtime.__stateModel = record.runtime.__stateModel || {};
+      record.runtime.__stateModel[key] = record.runtime.__stateModel[key] || {};
+      return record.runtime.__stateModel[key];
     };
-    const ensureBucket = (tabLike, bucket, factory) => {
-      const model = getRecord(tabLike);
+    const ensureBucket = (tabLike, bucket, factory, meta = {}) => {
+      const model = getRecord(tabLike, meta);
+      if(!model){
+        return null;
+      }
       if(!model[bucket]){
         model[bucket] = typeof factory === 'function' ? factory() : {};
       }
@@ -1325,34 +1740,38 @@
     };
     const api = {
       componentKey: key,
-      payload: tabLike => ensureBucket(tabLike, 'payload', factories.payload),
-      runtime: tabLike => ensureBucket(tabLike, 'runtime', factories.runtime),
-      ui: tabLike => ensureBucket(tabLike, 'ui', factories.ui),
-      layout: tabLike => ensureBucket(tabLike, 'layout', factories.layout),
-      cache: tabLike => ensureBucket(tabLike, 'cache', factories.cache),
-      async: tabLike => ensureBucket(tabLike, 'async', factories.async),
-      set(tabLike, bucket, value){
-        const model = getRecord(tabLike);
+      payload: (tabLike, meta = {}) => ensureBucket(tabLike, 'payload', factories.payload, meta),
+      runtime: (tabLike, meta = {}) => ensureBucket(tabLike, 'runtime', factories.runtime, meta),
+      ui: (tabLike, meta = {}) => ensureBucket(tabLike, 'ui', factories.ui, meta),
+      layout: (tabLike, meta = {}) => ensureBucket(tabLike, 'layout', factories.layout, meta),
+      cache: (tabLike, meta = {}) => ensureBucket(tabLike, 'cache', factories.cache, meta),
+      async: (tabLike, meta = {}) => ensureBucket(tabLike, 'async', factories.async, meta),
+      set(tabLike, bucket, value, meta = {}){
+        const model = getRecord(tabLike, meta);
+        if(!model){ return null; }
         model[bucket] = cloneForLifecycle(value);
         return model[bucket];
       },
-      merge(tabLike, bucket, value){
-        const model = getRecord(tabLike);
+      merge(tabLike, bucket, value, meta = {}){
+        const model = getRecord(tabLike, meta);
+        if(!model){ return null; }
         const current = model[bucket] && typeof model[bucket] === 'object' && !Array.isArray(model[bucket]) ? model[bucket] : {};
         const incoming = value && typeof value === 'object' && !Array.isArray(value) ? value : { value };
         model[bucket] = { ...current, ...cloneForLifecycle(incoming) };
         return model[bucket];
       },
-      clear(tabLike, bucket){
-        const model = getRecord(tabLike);
+      clear(tabLike, bucket, meta = {}){
+        const model = getRecord(tabLike, meta);
+        if(!model){ return false; }
         if(bucket){ delete model[bucket]; }
         else { Object.keys(model).forEach(keyName => { delete model[keyName]; }); }
         return true;
       },
-      snapshot(tabLike){
-        return cloneForLifecycle(getRecord(tabLike));
+      snapshot(tabLike, meta = {}){
+        const model = getRecord(tabLike, meta);
+        return model ? cloneForLifecycle(model) : null;
       },
-      all: tabLike => getRecord(tabLike)
+      all: (tabLike, meta = {}) => getRecord(tabLike, meta)
     };
     return api;
   };
@@ -1364,13 +1783,6 @@
       return String(componentOrKey.__componentKey || componentOrKey.type || componentOrKey.componentKey || '').trim();
     }
     return String(componentOrKey || '').trim();
-  }
-
-  function resolveRuntimeOwnerStateModel(componentOrKey, componentKey){
-    if(componentOrKey && typeof componentOrKey === 'object' && componentOrKey.__stateModel){
-      return componentOrKey.__stateModel;
-    }
-    return namespace.getDescriptor?.(componentKey)?.stateModel || null;
   }
 
   function getRuntimeOwnerSnapshotKey(componentKey){
@@ -1421,7 +1833,12 @@
   }
 
   function buildOwnedRuntimeSnapshot(componentKey, snapshot, tabId, meta = {}){
-    const owned = cloneForLifecycle(snapshot) || {};
+    const owned = namespace.sanitizeRuntimeSnapshot(snapshot, {
+      ...(meta || {}),
+      componentKey,
+      tabId,
+      reason: meta.reason || 'runtime-owner-hydrate'
+    }) || {};
     owned.__runtimeOwner = {
       version: 2,
       componentKey,
@@ -1440,30 +1857,22 @@
 
   function storeOwnedRuntimeSnapshot(componentOrKey, componentKey, tab, tabId, owned, meta = {}){
     const snapshotKey = getRuntimeOwnerSnapshotKey(componentKey);
-    const stateModel = resolveRuntimeOwnerStateModel(componentOrKey, componentKey);
-    try{
-      stateModel?.merge?.(tab || tabId || null, 'runtime', { componentRuntimeSnapshot: owned });
-    }catch(err){
-      warn('Debug: component runtime owner state-model store failed', { componentKey, tabId, err: err?.message || String(err) });
-    }
     try{
       global.Shared?.workspaceTabs?.setRuntimeSnapshot?.(tab || tabId || null, snapshotKey, owned, {
+        ...(meta || {}),
+        tabId,
         reason: meta.reason || 'runtime-owner-hydrate'
       });
     }catch(err){
       warn('Debug: component runtime owner workspace store failed', { componentKey, tabId, err: err?.message || String(err) });
     }
     try{
-      const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(tab || tabId || null, componentKey) || null;
-      if(runtime){
-        runtime.componentRuntimeSnapshot = owned;
-        runtime.runtimeOwner = {
-          componentKey,
-          tabId,
-          snapshotKey,
-          updatedAt: Date.now(),
-          reason: meta.reason || 'runtime-owner-hydrate'
-        };
+      const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(tab || tabId || null, componentKey, { ...(meta || {}), tabId, reason: meta.reason || 'runtime-owner-session-store' }) || null;
+      if(runtime && runtime.componentRuntimeSnapshot){
+        delete runtime.componentRuntimeSnapshot;
+      }
+      if(runtime && runtime.runtimeOwner){
+        delete runtime.runtimeOwner;
       }
     }catch(err){
       warn('Debug: component runtime owner session store failed', { componentKey, tabId, err: err?.message || String(err) });
@@ -1477,6 +1886,11 @@
       throw new Error('componentLifecycle.createRuntimeOwner requires a component key');
     }
     const snapshotKey = getRuntimeOwnerSnapshotKey(componentKey);
+    const createDefaultRecord = typeof options.createDefaultRecord === 'function'
+      ? options.createDefaultRecord
+      : (typeof options.createRecord === 'function' ? options.createRecord : null);
+    const normalizeRecord = typeof options.normalizeRecord === 'function' ? options.normalizeRecord : null;
+    const requireSessionRuntimeByDefault = options.requireSessionRuntime !== false;
     const resolveOwner = (meta = {}) => {
       const resolved = resolveRuntimeOwnerTab(meta);
       if(!resolved.tabId){
@@ -1492,17 +1906,9 @@
       if(!resolved){ return null; }
       let snapshot = null;
       try{
-        const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(resolved.tab || resolved.tabId, componentKey) || null;
-        snapshot = runtime?.componentRuntimeSnapshot || null;
+        snapshot = global.Shared?.workspaceTabs?.getRuntimeSnapshot?.(resolved.tab || resolved.tabId, snapshotKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'runtime-owner-read' }) || null;
       }catch(err){
         warn('Debug: component runtime owner session read failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
-      }
-      if(!snapshot){
-        try{
-          snapshot = global.Shared?.workspaceTabs?.getRuntimeSnapshot?.(resolved.tab || resolved.tabId, snapshotKey) || null;
-        }catch(err){
-          warn('Debug: component runtime owner workspace read failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
-        }
       }
       if(snapshot && !runtimeSnapshotMatchesOwner(snapshot, componentKey, resolved.tabId)){
         return reportRuntimeOwnerViolation('Debug: component runtime owner snapshot rejected', {
@@ -1514,6 +1920,125 @@
       }
       return snapshot ? cloneForLifecycle(snapshot) : null;
     };
+
+    const stampRecord = (record, tabId, meta = {}) => {
+      if(!record || typeof record !== 'object'){
+        return null;
+      }
+      const owner = record.__runtimeOwner && typeof record.__runtimeOwner === 'object' ? record.__runtimeOwner : null;
+      const ownerComponent = String(owner?.componentKey || record.componentKey || componentKey || '').trim();
+      const ownerTabId = String(owner?.tabId || record.tabId || tabId || '').trim();
+      if((ownerComponent && ownerComponent !== componentKey) || (ownerTabId && ownerTabId !== tabId)){
+        return reportRuntimeOwnerViolation('Debug: component runtime owner record rejected', {
+          componentKey,
+          tabId,
+          owner: owner || { componentKey: record.componentKey || null, tabId: record.tabId || null },
+          reason: meta.reason || 'runtime-owner-record'
+        }, meta);
+      }
+      record.componentKey = record.componentKey || componentKey;
+      record.tabId = record.tabId || tabId;
+      record.__runtimeOwner = {
+        version: 2,
+        componentKey,
+        tabId,
+        storedAt: Date.now(),
+        reason: meta.reason || 'runtime-owner-record'
+      };
+      return record;
+    };
+
+    const readRecord = (tabLike = null, meta = {}, recordOptions = {}) => {
+      const resolved = resolveOwner({ ...(meta || {}), tab: tabLike || meta.tab || null });
+      if(!resolved){ return null; }
+      let record = null;
+      try{
+        record = global.Shared?.workspaceTabs?.getOwnedRuntimeRecord?.(resolved.tab || resolved.tabId, componentKey, {
+          ...(meta || {}),
+          tabId: resolved.tabId,
+          reason: meta.reason || 'runtime-owner-record-read'
+        }) || null;
+      }catch(err){
+        warn('Debug: component runtime owner record read failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
+      }
+      if(!record){
+        return null;
+      }
+      if(!runtimeSnapshotMatchesOwner(record, componentKey, resolved.tabId)){
+        return reportRuntimeOwnerViolation('Debug: component runtime owner record read rejected', {
+          componentKey,
+          tabId: resolved.tabId,
+          owner: record.__runtimeOwner || { componentKey: record.componentKey || null, tabId: record.tabId || null },
+          reason: meta.reason || 'runtime-owner-record-read'
+        }, meta);
+      }
+      if(normalizeRecord && recordOptions.normalize !== false){
+        record = storeRecord(resolved.tab || resolved.tabId, record, {
+          ...(meta || {}),
+          tabId: resolved.tabId,
+          reason: meta.reason || 'runtime-owner-record-read-normalize'
+        }) || record;
+      }
+      if(recordOptions.requireHydrated === true && record.hydrated !== true){
+        return null;
+      }
+      return record;
+    };
+
+    const storeRecord = (tabLike = null, record = null, meta = {}) => {
+      const resolved = resolveOwner({ ...(meta || {}), tab: tabLike || meta.tab || null });
+      if(!resolved || !record || typeof record !== 'object'){
+        return null;
+      }
+      const stamped = stampRecord(record, resolved.tabId, meta);
+      if(!stamped){
+        return null;
+      }
+      const next = normalizeRecord ? (normalizeRecord(stamped, { ...(meta || {}), tabId: resolved.tabId }) || stamped) : stamped;
+      try{
+        return global.Shared?.workspaceTabs?.setOwnedRuntimeRecord?.(resolved.tab || resolved.tabId, componentKey, next, {
+          ...(meta || {}),
+          tabId: resolved.tabId,
+          reason: meta.reason || 'runtime-owner-record-store'
+        }) || null;
+      }catch(err){
+        warn('Debug: component runtime owner record store failed', { componentKey, tabId: resolved.tabId, err: err?.message || String(err) });
+        return null;
+      }
+    };
+
+    const ensureRecord = (tabLike = null, meta = {}, recordOptions = {}) => {
+      const resolved = resolveOwner({ ...(meta || {}), tab: tabLike || meta.tab || null });
+      if(!resolved){ return null; }
+      const requireSessionRuntime = recordOptions.requireSessionRuntime !== undefined
+        ? recordOptions.requireSessionRuntime !== false
+        : requireSessionRuntimeByDefault;
+      if(requireSessionRuntime && !global.Shared?.workspaceTabs?.getSessionRuntime?.(resolved.tab || resolved.tabId, componentKey, { ...(meta || {}), tabId: resolved.tabId, reason: meta.reason || 'runtime-owner-record-ensure' })){
+        warn('Debug: component runtime owner record missing shared runtime', {
+          componentKey,
+          tabId: resolved.tabId,
+          reason: meta.reason || 'runtime-owner-record-ensure'
+        });
+        return null;
+      }
+      let record = readRecord(resolved.tab || resolved.tabId, { ...(meta || {}), tabId: resolved.tabId }, { requireHydrated: false });
+      if(!record && recordOptions.create !== false){
+        record = createDefaultRecord ? createDefaultRecord(resolved.tabId, meta) : { version: 1, componentKey, tabId: resolved.tabId };
+      }
+      if(!record){
+        return null;
+      }
+      const stored = storeRecord(resolved.tab || resolved.tabId, record, {
+        ...(meta || {}),
+        tabId: resolved.tabId,
+        reason: meta.reason || 'runtime-owner-record-ensure'
+      });
+      if(recordOptions.requireHydrated === true && stored?.hydrated !== true){
+        return null;
+      }
+      return stored;
+    };
+
     return {
       componentKey,
       snapshotKey,
@@ -1564,6 +2089,28 @@
       get(meta = {}){
         return read(meta);
       },
+      getRecord(tabLike = null, meta = {}, recordOptions = {}){
+        return readRecord(tabLike, meta, recordOptions);
+      },
+      ensureRecord(tabLike = null, meta = {}, recordOptions = {}){
+        return ensureRecord(tabLike, meta, recordOptions);
+      },
+      setRecord(tabLike = null, record = null, meta = {}){
+        return storeRecord(tabLike, record, meta);
+      },
+      rememberRecord(tabLike = null, record = null, meta = {}){
+        return storeRecord(tabLike, record, { ...(meta || {}), reason: meta.reason || 'runtime-owner-record-remember' });
+      },
+      bindRecord(tabLike = null, meta = {}, recordOptions = {}){
+        return readRecord(tabLike, { ...(meta || {}), reason: meta.reason || 'runtime-owner-record-bind' }, {
+          ...(recordOptions || {}),
+          requireHydrated: recordOptions.requireHydrated !== false
+        });
+      },
+      captureRecord(recordOrFactory, tabLike = null, meta = {}){
+        const record = typeof recordOrFactory === 'function' ? recordOrFactory(meta) : recordOrFactory;
+        return storeRecord(tabLike, record, { ...(meta || {}), reason: meta.reason || 'runtime-owner-record-capture' });
+      },
       dispose(tabLike = null, meta = {}){
         const resolved = resolveRuntimeOwnerTab({ ...(meta || {}), tab: tabLike || meta.tab || null });
         const tabId = resolved.tabId;
@@ -1576,22 +2123,17 @@
         let cleared = false;
         try{
           cleared = !!global.Shared?.workspaceTabs?.clearRuntimeSnapshot?.(resolved.tab || tabId, snapshotKey, {
+            ...(meta || {}),
+            tabId,
             reason: meta.reason || 'runtime-owner-dispose'
           }) || cleared;
         }catch(err){
           warn('Debug: component runtime owner workspace dispose failed', { componentKey, tabId, err: err?.message || String(err) });
         }
         try{
-          const runtime = global.Shared?.workspaceTabs?.getSessionRuntime?.(resolved.tab || tabId, componentKey) || null;
-          if(runtime && Object.prototype.hasOwnProperty.call(runtime, 'componentRuntimeSnapshot')){
-            delete runtime.componentRuntimeSnapshot;
-            delete runtime.runtimeOwner;
-            cleared = true;
-          }
-          if(runtime && Object.prototype.hasOwnProperty.call(runtime, 'ownedRuntimeRecord')){
-            delete runtime.ownedRuntimeRecord;
-            cleared = true;
-          }
+          cleared = !!global.Shared?.workspaceTabs?.clearOwnedRuntimeRecord?.(resolved.tab || tabId, componentKey, {
+            reason: meta.reason || 'runtime-owner-dispose'
+          }) || cleared;
         }catch(err){
           warn('Debug: component runtime owner session dispose failed', { componentKey, tabId, err: err?.message || String(err) });
         }
@@ -1609,18 +2151,24 @@
   namespace.rememberComponentRuntimeSnapshot = function rememberComponentRuntimeSnapshot(componentOrKey, snapshot, meta = {}){
     const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(meta.componentKey || meta.type);
     if(!componentKey || !snapshot || typeof snapshot !== 'object'){
-      return snapshot || null;
+      return null;
     }
     const owner = namespace.createRuntimeOwner(componentOrKey || componentKey);
     const owned = owner.hydrate(snapshot, {
       ...(meta || {}),
-      allowMissingTabId: meta.allowMissingTabId === true,
       reason: meta.reason || 'remember-component-runtime'
-    }) || snapshot;
-    const tabId = owned?.__runtimeOwner?.tabId || resolveTabIdFromMeta(meta);
+    });
+    if(!owned){
+      warn('Debug: component runtime snapshot was not remembered without explicit ownership', {
+        componentKey,
+        tabId: resolveExplicitTabIdFromMeta(meta),
+        reason: meta.reason || 'remember-component-runtime'
+      });
+      return null;
+    }
     debug('Debug: component runtime snapshot remembered', {
       componentKey,
-      tabId,
+      tabId: owned.__runtimeOwner?.tabId || null,
       reason: meta.reason || 'remember-component-runtime'
     });
     return owned;
@@ -1637,7 +2185,14 @@
 
   namespace.resolveComponentRuntimeSnapshot = function resolveComponentRuntimeSnapshot(componentOrKey, snapshot, meta = {}){
     const componentKey = resolveRuntimeOwnerKey(componentOrKey) || resolveRuntimeOwnerKey(meta.componentKey || meta.type);
-    const tabId = resolveTabIdFromMeta(meta);
+    const tabId = resolveExplicitTabIdFromMeta(meta);
+    if(!tabId){
+      reportRuntimeOwnerViolation('Debug: component runtime snapshot resolve requires explicit tab id', {
+        componentKey,
+        reason: meta.reason || 'resolve-component-runtime'
+      }, meta);
+      return null;
+    }
     if(snapshot && typeof snapshot === 'object'){
       if(runtimeSnapshotMatchesOwner(snapshot, componentKey, tabId)){
         return snapshot;
@@ -1649,7 +2204,7 @@
         reason: meta.reason || 'resolve-component-runtime'
       });
     }
-    return namespace.getComponentRuntimeSnapshot(componentOrKey, meta);
+    return namespace.getComponentRuntimeSnapshot(componentOrKey, { ...(meta || {}), tabId });
   };
 
 
@@ -1825,12 +2380,18 @@
         return true;
       }
       const ownerTabId = resolveSnapshotOwnerTabId(snapshot, meta);
-      const targetTabId = resolveTabIdFromMeta(meta);
+      const targetTabId = requireExplicitTabId(meta, 'internal-state-target', componentKey);
+      if(!targetTabId){
+        return false;
+      }
       return !(ownerTabId && targetTabId && ownerTabId !== targetTabId);
     }
 
     function capture(meta = {}){
-      const tabId = resolveTabIdFromMeta(meta);
+      const tabId = requireExplicitTabId(meta, 'capture-internal-state', componentKey);
+      if(!tabId){
+        return null;
+      }
       const snapshot = {
         version: 2,
         componentKey,
@@ -1853,7 +2414,7 @@
           warn('Debug: internal state capture target failed', { componentKey, tabId, target: target.key, err: err?.message || String(err) });
         }
       });
-      try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: snapshot }); }catch(_err){}
+      try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: snapshot }, { ...(meta || {}), tabId }); }catch(_err){}
       debug('Debug: internal state bridge captured', { componentKey, tabId, targetCount: Object.keys(snapshot.targets).length, reason: snapshot.reason });
       return snapshot;
     }
@@ -1863,8 +2424,11 @@
       if(!incoming || !incoming.targets){
         return false;
       }
-      const tabId = resolveTabIdFromMeta(meta);
-      if(!snapshotMatchesTargetTab(incoming, meta)){
+      const tabId = requireExplicitTabId(meta, 'apply-internal-state', componentKey);
+      if(!tabId){
+        return false;
+      }
+      if(!snapshotMatchesTargetTab(incoming, { ...(meta || {}), tabId })){
         warn('Debug: internal state apply rejected for wrong tab', {
           componentKey,
           tabId,
@@ -1894,7 +2458,7 @@
         }
       });
       if(applied){
-        try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: incoming }); }catch(_err){}
+        try{ stateModel.merge(meta.tab || meta.tabId || null, 'runtime', { internalState: incoming }, { ...(meta || {}), tabId }); }catch(_err){}
       }
       debug('Debug: internal state bridge applied', { componentKey, tabId, applied, reason: meta.reason || 'apply-internal-state' });
       return applied > 0;
@@ -1904,14 +2468,20 @@
     const originalApplyRuntime = component.applyRuntimeState;
     const originalDeactivate = component.deactivateTab;
     component.captureRuntimeState = function bridgedCaptureRuntimeState(meta = {}){
-      const tabId = resolveTabIdFromMeta(meta);
+      const tabId = requireExplicitTabId(meta, 'capture-runtime-state', componentKey);
+      if(!tabId){
+        return null;
+      }
       const base = typeof originalCaptureRuntime === 'function' ? (originalCaptureRuntime.call(component, { ...(meta || {}), tabId, componentKey }) || {}) : {};
       const internalState = capture({ ...(meta || {}), tabId, componentKey });
       return { ...base, tabId: base?.tabId || tabId || null, __internalState: internalState };
     };
     component.applyRuntimeState = function bridgedApplyRuntimeState(snapshot, meta = {}){
-      const tabId = resolveTabIdFromMeta(meta);
-      if(snapshot && typeof snapshot === 'object' && !snapshotMatchesTargetTab(snapshot, meta)){
+      const tabId = requireExplicitTabId(meta, 'apply-runtime-state', componentKey);
+      if(!tabId){
+        return false;
+      }
+      if(snapshot && typeof snapshot === 'object' && !snapshotMatchesTargetTab(snapshot, { ...(meta || {}), tabId })){
         warn('Debug: bridged runtime apply rejected for wrong tab', {
           componentKey,
           tabId,
@@ -2015,15 +2585,23 @@
 
 
   function resolveTabForStateModel(meta = {}, fallback = null){
-    return meta?.tab || meta?.tabId || meta?.workspaceTabId || fallback || global.Main?.session?.getActiveTab?.() || null;
+    if(meta?.tab && typeof meta.tab === 'object' && meta.tab.id != null){ return meta.tab; }
+    if(meta?.tabId || meta?.workspaceTabId){ return meta.tabId || meta.workspaceTabId; }
+    if(fallback && (typeof fallback === 'object' ? fallback.id != null : String(fallback).trim())){ return fallback; }
+    return null;
   }
 
   function rememberStateBucket(stateModel, bucket, value, meta = {}, fallback = null){
     if(!stateModel || value === undefined){
       return value;
     }
+    const tabLike = resolveTabForStateModel(meta, fallback);
+    if(!tabLike){
+      reportMissingTabOwnership(`state-bucket:${bucket}`, meta.componentKey || meta.type || null, meta);
+      return value;
+    }
     try{
-      stateModel.set(resolveTabForStateModel(meta, fallback), bucket, value);
+      stateModel.set(tabLike, bucket, value, meta);
     }catch(err){
       warn('Debug: lifecycle state bucket write failed', { bucket, err: err?.message || String(err) });
     }
@@ -2207,24 +2785,29 @@
     catch(err){ warn('Debug: lifecycle snapshot layout capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     try{ renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null; }
     catch(err){ warn('Debug: lifecycle snapshot render cache capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
-    try{ stateModel = workspace.__stateModel?.snapshot?.(tab || captureMeta.tabId || null) || null; }
+    try{ stateModel = workspace.__stateModel?.snapshot?.(tab || captureMeta.tabId || null, captureMeta) || null; }
     catch(err){ warn('Debug: lifecycle snapshot state model capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: captureMeta.reason, sync: true } };
   };
 
   namespace.snapshotWorkspace = async function snapshotWorkspace(workspace, tab, meta = {}){
-    const componentKey = workspace?.type || meta.componentKey || meta.type || null;
+    const componentKey = workspace?.type || meta.componentKey || meta.type || tab?.type || null;
     if(!workspace || !componentKey){
       return { ok: false, reason: 'missing-workspace' };
     }
-    await namespace.awaitReadyForSnapshot(workspace, { ...meta, tab, tabId: tab?.id || meta.tabId || null, componentKey, reason: meta.reason || 'lifecycle-snapshot' });
-    const payload = typeof workspace.getPayload === 'function' ? workspace.getPayload() : tab?.payload || null;
-    const runtime = typeof workspace.captureRuntimeState === 'function' ? workspace.captureRuntimeState({ ...meta, tab, tabId: tab?.id || null, componentKey }) : null;
-    const uiState = typeof workspace.captureUiState === 'function' ? workspace.captureUiState({ ...meta, tab, tabId: tab?.id || null, componentKey }) : null;
-    const layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState({ ...meta, tab, tabId: tab?.id || null, componentKey }) : null;
-    const renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache({ ...meta, tab, tabId: tab?.id || null, componentKey }) : null;
-    const stateModel = workspace.__stateModel?.snapshot?.(tab || meta.tabId || null) || null;
-    return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: meta.reason || 'lifecycle-snapshot' } };
+    const tabId = requireExplicitTabId({ ...(meta || {}), tab, tabId: tab?.id || meta.tabId || null }, 'lifecycle-snapshot', componentKey);
+    if(!tabId){
+      return { ok: false, reason: 'missing-tab-id' };
+    }
+    const captureMeta = { ...meta, tab, tabId, componentKey, type: componentKey, reason: meta.reason || 'lifecycle-snapshot' };
+    await namespace.awaitReadyForSnapshot(workspace, captureMeta);
+    const payload = typeof workspace.getPayload === 'function' ? workspace.getPayload(captureMeta) : tab?.payload || null;
+    const runtime = typeof workspace.captureRuntimeState === 'function' ? workspace.captureRuntimeState(captureMeta) : null;
+    const uiState = typeof workspace.captureUiState === 'function' ? workspace.captureUiState(captureMeta) : null;
+    const layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState(captureMeta) : null;
+    const renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null;
+    const stateModel = workspace.__stateModel?.snapshot?.(tab || tabId, captureMeta) || null;
+    return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: captureMeta.reason } };
   };
 
   namespace.restoreWorkspace = async function restoreWorkspace(workspace, snapshot, meta = {}){
@@ -2232,33 +2815,38 @@
     if(!workspace || !snapshot){
       return { ok: false, reason: 'missing-workspace-or-snapshot' };
     }
-    return namespace.withRestoreTransaction(componentKey, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-workspace' }, () => {
+    const tabId = requireExplicitTabId(meta, 'lifecycle-restore-workspace', componentKey);
+    if(!tabId){
+      return { ok: false, reason: 'missing-tab-id' };
+    }
+    const restoreMeta = { ...meta, tabId, componentKey, type: componentKey, reason: meta.reason || 'lifecycle-restore-workspace' };
+    return namespace.withRestoreTransaction(componentKey, restoreMeta, () => {
     if(snapshot.stateModel && workspace.__stateModel){
       try{
-        const tabLike = meta.tab || meta.tabId || null;
+        const tabLike = restoreMeta.tab || restoreMeta.tabId;
         ['payload', 'runtime', 'ui', 'layout', 'cache', 'async'].forEach(bucket => {
           if(Object.prototype.hasOwnProperty.call(snapshot.stateModel, bucket)){
-            workspace.__stateModel.set(tabLike, bucket, snapshot.stateModel[bucket]);
+            workspace.__stateModel.set(tabLike, bucket, snapshot.stateModel[bucket], restoreMeta);
           }
         });
-      }catch(err){ warn('Debug: lifecycle restore state model seed failed', { componentKey, err: err?.message || String(err) }); }
+      }catch(err){ warn('Debug: lifecycle restore state model seed failed', { componentKey, tabId, err: err?.message || String(err) }); }
     }
     if(snapshot.payload && typeof workspace.loadFromPayload === 'function'){
-      workspace.loadFromPayload(snapshot.payload, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-payload' });
+      workspace.loadFromPayload(snapshot.payload, { ...restoreMeta, reason: meta.reason || 'lifecycle-restore-payload' });
     }
     if(snapshot.runtime && typeof workspace.applyRuntimeState === 'function'){
-      workspace.applyRuntimeState(snapshot.runtime, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-runtime' });
+      workspace.applyRuntimeState(snapshot.runtime, { ...restoreMeta, reason: meta.reason || 'lifecycle-restore-runtime' });
     }
     if(snapshot.layoutState && typeof workspace.applyLayoutState === 'function'){
-      workspace.applyLayoutState(snapshot.layoutState, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-layout' });
+      workspace.applyLayoutState(snapshot.layoutState, { ...restoreMeta, reason: meta.reason || 'lifecycle-restore-layout' });
     }
     if(snapshot.uiState && typeof workspace.applyUiState === 'function'){
-      workspace.applyUiState(snapshot.uiState, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-ui' });
+      workspace.applyUiState(snapshot.uiState, { ...restoreMeta, reason: meta.reason || 'lifecycle-restore-ui' });
     }
     if(snapshot.renderCache && typeof workspace.restoreRenderCache === 'function'){
-      workspace.restoreRenderCache(snapshot.renderCache, { ...meta, componentKey, reason: meta.reason || 'lifecycle-restore-render-cache' });
+      workspace.restoreRenderCache(snapshot.renderCache, { ...restoreMeta, reason: meta.reason || 'lifecycle-restore-render-cache' });
     }
-    return { ok: true, componentKey };
+    return { ok: true, componentKey, tabId };
     });
   };
 

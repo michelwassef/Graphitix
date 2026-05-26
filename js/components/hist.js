@@ -622,10 +622,8 @@
     return locked;
   }
 
-  function resolveHistRoot(){
-    const activeTabId = Shared.hot?.resolveActiveTabId?.()
-      || global.Main?.tabs?.getActiveTab?.()?.id
-      || null;
+  function resolveHistRoot(tabLike = null){
+    const activeTabId = tabLike || hist.__boundTabId || null;
     return Shared.workspaceTabs?.resolveComponentRoot?.({
       tabLike: activeTabId,
       componentKey: 'hist',
@@ -634,16 +632,16 @@
     }) || null;
   }
 
-  function queryHistRoot(selector){
-    const root = resolveHistRoot();
+  function queryHistRoot(selector, tabLike = null){
+    const root = resolveHistRoot(tabLike);
     return root?.querySelector?.(selector) || null;
   }
 
-  function getHistNodeById(id){
+  function getHistNodeById(id, tabLike = null){
     if(!id){
       return null;
     }
-    return queryHistRoot(`#${id}`) || null;
+    return queryHistRoot(`#${id}`, tabLike) || null;
   }
 
   function resolveHistDrawableFrame(plotEl){
@@ -1057,15 +1055,18 @@
     }
   };
   const scheduleHistNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncHistAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncHistAutoDrawNoticeWidth(reason || 'immediate');
+    let lastReason = 'frame';
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(hist, 'hist', () => syncHistAutoDrawNoticeWidth(lastReason), { reason: 'hist-notice-width' })
+      : null;
+    return reason => {
+      lastReason = reason || 'frame';
+      if(debounced){
+        debounced({ tabId: hist.__boundTabId || null, reason: 'hist-notice-width' });
+        return;
+      }
+      syncHistAutoDrawNoticeWidth(lastReason);
+    };
   })();
 
   function shouldSkipHistHotSchedule(scheduleMeta){
@@ -2844,13 +2845,20 @@
     const ensureHistHotForActiveTab = () => {
       const wrapper = getHistNodeById('histHotWrapper');
       const baseContainer = getHistNodeById('histHot');
+      const tableTabId = Shared.hot?.resolveTableTabId?.({
+        type: 'hist',
+        component: hist,
+        wrapper,
+        container: baseContainer,
+        reason: 'hist-ensure-hot'
+      }) || null;
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createHistTable(baseContainer);
         }
         if(state.hot){
           state.hot.__histHostContainer = baseContainer;
-          state.hot.__histTabId = Shared.hot.resolveActiveTabId?.() || 'hist-default';
+          state.hot.__histTabId = tableTabId;
           ensureHistDefaultHeaderRow(state.hot);
           ensureHistDataViewsForHot(state.hot, {
             wrapper,
@@ -2862,7 +2870,7 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'hist',
-        tabId: Shared.hot.resolveActiveTabId?.() || null,
+        tabId: tableTabId,
         wrapper,
         container: baseContainer,
         createInstance: createHistTable
@@ -2872,7 +2880,7 @@
       }
       if(state.hot){
         state.hot.__histHostContainer = entry?.container || baseContainer;
-        state.hot.__histTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'hist-default';
+        state.hot.__histTabId = entry?.tabId || tableTabId;
         ensureHistDefaultHeaderRow(state.hot);
         ensureHistDataViewsForHot(state.hot, {
           wrapper,
@@ -5675,8 +5683,8 @@
   }
 
   hist.init = function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
-    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || resolveHistRoot() || global.document;
+    const targetTabId = options?.tabId || hist.__boundTabId || null;
+    const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || resolveHistRoot(targetTabId || null) || global.document;
     if(hist.ready && (!targetTabId || hist.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       histDebug('Debug: Components.hist.init skipped (already ready)', { tabId: hist.__boundTabId || null });
       return;
@@ -5771,7 +5779,9 @@
         resolveHistOverlay(status);
       }
     };
-    const scheduleHistBase = Shared.debounceFrame ? Shared.debounceFrame(runHistDrawCycle) : runHistDrawCycle;
+    const scheduleHistBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(hist, 'hist', runHistDrawCycle, { reason: 'hist-draw-frame' })
+      : runHistDrawCycle;
     const scheduleHistInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
@@ -5788,11 +5798,10 @@
           histDebug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
+        Shared.componentLifecycle?.scheduleComponentFrame?.(hist, 'hist', {
+          tabId: nextOpts.tabId || hist.__boundTabId || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
         return;
       }
       runSchedule();
@@ -5801,6 +5810,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'hist',
           debugLabel: 'hist',
+          getTabId: () => hist.__boundTabId || null,
           scheduleRaw: scheduleHistInstrumented
         })
       : scheduleHistInstrumented;
@@ -5818,7 +5828,7 @@
     }else{
       state.scheduleDraw = scheduleDrawHistRaw;
     }
-    histDebug('Debug: hist scheduleDraw configured via Shared.debounceFrame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
+    histDebug('Debug: hist scheduleDraw configured via tab-scoped lifecycle frame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
@@ -5826,11 +5836,11 @@
     hist.ready = true;
   };
 
-  hist.ensure = function ensure(){
-    if(ensureHistDomBindings()){
+  hist.ensure = function ensure(options = {}){
+    if(ensureHistDomBindings(options.tab || options.tabId || null)){
       return;
     }
-    if (!hist.ready) hist.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
+    if (!hist.ready) hist.init({ ...options, tabId: options.tabId || options.tab?.id || hist.__boundTabId || undefined, reason: options.reason || 'ensure' });
   };
   hist.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
     component: hist,

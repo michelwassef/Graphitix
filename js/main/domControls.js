@@ -1745,7 +1745,11 @@
     if (!alreadyInitialized) {
       if (typeof config.ensure === 'function') {
         try {
-          const ensureResult = config.ensure();
+          const ensureResult = config.ensure({
+            tabId: tab.id,
+            tab,
+            reason: options.reason || 'workspace-ensure'
+          });
           if (ensureResult && typeof ensureResult.then === 'function') {
             ensurePromise = workspacePromiseWithTimeout(ensureResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
               label: 'workspace-ensure',
@@ -1785,7 +1789,11 @@
         // The tab-specific root has just been initialized.
       } else if (typeof config.ensure === 'function') {
         try {
-          const maybePromise = config.ensure();
+          const maybePromise = config.ensure({
+            tabId: tab.id,
+            tab,
+            reason: options.reason || 'workspace-ensure-cached'
+          });
           if (maybePromise && typeof maybePromise.then === 'function') {
             ensurePromise = workspacePromiseWithTimeout(maybePromise, WORKSPACE_ENSURE_TIMEOUT_MS, {
               label: 'workspace-ensure-cached',

@@ -1,6 +1,8 @@
 jest.setTimeout(30000);
 
 describe('Line view labels', () => {
+  let lineViewTestTabId = '';
+  let lineViewTestTabCounter = 0;
   const flush = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
   const flushAll = async (count = 10) => {
     for(let i = 0; i < count; i += 1){
@@ -10,6 +12,13 @@ describe('Line view labels', () => {
 
   beforeEach(async () => {
     jest.resetModules();
+    if(window.Components){
+      delete window.Components.line;
+    }
+    if(global.Components){
+      delete global.Components.line;
+    }
+    lineViewTestTabId = `line-view-test-tab-${++lineViewTestTabCounter}`;
     global.jStat = {
       mean(values = []){
         const filtered = values.filter(v => typeof v === 'number');
@@ -52,11 +61,11 @@ describe('Line view labels', () => {
     require('../js/main/previews.js');
     require('../js/main.js');
 
-    if(typeof window.Main?.components?.ensureComponent === 'function'){
-      await Promise.resolve(window.Main.components.ensureComponent('line'));
-    }else{
-      window.Components?.line?.ensure?.();
-    }
+    window.Components?.line?.ensure?.({
+      tabId: lineViewTestTabId,
+      root: document.getElementById('linePage'),
+      reason: 'line-view-test-ensure'
+    });
     await flushAll(20);
   });
 

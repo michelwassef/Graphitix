@@ -3601,20 +3601,27 @@ let state = {
     const ensurePieHotForActiveTab = () => {
       const wrapper = getPieNodeById('pieHotWrapper');
       const baseContainer = getPieNodeById('pieHot');
+      const tableTabId = Shared.hot?.resolveTableTabId?.({
+        type: 'pie',
+        component: pie,
+        wrapper,
+        container: baseContainer,
+        reason: 'pie-ensure-hot'
+      }) || null;
       if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
         if(!state.hot){
           state.hot = createPieTable(baseContainer);
         }
         if(state.hot){
           state.hot.__pieHostContainer = baseContainer;
-          state.hot.__pieTabId = Shared.hot.resolveActiveTabId?.() || 'pie-default';
+          state.hot.__pieTabId = tableTabId;
         }
         ensurePieDefaultHeaderRow(state.hot);
         return state.hot;
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'pie',
-        tabId: Shared.hot.resolveActiveTabId?.() || null,
+        tabId: tableTabId,
         wrapper,
         container: baseContainer,
         createInstance: createPieTable
@@ -3624,7 +3631,7 @@ let state = {
       }
       if(state.hot){
         state.hot.__pieHostContainer = entry?.container || baseContainer;
-        state.hot.__pieTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'pie-default';
+        state.hot.__pieTabId = entry?.tabId || tableTabId;
       }
       ensurePieDataViewsForHot(state.hot, {
         wrapper,
@@ -5492,7 +5499,7 @@ let state = {
     });
   }
   pie.init = function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = options?.tabId || pie.__boundTabId || null;
     const targetRoot = options?.root || resolvePieRoot(targetTabId || null) || state.root || null;
     if(pie.ready && (!targetTabId || pie.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       pieDebug('Debug: Components.pie.init skipped (already ready)', { tabId: pie.__boundTabId || null });
@@ -5578,28 +5585,27 @@ let state = {
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     state.layout?.syncPanels?.();
     ensurePieLegendControlPlacement();
-    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(()=>ensurePieLegendControlPlacement())
-      : null;
-    if(scheduleLegendPlacement){
-      scheduleLegendPlacement();
-    }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(()=>ensurePieLegendControlPlacement());
-    }
+    Shared.componentLifecycle?.scheduleComponentFrame?.(pie, 'pie', {
+      tabId: pie.__boundTabId || null,
+      reason: 'pie-legend-placement'
+    }, () => ensurePieLegendControlPlacement());
     initHot();
     initControls();
     initNotes();
     primePieStatsComputation({ matrix: getPieStatsDataMatrix(), reason: 'init' });
-    const schedulePieBase = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    const schedulePieBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(pie, 'pie', draw, { reason: 'pie-draw-frame' })
+      : draw;
     state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'pie',
           debugLabel: 'pie',
+          getTabId: () => pie.__boundTabId || null,
           scheduleRaw: schedulePieBase
         })
       : schedulePieBase;
     ensurePieFontEventListener();
-    pieDebug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    pieDebug('Debug: pie scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
@@ -5609,11 +5615,11 @@ let state = {
     pie.ready = true;
   };
 
-  pie.ensure = function ensure(){
-    if(ensurePieDomBindings()){
+  pie.ensure = function ensure(options = {}){
+    if(ensurePieDomBindings(options.tab || options.tabId || null)){
       return;
     }
-    if (!pie.ready) pie.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
+    if (!pie.ready) pie.init({ ...options, tabId: options.tabId || options.tab?.id || pie.__boundTabId || undefined, reason: options.reason || 'ensure' });
   };
   pie.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
     component: pie,

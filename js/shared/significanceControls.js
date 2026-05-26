@@ -2,8 +2,10 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const significanceControls = Shared.significanceControls = Shared.significanceControls || {};
+  const SIGNIFICANCE_CONTROLS_DEFAULT_SCOPE = '__global__';
 
-  const hostCache = new Map();
+  // DOM-only toolbar host cache. It never owns tab state; stale disconnected hosts are pruned.
+  const toolbarHostCache = new Map();
   let panelEl = null;
   let summaryValueEl = null;
   let thicknessInput = null;
@@ -324,9 +326,13 @@
     }
     if(!global.document){ return null; }
     const doc = global.document;
-    const key = scopeId || '__global__';
-    if(hostCache.has(key)){
-      return hostCache.get(key);
+    const key = scopeId || SIGNIFICANCE_CONTROLS_DEFAULT_SCOPE;
+    if(toolbarHostCache.has(key)){
+      const cachedHost = toolbarHostCache.get(key);
+      if(cachedHost && cachedHost.isConnected !== false){
+        return cachedHost;
+      }
+      toolbarHostCache.delete(key);
     }
     let button = null;
     const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
@@ -364,13 +370,12 @@
     }
     let existingHost = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
     if(existingHost){
-      hostCache.set(key, existingHost);
+      toolbarHostCache.set(key, existingHost);
       logDebug('host reused existing font toolbar',{ scopeId: key });
       return existingHost;
     }
     if(!button){
       logDebug('host missing button',{ scopeId: key });
-      hostCache.set(key, null);
       return null;
     }
     const host = doc.createElement('div');
@@ -378,7 +383,7 @@
     host.dataset.fontToolbarScope = key;
     host.style.display = 'none';
     button.insertAdjacentElement('afterend', host);
-    hostCache.set(key, host);
+    toolbarHostCache.set(key, host);
     logDebug('host created',{ scopeId: key, buttonId });
     return host;
   }
@@ -1017,6 +1022,26 @@
     }
     logDebug('significance element registered',{ orientation: config.orientation, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
   }
+
+  function pruneToolbarHostCache(){
+    Array.from(toolbarHostCache.entries()).forEach(([key, host]) => {
+      if(!host || host.isConnected === false){
+        toolbarHostCache.delete(key);
+      }
+    });
+  }
+
+  significanceControls.disposeTab = function disposeTab(){
+    pruneToolbarHostCache();
+    if(activeHost && activeHost.isConnected === false){
+      closePanel('dispose-tab');
+    }
+    return true;
+  };
+
+  try{
+    Shared.workspaceTabs?.registerSharedControlDisposer?.('significanceControls', significanceControls.disposeTab);
+  }catch(_err){}
 
   significanceControls.ensurePanel = ensurePanel;
   significanceControls.registerSignificanceElement = registerSignificanceElement;

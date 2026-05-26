@@ -1,6 +1,8 @@
 jest.setTimeout(30000);
 
 describe('PCA view controls', () => {
+  let pcaViewTestTabId = '';
+  let pcaViewTestTabCounter = 0;
   const flush = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
   const flushAll = async (count = 10) => {
     for (let i = 0; i < count; i += 1) {
@@ -20,6 +22,13 @@ describe('PCA view controls', () => {
 
   beforeEach(async () => {
     jest.resetModules();
+    if (window.Components) {
+      delete window.Components.pca;
+    }
+    if (global.Components) {
+      delete global.Components.pca;
+    }
+    pcaViewTestTabId = `pca-view-test-tab-${++pcaViewTestTabCounter}`;
     global.__svdCallCount = 0;
     global.SVDJS = {
       SVD(matrix = []) {
@@ -77,7 +86,11 @@ describe('PCA view controls', () => {
     require('../js/main/tabDrag.js');
     require('../js/main/previews.js');
     require('../js/main.js');
-    window.Components?.pca?.ensure?.();
+    window.Components?.pca?.ensure?.({
+      tabId: pcaViewTestTabId,
+      root: document.getElementById('pcaPage'),
+      reason: 'pca-view-test-ensure'
+    });
     await flushAll();
   });
 

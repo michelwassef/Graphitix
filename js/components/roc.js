@@ -805,15 +805,18 @@
     }
   };
   const scheduleRocNoticeWidth = (() => {
-    if(typeof Shared.debounceFrame === 'function'){
-      let lastReason = 'frame';
-      const debounced = Shared.debounceFrame(() => syncRocAutoDrawNoticeWidth(lastReason));
-      return reason => {
-        lastReason = reason || 'frame';
-        debounced();
-      };
-    }
-    return reason => syncRocAutoDrawNoticeWidth(reason || 'immediate');
+    let lastReason = 'frame';
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(roc, 'roc', () => syncRocAutoDrawNoticeWidth(lastReason), { reason: 'roc-notice-width' })
+      : null;
+    return reason => {
+      lastReason = reason || 'frame';
+      if(debounced){
+        debounced({ tabId: roc.__boundTabId || null, reason: 'roc-notice-width' });
+        return;
+      }
+      syncRocAutoDrawNoticeWidth(lastReason);
+    };
   })();
 
   // PART: LEGEND
@@ -1214,7 +1217,13 @@
   function ensureHotForActiveTab(){
     const wrapper = refs.hotWrapper || getRocNodeById('rocHotWrapper');
     const baseContainer = refs.hotContainer || getRocNodeById('rocHot');
-    const tabId = resolveActiveTabId() || 'roc-default';
+    const tabId = Shared.hot?.resolveTableTabId?.({
+      type: 'roc',
+      component: roc,
+      wrapper,
+      container: baseContainer,
+      reason: 'roc-ensure-hot'
+    }) || null;
     if(!Shared.hot?.ensureTableForTab || !wrapper){
       if(!state.hot && baseContainer){
         state.hot = createRocTableInstance(baseContainer);
@@ -3812,7 +3821,7 @@
   }
 
   function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = options?.tabId || roc.__boundTabId || null;
     const targetRoot = options?.root || resolveRocRoot(targetTabId || null) || state.root || null;
     if(roc.ready && (!targetTabId || roc.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       console.debug('Debug: roc init skipped', { tabId: roc.__boundTabId || null });
@@ -3828,7 +3837,9 @@
       console.warn('ROC component init skipped: required elements missing');
       return;
     }
-    const scheduleRocDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runRocDrawCycle) : runRocDrawCycle;
+    const scheduleRocDrawBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(roc, 'roc', runRocDrawCycle, { reason: 'roc-draw-frame' })
+      : runRocDrawCycle;
     const scheduleRocDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
@@ -3845,11 +3856,10 @@
           console.debug('Debug: roc autoDraw deferred for overlay',{ reason: overlayReason });
           runSchedule();
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
+        Shared.componentLifecycle?.scheduleComponentFrame?.(roc, 'roc', {
+          tabId: nextOpts.tabId || roc.__boundTabId || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
         return;
       }
       runSchedule();
@@ -3858,6 +3868,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'roc',
           debugLabel: 'roc',
+          getTabId: () => roc.__boundTabId || null,
           scheduleRaw: scheduleRocDrawInstrumented
         })
       : scheduleRocDrawInstrumented;
@@ -3893,7 +3904,7 @@
     }else{
       state.scheduleDraw = scheduleDrawRocRaw;
     }
-    console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame', { guarded: !!rocAutoDrawManager }); // Debug: scheduler setup
+    console.debug('Debug: roc scheduleDraw configured via tab-scoped lifecycle frame', { guarded: !!rocAutoDrawManager }); // Debug: scheduler setup
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'roc',
       tabId: targetTabId || undefined,
@@ -3935,13 +3946,13 @@
       refs.svgBox = state.layout.elements.svgBox;
       ensureRocLegendControlPlacement();
     }
-    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(() => ensureRocLegendControlPlacement())
+    const scheduleLegendPlacement = typeof Shared.componentLifecycle?.createTabScopedFrameDebouncer === 'function'
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(roc, 'roc', () => ensureRocLegendControlPlacement(), { reason: 'roc-legend-placement' })
       : null;
     if(scheduleLegendPlacement){
-      scheduleLegendPlacement();
-    }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(() => ensureRocLegendControlPlacement());
+      scheduleLegendPlacement({ tabId: roc.__boundTabId || null, reason: 'roc-legend-placement' });
+    }else{
+      ensureRocLegendControlPlacement();
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureRocFontEventListener();
@@ -3961,10 +3972,11 @@
   }
 
   roc.init = init;
-  roc.ensure = function ensure(){
+  roc.ensure = function ensure(options = {}){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'roc',
+        tabLike: options.tab || options.tabId || null,
         sentinelSelector: '#rocHot',
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => roc.__domSentinel || null,
@@ -3979,7 +3991,7 @@
       }
     }
     if(!roc.ready){
-      init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
+      init({ ...options, tabId: options.tabId || options.tab?.id || roc.__boundTabId || undefined, reason: options.reason || 'ensure' });
     }
   };
   roc.activateTab = Shared.componentLifecycle?.bindTabActivation?.({

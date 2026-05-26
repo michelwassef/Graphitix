@@ -1,0 +1,1062 @@
+ Debug: workspace layout default captured Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: resolveDefaultFontSizeForType skipped Object
+ Debug: fontControls importScopeStyles complete Object
+ Debug: workspace payload applied via custom handler Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: componentLayout minSvgWidth updated Object
+ Debug: componentLayout applyState normalized svg sizing authority Object
+ Debug: resizer programmatic simulated aspect lock Object
+ Debug: resizer aspect ratio set Object
+ Debug: enforceAspectRatio result Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout scheduleDraw invoked Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout scheduleDraw invoked Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout applyState Object
+ Debug: workspace layout applied Object
+ Debug: componentLayout tab controls synced Object
+ Debug: workspace displayed Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: componentLayout programmatic sync released Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:901 Debug: enforceAspectRatio result Object
+resizer.js:3076 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+componentLayout.js:1180 Debug: componentLayout ResizeObserver ignored during programmatic sync Object
+resizer.js:2620 Debug: resizer observer triggered
+componentLayout.js:1354 Debug: componentLayout resizable onResize Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:901 Debug: enforceAspectRatio result Object
+resizer.js:3076 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+hot.js:436 Debug: Shared.hot legacy active-tab sync entry redirected to owner-tab sync Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:487 Debug: fastClonePayload using structuredClone Object
+session.js:574 Debug: clonePayload completed Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:1703 Debug: assignTabPayload applied Object
+session.js:784 Debug: serializePayloadSignature computed Object
+session.js:424 Debug: session dirty flag updated Object
+session.js:1758 Debug: updateTabPayload applied Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:901 Debug: enforceAspectRatio result Object
+resizer.js:3076 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+session.js:424 Debug: session dirty flag updated Object
+session.js:337 Debug: tab user modification marked Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+chartStyle.js:421 Debug: chartStyle.ptToPx Object
+chartStyle.js:436 Debug: chartStyle.normalizeFontSize Object
+chartStyle.js:507 Debug: chartStyle.computeResizeScale Object
+chartStyle.js:428 Debug: chartStyle.pxToPt Object
+chartStyle.js:628 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+chartStyle.js:653 Debug: chartStyle.resolveScaledFontSize Object
+chartStyle.js:2215 Debug: chartStyle.renderFontSizeLabel skipped Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:448 Debug: chartStyle created measurement canvas
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.renderFontSizeLabel skipped Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: componentLayout programmatic sync released Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: tab considered empty after header skip Object
+ Debug: resizer snapshot captured Object
+ Debug: resizer drag start Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout scheduleDraw invoked Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: enforceAspectRatio result Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer drag move Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.renderFontSizeLabel skipped Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: chartStyle.renderFontSizeLabel skipped Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: dendrogramControls dendrogram overlay ensured Object
+ Debug: dendrogramControls dendrogram element registered Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: autoResizeSvg applied Object
+ Debug: ensureGraphViewport applied Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: resizer drag end
+ Debug: resizer snapshot captured Object
+ Debug: session dirty flag updated Object
+ Debug: tab user modification marked Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: enforceAspectRatio result Object
+ Debug: Shared.syncPanelWidths aspect enforcement Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset authority updated from live resizer Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: chartStyle.computeViewBoxScale Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+chartStyle.js:421 Debug: chartStyle.ptToPx Object
+chartStyle.js:436 Debug: chartStyle.normalizeFontSize Object
+chartStyle.js:507 Debug: chartStyle.computeResizeScale Object
+chartStyle.js:428 Debug: chartStyle.pxToPt Object
+chartStyle.js:628 Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+chartStyle.js:653 Debug: chartStyle.resolveScaledFontSize Object
+chartStyle.js:2215 Debug: chartStyle.renderFontSizeLabel skipped Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+dom.js:7 Debug: makeEditable bound Object
+dom.js:7 Debug: enableLabelDrag bound Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls registerNodeForKey cleanup Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+chartStyle.js:455 Debug: chartStyle.makeFont Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+chartStyle.js:1056 Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls registerNodeForKey cleanup Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+dendrogramControls.js:174 Debug: dendrogramControls dendrogram overlay ensured Object
+dendrogramControls.js:174 Debug: dendrogramControls dendrogram element registered Object
+dendrogramControls.js:174 Debug: dendrogramControls dendrogram overlay ensured Object
+dendrogramControls.js:174 Debug: dendrogramControls dendrogram element registered Object
+dom.js:7 Debug: autoResizeSvg applied Object
+dom.js:7 Debug: ensureGraphViewport applied Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+dom.js:7 Debug: autoResizeSvg applied Object
+dom.js:7 Debug: ensureGraphViewport applied Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+chartStyle.js:761 Debug: chartStyle.computeViewBoxScale Object
+dom.js:7 Debug: autoResizeSvg applied Object
+dom.js:7 Debug: ensureGraphViewport applied Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:901 Debug: enforceAspectRatio result Object
+resizer.js:3076 Debug: Shared.syncPanelWidths aspect enforcement Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+fontControls.js:1534 Debug: fontControls exportScopeStyles skipped (empty) Object
+componentLifecycle.js:24 Debug: component lifecycle skipped without explicit tab id Object
+warn @ componentLifecycle.js:24
+previews.js:1572 Debug: preview hover enter Object
+previews.js:1576 Debug: preview hover skipped for active tab Object
+session.js:2099 Debug: tab considered empty after header skip Object
+ Debug: preview hover enter {tabId: 'workspace-2', type: 'heatmap'}
+ Debug: preview hover skipped for active tab {tabId: 'workspace-2', type: 'heatmap'}

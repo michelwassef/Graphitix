@@ -777,10 +777,11 @@
   // tab-activation cycle. After this returns, every component listed in `types` has
   // ready === true (or has logged an error and is excluded from the returned set).
   async function ensureComponentsBeforeWarmup(context, types, options = {}) {
-    const { workspaces } = context || {};
+    const { workspaces, workspaceState } = context || {};
     if (!workspaces || !Array.isArray(types) || !types.length) {
       return new Set();
     }
+    const tabs = Array.isArray(workspaceState?.tabs) ? workspaceState.tabs : [];
     const ready = new Set();
     const uniqueTypes = Array.from(new Set(types.filter(Boolean)));
     await Promise.all(uniqueTypes.map(async type => {
@@ -792,8 +793,13 @@
       if (!config || typeof config.ensure !== 'function') {
         return;
       }
+      const representativeTab = tabs.find(tab => tab && tab.type === type && tab.id) || null;
       try {
-        const ensureResult = config.ensure();
+        const ensureResult = config.ensure({
+          tabId: representativeTab?.id || null,
+          tab: representativeTab || null,
+          reason: options.reason || 'pre-warmup-ensure'
+        });
         if (ensureResult && typeof ensureResult.then === 'function') {
           const outcome = await awaitWithTimeout(ensureResult, 12000, 'ensureComponentsBeforeWarmup', {
             type,

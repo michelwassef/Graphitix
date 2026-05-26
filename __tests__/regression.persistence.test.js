@@ -67,7 +67,7 @@ describe('Regression controls persistence', () => {
   test('Scatter regression payload captures summary', async () => {
     const scatter = window.Components?.scatter;
     expect(scatter).toBeTruthy();
-    scatter.ensure();
+    scatter.ensure({ tabId: 'regression-scatter-test-tab', reason: 'regression-persistence-test' });
 
     const payload = scatter.getPayload();
     const data = payload.data;
@@ -186,7 +186,7 @@ describe('Regression controls persistence', () => {
   test('Line regression payload stores per-series summaries', async () => {
     const line = window.Components?.line;
     expect(line).toBeTruthy();
-    line.ensure();
+    line.ensure({ tabId: 'regression-line-test-tab', reason: 'regression-persistence-test' });
 
     const hot = line.getHot();
     expect(hot).toBeTruthy();

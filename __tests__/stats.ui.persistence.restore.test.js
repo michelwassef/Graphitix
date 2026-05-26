@@ -268,6 +268,9 @@ describe('UI stats persistence and restore', () => {
     delete global.Main;
     delete global.Components;
     delete global.Shared;
+    delete global.Main;
+    delete global.Components;
+    delete global.Shared;
   });
 
   afterAll(() => {

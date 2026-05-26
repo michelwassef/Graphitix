@@ -145,39 +145,59 @@
     return undefined;
   };
 
+  function resolveHeatmapAsyncTabId(meta = {}, hotInstance = null){
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    return String(
+      meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.__workspaceSessionMeta?.tabId
+      || hotInstance?.__heatmapTabId
+      || state.hot?.__heatmapTabId
+      || heatmap.__boundTabId
+      || Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap')?.tabId
+      || (activeTab?.type === 'heatmap' ? activeTab.id : null)
+      || ''
+    ).trim() || null;
+  }
+
+  function scheduleHeatmapAsyncFrame(reason, fn, meta = {}){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentFrame?.(heatmap, 'heatmap', {
+      ...(meta || {}),
+      tabId: resolveHeatmapAsyncTabId(meta),
+      reason: reason || meta?.reason || 'heatmap-frame'
+    }, () => fn()) || null;
+  }
+
   let heatmapFontObserver = null;
   let heatmapFontEventBound = false;
   let heatmapFontRefreshDebounced = null;
   let heatmapFontRefreshReason = null;
-  const scheduleHeatmapFontRefresh = (reason) => {
-    heatmapFontRefreshReason = reason || heatmapFontRefreshReason || 'font-style-change';
-    const trigger = () => {
+  const scheduleHeatmapFontRefresh = (() => {
+    const runRefresh = () => {
       if(state.isRendering){
-        const retry = () => scheduleHeatmapFontRefresh(heatmapFontRefreshReason || 'font-style-change');
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(retry);
-        }else{
-          (global.setTimeout || setTimeout)(retry, 16);
-        }
+        scheduleHeatmapFontRefresh(heatmapFontRefreshReason || 'font-style-change');
         return;
       }
       const nextReason = heatmapFontRefreshReason || 'font-style-change';
       heatmapFontRefreshReason = null;
       state.scheduleDraw({ viewOnly: true, reason: nextReason });
     };
-    if(typeof Shared.debounceFrame === 'function'){
-      if(!heatmapFontRefreshDebounced){
-        heatmapFontRefreshDebounced = Shared.debounceFrame(trigger);
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(heatmap, 'heatmap', runRefresh, { reason: 'heatmap-font-refresh' })
+      : null;
+    return reason => {
+      heatmapFontRefreshReason = reason || heatmapFontRefreshReason || 'font-style-change';
+      if(debounced){
+        debounced({ tabId: heatmap.__boundTabId || null, reason: 'heatmap-font-refresh' });
+        return;
       }
-      heatmapFontRefreshDebounced();
-      return;
-    }
-    if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(trigger);
-    }else{
-      (global.setTimeout || setTimeout)(trigger, 16);
-    }
-  };
+      runRefresh();
+    };
+  })();
 
   const ensureHeatmapFontObserver = () => {
     if(heatmapFontObserver || typeof global.MutationObserver !== 'function' || !state.svg){
@@ -301,40 +321,32 @@
       textScaleMode: HEATMAP_TEXT_SCALE_MODE
     });
   };
-  const scheduleHeatmapResizeRefresh = (reason) => {
-    heatmapResizeRefreshReason = reason || heatmapResizeRefreshReason || 'resize';
-    const trigger = () => {
+  const scheduleHeatmapResizeRefresh = (() => {
+    const runRefresh = () => {
       const nextReason = heatmapResizeRefreshReason || 'resize';
       heatmapResizeRefreshReason = null;
       if(state.isRendering){
-        const retry = () => scheduleHeatmapResizeRefresh(nextReason);
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(retry);
-        }else{
-          (global.setTimeout || setTimeout)(retry, 16);
-        }
+        scheduleHeatmapResizeRefresh(nextReason);
         return;
       }
-      // Keep aspect-correction responsiveness while ensuring full layout clearance logic
-      // (title/label overlap, bounds reflow) is reapplied via a view-only redraw.
       applyHeatmapTextAspect(`heatmap-resize-aspect-${nextReason}`);
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw({ viewOnly: true, reason: nextReason });
       }
     };
-    if(typeof Shared.debounceFrame === 'function'){
-      if(!heatmapResizeRefreshDebounced){
-        heatmapResizeRefreshDebounced = Shared.debounceFrame(trigger);
+    const debounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(heatmap, 'heatmap', runRefresh, { reason: 'heatmap-resize-refresh' })
+      : null;
+    return reason => {
+      heatmapResizeRefreshReason = reason || heatmapResizeRefreshReason || 'resize';
+      if(debounced){
+        debounced({ tabId: heatmap.__boundTabId || null, reason: 'heatmap-resize-refresh' });
+        return;
       }
-      heatmapResizeRefreshDebounced();
-      return;
-    }
-    if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(trigger);
-    }else{
-      (global.setTimeout || setTimeout)(trigger, 16);
-    }
-  };
+      runRefresh();
+    };
+  })();
+
   const ensureHeatmapTextResizeObserver = () => {
     if(heatmapTextResizeObserver || typeof global.ResizeObserver !== 'function'){
       return;
@@ -1522,22 +1534,10 @@
     if(options.scheduleDraw !== false){
       const drawOptions = {
         force: options.force !== false,
-        reason: options.reason || 'dataset-replace'
+        reason: options.reason || 'dataset-replace',
+        tabId: resolveHeatmapAsyncTabId(options, hot)
       };
-      let drewImmediately = false;
-      if(drawOptions.force && options.immediateDraw !== false){
-        try{
-          pendingDrawOptions = { ...drawOptions };
-          const result = draw();
-          drewImmediately = !(result && typeof result.then === 'function');
-        }catch(err){
-          pendingDrawOptions = {};
-          console.error('heatmap immediate dataset draw error', err);
-        }
-      }
-      if(!drewImmediately){
-        state.scheduleDraw(drawOptions);
-      }
+      state.scheduleDraw(drawOptions);
     }
     debugLog('Debug: heatmap dataset replaced', {
       reason: options.reason || 'dataset-replace',
@@ -2057,11 +2057,7 @@
     if(hiddenDrawFlushHandle == null){
       return;
     }
-    if(typeof global.cancelAnimationFrame === 'function'){
-      global.cancelAnimationFrame(hiddenDrawFlushHandle);
-    }else{
-      (global.clearTimeout || clearTimeout)(hiddenDrawFlushHandle);
-    }
+    Shared.componentLifecycle?.cancelComponentFrame?.(heatmap, hiddenDrawFlushHandle);
     hiddenDrawFlushHandle = null;
   }
 
@@ -2089,17 +2085,9 @@
         reason: pending.reason || reason || 'hidden-draw-flush'
       });
     };
-    if(typeof global.requestAnimationFrame === 'function'){
-      hiddenDrawFlushHandle = global.requestAnimationFrame(() => {
-        if(typeof global.requestAnimationFrame === 'function'){
-          hiddenDrawFlushHandle = global.requestAnimationFrame(flush);
-        }else{
-          flush();
-        }
-      });
-      return;
-    }
-    hiddenDrawFlushHandle = (global.setTimeout || setTimeout)(flush, 32);
+    hiddenDrawFlushHandle = scheduleHeatmapAsyncFrame(reason || 'hidden-draw-flush-first-frame', () => {
+      hiddenDrawFlushHandle = scheduleHeatmapAsyncFrame(reason || 'hidden-draw-flush-second-frame', flush);
+    });
   }
 
   function updateHeatmapDataShape(shape){
@@ -2253,41 +2241,43 @@
 
   function scheduleDrawHeatmap(options){
     const opts = normalizeDrawOptions(options);
-    const nextReason = opts.reason || opts.source || 'heatmap-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('heatmap', { ...opts, tabId: opts.tabId || heatmap.__boundTabId || null, reason: nextReason })){
-      debugLog('Debug: heatmap draw suppressed by lifecycle', { reason: nextReason, tabId: opts.tabId || heatmap.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: opts.tabId || heatmap.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
+    const resolvedTabId = resolveHeatmapAsyncTabId(opts, state.hot);
+    const scheduleOpts = resolvedTabId ? { ...opts, tabId: resolvedTabId } : { ...opts };
+    const nextReason = scheduleOpts.reason || scheduleOpts.source || 'heatmap-draw';
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('heatmap', { ...scheduleOpts, tabId: scheduleOpts.tabId || null, reason: nextReason })){
+      debugLog('Debug: heatmap draw suppressed by lifecycle', { reason: nextReason, tabId: scheduleOpts.tabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: scheduleOpts.tabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: opts.tabId || heatmap.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'heatmap', tabId: scheduleOpts.tabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'heatmap-scheduler' } });
     if(isHeatmapWorkspaceHidden()){
-      const pending = mergeDeferredHiddenDrawOptions(opts);
+      const pending = mergeDeferredHiddenDrawOptions(scheduleOpts);
       debugLog('Debug: heatmap draw deferred while hidden', {
-        reason: pending?.reason || opts.reason || null,
+        reason: pending?.reason || scheduleOpts.reason || null,
         viewOnly: !!pending?.viewOnly,
         force: !!pending?.force
       });
       return;
     }
-    mergePendingDrawOptions(opts);
-    if(opts.viewOnly){
+    mergePendingDrawOptions(scheduleOpts);
+    if(scheduleOpts.viewOnly){
       if(typeof scheduleDrawHeatmapRaw === 'function'){
-        scheduleDrawHeatmapRaw();
+        scheduleDrawHeatmapRaw(scheduleOpts);
       }
       return;
     }
-    if(opts.force){
-      if(!opts.skipThresholdEvaluation){
-        evaluateHeatmapDataShape({ source: opts.reason || 'force' });
+    if(scheduleOpts.force){
+      if(!scheduleOpts.skipThresholdEvaluation){
+        evaluateHeatmapDataShape({ source: scheduleOpts.reason || 'force' });
       }
       if(typeof scheduleDrawHeatmapRaw === 'function'){
-        scheduleDrawHeatmapRaw();
+        scheduleDrawHeatmapRaw(scheduleOpts);
       }
       return;
     }
-    evaluateHeatmapDataShape({ source: opts.reason || 'schedule' });
+    evaluateHeatmapDataShape({ source: scheduleOpts.reason || 'schedule' });
     if(typeof scheduleDrawHeatmapRaw === 'function'){
-      scheduleDrawHeatmapRaw();
+      scheduleDrawHeatmapRaw(scheduleOpts);
     }
   }
 
@@ -2474,8 +2464,15 @@
           state.hot = createHeatmapTable(baseContainer);
         }
         if(state.hot){
+          const tableTabId = Shared.hot?.resolveTableTabId?.({
+            type: 'heatmap',
+            component: heatmap,
+            wrapper,
+            container: baseContainer,
+            reason: 'heatmap-ensure-hot'
+          }) || null;
           state.hot.__heatmapHostContainer = baseContainer || null;
-          state.hot.__heatmapTabId = Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+          state.hot.__heatmapTabId = tableTabId;
           ensureHeatmapDefaultHeaderRow(state.hot);
           ensureHeatmapDataViewsForHot(state.hot, {
             wrapper,
@@ -2489,7 +2486,13 @@
       }
       const entry = Shared.hot.ensureTableForTab({
         type: 'heatmap',
-        tabId: Shared.hot.resolveActiveTabId?.() || null,
+        tabId: Shared.hot.resolveTableTabId({
+          type: 'heatmap',
+          component: heatmap,
+          wrapper,
+          container: baseContainer,
+          reason: 'heatmap-ensure-hot'
+        }),
         wrapper,
         container: baseContainer,
         createInstance: createHeatmapTable
@@ -2502,7 +2505,7 @@
       }
       if(state.hot){
         state.hot.__heatmapHostContainer = entry?.container || baseContainer || null;
-        state.hot.__heatmapTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'heatmap-default';
+        state.hot.__heatmapTabId = entry?.tabId || heatmap.__boundTabId || null;
         ensureHeatmapDefaultHeaderRow(state.hot);
         ensureHeatmapDataViewsForHot(state.hot, {
           wrapper,
@@ -4197,7 +4200,15 @@
     };
   }
 
-  function resolveCluster(items, metric, linkage, drawToken, label){
+  function isHeatmapAsyncCurrent(asyncState){
+    return !asyncState?.scope || !!(asyncState.meta && asyncState.scope.isCurrent(asyncState.meta));
+  }
+
+  function isHeatmapDrawCurrent(drawToken, asyncState){
+    return drawToken === state.drawToken && isHeatmapAsyncCurrent(asyncState);
+  }
+
+  function resolveCluster(items, metric, linkage, drawToken, label, asyncState = null){
     if(!Array.isArray(items) || items.length < 2){
       return { result: null, promise: null };
     }
@@ -4217,8 +4228,8 @@
       timeoutMs: HEATMAP_CLUSTER_WORKER.timeoutMs,
       fallback: () => hierarchicalCluster(items, metric, linkage)
     }).then((result) => {
-      if(drawToken !== state.drawToken){
-        debugLog('Debug: heatmap cluster worker result ignored', { label, reason: 'stale-token' });
+      if(!isHeatmapDrawCurrent(drawToken, asyncState)){
+        debugLog('Debug: heatmap cluster worker result ignored', { label, reason: 'stale-draw' });
         return null;
       }
       return normalizeClusterResult(result, items);
@@ -5699,7 +5710,7 @@
       // Always ensure overlay covers the full bounding box of the dendrogram group
       dendrogramControls.registerDendrogramElement(group, createDendrogramControlConfig(orientation));
       // Optionally, force overlay update after rendering all paths
-      setTimeout(() => {
+      scheduleHeatmapAsyncFrame('heatmap-dendrogram-overlay-bounds', () => {
         if (group.__dendrogramControlOverlay && typeof group.getBBox === 'function') {
           const info = group.__dendrogramControlOverlay;
           if (info && info.element) {
@@ -5709,7 +5720,7 @@
             }
           }
         }
-      }, 0);
+      });
       debugLog('Debug: heatmap dendrogram registered with controls', { orientation });
     }
 
@@ -7403,7 +7414,7 @@
     }
   }
 
-  function renderCorrelationHeatmap(processed, settings, drawToken){
+  function renderCorrelationHeatmap(processed, settings, drawToken, asyncState = null){
     state.lastResolvedValueScale = null;
     syncHeatmapPaletteInputs(resolveHeatmapRoot());
     const viewContext = resolveHeatmapViewContext();
@@ -7456,7 +7467,7 @@
     const clusterConfig = axis === 'columns' ? settings.clustering.columns : settings.clustering.rows;
     const positionByIndex = new Map(items.map((item, idx) => [item.index, idx]));
     const clusterState = clusterConfig.enabled && items.length > 1
-      ? resolveCluster(items, clusterConfig.metric, settings.clustering.linkage, drawToken, 'correlation')
+      ? resolveCluster(items, clusterConfig.metric, settings.clustering.linkage, drawToken, 'correlation', asyncState)
       : { result: null, promise: null };
 
     const renderWithCluster = (clusterResult) => {
@@ -7510,7 +7521,7 @@
 
     if(clusterState.promise){
       return clusterState.promise.then((clusterResult) => {
-        if(!clusterResult){
+        if(!clusterResult || !isHeatmapDrawCurrent(drawToken, asyncState)){
           return;
         }
         renderWithCluster(clusterResult);
@@ -7520,7 +7531,7 @@
     renderWithCluster(clusterState.result);
   }
 
-  function renderValuesHeatmap(processed, settings, drawToken){
+  function renderValuesHeatmap(processed, settings, drawToken, asyncState = null){
     syncHeatmapCorrelationMatrixDataView(null, settings, {
       context: resolveHeatmapViewContext(),
       reason: 'heatmap-correlation-view-clear-values'
@@ -7530,10 +7541,10 @@
     const rowPositionByIndex = new Map(rowItems.map((item, idx) => [item.index, idx]));
     const columnPositionByIndex = new Map(columnItems.map((item, idx) => [item.index, idx]));
     const rowClusterState = settings.clustering.rows.enabled && rowItems.length > 1
-      ? resolveCluster(rowItems, settings.clustering.rows.metric, settings.clustering.linkage, drawToken, 'rows')
+      ? resolveCluster(rowItems, settings.clustering.rows.metric, settings.clustering.linkage, drawToken, 'rows', asyncState)
       : { result: null, promise: null };
     const columnClusterState = settings.clustering.columns.enabled && columnItems.length > 1
-      ? resolveCluster(columnItems, settings.clustering.columns.metric, settings.clustering.linkage, drawToken, 'columns')
+      ? resolveCluster(columnItems, settings.clustering.columns.metric, settings.clustering.linkage, drawToken, 'columns', asyncState)
       : { result: null, promise: null };
 
     const renderWithClusters = (rowCluster, columnCluster) => {
@@ -7599,8 +7610,8 @@
       const rowPromise = rowClusterState.promise || Promise.resolve(rowClusterState.result);
       const columnPromise = columnClusterState.promise || Promise.resolve(columnClusterState.result);
       return Promise.all([rowPromise, columnPromise]).then(([rowCluster, columnCluster]) => {
-        if(drawToken !== state.drawToken){
-          debugLog('Debug: heatmap cluster worker results ignored', { reason: 'stale-token' });
+        if(!isHeatmapDrawCurrent(drawToken, asyncState)){
+          debugLog('Debug: heatmap cluster worker results ignored', { reason: 'stale-draw' });
           return;
         }
         renderWithClusters(rowCluster, columnCluster);
@@ -7893,6 +7904,27 @@
       }
       const drawToken = (state.drawToken || 0) + 1;
       state.drawToken = drawToken;
+      let drawAsyncState = null;
+      const drawTabId = drawOpts.tabId || heatmap.__boundTabId || null;
+      if(drawTabId && Shared.componentLifecycle?.createAsyncScope){
+        try{
+          const scope = heatmap.__drawAsyncScope || Shared.componentLifecycle.createAsyncScope('heatmap-draw');
+          heatmap.__drawAsyncScope = scope;
+          drawAsyncState = {
+            scope,
+            meta: scope.nextToken({
+              tabId: drawTabId,
+              reason: drawOpts.reason || 'heatmap-draw'
+            })
+          };
+        }catch(err){
+          drawAsyncState = null;
+          debugLog('Debug: heatmap draw async lifecycle scope unavailable', {
+            tabId: drawTabId,
+            message: err?.message || String(err)
+          });
+        }
+      }
       const settings = resolveHeatmapEffectiveSettings(collectSettings());
       const viewMatches = (state.lastRenderModel?.type === 'values' && settings.view === 'values')
         || (state.lastRenderModel?.type === 'correlation' && settings.view.startsWith('corr'));
@@ -7962,10 +7994,20 @@
       }
       renderStart = nowMs();
       const renderResult = settings.view === 'values'
-        ? renderValuesHeatmap(processed, settings, drawToken)
-        : renderCorrelationHeatmap(processed, settings, drawToken);
+        ? renderValuesHeatmap(processed, settings, drawToken, drawAsyncState)
+        : renderCorrelationHeatmap(processed, settings, drawToken, drawAsyncState);
       if(renderResult && typeof renderResult.then === 'function'){
         return renderResult.then((value) => {
+          if(!isHeatmapDrawCurrent(drawToken, drawAsyncState)){
+            finalizeDrawPerformance({
+              status: 'skipped',
+              view: settings.view,
+              rows: processed.rowCount,
+              cols: processed.columnCount,
+              error: 'stale-draw'
+            });
+            return value;
+          }
           finalizeDrawPerformance({
             status: 'complete',
             view: settings.view,
@@ -8495,7 +8537,7 @@
   }
 
   heatmap.init = function init(options = {}){
-    const targetTabId = options?.tabId || Shared.hot?.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
+    const targetTabId = options?.tabId || options?.tab?.id || resolveHeatmapAsyncTabId(options, state.hot) || null;
     const targetRoot = options?.root || resolveHeatmapRoot(targetTabId || null) || null;
     if(heatmap.ready && (!targetTabId || heatmap.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
       debugLog('Debug: heatmap.init skipped - already ready', { tabId: heatmap.__boundTabId || null });
@@ -8590,9 +8632,14 @@
       resolveHeatmapOverlay(status);
       return undefined;
     };
-    const scheduleHeatmapBase = Shared.debounceFrame ? Shared.debounceFrame(runHeatmapDrawCycle) : runHeatmapDrawCycle;
+    const scheduleHeatmapBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(heatmap, 'heatmap', runHeatmapDrawCycle, { reason: 'heatmap-draw-frame' })
+      : runHeatmapDrawCycle;
     const scheduleHeatmapInstrumented = (opts) => {
-      const nextOpts = opts || {};
+      const resolvedTabId = resolveHeatmapAsyncTabId(opts || {}, state.hot);
+      const nextOpts = resolvedTabId && !(opts || {}).tabId
+        ? { ...(opts || {}), tabId: resolvedTabId }
+        : (opts || {});
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
       if(nextOpts.force){
         markHeatmapOverlayPending(overlayReason);
@@ -8607,10 +8654,16 @@
           debugLog('Debug: heatmap draw deferred for overlay', { reason: overlayReason });
           runSchedule();
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
+        const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(heatmap, 'heatmap', {
+          tabId: nextOpts.tabId || heatmap.__boundTabId || resolveHeatmapAsyncTabId(nextOpts, state.hot) || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
+        if(!scheduled){
+          debugLog('Debug: heatmap overlay defer fallback executed', {
+            reason: overlayReason,
+            tabId: nextOpts.tabId || heatmap.__boundTabId || null
+          });
+          runSchedule();
         }
         return;
       }
@@ -8620,10 +8673,11 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'heatmap',
           debugLabel: 'heatmap',
+          getTabId: () => heatmap.__boundTabId || null,
           scheduleRaw: scheduleHeatmapInstrumented
         })
       : scheduleHeatmapInstrumented;
-    debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
+    debugLog('Debug: heatmap scheduler configured', { scheduler: 'tab-scoped lifecycle frame' });
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();
     evaluateHeatmapDataShape();
@@ -8635,7 +8689,7 @@
       || getHeatmapNodeById('heatmapLoadExample')
       || null;
     heatmap.ready = true;
-    state.scheduleDraw();
+    state.scheduleDraw({ tabId: targetTabId || resolveHeatmapAsyncTabId({}, state.hot), reason: 'heatmap-init' });
   };
 
   function ensureHeatmapDomBindings(tabLike){
@@ -8646,6 +8700,7 @@
       componentKey: 'heatmap',
       tabLike: tabLike || null,
       sentinelSelector: '#heatmapLoadExample',
+      getCurrentRoot: () => state.root || null,
       getCurrentSentinel: () => heatmap.__domSentinel || null,
       rebind: info => {
         debugLog('Debug: heatmap DOM bindings rebind requested', { tabId: info?.tab?.id || null });
@@ -8657,12 +8712,12 @@
     return !!rebound?.rebound;
   }
 
-  heatmap.ensure = function ensure(){
-    if(ensureHeatmapDomBindings()){
+  heatmap.ensure = function ensure(options = {}){
+    if(ensureHeatmapDomBindings(options.tab || options.tabId || null)){
       return;
     }
     if(!heatmap.ready){
-      heatmap.init({ tabId: Shared.hot?.resolveActiveTabId?.() || undefined, reason: 'ensure' });
+      heatmap.init({ ...options, tabId: options.tabId || options.tab?.id || heatmap.__boundTabId || undefined, reason: options.reason || 'ensure' });
     }
   };
   function syncHeatmapActivationState(tabLike = null, options = {}){

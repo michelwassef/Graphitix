@@ -85,6 +85,13 @@
       console.error('Main.tabs.createManager missing dependencies', details);
       throw new Error('Main.tabs.createManager requires session, previews, domControls, tabDrag, dom, workspaceState, and withSessionContext.');
     }
+    if (typeof session.disposeWorkspaceTabResources !== 'function') {
+      console.error('Main.tabs.createManager missing teardown contract', {
+        hasSession: !!session,
+        hasDisposeWorkspaceTabResources: typeof session.disposeWorkspaceTabResources === 'function'
+      });
+      throw new Error('Main.tabs.createManager requires session.disposeWorkspaceTabResources.');
+    }
 
     console.debug('Debug: Main.tabs.createManager invoked', {
       tabCount: workspaceState.tabs?.length || 0,
@@ -446,28 +453,11 @@
       if (wasActive) {
         deactivateWorkspaceForTab(tab, reason);
       }
+      session.disposeWorkspaceTabResources(tab, {
+        reason,
+        type: tab.type || null
+      });
       workspaceState.tabs.splice(index, 1);
-      if (workspaceState.loadedWorkspaces) {
-        if (workspaceState.loadedWorkspaces[tabId]) {
-          delete workspaceState.loadedWorkspaces[tabId];
-        } else {
-          Object.keys(workspaceState.loadedWorkspaces).forEach(key => {
-            const entry = workspaceState.loadedWorkspaces[key];
-            if (entry && entry.tabId === tabId) {
-              delete workspaceState.loadedWorkspaces[key];
-            }
-          });
-        }
-      }
-      if (workspaceState.pendingDuplicateSource === tabId) {
-        workspaceState.pendingDuplicateSource = null;
-      }
-      if (window.Shared?.undoManager?.clearTab) {
-        window.Shared.undoManager.clearTab(tabId, { reason });
-      }
-      if (window.Shared?.workspaceTabs?.disposeTab) {
-        window.Shared.workspaceTabs.disposeTab(tab, { reason });
-      }
       if (workspaceState.lastActiveGraphId === tabId) {
         const fallbackGraph = [...workspaceState.tabs].reverse().find(item => item.type && !item.isWelcome) || null;
         workspaceState.lastActiveGraphId = fallbackGraph ? fallbackGraph.id : null;
@@ -662,6 +652,12 @@
       const pendingVariantId = options.variantId && graphVariantLookup.has(options.variantId)
         ? options.variantId
         : null;
+      if (priorType && priorType !== type) {
+        session.disposeWorkspaceTabResources(tab, {
+          reason: 'graph-selection-reset',
+          type: priorType
+        });
+      }
       tab.type = type;
       tab.pendingVariantId = pendingVariantId;
       const info = graphTypes.find(item => item.type === type);

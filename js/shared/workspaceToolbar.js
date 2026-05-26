@@ -155,8 +155,11 @@
   });
 
   const DEFAULT_HINT = 'Select any element of the graph to configure.';
+  const WORKSPACE_TOOLBAR_DEFAULT_SCOPE = '__global__';
   const NS = 'http://www.w3.org/2000/svg';
+  // Application-wide toolbar definitions. These are immutable configuration records, not tab state.
   const toolbarConfigs = new Map();
+  const WORKSPACE_TOOLBAR_STATE_KEY = 'workspaceToolbar';
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
   const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
   const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
@@ -178,7 +181,6 @@
   let sectionTabHandlersBound = false;
   let generalFallbackHandlersBound = false;
   const contextObservers = new WeakMap();
-  const transformCustomExpressionByKey = new Map();
   const TOOLBAR_HOST_VARIANT_PREFIX = 'font-toolbar-host--';
   const GENERAL_FALLBACK_IGNORE_SELECTOR = [
     '.workspace-toolbar',
@@ -296,7 +298,7 @@
 
   function resolveToolbarHost(scopeId){
     if(!doc){ return null; }
-    const key = scopeId || '__global__';
+    const key = scopeId || WORKSPACE_TOOLBAR_DEFAULT_SCOPE;
     let host = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
     if(host){
       return host;
@@ -1265,6 +1267,79 @@
     return String(toolbar?.dataset?.toolbarKey || '').trim();
   }
 
+  function normalizeToolbarTabId(value){
+    const text = String(value || '').trim();
+    return text || null;
+  }
+
+  function resolveToolbarTabIdFromNode(node){
+    let cursor = node || null;
+    while(cursor && cursor !== doc){
+      const dataset = cursor.dataset || null;
+      const candidate = normalizeToolbarTabId(dataset?.workspaceTabId || dataset?.tabId || null);
+      if(candidate){ return candidate; }
+      if(typeof cursor.getAttribute === 'function'){
+        const attrCandidate = normalizeToolbarTabId(
+          cursor.getAttribute('data-workspace-tab-id') || cursor.getAttribute('data-tab-id')
+        );
+        if(attrCandidate){ return attrCandidate; }
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
+  function resolveToolbarTabId(toolbarKey, section){
+    const fromSection = resolveToolbarTabIdFromNode(section || null);
+    if(fromSection){ return fromSection; }
+    const key = String(toolbarKey || '').trim();
+    if(key && doc){
+      const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+      const fromToolbar = resolveToolbarTabIdFromNode(toolbar);
+      if(fromToolbar){ return fromToolbar; }
+    }
+    try{
+      return normalizeToolbarTabId(global.Main?.session?.getActiveTab?.()?.id || null);
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function ensureToolbarState(tabId, reason){
+    const resolvedTabId = normalizeToolbarTabId(tabId);
+    if(!resolvedTabId){
+      return null;
+    }
+    const state = Shared.workspaceTabs?.ensureSharedControlState?.(resolvedTabId, WORKSPACE_TOOLBAR_STATE_KEY, {
+      tabId: resolvedTabId,
+      controlKey: WORKSPACE_TOOLBAR_STATE_KEY,
+      reason: reason || 'workspace-toolbar-state',
+      strictTabOwnership: true
+    });
+    if(!state){ return null; }
+    if(!state.transformCustomExpressions || typeof state.transformCustomExpressions !== 'object'){
+      state.transformCustomExpressions = Object.create(null);
+    }
+    return state;
+  }
+
+  function readCustomTransformExpression(toolbarKey, section){
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return ''; }
+    const state = ensureToolbarState(resolveToolbarTabId(key, section), 'read-custom-transform-expression');
+    const value = state?.transformCustomExpressions?.[key];
+    return typeof value === 'string' ? value : '';
+  }
+
+  function writeCustomTransformExpression(toolbarKey, expression, section){
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return false; }
+    const state = ensureToolbarState(resolveToolbarTabId(key, section), 'write-custom-transform-expression');
+    if(!state){ return false; }
+    state.transformCustomExpressions[key] = String(expression || '').trim();
+    return true;
+  }
+
   function findTransformSectionByToolbarKey(toolbarKey){
     if(!doc){ return null; }
     const key = String(toolbarKey || '').trim();
@@ -1344,7 +1419,7 @@
     if(!key){ return; }
     const input = getTransformCustomInput(section);
     if(!input){ return; }
-    transformCustomExpressionByKey.set(key, String(input.value || '').trim());
+    writeCustomTransformExpression(key, input.value || '', section);
   }
 
   function syncTransformCustomInputFromStore(section){
@@ -1352,8 +1427,9 @@
     if(!key){ return; }
     const input = getTransformCustomInput(section);
     if(!input){ return; }
-    if(transformCustomExpressionByKey.has(key) && input.value !== transformCustomExpressionByKey.get(key)){
-      input.value = transformCustomExpressionByKey.get(key);
+    const stored = readCustomTransformExpression(key, section);
+    if(stored && input.value !== stored){
+      input.value = stored;
     }
   }
 
@@ -1966,6 +2042,16 @@
     logDebug('registered toolbar', { key, sectionCount: normalized.sections.length });
   }
 
+  workspaceToolbar.disposeTab = function disposeTab(){
+    // Per-tab toolbar state lives under workspaceTabs shared control state and is
+    // removed with tab.sharedState. Nothing process-global is keyed by tab here.
+    return true;
+  };
+
+  try{
+    Shared.workspaceTabs?.registerSharedControlDisposer?.(WORKSPACE_TOOLBAR_STATE_KEY, workspaceToolbar.disposeTab);
+  }catch(_err){}
+
   workspaceToolbar.register = registerToolbar;
   workspaceToolbar.renderAll = renderAllToolbars;
   workspaceToolbar.renderForElement = renderToolbarForElement;
@@ -2040,12 +2126,11 @@
       const input = getTransformCustomInput(section);
       if(input){
         const normalized = String(input.value || '').trim();
-        transformCustomExpressionByKey.set(key, normalized);
+        writeCustomTransformExpression(key, normalized, section);
         return normalized;
       }
     }
-    const stored = transformCustomExpressionByKey.get(key);
-    return typeof stored === 'string' ? stored : '';
+    return readCustomTransformExpression(key, section);
   };
   workspaceToolbar.setCustomTransformExpression = function setCustomTransformExpression(toolbarKey, expression){
     const key = String(toolbarKey || '').trim();
@@ -2053,8 +2138,8 @@
       return false;
     }
     const normalized = String(expression || '').trim();
-    transformCustomExpressionByKey.set(key, normalized);
     const section = findTransformSectionByToolbarKey(key);
+    writeCustomTransformExpression(key, normalized, section);
     const input = getTransformCustomInput(section);
     if(input){
       input.value = normalized;

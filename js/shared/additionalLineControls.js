@@ -2,8 +2,10 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
+  const ADDITIONAL_LINE_CONTROLS_DEFAULT_SCOPE = '__global__';
 
-  const hostCache = new Map();
+  // DOM-only toolbar host cache. It never owns tab state; stale disconnected hosts are pruned.
+  const toolbarHostCache = new Map();
   let panelEl = null;
   let panelTitleEl = null;
   let panelFieldsRowEl = null;
@@ -466,9 +468,13 @@
     }
     if(!global.document){ return null; }
     const doc = global.document;
-    const key = scopeId || '__global__';
-    if(hostCache.has(key)){
-      return hostCache.get(key);
+    const key = scopeId || ADDITIONAL_LINE_CONTROLS_DEFAULT_SCOPE;
+    if(toolbarHostCache.has(key)){
+      const cachedHost = toolbarHostCache.get(key);
+      if(cachedHost && cachedHost.isConnected !== false){
+        return cachedHost;
+      }
+      toolbarHostCache.delete(key);
     }
     let button = null;
     const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
@@ -503,11 +509,10 @@
     }
     let existingHost = doc.querySelector(`.font-toolbar-host[data-font-toolbar-scope="${key}"]`);
     if(existingHost){
-      hostCache.set(key, existingHost);
+      toolbarHostCache.set(key, existingHost);
       return existingHost;
     }
     if(!button){
-      hostCache.set(key, null);
       return null;
     }
     const host = doc.createElement('div');
@@ -515,7 +520,7 @@
     host.dataset.fontToolbarScope = key;
     host.style.display = 'none';
     button.insertAdjacentElement('afterend', host);
-    hostCache.set(key, host);
+    toolbarHostCache.set(key, host);
     return host;
   }
 
@@ -1147,6 +1152,26 @@
       }
     }
   }
+
+  function pruneToolbarHostCache(){
+    Array.from(toolbarHostCache.entries()).forEach(([key, host]) => {
+      if(!host || host.isConnected === false){
+        toolbarHostCache.delete(key);
+      }
+    });
+  }
+
+  additionalLineControls.disposeTab = function disposeTab(){
+    pruneToolbarHostCache();
+    if(activeHost && activeHost.isConnected === false){
+      closePanel('dispose-tab');
+    }
+    return true;
+  };
+
+  try{
+    Shared.workspaceTabs?.registerSharedControlDisposer?.('additionalLineControls', additionalLineControls.disposeTab);
+  }catch(_err){}
 
   additionalLineControls.ensurePanel = ensurePanel;
   additionalLineControls.registerAdditionalLineElement = registerAdditionalLineElement;

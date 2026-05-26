@@ -759,7 +759,7 @@
   }
 
   function captureBoxRenderCacheMetadata(meta = {}){
-    const tab = meta?.tab || global.Main?.session?.getActiveTab?.() || null;
+    const tab = meta?.tab || resolveBoxWorkspaceTab(meta?.tabId || box.__boundTabId || null) || null;
     const payload = meta?.payload || tab?.payload || null;
     const svg = resolveBoxPlotSvgRoot();
     const backgroundRect = svg?.querySelector?.('[data-color-scheme-background="1"]') || null;
@@ -901,7 +901,7 @@
     const previousFormat = normalizeBoxTableFormat(options.previousFormat || nextFormat);
     const previousDefaultScheme = getBoxDefaultColorSchemeId(previousFormat);
     const currentScheme = getBoxSelectedColorSchemeId();
-    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    const activeTab = options.tab || resolveBoxWorkspaceTab(options.tabId || box.__boundTabId || null) || null;
     const explicitScheme = activeTab?.type === 'box' && typeof activeTab?.payload?.config?.colorScheme === 'string'
       ? activeTab.payload.config.colorScheme.trim().toLowerCase()
       : '';
@@ -2311,15 +2311,16 @@
     pendingBoxGlobalOpacity = null;
   };
   const scheduleBoxGlobalOpacityApply = (() => {
-    const runner = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(runBoxGlobalOpacityApply)
-      : (fn => () => {
-          if(typeof global.requestAnimationFrame === 'function'){ global.requestAnimationFrame(fn); }
-          else{ fn(); }
-        })(runBoxGlobalOpacityApply);
+    const runner = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(box, 'box', runBoxGlobalOpacityApply, { reason: 'box-global-opacity-apply' })
+      : null;
     return (opacity) => {
       pendingBoxGlobalOpacity = opacity;
-      runner();
+      if(runner){
+        runner({ tabId: box.__boundTabId || null, reason: 'box-global-opacity-apply' });
+        return;
+      }
+      runBoxGlobalOpacityApply();
     };
   })();
 
@@ -3987,14 +3988,10 @@
   }
 
   function scheduleBoxCanvasDrawFrame(callback){
-    const raf = global.window && typeof global.window.requestAnimationFrame === 'function'
-      ? global.window.requestAnimationFrame.bind(global.window)
-      : (typeof global.requestAnimationFrame === 'function' ? global.requestAnimationFrame.bind(global) : null);
-    if(raf){
-      raf(callback);
-    }else{
-      global.setTimeout(callback, 0);
+    if(typeof callback !== 'function'){
+      return null;
     }
+    return scheduleBoxAsyncFrame('box-canvas-draw-frame', callback);
   }
 
   function buildBoxApproximatePointBins(config){
@@ -10713,6 +10710,10 @@
       || meta?.workspaceTabId
       || meta?.tab?.id
       || box.__boundTabId
+      || state.hot?.__boxTabId
+      || resolveBoxTabIdFromNode(boxRoot)
+      || resolveBoxTabIdFromNode(state.hot?.__boxHostContainer || null)
+      || getActiveBoxSessionInfo()?.tabId
       || null;
     if(direct){
       return String(direct);
@@ -10763,26 +10764,9 @@
     };
   }
 
-  function ensureBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const tabId = resolveBoxOwnedRuntimeTabId(tabLike, meta);
-    if(!tabId){
-      console.debug('Debug: box owned runtime requires an explicit tab id', {
-        reason: meta?.reason || 'ensure-box-owned-runtime'
-      });
+  function normalizeBoxOwnedRuntimeRecord(record){
+    if(!record || typeof record !== 'object'){
       return null;
-    }
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(tabId, 'box') || null;
-    if(!runtime){
-      return null;
-    }
-    let record = runtime.ownedRuntimeRecord || null;
-    if(!record){
-      record = createDefaultBoxOwnedRuntimeRecord(tabId);
-      runtime.ownedRuntimeRecord = record;
-      console.debug('Debug: box owned runtime record created', {
-        tabId,
-        reason: meta?.reason || 'ensure-box-owned-runtime'
-      });
     }
     record.controls = cloneBoxPlainObject(record.controls);
     record.labels = cloneBoxPlainObject(record.labels);
@@ -10795,8 +10779,91 @@
     record.geometry = cloneBoxPlainObject(record.geometry);
     record.notes = cloneBoxPlainObject(record.notes, () => ({ text: '', open: false }));
     record.selection.selectedCols = normalizeBoxOwnedSetArray(record.selection.selectedCols);
-    runtime.ownedRuntimeRecord = record;
     return record;
+  }
+
+  function getBoxRuntimeOwner(){
+    return Shared.componentLifecycle?.createRuntimeOwner?.(box, {
+      componentKey: 'box',
+      createDefaultRecord: createDefaultBoxOwnedRuntimeRecord,
+      normalizeRecord: normalizeBoxOwnedRuntimeRecord,
+      requireSessionRuntime: true
+    }) || null;
+  }
+
+  function resolveBoxAsyncTabId(meta = {}){
+    return String(
+      meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.__boxSessionMeta?.tabId
+      || meta?.__workspaceSessionMeta?.tabId
+      || box.__boundTabId
+      || state.hot?.__boxTabId
+      || resolveBoxTabIdFromNode(boxRoot)
+      || resolveBoxTabIdFromNode(state.hot?.__boxHostContainer || null)
+      || getActiveBoxSessionInfo()?.tabId
+      || getActiveBoxWorkspaceTabId()
+      || ''
+    ).trim() || null;
+  }
+
+  function scheduleBoxAsyncFrame(reason, fn, meta = {}){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentFrame?.(box, 'box', {
+      ...(meta || {}),
+      tabId: resolveBoxAsyncTabId(meta),
+      reason: reason || meta?.reason || 'box-frame'
+    }, () => fn()) || null;
+  }
+
+  function scheduleBoxAsyncTimeout(reason, fn, delay = 0, meta = {}){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentTimeout?.(box, 'box', {
+      ...(meta || {}),
+      tabId: resolveBoxAsyncTabId(meta),
+      reason: reason || meta?.reason || 'box-timeout'
+    }, () => fn(), delay) || null;
+  }
+
+  function clearBoxAsyncTimeout(handle){
+    if(handle == null){
+      return false;
+    }
+    return Shared.componentLifecycle?.clearComponentTimeout?.(box, handle) === true;
+  }
+
+  function getBoxOwnedRuntimeRecord(tabLike = null, meta = {}, options = {}){
+    const tabId = resolveBoxOwnedRuntimeTabId(tabLike, meta);
+    if(!tabId){
+      console.debug('Debug: box owned runtime requires an explicit tab id', {
+        reason: meta?.reason || 'box-owned-runtime'
+      });
+      return null;
+    }
+    const record = getBoxRuntimeOwner()?.ensureRecord?.(tabId, {
+      ...(meta || {}),
+      tabId,
+      reason: meta?.reason || 'box-owned-runtime'
+    }, {
+      create: options.create === true,
+      requireHydrated: options.create !== true
+    }) || null;
+    if(record && options.create === true && record.hydrated !== true){
+      console.debug('Debug: box owned runtime record ensured', {
+        tabId,
+        reason: meta?.reason || 'ensure-box-owned-runtime'
+      });
+    }
+    return record;
+  }
+
+  function ensureBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
+    return getBoxOwnedRuntimeRecord(tabLike, meta, { create: true });
   }
 
   function readBoxOwnedRuntimeControls(){
@@ -11002,12 +11069,9 @@
   }
 
   function bindBoxOwnedRuntimeRecord(tabLike = null, meta = {}){
-    const record = ensureBoxOwnedRuntimeRecord(tabLike, meta);
+    const record = getBoxOwnedRuntimeRecord(tabLike, meta, { create: false });
     if(!record){
       return null;
-    }
-    if(!record.hydrated){
-      return record;
     }
     const visual = record.visual || {};
     const stats = record.stats || {};
@@ -11131,11 +11195,11 @@
       hydrated: true,
       updatedAt: Date.now()
     });
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'box') || null;
-    if(runtime){
-      runtime.ownedRuntimeRecord = record;
-    }
-    return record;
+    return getBoxRuntimeOwner()?.rememberRecord?.(record.tabId, record, {
+      ...(meta || {}),
+      tabId: record.tabId,
+      reason: meta?.reason || 'remember-box-owned-runtime'
+    }) || record;
   }
 
   function applyBoxOwnedRuntimeSlicesFromSnapshot(snapshot, tabLike = null, meta = {}){
@@ -11154,10 +11218,11 @@
     });
     record.hydrated = true;
     record.updatedAt = Date.now();
-    const runtime = Shared.workspaceTabs?.getSessionRuntime?.(record.tabId, 'box') || null;
-    if(runtime){
-      runtime.ownedRuntimeRecord = record;
-    }
+    getBoxRuntimeOwner()?.setRecord?.(record.tabId, record, {
+      ...(meta || {}),
+      tabId: record.tabId,
+      reason: meta?.reason || 'apply-box-owned-runtime-slices'
+    });
     return bindBoxOwnedRuntimeRecord(record.tabId, {
       ...(meta || {}),
       reason: meta?.reason || 'apply-box-owned-runtime-slices'
@@ -11171,11 +11236,12 @@
     if(snapshot && typeof snapshot === 'object'){
       return snapshot;
     }
+    const lifecycleSnapshot = Shared.workspaceTabs?.getLifecycleRuntimeSnapshot?.(tabLike || tabId || null, 'box') || null;
+    if(lifecycleSnapshot && typeof lifecycleSnapshot === 'object'){
+      return lifecycleSnapshot;
+    }
     const record = getBoxSessionRecord(tabLike || tabId || null, { create: false });
     const runtime = record?.runtime || null;
-    if(runtime?.componentRuntimeSnapshot && typeof runtime.componentRuntimeSnapshot === 'object'){
-      return runtime.componentRuntimeSnapshot;
-    }
     if(runtime && typeof runtime === 'object' && (runtime.ownedRuntime || runtime.statsRuntime || Object.prototype.hasOwnProperty.call(runtime, 'dataDirty'))){
       return runtime;
     }
@@ -11194,6 +11260,30 @@
     return Shared.workspaceTabs?.getActiveSessionInfo?.('box') || null;
   }
 
+  function resolveBoxTabIdFromNode(node){
+    let cursor = node || null;
+    const doc = global.document || null;
+    while(cursor && cursor !== doc){
+      const dataset = cursor.dataset || null;
+      const candidate = String(dataset?.workspaceTabId || dataset?.tabId || '').trim();
+      if(candidate){
+        return candidate;
+      }
+      if(typeof cursor.getAttribute === 'function'){
+        const attrCandidate = String(
+          cursor.getAttribute('data-workspace-tab-id')
+          || cursor.getAttribute('data-tab-id')
+          || ''
+        ).trim();
+        if(attrCandidate){
+          return attrCandidate;
+        }
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return null;
+  }
+
   function resolveBoxTabId(tabLike = null){
     if(typeof tabLike === 'string' && tabLike.trim()){
       return tabLike.trim();
@@ -11201,10 +11291,15 @@
     if(tabLike && typeof tabLike === 'object' && typeof tabLike.id === 'string' && tabLike.id.trim()){
       return tabLike.id.trim();
     }
-    return Shared.hot?.resolveActiveTabId?.()
-      || global.Main?.tabs?.getActiveTab?.()?.id
-      || global.Main?.session?.workspaceState?.activeTabId
-      || null;
+    return String(
+      box.__boundTabId
+      || state.hot?.__boxTabId
+      || resolveBoxTabIdFromNode(boxRoot)
+      || resolveBoxTabIdFromNode(state.hot?.__boxHostContainer || null)
+      || getActiveBoxSessionInfo()?.tabId
+      || getActiveBoxWorkspaceTabId()
+      || ''
+    ).trim() || null;
   }
 
   function resolveBoxWorkspaceTab(tabLike = null){
@@ -11216,20 +11311,26 @@
     if(tabId && Array.isArray(tabs)){
       return tabs.find(tab => tab && tab.id === tabId) || null;
     }
-    return global.Main?.tabs?.getActiveTab?.() || null;
+    return null;
   }
 
   function resolveBoxRoot(tabLike = null){
     const tabId = resolveBoxTabId(tabLike);
-    const mounted = Shared.workspaceTabs?.getMountedRoot?.(tabLike || tabId || null, 'box')
+    const resolvedRoot = Shared.workspaceTabs?.resolveComponentRoot?.({
+      tabLike: tabLike || tabId || null,
+      componentKey: 'box',
+      currentRoot: boxRoot,
+      staticRootId: 'boxPage'
+    }) || null;
+    if(resolvedRoot){
+      return resolvedRoot;
+    }
+    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabLike || tabId || null, 'box')
       || (tabId ? Shared.workspaceTabs?.getMountedRoot?.(tabId, 'box') : null);
-    if(mounted){
-      return mounted;
+    if(mountedRoot){
+      return mountedRoot;
     }
-    if(!tabLike && boxRoot?.isConnected){
-      return boxRoot;
-    }
-    return null;
+    return (!tabLike && boxRoot?.isConnected) ? boxRoot : null;
   }
 
   function getBoxNodeById(id, options = {}){
@@ -11237,12 +11338,18 @@
       return null;
     }
     const root = options.root || resolveBoxRoot(options.tabLike || null);
+    if(root?.getElementById){
+      const byId = root.getElementById(id);
+      if(byId && byId.isConnected){
+        return byId;
+      }
+    }
     if(root && typeof root.querySelector === 'function'){
-      const scoped = root.querySelector(`#${id}`);
-      if(scoped){
+      const scoped = root.querySelector(`#${id}`) || null;
+      if(scoped && scoped.isConnected){
         return scoped;
       }
-      return null;
+      return scoped || null;
     }
     return null;
   }
@@ -11395,7 +11502,7 @@
     state.resizeInteractionActive = false;
     if(state.viewportExtensionResizeGuardTimer){
       try{
-        (global.clearTimeout || clearTimeout)(state.viewportExtensionResizeGuardTimer);
+        clearBoxAsyncTimeout(state.viewportExtensionResizeGuardTimer);
       }catch(_err){}
     }
     state.viewportExtensionResizeInProgress = false;
@@ -11470,7 +11577,7 @@
   function clearBoxScheduledDraw(reason){
     if(state.drawCooldownTimer){
       try{
-        (global.clearTimeout || clearTimeout)(state.drawCooldownTimer);
+        clearBoxAsyncTimeout(state.drawCooldownTimer);
       }catch(err){
         console.debug('Debug: box draw cooldown clear failed', { reason: reason || 'unspecified', message: err?.message || String(err) });
       }
@@ -11546,7 +11653,7 @@
     resetBoxFlipTransitionState(reason || 'viewport-runtime-reset');
     if(state.viewportExtensionResizeGuardTimer){
       try{
-        (global.clearTimeout || clearTimeout)(state.viewportExtensionResizeGuardTimer);
+        clearBoxAsyncTimeout(state.viewportExtensionResizeGuardTimer);
       }catch(_err){}
     }
     state.viewportExtensionResizeInProgress = false;
@@ -13747,12 +13854,12 @@
     const previousTimer = state.viewportExtensionResizeGuardTimer || null;
     if(previousTimer){
       try{
-        (global.clearTimeout || clearTimeout)(previousTimer);
+        clearBoxAsyncTimeout(previousTimer);
       }catch(_err){}
     }
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     state.viewportExtensionResizeGuardToken = token;
-    state.viewportExtensionResizeGuardTimer = (global.setTimeout || setTimeout)(() => {
+    state.viewportExtensionResizeGuardTimer = scheduleBoxAsyncTimeout('box-viewport-extension-resize-guard', () => {
       if(state.viewportExtensionResizeGuardToken !== token){
         return;
       }
@@ -15245,18 +15352,16 @@
       requestStatsContextRefresh(scheduleReason);
       refreshSignificanceAnnotations(scheduleReason);
     };
-    if(typeof Shared.debounceFrame === 'function'){
-      if(!boxSignificanceFontRefreshDebounced){
-        boxSignificanceFontRefreshDebounced = Shared.debounceFrame(run);
-      }
-      boxSignificanceFontRefreshDebounced();
+    if(!boxSignificanceFontRefreshDebounced){
+      boxSignificanceFontRefreshDebounced = Shared.componentLifecycle?.createTabScopedFrameDebouncer?.(box, 'box', run, {
+        reason: 'box-significance-label-font-refresh'
+      }) || null;
+    }
+    if(boxSignificanceFontRefreshDebounced){
+      boxSignificanceFontRefreshDebounced({ tabId: box.__boundTabId || null, reason: scheduleReason });
       return;
     }
-    if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(run);
-    }else{
-      (global.setTimeout || setTimeout)(run, 16);
-    }
+    run();
   }
 
   function shouldSuppressAuthoritativeBoxRestoreDraw(reason){
@@ -17068,11 +17173,9 @@
                 rowNodes: rowNodes.length ? rowNodes : undefined,
                 columns: columns.length ? columns : undefined
               });
-              if(typeof global.requestAnimationFrame === 'function'){
-                global.requestAnimationFrame(()=>{
-                  api.refreshCells({ force: true, suppressFlash: true });
-                });
-              }
+              scheduleBoxAsyncFrame('box-grid-refresh-cells', () => {
+                api.refreshCells({ force: true, suppressFlash: true });
+              });
             }
             boxLog('boxplot afterChange', { count: changes.length, source });
             if(isBoxGroupedModeActive()){
@@ -17165,9 +17268,23 @@
       return instance;
     };
     const ensureBoxHotForActiveTab = () => {
-      const activeTabId = Shared.hot.resolveActiveTabId?.() || global.Main?.tabs?.getActiveTab?.()?.id || null;
-      const wrapper = getBoxNodeById('hotWrapper', { tabLike: activeTabId }) || getBoxNodeById('hotWrapper');
-      const baseContainer = getBoxNodeById('hot', { tabLike: activeTabId }) || getBoxNodeById('hot');
+      const candidateTabId = box.__boundTabId
+        || resolveBoxOwnedRuntimeTabId(null, {})
+        || Shared.workspaceTabs?.getActiveSessionInfo?.('box')?.tabId
+        || global.Main?.session?.workspaceState?.activeTabId
+        || null;
+      const wrapper = getBoxNodeById('hotWrapper', { tabLike: candidateTabId }) || getBoxNodeById('hotWrapper');
+      const baseContainer = getBoxNodeById('hot', { tabLike: candidateTabId }) || getBoxNodeById('hot');
+      const activeTabId = (wrapper || baseContainer)
+        ? (Shared.hot?.resolveTableTabId?.({
+            type: 'box',
+            tabId: candidateTabId || null,
+            component: box,
+            wrapper,
+            container: baseContainer,
+            reason: 'box-ensure-hot'
+          }) || candidateTabId || null)
+        : (candidateTabId || null);
       if(!baseContainer){
         if(Shared.isDebugEnabled?.()){
           console.debug('Debug: box ensure table skipped (missing container)');
@@ -17182,7 +17299,7 @@
         els.hotContainer = baseContainer;
         if(state.hot){
           state.hot.__boxHostContainer = baseContainer;
-          state.hot.__boxTabId = activeTabId || 'box-default';
+          state.hot.__boxTabId = activeTabId;
           ensureBoxDefaultHeaderRow(state.hot);
           ensureBoxDataViewsForHot(state.hot, {
             wrapper,
@@ -17216,7 +17333,7 @@
       }
       if(state.hot){
         state.hot.__boxHostContainer = entry?.container || baseContainer;
-        state.hot.__boxTabId = entry?.tabId || activeTabId || 'box-default';
+        state.hot.__boxTabId = entry?.tabId || activeTabId;
         ensureBoxDefaultHeaderRow(state.hot);
         ensureBoxDataViewsForHot(state.hot, {
           wrapper,
@@ -17293,8 +17410,19 @@
       }
       state.axisSettings = createDefaultAxisSettings();
       state.gridStyle = null;
+      // Drop any stale pre-example frame so waits/selectors observe the fresh example render only.
+      // This avoids interactions being bound against an empty pre-load SVG in fast async test flows.
+      const plotRoot = els.plotDiv || getBoxNodeById('boxPlot');
+      if(plotRoot){
+        while(plotRoot.firstChild){
+          plotRoot.removeChild(plotRoot.firstChild);
+        }
+        if(plotRoot.dataset && Object.prototype.hasOwnProperty.call(plotRoot.dataset, 'boxRenderedTabId')){
+          delete plotRoot.dataset.boxRenderedTabId;
+        }
+      }
       console.debug('Debug: box axis settings reset from example load');
-      state.scheduleDraw();
+      state.scheduleDraw({ force: true, reason: 'example-load' });
     });
     bindBoxControlHandler(importBtn, 'click', 'import-table', ()=>{ fileInput.value=''; fileInput.click(); });
     const tableImport = Shared.tableImport;
@@ -17899,9 +18027,7 @@
           transitionResult
         }); // Debug: flip axis change trace
         const scheduleFlipDraw = () => scheduleBoxViewRefresh('flip-axes-change');
-        try{
-          (global.setTimeout || setTimeout)(scheduleFlipDraw, 280);
-        }catch(_err){
+        if(!scheduleBoxAsyncTimeout('flip-axes-change', scheduleFlipDraw, 280)){
           scheduleFlipDraw();
         }
       });
@@ -21938,49 +22064,10 @@
   function installStatsResultsPValueToggles(){
     return;
   }
-  let statsResultsPValueObserver=null;
-  let statsResultsPValueInterval=null;
   let statsSummaryTabIdCounter=0;
   function refreshStatsResultsPValueObserver(){
-    const statsDiv = els.statsResults || getBoxNodeById('statsResults');
-    if(statsResultsPValueObserver){
-      try{
-        statsResultsPValueObserver.disconnect();
-      }catch(err){}
-      statsResultsPValueObserver=null;
-    }
-    if(statsResultsPValueInterval){
-      global.clearInterval(statsResultsPValueInterval);
-      statsResultsPValueInterval=null;
-    }
-    if(!statsDiv || typeof MutationObserver !== 'function'){
-      return;
-    }
-    statsResultsPValueObserver=new MutationObserver(()=>{
-      installStatsResultsPValueToggles();
-    });
-    statsResultsPValueObserver.observe(statsDiv,{ childList:true, subtree:true });
-    let pollCount=0;
-    statsResultsPValueInterval=global.setInterval(()=>{
-      installStatsResultsPValueToggles();
-      pollCount+=1;
-      if(pollCount>=20 && statsResultsPValueInterval){
-        global.clearInterval(statsResultsPValueInterval);
-        statsResultsPValueInterval=null;
-      }
-    },100);
-    global.setTimeout(()=>{
-      if(statsResultsPValueObserver){
-        try{
-          statsResultsPValueObserver.disconnect();
-        }catch(err){}
-        statsResultsPValueObserver=null;
-      }
-      if(statsResultsPValueInterval){
-        global.clearInterval(statsResultsPValueInterval);
-        statsResultsPValueInterval=null;
-      }
-    }, 1500);
+    // Legacy p-value table mutation was removed. This stable hook remains for callers,
+    // but it intentionally creates no observers, intervals, or timers.
   }
   function readStatsCardCaption(node){
     if(!node || node.nodeType !== 1){
@@ -26568,8 +26655,6 @@ Technical analysis record (advanced)
       }
       installStatsResultsPValueToggles();
       refreshStatsResultsPValueObserver();
-      global.setTimeout(installStatsResultsPValueToggles, 0);
-      global.setTimeout(installStatsResultsPValueToggles, 50);
       state.assumptionDiagnostics = null;
       return true;
     }
@@ -26596,8 +26681,6 @@ Technical analysis record (advanced)
     mountStatsSummaryTabs(resultsContainer);
     installStatsResultsPValueToggles();
     refreshStatsResultsPValueObserver();
-    global.setTimeout(installStatsResultsPValueToggles, 0);
-    global.setTimeout(installStatsResultsPValueToggles, 50);
     return true;
   }
 
@@ -27186,11 +27269,31 @@ Technical analysis record (advanced)
     state.statsComputationOwnerPayloadSignature = getBoxTabPayloadSignature(state.statsComputationOwnerTabId);
     const computationOwnerTabId = state.statsComputationOwnerTabId || null;
     const computationOwnerPayloadSignature = state.statsComputationOwnerPayloadSignature ?? null;
+    let statsAsyncScope = null;
+    let statsAsyncMeta = null;
+    if(computationOwnerTabId && Shared.componentLifecycle?.createAsyncScope){
+      try{
+        statsAsyncScope = box.__asyncScope || Shared.componentLifecycle.createAsyncScope('box');
+        box.__asyncScope = statsAsyncScope;
+        statsAsyncMeta = statsAsyncScope.nextToken({
+          tabId: computationOwnerTabId,
+          reason: 'box-stats-compute'
+        });
+      }catch(err){
+        statsAsyncScope = null;
+        statsAsyncMeta = null;
+        console.warn('Debug: box stats async lifecycle scope unavailable', {
+          tabId: computationOwnerTabId,
+          message: err?.message || String(err)
+        });
+      }
+    }
     const isCurrentStatsComputationOwner = () => {
       const activeTabId = getActiveBoxWorkspaceTabId();
       const ownerMatchesActive = !computationOwnerTabId || !activeTabId || String(computationOwnerTabId) === String(activeTabId);
       const ownerPayloadCurrent = computationOwnerPayloadSignature == null
         || getBoxTabPayloadSignature(computationOwnerTabId) === computationOwnerPayloadSignature;
+      const asyncCurrent = !statsAsyncScope || (statsAsyncMeta && statsAsyncScope.isCurrent(statsAsyncMeta));
       if(ownerMatchesActive && !ownerPayloadCurrent && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: box stats async result rejected by payload signature', {
           ownerTabId: computationOwnerTabId,
@@ -27198,7 +27301,12 @@ Technical analysis record (advanced)
           currentPayloadSignature: getBoxTabPayloadSignature(computationOwnerTabId)
         });
       }
-      return ownerMatchesActive && ownerPayloadCurrent;
+      if(ownerMatchesActive && ownerPayloadCurrent && !asyncCurrent && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box stats async result rejected by lifecycle scope', {
+          ownerTabId: computationOwnerTabId
+        });
+      }
+      return ownerMatchesActive && ownerPayloadCurrent && asyncCurrent;
     };
     updateStatsButtonState({ disabled: true, label: 'Calculating…' });
     setStatsStatus('Calculating statistics…');
@@ -27212,7 +27320,9 @@ Technical analysis record (advanced)
       const activeTabId = getActiveBoxWorkspaceTabId();
       const ownerTabId = state.statsComputationOwnerTabId || null;
       const ownerMatchesActive = !ownerTabId || !activeTabId || String(ownerTabId) === String(activeTabId);
-      if(ownerMatchesActive){
+      const asyncCurrent = !statsAsyncScope || (statsAsyncMeta && statsAsyncScope.isCurrent(statsAsyncMeta));
+      const ownerCurrent = ownerMatchesActive && asyncCurrent;
+      if(ownerCurrent){
         state.statsComputationPending = false;
         state.statsComputationOwnerTabId = null;
       }else{
@@ -28857,6 +28967,7 @@ Technical analysis record (advanced)
     let traceCount = 0;
     let cleanupPendingPlotFrame = null;
     let pendingPlotFrameCommitted = true;
+    let svg = null;
     try{
     boxLog('boxplot draw start',{token, viewOnly, reason: drawOpts?.reason || null});
     hideBoxTooltip('draw-start');
@@ -29775,7 +29886,7 @@ Technical analysis record (advanced)
       });
     }
     els.plotDiv.style.position = 'relative';
-    const svg = document.createElementNS(NS, 'svg');
+    svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('id', 'boxSvg');
     const activeWorkspaceTabId = getActiveBoxWorkspaceTabId();
     if(activeWorkspaceTabId){
@@ -29790,7 +29901,6 @@ Technical analysis record (advanced)
     svg.style.display = 'block';
     chartStyle.applySvgDefaults(svg);
     svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
-    els.plotDiv.appendChild(svg);
     pendingPlotFrameCommitted = !retainPreviousPlotFrame;
     cleanupPendingPlotFrame = () => {
       if(pendingPlotFrameCommitted || !retainPreviousPlotFrame || !svg){
@@ -33042,12 +33152,13 @@ Technical analysis record (advanced)
         let combinedTop = Infinity;
         let combinedBottom = -Infinity;
         let breakCapCount = 0;
+        let primaryYAxisLine = null;
 
         brokenScale.segments.forEach((seg, segIndex) => {
           const { top: segYTop, bottom: segYBottom } = segmentCoords(seg);
 
           // Visible axis line for this segment
-          addAxisElement('line',{
+          const segmentLine = addAxisElement('line',{
             x1: yAxisX,
             y1: segYTop,
             x2: yAxisX,
@@ -33056,6 +33167,10 @@ Technical analysis record (advanced)
             'stroke-linecap': 'square',
             'stroke-width': axisStrokeWidth
           });
+          segmentLine?.setAttribute?.('data-axis-control', '1');
+          if(!primaryYAxisLine){
+            primaryYAxisLine = segmentLine;
+          }
           if(segIndex > 0){
             const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
             addAxisElement('line',{
@@ -33097,13 +33212,18 @@ Technical analysis record (advanced)
             'stroke-width': 20,
             'pointer-events': 'stroke'
           });
+          hitLine?.setAttribute?.('data-axis-control', '1');
           if(axisControls && typeof axisControls.registerAxisElement === 'function'){
             axisControls.registerAxisElement(hitLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+            if(primaryYAxisLine){
+              axisControls.registerAxisElement(primaryYAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
+            }
           }
         }
       }else{
         // Standard continuous y-axis
         const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+        yAxisLine?.setAttribute?.('data-axis-control', '1');
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
           axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
         }
@@ -33236,6 +33356,7 @@ Technical analysis record (advanced)
       axisXEnd = Math.max(yAxisX, Math.min(axisXEnd, frameXMax));
       console.debug('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax, plotWUsed });
       const xAxisLine = addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      xAxisLine?.setAttribute?.('data-axis-control', '1');
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
@@ -34000,6 +34121,7 @@ Technical analysis record (advanced)
       console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yAxisLeft = marginLocal.left;
       const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      yAxisLine?.setAttribute?.('data-axis-control', '1');
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
       }
@@ -34839,6 +34961,9 @@ Technical analysis record (advanced)
     }else{
       state.lastViewportExtensionRedrawSignature = null;
     }
+    if(svg.parentNode !== els.plotDiv){
+      els.plotDiv.appendChild(svg);
+    }
     const defaultTitleX = orientationResult.titleX;
     const defaultTitleY = orientationResult.titleY;
     const titlePos = state.labelPositions?.title;
@@ -35024,6 +35149,9 @@ Technical analysis record (advanced)
       drawOutcome = 'error';
       throw err;
     }finally{
+      if(token !== state.drawToken && svg && svg.parentNode === els.plotDiv){
+        svg.parentNode.removeChild(svg);
+      }
       if(!pendingPlotFrameCommitted && typeof cleanupPendingPlotFrame === 'function'){
         cleanupPendingPlotFrame();
       }
@@ -35962,6 +36090,10 @@ Technical analysis record (advanced)
     if(!styleOnly){
       const statsAnalysis = getBoxAnalysis(state.hot);
       labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
+      if(!Array.isArray(rawDataMatrix) || rawDataMatrix.length === 0){
+        labels = [];
+      }
+      state.lastAxisLabels = Array.isArray(labels) ? labels.slice() : [];
       const labelCount=labels.length;
       const statsConfig=c.stats||{};
       state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';
@@ -36261,6 +36393,7 @@ Technical analysis record (advanced)
       }else{
         scheduleOriginal({
           ...scheduleMeta,
+          force: true,
           reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
         });
       }
@@ -36530,7 +36663,9 @@ Technical analysis record (advanced)
     if (typeof initUI === 'function') initUI();
     ensureSignificanceLabelFontEventListener();
     initNotes();
-    const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
+    const scheduleBoxDrawBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(box, 'box', runBoxDrawCycle, { reason: 'box-draw-frame' })
+      : runBoxDrawCycle;
     const scheduleBoxDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const sessionMeta = nextOpts.__boxSessionMeta || buildBoxSessionMeta(nextOpts);
@@ -36593,12 +36728,12 @@ Technical analysis record (advanced)
           state.pendingDrawOpts = mergeBoxDrawOptions(state.pendingDrawOpts, nextOpts);
           if(!state.drawCooldownTimer){
             const wait = Math.max(0, cooldownMs - elapsed);
-            state.drawCooldownTimer = (global.setTimeout || setTimeout)(() => {
+            state.drawCooldownTimer = scheduleBoxAsyncTimeout('box-draw-cooldown', () => {
               state.drawCooldownTimer = null;
               const pending = state.pendingDrawOpts;
               state.pendingDrawOpts = null;
               runSchedule(pending || nextOpts);
-            }, wait);
+            }, wait, nextOpts);
           }
           return;
         }
@@ -36609,11 +36744,10 @@ Technical analysis record (advanced)
           boxDebug('Debug: box draw deferred for overlay',{ reason: overlayReason });
           runSchedule(nextOpts);
         };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
+        Shared.componentLifecycle?.scheduleComponentFrame?.(box, 'box', {
+          tabId: nextOpts.tabId || box.__boundTabId || null,
+          reason: overlayReason
+        }, scheduleAfterPaint);
         return;
       }
       runSchedule(nextOpts);
@@ -36622,11 +36756,12 @@ Technical analysis record (advanced)
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'box',
           debugLabel: 'box',
+          getTabId: () => resolveBoxAsyncTabId({}) || resolveBoxOwnedRuntimeTabId(null, {}) || null,
           scheduleRaw: scheduleBoxDrawInstrumented
         })
       : scheduleBoxDrawInstrumented;
     state.scheduleDraw = scheduleDrawBoxRaw;
-    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: true }); // Debug: scheduler setup
+    console.debug('Debug: box scheduleDraw configured via tab-scoped lifecycle frame', { guarded: true }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.((layoutOptions = {}) => {
       const source = typeof layoutOptions?.source === 'string' ? layoutOptions.source : 'layout';
       const phase = typeof layoutOptions?.phase === 'string' ? layoutOptions.phase : null;
@@ -37080,19 +37215,27 @@ Technical analysis record (advanced)
     if(!box.ready) box.init(options);
   };
   box.captureRuntimeState = function captureRuntimeState(meta = {}){
-    const snapshot = captureBoxRuntimeSnapshot(meta.reason || 'capture-runtime-state');
-    return Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(box, snapshot, {
+    const effectiveMeta = {
       ...(meta || {}),
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || box.__boundTabId || null,
       reason: meta.reason || 'capture-runtime-state'
-    }) || snapshot;
+    };
+    const snapshot = captureBoxRuntimeSnapshot(effectiveMeta.reason);
+    const remembered = Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(box, snapshot, effectiveMeta);
+    return remembered || (!Shared.componentLifecycle ? snapshot : null);
   };
   box.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
-    const resolvedSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(box, snapshot, meta) || snapshot;
-    const applied = applyBoxRuntimeSnapshot(resolvedSnapshot, meta.reason || 'apply-runtime-state');
+    const effectiveMeta = {
+      ...(meta || {}),
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || box.__boundTabId || null,
+      reason: meta.reason || 'apply-runtime-state'
+    };
+    const resolvedSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(box, snapshot, effectiveMeta) || (!Shared.componentLifecycle ? snapshot : null);
+    const applied = applyBoxRuntimeSnapshot(resolvedSnapshot, effectiveMeta.reason);
     if(applied && resolvedSnapshot && typeof resolvedSnapshot === 'object'){
       Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(box, resolvedSnapshot, {
-        ...(meta || {}),
-        reason: meta.reason || 'apply-runtime-state'
+        ...effectiveMeta,
+        reason: effectiveMeta.reason
       });
     }
     return applied;
@@ -37170,8 +37313,8 @@ Technical analysis record (advanced)
           state.statsComputationOwnerTabId = null;
         }
       }
-      bindBoxOwnedRuntimeRecord(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
-      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tabLike || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
+      bindBoxOwnedRuntimeRecord(tabLike || targetTabId || null, { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tabLike || targetTabId || null, meta) || null, meta.reason || 'activate-tab');
       hydrateBoxStatsSurfaceFromTabPayload(tabLike || targetTabId || null, meta.reason || 'activate-tab');
       const hasContext = ensureBoxStatsContextForActiveData(tabLike || targetTabId || null, meta.reason || 'activate-tab');
       updateStatsButtonState({
@@ -37222,8 +37365,8 @@ Technical analysis record (advanced)
       boxRoot = targetRoot;
     }
     if(ensureBoxDomBindings(tab)){
-      bindBoxOwnedRuntimeRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
-      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
+      bindBoxOwnedRuntimeRecord(tab || targetTabId || null, { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || null, meta) || null, meta.reason || 'activate-tab');
       hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
       const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
       updateStatsButtonState({
@@ -37234,8 +37377,8 @@ Technical analysis record (advanced)
       });
       return;
     }
-    bindBoxOwnedRuntimeRecord(tab || targetTabId || getActiveBoxWorkspaceTabId(), { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
-      applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || getActiveBoxWorkspaceTabId(), meta) || null, meta.reason || 'activate-tab');
+    bindBoxOwnedRuntimeRecord(tab || targetTabId || null, { ...(meta || {}), reason: meta.reason || 'activate-tab-bind-owned-runtime' });
+    applyBoxRuntimeSnapshot(getBoxWorkspaceRuntimeSnapshot(tab || targetTabId || null, meta) || null, meta.reason || 'activate-tab');
     hydrateBoxStatsSurfaceFromTabPayload(tab || targetTabId || null, meta.reason || 'activate-tab');
     const hasContext = ensureBoxStatsContextForActiveData(tab || targetTabId || null, meta.reason || 'activate-tab');
     updateStatsButtonState({

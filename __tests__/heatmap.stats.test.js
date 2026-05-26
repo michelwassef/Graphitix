@@ -53,7 +53,7 @@ describe('Heatmap stats formatting', () => {
     }
 
     require('../js/components/heatmap.js');
-    window.Components?.heatmap?.init?.();
+    window.Components?.heatmap?.init?.({ tabId: 'heatmap-stats-test-tab', reason: 'heatmap-stats-test-setup' });
   });
 
   afterEach(() => {

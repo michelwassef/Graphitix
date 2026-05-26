@@ -375,9 +375,16 @@
   function cancelPendingSpeciesDetection(reason, { abortActive = false, resetIndicator = false } = {}) {
     const detection = getSpeciesDetectionState();
     if (detection.pendingTimeoutId) {
-      clearTimeout(detection.pendingTimeoutId);
+      Shared.componentLifecycle?.clearComponentTimeout?.(venn, detection.pendingTimeoutId);
       detection.pendingTimeoutId = null;
       debug('Debug: venn species detect pending cleared', { reason }); // Debug: pending timer cleared
+    }
+    if (venn.__boundTabId && venn.__asyncScope?.cancelAllForTab) {
+      try {
+        venn.__asyncScope.cancelAllForTab(venn.__boundTabId, reason || 'species-detection-cancel');
+      } catch (err) {
+        console.warn('venn species detection async cancel error', err);
+      }
     }
     if (abortActive && detection.active?.controller) {
       try {
@@ -403,10 +410,20 @@
     }
     const delay = Number.isFinite(detection.delayMs) ? detection.delayMs : 1200;
     if (detection.pendingTimeoutId) {
-      clearTimeout(detection.pendingTimeoutId);
+      Shared.componentLifecycle?.clearComponentTimeout?.(venn, detection.pendingTimeoutId);
     }
+    const tabId = venn.__boundTabId || null;
+    if (!tabId || typeof Shared.componentLifecycle?.createAsyncScope !== 'function') {
+      console.warn('venn species detection scheduling skipped without explicit tab async scope', { reason, tabId });
+      return;
+    }
+    const scope = venn.__asyncScope || Shared.componentLifecycle.createAsyncScope('venn');
+    venn.__asyncScope = scope;
     detection.pendingReason = reason;
-    detection.pendingTimeoutId = setTimeout(() => {
+    detection.pendingTimeoutId = scope.setTimeout({
+      tabId,
+      reason: `species-detection:${reason}`
+    }, () => {
       detection.pendingTimeoutId = null;
       recognizeSpeciesFromInput({ reason: `scheduled-${reason}` }).catch(err => {
         if (err && err.name === 'AbortError') {
@@ -3562,11 +3579,10 @@
     state.ui.stringNetwork.appendChild(svgEl);
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
     const scheduleViewport = () => padStringNetworkViewport(svgEl, { exportHost: state.ui.stringNetworkExport });
-    if (typeof global.requestAnimationFrame === 'function') {
-      global.requestAnimationFrame(scheduleViewport);
-    } else {
-      scheduleViewport();
-    }
+    Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
+      tabId: venn.__boundTabId || null,
+      reason: 'venn-string-network-viewport'
+    }, scheduleViewport) || scheduleViewport();
     debug('Debug: venn string network sizing applied', {
       viewBox: svgEl.getAttribute('viewBox') || null,
       widthAttr: svgEl.getAttribute('width') || null,
@@ -6683,7 +6699,10 @@
         state.ui.tooltip.style.left = left + 'px';
         state.ui.tooltip.style.top = top + 'px';
         state.ui.tooltip.style.display = 'block';
-        requestAnimationFrame(() => {
+        Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
+          tabId: venn.__boundTabId || null,
+          reason: 'venn-tooltip-size'
+        }, () => {
           const w = state.ui.tooltip.scrollWidth;
           const h = state.ui.tooltip.scrollHeight;
           const maxWidth = Math.max(0, window.innerWidth - 32);
@@ -7127,7 +7146,7 @@
     if(tabLike && typeof tabLike === 'object'){
       return tabLike.id || tabLike.tabId || null;
     }
-    return tabLike || global.Main?.session?.getActiveTab?.()?.id || null;
+    return tabLike || venn.__boundTabId || null;
   }
 
   function resolveVennRoot(tabLike = null){
@@ -7400,15 +7419,18 @@
       || null;
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
-    const scheduleVennBase = Shared.debounceFrame ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
+    const scheduleVennBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(venn, 'venn', refreshDiagram, { reason: 'venn-draw-frame' })
+      : refreshDiagram;
     state.ui.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'venn',
           debugLabel: 'venn',
+          getTabId: () => venn.__boundTabId || null,
           scheduleRaw: scheduleVennBase
         })
       : scheduleVennBase;
-    debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    debug('Debug: venn scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     initLayout(mountedRoot, { tabId: targetTabId || undefined, reason: options?.reason || 'venn-init' });
     state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
     if (typeof state.ui.syncPanels === 'function') {

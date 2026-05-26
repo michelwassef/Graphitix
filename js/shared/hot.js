@@ -68,6 +68,64 @@
     return null;
   };
 
+  const strictTableOwnership = (meta = {}) => !!(
+    meta.strictTableOwnership === true
+    || hotNS.__strictTableOwnership === true
+    || Shared.componentLifecycle?.__strictRuntimeOwnership === true
+    || (typeof process !== 'undefined' && process?.env?.NODE_ENV === 'test')
+    || (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled())
+  );
+
+  const reportMissingTableOwner = (payload = {}, meta = {}) => {
+    const details = {
+      type: payload.type || meta.type || meta.componentType || null,
+      reason: payload.reason || meta.reason || meta.source || 'table-owner',
+      hasWrapper: !!payload.hasWrapper,
+      hasContainer: !!payload.hasContainer
+    };
+    if(strictTableOwnership(meta)){
+      throw new Error(`Shared.hot requires explicit tab ownership for tab-scoped table: ${JSON.stringify(details)}`);
+    }
+    console.warn('Shared.hot missing tab ownership for tab-scoped table', details);
+    return null;
+  };
+
+  hotNS.resolveTableTabId = function resolveTableTabId(meta = {}){
+    const explicit = normalizeOwnerTabId(
+      meta.tabId
+      || meta.workspaceTabId
+      || meta.tab?.id
+      || meta.component?.__boundTabId
+      || meta.hotInstance?.__workspaceTabId
+      || meta.hotInstance?.__graphitixTabId
+      || meta.hotInstance?.__hotWorkspaceTabId
+    );
+    if(explicit){
+      return explicit;
+    }
+    const inferred = normalizeOwnerTabId(
+      resolveTabIdFromNode(meta.wrapper || null)
+      || resolveTabIdFromNode(meta.container || null)
+      || resolveTabIdFromNode(meta.hotInstance?.rootElement || null)
+      || resolveTabIdFromNode(meta.hotInstance?.__hotWrapper || meta.hotInstance?.wrapper || null)
+    );
+    if(inferred){
+      return inferred;
+    }
+    if(meta.allowActiveFallback === true){
+      const active = normalizeOwnerTabId(resolveActiveTabId());
+      if(active){
+        return active;
+      }
+    }
+    return reportMissingTableOwner({
+      type: meta.type || meta.componentType || null,
+      reason: meta.reason || meta.source || 'resolve-table-tab-id',
+      hasWrapper: !!meta.wrapper,
+      hasContainer: !!meta.container
+    }, meta);
+  };
+
   const stampTableOwner = (instance, meta = {}) => {
     const tabId = normalizeOwnerTabId(meta.tabId || meta.workspaceTabId);
     const type = String(meta.type || meta.componentType || '').trim() || null;
@@ -1266,10 +1324,20 @@
         || scopedRoot.getAttribute?.('data-tab-id')
         || null;
     };
-    let tabId = explicitTabId || resolveActiveTabId() || null;
     let resolvedWrapper = wrapper || null;
     let resolvedContainer = container || null;
-    const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabId, type || null) || null;
+    let tabId = explicitTabId || null;
+    if(!tabId && (resolvedWrapper || resolvedContainer)){
+      tabId = hotNS.resolveTableTabId({
+        type,
+        wrapper: resolvedWrapper,
+        container: resolvedContainer,
+        reason: 'ensure-table-for-tab'
+      });
+    }
+    const mountedRoot = tabId
+      ? (Shared.workspaceTabs?.getMountedRoot?.(tabId, type || null) || null)
+      : null;
     if(mountedRoot && typeof mountedRoot.querySelector === 'function'){
       const wrapperId = resolvedWrapper?.id || null;
       const containerId = resolvedContainer?.id || null;
@@ -1294,16 +1362,10 @@
         resolvedContainer = mountedRoot.querySelector(`#${containerId}`) || null;
       }
     }
-    if((!tabId || /-default$/.test(String(tabId))) && (resolvedWrapper || resolvedContainer)){
-      const inferredTabId = resolveTabIdFromNode(resolvedWrapper) || resolveTabIdFromNode(resolvedContainer);
-      if(inferredTabId){
-        tabId = inferredTabId;
-      }
-    }
     if(typeof hotNS.mountTableForTab !== 'function' || !resolvedWrapper || !tabId){
       const instance = typeof createInstance === 'function' ? createInstance(resolvedContainer) : null;
       stampTableOwner(instance, {
-        tabId: tabId || resolveTabIdFromNode(resolvedWrapper) || resolveTabIdFromNode(resolvedContainer),
+        tabId,
         type: type || null,
         container: resolvedContainer,
         wrapper: resolvedWrapper
@@ -5370,8 +5432,7 @@
       if(fromWrapper){
         return fromWrapper;
       }
-      const activeTabId = hotNS.resolveActiveTabId?.() || null;
-      return typeof activeTabId === 'string' ? activeTabId.trim() : '';
+      return '';
     };
     const undoScope = (()=>{
       if(container?.closest){
@@ -6009,6 +6070,14 @@
     };
 
     const applyLoadDataMatrix = (nextData, options = {})=>{
+      insideLoadDataMatrix = true;
+      try{
+      return _applyLoadDataMatrix(nextData, options);
+      }finally{
+        insideLoadDataMatrix = false;
+      }
+    };
+    const _applyLoadDataMatrix = (nextData, options = {})=>{
       const source = typeof options.source === 'string' && options.source ? options.source : 'loadData';
       const hasForcedRows = Number.isFinite(options.forceRowCount);
       const hasForcedCols = Number.isFinite(options.forceColCount);
@@ -6111,6 +6180,7 @@
       }
       pendingViewportRestore = null;
       scrollViewportToTop();
+      pendingViewportRestore = null;
       setLastRange({ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
       renderAg(instance.gridApi);
       return true;
@@ -8551,6 +8621,7 @@
     };
 
     let pendingViewportRestore = null;
+    let insideLoadDataMatrix = false;
     const restoreViewportScroll = ()=>{
       if(!pendingViewportRestore){
         return;
@@ -9087,7 +9158,9 @@
       }
       updateVirtualizationState('syncRowData');
       applyRowData(api, rowData);
-      restoreViewportScroll();
+      if(!insideLoadDataMatrix){
+        restoreViewportScroll();
+      }
     };
 
     const appendRows = (count)=>{
@@ -15647,7 +15720,6 @@
         || instance.__hotWorkspaceTabId
         || resolveTabIdFromNode(instance.rootElement || null)
         || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
-        || resolveActiveTabId()
       );
       if(ownerTabId){
         captured.tabId = ownerTabId;
@@ -15666,11 +15738,18 @@
 
   function applyHotUiState(instance, state, options = {}){
     if(!instance || !state || typeof state !== 'object'){ return false; }
-    const activeTabId = hotNS.resolveActiveTabId?.() || null;
-    if(state.tabId && activeTabId && String(state.tabId) !== String(activeTabId)){
+    const ownerTabId = normalizeOwnerTabId(
+      options.tabId
+      || instance.__workspaceTabId
+      || instance.__graphitixTabId
+      || instance.__hotWorkspaceTabId
+      || resolveTabIdFromNode(instance.rootElement || null)
+      || resolveTabIdFromNode(instance.__hotWrapper || instance.wrapper || null)
+    );
+    if(state.tabId && ownerTabId && String(state.tabId) !== String(ownerTabId)){
       hotDebug('Debug: Shared.hot.applyHotUiState skipped due to tab ownership mismatch', {
         stateTabId: state.tabId,
-        activeTabId,
+        ownerTabId,
         reason: options.reason || 'apply-hot-uiState'
       });
       return false;

@@ -68,6 +68,34 @@
     documentStateSyncAttached: false
   };
 
+  const publicationAsyncOwners = {};
+
+  function getPublicationAsyncOwner(type){
+    const key = String(type || 'publicationStyles').trim() || 'publicationStyles';
+    publicationAsyncOwners[key] = publicationAsyncOwners[key] || { __componentKey: key };
+    return publicationAsyncOwners[key];
+  }
+
+  function schedulePublicationTimeout(type, tabId, reason, fn, delay = 0){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentTimeout?.(getPublicationAsyncOwner(type), type || 'publicationStyles', {
+      tabId,
+      reason: reason || 'publication-style-timeout'
+    }, fn, delay) || null;
+  }
+
+  function schedulePublicationFrame(type, tabId, reason, fn){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentFrame?.(getPublicationAsyncOwner(type), type || 'publicationStyles', {
+      tabId,
+      reason: reason || 'publication-style-frame'
+    }, fn) || null;
+  }
+
   function isDebugEnabled(){
     try{
       return typeof Shared.isDebugEnabled !== 'function' || Shared.isDebugEnabled();
@@ -861,10 +889,10 @@
       }
 
       restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-immediate');
-      global.setTimeout(() => runForActivePublicationTab(type, tab.id, 'publication-style-post-deferred', () => {
+      schedulePublicationTimeout(type, tab.id, 'publication-style-post-deferred', () => runForActivePublicationTab(type, tab.id, 'publication-style-post-deferred', () => {
         restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-deferred');
       }), 0);
-      global.setTimeout(() => runForActivePublicationTab(type, tab.id, 'publication-style-post-stabilize', () => {
+      schedulePublicationTimeout(type, tab.id, 'publication-style-post-stabilize', () => runForActivePublicationTab(type, tab.id, 'publication-style-post-stabilize', () => {
         restoreDefaultState(type, session, domControls, workspace, preservedDefaults, 'publication-style-post-stabilize');
       }), 180);
 
@@ -903,19 +931,14 @@
           redoReason: `redo-publication-style-${type}`
         });
       }
-      global.setTimeout(() => {
+      schedulePublicationTimeout(type, tab.id, `publication-style-${type}-zoom-post-final`, () => {
         runForActivePublicationTab(type, tab.id, `publication-style-${type}-zoom-post-final`, () => {
           applyPublicationZoomToActiveGraph(type, PUBLICATION_STYLE_ZOOM_LEVEL, {
             reason: `publication-style-${type}-zoom-post-final`,
             deferred: true
           });
         });
-        const restoreVisibility = () => restoreGraphVisibility();
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(restoreVisibility);
-        }else{
-          restoreVisibility();
-        }
+        schedulePublicationFrame(type, tab.id, 'publication-style-restore-graph-visibility', () => restoreGraphVisibility()) || restoreGraphVisibility();
       }, 0);
 
       debugLog('Debug: publicationStyles applied to active tab', { type, tabId: tab.id, preset: presetId });
@@ -1090,8 +1113,8 @@
           }
           syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`);
         };
-        global.requestAnimationFrame?.(() => runSync('raf'));
-        global.setTimeout(() => runSync('delay-90'), 90);
+        schedulePublicationFrame(expectedType, expectedTabId, 'publication-style-lifecycle-sync-raf', () => runSync('raf'));
+        schedulePublicationTimeout(expectedType, expectedTabId, 'publication-style-lifecycle-sync-delay-90', () => runSync('delay-90'), 90);
       };
       if(Shared.componentLifecycle && typeof Shared.componentLifecycle.onLifecycleEvent === 'function'){
         Shared.componentLifecycle.onLifecycleEvent(handleLifecycleEvent);

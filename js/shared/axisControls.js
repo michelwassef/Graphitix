@@ -52,7 +52,9 @@
   let hasDocListener = false;
   let applyingFromUndo = false;
   let panelRefreshFrame = 0;
-  const axisLengthUiByScope = new Map();
+  const AXIS_CONTROLS_STATE_KEY = 'axisControls';
+  const AXIS_LENGTH_UI_STATE_KEY = 'axisLengthUi';
+
 
   function normalizeAxisControlsTabId(value){
     const text = String(value || '').trim();
@@ -105,10 +107,65 @@
     );
   }
 
+  function resolveAxisControlsComponentKey(config, target){
+    const direct = String(config?.componentKey || config?.type || config?.componentName || config?.component || '').trim();
+    if(direct){ return direct; }
+    const scopedRoot = target?.closest?.('[data-workspace-component]') || null;
+    const fromRoot = String(scopedRoot?.dataset?.workspaceComponent || '').trim();
+    if(fromRoot){ return fromRoot; }
+    return 'axisControls';
+  }
+
+  function scheduleAxisControlFrame(config, target, reason, callback){
+    if(typeof callback !== 'function'){ return null; }
+    const tabId = resolveAxisControlsTabId({ ...(config || {}), target });
+    if(!tabId){ return null; }
+    const componentKey = resolveAxisControlsComponentKey(config, target);
+    const owner = global.Components?.[componentKey] || axisControls;
+    return Shared.componentLifecycle?.scheduleComponentFrame?.(owner, componentKey, {
+      tabId,
+      componentKey,
+      reason: reason || 'axis-control-frame',
+      strictRuntimeOwner: true
+    }, callback) || null;
+  }
+
+  function scheduleAxisControlTimeout(config, target, reason, callback, delay){
+    if(typeof callback !== 'function'){ return null; }
+    const tabId = resolveAxisControlsTabId({ ...(config || {}), target });
+    if(!tabId){ return null; }
+    const componentKey = resolveAxisControlsComponentKey(config, target);
+    const owner = global.Components?.[componentKey] || axisControls;
+    return Shared.componentLifecycle?.scheduleComponentTimeout?.(owner, componentKey, {
+      tabId,
+      componentKey,
+      reason: reason || 'axis-control-timeout',
+      strictRuntimeOwner: true
+    }, callback, delay) || null;
+  }
+
   function getAxisLengthUiScopeKey(config){
-    const scopeKey = (config && config.scopeId) ? String(config.scopeId) : '__global__';
+    return (config && config.scopeId) ? String(config.scopeId) : '__default__';
+  }
+
+  function ensureAxisControlsState(config, reason){
     const tabId = resolveAxisControlsTabId(config);
-    return tabId ? `${scopeKey}::@tab:${tabId}` : scopeKey;
+    if(!tabId){
+      return null;
+    }
+    const store = Shared.workspaceTabs?.ensureSharedControlState?.(tabId, AXIS_CONTROLS_STATE_KEY, {
+      tabId,
+      controlKey: AXIS_CONTROLS_STATE_KEY,
+      reason: reason || 'axis-controls-state',
+      strictTabOwnership: true
+    });
+    if(!store){
+      return null;
+    }
+    if(!store[AXIS_LENGTH_UI_STATE_KEY] || typeof store[AXIS_LENGTH_UI_STATE_KEY] !== 'object'){
+      store[AXIS_LENGTH_UI_STATE_KEY] = {};
+    }
+    return store;
   }
 
   function resolveToolbarHost(scopeId){
@@ -266,14 +323,21 @@
 
   function getAxisLengthUiState(config){
     const scopeKey = getAxisLengthUiScopeKey(config);
-    let state = axisLengthUiByScope.get(scopeKey);
-    if(!state){
-      state = {
+    const store = ensureAxisControlsState(config, 'axis-length-ui-state');
+    if(!store){
+      return {
         unit: AXIS_LENGTH_UNIT_PX,
         preserveProportions: false
       };
-      axisLengthUiByScope.set(scopeKey, state);
     }
+    const bucket = store[AXIS_LENGTH_UI_STATE_KEY];
+    if(!bucket[scopeKey] || typeof bucket[scopeKey] !== 'object'){
+      bucket[scopeKey] = {
+        unit: AXIS_LENGTH_UNIT_PX,
+        preserveProportions: false
+      };
+    }
+    const state = bucket[scopeKey];
     state.unit = sanitizeAxisLengthUnit(state.unit);
     state.preserveProportions = state.preserveProportions === true;
     return state;
@@ -3257,57 +3321,60 @@
           request
         });
         const firstApply = Shared.applyResizableBoxSize(target, request);
-        const scheduleRefine = (typeof global.requestAnimationFrame === 'function')
-          ? global.requestAnimationFrame.bind(global)
-          : (cb => global.setTimeout(cb, 0));
+        const scheduledTabId = resolveAxisControlsTabId({ ...(config || {}), target });
         const runRefine = (pass = 0) => {
-          if(pass >= 6){
+          if(pass >= 6 || !scheduledTabId){
             return;
           }
-          scheduleRefine(() => {
-            global.setTimeout(() => {
-            const latestTarget = resolveResizeTarget();
-            if(!latestTarget || typeof Shared.applyResizableBoxSize !== 'function'){
-              return;
-            }
-            const latestSize = resolveResizeTargetGraphSize(latestTarget);
-            if(!latestSize){
-              return;
-            }
-            const latestAxisElement = resolveAxisControlElementFromTarget(latestTarget, axisKey);
-            const measuredLength = resolveAxisDisplayLength(latestAxisElement, axisKey);
-            const latestBasis = sanitizeAxisLengthValue(axisKey === 'y' ? latestSize.height : latestSize.width);
-            if(measuredLength == null || latestBasis == null){
-              return;
-            }
-            const delta = numericLength - measuredLength;
-            if(Math.abs(delta) < 0.25){
-              return;
-            }
-            const correctedBasis = Math.max(1, latestBasis + delta);
-            const refineRequest = {
-              axis: axisKey,
-              width: axisKey === 'x' ? correctedBasis : undefined,
-              height: axisKey === 'y' ? correctedBasis : undefined,
-              reason: `${options.reason || `axis-length-${axisKey}`}-refine`,
-              updateDefaults: false,
-              updateAspectRatio: false,
-              preserveAspectLock: true,
-              forceExact: true,
-              simulateAspectLock: options.preserveProportions === true
-            };
-            logDebug('axis length refine request', {
-              axis: axisKey,
-              scopeId: config.scopeId || null,
-              requestedAxisLength: numericLength,
-              measuredLength,
-              delta,
-              refineRequest
-            });
-            Shared.applyResizableBoxSize(latestTarget, refineRequest);
-            runRefine(pass + 1);
-          }, 90);
-        });
+          scheduleAxisControlFrame({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-frame`, () => {
+            scheduleAxisControlTimeout({ ...(config || {}), tabId: scheduledTabId }, target, `${options.reason || `axis-length-${axisKey}`}-refine-delay`, () => {
+              const latestTarget = resolveResizeTarget();
+              if(!latestTarget || latestTarget.isConnected === false || typeof Shared.applyResizableBoxSize !== 'function'){
+                return;
+              }
+              const latestTabId = resolveAxisControlsTabId({ ...(config || {}), target: latestTarget });
+              if(latestTabId && latestTabId !== scheduledTabId){
+                return;
+              }
+              const latestSize = resolveResizeTargetGraphSize(latestTarget);
+              if(!latestSize){
+                return;
+              }
+              const latestAxisElement = resolveAxisControlElementFromTarget(latestTarget, axisKey);
+              const measuredLength = resolveAxisDisplayLength(latestAxisElement, axisKey);
+              const latestBasis = sanitizeAxisLengthValue(axisKey === 'y' ? latestSize.height : latestSize.width);
+              if(measuredLength == null || latestBasis == null){
+                return;
+              }
+              const delta = numericLength - measuredLength;
+              if(Math.abs(delta) < 0.25){
+                return;
+              }
+              const correctedBasis = Math.max(1, latestBasis + delta);
+              const refineRequest = {
+                axis: axisKey,
+                width: axisKey === 'x' ? correctedBasis : undefined,
+                height: axisKey === 'y' ? correctedBasis : undefined,
+                reason: `${options.reason || `axis-length-${axisKey}`}-refine`,
+                updateDefaults: false,
+                updateAspectRatio: false,
+                preserveAspectLock: true,
+                forceExact: true,
+                simulateAspectLock: options.preserveProportions === true
+              };
+              logDebug('axis length refine request', {
+                axis: axisKey,
+                scopeId: config.scopeId || null,
+                tabId: scheduledTabId,
+                requestedAxisLength: numericLength,
+                measuredLength,
+                delta,
+                refineRequest
+              });
+              Shared.applyResizableBoxSize(latestTarget, refineRequest);
+              runRefine(pass + 1);
+            }, 90);
+          });
         };
         runRefine(0);
         return firstApply;
@@ -3414,6 +3481,17 @@
     }
     logDebug('axis element registered',{ axis: config.axis, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
   }
+
+  axisControls.disposeTab = function disposeTab(tabLike, meta = {}){
+    const tabId = normalizeAxisControlsTabId(meta?.tabId || tabLike?.id || tabLike);
+    if(activeConfig && tabId && resolveAxisControlsTabId(activeConfig) === tabId){
+      closePanel('dispose-tab');
+    }
+  };
+
+  try{
+    Shared.workspaceTabs?.registerSharedControlDisposer?.(AXIS_CONTROLS_STATE_KEY, axisControls.disposeTab);
+  }catch(_err){}
 
   axisControls.ensurePanel = ensurePanel;
   axisControls.registerAxisElement = registerAxisElement;

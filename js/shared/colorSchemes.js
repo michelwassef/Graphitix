@@ -285,6 +285,34 @@
     return TYPE_DEFAULT_SCHEME_IDS[type] || DEFAULT_SCHEME_ID;
   }
 
+  const colorSchemeAsyncOwners = {};
+
+  function getColorSchemeAsyncOwner(type){
+    const key = String(type || 'colorSchemes').trim() || 'colorSchemes';
+    colorSchemeAsyncOwners[key] = colorSchemeAsyncOwners[key] || { __componentKey: key };
+    return colorSchemeAsyncOwners[key];
+  }
+
+  function scheduleColorSchemeTimeout(type, tabId, reason, fn, delay = 0){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentTimeout?.(getColorSchemeAsyncOwner(type), type || 'colorSchemes', {
+      tabId,
+      reason: reason || 'color-scheme-timeout'
+    }, fn, delay) || null;
+  }
+
+  function scheduleColorSchemeFrame(type, tabId, reason, fn){
+    if(typeof fn !== 'function'){
+      return null;
+    }
+    return Shared.componentLifecycle?.scheduleComponentFrame?.(getColorSchemeAsyncOwner(type), type || 'colorSchemes', {
+      tabId,
+      reason: reason || 'color-scheme-frame'
+    }, fn) || null;
+  }
+
   function isDebugEnabled(){
     try{
       return typeof Shared.isDebugEnabled !== 'function' || Shared.isDebugEnabled();
@@ -2058,8 +2086,8 @@
     }
 
     applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-immediate');
-    global.setTimeout(() => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-40'), 40);
-    global.setTimeout(() => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-180'), 180);
+    scheduleColorSchemeTimeout(type, tab.id, 'color-scheme-delayed-40', () => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-40'), 40);
+    scheduleColorSchemeTimeout(type, tab.id, 'color-scheme-delayed-180', () => applyRenderedThemeForTab(type, scheme.id, tab.id, 'color-scheme-delayed-180'), 180);
     debugLog('Debug: colorSchemes applied to active tab', { type, tabId: tab.id, scheme: scheme.id });
     return true;
   }
@@ -2125,9 +2153,10 @@
 
   function scheduleActiveVisualSync(reason, options){
     if(state.pendingSyncTimer){
-      global.clearTimeout(state.pendingSyncTimer);
+      Shared.componentLifecycle?.clearComponentTimeout?.(getColorSchemeAsyncOwner('colorSchemes'), state.pendingSyncTimer);
     }
-    state.pendingSyncTimer = global.setTimeout(() => {
+    const tab = getActiveTab();
+    state.pendingSyncTimer = scheduleColorSchemeTimeout(tab?.type || 'colorSchemes', tab?.id || null, reason || 'color-scheme-active-visual-sync', () => {
       state.pendingSyncTimer = null;
       syncActiveTabVisuals(reason, options);
     }, 60);
@@ -2206,7 +2235,8 @@
         state.lastActiveSignature = signature;
         if(signature){
           syncActiveTabVisuals('tab-change');
-          global.setTimeout(() => syncActiveTabVisuals('tab-change-delayed'), 120);
+          const tab = getActiveTab();
+          scheduleColorSchemeTimeout(tab?.type || 'colorSchemes', tab?.id || null, 'color-scheme-tab-change-delayed', () => syncActiveTabVisuals('tab-change-delayed'), 120);
         }
         return;
       }
@@ -2270,9 +2300,9 @@
         syncActiveTabVisuals(`lifecycle-${detail.action}-${phase}`, { preferWorkspace: true });
       };
       scheduleActiveVisualSync(`lifecycle-${detail.action}-queued`, { preferWorkspace: true });
-      global.requestAnimationFrame?.(() => runSync('raf'));
-      global.setTimeout(() => runSync('delay-90'), 90);
-      global.setTimeout(() => runSync('delay-220'), 220);
+      scheduleColorSchemeFrame(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-raf', () => runSync('raf'));
+      scheduleColorSchemeTimeout(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-delay-90', () => runSync('delay-90'), 90);
+      scheduleColorSchemeTimeout(expectedType, expectedTabId, 'color-scheme-lifecycle-sync-delay-220', () => runSync('delay-220'), 220);
     };
     if(Shared.componentLifecycle && typeof Shared.componentLifecycle.onLifecycleEvent === 'function'){
       Shared.componentLifecycle.onLifecycleEvent(handleLifecycleEvent);

@@ -1,0 +1,154 @@
+REFACTOR ROADMAP AUDIT — GRAPHITIX
+====================================
+Date: 2026-05-25
+Overall completion: ~35-40%
+
+The foundational machinery exists in componentLifecycle.js and workspaceTabs.js,
+but component adoption lags significantly and several items haven't started at all.
+
+
+--------------------------------------------------------------------------------
+ITEM 1 — Runtime ownership contract: hydrate / bind / capture / dispose
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+createRuntimeOwner() in js/shared/componentLifecycle.js (~line 1668) correctly
+defines all four operations. However, the contract is NOT adopted by most
+components. Components like scatter, box, heatmap, etc. each manage tab state in
+their own ad-hoc way and do not call into createRuntimeOwner. The contract exists;
+migration is the missing piece.
+
+
+--------------------------------------------------------------------------------
+ITEM 2 — Centralized runtime storage in workspaceTabs, not component Maps
+Status: NOT STARTED
+--------------------------------------------------------------------------------
+
+Every component maintains its own module-level Map keyed by tabId:
+  - scatter.js: scatterRowSelectionsByTab, scatterThresholdSelectionsByTab,
+    statsCacheBySignature
+  - box.js: Multiple new Map() calls scattered across ~10 sites
+  - heatmap.js, pca.js, line.js, hist.js: similar patterns
+
+workspaceTabs.js has captureRuntimeState/applyRuntimeState (~lines 1017-1044)
+but they are only called at workspace activation/deactivation — not for granular
+per-component runtime record ownership. No component runtime has been migrated
+into a unified tab.sharedState.sessions[componentKey].runtime structure.
+
+
+--------------------------------------------------------------------------------
+ITEM 3 — Remove __global__ fallback; missing ownership should fail loudly
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+resolveTabIdFromMeta() (~line 1114 of componentLifecycle.js) falls back silently
+to getActiveTab(). A strict variant (resolveExplicitTabIdFromMeta) exists but is
+not the default. Strict mode in createAsyncScope is opt-in (strictAsyncScope ===
+true or NODE_ENV === 'test') — permissive by default. The __global__ literal still
+appears in shared files without runtime errors. Silent fallbacks are pervasive
+across control files (fontControls, gridControls, significanceControls,
+axisControls, etc.).
+
+
+--------------------------------------------------------------------------------
+ITEM 4 — Disposal hooks for tab close, archive reload, component unload, session reset
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+Tab close disposal is properly wired:
+  - tabs.js:456 -> session.disposeWorkspaceTabResources(tab, ...)
+  - workspaceTabs.js:1227-1296 -> disposeTab() cancels async scopes, calls
+    createRuntimeOwner(...).dispose(), deletes tab.sharedState
+
+Component deactivation (createDeactivateHandler, ~line 836) cancels async work.
+
+MISSING:
+  - Archive reload disposal
+  - Component unload snapshot cleanup
+  - Session reset (full workspace clear) has no dedicated cleanup path
+  - No centralized disposal registry
+
+
+--------------------------------------------------------------------------------
+ITEM 5 — Standardize async work through createAsyncScope
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+createAsyncScope is well-implemented in componentLifecycle.js (~line 1318). Only
+4-5 of 11 components use it (scatter, pca, box, heatmap, venn). The rest use
+ad-hoc clearTimeout, clearInterval, direct requestAnimationFrame. No audit
+coverage forces all async call sites through the scope; scheduleComponentFrame
+and scheduleComponentTimeout wrappers exist but adoption is not enforced.
+
+
+--------------------------------------------------------------------------------
+ITEM 6 — Contract tests: snapshots exclude transient work; cannot cross-apply to another tab
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+Good building blocks exist:
+  - TRANSIENT_RUNTIME_KEYS (~line 886) + sanitizeRuntimeSnapshot() strips
+    transient fields before storage
+  - runtimeSnapshotMatchesOwner() (~line 1606) validates owner on hydrate
+  - Isolation tests: box.statsControls.tabIsolation.test.js,
+    scatter.statsDefaults.isolation.test.js, venn.tabRuntime.test.js,
+    tabs.configIsolation.allComponents.test.js
+
+MISSING:
+  - No test explicitly attempts to apply Tab A's snapshot to Tab B and asserts
+    rejection
+  - No test serializes a snapshot and verifies transient fields are absent from
+    the output
+  - Isolation tests verify behavior-level isolation, not the contract boundary
+    itself
+
+
+--------------------------------------------------------------------------------
+ITEM 7 — Normalize box layout authority or formally document the exception
+Status: NOT STARTED
+--------------------------------------------------------------------------------
+
+box.js (~line 12845) uses a unique layoutAuthority: true, writeLayout: true
+pattern. componentLifecycle.js has isGraphFrameLayoutAuthorityWrite() (~line 175)
+that detects this by reason-string pattern — but there is no documentation
+explaining why Box needs special layout authority, no formal contract, and no
+indication of whether other components could/should use it. The exception is
+neither normalized nor documented.
+
+
+--------------------------------------------------------------------------------
+ITEM 8 — Quality gates: lint, format, doc-drift checks, contract tests, coverage thresholds
+Status: PARTIAL
+--------------------------------------------------------------------------------
+
+  ESLint config            MISSING  — no .eslintrc or eslint.config.* in project root
+  Prettier config          MISSING
+  Jest coverage threshold  MISSING  — no --coverage flag or threshold in jest script
+  Generated-doc drift CI   MISSING  — docs:arch-map and docs:component-contracts
+                                      scripts exist in package.json but no CI step
+                                      checks for drift
+  CI test runs             PRESENT  — .github/workflows/unit-jest.yml and e2e workflows
+  Pre-commit hooks         MISSING
+
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+
+#   Item                                              Status       Biggest Gap
+1   Runtime ownership contract (hydrate/bind/         Partial      Contract defined; zero component adoption
+    capture/dispose)
+2   Centralized runtime storage in workspaceTabs      Not Started  All components still use module-level Maps
+3   Remove __global__ fallback; fail loudly           Partial      Strict mode opt-in; silent fallbacks everywhere
+4   Disposal hooks (close, reload, unload, reset)     Partial      Tab-close works; archive reload & session reset missing
+5   Standardize async via createAsyncScope            Partial      Only ~5 of 11 components; not enforced
+6   Contract tests (snapshot isolation,               Partial      Behavior tests exist; contract-boundary tests missing
+    cross-tab rejection)
+7   Box layout authority normalization/               Not Started  Unique undocumented exception with no path forward
+    documentation
+8   Quality gates (lint, format, coverage,            Partial      CI runs tests only; no lint, coverage, or doc-drift gates
+    doc-drift)
+
+Items 1 and 2 are the load-bearing gap — the contract machinery is built but no
+component has been migrated to use it. Everything else (3, 5, 6, 8) is partially
+blocked on that migration landing first.

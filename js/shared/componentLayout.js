@@ -87,9 +87,11 @@
       if(options.exact === true){
         return null;
       }
-      const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
-      if(activeTabId && entry.tabs?.[activeTabId]){
-        return entry.tabs[activeTabId];
+      if(options.uiBoundary === true || options.allowActiveTabFallback === true){
+        const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
+        if(activeTabId && entry.tabs?.[activeTabId]){
+          return entry.tabs[activeTabId];
+        }
       }
       return entry.__default || null;
     }
@@ -178,10 +180,6 @@
       if(scoped){
         return scoped;
       }
-    }
-    const activeTabId = normalizeTabId(global.Main?.session?.getActiveTab?.()?.id);
-    if(activeTabId){
-      return activeTabId;
     }
     for(let i = 0; i < roots.length; i += 1){
       const node = roots[i];
@@ -700,7 +698,11 @@
   };
 
   componentLayout.withTabLayoutOverrides = function withTabLayoutOverrides(state, tabLike){
-    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike) || tabLike || null;
+    const explicitTabId = normalizeTabId(tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike);
+    if(!explicitTabId && !(tabLike && typeof tabLike === 'object' && tabLike.id)){
+      return state || null;
+    }
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike) || (tabLike && typeof tabLike === 'object' ? tabLike : null);
     const resizer = tab?.sharedState?.layout?.resizer || null;
     if(!resizer || typeof resizer.aspectLocked !== 'boolean'){
       return state || null;
@@ -1317,25 +1319,26 @@
         if(!sessionApi){
           return;
         }
-        const activeTab = typeof sessionApi.getActiveTab === 'function'
-          ? sessionApi.getActiveTab()
-          : null;
-        if(!activeTab || activeTab.type !== componentName){
+        const tabId = normalizeTabId(layoutTabId);
+        if(!tabId){
           return;
         }
-        if(layoutTabId && activeTab.id && String(activeTab.id) !== String(layoutTabId)){
+        const tabs = Array.isArray(sessionApi.workspaceState?.tabs) ? sessionApi.workspaceState.tabs : [];
+        const targetTab = tabs.find(tab => tab && String(tab.id || '') === tabId) || null;
+        if(!targetTab || targetTab.type !== componentName){
           return;
         }
         let cleared = false;
         if(typeof sessionApi.clearTabRenderCache === 'function'){
-          cleared = sessionApi.clearTabRenderCache(activeTab, {
+          cleared = sessionApi.clearTabRenderCache(targetTab, {
+            tabId,
             reason: `${componentName}-resize-start`
           }) || cleared;
         }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: componentLayout resize-start render cache invalidation', {
             component: componentName,
-            tabId: activeTab.id || null,
+            tabId,
             phase: phase || null,
             cleared
           });
@@ -1936,8 +1939,11 @@
 
   componentLayout.syncTabStateToControlsFor = function syncTabStateToControlsFor(componentName, options = {}){
     const tabId = normalizeTabId(options.tabId || options.workspaceTabId || options.activeTabId);
-    const entry = resolveRegistryEntry(componentName, { tabId });
-    const tab = tabId ? Shared.workspaceTabs?.resolveTab?.(tabId) : Shared.workspaceTabs?.resolveTab?.(null);
+    if(!tabId){
+      return false;
+    }
+    const entry = resolveRegistryEntry(componentName, { tabId, exact: true });
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabId) || null;
     const aspectLocked = tab?.sharedState?.layout?.resizer?.aspectLocked;
     if(!entry?.elements?.svgBox || typeof aspectLocked !== 'boolean'){
       return false;
