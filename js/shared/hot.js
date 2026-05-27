@@ -295,8 +295,15 @@
     return { checked: false, payload: null };
   };
 
+  // Component bootstrap seeds (header defaults) are system-originated table mutations.
+  // They must never patch persisted tab payloads, especially during duplicate/rebind flows.
   const SESSION_PAYLOAD_SYNC_SUPPRESSED_SOURCES = new Set([
-    'roc-default-header-seed'
+    'box-default-header-seed',
+    'heatmap-default-header-seed',
+    'hist-default-header-seed',
+    'pie-default-header-seed',
+    'roc-default-header-seed',
+    'venn-default-header-seed'
   ]);
 
   const isSessionPayloadSyncSuppressedSource = (source) => {

@@ -1924,6 +1924,17 @@
     });
   }
 
+  function resetHeatmapActivationDrawState(reason){
+    clearHiddenDrawFlushHandle();
+    pendingDrawOptions = {};
+    deferredHiddenDrawOptions = null;
+    state.drawToken = (Number(state.drawToken) || 0) + 1;
+    debugLog('Debug: heatmap activation draw queue reset', {
+      reason: reason || 'activate-tab',
+      drawToken: state.drawToken
+    });
+  }
+
   function captureHeatmapRenderStateSnapshot(){
     return {
       lastRenderModel: cloneSimple(state.lastRenderModel),
@@ -2662,13 +2673,13 @@
       if(state.suspendControlSchedule){
         return;
       }
-      state.scheduleDraw({ viewOnly: false, reason: 'control-change' });
+      state.scheduleDraw({ viewOnly: false, reason: 'user-control-change', userInitiated: true });
     };
     const scheduleViewOnly = reason => {
       if(state.suspendControlSchedule){
         return;
       }
-      state.scheduleDraw({ viewOnly: true, reason });
+      state.scheduleDraw({ viewOnly: true, reason: reason || 'user-view-only-change', userInitiated: true });
     };
     const materialize = reason => materializeHeatmapSelectionToDataView(reason);
 
@@ -2930,7 +2941,8 @@
     refs.view?.addEventListener('change', () => {
       updateViewControlState();
       debugLog('Debug: heatmap view changed', { value: refs.view.value });
-      schedule();
+      state.ensureHotForActiveTab?.();
+      state.scheduleDraw({ force: true, viewOnly: false, reason: 'user-view-change', userInitiated: true });
     });
     refs.method?.addEventListener('change', () => {
       debugLog('Debug: heatmap method changed', { value: refs.method.value });
@@ -3186,6 +3198,14 @@
 
   function cloneMatrix(matrix){
     return Array.isArray(matrix) ? matrix.map(row => row.slice()) : [];
+  }
+
+  function cloneHeatmapDataViewsPayload(payload){
+    if(!payload || typeof payload !== 'object'){
+      return null;
+    }
+    const cloned = cloneSimple(payload);
+    return cloned && typeof cloned === 'object' ? cloned : null;
   }
 
   function parseHeatmapInputData(data, contextLabel){
@@ -8382,92 +8402,95 @@
       scheduleBackup = state.scheduleDraw;
       state.scheduleDraw = () => {};
     }
-    invalidateHeatmapTransientRenderState(`payload:${meta?.source || 'unknown'}`);
-    const hot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
-    if(hot){
-      state.hot = hot;
-    }
-    const rawMatrix = Array.isArray(obj.data) ? obj.data : [];
-    const serializedViews = (obj.dataViews && typeof obj.dataViews === 'object') ? obj.dataViews : null;
-    const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
-    const dataManager = hot
-      ? ensureHeatmapDataViewsForHot(hot, {
-          wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
-          container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
-        })
-      : null;
-    if(dataManager){
-      if(serializedViews){
-        dataManager.deserialize(serializedViews, {
-          fallbackData: rawMatrix,
-          activeViewId: requestedActiveViewId,
-          silent: true,
-          activate: false
-        });
+    try{
+      invalidateHeatmapTransientRenderState(`payload:${meta?.source || 'unknown'}`);
+      const hot = (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot;
+      if(hot){
+        state.hot = hot;
+      }
+      const rawMatrix = cloneMatrix(Array.isArray(obj.data) ? obj.data : []);
+      const serializedViews = cloneHeatmapDataViewsPayload(obj.dataViews);
+      const requestedActiveViewId = obj.activeDataViewId || serializedViews?.activeViewId || null;
+      const dataManager = hot
+        ? ensureHeatmapDataViewsForHot(hot, {
+            wrapper: getHeatmapNodeById('heatmapHotWrapper') || null,
+            container: hot.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null
+          })
+        : null;
+      if(dataManager){
+        if(serializedViews){
+          dataManager.deserialize(serializedViews, {
+            fallbackData: rawMatrix,
+            activeViewId: requestedActiveViewId,
+            silent: true,
+            activate: false
+          });
+        }else{
+          dataManager.initialize(rawMatrix, { rawTitle: 'Raw' });
+        }
+        const activeView = dataManager.getActiveView?.() || null;
+        state.activeMaterializedViewId = isHeatmapMaterializedDataView(activeView) ? activeView.id : null;
+      }
+      const activeViewData = dataManager?.getActiveView?.()?.data;
+      const matrix = cloneMatrix(Array.isArray(activeViewData) ? activeViewData : rawMatrix);
+      const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
+      const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
+      const activeViewFilters = dataManager?.getActiveView?.()?.filters || null;
+      const filtersToApply = obj.filters || activeViewFilters || null;
+      const config = obj.config || {};
+      if(config.notes && typeof config.notes === 'object'){
+        notesState.text = config.notes.text == null ? '' : String(config.notes.text);
+        notesState.open = !!config.notes.open;
+      }else if(typeof config.notes === 'string'){
+        notesState.text = config.notes;
+        notesState.open = !!notesState.open;
       }else{
-        dataManager.initialize(rawMatrix, { rawTitle: 'Raw' });
+        notesState.text = '';
+        notesState.open = false;
       }
-      const activeView = dataManager.getActiveView?.() || null;
-      state.activeMaterializedViewId = isHeatmapMaterializedDataView(activeView) ? activeView.id : null;
-    }
-    const activeViewData = dataManager?.getActiveView?.()?.data;
-    const matrix = Array.isArray(activeViewData) ? activeViewData : rawMatrix;
-    const activeViewExclusions = dataManager?.getActiveView?.()?.exclusions || null;
-    const exclusionsToApply = obj.exclusions || activeViewExclusions || null;
-    const activeViewFilters = dataManager?.getActiveView?.()?.filters || null;
-    const filtersToApply = obj.filters || activeViewFilters || null;
-    const config = obj.config || {};
-    if(config.notes && typeof config.notes === 'object'){
-      notesState.text = config.notes.text == null ? '' : String(config.notes.text);
-      notesState.open = !!config.notes.open;
-    }else if(typeof config.notes === 'string'){
-      notesState.text = config.notes;
-      notesState.open = !!notesState.open;
-    }else{
-      notesState.text = '';
-      notesState.open = false;
-    }
-    if(notesState.control){
-      notesState.control.setValue(notesState.text);
-      notesState.control.setOpen(notesState.open);
-    }
-    if(!skipDataLoad && state.hot){
-      state.suspendAutoClusterDefaults = true;
-      try{
-        state.hot.loadData(matrix);
-      }finally{
-        state.suspendAutoClusterDefaults = false;
+      if(notesState.control){
+        notesState.control.setValue(notesState.text);
+        notesState.control.setOpen(notesState.open);
       }
-      if(exclusionsToApply && state.hot.applyExclusions){
-        state.hot.applyExclusions(exclusionsToApply);
+      if(!skipDataLoad && state.hot){
+        state.suspendAutoClusterDefaults = true;
+        try{
+          state.hot.loadData(matrix);
+        }finally{
+          state.suspendAutoClusterDefaults = false;
+        }
+        if(exclusionsToApply && state.hot.applyExclusions){
+          state.hot.applyExclusions(exclusionsToApply);
+        }
+        if(filtersToApply && state.hot.applyFilters){
+          state.hot.applyFilters(filtersToApply, { schedule: false });
+        }
       }
-      if(filtersToApply && state.hot.applyFilters){
-        state.hot.applyFilters(filtersToApply, { schedule: false });
+      applyConfig(config);
+      applyHeatmapDataTransformControlState(
+        resolveHeatmapDataTransformControlStateForView(dataManager?.getActiveView?.() || null, dataManager)
+      );
+      if(state.hot){
+        syncHeatmapActiveDataViewFromHot(state.hot, 'payload-load');
+      }
+      state.lastStats = (obj.stats && typeof obj.stats === 'object')
+        ? (cloneSimple(obj.stats) || obj.stats)
+        : null;
+      if(!skipDraw){
+        updateStats(state.lastStats);
+        state.scheduleDraw();
+      }
+      debugLog('Debug: heatmap payload applied', {
+        source: meta.source || 'unknown',
+        rows: matrix.length,
+        cols: matrix[0]?.length || 0
+      });
+      return true;
+    }finally{
+      if(scheduleBackup){
+        state.scheduleDraw = scheduleBackup;
       }
     }
-    applyConfig(config);
-    applyHeatmapDataTransformControlState(
-      resolveHeatmapDataTransformControlStateForView(dataManager?.getActiveView?.() || null, dataManager)
-    );
-    if(state.hot){
-      syncHeatmapActiveDataViewFromHot(state.hot, 'payload-load');
-    }
-    state.lastStats = (obj.stats && typeof obj.stats === 'object')
-      ? (cloneSimple(obj.stats) || obj.stats)
-      : null;
-    if(!skipDraw){
-      updateStats(state.lastStats);
-      state.scheduleDraw();
-    }
-    if(scheduleBackup){
-      state.scheduleDraw = scheduleBackup;
-    }
-    debugLog('Debug: heatmap payload applied', {
-      source: meta.source || 'unknown',
-      rows: matrix.length,
-      cols: matrix[0]?.length || 0
-    });
-    return true;
   }
 
   heatmap.loadFromFile = function loadHeatmapFromFile(file){
@@ -8721,7 +8744,7 @@
     }
   };
   function syncHeatmapActivationState(tabLike = null, options = {}){
-    invalidateHeatmapTransientRenderState('activate-tab');
+    resetHeatmapActivationDrawState('activate-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
       if(hot){
@@ -8738,8 +8761,20 @@
         syncHeatmapActiveDataViewFromHot(hot, 'activate-tab');
       }
     }
+    if(typeof state.layout?.syncPanels === 'function'){
+      state.layout.syncPanels({ skipSchedule: true });
+    }
     if(options.passive !== true){
       scheduleDeferredHiddenDrawFlush('activate-tab');
+    }else if(typeof state.scheduleDraw === 'function'){
+      // Passive/live-DOM activation can still happen after geometry changes while the tab
+      // was hidden (toolbar section change, panel constraints, zoom viewport updates).
+      // Re-render from active tab data to avoid stale text-aspect transforms.
+      state.scheduleDraw({
+        force: true,
+        viewOnly: false,
+        reason: 'activate-tab-passive-refresh'
+      });
     }
     const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'heatmap')
       || resolveHeatmapRoot(tabLike || null)

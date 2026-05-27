@@ -370,9 +370,6 @@
   }
 
   function cloneWorkspaceApplyValue(value, cloneFn, key = null) {
-    if (key === 'data' && Array.isArray(value)) {
-      return value;
-    }
     if (Array.isArray(value)) {
       return value.map(item => cloneWorkspaceApplyValue(item, cloneFn, null));
     }
@@ -392,9 +389,6 @@
     }
     if (defaults === undefined || payload === null || defaults === null) {
       return cloneWorkspaceApplyValue(payload, cloneFn, key);
-    }
-    if (key === 'data' && Array.isArray(payload)) {
-      return payload;
     }
     if (Array.isArray(payload)) {
       return cloneWorkspaceApplyValue(payload, cloneFn, key);

@@ -1,0 +1,1001 @@
+ Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box analysis snapshot Object
+ boxColCollect_0_14: 0.010009765625 ms
+ boxColCollect_1_14: 0.0068359375 ms
+ boxColCollect_2_14: 0.005859375 ms
+ boxColCollect_3_14: 0.005126953125 ms
+ boxColCollect_4_14: 0.005859375 ms
+ boxColCollect_5_14: 0.005126953125 ms
+ boxColCollect_6_14: 0.0048828125 ms
+ boxColCollect_7_14: 0.006103515625 ms
+ boxColCollect_8_14: 0.005859375 ms
+ boxColCollect_9_14: 0.006103515625 ms
+ boxColCollect_10_14: 0.005859375 ms
+ boxColCollect_11_14: 0.005126953125 ms
+ boxColCollect_12_14: 0.0048828125 ms
+ boxColCollect_13_14: 0.005126953125 ms
+ boxColCollect_14_14: 0.0048828125 ms
+ boxColCollect_15_14: 0.005126953125 ms
+ boxColCollect_16_14: 0.005859375 ms
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: stats.listCorrections Object
+ Debug: box corrections sourced from Shared.stats Object
+ Debug: stats.listCorrections Object
+ Debug: box corrections sourced from Shared.stats Object
+ Debug: stats.normalizeMethod direct match Object
+ Debug: stats.getCorrectionMeta Object
+ Debug: box resolveCorrectionMeta via Shared.stats Object
+ Debug: box updateStatsCorrectionSummary Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: resizer aspect ratio set Object
+ Debug: resizer applyResize helper Object
+ Debug: resizer applyProgrammaticResize Object
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout graph dataset size authority reapplied Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box stored significance annotations applied Object
+ Debug: box stats annotations restored for new svg Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.normalizeFontSize Object
+ Debug: chartStyle.computeResizeScale Object
+ Debug: chartStyle.pxToPt Object
+ Debug: chartStyle.resolveScaledFontSize display stored Object
+ Debug: chartStyle.resolveScaledFontSize dataset display stored Object
+ Debug: chartStyle.resolveScaledFontSize Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box axis settings current Object
+ Debug: chartStyle.scaleStrokeWidth exact applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleLength Object
+ Debug: box showSignificance flag Object
+ Debug: chartStyle.renderFontSizeLabel control observed Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box font scaling applied Object
+ Debug: box style scaling applied Object
+ Debug: chartStyle.createAxisMetrics Object
+ Debug: box axis metrics Object
+ Debug: box showFrame state Object
+ Debug: box showLegend state Object
+ Debug: box summary selector mode Object
+ Debug: box draw orientation Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend initial state Object
+ Debug: box data collect skipped (view cache) Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box resolveTraceColor Object
+ Debug: box trace colors primed Object
+ Debug: box color picker labels resolved Object
+ Debug: fontControls enableForSvg attached Object
+ Debug: chartStyle.applySvgDefaults fontControls attached Object
+ Debug: chartStyle.applySvgDefaults Object
+ Debug: box fontControls enableForSvg invoked Object
+ Debug: box distribution cache reused Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.createLegendRenderer metrics Object
+ Debug: box legend disabled Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: chartStyle.makeFont Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBaseMargins Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.measureText Object
+ Debug: chartStyle.computeBottomLayout Object
+ Debug: chartStyle.estimateTickCount Object
+ Debug: box tick target evaluation Object
+ Debug: resizer intrinsic min size updated Object
+ Debug: box layout Object
+ Debug: box broken axis Object
+ Debug: box grid stroke scaled Object
+ Debug: box axis join span Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box x-axis span Object
+ Debug: box axes stroke scaled Object
+ Debug: box frame request Object
+ Debug: chartStyle.drawPlotFrame applied Object
+ Debug: box frame stroke scaled Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: fontControls registerNodeForKey cleanup Object
+ Debug: fontControls markText applied Object
+ Debug: enableLabelDrag bound Object
+ Debug: box font tick binding Object
+ Debug: box ticks stroke scaled Object
+ Debug: chartStyle.applyLabelOrientation result Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: box resolveTraceColor Object
+ Debug: chartStyle.scaleLength Object
+ Debug: chartStyle.scaleStrokeWidth applied Object
+ Debug: fontControls markText applied Object
+ Debug: box markFontEditable Object
+ Debug: makeEditable bound Object
+ Debug: enableLabelDrag bound Object
+ Debug: box annotation style forwarded Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: fontControls markText applied Object
+ Debug: box stored significance annotations applied Object
+ Debug: box stats annotations restored for new svg Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: preview hover enter Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview reuse Object
+ Debug: preview hover using stored inactive preview Object
+ Debug: preview tooltip element created
+ Debug: preview tooltip positioned Object
+ Debug: workspace tab selected Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview reuse Object
+ Debug: workspace state persisted Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: preview tooltip hidden Object
+ Debug: preview tooltip hidden Object
+ Debug: workspace same-component render cache unavailable Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: componentLayout root hydrated Object
+ Debug: setAppHeaderVisibility skipped Object
+ Debug: workspace initialization status Object
+ Debug: Components.box.init refreshing stale DOM bindings
+ Debug: Components.box.init
+ Debug: box font size base initialized Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box layout mode initialised Object
+ Debug: box individual summary initialised Object
+ Debug: box graph-type border width sync Object
+ Debug: box stats surface reset from tab payload Object
+ Debug: componentLayout createStandardPanels init Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout ResizeObserver disconnected Object
+ Debug: resizer api destroyed Object
+ Debug: Shared.resizer.attachPanelDragResizer detached Object
+ Debug: componentLayout registry entry removed Object
+ Debug: componentLayout previous instance destroyed Object
+ Debug: componentLayout applying wrapper styles Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: componentLayout using graphSizing helper Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: attachResizableBox helper sizing applied Object
+ Debug: attachResizableBox unlimited width enabled Object
+ Debug: attachResizableBox unlimited height enabled Object
+ Debug: resizer text lock scope resolved Object
+ Debug: resizer aspect ratio override Object
+ Debug: resizer aspect ratio set Object
+ Debug: attachResizableBox defaults Object
+ Debug: chartStyle.registerTextSizeLockControl removed existing handler Object
+ Debug: chartStyle.registerTextSizeLockControl Object
+ Debug: resizer text lock registered Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: attachResizableBox on boxGraphPanel
+ Debug: componentLayout attachResizableBox applied Object
+ Debug: Shared.resizer.attachPanelDragResizer attached Object
+ Debug: componentLayout panel drag resizer attached Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout registry updated Object
+ Debug: example datasets prepared Object
+ Debug: applyTableFormatToHot single
+ Debug: updateTableFormatUI Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: exporter mountControls complete Object
+ Debug: box export controls mounted Object
+ Debug: fontControls markText applied Object
+ Debug: box scheduleDraw configured via tab-scoped lifecycle frame Object
+ Debug: componentLayout scheduleDraw updated Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: box owned runtime record bound Object
+ Debug: box owned runtime record bound Object
+ Debug: box owned runtime record bound Object
+ Debug: box stats surface reset from tab payload Object
+ Debug: box owned runtime record bound Object
+ Debug: box owned runtime record bound Object
+ Debug: box stats surface reset from tab payload Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab controls synced Object
+ Debug: workspace toolbar uiState applied Object
+ Debug: workspace live DOM fast path reused Object
+ Debug: preview hover enter Object
+ Debug: preview tooltip hidden Object
+ Debug: preview hover skipped for active tab Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout ResizeObserver triggered Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths skipped (hidden) Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout ResizeObserver ignored unchanged size Object
+ Debug: resizer observer triggered
+ Debug: componentLayout resizable onResize Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: componentLayout programmatic sync released Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: persistActiveTabState payload drift observed (auto-healed by live capture) Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: session dirty flag updated Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: preview tooltip hidden Object
+ Debug: preview hover enter Object
+ Debug: preview live svg ignored outside tab root Object
+ Debug: preview reuse Object
+ Debug: preview hover using stored inactive preview Object
+ Debug: preview tooltip positioned Object
+ Debug: tab data detected after header skip Object
+ Debug: tab data detected after header skip Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview capture success Object
+ Debug: preview indicator synced Object
+ Debug: preview stored Object
+ Debug: workspace state persisted Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: tab data detected after header skip Object
+ Debug: workspace tab selected Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: box.getPayload captured state Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fontControls exportScopeStyles skipped (empty) Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: fastClonePayload using structuredClone Object
+ Debug: clonePayload completed Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: serializePayloadSignature computed Object
+ Debug: serializePayloadSignature computed Object
+ Debug: assignTabPayload applied Object
+ Debug: serializePayloadSignature computed Object
+ Debug: preview reuse Object
+ Debug: workspace state persisted Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: shadeColor Object
+ Debug: box graph-type border width sync Object
+ Debug: box graph-type border width sync Object
+ Debug: preview tooltip hidden Object
+ Debug: preview tooltip hidden Object
+ Debug: workspace same-component render cache unavailable Object
+ Debug: componentLayout tab layout override merged Object
+ Debug: componentLayout root hydrated Object
+ Debug: setAppHeaderVisibility skipped Object
+ Debug: workspace initialization status Object
+ Debug: Components.box.init refreshing stale DOM bindings
+ Debug: Components.box.init
+ Debug: box font size base initialized Object
+ Debug: chartStyle.ptToPx Object
+ Debug: chartStyle.renderFontSizeLabel manual control sync Object
+ Debug: chartStyle.renderFontSizeLabel applied Object
+ Debug: box layout mode initialised Object
+ Debug: box individual summary initialised Object
+ Debug: box graph-type border width sync Object
+ Debug: box stats surface hydrated from tab payload Object
+ Debug: componentLayout createStandardPanels init Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout resolved function selector Object
+ Debug: componentLayout ResizeObserver disconnected Object
+ Debug: resizer api destroyed Object
+ Debug: Shared.resizer.attachPanelDragResizer detached Object
+ Debug: componentLayout registry entry removed Object
+ Debug: componentLayout previous instance destroyed Object
+ Debug: componentLayout applying wrapper styles Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: componentLayout using graphSizing helper Object
+ Debug: chartStyle.getDefaultGraphSize cached result Object
+ Debug: chartStyle.getSquareGraphSizing Object
+ Debug: attachResizableBox helper sizing applied Object
+ Debug: attachResizableBox unlimited width enabled Object
+ Debug: attachResizableBox unlimited height enabled Object
+ Debug: resizer text lock scope resolved Object
+ Debug: resizer aspect ratio override Object
+ Debug: resizer aspect ratio set Object
+ Debug: attachResizableBox defaults Object
+ Debug: chartStyle.registerTextSizeLockControl removed existing handler Object
+ Debug: chartStyle.registerTextSizeLockControl Object
+ Debug: resizer text lock registered Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer known option moved into menu Object
+ Debug: resizer unlocked style scale base synced Object
+ Debug: attachResizableBox on boxGraphPanel
+ Debug: componentLayout attachResizableBox applied Object
+ Debug: Shared.resizer.attachPanelDragResizer attached Object
+ Debug: componentLayout panel drag resizer attached Object
+ Debug: Shared.syncPanelWidths table min stored Object
+ Debug: Shared.syncPanelWidths graph inset Object
+ Debug: Shared.syncPanelWidths manual lock Object
+ Debug: componentLayout syncPanels complete Object
+ Debug: componentLayout live resizable snapshot normalized Object
+ Debug: componentLayout captureState Object
+ Debug: componentLayout registry updated Object
+ Debug: example datasets prepared Object
+ Debug: applyTableFormatToHot single
+ Debug: updateTableFormatUI Object
+ Debug: box whisker rule visibility Object
+ Debug: box showCaps visibility updated Object
+ Debug: box individual summary visibility Object
+ Debug: box graph-type border width sync Object
+ Debug: box point mode visibility Object
+ Debug: box graph type controls Object
+ Debug: box whisker rule visibility Object
+box.js:17786 Debug: box showCaps visibility updated Object
+box.js:17805 Debug: box individual summary visibility Object
+box.js:15066 Debug: box graph-type border width sync Object
+box.js:17811 Debug: box point mode visibility Object
+box.js:17835 Debug: box graph type controls Object
+exporter.js:11 Debug: exporter mountControls complete Object
+box.js:18106 Debug: box export controls mounted Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+box.js:36764 Debug: box scheduleDraw configured via tab-scoped lifecycle frame Object
+componentLayout.js:1741 Debug: componentLayout scheduleDraw updated Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+box.js:11179 Debug: box owned runtime record bound Object
+box.js:11179 Debug: box owned runtime record bound Object
+box.js:11179 Debug: box owned runtime record bound Object
+box.js:25884 Debug: box stats surface hydrated from tab payload Object
+chartStyle.js:967 Debug: chartStyle.scaleLength Object
+chartStyle.js:1003 Debug: chartStyle.scaleStrokeWidth applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+chartStyle.js:967 Debug: chartStyle.scaleLength Object
+chartStyle.js:1003 Debug: chartStyle.scaleStrokeWidth applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+chartStyle.js:967 Debug: chartStyle.scaleLength Object
+chartStyle.js:1003 Debug: chartStyle.scaleStrokeWidth applied Object
+fontControls.js:1534 Debug: fontControls markText applied Object
+box.js:27157 Debug: box stored significance annotations applied Object
+box.js:26435 Debug: box stats annotations restored for new svg Object
+box.js:11179 Debug: box owned runtime record bound Object
+box.js:11179 Debug: box owned runtime record bound Object
+box.js:25884 Debug: box stats surface hydrated from tab payload Object
+componentLayout.js:1515 Debug: componentLayout live resizable snapshot normalized Object
+componentLayout.js:1571 Debug: componentLayout captureState Object
+componentLayout.js:1953 Debug: componentLayout tab controls synced Object
+session.js:3088 Debug: workspace toolbar uiState applied Object
+domControls.js:1310 Debug: workspace live DOM fast path reused Object
+previews.js:1572 Debug: preview hover enter Object
+previews.js:1490 Debug: preview tooltip hidden Object
+previews.js:1576 Debug: preview hover skipped for active tab Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1196 Debug: componentLayout ResizeObserver triggered Object
+resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+resizer.js:2620 Debug: resizer observer triggered
+componentLayout.js:1354 Debug: componentLayout resizable onResize Object
+resizer.js:2714 Debug: Shared.syncPanelWidths skipped (hidden) Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+componentLayout.js:1188 Debug: componentLayout ResizeObserver ignored unchanged size Object
+resizer.js:2620 Debug: resizer observer triggered
+componentLayout.js:1354 Debug: componentLayout resizable onResize Object
+resizer.js:2808 Debug: Shared.syncPanelWidths table min stored Object
+resizer.js:2856 Debug: Shared.syncPanelWidths graph inset Object
+resizer.js:3130 Debug: Shared.syncPanelWidths manual lock Object
+componentLayout.js:1162 Debug: componentLayout syncPanels complete Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+componentLayout.js:1156 Debug: componentLayout programmatic sync released Object
+previews.js:1490 Debug: preview tooltip hidden Object
+previews.js:1490 Debug: preview tooltip hidden Object
