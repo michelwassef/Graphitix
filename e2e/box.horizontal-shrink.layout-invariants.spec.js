@@ -188,6 +188,7 @@ async function resizeBoxWidthOnly(page, targetWidthPx) {
       window.Shared.applyResizableBoxSize(svgBox, {
         width,
         height,
+        preserveAspectLock: false,
         reason: 'e2e-box-horizontal-50pct'
       });
     } else {
