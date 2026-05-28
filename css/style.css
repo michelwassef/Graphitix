@@ -4722,11 +4722,25 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel .color-scheme-picker__option-label{
   white-space:nowrap;
 }
-.config-panel .color-scheme-picker__swatches{
+.config-panel .color-scheme-picker__swatches,
+.config-panel .color-scheme-picker__current-swatches{
   display:inline-flex;
   align-items:center;
   gap:3px;
   min-width:52px;
+  min-height:18px;
+  padding:1px 5px;
+  box-sizing:border-box;
+  border:1px solid transparent;
+  justify-content:flex-start;
+}
+.config-panel .color-scheme-picker__option--dark-theme .color-scheme-picker__swatches,
+.config-panel .color-scheme-picker__current-swatches--dark-theme{
+  background:#000000;
+  border-color:rgba(255,255,255,0.65);
+}
+.config-panel .color-scheme-picker__option--dark-theme .color-scheme-picker__swatch{
+  border-color:rgba(255,255,255,0.65);
 }
 .config-panel .color-scheme-picker__swatch{
   width:10px;

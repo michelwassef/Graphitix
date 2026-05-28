@@ -582,6 +582,10 @@
       buttonLabel.textContent = value === CUSTOM_SCHEME_ID ? 'Custom' : (scheme?.label || 'Color');
     }
     if(buttonSwatches && buttonSwatches.ownerDocument){
+      buttonSwatches.className = 'color-scheme-picker__current-swatches';
+      if(value === 'dark'){
+        buttonSwatches.classList.add('color-scheme-picker__current-swatches--dark-theme');
+      }
       buttonSwatches.replaceChildren(renderSchemeSwatches(buttonSwatches.ownerDocument, value, { limit: 4 }));
     }
     if(menu){
@@ -2408,6 +2412,9 @@
       const optionButton = doc.createElement('button');
       optionButton.type = 'button';
       optionButton.className = 'color-scheme-picker__option';
+      if(id === 'dark'){
+        optionButton.classList.add('color-scheme-picker__option--dark-theme');
+      }
       optionButton.setAttribute('role', 'option');
       optionButton.dataset.schemeId = id;
       optionButton.dataset.componentType = type;
