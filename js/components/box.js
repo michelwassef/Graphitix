@@ -33046,23 +33046,8 @@ Technical analysis record (advanced)
         }
         yTickTarget = refinedTickTarget;
       }
+      state.horizontalSpanTarget = null;
       const flipAxisSpanTarget = getBoxFlipTransitionPendingAxisSpanTarget('horizontal');
-      const targetHorizontalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.yAxisSpanPx))
-        ? Math.max(20, Number(flipAxisSpanTarget.yAxisSpanPx))
-        : null;
-      const targetVerticalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.xAxisSpanPx))
-        ? Math.max(20, Number(flipAxisSpanTarget.xAxisSpanPx))
-        : null;
-      if(Number.isFinite(targetHorizontalAxisSpan) && plotWLocal > targetHorizontalAxisSpan + 0.5){
-        const reduction = plotWLocal - targetHorizontalAxisSpan;
-        marginLocal.right += reduction;
-        plotWLocal = targetHorizontalAxisSpan;
-      }
-      if(Number.isFinite(targetVerticalAxisSpan) && plotHLocal > targetVerticalAxisSpan + 0.5){
-        const reduction = plotHLocal - targetVerticalAxisSpan;
-        marginLocal.bottom += reduction;
-        plotHLocal = targetVerticalAxisSpan;
-      }
       if(flipAxisSpanTarget){
         clearBoxFlipTransitionPendingAxisSpanTarget('vertical-axis-span-target-consumed');
       }
@@ -33992,24 +33977,36 @@ Technical analysis record (advanced)
       }
       marginLocal = stabilizeBoxMarginForAxisResize(marginLocal);
       const flipAxisSpanTarget = getBoxFlipTransitionPendingAxisSpanTarget('vertical');
-      const targetHorizontalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.yAxisSpanPx))
-        ? Math.max(20, Number(flipAxisSpanTarget.yAxisSpanPx))
-        : null;
       const targetVerticalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.xAxisSpanPx))
         ? Math.max(20, Number(flipAxisSpanTarget.xAxisSpanPx))
+        : null;
+      const targetHorizontalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.yAxisSpanPx))
+        ? Math.max(20, Number(flipAxisSpanTarget.yAxisSpanPx))
         : null;
       const canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
       let plotWLocal = Math.max(20, canvasWidthLocal - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
-      if(Number.isFinite(targetHorizontalAxisSpan) && plotWLocal > targetHorizontalAxisSpan + 0.5){
-        const reduction = plotWLocal - targetHorizontalAxisSpan;
-        marginLocal.right += reduction;
-        plotWLocal = targetHorizontalAxisSpan;
-      }
       if(Number.isFinite(targetVerticalAxisSpan) && plotHLocal > targetVerticalAxisSpan + 0.5){
         const reduction = plotHLocal - targetVerticalAxisSpan;
-        marginLocal.bottom += reduction;
+        marginLocal.top += reduction;
         plotHLocal = targetVerticalAxisSpan;
+      }
+      if(Number.isFinite(targetHorizontalAxisSpan)){
+        state.horizontalSpanTarget = plotWLocal > targetHorizontalAxisSpan + 0.5
+          ? targetHorizontalAxisSpan
+          : null;
+      }
+      const isUserResizeEnd = drawOpts?.reason === 'resize'
+        && (drawOpts?.resizePhase === 'end' || drawOpts?.resizePhase === 'move');
+      if(isUserResizeEnd){
+        state.horizontalSpanTarget = null;
+      }
+      const activeSpanTarget = Number.isFinite(Number(state.horizontalSpanTarget)) && Number(state.horizontalSpanTarget) > 20
+        ? Number(state.horizontalSpanTarget)
+        : null;
+      if(Number.isFinite(activeSpanTarget) && plotWLocal > activeSpanTarget + 0.5){
+        marginLocal.right += plotWLocal - activeSpanTarget;
+        plotWLocal = activeSpanTarget;
       }
       if(flipAxisSpanTarget){
         clearBoxFlipTransitionPendingAxisSpanTarget('horizontal-axis-span-target-consumed');
@@ -34043,9 +34040,7 @@ Technical analysis record (advanced)
       const minPlotHeightPx = Number.isFinite(targetVerticalAxisSpan)
         ? Math.max(40, Math.round(targetVerticalAxisSpan))
         : Math.max(120, Math.round((fs || 12) * 6));
-      const minPlotWidthPx = Number.isFinite(targetHorizontalAxisSpan)
-        ? Math.max(80, Math.round(targetHorizontalAxisSpan))
-        : Math.max(120, Math.round((fs || 12) * 8));
+      const minPlotWidthPx = Math.max(120, Math.round((fs || 12) * 8));
       const horizontalGraphGeometry = updateBoxGraphGeometry({
         frame: resolveBoxFrameGeometry(els.svgBox, { width: canvasWidthLocal, height: H }),
         reserves: {
@@ -34082,8 +34077,8 @@ Technical analysis record (advanced)
           canvasWidthLocal,
           leftLabelReservePx,
           rightSignificanceReservePx,
-          targetHorizontalAxisSpan,
           targetVerticalAxisSpan,
+          targetHorizontalAxisSpan,
           topReservePx,
           bottomReservePx,
           plotWLocal,

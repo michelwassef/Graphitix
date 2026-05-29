@@ -556,11 +556,22 @@
     if(style){
       if(Number.isFinite(minWidth)){
         style.setProperty('--graph-min-width', `${minWidth}px`);
-        style.minWidth = `${minWidth}px`;
+        if(options.enforce !== false){
+          style.minWidth = `${minWidth}px`;
+        } else {
+          // advisory: don't raise style.minWidth above the current rendered width
+          const liveW = normalizeIntrinsicPx(svgBox.getBoundingClientRect?.()?.width);
+          style.minWidth = `${(Number.isFinite(liveW) && liveW < minWidth) ? liveW : minWidth}px`;
+        }
       }
       if(Number.isFinite(minHeight)){
         style.setProperty('--graph-min-height', `${minHeight}px`);
-        style.minHeight = `${minHeight}px`;
+        if(options.enforce !== false){
+          style.minHeight = `${minHeight}px`;
+        } else {
+          const liveH = normalizeIntrinsicPx(svgBox.getBoundingClientRect?.()?.height);
+          style.minHeight = `${(Number.isFinite(liveH) && liveH < minHeight) ? liveH : minHeight}px`;
+        }
       }
     }
     if(dataset){

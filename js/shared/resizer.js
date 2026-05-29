@@ -1405,6 +1405,7 @@
         container.style.width = px(finalWidth);
         container.dataset.resizerWidth = container.style.width;
         container.dataset.resizerBaseWidth = String(Math.round(finalBaseWidth));
+        container.dataset.graphWidthPx = String(Math.round(finalBaseWidth));
       }
       if(Number.isFinite(finalHeight)){
         container.style.height = px(finalHeight);
@@ -1588,6 +1589,21 @@
         data.resizerAspectLocked = 'false';
       }
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      // forceExact must override the intrinsic min-size floor so the caller's exact
+      // dimensions are applied. The next content draw re-applies the appropriate
+      // content-based constraint via updateIntrinsicMinSize.
+      if(forceExact && !hasSimulatedAspectLock){
+        if(Number.isFinite(requestedWidth) && requestedWidth > 0 && requestedWidth < MIN_W){
+          MIN_W = Math.max(BASE_MIN_W, Math.round(requestedWidth));
+          data.resizerMinWidth = String(MIN_W);
+          container.style.minWidth = px(MIN_W * zoomScale);
+        }
+        if(Number.isFinite(requestedHeight) && requestedHeight > 0 && requestedHeight < MIN_H){
+          MIN_H = Math.max(BASE_MIN_H, Math.round(requestedHeight));
+          data.resizerMinHeight = String(MIN_H);
+          container.style.minHeight = px(MIN_H * zoomScale);
+        }
+      }
       const liveRect = container.getBoundingClientRect();
       const fallbackWidth = parsePositive(liveRect.width) || (defaultWidth * zoomScale);
       const fallbackHeight = parsePositive(liveRect.height) || (defaultHeight * zoomScale);
@@ -1816,11 +1832,20 @@
         changed = true;
       }
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-      container.style.minWidth = px(MIN_W * zoomScale);
-      container.style.minHeight = px(MIN_H * zoomScale);
+      if(options.enforce !== false){
+        container.style.minWidth = px(MIN_W * zoomScale);
+        container.style.minHeight = px(MIN_H * zoomScale);
+      }
       const liveRect = container.getBoundingClientRect?.() || null;
       const currentBaseWidth = parsePositive(liveRect?.width) ? parsePositive(liveRect.width) / zoomScale : defaultWidth;
       const currentBaseHeight = parsePositive(liveRect?.height) ? parsePositive(liveRect.height) / zoomScale : defaultHeight;
+      if(options.enforce === false){
+        // advisory: don't raise style.minWidth above current rendered size (respects explicit programmatic shrinks)
+        const cappedMinW = currentBaseWidth > 0 ? Math.min(MIN_W, Math.max(BASE_MIN_W, Math.round(currentBaseWidth))) : MIN_W;
+        const cappedMinH = currentBaseHeight > 0 ? Math.min(MIN_H, Math.max(BASE_MIN_H, Math.round(currentBaseHeight))) : MIN_H;
+        container.style.minWidth = px(cappedMinW * zoomScale);
+        container.style.minHeight = px(cappedMinH * zoomScale);
+      }
       let resized = null;
       if(options.enforce !== false && (currentBaseWidth + 0.5 < MIN_W || currentBaseHeight + 0.5 < MIN_H)){
         const targetHeight = Math.max(currentBaseHeight || MIN_H, MIN_H);
