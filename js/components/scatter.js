@@ -2053,7 +2053,9 @@
         logPlusOneY: !!scatterState.logPlusOneY,
         axisLabelModes: normalizeScatterAxisLabelModes(scatterState.axisLabelModes),
         preserveOverlayToggleState: !!scatterState.preserveOverlayToggleState,
-        significantLabelsUserModified: !!scatterState.significantLabelsUserModified
+        significantLabelsUserModified: !!scatterState.significantLabelsUserModified,
+        lastDrawAt: Number.isFinite(Number(scatterState.lastDrawAt)) ? Number(scatterState.lastDrawAt) : 0,
+        lastDrawMeta: cloneSimple(scatterState.lastDrawMeta) || null
       },
       grouped: {
         graphType: scatterCurrentGraphType || 'scatter',
@@ -2090,10 +2092,6 @@
         lastRunVersion: Number.isFinite(Number(scatterState.statsLastRunVersion)) ? Number(scatterState.statsLastRunVersion) : 0,
         restorePending: cloneSimple(scatterState.statsRestorePending) || null,
         lastRegressionSummary: cloneSimple(scatterLastRegressionSummary) || null
-      },
-      view: {
-        lastDrawAt: Number.isFinite(Number(scatterState.lastDrawAt)) ? Number(scatterState.lastDrawAt) : 0,
-        lastDrawMeta: cloneSimple(scatterState.lastDrawMeta) || null
       }
     };
     applyScatterOwnedRuntimeSlicesFromSnapshot(snapshot, activeTabId, { reason: reason || 'scatter-runtime-capture' });
