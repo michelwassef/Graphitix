@@ -21894,13 +21894,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             signatureSeed: groupedSignatureSeed || null
           };
           const nextStatsSignature=buildScatterStatsSignature(statsPayloadBase);
-          const cachedStatsResult = (cachedVisualStatsSignature === nextStatsSignature)
-            ? {
-                signature: cachedVisualStatsSignature,
-                stats: cachedVisualStats,
-                controlSignature: cachedVisualStatsControlSignature
-              }
-            : resolveScatterCachedVisualStatsForContext(statsPayloadBase);
+          // Adopt any pending stats restore (e.g. after reopening a saved file) BEFORE evaluating
+          // the regression-overlay gate below. Otherwise the first live redraw runs while the
+          // restored stats are still pending, drops the trend line, and only a later follow-up
+          // redraw can bring it back — making the trend flash and disappear on reopen. Priming
+          // here writes the visual-stats cache and marks stats current within this same draw,
+          // mirroring line.js, which treats restored stats as current at draw time.
+          primeScatterStatsContextFromDraw(statsPayloadBase);
+          const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
           let visualStats=cachedStatsResult.stats;
           const scatterOverlayStatsReady = scatterHasComputedStats() && !!visualStats;
           if(!scatterOverlayStatsReady && (showLine || showLineStats || showIntervals)){
