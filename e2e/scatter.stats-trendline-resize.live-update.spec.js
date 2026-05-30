@@ -60,17 +60,29 @@ async function dragScatterResize(page, deltaY = 90) {
   await page.waitForTimeout(400);
 }
 
+function getGridColumnCount(page) {
+  // Widest data row reflects the true column count, including any auto-grown trailing columns.
+  return page.evaluate(() => {
+    const hot = window.Components?.scatter?.__getActiveHot?.();
+    const data = hot?.getData?.() || [];
+    return data.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+  });
+}
+
 function getSvgIntrinsicHeight(page) {
   return page.evaluate(() => {
     const svg = document.querySelector('#scatterPage:not([hidden]) .svgbox svg');
     if (!svg) return 0;
+    // The scatter SVG sizes itself via the viewBox while the height attribute stays "100%".
+    // Prefer the viewBox height (the true intrinsic size) and only trust the height attribute
+    // when it is an absolute pixel value, otherwise parseFloat("100%") falsely reports 100.
+    const vb = svg.viewBox?.baseVal;
+    if (vb && vb.height > 0) return vb.height;
     const attr = svg.getAttribute('height');
-    if (attr) {
+    if (attr && !/%\s*$/.test(attr)) {
       const n = parseFloat(attr);
       if (Number.isFinite(n) && n > 0) return n;
     }
-    const vb = svg.viewBox?.baseVal;
-    if (vb && vb.height > 0) return vb.height;
     return svg.getBoundingClientRect().height;
   });
 }
@@ -95,15 +107,34 @@ test('scatter live-update works after stats computation: trendline toggle and re
     await page.waitForTimeout(300);
   }
 
-  // Compute statistics
+  // ── Compute statistics ─────────────────────────────────────────────────────
+  // With the trend line OFF, computing statistics is a non-visual operation: it
+  // must NOT redraw the graph and must NOT mutate the raw data grid (no spurious
+  // columns appended). Capture the baselines first.
+  const drawsBeforeStats = await getDrawCount(page);
+  const colsBeforeStats = await getGridColumnCount(page);
+
   await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#scatterComputeStats').click();
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+  // Give any erroneous async draws/grid mutations a chance to manifest before asserting.
+  await page.waitForTimeout(800);
+
+  const drawsAfterStats = await getDrawCount(page);
+  expect(
+    drawsAfterStats - drawsBeforeStats,
+    'Computing statistics with the trend line OFF must not redraw the scatter graph'
+  ).toBe(0);
+  const colsAfterStats = await getGridColumnCount(page);
+  expect(
+    colsAfterStats,
+    `Computing statistics must not append columns to the raw grid (was ${colsBeforeStats})`
+  ).toBe(colsBeforeStats);
 
   // ── Trendline toggle ──────────────────────────────────────────────────────
   // After stats computation the live-update mechanism must still work.
-  // Checking "Show trend line" must produce a new draw that includes the
-  // regression path in the SVG.
+  // Checking "Show trend line" must produce EXACTLY ONE new draw that includes
+  // the regression path — and must not append columns to the raw grid.
   const drawsBeforeTrendline = await getDrawCount(page);
 
   await expect(showLineEl).toBeEnabled({ timeout: 5_000 });
@@ -111,6 +142,19 @@ test('scatter live-update works after stats computation: trendline toggle and re
 
   // A draw must be scheduled and completed within 10 s.
   await waitForNewDraw(page, drawsBeforeTrendline, 10_000);
+  // Allow any extra (erroneous) draws to land before counting.
+  await page.waitForTimeout(800);
+
+  const drawsAfterTrendline = await getDrawCount(page);
+  expect(
+    drawsAfterTrendline - drawsBeforeTrendline,
+    'Enabling the trend line must trigger exactly one redraw, not several'
+  ).toBe(1);
+  const colsAfterTrendline = await getGridColumnCount(page);
+  expect(
+    colsAfterTrendline,
+    `Enabling the trend line must not append columns to the raw grid (was ${colsBeforeStats})`
+  ).toBe(colsBeforeStats);
 
   const hasTrendPath = await page.evaluate(
     () => !!document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg path[data-scatter-overlay="trend"]')
