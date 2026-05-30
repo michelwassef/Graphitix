@@ -298,15 +298,25 @@
     const data = ensureObject(source?.dataset);
     const rect = ensureObject(source?.rect);
 
-    const widthPx = parsePxLike(style.width)
-      || parsePxLike(data.graphWidthPx)
+    const zoomCandidate = Number(data.resizerZoomLevel || data.resizerZoom);
+    const zoomScale = Number.isFinite(zoomCandidate) && zoomCandidate > 0 ? zoomCandidate : 1;
+    const styleWidthPx = parsePxLike(style.width);
+    const styleHeightPx = parsePxLike(style.height);
+    const rectWidthPx = toPositiveNumber(rect.width);
+    const rectHeightPx = toPositiveNumber(rect.height);
+    const widthPx = parsePxLike(data.graphWidthPx)
+      || parsePxLike(data.svgWidth)
+      || parsePxLike(data.resizerBaseWidth)
+      || (styleWidthPx ? styleWidthPx / zoomScale : null)
+      || (rectWidthPx ? rectWidthPx / zoomScale : null)
       || parsePxLike(data.resizerDefaultWidth)
-      || toPositiveNumber(rect.width)
       || fallback.width;
-    const heightPx = parsePxLike(style.height)
-      || parsePxLike(data.graphHeightPx)
+    const heightPx = parsePxLike(data.graphHeightPx)
+      || parsePxLike(data.svgHeight)
+      || parsePxLike(data.resizerBaseHeight)
+      || (styleHeightPx ? styleHeightPx / zoomScale : null)
+      || (rectHeightPx ? rectHeightPx / zoomScale : null)
       || parsePxLike(data.resizerDefaultHeight)
-      || toPositiveNumber(rect.height)
       || fallback.height;
     const defaultWidthPx = parsePxLike(data.graphDefaultWidth)
       || parsePxLike(data.resizerDefaultWidth)
@@ -314,24 +324,28 @@
     const defaultHeightPx = parsePxLike(data.graphDefaultHeight)
       || parsePxLike(data.resizerDefaultHeight)
       || heightPx;
-    const minWidthPx = parsePxLike(style.minWidth)
-      || parsePxLike(data.graphMinWidthPx)
+    const styleMinWidthPx = parsePxLike(style.minWidth);
+    const styleMinHeightPx = parsePxLike(style.minHeight);
+    const styleMaxWidthPx = parsePxLike(style.maxWidth);
+    const styleMaxHeightPx = parsePxLike(style.maxHeight);
+    const minWidthPx = parsePxLike(data.graphMinWidthPx)
       || parsePxLike(data.resizerMinWidth)
+      || (styleMinWidthPx ? styleMinWidthPx / zoomScale : null)
       || fallback.minWidth;
-    const minHeightPx = parsePxLike(style.minHeight)
-      || parsePxLike(data.graphMinHeightPx)
+    const minHeightPx = parsePxLike(data.graphMinHeightPx)
       || parsePxLike(data.resizerMinHeight)
+      || (styleMinHeightPx ? styleMinHeightPx / zoomScale : null)
       || fallback.minHeight;
 
-    const rawMaxWidth = parsePxLike(style.maxWidth)
-      || parsePxLike(data.graphMaxWidthPx)
-      || parsePxLike(data.resizerMaxWidth);
+    const rawMaxWidth = parsePxLike(data.graphMaxWidthPx)
+      || parsePxLike(data.resizerMaxWidth)
+      || (styleMaxWidthPx ? styleMaxWidthPx / zoomScale : null);
     const allowUnlimitedWidth = (typeof data.resizerUnlimitedWidth === 'string' && data.resizerUnlimitedWidth === 'true')
       || (typeof data.resizerMaxWidth === 'string' && /^infinity$/i.test(data.resizerMaxWidth));
     const maxWidthPx = allowUnlimitedWidth ? Math.max(widthPx, fallback.maxWidth) : (rawMaxWidth || fallback.maxWidth);
-    const maxHeightPx = parsePxLike(style.maxHeight)
-      || parsePxLike(data.graphMaxHeightPx)
+    const maxHeightPx = parsePxLike(data.graphMaxHeightPx)
       || parsePxLike(data.resizerMaxHeight)
+      || (styleMaxHeightPx ? styleMaxHeightPx / zoomScale : null)
       || fallback.maxHeight;
     const aspectRatio = parsePxLike(style.aspectRatio)
       || parsePxLike(data.graphAspectRatio)
@@ -472,7 +486,10 @@
     debug('Debug: graphSizing.captureElementSizing', {
       context: options.context || null,
       widthPx: record?.display?.widthPx || null,
-      heightPx: record?.display?.heightPx || null
+      heightPx: record?.display?.heightPx || null,
+      zoomScale: (element?.dataset && Number.isFinite(Number(element.dataset.resizerZoomLevel || element.dataset.resizerZoom)))
+        ? Number(element.dataset.resizerZoomLevel || element.dataset.resizerZoom)
+        : 1
     });
     return record;
   };
@@ -490,7 +507,10 @@
     debug('Debug: graphSizing.captureLayoutSizing', {
       context: options.context || null,
       widthPx: record?.display?.widthPx || null,
-      heightPx: record?.display?.heightPx || null
+      heightPx: record?.display?.heightPx || null,
+      zoomScale: (layoutState?.svgBox?.dataset && Number.isFinite(Number(layoutState.svgBox.dataset.resizerZoomLevel || layoutState.svgBox.dataset.resizerZoom)))
+        ? Number(layoutState.svgBox.dataset.resizerZoomLevel || layoutState.svgBox.dataset.resizerZoom)
+        : 1
     });
     return record;
   };

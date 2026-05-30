@@ -2735,6 +2735,17 @@
     return true;
   }
 
+  function shouldRedrawLineAfterStatsCompute(){
+    if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+      return false;
+    }
+    if(!!refs.showTrendLine?.checked){
+      return true;
+    }
+    return (!!refs.showIntervals?.checked && !refs.showIntervals?.disabled)
+      || (!!refs.showPredictionIntervals?.checked && !refs.showPredictionIntervals?.disabled);
+  }
+
   function handleLineStatsComputeClick(){
     if(lineStatsState.computationPending){
       return;
@@ -2753,7 +2764,9 @@
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
       updateLineRegressionOverlayControlState(true);
-      scheduleLineDraw();
+      if(shouldRedrawLineAfterStatsCompute()){
+        scheduleLineDraw({ reason: 'line-stats-computed-redraw', viewOnly: true, silentOverlay: true });
+      }
     }catch(err){
       console.error('line stats computation failed', err);
       if(refs.statsResults){
@@ -7634,51 +7647,6 @@
     };
   }
 
-  function captureLineRegressionSummaries(seriesList, options = {}){
-    if(!Array.isArray(seriesList) || !seriesList.length){
-      lineLastRegressionSummaries = [];
-      return;
-    }
-    const mode = options.mode || refs.regressionMode?.value || 'linear';
-    const summarize = typeof regressionTools.createSummary === 'function'
-      ? regressionTools.createSummary
-      : null;
-    const summaries = [];
-    seriesList.forEach(entry => {
-      if(!entry){
-        return;
-      }
-      let summary = null;
-      if(entry.regression){
-        if(summarize){
-          try{
-            summary = summarize(entry.regression);
-          }catch(err){
-            console.error('line regression summary build failed', err);
-            summary = {
-              metrics: entry.regression.metrics || null,
-              residuals: entry.regression.residuals || null,
-              diagnostics: entry.regression.diagnostics || null
-            };
-          }
-        }else{
-          summary = {
-            metrics: entry.regression.metrics || null,
-            residuals: entry.regression.residuals || null,
-            diagnostics: entry.regression.diagnostics || null
-          };
-        }
-      }
-      summaries.push({
-        name: entry.name || '',
-        mode,
-        summary
-      });
-    });
-    lineLastRegressionSummaries = summaries;
-    console.debug('Debug: line regression summaries captured',{ count: summaries.length, mode });
-  }
-
   function updateLineStats(series, options = {}){
     if(!refs.statType || !refs.statsResults) return;
     const jStatLib = global.jStat;
@@ -8101,14 +8069,6 @@
   function getLineGraphPayload(){
     const activeHot = (typeof line.__ensureHotForActiveTab === 'function' ? line.__ensureHotForActiveTab() : null) || lineHot;
     if(!activeHot) return null;
-    if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && activeHot){
-      console.debug('Debug: line payload refreshing summaries',{ hasHot: !!lineHot, summaryCount: lineLastRegressionSummaries?.length || 0 });
-      try{
-        drawLine(arguments[0] || {});
-      }catch(err){
-        console.error('line payload refresh failed',err);
-      }
-    }
     const axisSettings = ensureLineAxisSettings();
     const fontStyles = exportFontStyles('line');
     const viewMode = lineViewState.viewMode === '3d' ? '3d' : '2d';
@@ -8906,7 +8866,6 @@
       if(!lineHot || !refs.plot){
         return;
       }
-      lineLastRegressionSummaries = [];
       lineViewState.rotationPending = false;
       lineViewState.rotationPendingLogged = false;
       if(typeof plot3d.normalizeRotation === 'function'){
@@ -9818,7 +9777,6 @@
         refs.plot.style.aspectRatio = '';
         refs.plot.style.padding = '';
       }
-      lineLastRegressionSummaries = [];
       const fill=refs.fill?.value;
       const alpha=Number(refs.alpha?.value)||0;
       const borderWidthRaw=Number(refs.borderWidth?.value);
@@ -12085,7 +12043,6 @@
       }
       renderLineStatsAdvisor(seriesWithData, statsContext);
       primeLineStatsContext(lineStatsPayloadForDraw);
-      captureLineRegressionSummaries(seriesWithData, { mode: regressionModeCurrent });
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });

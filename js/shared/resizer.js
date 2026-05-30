@@ -1218,6 +1218,7 @@
     let zoomInButton = null;
     let zoomValue = null;
     let suppressObserveResizeUntil = 0;
+    let manualResizeActive = false;
     let resizeObserver = null;
 
     const activeResizerTab = resolveResizerTab(container, opts);
@@ -1362,8 +1363,21 @@
       logZoom('observer-suppress', { until: suppressObserveResizeUntil, duration });
     }
 
-    function applyResize({ width, height, axis, fallbackWidth, fallbackHeight, reason, aspectLockedOverride }){
+    function shouldSuppressObserverResize(){
+      if(manualResizeActive){
+        logZoom('observer-skipped-manual-resize', { active: true });
+        return true;
+      }
+      if(Date.now() <= suppressObserveResizeUntil){
+        logZoom('observer-skipped', { suppressObserveResizeUntil });
+        return true;
+      }
+      return false;
+    }
+
+    function applyResize({ width, height, axis, fallbackWidth, fallbackHeight, reason, aspectLockedOverride, graphAuthority }){
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const writesGraphAuthority = graphAuthority !== false && !/^zoom(?:-|$)/.test(String(reason || ''));
       const requestedBaseWidth = Number.isFinite(width) ? (width / zoomScale) : NaN;
       const requestedBaseHeight = Number.isFinite(height) ? (height / zoomScale) : NaN;
       const fallbackBaseWidth = Number.isFinite(fallbackWidth) ? (fallbackWidth / zoomScale) : NaN;
@@ -1405,12 +1419,19 @@
         container.style.width = px(finalWidth);
         container.dataset.resizerWidth = container.style.width;
         container.dataset.resizerBaseWidth = String(Math.round(finalBaseWidth));
-        container.dataset.graphWidthPx = String(Math.round(finalBaseWidth));
+        if(writesGraphAuthority){
+          container.dataset.graphWidthPx = String(Math.round(finalBaseWidth));
+          container.dataset.svgWidth = String(Math.round(finalBaseWidth));
+        }
       }
       if(Number.isFinite(finalHeight)){
         container.style.height = px(finalHeight);
         container.dataset.resizerHeight = container.style.height;
         container.dataset.resizerBaseHeight = String(Math.round(finalBaseHeight));
+        if(writesGraphAuthority){
+          container.dataset.graphHeightPx = String(Math.round(finalBaseHeight));
+          container.dataset.svgHeight = String(Math.round(finalBaseHeight));
+        }
       }
       const normalizedAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
       container.dataset.resizerLastAxis = normalizedAxis;
@@ -1436,7 +1457,8 @@
         finalBaseHeight,
         finalWidth,
         finalHeight,
-        changed
+        changed,
+        graphAuthority: writesGraphAuthority
       }); // Debug: apply resize helper
       return {
         width: finalWidth,
@@ -1741,9 +1763,6 @@
       const observerSuppressMs = Number.isFinite(options.suppressObserverMs) ? options.suppressObserverMs : 450;
       suppressObserverResize(observerSuppressMs);
       container.style.flex = '0 0 auto';
-      if(changed || Math.abs(zoomLevel - 1) > RESIZER_ZOOM_EPSILON){
-        container.dataset.resizerResized = 'true';
-      }
       const nextDisplayWidth = toDisplayDimension(baseWidth);
       const nextDisplayHeight = toDisplayDimension(baseHeight);
       return applyResize({
@@ -1752,7 +1771,8 @@
         height: nextDisplayHeight,
         fallbackWidth: nextDisplayWidth,
         fallbackHeight: nextDisplayHeight,
-        reason: `zoom-${reason}`
+        reason: `zoom-${reason}`,
+        graphAuthority: false
       });
     }
 
@@ -1760,8 +1780,14 @@
       const reason = options.reason || 'zoom';
       const previousZoom = resolveZoomScale();
       const currentRect = container.getBoundingClientRect();
-      const baseWidth = parsePositive(data.resizerBaseWidth) || toBaseDimension(parsePositive(currentRect.width), previousZoom) || defaultWidth;
-      const baseHeight = parsePositive(data.resizerBaseHeight) || toBaseDimension(parsePositive(currentRect.height), previousZoom) || defaultHeight;
+      const baseWidth = parsePositive(data.graphWidthPx || data.svgWidth || data.graphDefaultWidth)
+        || parsePositive(data.resizerBaseWidth)
+        || toBaseDimension(parsePositive(currentRect.width), previousZoom)
+        || defaultWidth;
+      const baseHeight = parsePositive(data.graphHeightPx || data.svgHeight || data.graphDefaultHeight)
+        || parsePositive(data.resizerBaseHeight)
+        || toBaseDimension(parsePositive(currentRect.height), previousZoom)
+        || defaultHeight;
       const normalized = normalizeZoomLevel(nextLevel, zoomBounds);
       const changed = Math.abs(normalized - zoomLevel) > RESIZER_ZOOM_EPSILON;
       zoomLevel = normalized;
@@ -2286,6 +2312,12 @@
       'resizerUnlockedStyleScaleBase',
       'resizerZoom',
       'resizerZoomLevel',
+      'graphWidthPx',
+      'graphHeightPx',
+      'svgWidth',
+      'svgHeight',
+      'graphDefaultWidth',
+      'graphDefaultHeight',
       'graphViewportStableMinX',
       'graphViewportStableMinY',
       'graphViewportStableWidth',
@@ -2319,10 +2351,15 @@
       const liveRect = container.getBoundingClientRect();
       const rectWidth = parsePositive(liveRect.width);
       const rectHeight = parsePositive(liveRect.height);
+      const snapshotZoom = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       const snapshot = {
         tag,
         width: Number.isFinite(rectWidth) ? Math.round(rectWidth) : parseStylePx(container.style.width),
         height: Number.isFinite(rectHeight) ? Math.round(rectHeight) : parseStylePx(container.style.height),
+        baseWidth: parsePositive(data.graphWidthPx || data.svgWidth || data.resizerBaseWidth)
+          || (Number.isFinite(rectWidth) ? Math.round(rectWidth / snapshotZoom) : NaN),
+        baseHeight: parsePositive(data.graphHeightPx || data.svgHeight || data.resizerBaseHeight)
+          || (Number.isFinite(rectHeight) ? Math.round(rectHeight / snapshotZoom) : NaN),
         styleWidth: container.style.width,
         styleHeight: container.style.height,
         minWidthStyle: container.style.minWidth,
@@ -2433,15 +2470,19 @@
         data.resizerZoom = String(zoomLevel);
         data.resizerZoomLevel = String(zoomLevel);
       }
-      const widthTarget = Number.isFinite(snapshot.width) ? snapshot.width : parseStylePx(snapshot.styleWidth);
-      const heightTarget = Number.isFinite(snapshot.height) ? snapshot.height : parseStylePx(snapshot.styleHeight);
+      const widthTarget = Number.isFinite(snapshot.baseWidth)
+        ? snapshot.baseWidth
+        : (Number.isFinite(snapshot.width) ? (snapshot.width / (Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1)) : (parseStylePx(snapshot.styleWidth) / (Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1)));
+      const heightTarget = Number.isFinite(snapshot.baseHeight)
+        ? snapshot.baseHeight
+        : (Number.isFinite(snapshot.height) ? (snapshot.height / (Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1)) : (parseStylePx(snapshot.styleHeight) / (Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1)));
       const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
       const applied = applyResize({
         axis: 'both',
-        width: widthTarget,
-        height: heightTarget,
-        fallbackWidth: Number.isFinite(widthTarget) ? widthTarget : (defaultWidth * zoomScale),
-        fallbackHeight: Number.isFinite(heightTarget) ? heightTarget : (defaultHeight * zoomScale),
+        width: Number.isFinite(widthTarget) ? widthTarget * zoomScale : NaN,
+        height: Number.isFinite(heightTarget) ? heightTarget * zoomScale : NaN,
+        fallbackWidth: Number.isFinite(widthTarget) ? widthTarget * zoomScale : (defaultWidth * zoomScale),
+        fallbackHeight: Number.isFinite(heightTarget) ? heightTarget * zoomScale : (defaultHeight * zoomScale),
         reason: reason || 'snapshot',
         aspectLockedOverride: aspectLocked
       });
@@ -2525,6 +2566,8 @@
         startX = e.clientX;
         startY = e.clientY;
         startSnapshot = makeResizeSnapshot('pointer-start');
+        manualResizeActive = true;
+        suppressObserverResize(220);
         markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
         container.style.boxSizing = 'border-box';
         container.style.width = px(startW);
@@ -2547,6 +2590,7 @@
           const dy = ev.clientY - startY;
           const tentativeWidth = startW + dx;
           const tentativeHeight = startH + dy;
+          suppressObserverResize(180);
           const applied = applyResize({
             axis,
             width: axis === 'y' ? startW : tentativeWidth,
@@ -2571,16 +2615,24 @@
             try { opts.onResize('move'); } catch(e) { console.error('resizer onResize error', e); }
           }
         };
-        const onPointerUp = () => {
+        let pointerFinished = false;
+        const finishPointerResize = (finishReason = 'pointer-end') => {
+          if(pointerFinished){
+            return;
+          }
+          pointerFinished = true;
           try { handle.releasePointerCapture(pointerId); } catch(_) {}
           document.removeEventListener('pointermove', onPointerMove);
           document.removeEventListener('pointerup', onPointerUp);
+          document.removeEventListener('pointercancel', onPointerCancel);
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
+          manualResizeActive = false;
+          suppressObserverResize(320);
           console.debug('Debug: resizer drag end'); // Debug: resizer drag end
           markOrthogonalViewportLock(axis, 'pointer-end', { capture: false, durationMs: 6000 });
           if(startSnapshot){
-            const endSnapshot = makeResizeSnapshot('pointer-end');
+            const endSnapshot = makeResizeSnapshot(finishReason);
             const changed = resizeSnapshotsDiffer(startSnapshot, endSnapshot);
             notifyUndoableResize(`drag-${axis}`, startSnapshot, endSnapshot, 'pointer');
             if(changed){
@@ -2592,8 +2644,15 @@
             try { opts.onResize('end'); } catch(e) { console.error('resizer onResize error', e); }
           }
         };
+        const onPointerUp = () => {
+          finishPointerResize('pointer-end');
+        };
+        const onPointerCancel = () => {
+          finishPointerResize('pointer-cancel');
+        };
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
+        document.addEventListener('pointercancel', onPointerCancel);
       };
       handle.addEventListener('pointerdown', onPointerDown);
       const onDoubleClick = (ev) => {
@@ -2638,8 +2697,7 @@
     attachDrag(cHandle, 'both');
     if (global.ResizeObserver) {
       resizeObserver = new ResizeObserver(() => {
-        if(Date.now() <= suppressObserveResizeUntil){
-          logZoom('observer-skipped', { suppressObserveResizeUntil });
+        if(shouldSuppressObserverResize()){
           return;
         }
         console.debug('Debug: resizer observer triggered'); // Debug: resize observer

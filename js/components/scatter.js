@@ -280,6 +280,8 @@
     statsContextVersion: 0,
     statsLastRunVersion: 0,
     statsComputationPending: false,
+    statsNonVisualDrawSuppression: null,
+    statsDrawSuppressionToken: 0,
     statsCacheBySignature: new Map(),
     statsRestorePending: null,
     skipNextDraw: false,
@@ -291,6 +293,7 @@
     drawScheduled: false,
     lastDrawAt: 0,
     drawCooldownTimer: null,
+    drawQueueEpoch: 0,
     lastDrawMeta: null,
     pendingDrawReasons: null,
     activeDrawReasons: null,
@@ -1907,6 +1910,7 @@
   }
 
   function clearScatterScheduledDraw(reason){
+    scatterState.drawQueueEpoch = (Number(scatterState.drawQueueEpoch) || 0) + 1;
     if(scatterState.drawCooldownTimer){
       try{
         clearScatterAsyncTimeout(scatterState.drawCooldownTimer);
@@ -1915,8 +1919,117 @@
       }
       scatterState.drawCooldownTimer = null;
     }
+    if(typeof clearDrawScatterFrame === 'function'){
+      try{
+        clearDrawScatterFrame(scatter.__boundTabId || null);
+      }catch(err){
+        console.debug('Debug: scatter draw frame clear failed', { reason: reason || 'unspecified', message: err?.message || String(err) });
+      }
+    }
     scatterState.pendingDrawOpts = null;
     scatterState.pendingDrawReasons = null;
+    scatterState.drawScheduled = false;
+  }
+
+  function isScatterDrawQueueEpochCurrent(options){
+    if(!options || !Object.prototype.hasOwnProperty.call(options, '__scatterDrawQueueEpoch')){
+      return true;
+    }
+    return Number(options.__scatterDrawQueueEpoch) === (Number(scatterState.drawQueueEpoch) || 0);
+  }
+
+  function beginScatterNonVisualStatsDrawSuppression(meta = {}){
+    const token = (Number(scatterState.statsDrawSuppressionToken) || 0) + 1;
+    scatterState.statsDrawSuppressionToken = token;
+    scatterState.statsNonVisualDrawSuppression = {
+      token,
+      tabId: meta.tabId || scatter.__boundTabId || null,
+      contextVersion: Number(meta.contextVersion) || 0,
+      reason: meta.reason || 'scatter-stats-nonvisual'
+    };
+    clearScatterScheduledDraw(meta.reason || 'scatter-stats-nonvisual-start');
+    return token;
+  }
+
+  function endScatterNonVisualStatsDrawSuppression(token, reason){
+    const active = scatterState.statsNonVisualDrawSuppression;
+    if(!active || Number(active.token) !== Number(token)){
+      return;
+    }
+    clearScatterScheduledDraw(reason || 'scatter-stats-nonvisual-end');
+    const release = () => {
+      const current = scatterState.statsNonVisualDrawSuppression;
+      if(current && Number(current.token) === Number(token)){
+        clearScatterScheduledDraw(reason || 'scatter-stats-nonvisual-release');
+        scatterState.statsNonVisualDrawSuppression = null;
+      }
+    };
+    const raf = typeof global.requestAnimationFrame === 'function'
+      ? global.requestAnimationFrame.bind(global)
+      : cb => global.setTimeout(cb, 0);
+    raf(() => raf(release));
+  }
+
+  function shouldSuppressScatterStatsGeneratedDraw(options = {}){
+    const active = scatterState.statsNonVisualDrawSuppression;
+    if(!active){
+      return false;
+    }
+    if(options.force === true || options.userInitiated === true){
+      scatterState.statsNonVisualDrawSuppression = null;
+      return false;
+    }
+    const tabId = options.tabId || options.__workspaceSessionMeta?.tabId || scatter.__boundTabId || null;
+    if(active.tabId && tabId && String(active.tabId) !== String(tabId)){
+      return false;
+    }
+    const reason = String(options.reason || options.source || '').toLowerCase();
+    const invalidate = String(options.invalidate || '').toLowerCase();
+    if(invalidate === 'data' && !scatterState.statsComputationPending){
+      return false;
+    }
+    const allowUserLikeReason = reason.includes('manual')
+      || reason.includes('user')
+      || reason.includes('import')
+      || reason.includes('example')
+      || reason.includes('trendline-toggle')
+      || reason.includes('interval')
+      || reason.includes('legend-toggle')
+      || reason.includes('axis-')
+      || reason.includes('log-toggle')
+      || reason.includes('font-size')
+      || reason.includes('dot-size')
+      || reason.includes('color')
+      || reason.includes('frame-toggle')
+      || reason.includes('grid-toggle');
+    return !allowUserLikeReason;
+  }
+
+  function shouldKeepScatterPendingDrawDuringActiveRender(options = {}){
+    if(options.force === true || options.userInitiated === true){
+      return true;
+    }
+    const invalidate = String(options.invalidate || '').toLowerCase();
+    if(invalidate === 'data'){
+      return true;
+    }
+    const reason = String(options.reason || options.source || '').toLowerCase();
+    return reason.includes('manual') || reason.includes('user') || reason.includes('import') || reason.includes('example');
+  }
+
+  function bindScatterControlListener(element, type, key, handler, options){
+    if(!element || typeof element.addEventListener !== 'function' || typeof handler !== 'function'){
+      return false;
+    }
+    const safeKey = String(key || '').replace(/[^A-Za-z0-9_$]/g, '_') || 'listener';
+    const prop = `__graphitixScatter_${safeKey}_${String(type || 'event').replace(/[^A-Za-z0-9_$]/g, '_')}`;
+    const previous = element[prop];
+    if(typeof previous === 'function' && typeof element.removeEventListener === 'function'){
+      try{ element.removeEventListener(type, previous, options); }catch(_err){}
+    }
+    element[prop] = handler;
+    element.addEventListener(type, handler, options);
+    return true;
   }
 
   function captureScatterRuntimeSnapshot(reason){
@@ -7592,6 +7705,7 @@
 
   let scheduleDrawScatter = () => {};
   let scheduleDrawScatterRaw = () => {};
+  let clearDrawScatterFrame = null;
   let syncScatterSymbolToolbarDotToggles = null;
   let scatterGroupedModeDefaultApplied = false;
   let scatterLayout = null;
@@ -7814,7 +7928,6 @@
   }
   // PART: DRAW
   function setup(initOptions = {}){
-    if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
     if(initOptions?.restoreRenderCache === true || initOptions?.skipInitialDraw === true){
@@ -7870,7 +7983,16 @@
       || Shared.workspaceTabs?.getActiveSessionInfo?.('scatter')?.tabId
       || global.Main?.session?.workspaceState?.activeTabId
       || null;
-    scatterRoot = requestedRoot || resolveScatterRoot(setupTabId || null);
+    const setupRoot = requestedRoot || resolveScatterRoot(setupTabId || null);
+    if(scatter.ready && (!setupTabId || scatter.__boundTabId === setupTabId) && (!setupRoot || scatterRoot === setupRoot)){
+      console.debug('Debug: Components.scatter.setup skipped', { tabId: scatter.__boundTabId || null });
+      return;
+    }
+    if(scatter.ready){
+      console.debug('Debug: Components.scatter.setup rebinding', { previousTabId: scatter.__boundTabId || null, targetTabId: setupTabId || null, reason: initOptions?.reason || 'setup' });
+      scatter.ready = false;
+    }
+    scatterRoot = setupRoot;
     scatter.__boundTabId = setupTabId || scatter.__boundTabId || null;
     const makeEditableLocal = (el,onChange,options) => {
       const fn = Shared.makeEditable || global.makeEditable;
@@ -12144,6 +12266,7 @@
         scatterState.statsLastRunVersion = 0;
         scatterState.statsComputationPending = false;
         scatterState.statsRestorePending = null;
+        scatterLastRegressionSummary = null;
         clearScatterStatsOutputs(placeholder);
         setScatterStatsStatus('');
         updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
@@ -13058,6 +13181,9 @@
           scatterState.statsLastRunVersion=0;
         }
         if(changed){
+          if(!hasPrecomputed){
+            scatterLastRegressionSummary = null;
+          }
           if(hasPrecomputed){
             if(renderPrecomputedPanel){
               restoreScatterStatsPanelFromContext(scatterState.statsContext, 'signature-change-precomputed');
@@ -13085,6 +13211,16 @@
         }else if(redrawRestoredStats){
           scheduleScatterViewRefresh('scatter-stats-restore');
         }
+      }
+
+      function primeScatterStatsContextFromDraw(context){
+        if(context?.graphType === 'scatter'
+          && scatterHasComputedStats()
+          && !scatterState.statsRestorePending
+          && buildScatterStatsSignature(context) === scatterState.statsContextSignature){
+          return;
+        }
+        primeScatterStatsContext(context, { renderPrecomputedPanel: false });
       }
 
       function requestScatterStatsContextRefresh(reason){
@@ -13138,6 +13274,17 @@
         context.__statsSessionMeta = sessionMeta;
         context.__statsAsyncScope = statsAsyncScope;
         context.__statsAsyncMeta = statsAsyncMeta;
+        const statsRequiresGraphRedraw = shouldRedrawScatterAfterStatsCompute();
+        const nonVisualStatsSuppressionToken = statsRequiresGraphRedraw
+          ? null
+          : beginScatterNonVisualStatsDrawSuppression({
+              tabId: sessionMeta?.tabId || scatter.__boundTabId || null,
+              contextVersion: context.version,
+              reason: 'scatter-stats-compute-start'
+            });
+        if(statsRequiresGraphRedraw){
+          clearScatterScheduledDraw('scatter-stats-compute-start');
+        }
         scatterState.statsComputationPending=true;
         updateScatterStatsButtonState({ disabled:true, label:'Calculating…' });
         setScatterStatsStatus('Calculating statistics…');
@@ -13152,8 +13299,10 @@
             scatterState.statsLastRunVersion=context.version;
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
-            if(typeof scheduleDrawScatter === 'function' && shouldRedrawScatterAfterStatsCompute()){
-              scheduleScatterViewRefresh('scatter-stats-updated');
+            if(typeof scheduleDrawScatter === 'function' && statsRequiresGraphRedraw){
+              scheduleScatterViewRefresh('scatter-stats-updated', { userInitiated: true });
+            }else{
+              clearScatterScheduledDraw('scatter-stats-computed-no-redraw');
             }
           })
           .catch(err => {
@@ -13175,12 +13324,14 @@
             const finalCurrent = asyncCurrent && isCurrentScatterSessionMeta(sessionMeta) && scatterState.statsContext === context && scatterState.statsContextVersion === context.version;
             if(!finalCurrent){
               if(asyncCurrent){
+                if(!statsRequiresGraphRedraw && nonVisualStatsSuppressionToken != null){
+                  endScatterNonVisualStatsDrawSuppression(nonVisualStatsSuppressionToken, 'scatter-stats-stale-finalized-no-redraw');
+                }
                 scatterState.statsComputationPending=false;
               }
               scatterDebug('Debug: scatter stats finalization skipped',{ reason:'stale-session', contextVersion: context.version, current: scatterState.statsContextVersion });
               return;
             }
-            scatterState.statsComputationPending=false;
             syncScatterRegressionOptionVisibility();
             try{
               if(scatterState.statsLastRunVersion === context.version){
@@ -13193,6 +13344,11 @@
               }
             }catch(e){
               console.debug('Debug: persistActiveTabState after scatter compute failed', { err: e?.message || String(e) });
+            }finally{
+              if(!statsRequiresGraphRedraw && nonVisualStatsSuppressionToken != null){
+                endScatterNonVisualStatsDrawSuppression(nonVisualStatsSuppressionToken, 'scatter-stats-finalized-no-redraw');
+              }
+              scatterState.statsComputationPending=false;
             }
           });
       }
@@ -14582,7 +14738,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scatterStatsButton.removeEventListener('click', scatterStatsButton.__graphitixScatterStatsClickHandler);
         }
         scatterStatsButton.__graphitixScatterStatsClickHandler = handleScatterStatsComputeClick;
-        scatterStatsButton.addEventListener('click', handleScatterStatsComputeClick);
+        bindScatterControlListener(scatterStatsButton, 'click', 'computeStats', handleScatterStatsComputeClick);
       }
       ensureScatterStatsSelectOptions();
       clearScatterStatsOutputs(scatterStatsPlaceholder);
@@ -15905,7 +16061,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
       }
       [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowPlotStats]
-        .forEach(el=>el&&el.addEventListener('change',()=>{
+        .forEach(el=>el&&bindScatterControlListener(el, 'change', el.id || 'config', ()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
             const xOk=revalidateActiveScatterLogAxis('x','origin-mode-change');
@@ -15946,7 +16102,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       };
       updateCIEnabled();
       if(scatterShowLine){
-        scatterShowLine.addEventListener('change',()=>{
+        bindScatterControlListener(scatterShowLine, 'change', 'showLine', ()=>{
           updateCIEnabled();
           if(!scatterShowLine.checked){
             try{
@@ -15959,12 +16115,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               resetScatterDualHostLayout(host);
             }catch(e){}
           }
-          persistTabState('scatter-trendline-change');
-          scheduleScatterViewRefresh('trendline-toggle');
+          scheduleScatterViewRefresh('trendline-toggle', { force: true, userInitiated: true });
         });
       }
       if(scatterShowCI){
-        scatterShowCI.addEventListener('change',()=>{
+        bindScatterControlListener(scatterShowCI, 'change', 'showCI', ()=>{
           // Prevent enabling CI unless the trend line is active.
           if(!(scatterShowLine && scatterShowLine.checked)){
             if(scatterShowCI.checked){ scatterShowCI.checked = false; }
@@ -15972,20 +16127,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             console.debug('Debug: scatter CI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
-          persistTabState('scatter-interval-ci-change');
-          scheduleScatterViewRefresh('interval-ci-toggle');
+          scheduleScatterViewRefresh('interval-ci-toggle', { force: true, userInitiated: true });
         });
       }
       if(scatterShowPI){
-        scatterShowPI.addEventListener('change',()=>{
+        bindScatterControlListener(scatterShowPI, 'change', 'showPI', ()=>{
           if(!(scatterShowLine && scatterShowLine.checked)){
             if(scatterShowPI.checked){ scatterShowPI.checked = false; }
             updateCIEnabled();
             console.debug('Debug: scatter PI blocked', { showLine: !!scatterShowLine?.checked });
             return;
           }
-          persistTabState('scatter-interval-pi-change');
-          scheduleScatterViewRefresh('interval-pi-toggle');
+          scheduleScatterViewRefresh('interval-pi-toggle', { force: true, userInitiated: true });
         });
       }
       const handleScatterLogToggle=(axis,checkbox)=>{
@@ -16045,7 +16198,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       handleScatterLogToggle('x',scatterLogX);
       handleScatterLogToggle('y',scatterLogY);
       if(scatterRegressionMode){
-        scatterRegressionMode.addEventListener('change',()=>{
+        bindScatterControlListener(scatterRegressionMode, 'change', 'regressionMode', ()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
           const beforeFitMethod = scatterFitMethod?.value || null;
           syncScatterRegressionOptionVisibility();
@@ -16059,10 +16212,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
       }
       if(scatterShowFrame){
-        scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
+        bindScatterControlListener(scatterShowFrame, 'change', 'showFrame', ()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleScatterViewRefresh('frame-toggle');});
       }
       if(scatterShowLegend){
-        scatterShowLegend.addEventListener('change',()=>{
+        bindScatterControlListener(scatterShowLegend, 'change', 'showLegend', ()=>{
           if(scatterLegendChangeInternal){
             return;
           }
@@ -16909,6 +17062,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         info('drawScatter called',{token, viewOnly, reason: drawOptions?.reason || null});
         try{
         let statsContextPayload=null;
+        let visualRegressionSummary = scatterLastRegressionSummary;
         const themeSnapshot = syncScatterThemeSingletonsFromActive({
           tabId: drawOptions?.tabId || scatter.__boundTabId || null
         });
@@ -21755,11 +21909,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             }
           }
           if(visualStats?.regression){
-            scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function'
+            visualRegressionSummary = typeof regressionTools.createSummary === 'function'
               ? regressionTools.createSummary(visualStats.regression)
               : null;
           }else if(Array.isArray(visualStats?.groupedSeriesStats) && visualStats.groupedSeriesStats.length){
-            scatterLastRegressionSummary = {
+            visualRegressionSummary = {
               grouped: true,
               series: visualStats.groupedSeriesStats.map((entry, idx) => ({
                 label: entry?.label || `Series ${idx + 1}`,
@@ -21767,7 +21921,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               }))
             };
           }else{
-            scatterLastRegressionSummary = null;
+            visualRegressionSummary = null;
           }
           const groupedVisualSeriesStats = Array.isArray(visualStats?.groupedSeriesStats)
             ? visualStats.groupedSeriesStats
@@ -22037,13 +22191,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 }
               });
             }
-            info('scatter stats (visual)',{ stats: visualStats, regressionSummary: scatterLastRegressionSummary });
+            info('scatter stats (visual)',{ stats: visualStats, regressionSummary: visualRegressionSummary });
           }else if(showLineStats && !visualStats){
             debug('Debug: scatter stats overlay omitted',{ reason:'stats-not-computed' });
           }
           statsContextPayload=statsPayloadBase;
         }else{
-          scatterLastRegressionSummary=null;
           const totalPoints=points.length;
           const nonSigCount=totalPoints-significantCount;
           const negLabel=scatterCurrentGraphType==='ma' ? (extraLabelRaw && String(extraLabelRaw).trim() ? `-log10(${String(extraLabelRaw).trim()})` : '-log10(p-value)') : scatterYLabelText;
@@ -22081,7 +22234,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           };
           debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
-        primeScatterStatsContext(statsContextPayload, { renderPrecomputedPanel: false });
+        primeScatterStatsContextFromDraw(statsContextPayload);
         const viewportPerf = perfApi?.start('scatter.viewport.sync', {
           component: 'scatter',
           token
@@ -22142,6 +22295,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const runScatterDrawCycle = async (opts = {}) => {
         scatterState.drawScheduled = false;
         const nextOpts = normalizeScatterSessionOptions(opts || {});
+        if(!isScatterDrawQueueEpochCurrent(nextOpts)){
+          scatterDebug('Debug: scatter draw skipped (stale draw queue epoch)', {
+            reason: nextOpts.reason || null,
+            queuedEpoch: nextOpts.__scatterDrawQueueEpoch,
+            currentEpoch: scatterState.drawQueueEpoch || 0
+          });
+          return;
+        }
         if(!isCurrentScatterSessionMeta(nextOpts.__workspaceSessionMeta)){
           scatterDebug('Debug: scatter draw skipped (stale session)', {
             tabId: nextOpts.__workspaceSessionMeta?.tabId || null,
@@ -22151,8 +22312,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           return;
         }
         if(scatterState.drawInProgress){
-          scatterState.pendingDrawOpts = mergeScatterDrawOptions(scatterState.pendingDrawOpts, nextOpts);
-          scatterDebug('Debug: scatter draw coalesced', { reason: nextOpts.reason || null, force: !!nextOpts.force });
+          if(shouldKeepScatterPendingDrawDuringActiveRender(nextOpts)){
+            scatterState.pendingDrawOpts = mergeScatterDrawOptions(scatterState.pendingDrawOpts, nextOpts);
+            scatterDebug('Debug: scatter draw coalesced', { reason: nextOpts.reason || null, force: !!nextOpts.force, userInitiated: !!nextOpts.userInitiated });
+          }else{
+            scatterDebug('Debug: scatter passive draw dropped during active render', { reason: nextOpts.reason || null, source: nextOpts.source || null });
+          }
           return;
         }
         if(scatterState.skipNextDraw && !nextOpts.force){
@@ -22203,20 +22368,43 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const pending = scatterState.pendingDrawOpts;
           scatterState.pendingDrawOpts = null;
           if(pending){
-            scheduleDrawScatterRaw(pending);
+            if(isScatterDrawQueueEpochCurrent(pending)){
+              scheduleDrawScatterRaw(pending);
+            }else{
+              scatterDebug('Debug: scatter pending draw dropped (stale draw queue epoch)', {
+                reason: pending.reason || null,
+                queuedEpoch: pending.__scatterDrawQueueEpoch,
+                currentEpoch: scatterState.drawQueueEpoch || 0
+              });
+            }
           }
         }
       };
       const scheduleScatterBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
         ? Shared.componentLifecycle.createTabScopedFrameDebouncer(scatter, 'scatter', runScatterDrawCycle, { reason: 'scatter-draw-frame' })
         : runScatterDrawCycle;
+      clearDrawScatterFrame = (tabLike = null) => {
+        if(scheduleScatterBase && typeof scheduleScatterBase.clear === 'function'){
+          scheduleScatterBase.clear(tabLike || scatter.__boundTabId || null);
+        }
+      };
       const scheduleScatterInstrumented = (opts) => {
         const nextOpts = normalizeScatterSessionOptions(opts || {});
+        const drawQueueEpoch = Number(scatterState.drawQueueEpoch) || 0;
+        nextOpts.__scatterDrawQueueEpoch = drawQueueEpoch;
         if(!isCurrentScatterSessionMeta(nextOpts.__workspaceSessionMeta)){
           scatterDebug('Debug: scatter schedule skipped (stale session)', {
             tabId: nextOpts.__workspaceSessionMeta?.tabId || null,
             sessionGeneration: nextOpts.__workspaceSessionMeta?.sessionGeneration || 0,
             reason: nextOpts.reason || null
+          });
+          return;
+        }
+        if(shouldSuppressScatterStatsGeneratedDraw(nextOpts)){
+          scatterDebug('Debug: scatter schedule suppressed during non-visual stats transaction', {
+            reason: nextOpts.reason || null,
+            source: nextOpts.source || null,
+            tabId: nextOpts.tabId || nextOpts.__workspaceSessionMeta?.tabId || scatter.__boundTabId || null
           });
           return;
         }
@@ -22269,7 +22457,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           queueScatterOverlay(overlayReason);
         }
         const runSchedule = (runOpts) => {
-          const guarded = normalizeScatterSessionOptions(runOpts || nextOpts);
+          if(drawQueueEpoch !== (Number(scatterState.drawQueueEpoch) || 0)){
+            scatterDebug('Debug: scatter delayed schedule skipped (stale draw queue epoch)', {
+              reason: nextOpts.reason || null,
+              queuedEpoch: drawQueueEpoch,
+              currentEpoch: scatterState.drawQueueEpoch || 0
+            });
+            return;
+          }
+          const guarded = normalizeScatterSessionOptions({
+            ...(runOpts || nextOpts),
+            __scatterDrawQueueEpoch: drawQueueEpoch
+          });
           if(!isCurrentScatterSessionMeta(guarded.__workspaceSessionMeta)){
             scatterDebug('Debug: scatter delayed schedule skipped (stale session)', {
               tabId: guarded.__workspaceSessionMeta?.tabId || null,
@@ -22300,6 +22499,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               const wait = Math.max(0, cooldownMs - elapsed);
               scatterState.drawCooldownTimer = scheduleScatterAsyncTimeout('scatter-draw-cooldown', () => {
                 scatterState.drawCooldownTimer = null;
+                if(drawQueueEpoch !== (Number(scatterState.drawQueueEpoch) || 0)){
+                  scatterState.pendingDrawOpts = null;
+                  scatterDebug('Debug: scatter draw cooldown skipped (stale draw queue epoch)', {
+                    reason: nextOpts.reason || null,
+                    queuedEpoch: drawQueueEpoch,
+                    currentEpoch: scatterState.drawQueueEpoch || 0
+                  });
+                  return;
+                }
                 const pending = scatterState.pendingDrawOpts;
                 scatterState.pendingDrawOpts = null;
                 runSchedule(pending || nextOpts);
@@ -23355,12 +23563,21 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       getCurrentRoot: () => scatterRoot || null,
       getCurrentSentinel: () => scatter.__domSentinel || null,
       rebind: (info) => {
-        scatterRoot = info?.root || resolveScatterRoot(tabLike || info?.tabId || null);
+        const nextRoot = info?.root || resolveScatterRoot(tabLike || info?.tabId || null);
+        const nextTabId = info?.tabId || null;
+        if(scatter.ready
+          && (!nextTabId || scatter.__boundTabId === nextTabId)
+          && (!nextRoot || scatterRoot === nextRoot)
+          && (!scatter.__domSentinel || !nextRoot || nextRoot.contains?.(scatter.__domSentinel))){
+          console.debug('Debug: Components.scatter.setup rebind skipped', { tabId: scatter.__boundTabId || null });
+          return;
+        }
+        scatterRoot = nextRoot;
         console.debug('Debug: Components.scatter.setup refreshing stale DOM bindings');
         scatter.ready = false;
         setup({
           root: scatterRoot,
-          tabId: info?.tabId || null,
+          tabId: nextTabId,
           reason: 'workspace-dom-rebind'
         });
       }
@@ -24315,9 +24532,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         get: () => scatterState,
         excludeKeys: [
           'hot', 'root', 'cachedDrawInput', 'statsContext', 'statsCacheBySignature',
-          'statsComputationPending', 'statsRestorePending', 'pendingDrawOpts',
+          'statsComputationPending', 'statsRestorePending', 'statsNonVisualDrawSuppression',
+          'statsDrawSuppressionToken', 'pendingDrawOpts',
           'pendingDrawReasons', 'activeDrawReasons', 'drawScheduled', 'drawCooldownTimer',
-          'drawInProgress', 'rotationPending', 'rotationPendingLogged', 'skipNextDraw',
+          'drawQueueEpoch', 'drawInProgress', 'rotationPending', 'rotationPendingLogged', 'skipNextDraw',
           'skipNextDrawReason', 'cachedCollect', 'cachedGeometry', 'lastDrawMeta'
         ]
       },

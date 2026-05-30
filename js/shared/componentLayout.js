@@ -369,8 +369,11 @@
       return false;
     }
     const dataset = element.dataset;
-    const graphWidth = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth);
-    const graphHeight = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight);
+    const zoomRaw = Number(dataset.resizerZoomLevel || dataset.resizerZoom);
+    const zoomScale = Number.isFinite(zoomRaw) && zoomRaw > 0 ? zoomRaw : 1;
+    const graphWidth = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth || dataset.resizerBaseWidth);
+    const graphHeight = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight || dataset.resizerBaseHeight);
+    const toDisplayPx = value => `${Math.round(value * zoomScale)}px`;
     const hasResizerAspectLocked = dataset.resizerAspectLocked === 'true' || dataset.resizerAspectLocked === 'false';
     const aspectState = Shared.aspectLock?.resolve
       ? Shared.aspectLock.resolve(dataset)
@@ -383,22 +386,22 @@
     const hasGraphAspectLocked = !!aspectState.hasExplicit;
     let changed = false;
     if(Number.isFinite(graphWidth) && graphWidth > 0){
-      const widthPx = `${Math.round(graphWidth)}px`;
-      if(element.style.width !== widthPx){
-        element.style.width = widthPx;
+      const displayWidthPx = toDisplayPx(graphWidth);
+      if(element.style.width !== displayWidthPx){
+        element.style.width = displayWidthPx;
         changed = true;
       }
-      dataset.resizerWidth = widthPx;
+      dataset.resizerWidth = displayWidthPx;
       dataset.resizerBaseWidth = String(Math.round(graphWidth));
       dataset.resizerDefaultWidth = String(Math.round(graphWidth));
     }
     if(Number.isFinite(graphHeight) && graphHeight > 0){
-      const heightPx = `${Math.round(graphHeight)}px`;
-      if(element.style.height !== heightPx){
-        element.style.height = heightPx;
+      const displayHeightPx = toDisplayPx(graphHeight);
+      if(element.style.height !== displayHeightPx){
+        element.style.height = displayHeightPx;
         changed = true;
       }
-      dataset.resizerHeight = heightPx;
+      dataset.resizerHeight = displayHeightPx;
       dataset.resizerBaseHeight = String(Math.round(graphHeight));
       dataset.resizerDefaultHeight = String(Math.round(graphHeight));
     }
@@ -431,7 +434,8 @@
         reason,
         graphWidth: Number.isFinite(graphWidth) ? Math.round(graphWidth) : null,
         graphHeight: Number.isFinite(graphHeight) ? Math.round(graphHeight) : null,
-        graphAspectLocked: hasGraphAspectLocked ? String(!!aspectState.locked) : null
+        graphAspectLocked: hasGraphAspectLocked ? String(!!aspectState.locked) : null,
+        zoomScale
       });
     }
     return changed;
@@ -1496,16 +1500,16 @@
       const zoomScale = Number.isFinite(zoomScaleRaw) && zoomScaleRaw > 0 ? zoomScaleRaw : 1;
       const liveWidth = Number(rect?.width);
       const liveHeight = Number(rect?.height);
-      const graphWidth = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth);
-      const graphHeight = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight);
-      const widthPx = Number.isFinite(graphWidth) && graphWidth > 0
-        ? Math.round(graphWidth)
-        : (Number.isFinite(liveWidth) && liveWidth > 0 ? Math.round(liveWidth) : NaN);
-      const heightPx = Number.isFinite(graphHeight) && graphHeight > 0
-        ? Math.round(graphHeight)
-        : (Number.isFinite(liveHeight) && liveHeight > 0 ? Math.round(liveHeight) : NaN);
-      const baseWidthPx = Number.isFinite(widthPx) && widthPx > 0 ? Math.max(1, Math.round(widthPx / zoomScale)) : NaN;
-      const baseHeightPx = Number.isFinite(heightPx) && heightPx > 0 ? Math.max(1, Math.round(heightPx / zoomScale)) : NaN;
+      const styleWidth = parsePositivePx(style.width);
+      const styleHeight = parsePositivePx(style.height);
+      const baseWidthPx = parsePositivePx(dataset.graphWidthPx || dataset.svgWidth || dataset.graphDefaultWidth || dataset.resizerBaseWidth)
+        || (Number.isFinite(styleWidth) && styleWidth > 0 ? Math.round(styleWidth / zoomScale) : NaN)
+        || (Number.isFinite(liveWidth) && liveWidth > 0 ? Math.round(liveWidth / zoomScale) : NaN);
+      const baseHeightPx = parsePositivePx(dataset.graphHeightPx || dataset.svgHeight || dataset.graphDefaultHeight || dataset.resizerBaseHeight)
+        || (Number.isFinite(styleHeight) && styleHeight > 0 ? Math.round(styleHeight / zoomScale) : NaN)
+        || (Number.isFinite(liveHeight) && liveHeight > 0 ? Math.round(liveHeight / zoomScale) : NaN);
+      const widthPx = Number.isFinite(baseWidthPx) && baseWidthPx > 0 ? Math.max(1, Math.round(baseWidthPx * zoomScale)) : NaN;
+      const heightPx = Number.isFinite(baseHeightPx) && baseHeightPx > 0 ? Math.max(1, Math.round(baseHeightPx * zoomScale)) : NaN;
       if(Number.isFinite(widthPx) && widthPx > 0){
         style.width = `${widthPx}px`;
         dataset.resizerWidth = style.width;
@@ -1515,10 +1519,16 @@
         dataset.resizerHeight = style.height;
       }
       if(Number.isFinite(baseWidthPx) && baseWidthPx > 0){
-        dataset.resizerBaseWidth = String(baseWidthPx);
+        const normalizedBaseWidth = Math.max(1, Math.round(baseWidthPx));
+        dataset.resizerBaseWidth = String(normalizedBaseWidth);
+        dataset.graphWidthPx = dataset.graphWidthPx || String(normalizedBaseWidth);
+        dataset.svgWidth = dataset.svgWidth || String(normalizedBaseWidth);
       }
       if(Number.isFinite(baseHeightPx) && baseHeightPx > 0){
-        dataset.resizerBaseHeight = String(baseHeightPx);
+        const normalizedBaseHeight = Math.max(1, Math.round(baseHeightPx));
+        dataset.resizerBaseHeight = String(normalizedBaseHeight);
+        dataset.graphHeightPx = dataset.graphHeightPx || String(normalizedBaseHeight);
+        dataset.svgHeight = dataset.svgHeight || String(normalizedBaseHeight);
       }
       if(dataset.resizerAspectLocked === 'true' && Number.isFinite(baseWidthPx) && baseWidthPx > 0 && Number.isFinite(baseHeightPx) && baseHeightPx > 0){
         dataset.resizerAspectRatio = String(baseWidthPx / baseHeightPx);
@@ -1531,7 +1541,8 @@
         baseWidthPx: Number.isFinite(baseWidthPx) ? baseWidthPx : null,
         baseHeightPx: Number.isFinite(baseHeightPx) ? baseHeightPx : null,
         aspectLocked: dataset.resizerAspectLocked === 'true',
-        aspectRatio: dataset.resizerAspectRatio || null
+        aspectRatio: dataset.resizerAspectRatio || null,
+        zoomScale
       });
       return {
         style: Object.keys(style).length ? style : null,

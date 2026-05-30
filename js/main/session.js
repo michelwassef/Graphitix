@@ -2446,12 +2446,18 @@
       || (snapshotIntent.reasonSkippable !== false && isLiveCaptureSkippableReason(reason));
     const explicitSkipLivePayloadCapture = snapshotIntent.skipLivePayloadCapture === true
       || snapshotIntent.captureLivePayload === false;
+    const livePayloadAlreadyFlushed = !!(tab.payload && !tab.payloadDirty);
+    const cleanTabSkipEligible = livePayloadAlreadyFlushed && !tab.userModified;
+    const lifecycleCleanPayloadSkipEligible = livePayloadAlreadyFlushed
+      && tab.userModified
+      && (explicitSkipLivePayloadCapture || reasonSkipEligible || lifecycleSkipEligible)
+      && !shouldCaptureLivePayloadForSave;
     const shouldSkipLivePayloadCapture = !!(tab.payload
       && !tab.payloadDirty
-      && !tab.userModified
       && !skipCaptureBlockedByReason
       && !shouldCaptureLivePayloadForSave
       && allowSkipLivePayloadCapture
+      && (cleanTabSkipEligible || lifecycleCleanPayloadSkipEligible)
       && (explicitSkipLivePayloadCapture || reasonSkipEligible || lifecycleSkipEligible));
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
