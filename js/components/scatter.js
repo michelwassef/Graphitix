@@ -1975,21 +1975,16 @@
     if(!active){
       return false;
     }
-    if(options.force === true || options.userInitiated === true){
-      scatterState.statsNonVisualDrawSuppression = null;
-      return false;
-    }
+    const reason = String(options.reason || options.source || '').toLowerCase();
     const tabId = options.tabId || options.__workspaceSessionMeta?.tabId || scatter.__boundTabId || null;
     if(active.tabId && tabId && String(active.tabId) !== String(tabId)){
       return false;
     }
-    const reason = String(options.reason || options.source || '').toLowerCase();
     const invalidate = String(options.invalidate || '').toLowerCase();
     if(invalidate === 'data' && !scatterState.statsComputationPending){
       return false;
     }
     const allowUserLikeReason = reason.includes('manual')
-      || reason.includes('user')
       || reason.includes('import')
       || reason.includes('example')
       || reason.includes('trendline-toggle')
@@ -7929,7 +7924,6 @@
   // PART: DRAW
   function setup(initOptions = {}){
     console.debug('Debug: Components.scatter.setup start');
-    scheduleDrawScatter = () => {};
     if(initOptions?.restoreRenderCache === true || initOptions?.skipInitialDraw === true){
       scatterState.skipNextDraw = true;
       scatterState.skipNextDrawReason = initOptions.reason || 'init-render-cache-restore';
@@ -7988,6 +7982,12 @@
       console.debug('Debug: Components.scatter.setup skipped', { tabId: scatter.__boundTabId || null });
       return;
     }
+    // Normalize with line.js setup semantics: once we know setup will really
+    // proceed, dispose scheduler work owned by the previous binding before
+    // replacing the scheduler. Otherwise a stale pre-rebind draw frame can
+    // survive and fire after later operations such as statistics persistence.
+    clearScatterScheduledDraw('scatter-setup-rebind');
+    scheduleDrawScatter = () => {};
     if(scatter.ready){
       console.debug('Debug: Components.scatter.setup rebinding', { previousTabId: scatter.__boundTabId || null, targetTabId: setupTabId || null, reason: initOptions?.reason || 'setup' });
       scatter.ready = false;
