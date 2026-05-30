@@ -11343,7 +11343,13 @@
           if(scatterHot){
             scatterHot.__scatterHostContainer = baseContainer;
             scatterHot.__scatterTabId = activeTabId;
-            scheduleScatterSelectionRestore(scatterHot, activeTabId);
+            // Restore persisted row selection only once per table instance. Re-applying it
+            // on every ensure-hot call issues programmatic deselectAll/setSelected, which fires
+            // AG grid selectionChanged -> auto-grow columns and spurious view refreshes.
+            if(!scatterHot.__scatterSelectionRestoreDone){
+              scatterHot.__scatterSelectionRestoreDone = true;
+              scheduleScatterSelectionRestore(scatterHot, activeTabId);
+            }
             scatterRefs.hot = scatterHot;
             ensureScatterHeaderTitles(scatterHot, {
               graphType: scatterCurrentGraphType,
@@ -11387,7 +11393,11 @@
         const resolvedTabId = entry?.tabId || activeTabId;
         if(scatterHot){
           scatterHot.__scatterTabId = resolvedTabId;
-          scheduleScatterSelectionRestore(scatterHot, resolvedTabId);
+          // Restore persisted row selection only once per table instance (see note above).
+          if(!scatterHot.__scatterSelectionRestoreDone){
+            scatterHot.__scatterSelectionRestoreDone = true;
+            scheduleScatterSelectionRestore(scatterHot, resolvedTabId);
+          }
           scatterRefs.hot = scatterHot;
           ensureScatterHeaderTitles(scatterHot, {
             graphType: scatterCurrentGraphType,
