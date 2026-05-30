@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const boxSource = () => fs.readFileSync(path.join(__dirname, '../js/components/box.js'), 'utf8');
+const boxSource = () => fs.readFileSync(path.join(__dirname, '../js/components/box.js'), 'utf8').replace(/\r\n/g, '\n');
 
 describe('box frame/layout commit contract', () => {
   test('logical graph geometry updates do not write physical frame state directly', () => {

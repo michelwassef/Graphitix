@@ -116,7 +116,6 @@
       captureRenderCache: options.captureRenderCacheBeforeSnapshot !== false,
       preserveRenderCacheTabScope: options.captureRenderCacheBeforeSnapshot !== false ? 'all' : 'active-only',
       highFidelityEligible: false,
-      highFidelityRecoveryEnabled: !!options.highFidelityRecoveryEnabled,
       idleForMs: Number(options.idleForMs || 0),
       idleThresholdMs: 2500,
       idle: false,
@@ -1286,7 +1285,6 @@
       reason: options.reason || 'archive-save',
       scope,
       captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
-      highFidelityRecoveryEnabled: options.highFidelityRecoveryEnabled,
       idleForMs: options.idleForMs,
       idleThresholdMs: options.idleThresholdMs
     });
@@ -1595,7 +1593,6 @@
       reason: options.reason || 'document-snapshot',
       scope: snapshotScope,
       captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
-      highFidelityRecoveryEnabled: options.highFidelityRecoveryEnabled,
       idleForMs: options.idleForMs,
       idleThresholdMs: options.idleThresholdMs
     });

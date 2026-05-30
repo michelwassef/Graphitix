@@ -177,22 +177,25 @@
         continue;
       }
       const tag = node.tagName.toLowerCase();
-      if (tag !== 'rect') {
-        continue;
-      }
-      const fillAttr = node.getAttribute('fill');
-      const styleFill = node.style ? node.style.fill : null;
       const pointerEvents = (node.getAttribute('pointer-events') || '').toLowerCase();
       const stroke = node.getAttribute('stroke') || (node.style ? node.style.stroke : null);
-      const opacityRaw = node.getAttribute('opacity');
-      const styleOpacity = node.style ? node.style.opacity : null;
-      const opacitySource = styleOpacity != null && styleOpacity !== '' ? styleOpacity : opacityRaw;
-      const hasOpacity = opacitySource != null && opacitySource !== '';
-      const opacityValue = hasOpacity ? Number.parseFloat(opacitySource) : null;
-      const transparent = isTransparentColor(styleFill || fillAttr)
-        && (!hasOpacity || (Number.isFinite(opacityValue) ? opacityValue <= 0 : true));
-      const pointerMatch = pointerEvents === 'fill' || pointerEvents === 'all' || pointerEvents === 'visiblefill' || pointerEvents === 'visiblepainted';
-      const isOverlay = pointerMatch && (!stroke || isTransparentColor(stroke)) && transparent;
+      let isOverlay = false;
+      if (tag === 'rect') {
+        const fillAttr = node.getAttribute('fill');
+        const styleFill = node.style ? node.style.fill : null;
+        const opacityRaw = node.getAttribute('opacity');
+        const styleOpacity = node.style ? node.style.opacity : null;
+        const opacitySource = styleOpacity != null && styleOpacity !== '' ? styleOpacity : opacityRaw;
+        const hasOpacity = opacitySource != null && opacitySource !== '';
+        const opacityValue = hasOpacity ? Number.parseFloat(opacitySource) : null;
+        const transparent = isTransparentColor(styleFill || fillAttr)
+          && (!hasOpacity || (Number.isFinite(opacityValue) ? opacityValue <= 0 : true));
+        const pointerMatch = pointerEvents === 'fill' || pointerEvents === 'all' || pointerEvents === 'visiblefill' || pointerEvents === 'visiblepainted';
+        isOverlay = pointerMatch && (!stroke || isTransparentColor(stroke)) && transparent;
+      } else if (tag === 'line') {
+        const pointerMatch = pointerEvents === 'stroke' || pointerEvents === 'all' || pointerEvents === 'visiblestroke' || pointerEvents === 'visiblepainted';
+        isOverlay = pointerMatch && isTransparentColor(stroke);
+      }
       if (!isOverlay) {
         continue;
       }

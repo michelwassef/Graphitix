@@ -4,7 +4,6 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.documentState = Main.documentState || {};
   const AUTOSAVE_PREF_KEY = 'graphitix.autosave.enabled';
-  const HIGH_FIDELITY_RECOVERY_PREF_KEY = 'graphitix.recovery.highFidelity.enabled';
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
@@ -99,22 +98,6 @@
       window.localStorage.setItem(AUTOSAVE_PREF_KEY, enabled ? '1' : '0');
     } catch (err) {
       debug('autosavePreference.writeSkipped', { message: err?.message || String(err) });
-    }
-  }
-
-  function readHighFidelityRecoveryPreference() {
-    try {
-      return window.localStorage.getItem(HIGH_FIDELITY_RECOVERY_PREF_KEY) === '1';
-    } catch (err) {
-      return false;
-    }
-  }
-
-  function writeHighFidelityRecoveryPreference(enabled) {
-    try {
-      window.localStorage.setItem(HIGH_FIDELITY_RECOVERY_PREF_KEY, enabled ? '1' : '0');
-    } catch (err) {
-      debug('highFidelityPreference.writeSkipped', { message: err?.message || String(err) });
     }
   }
 
@@ -275,7 +258,6 @@
     const titleEls = Array.from(document.querySelectorAll('[data-document-title="1"]'));
     const statusEls = Array.from(document.querySelectorAll('[data-document-status="1"]'));
     const autosaveEls = Array.from(document.querySelectorAll('input[data-document-autosave="1"]'));
-    const recoveryFidelityEls = Array.from(document.querySelectorAll('input[data-document-recovery-fidelity="1"]'));
     titleEls.forEach(titleEl => {
       titleEl.textContent = titleDisplay;
       titleEl.title = workspaceState.sessionFilePath || fileName;
@@ -287,9 +269,6 @@
     });
     autosaveEls.forEach(autosaveEl => {
       autosaveEl.checked = !!state.autosaveEnabled;
-    });
-    recoveryFidelityEls.forEach(recoveryFidelityEl => {
-      recoveryFidelityEl.checked = !!state.highFidelityRecoveryEnabled;
     });
     document.title = `Graphitix - ${display}`;
     debug('syncTitle', { fileName, dirty, reason: meta.reason || 'sync' });
@@ -324,7 +303,6 @@
       useWorker: true,
       snapshotKind: 'lifecycle-checkpoint',
       policyMode: 'recovery',
-      highFidelityRecoveryEnabled: !!state.highFidelityRecoveryEnabled,
       idleForMs
     });
     if (!blob) {
@@ -347,7 +325,6 @@
         dirty: !!workspaceState.sessionUserDirty,
         hasData,
         tabCount: graphTabs.length,
-        highFidelityRecoveryEnabled: !!state.highFidelityRecoveryEnabled,
         idleForMs,
         fileName: workspaceState.sessionFileName || '',
         filePath: workspaceState.sessionFilePath || '',
@@ -568,25 +545,11 @@
     syncTitle({ reason: meta.reason || 'autosave-toggle' });
   }
 
-  function setHighFidelityRecoveryEnabled(enabled, meta = {}) {
-    state.highFidelityRecoveryEnabled = !!enabled;
-    writeHighFidelityRecoveryPreference(state.highFidelityRecoveryEnabled);
-    syncTitle({ reason: meta.reason || 'recovery-fidelity-toggle' });
-    if (state.workspaceState?.sessionUserDirty && hasRecoverySnapshotDue()) {
-      scheduleRecoverySnapshot(meta.reason || 'recovery-fidelity-toggle');
-    }
-  }
-
   function bindUi() {
     document.addEventListener('change', event => {
       const autosaveToggle = event.target?.closest?.('input[data-document-autosave="1"]');
       if (autosaveToggle) {
         setAutosaveEnabled(autosaveToggle.checked, { reason: 'autosave-toggle-ui' });
-        return;
-      }
-      const recoveryFidelityToggle = event.target?.closest?.('input[data-document-recovery-fidelity="1"]');
-      if (recoveryFidelityToggle) {
-        setHighFidelityRecoveryEnabled(recoveryFidelityToggle.checked, { reason: 'recovery-fidelity-toggle-ui' });
       }
     }, true);
 
@@ -616,7 +579,6 @@
       getSessionActionsContext: options.getSessionActionsContext,
       dom: options.dom || {},
       autosaveEnabled: readAutosavePreference(),
-      highFidelityRecoveryEnabled: readHighFidelityRecoveryPreference(),
       restoringRecovery: false,
       lastUserActivityAt: Date.now()
     };
@@ -650,15 +612,12 @@
     syncTitle({ reason: 'init' });
     debug('init', {
       autosaveEnabled: state.autosaveEnabled,
-      highFidelityRecoveryEnabled: state.highFidelityRecoveryEnabled,
       isDesktop: isDesktop()
     });
     return namespace;
   };
 
   namespace.setAutosaveEnabled = setAutosaveEnabled;
-  namespace.setHighFidelityRecoveryEnabled = setHighFidelityRecoveryEnabled;
-  namespace.isHighFidelityRecoveryEnabled = () => !!state?.highFidelityRecoveryEnabled;
   namespace.writeRecoverySnapshot = writeRecoverySnapshot;
   namespace.clearRecoverySnapshot = clearRecoverySnapshot;
   namespace.maybeRestoreRecovery = maybeRestoreRecovery;

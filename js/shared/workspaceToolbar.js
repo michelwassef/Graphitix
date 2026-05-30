@@ -1858,20 +1858,6 @@
     autosaveLabel.appendChild(autosaveText);
     documentArea.appendChild(autosaveLabel);
 
-    const recoveryFidelityLabel = doc.createElement('label');
-    recoveryFidelityLabel.className = 'workspace-toolbar__autosave';
-    recoveryFidelityLabel.title = 'Capture richer render cache in recovery snapshots when the workspace is idle';
-    const recoveryFidelityInput = doc.createElement('input');
-    recoveryFidelityInput.type = 'checkbox';
-    recoveryFidelityInput.dataset.documentRecoveryFidelity = '1';
-    recoveryFidelityInput.dataset.sessionIgnoreDirty = '1';
-    recoveryFidelityInput.dataset.sessionAffectsPayload = '0';
-    recoveryFidelityLabel.appendChild(recoveryFidelityInput);
-    const recoveryFidelityText = doc.createElement('span');
-    recoveryFidelityText.textContent = 'Hi-Fi recovery';
-    recoveryFidelityLabel.appendChild(recoveryFidelityText);
-    documentArea.appendChild(recoveryFidelityLabel);
-
     const documentStatus = doc.createElement('div');
     documentStatus.className = 'workspace-toolbar__document-status';
     documentStatus.dataset.documentStatus = '1';

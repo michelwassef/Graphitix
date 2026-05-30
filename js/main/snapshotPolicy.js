@@ -91,7 +91,6 @@
     const reasonText = String(options.reason || '').toLowerCase();
     const modeText = String(options.mode || '').toLowerCase();
     const explicitCapture = options.captureRenderCacheBeforeSnapshot;
-    const highFidelityRecoveryEnabled = !!options.highFidelityRecoveryEnabled;
     const idleForMs = Number.isFinite(Number(options.idleForMs)) ? Math.max(0, Number(options.idleForMs)) : 0;
     const idleThresholdMs = Number.isFinite(Number(options.idleThresholdMs))
       ? Math.max(0, Number(options.idleThresholdMs))
@@ -118,7 +117,7 @@
       captureRenderCache = true;
       policyId = 'warmup-cache';
     } else if (recoveryLike) {
-      highFidelityEligible = highFidelityRecoveryEnabled && scope === 'workspace' && idle;
+      highFidelityEligible = scope === 'workspace' && idle;
       captureRenderCache = highFidelityEligible;
       policyId = highFidelityEligible ? 'recovery-high-fidelity-idle' : 'recovery-lean';
     } else {
@@ -136,7 +135,6 @@
       captureRenderCache,
       preserveRenderCacheTabScope: captureRenderCache ? 'all' : 'active-only',
       highFidelityEligible,
-      highFidelityRecoveryEnabled,
       idleForMs,
       idleThresholdMs,
       idle,

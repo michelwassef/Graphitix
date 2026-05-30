@@ -27062,7 +27062,7 @@ Technical analysis record (advanced)
     }
     const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
     state.statsLastSignificanceEnabled = !!significanceEnabled;
-    state.significanceMaxLevel = null;
+    if(significanceEnabled){ state.significanceMaxLevel = null; }
     const annotationOpts = helpers?.annotationStyle || {};
     const orientation = annotationOpts.orientation === 'horizontal' ? 'horizontal' : 'vertical';
     const categoryCenter = typeof helpers?.categoryCenter === 'function'
@@ -27713,7 +27713,7 @@ Technical analysis record (advanced)
     };
     const significanceEnabled = !!state.showSignificanceBars || !!helpers?.significance?.enabled;
     state.statsLastSignificanceEnabled = !!significanceEnabled;
-    state.significanceMaxLevel = null;
+    if(significanceEnabled){ state.significanceMaxLevel = null; }
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
     const categoryCenter=typeof helpers?.categoryCenter==='function'
@@ -31676,6 +31676,19 @@ Technical analysis record (advanced)
       }
       return node;
     };
+    const registerAxisHitLine = (addAxisElement, attrs, config) => {
+      if(!axisControls || typeof axisControls.registerAxisElement !== 'function'){
+        return null;
+      }
+      const hitLine = addAxisElement('line', Object.assign({}, attrs, {
+        stroke: 'transparent',
+        'stroke-width': 20,
+        'pointer-events': 'stroke',
+        'data-export-ignore': '1'
+      }));
+      axisControls.registerAxisElement(hitLine, config);
+      return hitLine;
+    };
     const renderSharedPlotFrame = (config = {}) => {
       const margin = config?.margin || {};
       const plotW = Number(config?.plotW);
@@ -33272,7 +33285,8 @@ Technical analysis record (advanced)
             y2: combinedBottom,
             stroke: 'transparent',
             'stroke-width': 20,
-            'pointer-events': 'stroke'
+            'pointer-events': 'stroke',
+            'data-export-ignore': '1'
           });
           hitLine?.setAttribute?.('data-axis-control', '1');
           if(axisControls && typeof axisControls.registerAxisElement === 'function'){
@@ -33284,11 +33298,8 @@ Technical analysis record (advanced)
         }
       }else{
         // Standard continuous y-axis
-        const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-        yAxisLine?.setAttribute?.('data-axis-control', '1');
-        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
-        }
+        addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+        registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd }, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
       }
       const yMajorTickLabels = [];
       let yTickFontCount = 0;
@@ -33417,11 +33428,8 @@ Technical analysis record (advanced)
       const frameXMax = plotRightX;
       axisXEnd = Math.max(yAxisX, Math.min(axisXEnd, frameXMax));
       console.debug('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax, plotWUsed });
-      const xAxisLine = addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      xAxisLine?.setAttribute?.('data-axis-control', '1');
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
-      }
+      addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY }, axisControlConfig('x'));
       console.debug('Debug: box axes stroke scaled',{ axisStrokeWidth });
       renderSharedPlotFrame({ margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
       const xLabelOffset = tickLen + tickGap;
@@ -34195,11 +34203,8 @@ Technical analysis record (advanced)
       });
       console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
       const yAxisLeft = marginLocal.left;
-      const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      yAxisLine?.setAttribute?.('data-axis-control', '1');
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
-      }
+      addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY }, axisControlConfig('y'));
       const yIntervalSetting = getAxisTickInterval('y');
       const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
       let renderedYTicks = 0;
@@ -34406,17 +34411,16 @@ Technical analysis record (advanced)
             y2: xAxisBottom,
             stroke: 'transparent',
             'stroke-width': 20,
-            'pointer-events': 'stroke'
+            'pointer-events': 'stroke',
+            'data-export-ignore': '1'
           });
           if(axisControls && typeof axisControls.registerAxisElement === 'function'){
             axisControls.registerAxisElement(hitLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
           }
         }
       }else{
-        const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(xAxisLine, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
-        }
+        addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+        registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom }, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
       }
       renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
       const defaultXLabelX = marginLocal.left + plotWLocal / 2;

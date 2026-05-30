@@ -1172,6 +1172,14 @@
     scheduleDrawScatter(scheduleOptions);
   }
 
+  function shouldRedrawScatterAfterStatsCompute(){
+    if(scatterCurrentGraphType !== 'scatter'){
+      return false;
+    }
+    return !!(scatterShowLine && scatterShowLine.checked)
+      || !!(scatterShowPlotStats && scatterShowPlotStats.checked);
+  }
+
   function invalidateScatterRenderCacheForTab(tabLike, reason){
     try{
       const tabId = typeof tabLike === 'string' ? tabLike.trim() : String(tabLike?.id || '').trim();
@@ -10221,7 +10229,14 @@
     };
     const removeScatterResidualDataViews = (manager) => {
       const staleResidualViews = (manager.getViews?.() || [])
-        .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'residuals');
+        .filter(view => {
+          if(!view || view.kind === 'raw'){
+            return false;
+          }
+          const transform = String(view?.summary?.transform || view?.transformSpec?.type || '').toLowerCase();
+          const title = String(view?.title || '').trim().toLowerCase();
+          return transform === 'residuals' || title === 'residuals';
+        });
       staleResidualViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-residuals' }));
     };
     const createScatterResidualDataView = (manager, rows, options = {}) => {
@@ -10328,7 +10343,14 @@
     };
     const removeScatterResidualQqDataViews = manager => {
       const staleViews = (manager.getViews?.() || [])
-        .filter(view => view && view.kind !== 'raw' && String(view?.summary?.transform || '').toLowerCase() === 'qq-residuals');
+        .filter(view => {
+          if(!view || view.kind === 'raw'){
+            return false;
+          }
+          const transform = String(view?.summary?.transform || view?.transformSpec?.type || '').toLowerCase();
+          const title = String(view?.title || '').trim().toLowerCase();
+          return transform === 'qq-residuals' || title === 'residual qq';
+        });
       staleViews.forEach(view => manager.removeView?.(view.id, { silent: true, reason: 'replace-qq-residuals' }));
     };
     const createScatterResidualQqDataView = (manager, rows, options = {}) => {
@@ -10471,6 +10493,17 @@
         return activated;
       };
 
+
+      const normalizeScatterDataViewMatrix = (matrix) => {
+        const source = Array.isArray(matrix) ? matrix : [];
+        const trimmed = typeof Shared.hot?.trimTrailingEmptyCols === 'function'
+          ? Shared.hot.trimTrailingEmptyCols(source)
+          : source;
+        return Array.isArray(trimmed)
+          ? trimmed.map(row => (Array.isArray(row) ? row.slice() : []))
+          : [];
+      };
+
       const ensureScatterDataViewsForHot = (hotInstance, options = {}) => {
         if(!hotInstance || typeof hotInstance.getData !== 'function'){
           return null;
@@ -10482,7 +10515,7 @@
           hotInstance.__scatterDataViewsManager = Shared.dataViews.createManager({
             componentKey: 'scatter',
             maxViews: SCATTER_DATA_VIEW_MAX,
-            initialData: hotInstance.getData() || [],
+            initialData: normalizeScatterDataViewMatrix(hotInstance.getData() || []),
             onActiveViewChanged(view){
               if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
                 return;
@@ -10531,6 +10564,25 @@
         return manager;
       };
 
+
+      const normalizeScatterDataViewsPayload = (payload) => {
+        if(!payload || typeof payload !== 'object' || !Array.isArray(payload.views)){
+          return payload || null;
+        }
+        return {
+          ...payload,
+          views: payload.views.map(view => {
+            if(!view || typeof view !== 'object'){
+              return view;
+            }
+            return {
+              ...view,
+              data: Array.isArray(view.data) ? normalizeScatterDataViewMatrix(view.data) : view.data
+            };
+          })
+        };
+      };
+
       const syncScatterActiveDataViewFromHot = (hotInstance, reason) => {
         const hot = hotInstance || scatterHot || scatterRefs.hot;
         if(!hot || typeof hot.getData !== 'function'){
@@ -10540,7 +10592,7 @@
         if(!manager){
           return;
         }
-        manager.updateActiveData(hot.getData() || []);
+        manager.updateActiveData(normalizeScatterDataViewMatrix(hot.getData() || []));
         manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
         manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
         if(reason === 'afterLoadData'){
@@ -12200,7 +12252,10 @@
           if(!context.precomputedStats){
             return false;
           }
-          const settings = buildScatterStatsRenderSettings();
+          const settings = {
+            ...buildScatterStatsRenderSettings(),
+            createResidualView: false
+          };
           applyScatterStatsResults(context, context.precomputedStats, settings);
           scatterDebug('Debug: scatter stats panel restored from context', {
             reason: reason || 'context-restore',
@@ -12955,6 +13010,7 @@
       }
 
       function primeScatterStatsContext(context,options={}){
+        const renderPrecomputedPanel = options.renderPrecomputedPanel !== false;
         if(!context || (context.graphType==='scatter' && (!Array.isArray(context.points) || !context.points.length))){
           resetScatterStatsRuntimeState({ placeholder: options.placeholder || 'Add data to enable statistics.' });
           return;
@@ -13003,7 +13059,9 @@
         }
         if(changed){
           if(hasPrecomputed){
-            restoreScatterStatsPanelFromContext(scatterState.statsContext, 'signature-change-precomputed');
+            if(renderPrecomputedPanel){
+              restoreScatterStatsPanelFromContext(scatterState.statsContext, 'signature-change-precomputed');
+            }
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
           }else{
@@ -13012,7 +13070,7 @@
             updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
           }
         }else if(scatterState.statsLastRunVersion===scatterState.statsContextVersion){
-          if(hasPrecomputed && !scatterStatsPanelHasRenderedResults()){
+          if(hasPrecomputed && renderPrecomputedPanel && !scatterStatsPanelHasRenderedResults()){
             restoreScatterStatsPanelFromContext(scatterState.statsContext, 'panel-empty-precomputed');
           }
           setScatterStatsStatus('Statistics up to date.');
@@ -13094,7 +13152,7 @@
             scatterState.statsLastRunVersion=context.version;
             setScatterStatsStatus('Statistics up to date.');
             updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
-            if(typeof scheduleDrawScatter === 'function'){
+            if(typeof scheduleDrawScatter === 'function' && shouldRedrawScatterAfterStatsCompute()){
               scheduleScatterViewRefresh('scatter-stats-updated');
             }
           })
@@ -14520,7 +14578,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
 
       if(scatterStatsButton){
-        scatterStatsButton.addEventListener('click',handleScatterStatsComputeClick);
+        if(scatterStatsButton.__graphitixScatterStatsClickHandler){
+          scatterStatsButton.removeEventListener('click', scatterStatsButton.__graphitixScatterStatsClickHandler);
+        }
+        scatterStatsButton.__graphitixScatterStatsClickHandler = handleScatterStatsComputeClick;
+        scatterStatsButton.addEventListener('click', handleScatterStatsComputeClick);
       }
       ensureScatterStatsSelectOptions();
       clearScatterStatsOutputs(scatterStatsPlaceholder);
@@ -15842,7 +15904,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterViewRefresh('font-size-change');
         });
       }
-      [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI]
+      [scatterShowGrid,scatterStatType,scatterFitMethod,scatterOriginMode,scatterShowPlotStats]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
@@ -22019,7 +22081,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           };
           debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
-        primeScatterStatsContext(statsContextPayload);
+        primeScatterStatsContext(statsContextPayload, { renderPrecomputedPanel: false });
         const viewportPerf = perfApi?.start('scatter.viewport.sync', {
           component: 'scatter',
           token
@@ -22364,19 +22426,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const payloadScatterShowPI = resolvePayloadControl('scatterShowPI', scatterShowPI);
       const payloadScatterGraphType = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
       const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat') || scatterTableFormatSelect;
-      const payloadScatterHotWrapper = getScatterNodeById('scatterHotWrapper') || scatterHotWrapper;
-      const payloadScatterHotContainer = getScatterNodeById('scatterHot') || scatterHotContainer;
       const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
-      const activeManager = activeHot
-        ? ensureScatterDataViewsForHot(activeHot, {
-            wrapper: payloadScatterHotWrapper,
-            container: activeHot.__scatterHostContainer || payloadScatterHotContainer
-          })
-        : (scatterDataViewsManager || null);
-      if(activeHot){
-        syncScatterActiveDataViewFromHot(activeHot, 'payload');
-      }
-      const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
+      const activeManager = activeHot?.__scatterDataViewsManager || scatterDataViewsManager || null;
+      const dataViewsPayload = normalizeScatterDataViewsPayload(activeManager?.serialize?.({ includeData: true }) || null);
       const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
       const themeSnapshot = resolveScatterThemeSnapshot({
         tabId: activeTabId

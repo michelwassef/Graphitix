@@ -1463,7 +1463,7 @@
         });
         return cleared;
       },
-      requestAnimationFrame(meta, fn){
+      requestAnimationFrame(meta, fn, onStale){
         const scoped = makeMeta(meta || {});
         if(!scoped){
           return null;
@@ -1484,6 +1484,9 @@
             fn(scoped);
           }else{
             debug('Debug: lifecycle async frame skipped stale scope', { componentKey: key, tabId: scoped.tabId });
+            if(typeof onStale === 'function'){
+              onStale(scoped);
+            }
           }
         });
         entry = { id: raf, cancel };
@@ -1692,15 +1695,32 @@
         return existing.handle || true;
       }
       existing.scheduled = true;
-      const handle = namespace.scheduleComponentFrame(component, key, { ...meta, tabId }, () => {
+      const scope = component.__asyncScope || namespace.createAsyncScope(key);
+      component.__asyncScope = scope;
+      let handle = null;
+      const clearPending = () => {
         const pending = pendingByTab.get(tabId);
+        if(pending && (handle == null || pending.handle === handle)){
+          pendingByTab.delete(tabId);
+          pending.scheduled = false;
+        }
+        return pending || null;
+      };
+      handle = scope.requestAnimationFrame({ ...meta, tabId }, () => {
+        const pending = clearPending();
         if(!pending){
           return;
         }
-        pendingByTab.delete(tabId);
-        pending.scheduled = false;
         fn.apply(pending.context, pending.args || []);
+      }, () => {
+        clearPending();
       });
+      if(handle == null){
+        pendingByTab.delete(tabId);
+        existing.scheduled = false;
+        existing.handle = null;
+        return null;
+      }
       existing.handle = handle;
       return handle;
     };
