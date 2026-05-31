@@ -320,6 +320,11 @@ describe('PCA view controls', () => {
 
     const component = window.Components?.pca;
     expect(component).toBeTruthy();
+    const state = component.__state;
+    expect(state).toBeTruthy();
+    await flushUntil(() => !!state.cachedRender, { limit: 80, step: 2 });
+    const cachedBefore = state.cachedRender;
+    expect(cachedBefore).toBeTruthy();
     const screeContainer = document.getElementById('pcaScreeContainer');
     const screeExportControls = document.getElementById('pcaScreeExportControls');
     const screeVarianceRow = document.getElementById('pcaScreeVarianceRow');
@@ -329,11 +334,16 @@ describe('PCA view controls', () => {
 
     const cache = component.captureRenderCache();
     expect(cache).toBeTruthy();
+    expect(cache.runtimeCache).toBeTruthy();
 
     screeContainer.hidden = true;
     screeContainer.style.maxWidth = '';
     screeExportControls.style.display = 'none';
     screeVarianceRow.style.display = 'none';
+    state.cachedRender = null;
+    state.dataDirty = true;
+    state.viewDirty = true;
+    state.resizeWarmupPending = true;
 
     const restored = component.restoreRenderCache(cache);
     expect(restored).toBe(true);
@@ -341,6 +351,54 @@ describe('PCA view controls', () => {
     expect(screeContainer.querySelector('svg')).toBeTruthy();
     expect(screeExportControls.style.display).not.toBe('none');
     expect(screeVarianceRow.style.display).toBe('flex');
+    expect(state.cachedRender).toBeTruthy();
+    expect(state.cachedRender).not.toBe(cachedBefore);
+    expect(Array.isArray(state.cachedRender.points)).toBe(true);
+    expect(state.cachedRender.points.length).toBe(cachedBefore.points.length);
+    expect(state.dataDirty).toBe(false);
+    expect(state.viewDirty).toBe(false);
+    expect(state.resizeWarmupPending).toBe(false);
+  }, 180000);
+
+  test('user control refresh routes through the view-refresh suppression contract as userInitiated', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushAll(20);
+
+    const state = window.Components?.pca?.__state;
+    expect(state).toBeTruthy();
+    await flushUntil(() => !!state.cachedRender, { limit: 80, step: 2 });
+
+    // Reproduce the reopen window: stand in a real componentLifecycle so requestPcaViewRefresh
+    // performs its suppression check. Pre-fix, the resize/style refresh path did not consult
+    // shouldSuppressDraw at all (source 'pca-view-refresh' never appeared), so the post-restore
+    // guard in the tab-scoped scheduler dropped the first user resize after reopen.
+    const calls = [];
+    const previousLifecycle = window.Shared.componentLifecycle;
+    window.Shared.componentLifecycle = Object.assign({}, previousLifecycle, {
+      shouldSuppressDraw: (componentKey, meta) => {
+        calls.push({ componentKey, meta: meta || {} });
+        return false;
+      },
+      emitLifecycleEvent: () => {}
+    });
+    try {
+      const legendToggle = document.getElementById('pcaShowLegend');
+      expect(legendToggle).toBeTruthy();
+      legendToggle.checked = !legendToggle.checked;
+      legendToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      await flushAll(5);
+
+      const refreshCall = calls.find(
+        entry => entry.componentKey === 'pca' && entry.meta.source === 'pca-view-refresh'
+      );
+      expect(refreshCall).toBeTruthy();
+      expect(refreshCall.meta.reason).toBe('legend-toggle');
+      expect(refreshCall.meta.userInitiated).toBe(true);
+    } finally {
+      window.Shared.componentLifecycle = previousLifecycle;
+    }
   }, 180000);
 
   test('large PCA dataset keeps automatic redraw active with no legacy manual controls', async () => {

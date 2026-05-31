@@ -611,7 +611,7 @@
         componentKey: 'surface',
         maxViews: SURFACE_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -625,7 +625,10 @@
           }
           updateAxisOptions();
           markSurfaceOverlayPending('data-view-switch');
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          state.scheduleDraw?.({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           activateSurfaceDataToolbar('data-tab-interaction');
@@ -2777,10 +2780,15 @@
           syncSurfaceAspectControls('panel-sync');
         },
         resizableBoxOptions: {
-          onResize: () => {
-            debugLog('Debug: surface layout onResize schedule trigger');
+          onResize: phase => {
+            const resizePhase = typeof phase === 'string' ? phase : '';
+            debugLog('Debug: surface layout onResize schedule trigger', { phase: resizePhase || null });
             scheduleSurfaceNoticeWidth('resize');
-            state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
+            scheduleSurfaceViewRefresh('resize', {
+              force: true,
+              silentOverlay: true,
+              resizePhase: resizePhase || null
+            });
           }
         }
       })
@@ -2824,14 +2832,15 @@
     const scheduleSurfaceDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markSurfaceOverlayPending(overlayReason);
         forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
-      }else{
+      }else if(!suppressOverlay){
         queueSurfaceOverlay(overlayReason);
       }
       const runSchedule = () => scheduleSurfaceDrawBase(nextOpts);
-      const shouldDelayForOverlay = surfaceOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      const shouldDelayForOverlay = surfaceOverlayController?.isActive?.() && !suppressOverlay;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           debugLog('Debug: surface autoDraw deferred for overlay',{ reason: overlayReason });

@@ -3335,7 +3335,7 @@
         componentKey: 'line',
         maxViews: LINE_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -3351,7 +3351,10 @@
             scheduleLine3dDatasetSync('data-view-switch');
           }
           markLineOverlayPending('data-view-switch');
-          scheduleLineDraw({ reason: 'data-view-switch' });
+          scheduleLineDraw({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           activateLineDataToolbar('data-tab-interaction');

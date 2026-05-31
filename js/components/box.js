@@ -11798,7 +11798,7 @@
         componentKey: 'box',
         maxViews: BOX_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -11814,7 +11814,10 @@
             updateGroupedHeaders();
           }
           markBoxOverlayPending('data-view-switch');
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          state.scheduleDraw?.({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           activateBoxDataToolbar('data-tab-interaction');
@@ -15386,7 +15389,7 @@
       clearRestoredBoxSignificanceGeometryLock(nextReason);
     }
     if(state.authoritativeRenderRestoreActive){
-      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, false)){
+      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, options.force === true)){
         console.debug('Debug: box draw suppressed during authoritative restore', { reason: nextReason });
         return;
       }
@@ -36708,9 +36711,9 @@ Technical analysis record (advanced)
             || currentPhase === 'redo'
             || currentPhase === 'programmatic'
             || currentPhase === 'aspect-toggle';
-          state.scheduleDraw?.({
-            viewOnly: true,
-            reason: 'resize',
+          scheduleBoxViewRefresh('resize', {
+            force: true,
+            silentOverlay: true,
             resizePhase: currentPhase || null,
             forceCanvasRecompute: isResizeFinalize
           });
@@ -36756,10 +36759,11 @@ Technical analysis record (advanced)
         nextOpts.viewOnly = true;
       }
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markBoxOverlayPending(overlayReason);
         forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
-      }else if(!nextOpts.viewOnly){
+      }else if(!suppressOverlay){
         queueBoxLoading(overlayReason);
       }
       const runSchedule = runOpts => {
@@ -36799,7 +36803,7 @@ Technical analysis record (advanced)
           return;
         }
       }
-      const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !suppressOverlay;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           boxDebug('Debug: box draw deferred for overlay',{ reason: overlayReason });

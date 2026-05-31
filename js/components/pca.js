@@ -1770,7 +1770,7 @@
         componentKey: 'pca',
         maxViews: PCA_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -1784,7 +1784,10 @@
           }
           markPcaDataDirty('data-view-switch');
           markPcaOverlayPending('data-view-switch');
-          scheduleDrawPca({ reason: 'data-view-switch' });
+          scheduleDrawPca({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           activatePcaDataToolbar('data-tab-interaction');
@@ -3811,10 +3814,12 @@
       return;
     }
     const next = { ...previous, ...opts };
-    if(opts.force){
-      next.viewOnly = false;
-    } else if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
+    // Keep `force` orthogonal to `viewOnly` so forced resize/view refreshes can
+    // stay lightweight and avoid unnecessary full recomputation.
+    if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
       next.viewOnly = !!opts.viewOnly;
+    } else if(opts.force){
+      next.viewOnly = false;
     } else if(previous.viewOnly){
       next.viewOnly = true;
     } else {
@@ -3928,6 +3933,7 @@
     performance: { loadData: null, draw: null, evaluation: null },
     fastPointMode: false,
     cachedRender: null,
+    resizeWarmupPending: false,
     drawToken: 0,
     dataDirty: true,
     viewDirty: true,
@@ -4708,6 +4714,7 @@
     pcaState.dataDirty = true;
     pcaState.viewDirty = true;
     pcaState.cachedRender = null;
+    pcaState.resizeWarmupPending = false;
     if(reason && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: pca data marked dirty',{ reason });
     }
@@ -4732,12 +4739,48 @@
     const options = (drawOptions && typeof drawOptions === 'object')
       ? { ...drawOptions }
       : {};
-    if(reason && !Object.prototype.hasOwnProperty.call(options, 'reason')){
-      options.reason = reason;
+    const nextReason = reason || options.reason || 'pca-view-refresh';
+    if(!Object.prototype.hasOwnProperty.call(options, 'reason')){
+      options.reason = nextReason;
     }
-    markPcaViewDirty(options.reason || reason);
+    // Mirror line.js (scheduleLineViewRefresh) / scatter.js (scheduleScatterViewRefresh):
+    // derive interaction intent from the reason and propagate userInitiated/forceDraw so
+    // user-driven refreshes (resize, style edits) are never dropped by the
+    // post-render-cache-restore draw suppression that guards the tab-scoped scheduler.
+    const normalizedReason = String(nextReason).trim().toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: resolvePcaAsyncTabId(options) || pca.__boundTabId || null,
+      reason: nextReason,
+      source: 'pca-view-refresh',
+      forceDraw: options.force === true || options.forceDraw === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('pca', lifecycleMeta)){
+      debugLog('Debug: pca view refresh suppressed by lifecycle', { reason: nextReason, tabId: lifecycleMeta.tabId });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pca', tabId: lifecycleMeta.tabId, action: 'draw-suppressed', reason: nextReason, details: { source: 'pca-view-refresh' } });
+      return;
+    }
+    options.forceDraw = lifecycleMeta.forceDraw === true;
+    options.userInitiated = lifecycleMeta.userInitiated === true;
+    markPcaViewDirty(nextReason);
     if(!pcaState.cachedRender){
-      markPcaDataDirty((options.reason || reason) || 'view-refresh-no-cache');
+      const resizeRefresh = normalizedReason.includes('resize');
+      if(resizeRefresh && pcaState.resizeWarmupPending){
+        debugLog('Debug: pca resize warmup draw already pending',{ reason: nextReason });
+        return;
+      }
+      markPcaDataDirty(nextReason || 'view-refresh-no-cache');
+      if(resizeRefresh){
+        pcaState.resizeWarmupPending = true;
+      }
       scheduleDrawPca(options);
       return;
     }
@@ -5246,7 +5289,7 @@
           svgBox: () => queryPcaRoot('#pcaGraphPanel .svgbox'),
           resizeTarget: () => queryPcaRoot('#pcaGraphPanel .svgbox')
         },
-        scheduleDraw: () => scheduleDrawPca(),
+        scheduleDraw: (...args) => scheduleDrawPca(...args),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -5261,6 +5304,8 @@
             schedulePcaNoticeWidth('resize');
             evaluateAutoDrawThresholds({ source: 'resize', phase: resizePhase || null });
             requestPcaViewRefresh('resize', {
+              force: true,
+              silentOverlay: true,
               resizePhase: resizePhase || null
             });
           }
@@ -5276,7 +5321,7 @@
         tabId: pca.__boundTabId || null,
         reason: 'pca-resizer-controls'
       }, () => ensurePcaResizerControls());
-      pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
+      pcaLayout?.setScheduleDraw?.((...args) => scheduleDrawPca(...args));
       pcaLayout?.syncPanels?.();
       syncPcaAutoDrawNoticeWidth('init');
       debugLog('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
@@ -11042,6 +11087,7 @@
         pcaState.cachedRender = cachePayload;
         pcaState.dataDirty = false;
       }
+      pcaState.resizeWarmupPending = false;
       pcaState.viewDirty = false;
       if(!skipPerfRecord){
         recordPcaPerformance('draw', {
@@ -11661,14 +11707,15 @@
     const schedulePcaInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markPcaOverlayPending(overlayReason);
         forcePcaOverlay(overlayReason, { message: 'Rendering PCA view...' });
-      }else if(!nextOpts.viewOnly){
+      }else if(!suppressOverlay){
         queuePcaOverlay(overlayReason);
       }
       const runSchedule = () => schedulePcaBase(nextOpts);
-      const shouldDelayForOverlay = pcaOverlayController?.isActive?.() && !nextOpts.viewOnly && nextOpts.force !== true;
+      const shouldDelayForOverlay = pcaOverlayController?.isActive?.() && !suppressOverlay && nextOpts.force !== true;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           debugLog('Debug: pca autoDraw deferred for overlay',{ reason: overlayReason });
@@ -11690,7 +11737,7 @@
           scheduleRaw: schedulePcaInstrumented
         })
       : schedulePcaInstrumented;
-    pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
+    pcaLayout?.setScheduleDraw?.((...args) => scheduleDrawPca(...args));
     ensurePcaFontEventListener();
     debugLog('Debug: pca scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     pca.save = savePcaFile;
@@ -12232,11 +12279,19 @@
           statsNodes: statsCache?.count || 0,
           summaryNodes: summaryCache?.count || 0,
           screeNodes: screeCache?.count || 0,
+          hasRuntimeCache: !!pcaState.cachedRender,
           screeHidden: uiState.screeContainer?.hidden ?? null,
           varianceHidden: uiState.varianceSummary?.hidden ?? null
         });
       }
-      return { plot: plotCache, stats: statsCache, summary: summaryCache, scree: screeCache, uiState };
+      return {
+        plot: plotCache,
+        stats: statsCache,
+        summary: summaryCache,
+        scree: screeCache,
+        uiState,
+        runtimeCache: cloneSimple(pcaState.cachedRender) || null
+      };
     };
 
     pca.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -12273,6 +12328,9 @@
       const restoredStats = restoreChildren(stats, cache.stats);
       const restoredSummary = restoreChildren(summary, cache.summary);
       const restoredScree = restoreChildren(scree, cache.scree);
+      const restoredRuntimeCache = cache.runtimeCache && typeof cache.runtimeCache === 'object'
+        ? (cloneSimple(cache.runtimeCache) || null)
+        : null;
       restoreElementState(screeContainer, cache.uiState?.screeContainer, { includeMaxWidth: true });
       restoreElementState(screeExportControls, cache.uiState?.screeExportControls);
       restoreElementState(varianceSummary, cache.uiState?.varianceSummary);
@@ -12292,6 +12350,18 @@
       }
       updateScreeVarianceRowVisibility();
       const restored = restoredPlot || restoredStats || restoredSummary || restoredScree;
+      if(restoredRuntimeCache){
+        pcaState.cachedRender = restoredRuntimeCache;
+        pcaState.dataDirty = false;
+        pcaState.viewDirty = false;
+      }else if(restored){
+        // The restored DOM graph already matches the payload/layout snapshot.
+        // Keep resize/view refreshes lightweight instead of forcing an eager
+        // full data recompute on the first interaction after reopen.
+        pcaState.dataDirty = false;
+        pcaState.viewDirty = false;
+      }
+      pcaState.resizeWarmupPending = false;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache restored', {
           restored,
@@ -12299,6 +12369,7 @@
           stats: restoredStats,
           summary: restoredSummary,
           scree: restoredScree,
+          runtimeCache: !!restoredRuntimeCache,
           screeHidden: screeContainer?.hidden ?? null,
           varianceHidden: varianceSummary?.hidden ?? null,
           eigenHidden: eigenTableContainer?.hidden ?? null,

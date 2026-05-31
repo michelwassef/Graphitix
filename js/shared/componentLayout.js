@@ -1005,8 +1005,37 @@
     const evaluateScheduleFlags = (options = {}) => {
       let skipSchedule = options && options.skipSchedule === true;
       const source = typeof options?.source === 'string' ? options.source : '';
+      const phase = typeof options?.phase === 'string' ? options.phase : '';
       const now = Date.now();
       const visibility = resolveVisibility();
+      const isUserResizePhase = source === 'resize' && (
+        phase === 'start'
+        || phase === 'move'
+        || phase === 'drag'
+        || phase === 'end'
+        || phase === 'reset'
+        || phase === 'undo'
+        || phase === 'redo'
+        || phase === 'aspect-toggle'
+      );
+      if(isUserResizePhase && !options.forceSchedule){
+        const hadForcedSuppression = panelState.forceSkipSchedules > 0
+          || panelState.forceDeferUntil > now
+          || (visibility.hasGraphContent && Number.isFinite(panelState.deferScheduleUntil) && panelState.deferScheduleUntil > now);
+        if(hadForcedSuppression){
+          panelState.forceSkipSchedules = 0;
+          panelState.forceDeferUntil = 0;
+          panelState.forceDeferReason = null;
+          panelState.deferScheduleUntil = 0;
+          if(isDebugEnabled()){
+            console.debug('Debug: componentLayout schedule suppression released by user resize', {
+              component: componentName,
+              source,
+              phase
+            });
+          }
+        }
+      }
       let forceDeferActive = false;
       let forceSkipActive = false;
       if(source === 'observer' && config?.skipScheduleOnObserver === true && !options.forceSchedule){
@@ -1066,7 +1095,6 @@
           panelState.deferScheduleUntil = 0;
         }
       }
-      const phase = typeof options?.phase === 'string' ? options.phase : '';
       const isResizeFinalizePhase = phase === 'end'
         || phase === 'reset'
         || phase === 'undo'
@@ -1076,7 +1104,8 @@
       const suppressResizeCallback = (
         visibility.hidden
         || (
-          !isResizeFinalizePhase
+          !isUserResizePhase
+          && !isResizeFinalizePhase
           && (deferActive || forceDeferActive || forceSkipActive)
         )
       ) && !options.forceSchedule;

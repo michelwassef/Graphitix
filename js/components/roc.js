@@ -1266,7 +1266,7 @@
         componentKey: 'roc',
         maxViews: ROC_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -1278,7 +1278,10 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          state.scheduleDraw?.({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           Shared.workspaceToolbar?.activateSection?.('roc', 'Data');
@@ -3843,14 +3846,15 @@
     const scheduleRocDrawInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markRocOverlayPending(overlayReason);
         forceRocOverlay(overlayReason, { message: 'Rendering ROC/PR plot...' });
-      }else{
+      }else if(!suppressOverlay){
         queueRocOverlay(overlayReason);
       }
       const runSchedule = () => scheduleRocDrawBase(nextOpts);
-      const shouldDelayForOverlay = rocOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      const shouldDelayForOverlay = rocOverlayController?.isActive?.() && !suppressOverlay;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           console.debug('Debug: roc autoDraw deferred for overlay',{ reason: overlayReason });
@@ -3934,11 +3938,16 @@
         console.debug('Debug: roc layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
-        onResize: () => {
-          console.debug('Debug: roc layout onResize schedule trigger');
+        onResize: phase => {
+          const resizePhase = typeof phase === 'string' ? phase : '';
+          console.debug('Debug: roc layout onResize schedule trigger', { phase: resizePhase || null });
           ensureRocLegendControlPlacement();
           scheduleRocNoticeWidth('resize');
-          state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
+          scheduleRocViewRefresh('resize', {
+            force: true,
+            silentOverlay: true,
+            resizePhase: resizePhase || null
+          });
         }
       }
     });

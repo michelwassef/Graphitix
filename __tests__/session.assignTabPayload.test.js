@@ -311,6 +311,36 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     }
   });
 
+  test('global user-input listener releases restore-time draw/layout suppressions for the owning component tab', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    window.Shared.componentLifecycle = window.Shared.componentLifecycle || {};
+    window.Shared.componentLayout = window.Shared.componentLayout || {};
+    window.Shared.componentLifecycle.clearPostRestoreDrawSuppression = jest.fn();
+    window.Shared.componentLayout.releaseSuppressedSchedulesFor = jest.fn();
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'box');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'boxActionButton';
+    root.appendChild(button);
+    document.body.appendChild(root);
+    try {
+      button.dispatchEvent(makeTrustedEvent('click', button));
+      expect(tab.userModified).toBe(true);
+      expect(tab.payloadDirty).toBe(true);
+      expect(window.Shared.componentLifecycle.clearPostRestoreDrawSuppression)
+        .toHaveBeenCalledWith('box', expect.objectContaining({ tabId: tab.id }));
+      expect(window.Shared.componentLayout.releaseSuppressedSchedulesFor)
+        .toHaveBeenCalledWith('box', expect.objectContaining({ tabId: tab.id }));
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
   test('global user-input listener ignores events outside workspace component roots', () => {
     const tab = createTabWithPayload();
     session.workspaceState.activeTabId = tab.id;

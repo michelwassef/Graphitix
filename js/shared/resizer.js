@@ -191,6 +191,46 @@
     }
   }
 
+  function invalidateResizerTabRenderCaches(container, opts = {}, reason = 'resizer-start'){
+    try{
+      const tab = resolveResizerTab(container, opts);
+      const session = global.Main?.session || null;
+      if(!tab || !session){
+        return false;
+      }
+      let invalidated = false;
+      if(typeof session.clearTabRenderCache === 'function'){
+        invalidated = session.clearTabRenderCache(tab, {
+          tabId: tab.id || null,
+          reason
+        }) || invalidated;
+      }
+      if(typeof session.clearTabArchiveRenderCache === 'function'){
+        invalidated = session.clearTabArchiveRenderCache(tab, {
+          tabId: tab.id || null,
+          reason
+        }) || invalidated;
+      }
+      if(typeof session.markTabAuthoritativeRenderRestore === 'function'){
+        session.markTabAuthoritativeRenderRestore(tab, false, {
+          tabId: tab.id || null,
+          reason
+        });
+      }
+      if(invalidated){
+        console.debug('Debug: resizer start cache invalidation applied', {
+          tabId: tab.id || null,
+          component: opts.componentName || tab.type || null,
+          reason
+        });
+      }
+      return invalidated;
+    }catch(err){
+      console.error('Shared.resizer invalidate tab render cache error', err);
+      return false;
+    }
+  }
+
   function persistAspectLockToTab(container, opts, aspectLockedValue, reason){
     const tab = resolveResizerTab(container, opts);
     const tabId = normalizeTabId(tab?.id);
@@ -2557,6 +2597,7 @@
         e.preventDefault();
         pointerId = e.pointerId;
         try { handle.setPointerCapture(pointerId); } catch(_) {}
+        invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
         const rect = container.getBoundingClientRect();
         const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
         const startBaseWidth = Math.min(MAX_W, Math.max(MIN_W, Math.round(rect.width / zoomScale)));

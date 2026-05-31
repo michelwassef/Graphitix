@@ -3365,6 +3365,12 @@
       const dataset = owner?.dataset || null;
       return String(dataset?.workspaceTabId || dataset?.tabId || owner?.getAttribute?.('data-workspace-tab-id') || owner?.getAttribute?.('data-tab-id') || '').trim();
     };
+    const resolveWorkspaceComponentKey = target => {
+      if (!target || typeof target.closest !== 'function') return '';
+      const owner = target.closest('[data-workspace-component]');
+      const dataset = owner?.dataset || null;
+      return String(dataset?.workspaceComponent || owner?.getAttribute?.('data-workspace-component') || '').trim();
+    };
     const isInsideWorkspace = target => {
       if (!target || typeof target.closest !== 'function') return false;
       // Workspace per-tab DOM roots all sit under #workspacePages and carry
@@ -3391,32 +3397,78 @@
     };
     // Late-bind through window.Main.session so the listener always invokes the current
     // session module — important for tests that load session.js multiple times.
-    const callMark = (reason, source, ownerTabId, affectsPayload = true) => {
+    const callMark = (reason, source, ownerTabId, affectsPayload = true, componentKey = '') => {
       try {
         const sess = (typeof window !== 'undefined' && window.Main && window.Main.session) || namespace;
         if (!sess) return;
-        if (ownerTabId && typeof sess.markTabUserModified === 'function') {
-          const marked = sess.markTabUserModified(ownerTabId, reason, {
+        const ownerId = String(ownerTabId || '').trim();
+        let resolvedTabId = ownerId;
+        let resolvedComponentKey = String(componentKey || '').trim();
+        if (ownerId && !resolvedComponentKey) {
+          const ownerTab = resolveTab(ownerId);
+          resolvedComponentKey = String(ownerTab?.type || '').trim();
+        }
+        if (!resolvedTabId || !resolvedComponentKey) {
+          const activeTab = typeof sess.getActiveTab === 'function' ? sess.getActiveTab() : getActiveTab();
+          if (!resolvedTabId) {
+            resolvedTabId = String(activeTab?.id || '').trim();
+          }
+          if (!resolvedComponentKey) {
+            resolvedComponentKey = String(activeTab?.type || '').trim();
+          }
+        }
+        let marked = false;
+        if (ownerId && typeof sess.markTabUserModified === 'function') {
+          marked = !!sess.markTabUserModified(ownerId, reason, {
             origin: 'user',
             source: source || 'unknown',
             ownerResolvedFrom: 'workspace-dom',
             affectsPayload
           });
-          if (marked) {
-            return;
+          if (!marked) {
+            console.warn('Global user-input listener could not mark owner tab, falling back to active tab', {
+              ownerTabId,
+              reason,
+              source: source || 'unknown'
+            });
           }
-          console.warn('Global user-input listener could not mark owner tab, falling back to active tab', {
-            ownerTabId,
-            reason,
-            source: source || 'unknown'
-          });
         }
-        if (typeof sess.markActiveTabUserModified === 'function') {
+        if (!marked && typeof sess.markActiveTabUserModified === 'function') {
           sess.markActiveTabUserModified(reason, {
             origin: 'user',
             source: source || 'unknown',
             affectsPayload
           });
+        }
+        if (resolvedTabId && resolvedComponentKey) {
+          try {
+            Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(resolvedComponentKey, {
+              tabId: resolvedTabId,
+              reason: reason || 'user-input'
+            });
+          } catch (err) {
+            console.warn('Global user-input listener could not clear post-restore draw suppression', {
+              tabId: resolvedTabId,
+              componentKey: resolvedComponentKey,
+              reason,
+              source: source || 'unknown',
+              message: err?.message || String(err)
+            });
+          }
+          try {
+            Shared.componentLayout?.releaseSuppressedSchedulesFor?.(resolvedComponentKey, {
+              tabId: resolvedTabId,
+              reason: reason || 'user-input'
+            });
+          } catch (err) {
+            console.warn('Global user-input listener could not release component layout suppression', {
+              tabId: resolvedTabId,
+              componentKey: resolvedComponentKey,
+              reason,
+              source: source || 'unknown',
+              message: err?.message || String(err)
+            });
+          }
         }
       } catch (err) { /* listener must never throw */ }
     };
@@ -3440,7 +3492,8 @@
         reason,
         target?.id || target?.tagName,
         resolveWorkspaceOwnerTabId(target),
-        resolveAffectsPayload(target)
+        resolveAffectsPayload(target),
+        resolveWorkspaceComponentKey(target)
       );
     };
     document.addEventListener('change', handler('control-change'), true);
@@ -3461,7 +3514,8 @@
         'control-click',
         interactive?.id || 'button',
         resolveWorkspaceOwnerTabId(target),
-        resolveAffectsPayload(target)
+        resolveAffectsPayload(target),
+        resolveWorkspaceComponentKey(target)
       );
     }, true);
     console.debug('Debug: Main session global user-input listener installed');

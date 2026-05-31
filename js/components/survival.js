@@ -1183,7 +1183,7 @@
         componentKey: 'survival',
         maxViews: SURVIVAL_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -1195,7 +1195,10 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          state.scheduleDraw?.({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           Shared.workspaceToolbar?.activateSection?.('survival', 'Data');
@@ -5456,9 +5459,14 @@
         logDebug('layout onMinSvgWidth', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
-        onResize: () => {
+        onResize: phase => {
+          const resizePhase = typeof phase === 'string' ? phase : '';
           ensureSurvivalLegendControlPlacement();
-          scheduleSurvivalViewRefresh('resize');
+          scheduleSurvivalViewRefresh('resize', {
+            force: true,
+            silentOverlay: true,
+            resizePhase: resizePhase || null
+          });
         }
       }
     });

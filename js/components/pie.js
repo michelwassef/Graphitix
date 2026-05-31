@@ -3682,7 +3682,7 @@ let state = {
         componentKey: 'pie',
         maxViews: PIE_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -3695,7 +3695,10 @@ let state = {
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
           requestPieStatsContextRefresh('data-view-switch');
-          state.scheduleDraw?.({ reason: 'data-view-switch' });
+          state.scheduleDraw?.({
+            reason: 'data-view-switch',
+            userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+          });
         },
         onInteraction(){
           Shared.workspaceToolbar?.activateSection?.('pie', 'Data');

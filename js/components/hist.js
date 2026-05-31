@@ -1118,7 +1118,7 @@
         componentKey: 'hist',
         maxViews: HIST_DATA_VIEW_MAX,
         initialData: hotInstance.getData() || [],
-        onActiveViewChanged(view){
+        onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
@@ -1137,7 +1137,10 @@
           }
           if(!isFrequencyView){
             markHistOverlayPending('data-view-switch');
-            state.scheduleDraw?.({ reason: 'data-view-switch' });
+            state.scheduleDraw?.({
+              reason: 'data-view-switch',
+              userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+            });
           }
         },
         onInteraction(){
@@ -5724,10 +5727,15 @@
         histDebug('Debug: hist layout min width update', { value: state.minSvgWidth });
       },
       resizableBoxOptions: {
-        onResize: () => {
-          histDebug('Debug: hist layout onResize schedule trigger');
+        onResize: phase => {
+          const resizePhase = typeof phase === 'string' ? phase : '';
+          histDebug('Debug: hist layout onResize schedule trigger', { phase: resizePhase || null });
           scheduleHistNoticeWidth('resize');
-          state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
+          scheduleHistViewRefresh('resize', {
+            force: true,
+            silentOverlay: true,
+            resizePhase: resizePhase || null
+          });
         }
       }
     });
@@ -5785,14 +5793,15 @@
     const scheduleHistInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      if(nextOpts.force){
+      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
+      if(nextOpts.force && !suppressOverlay){
         markHistOverlayPending(overlayReason);
         forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
-      }else{
+      }else if(!suppressOverlay){
         queueHistOverlay(overlayReason);
       }
       const runSchedule = () => scheduleHistBase(nextOpts);
-      const shouldDelayForOverlay = histOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      const shouldDelayForOverlay = histOverlayController?.isActive?.() && !suppressOverlay;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
           histDebug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });

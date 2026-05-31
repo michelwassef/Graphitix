@@ -369,6 +369,38 @@ describe('componentLifecycle — shouldSuppressDraw', () => {
   });
 });
 
+describe('componentLifecycle — post-restore draw suppression', () => {
+  beforeEach(loadFresh);
+
+  // This count/timer guard is installed when a render-cache-restore transaction ends.
+  // It is what made PCA require a second resize after reopen: user-driven resize
+  // refreshes that did not carry userInitiated/forceDraw were silently consumed here.
+  test('post-restore suppression drops passive draws until its count is exhausted', () => {
+    lc.markPostRestoreDrawSuppression('box', 'tab-a', { count: 2, delayMs: 0, reason: 'restore' });
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize' })).toBe(true);
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize' })).toBe(true);
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize' })).toBe(false);
+  });
+
+  test('userInitiated bypasses post-restore suppression without consuming it', () => {
+    lc.markPostRestoreDrawSuppression('box', 'tab-a', { count: 2, delayMs: 0, reason: 'restore' });
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize', userInitiated: true })).toBe(false);
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize', userInitiated: true })).toBe(false);
+    // The bypass must not have drained the guard, so a genuinely passive draw is still suppressed.
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize' })).toBe(true);
+  });
+
+  test('forceDraw bypasses post-restore suppression', () => {
+    lc.markPostRestoreDrawSuppression('box', 'tab-a', { count: 2, delayMs: 0, reason: 'restore' });
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-a', reason: 'resize', forceDraw: true })).toBe(false);
+  });
+
+  test('post-restore suppression is scoped to its own tab', () => {
+    lc.markPostRestoreDrawSuppression('box', 'tab-a', { count: 4, delayMs: 0, reason: 'restore' });
+    expect(lc.shouldSuppressDraw('box', { tabId: 'tab-b', reason: 'resize' })).toBe(false);
+  });
+});
+
 describe('componentLifecycle — diffPayload / validatePayload / normalizePayloadEnvelope', () => {
   beforeEach(loadFresh);
 

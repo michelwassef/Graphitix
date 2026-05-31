@@ -10636,7 +10636,7 @@
             componentKey: 'scatter',
             maxViews: SCATTER_DATA_VIEW_MAX,
             initialData: normalizeScatterDataViewMatrix(hotInstance.getData() || []),
-            onActiveViewChanged(view){
+            onActiveViewChanged(view, meta){
               if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
                 return;
               }
@@ -10660,7 +10660,10 @@
                 tableFormat: getScatterReplicateMode()
               });
               markScatterOverlayPending('data-view-switch');
-              scheduleDrawScatter({ reason: 'data-view-switch' });
+              scheduleDrawScatter({
+                reason: 'data-view-switch',
+                userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
+              });
             },
             onInteraction(){
               activateScatterDataToolbar('data-tab-interaction');
@@ -10998,11 +11001,11 @@
               || resizePhase === 'redo'
               || resizePhase === 'programmatic'
               || resizePhase === 'aspect-toggle';
-            scheduleDrawScatter({
-              viewOnly: true,
-              reason: 'resize',
+            scheduleScatterViewRefresh('resize', {
+              force: true,
               resizePhase: resizePhase || null,
-              forceCanvasRecompute: isResizeFinalize
+              forceCanvasRecompute: isResizeFinalize,
+              silentOverlay: true
             });
           }
         }

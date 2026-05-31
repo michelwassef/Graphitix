@@ -1441,7 +1441,10 @@
           }
           if(!isCorrelationView){
             markHeatmapOverlayPending('data-view-switch');
-            state.scheduleDraw?.({ reason: 'data-view-switch' });
+            state.scheduleDraw?.({
+              reason: 'data-view-switch',
+              userInitiated: String(context?.reason || '').trim().toLowerCase() === 'tab-click'
+            });
           }
         },
         onInteraction(interaction){
