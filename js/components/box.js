@@ -671,8 +671,12 @@
 
     if(isBoxGrayscaleScheme(schemeId)){
       const fallbackFill = preferUnifiedDefault ? grayscaleUnifiedFill : paletteColor;
-      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill) || isColorTokenWhite(rawFill);
-      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder) || isColorTokenWhite(rawBorder);
+      // White is never a grayscale default (palette runs #000000→light gray, unified fill is #7a7a7a),
+      // so an explicit white can only be a deliberate user choice and must be honored. Black stays
+      // neutral because #000000 is palette[0] and gets materialized back into stored colors, leaving
+      // explicit-black indistinguishable from the seeded default.
+      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill);
+      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder);
       const fillColor = fillNeedsThemeDefault ? fallbackFill : rawFill;
       const borderSeed = fillColor || fallbackFill;
       const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
@@ -984,7 +988,8 @@
       return isColorTokenBlack(raw) || isColorTokenWhite(raw);
     }
     if(isBoxGrayscaleScheme(schemeId)){
-      return isColorTokenBlack(raw) || isColorTokenWhite(raw);
+      // White is never a grayscale default, so treat only black as neutral (see resolveThemeAwareDefaultTraceColors).
+      return isColorTokenBlack(raw);
     }
     return false;
   }
@@ -37547,6 +37552,9 @@ Technical analysis record (advanced)
       computeStripSpreadScale:config=>computeStripSpreadScale(config),
       computeStripHalfExtentLimit:config=>computeStripHalfExtentLimit(config),
       resolveBoxSummaryOverlayColor:(summaryStyle,fillColor,borderColor,options={})=>resolveBoxSummaryOverlayColor(summaryStyle,fillColor,borderColor,options || {}),
+      resolveThemeAwareDefaultTraceColors:(options={})=>resolveThemeAwareDefaultTraceColors(options || {}),
+      isBoxThemeNeutralColorToken:(value,options={})=>isBoxThemeNeutralColorToken(value,options || {}),
+      resolveIndividualPointThemeDefaults:(config={})=>resolveIndividualPointThemeDefaults(config || {}),
       shouldUseBoxPointCanvasPreview:(opts, renderOptions)=>shouldUseBoxPointCanvasPreview(opts, renderOptions),
       shouldRetainPreviousBoxFrame:(opts)=>shouldRetainPreviousBoxFrame(opts),
       resolveBoxPlotDrawingZoneSize:()=>resolveBoxPlotDrawingZoneSize(),

@@ -105,10 +105,19 @@ test('scatter restores computed trendline intervals, plot stats, and statistics 
   await clickExampleButtonIfPresent(page, 'scatterLoadExample');
   await page.waitForFunction(() => !!document.querySelector('#scatterPlot svg'), null, { timeout: 30_000 });
 
-  await setCheckboxes(page, ['scatterShowLine', 'scatterShowPlotStats', 'scatterShowCI', 'scatterShowPI'], true);
+  // Trend/stats overlays are disabled until statistics are calculated (matches line.js),
+  // so compute statistics first, then enable the overlays.
   await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#scatterComputeStats').click();
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+  // Let the non-visual stats-compute draw-suppression window clear before toggling overlays,
+  // otherwise the showPlotStats-driven redraw is dropped and the plot-stats text never renders.
+  await page.waitForFunction(() => {
+    const c = window.Components?.scatter;
+    return typeof c?.isIdleForSnapshot !== 'function' || c.isIdleForSnapshot();
+  }, null, { timeout: 20_000 });
+  await page.waitForTimeout(300);
+  await setCheckboxes(page, ['scatterShowLine', 'scatterShowPlotStats', 'scatterShowCI', 'scatterShowPI'], true);
   await waitForScatterRegressionOverlays(page);
   await waitForScatterPlotStatsText(page);
 

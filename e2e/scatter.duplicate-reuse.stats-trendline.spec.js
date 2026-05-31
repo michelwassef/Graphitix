@@ -16,13 +16,15 @@ async function loadScatterExample(page) {
 }
 
 async function computeScatterStatsWithTrendline(page) {
-  await expect(page.locator('#scatterShowLine')).toBeVisible({ timeout: 20_000 });
-  if (!(await page.locator('#scatterShowLine').isChecked())) {
-    await page.locator('#scatterShowLine').check();
-  }
+  // The trend line checkbox is disabled until statistics are calculated (matches line.js),
+  // so compute stats first, then enable the trend line.
   await expect(page.locator('#scatterComputeStats')).toBeEnabled({ timeout: 20_000 });
   await page.locator('#scatterComputeStats').click();
   await expect(page.locator('#scatterStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+  await expect(page.locator('#scatterShowLine')).toBeEnabled({ timeout: 20_000 });
+  if (!(await page.locator('#scatterShowLine').isChecked())) {
+    await page.locator('#scatterShowLine').check();
+  }
 }
 
 async function getScatterDataRowCount(page) {

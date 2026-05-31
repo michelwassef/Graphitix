@@ -12317,22 +12317,40 @@
       function syncScatterOverlayControlAvailability(){
         const graphTypeControl = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
         const type = graphTypeControl?.value || scatterCurrentGraphType || 'scatter';
-        const statsReady = scatterHasComputedStats();
+        // Stats are "ready" for the overlay controls once a calculation has produced rendered
+        // results for the current context version — mirroring line.js's lineHasComputedStats
+        // (version + rendered panel) rather than scatterHasComputedStats(), which additionally
+        // requires the precomputed model to be primed into the context by the next draw and so
+        // is still false in the stats-compute .finally that re-enables these controls.
+        // Restored-but-not-yet-primed stats (after reopening a file) also count as ready so the
+        // controls are not disabled/unchecked before the draw consumes the pending restore.
+        const statsComputed = scatterState.statsContextVersion > 0
+          && scatterState.statsLastRunVersion === scatterState.statsContextVersion
+          && scatterStatsPanelHasRenderedResults();
+        const statsReady = statsComputed || !!scatterState.statsRestorePending;
         const baseDisabled = type !== 'scatter';
+        // Trend line / stats-on-plot are unavailable until statistics have been calculated,
+        // mirroring line.js (updateLineRegressionOverlayControlState).
+        const overlayDisabled = baseDisabled || !statsReady;
         const clearWhenDisabled = scatterState.preserveOverlayToggleState !== true;
-        const baseMessage = type !== 'scatter'
+        const overlayMessage = baseDisabled
           ? 'Regression overlays are available for scatter plots only.'
-          : '';
+          : (statsReady ? '' : 'Calculate statistics before enabling regression overlays.');
+        // Only clear the checked state when disabled because of a non-scatter graph type. When the
+        // controls are merely awaiting stats, keep the checked state intact so it survives
+        // multi-phase payload restore (this runs before the restored-stats marker is set) and is
+        // reflected the instant stats become ready.
+        const clearTrendWhenDisabled = clearWhenDisabled && baseDisabled;
         const showLineControl = getScatterNodeById('scatterShowLine') || scatterShowLine;
         const showPlotStatsControl = getScatterNodeById('scatterShowPlotStats') || scatterShowPlotStats;
         const showCIControl = getScatterNodeById('scatterShowCI') || scatterShowCI;
         const showPIControl = getScatterNodeById('scatterShowPI') || scatterShowPI;
-        setScatterOverlayInputDisabled(showLineControl, baseDisabled, baseMessage, { clearWhenDisabled });
-        setScatterOverlayInputDisabled(showPlotStatsControl, baseDisabled, baseMessage, { clearWhenDisabled });
-        const trendReady = !baseDisabled && !!showLineControl?.checked;
-        const intervalMessage = trendReady ? '' : (baseMessage || 'Enable the trend line first.');
-        setScatterOverlayInputDisabled(showCIControl, baseDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
-        setScatterOverlayInputDisabled(showPIControl, baseDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
+        setScatterOverlayInputDisabled(showLineControl, overlayDisabled, overlayMessage, { clearWhenDisabled: clearTrendWhenDisabled });
+        setScatterOverlayInputDisabled(showPlotStatsControl, overlayDisabled, overlayMessage, { clearWhenDisabled: clearTrendWhenDisabled });
+        const trendReady = !overlayDisabled && !!showLineControl?.checked;
+        const intervalMessage = trendReady ? '' : (overlayMessage || 'Enable the trend line first.');
+        setScatterOverlayInputDisabled(showCIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
+        setScatterOverlayInputDisabled(showPIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
         console.debug('Debug: scatter overlay controls synced', {
           type,
           statsReady,
@@ -19344,7 +19362,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             });
           }
           registerScatterGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
-          ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
+          // 3D plots must scale uniformly so the projected cube, axis labels, title,
+          // legend, and every glyph keep their proportions. preserveAspectRatio
+          // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
+          // from being non-uniformly stretched when the rendered box aspect differs
+          // from the content aspect, on initial render, rotation, and resize.
+          ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
           return;
         }
         const previousPlotChildren = Array.from(plotEl.childNodes || []);

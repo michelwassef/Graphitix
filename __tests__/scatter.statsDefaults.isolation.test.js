@@ -26,6 +26,24 @@ function createSeedPayload(scatterComponent){
   return payload;
 }
 
+// Marks a payload as having already-calculated statistics so the trend-line / stats-on-plot
+// overlay controls are enabled. Scatter (like line.js) disables those controls until stats
+// are computed, so any payload that turns the trend line on must look like stats are present.
+function withScatterComputedStats(payload){
+  payload.config = payload.config || {};
+  payload.config.stats = {
+    ...(payload.config.stats || {}),
+    lastRunVersion: 1,
+    contextVersion: 1,
+    contextSignature: 'test-scatter-stats',
+    statType: 'auto',
+    regressionMode: 'linear',
+    fitMethod: 'ols',
+    resultsHtml: '<table class="stats-table-card"><tbody><tr><td>R²</td><td>0.99</td></tr></tbody></table>'
+  };
+  return payload;
+}
+
 function createVolcanoPayload(scatterComponent){
   const payload = scatterComponent.createEmptyPayload();
   payload.data = [
@@ -222,7 +240,7 @@ describe('Scatter stats defaults isolation', () => {
     expect(scatterComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    const payloadA = createSeedPayload(scatterComponent);
+    const payloadA = withScatterComputedStats(createSeedPayload(scatterComponent));
     payloadA.config = payloadA.config || {};
     payloadA.config.graphType = 'scatter';
     payloadA.config.viewMode = '2d';
@@ -307,7 +325,7 @@ describe('Scatter stats defaults isolation', () => {
       expect(scatterComponent).toBeTruthy();
       expect(main?.tabs).toBeTruthy();
 
-      const payloadA = createSeedPayload(scatterComponent);
+      const payloadA = withScatterComputedStats(createSeedPayload(scatterComponent));
       payloadA.config = payloadA.config || {};
       payloadA.config.graphType = 'scatter';
       payloadA.config.viewMode = '2d';

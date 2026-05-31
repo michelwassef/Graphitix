@@ -10075,7 +10075,12 @@
         }
         debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges: renderAxisRanges3d });
         registerPcaGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
-        ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
+        // 3D plots must scale uniformly so the projected cube, axis labels, title,
+        // legend, and every glyph keep their proportions. preserveAspectRatio
+        // "xMidYMid meet" (vs the 2D "none"/fill-distort default) prevents the SVG
+        // from being non-uniformly stretched when the rendered box aspect differs
+        // from the content aspect, on initial render, rotation, and resize.
+        ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
         syncPcaAutoDrawNoticeWidth('draw');
         return;

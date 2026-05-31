@@ -9754,7 +9754,14 @@
 
       registerLineGridControlTarget(svg3, { fallbackThickness: axisStrokeWidthBase });
       handleLineStatsUnavailable(null, 'Statistics are available in 2D view.');
-      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph' });
+      // 3D plots must scale uniformly: the content (projected cube, axis labels,
+      // title, legend, and every glyph) is laid out in fixed viewBox coordinates and
+      // must NEVER be non-uniformly stretched to fill a container of a different
+      // aspect. Using preserveAspectRatio="xMidYMid meet" (instead of the 2D
+      // "none"/fill-distort default) guarantees proportions are preserved on initial
+      // render, rotation, and resize. Without it, a content bbox whose aspect differs
+      // from the rendered box stretches the whole plot vertically/horizontally.
+      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw-3d');
       console.debug('Debug: drawLine3d complete', { debugStamp });
