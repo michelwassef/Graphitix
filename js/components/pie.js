@@ -727,14 +727,45 @@ let state = {
   }
   let pieFontEventBound = false;
 
-  function schedulePieViewRefresh(reason){
+  function schedulePieViewRefresh(reason, extraOptions){
+    const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const nextReason = reason || options.reason || 'pie-view-refresh';
+    // Mirror line.js (scheduleLineViewRefresh) / scatter.js (scheduleScatterViewRefresh):
+    // derive interaction intent from the reason and propagate userInitiated/forceDraw so
+    // user-driven refreshes (resize, style edits) are never dropped by the
+    // post-render-cache-restore draw suppression that guards the tab-scoped scheduler.
+    const normalizedReason = String(nextReason).toLowerCase();
+    const passiveReason = normalizedReason.includes('restore')
+      || normalizedReason.includes('payload')
+      || normalizedReason.includes('programmatic')
+      || normalizedReason.includes('auto')
+      || normalizedReason.includes('init')
+      || normalizedReason.includes('observer')
+      || normalizedReason.includes('layout')
+      || normalizedReason.includes('sync');
+    const lifecycleMeta = {
+      tabId: pie.__boundTabId || null,
+      reason: nextReason,
+      source: 'pie-view-refresh',
+      forceDraw: options.force === true || options.forceDraw === true,
+      userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
+    };
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('pie', lifecycleMeta)){
+      pieDebug('Debug: pie view refresh suppressed by lifecycle', { reason: nextReason, tabId: pie.__boundTabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: pie.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'pie-view-refresh' } });
+      return;
+    }
     if(typeof state.scheduleDraw !== 'function'){
       return;
     }
-    state.scheduleDraw({
+    const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
-      reason: reason || 'pie-view-refresh'
+      reason: nextReason,
+      source: 'pie-view-refresh',
+      forceDraw: lifecycleMeta.forceDraw === true,
+      userInitiated: lifecycleMeta.userInitiated === true
     });
+    state.scheduleDraw(scheduleOptions);
   }
 
   function isPieFontStyleEvent(detail){
@@ -1138,9 +1169,7 @@ let state = {
     if(node && node.textContent !== nextValue){
       node.textContent = nextValue;
     }
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    schedulePieViewRefresh('title-change');
   }
 
   function applyPieColorValue(label, value){
@@ -1156,9 +1185,7 @@ let state = {
     }else{
       return true;
     }
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    schedulePieViewRefresh('color-change');
     return true;
   }
 
@@ -3762,7 +3789,7 @@ let state = {
         }
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
       }
-      state.scheduleDraw(); }));
+      schedulePieViewRefresh(el?.id ? `${el.id}-change` : 'pie-config-change'); }));
     if(pieShowLegendInput){
       const legendHost=pieShowLegendInput.closest('label');
       if(legendHost){
@@ -3772,15 +3799,15 @@ let state = {
       pieShowLegendInput.addEventListener('change',()=>{
         pieDebug('Debug: pie showLegend change',{checked:pieShowLegendInput.checked});
         ensurePieLegendControlPlacement();
-        state.scheduleDraw();
+        schedulePieViewRefresh('legend-toggle');
       });
     }
-    pieShowFrame.addEventListener('change',()=>{pieDebug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
+    pieShowFrame.addEventListener('change',()=>{pieDebug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); schedulePieViewRefresh('frame-toggle');});
     if(pieBorderColor){
-      pieBorderColor.addEventListener('input',()=>{ pieDebug('Debug: pie border color change',{value: pieBorderColor.value}); state.scheduleDraw(); });
+      pieBorderColor.addEventListener('input',()=>{ pieDebug('Debug: pie border color change',{value: pieBorderColor.value}); schedulePieViewRefresh('border-color-change'); });
     }
     if(pieBorderWidth){
-      pieBorderWidth.addEventListener('input',()=>{ pieDebug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
+      pieBorderWidth.addEventListener('input',()=>{ pieDebug('Debug: pie border width change',{value: pieBorderWidth.value}); schedulePieViewRefresh('border-width-change'); });
     }
     const pieComputeStatsButton = getPieNodeById('pieComputeStats');
     if(pieComputeStatsButton){
@@ -5517,7 +5544,7 @@ let state = {
     state.root = targetRoot || resolvePieRoot();
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
-    const schedulePieLayoutDraw = () => {
+    const schedulePieLayoutDraw = (meta) => {
       const resizeState = normalizePieResizeState();
       const phase = resizeState.phase;
       const muteUntil = Number(resizeState.observeMuteUntil) || 0;
@@ -5532,7 +5559,9 @@ let state = {
         return;
       }
       if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+        // Forward the componentLayout scheduleMeta so panel-drag user resizes keep
+        // their userInitiated flag through the tab-scoped scheduler's suppression gate.
+        state.scheduleDraw(meta && typeof meta === 'object' ? meta : undefined);
       }
     };
     const schedulePieResizeDraw = phase => {
@@ -5544,14 +5573,12 @@ let state = {
       ){
         return;
       }
-      if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw({
-          viewOnly: true,
-          reason: 'resize',
-          resizePhase: currentPhase || null,
-          force: PIE_RESIZE_FINALIZE_PHASES.has(currentPhase)
-        });
-      }
+      // Route through the shared view-refresh contract so resize redraws carry
+      // userInitiated/forceDraw and survive the post-restore suppression after reopen.
+      schedulePieViewRefresh('resize', {
+        resizePhase: currentPhase || null,
+        force: PIE_RESIZE_FINALIZE_PHASES.has(currentPhase)
+      });
     };
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'pie',

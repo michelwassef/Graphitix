@@ -243,6 +243,64 @@ describe('Shared.hot AG Grid binding', () => {
     expect(session.workspaceState.sessionUserDirty).toBe(true);
   });
 
+  test('a user cell edit lifts the owner tab restore suppression so the graph redraws after reopen', () => {
+    require('../js/main/session.js');
+    const session = global.window.Main.session;
+    const tab = session.createTab({
+      title: 'Reopened Matrix',
+      type: 'box',
+      payload: {
+        type: 'box',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ],
+        config: {}
+      }
+    });
+    session.workspaceState.tabs.push(tab);
+    session.workspaceState.activeTabId = tab.id;
+
+    const Shared = global.window.Shared;
+    const clearSpy = jest.fn();
+    const releaseSpy = jest.fn();
+    const prevLifecycle = Shared.componentLifecycle;
+    const prevLayout = Shared.componentLayout;
+    Shared.componentLifecycle = Object.assign({}, prevLifecycle, { clearPostRestoreDrawSuppression: clearSpy });
+    Shared.componentLayout = Object.assign({}, prevLayout, { releaseSuppressedSchedulesFor: releaseSpy });
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    try {
+      const hot = Shared.hot.createStandardTable(
+        container,
+        { rows: 2, cols: 2 },
+        () => {},
+        {
+          debugLabel: 'box',
+          data: [
+            ['A', 'B'],
+            ['C', 'D']
+          ]
+        }
+      );
+      // Ignore any schedules emitted by table construction; we only care about the edit.
+      clearSpy.mockClear();
+      releaseSpy.mockClear();
+
+      hot.setDataAtCell(1, 1, 'D2', 'edit');
+
+      expect(tab.payload.data[1][1]).toBe('D2');
+      // The owner-tab sync resolves the tab reliably (no DOM walking) and lifts the
+      // post-restore guard for it, so the component's afterChange redraw is not dropped.
+      expect(clearSpy).toHaveBeenCalledWith('box', expect.objectContaining({ tabId: tab.id }));
+      expect(releaseSpy).toHaveBeenCalledWith('box', expect.objectContaining({ tabId: tab.id }));
+    } finally {
+      Shared.componentLifecycle = prevLifecycle;
+      Shared.componentLayout = prevLayout;
+    }
+  });
+
   test('component table payload hook preserves non-matrix payload data shapes', () => {
     require('../js/main/session.js');
     const session = global.window.Main.session;
@@ -549,5 +607,109 @@ describe('Shared.hot AG Grid binding', () => {
     expect(hot.countRows()).toBe(3);
     expect(hot.getDataAtCell(1, 0)).toBe('B');
     expect(hot.getDataAtCell(2, 0)).toBe('C');
+  });
+
+  test('user cell edits schedule a userInitiated draw while programmatic loads stay non-user', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotUserInitiated';
+    document.body.appendChild(container);
+
+    const scheduleCalls = [];
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      meta => scheduleCalls.push(meta),
+      {
+        debugLabel: 'test-ag-grid-user-initiated',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ]
+      }
+    );
+    expect(hot).toBeTruthy();
+
+    // A programmatic load (the shape used during file reopen / payload apply) must
+    // NOT be flagged userInitiated, so the post-render-cache-restore guard can keep
+    // restore invisible.
+    hot.loadData([
+      ['Label', 'X Value'],
+      ['Cat', 4.5]
+    ], { source: 'loadData' });
+    const loadCall = scheduleCalls.find(call => call && call.reason === 'afterLoadData');
+    expect(loadCall).toBeTruthy();
+    expect(loadCall.userInitiated).not.toBe(true);
+
+    // A genuine user cell edit (AG grid 'edit' source) must be flagged userInitiated
+    // so it redraws even while the post-restore guard is still active after reopen.
+    scheduleCalls.length = 0;
+    const col1 = capturedGridOptions.columnDefs.find(col => col.colId === 'c1');
+    expect(col1).toBeTruthy();
+    col1.valueSetter({ data: { __rowIndex: 0 }, node: { rowIndex: 0 }, newValue: 'X_NEW' });
+    capturedGridOptions.onCellValueChanged({
+      node: { rowIndex: 0 },
+      column: { getColId: () => 'c1' },
+      oldValue: 'X Value',
+      newValue: 'X_NEW',
+      source: 'edit'
+    });
+    const editCall = scheduleCalls.find(call => call && call.reason === 'afterChange');
+    expect(editCall).toBeTruthy();
+    expect(editCall.userInitiated).toBe(true);
+  });
+
+  test('a user table edit lifts the post-restore draw suppression for the owning tab', () => {
+    const Shared = global.window.Shared;
+    const clearSpy = jest.fn();
+    const releaseSpy = jest.fn();
+    const prevLifecycle = Shared.componentLifecycle;
+    const prevLayout = Shared.componentLayout;
+    Shared.componentLifecycle = Object.assign({}, prevLifecycle, { clearPostRestoreDrawSuppression: clearSpy });
+    Shared.componentLayout = Object.assign({}, prevLayout, { releaseSuppressedSchedulesFor: releaseSpy });
+
+    const container = document.createElement('div');
+    container.id = 'testAgHotClear';
+    // resolveUndoTabId walks the DOM for the owning workspace tab.
+    container.dataset.workspaceTabId = 'reopened-tab-1';
+    document.body.appendChild(container);
+    try {
+      // debugLabel 'line' + a no-op scheduleDraw mirrors a component whose schedule
+      // proxy drops the payload, so the userInitiated flag alone cannot help — the
+      // suppression release is what makes the data edit redraw after reopen.
+      const hot = Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+        debugLabel: 'line',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ]
+      });
+      expect(hot).toBeTruthy();
+
+      // A programmatic load (reopen / payload apply) must NOT lift the guard.
+      hot.loadData([
+        ['Label', 'X Value'],
+        ['Cat', 4.5]
+      ], { source: 'loadData' });
+      expect(clearSpy).not.toHaveBeenCalled();
+      expect(releaseSpy).not.toHaveBeenCalled();
+
+      // A genuine user cell edit lifts the guard for the owning tab.
+      const col1 = capturedGridOptions.columnDefs.find(col => col.colId === 'c1');
+      expect(col1).toBeTruthy();
+      col1.valueSetter({ data: { __rowIndex: 0 }, node: { rowIndex: 0 }, newValue: 'X_NEW' });
+      capturedGridOptions.onCellValueChanged({
+        node: { rowIndex: 0 },
+        column: { getColId: () => 'c1' },
+        oldValue: 'X Value',
+        newValue: 'X_NEW',
+        source: 'edit'
+      });
+      expect(clearSpy).toHaveBeenCalledWith('line', expect.objectContaining({ tabId: 'reopened-tab-1' }));
+      expect(releaseSpy).toHaveBeenCalledWith('line', expect.objectContaining({ tabId: 'reopened-tab-1' }));
+    } finally {
+      Shared.componentLifecycle = prevLifecycle;
+      Shared.componentLayout = prevLayout;
+    }
   });
 });

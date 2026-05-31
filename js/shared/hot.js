@@ -244,6 +244,29 @@
     return markTabUserModifiedForOwner(tab, reason, meta);
   };
 
+  // A genuine user table mutation makes a restored render stale. Lift the
+  // post-render-cache-restore draw suppression (and any deferred component-layout
+  // schedules) for the owning tab so the component's data-change redraw is not
+  // swallowed right after a file reopen. This mirrors the global user-input
+  // listener, but keys off the reliably resolved owner tab instead of DOM event
+  // targets — AG grid cell commits do not always surface a change/click the global
+  // listener can attribute to the workspace tab. The session render cache itself is
+  // invalidated separately by the payload update (assignTabPayload).
+  const releaseOwnerTabRestoreSuppression = (tab, reason) => {
+    try {
+      const tabId = String(tab?.id || '').trim();
+      const componentKey = String(tab?.type || '').trim();
+      if (!tabId || !componentKey) {
+        return;
+      }
+      const releaseMeta = { tabId, reason: `table-${reason || 'edit'}` };
+      Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(componentKey, releaseMeta);
+      Shared.componentLayout?.releaseSuppressedSchedulesFor?.(componentKey, releaseMeta);
+    } catch (err) {
+      console.error('Shared.hot release owner-tab restore suppression error', { tabId: tab?.id || null, err });
+    }
+  };
+
   const resolveComponentForTab = tab => {
     const type = String(tab?.type || '').trim();
     const registryComponent = type ? global.Main?.components?.registry?.[type] : null;
@@ -352,6 +375,10 @@
       });
       return false;
     }
+    // Lift restore-time draw suppression before the component schedules its
+    // afterChange redraw, so the first data edit after a file reopen updates the
+    // graph instead of waiting for a later resize to clear the guard.
+    releaseOwnerTabRestoreSuppression(tab, effectiveReason);
     if (typeof session?.updateTabPayload !== 'function') {
       return markTabUserModifiedForOwner(tab, effectiveReason, {
         source: meta.source || null,
@@ -9065,6 +9092,64 @@
       }
       return null;
     };
+    // Genuine user table mutations (typing, paste, fill, undo/redo, structural
+    // edits, exclusion/filter/column-move) must redraw the graph even right after a
+    // file reopen, when the post-render-cache-restore draw suppression is still
+    // active. Flagging them userInitiated lets them bypass that guard the same way
+    // line/scatter/pca view refreshes do. Programmatic loads (loadData →
+    // afterLoadData), auto-growth and restore-time per-cell normalizations carry
+    // bespoke sources and stay non-user so reopen/restore remains invisible.
+    const USER_TABLE_EDIT_SOURCE_RE = /^(edit|paste|fill|copypaste|copy-paste|autofill|undoredo|insert_|remove_|alter)/i;
+    const classifyScheduleUserInitiated = (reason, payload)=>{
+      const currentReason = typeof reason === 'string' ? reason : '';
+      const source = typeof payload?.source === 'string' ? payload.source.trim() : '';
+      switch(currentReason){
+        case 'exclusion-change':
+        case 'filter-change':
+        case 'afterColumnMove':
+          // These only originate from user toolbar/drag interactions.
+          return true;
+        case 'afterChange':
+        case 'afterPaste':
+        case 'afterCreateRow':
+        case 'afterRemoveRow':
+        case 'afterCreateCol':
+        case 'afterRemoveCol':
+          // Empty/edit/paste/fill/undo/alter sources are user edits; bespoke
+          // component sources (loadData, label-row, empty-defaults, header-normalize,
+          // autoGrow) are programmatic and intentionally excluded.
+          return source === '' || USER_TABLE_EDIT_SOURCE_RE.test(source);
+        default:
+          // afterLoadData, autoGrowRows/Cols, updateSettings, render, etc.
+          return false;
+      }
+    };
+    // On a genuine user table edit, lift the post-render-cache-restore draw
+    // suppression for the owning tab — the same release the global user-input
+    // listener performs for control change/click. Component schedule proxies are
+    // not uniform (several drop the schedule payload and call their scheduler with
+    // no args), so propagating a userInitiated flag alone is not enough to cover
+    // every component; clearing the guard here fixes the data-edit-after-reopen
+    // case for all of them. Programmatic loads/normalizations are never user-
+    // initiated, so the guard stays intact through restore.
+    const releaseRestoreSuppressionForUserEdit = (reason)=>{
+      try{
+        const lifecycle = Shared.componentLifecycle;
+        const layout = Shared.componentLayout;
+        if(!lifecycle && !layout){
+          return;
+        }
+        const tabId = (typeof resolveUndoTabId === 'function' ? resolveUndoTabId() : '') || '';
+        if(!tabId){
+          return;
+        }
+        const releaseMeta = { tabId, reason: `table-${reason || 'edit'}` };
+        lifecycle?.clearPostRestoreDrawSuppression?.(debugLabel, releaseMeta);
+        layout?.releaseSuppressedSchedulesFor?.(debugLabel, releaseMeta);
+      }catch(err){
+        console.error('Shared.hot release restore suppression error', err);
+      }
+    };
     const triggerSchedule = (reason, meta)=>{
       if(!scheduleFn){
         return;
@@ -9075,6 +9160,13 @@
         if(inferredInvalidate){
           payload.invalidate = inferredInvalidate;
         }
+      }
+      if(!Object.prototype.hasOwnProperty.call(payload, 'userInitiated')
+        && classifyScheduleUserInitiated(reason, payload)){
+        payload.userInitiated = true;
+      }
+      if(payload.userInitiated === true){
+        releaseRestoreSuppressionForUserEdit(reason);
       }
       if(batchDepth > 0){
         if(pendingSchedulePayload && typeof pendingSchedulePayload === 'object'){

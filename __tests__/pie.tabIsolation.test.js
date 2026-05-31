@@ -103,4 +103,45 @@ describe('Pie tab host isolation', () => {
     expect(wrapper.querySelectorAll('.data-view-host__table').length).toBe(1);
     expect(wrapper.querySelectorAll('[id=\"pieHot\"]').length).toBe(1);
   });
+
+  test('user style control routes through the view-refresh suppression contract as userInitiated', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+
+    const pie = window.Components?.pie;
+    expect(pie).toBeTruthy();
+    const loadExample = document.getElementById('pieLoadExample');
+    expect(loadExample).toBeTruthy();
+    loadExample.click();
+    await flush();
+
+    // Stand in a recording componentLifecycle so we can observe the suppression check.
+    // Pre-fix, style controls called the tab-scoped scheduler raw (no source/userInitiated),
+    // so the post-render-cache-restore guard could drop the first style edit after reopen.
+    const calls = [];
+    const previousLifecycle = window.Shared.componentLifecycle;
+    window.Shared.componentLifecycle = Object.assign({}, previousLifecycle, {
+      shouldSuppressDraw: (componentKey, meta) => {
+        calls.push({ componentKey, meta: meta || {} });
+        return false;
+      },
+      emitLifecycleEvent: () => {}
+    });
+    try {
+      const showFrame = document.getElementById('pieShowFrame');
+      expect(showFrame).toBeTruthy();
+      showFrame.checked = !showFrame.checked;
+      showFrame.dispatchEvent(new Event('change', { bubbles: true }));
+      await flush();
+
+      const refreshCall = calls.find(
+        entry => entry.componentKey === 'pie' && entry.meta.source === 'pie-view-refresh'
+      );
+      expect(refreshCall).toBeTruthy();
+      expect(refreshCall.meta.reason).toBe('frame-toggle');
+      expect(refreshCall.meta.userInitiated).toBe(true);
+    } finally {
+      window.Shared.componentLifecycle = previousLifecycle;
+    }
+  });
 });
