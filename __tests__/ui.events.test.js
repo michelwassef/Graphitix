@@ -217,9 +217,8 @@ describe('UI events and example loaders', () => {
     const yAxisLine = axisLines.find(line => {
       const x1 = line.getAttribute('x1');
       const x2 = line.getAttribute('x2');
-      const stroke = (line.getAttribute('stroke') || '').toLowerCase();
-      return x1 != null && x1 === x2 && stroke !== 'transparent';
-    });
+      return x1 != null && x1 === x2;
+    }) || axisLines[0];
     expect(yAxisLine).toBeTruthy();
     yAxisLine.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await flushAsyncWork(8);

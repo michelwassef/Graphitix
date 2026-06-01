@@ -206,6 +206,20 @@ describe('Regression controls persistence', () => {
 
     line.draw();
     await new Promise(resolve => setTimeout(resolve, 0));
+    const computeBtn = document.getElementById('lineComputeStats');
+    expect(computeBtn).toBeTruthy();
+    computeBtn.click();
+    let retries = 30;
+    while(retries > 0){
+      const nextPayload = line.getPayload();
+      const nextSummaries = nextPayload?.config?.regression?.seriesSummaries;
+      if(Array.isArray(nextSummaries) && nextSummaries.length > 0){
+        break;
+      }
+      // Stats compute can settle asynchronously through the component scheduler.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      retries -= 1;
+    }
 
     const saved = line.getPayload();
     expect(saved.config.regression.mode).toBe('linear');

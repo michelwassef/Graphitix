@@ -296,8 +296,10 @@ test('line regression overlays require calculated statistics and interval toggle
   await page.locator('#lineComputeStats').click();
   await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
   await expect(page.locator('#lineShowTrendLine')).toBeEnabled({ timeout: 20_000 });
+  await setCheckboxes(page, ['lineShowTrendLine'], true);
   await expect(page.locator('#lineShowIntervals')).toBeEnabled({ timeout: 20_000 });
   await expect(page.locator('#lineShowPredictionIntervals')).toBeEnabled({ timeout: 20_000 });
+  await setCheckboxes(page, ['lineShowIntervals', 'lineShowPredictionIntervals'], true);
   await waitForLineStatsResults(page);
   await expect(page.locator('#lineStatsResults')).toContainText('Residual diagnostics', { timeout: 20_000 });
   await waitForLineRegressionOverlays(page);

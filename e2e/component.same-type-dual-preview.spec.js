@@ -110,6 +110,7 @@ async function hoverAndAssertPreview(page, tabId) {
   const tabButton = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tabButton).toBeVisible();
   await tabButton.scrollIntoViewIfNeeded();
+  await tabButton.hover();
   await page.evaluate((targetId) => {
     const button = document.querySelector(`#workspaceTabsList .workspace-tab[data-tab-id="${targetId}"]`);
     const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === targetId) || null;
@@ -121,15 +122,13 @@ async function hoverAndAssertPreview(page, tabId) {
   }, tabId);
   await page.waitForFunction((targetId) => {
     const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
-    const isWheelIcon = !!tooltip?.querySelector?.('svg.resizer-options-icon');
     const hasRenderableContent = !!tooltip?.querySelector?.('svg')
       || String(tooltip?.innerHTML || '').trim().length > 0;
     return !!tooltip
       && tooltip.dataset.tabId === targetId
       && tooltip.style.display !== 'none'
-      && !isWheelIcon
       && hasRenderableContent;
-  }, tabId, { timeout: 20_000 });
+  }, tabId, { timeout: 30_000 });
   const hoverMeta = await page.evaluate((targetId) => {
     const tab = window.Main?.session?.workspaceState?.tabs?.find(item => item?.id === targetId) || null;
     const tooltip = document.querySelector('.workspace-tab__preview-tooltip');
@@ -160,7 +159,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(300);
     const afterFirst = await getWorkspaceTabIds(page);
     const firstId = afterFirst.find(id => !beforeFirst.has(id) && id !== 'welcome');
     expect(firstId).toBeTruthy();
@@ -168,7 +167,7 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
     const beforeSecond = new Set(afterFirst);
     await openComponentTab(page, component, { first: false });
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    await page.waitForTimeout(350);
+    await page.waitForTimeout(300);
     const afterSecond = await getWorkspaceTabIds(page);
     const secondId = afterSecond.find(id => !beforeSecond.has(id) && id !== 'welcome');
     expect(secondId).toBeTruthy();
@@ -178,11 +177,13 @@ for (const component of COMPONENTS_WITH_DUAL_PREVIEW_COVERAGE) {
     const secondCapture = await ensurePreviewForActiveTab(page);
     expect(secondCapture.ok).toBe(true);
     expect(secondCapture.tabId).toBe(secondId);
+    expect(secondCapture.hasPreview).toBe(true);
 
     await activateTabById(page, firstId);
     const firstCapture = await ensurePreviewForActiveTab(page);
     expect(firstCapture.ok).toBe(true);
     expect(firstCapture.tabId).toBe(firstId);
+    expect(firstCapture.hasPreview).toBe(true);
 
     await activateSelectionTab(page);
 

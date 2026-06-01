@@ -44,6 +44,24 @@ async function captureActivePreview(page) {
   });
 }
 
+async function captureActivePreviewWithRetry(page, expectedType) {
+  let preview = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    preview = await captureActivePreview(page);
+    if (
+      preview
+      && preview.type === expectedType
+      && typeof preview.markup === 'string'
+      && preview.markup.includes('<svg')
+      && !preview.markup.includes('Preparing preview')
+    ) {
+      return preview;
+    }
+    await page.waitForTimeout(250 + (attempt * 120));
+  }
+  return preview;
+}
+
 test.describe('Non-canvas tab previews', () => {
   for (const component of NON_CANVAS_COMPONENTS) {
     test(`${component.type} example keeps a usable tab preview`, async ({ page }) => {
@@ -53,9 +71,9 @@ test.describe('Non-canvas tab previews', () => {
 
       await openComponentFromWelcome(page, component, { first: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(700);
 
-      const preview = await captureActivePreview(page);
+      const preview = await captureActivePreviewWithRetry(page, component.type);
       expect(preview, `${component.type} should return preview metadata`).toBeTruthy();
       expect(preview.type).toBe(component.type);
       expect(preview.markup).toContain('<svg');

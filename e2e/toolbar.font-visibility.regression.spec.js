@@ -34,12 +34,18 @@ test('format toolbar stays visible when clicking graph text (line + scatter)', a
   for (let i = 0; i < cases.length; i += 1) {
     const c = cases[i];
     await openComponentFromWelcome(page, c, { first: i === 0 });
-    await clickExampleButtonIfPresent(page, c.exampleButtonId);
-    await page.waitForFunction(
-      selector => !!document.querySelector(selector + ' text[data-font-editable="1"]'),
-      c.graphSelector,
-      { timeout: 30_000 }
-    );
+    let hasEditableText = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await clickExampleButtonIfPresent(page, c.exampleButtonId);
+      hasEditableText = await page.evaluate((selector) => {
+        return !!document.querySelector(`${selector} text[data-font-editable="1"]`);
+      }, c.graphSelector);
+      if (hasEditableText) {
+        break;
+      }
+      await page.waitForTimeout(300 + attempt * 120);
+    }
+    expect(hasEditableText, `${c.type} should expose an editable graph text node`).toBe(true);
 
     const textTarget = page.locator(`${c.graphSelector} text[data-font-editable="1"]`).first();
     await textTarget.click({ force: true });

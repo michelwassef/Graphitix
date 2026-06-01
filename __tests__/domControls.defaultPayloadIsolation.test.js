@@ -600,7 +600,7 @@ describe('domControls default payload cache isolation', () => {
     expect(config.restoreRenderCache).not.toHaveBeenCalled();
   });
 
-  test('showWorkspaceForTab preserves large data matrix by reference on first activation', () => {
+  test('showWorkspaceForTab clones large data matrix on first activation to avoid payload aliasing', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();
 
@@ -648,7 +648,10 @@ describe('domControls default payload cache isolation', () => {
     expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
     expect(appliedPayload).toBeTruthy();
     expect(appliedPayload).not.toBe(payload);
-    expect(appliedPayload.data).toBe(payload.data);
+    expect(appliedPayload.data).not.toBe(payload.data);
+    expect(Array.isArray(appliedPayload.data)).toBe(true);
+    expect(appliedPayload.data.length).toBe(payload.data.length);
+    expect(appliedPayload.data[0]).toStrictEqual(payload.data[0]);
     expect(appliedPayload.config).not.toBe(payload.config);
     expect(appliedPayload.config.alpha).toBe(0);
     expect(session.fastClonePayload).not.toHaveBeenCalledWith(payload);

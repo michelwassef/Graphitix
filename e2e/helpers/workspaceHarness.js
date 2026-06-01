@@ -197,6 +197,23 @@ async function clickExampleButtonIfPresent(page, buttonId) {
   if (!buttonId) {
     return false;
   }
+  const activeType = await page.evaluate(() => {
+    const state = window.Main?.session?.workspaceState;
+    const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
+    return activeTab?.type || '';
+  });
+  if (activeType) {
+    const trustedButton = page.locator(`#${activeType}Page #${buttonId}`).first();
+    const trustedVisible = await trustedButton.isVisible().catch(() => false);
+    const trustedEnabled = trustedVisible
+      ? await trustedButton.isEnabled().catch(() => false)
+      : false;
+    if (trustedVisible && trustedEnabled) {
+      await trustedButton.click({ force: true });
+      await page.waitForTimeout(700);
+      return true;
+    }
+  }
   const clicked = await page.evaluate((targetId) => {
     const state = window.Main?.session?.workspaceState;
     const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;

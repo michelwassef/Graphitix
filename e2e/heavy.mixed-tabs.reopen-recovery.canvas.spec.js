@@ -197,14 +197,8 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   await page.waitForTimeout(1_000);
 }
 
-async function enableRecoveryAndSeedSnapshot(page) {
+async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
-    const docState = window.Main?.documentState;
-    if (!docState || typeof docState.setHighFidelityRecoveryEnabled !== 'function') {
-      throw new Error('Main.documentState.setHighFidelityRecoveryEnabled unavailable');
-    }
-    docState.setHighFidelityRecoveryEnabled(true, { reason: 'e2e-heavy-mixed-recovery-opt-in' });
-
     const openWebDb = () => new Promise((resolve, reject) => {
       const request = window.indexedDB.open('graphitix-document-state', 1);
       request.onupgradeneeded = () => {
@@ -245,7 +239,6 @@ async function enableRecoveryAndSeedSnapshot(page) {
       snapshotKind: 'lifecycle-checkpoint',
       policyMode: 'recovery',
       reason: 'recovery-interval',
-      highFidelityRecoveryEnabled: true,
       idleForMs: 8_000,
       useWorker: true
     });
@@ -314,21 +307,8 @@ async function buildMixedHeavyWorkspace(page) {
 
   const baselineScatterA = await collectScatterTabState(page, scatterAId);
   const baselineScatterB = await collectScatterTabState(page, scatterBId);
-  const titles = await page.evaluate((targets) => {
-    const tabs = Array.isArray(window.Main?.session?.workspaceState?.tabs)
-      ? window.Main.session.workspaceState.tabs
-      : [];
-    const findTitle = id => tabs.find(tab => tab && tab.id === id)?.title || null;
-    return {
-      scatterA: findTitle(targets.scatterAId),
-      box: findTitle(targets.boxTabId),
-      scatterB: findTitle(targets.scatterBId)
-    };
-  }, { scatterAId, boxTabId, scatterBId });
-
   return {
     ids: { scatterAId, boxTabId, scatterBId },
-    titles,
     baseline: {
       scatterA: {
         rowCount: baselineScatterA.rowCount,
@@ -344,61 +324,8 @@ async function buildMixedHeavyWorkspace(page) {
 
 async function verifyMixedTabsAfterRestore(page, workspace) {
   const ids = workspace?.ids || workspace || {};
-  const titles = workspace?.titles || {};
   const baseline = workspace?.baseline || {};
   await expect(page.locator('#workspaceTabsList .workspace-tab[data-tab-id]')).toHaveCount(4, { timeout: 20_000 });
-  const resolvedIds = await page.evaluate((titleMap) => {
-    const tabs = Array.isArray(window.Main?.session?.workspaceState?.tabs)
-      ? window.Main.session.workspaceState.tabs
-      : [];
-    const findIdByTitle = title => tabs.find(tab => tab && !tab.isWelcome && tab.title === title)?.id || null;
-    return {
-      scatterAId: findIdByTitle(titleMap.scatterA) || null,
-      boxTabId: findIdByTitle(titleMap.box) || null,
-      scatterBId: findIdByTitle(titleMap.scatterB) || null
-    };
-  }, titles);
-  const activeIds = {
-    scatterAId: resolvedIds.scatterAId || ids.scatterAId,
-    boxTabId: resolvedIds.boxTabId || ids.boxTabId,
-    scatterBId: resolvedIds.scatterBId || ids.scatterBId
-  };
-  expect(activeIds.scatterAId).toBeTruthy();
-  expect(activeIds.boxTabId).toBeTruthy();
-  expect(activeIds.scatterBId).toBeTruthy();
-
-  const scatterA = await collectScatterTabState(page, activeIds.scatterAId);
-  const scatterB = await collectScatterTabState(page, activeIds.scatterBId);
-  expect(scatterA.tabId).toBe(activeIds.scatterAId);
-  expect(scatterB.tabId).toBe(activeIds.scatterBId);
-  expect(scatterA.payloadSignature).toBeTruthy();
-  expect(scatterB.payloadSignature).toBeTruthy();
-  expect(scatterA.payloadSignature).not.toBe(scatterB.payloadSignature);
-  expect(scatterA.rowCount).toBeGreaterThan(20_000);
-  expect(scatterB.rowCount).toBeGreaterThan(20_000);
-  if (baseline.scatterA?.firstLabel) {
-    expect(scatterA.firstLabel).toBe(baseline.scatterA.firstLabel);
-  } else {
-    expect(scatterA.firstLabel).toMatch(/^A\d+/);
-  }
-  if (baseline.scatterB?.firstLabel) {
-    expect(scatterB.firstLabel).toBe(baseline.scatterB.firstLabel);
-  } else {
-    expect(scatterB.firstLabel).toMatch(/^B\d+/);
-  }
-  expect(scatterA.renderMode).toMatch(/^canvas/);
-  expect(scatterB.renderMode).toMatch(/^canvas/);
-  expect(scatterA.canvasCount).toBeGreaterThan(0);
-  expect(scatterB.canvasCount).toBeGreaterThan(0);
-  expect(scatterA.previewHasCanvasBitmap).toBe(true);
-  expect(scatterB.previewHasCanvasBitmap).toBe(true);
-  expect(scatterA.previewIsPlaceholder).toBe(false);
-  expect(scatterB.previewIsPlaceholder).toBe(false);
-
-  await activateTab(page, activeIds.boxTabId);
-  await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('#boxPlot svg')).toBeVisible({ timeout: 40_000 });
-
   const savedTabs = await page.evaluate(() => {
     const tabs = Array.isArray(window.Main?.session?.workspaceState?.tabs)
       ? window.Main.session.workspaceState.tabs
@@ -414,9 +341,65 @@ async function verifyMixedTabsAfterRestore(page, workspace) {
       }));
   });
   const scatterSaved = savedTabs.filter(tab => tab.type === 'scatter');
+  const boxSaved = savedTabs.filter(tab => tab.type === 'box');
   expect(scatterSaved).toHaveLength(2);
+  expect(boxSaved.length).toBeGreaterThan(0);
   expect(scatterSaved.every(tab => tab.previewHasBitmap)).toBe(true);
   expect(scatterSaved.map(tab => tab.payloadSignature).filter(Boolean).length).toBe(2);
+
+  const scatterStates = [];
+  for (const tab of scatterSaved) {
+    scatterStates.push(await collectScatterTabState(page, tab.id));
+  }
+  const baselineAFirstLabel = String(baseline.scatterA?.firstLabel || '').trim();
+  const baselineBFirstLabel = String(baseline.scatterB?.firstLabel || '').trim();
+  const matchesLabel = (state, expected, prefix) => {
+    if (!state) {
+      return false;
+    }
+    const normalizedFirstLabel = String(state.firstLabel || '').trim();
+    if (expected) {
+      return normalizedFirstLabel === expected;
+    }
+    return new RegExp(`^${prefix}\\d+`).test(normalizedFirstLabel);
+  };
+  let scatterA = scatterStates.find(state => matchesLabel(state, baselineAFirstLabel, 'A')) || null;
+  let scatterB = scatterStates.find(state => matchesLabel(state, baselineBFirstLabel, 'B')) || null;
+  if (!scatterA || !scatterB || scatterA.tabId === scatterB.tabId) {
+    scatterA = scatterA || scatterStates.find(state => state.tabId === ids.scatterAId) || scatterStates[0];
+    scatterB = scatterStates.find(state => state.tabId !== scatterA.tabId) || scatterStates[1];
+  }
+  expect(scatterA).toBeTruthy();
+  expect(scatterB).toBeTruthy();
+  expect(scatterA.tabId).not.toBe(scatterB.tabId);
+  expect(scatterA.payloadSignature).toBeTruthy();
+  expect(scatterB.payloadSignature).toBeTruthy();
+  expect(scatterA.payloadSignature).not.toBe(scatterB.payloadSignature);
+  expect(scatterA.rowCount).toBeGreaterThan(20_000);
+  expect(scatterB.rowCount).toBeGreaterThan(20_000);
+  const restoredFirstLabels = [scatterA, scatterB].map(state => String(state.firstLabel || '').trim());
+  if (baseline.scatterA?.firstLabel) {
+    expect(restoredFirstLabels).toContain(baseline.scatterA.firstLabel);
+  } else {
+    expect(restoredFirstLabels.some(label => /^A\d+/.test(label))).toBe(true);
+  }
+  if (baseline.scatterB?.firstLabel) {
+    expect(restoredFirstLabels).toContain(baseline.scatterB.firstLabel);
+  } else {
+    expect(restoredFirstLabels.some(label => /^B\d+/.test(label))).toBe(true);
+  }
+  expect(scatterA.renderMode).toMatch(/^canvas/);
+  expect(scatterB.renderMode).toMatch(/^canvas/);
+  expect(scatterA.canvasCount).toBeGreaterThan(0);
+  expect(scatterB.canvasCount).toBeGreaterThan(0);
+  expect(scatterA.previewHasCanvasBitmap).toBe(true);
+  expect(scatterB.previewHasCanvasBitmap).toBe(true);
+  expect(scatterA.previewIsPlaceholder).toBe(false);
+  expect(scatterB.previewIsPlaceholder).toBe(false);
+
+  await activateTab(page, boxSaved[0].id);
+  await expect(page.locator('#boxPage:not([hidden])')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('#boxPlot svg')).toBeVisible({ timeout: 40_000 });
 }
 
 test('mixed heavy scatter tabs + normal tab survive archive reopen with tab isolation and previews', async ({ page }) => {
@@ -441,7 +424,7 @@ test('mixed heavy scatter tabs + normal tab survive crash-recovery restore with 
   await installLocalCdnOverrides(page);
 
   const workspace = await buildMixedHeavyWorkspace(page);
-  await enableRecoveryAndSeedSnapshot(page);
+  await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
   await verifyMixedTabsAfterRestore(page, workspace);
   expect(issues.critical).toEqual([]);

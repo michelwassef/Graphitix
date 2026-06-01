@@ -4,13 +4,13 @@
   "page": "boxPage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 278,
-    "exampleMs": 3925,
-    "exerciseMs": 30796
+    "openMs": 103,
+    "exampleMs": 721,
+    "exerciseMs": 4372
   },
   "totals": {
-    "logEntries": 12349,
-    "warnings": 3,
+    "logEntries": 2788,
+    "warnings": 0,
     "errors": 0,
     "ignoredErrors": 0,
     "critical": 0
@@ -18,21 +18,21 @@
   "perf": {
     "beforeExercise": {
       "componentType": "box",
-      "capturedAt": 1774686246348,
+      "capturedAt": 1780322590650,
       "componentHook": null,
       "sharedPerformance": {
-        "totalEntries": 8,
+        "totalEntries": 5,
         "relevantEntries": [
           {
             "id": 2,
             "label": "box.data.collect",
-            "duration": 3,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 1,
+              "token": 4,
               "traces": 0,
               "labels": 0,
               "outcome": "success"
@@ -41,10 +41,10 @@
           {
             "id": 1,
             "label": "box.draw",
-            "duration": 64.69999998807907,
+            "duration": 39,
             "meta": {
               "component": "box",
-              "token": 1,
+              "token": 4,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -54,10 +54,10 @@
           {
             "id": 3,
             "label": "box.draw",
-            "duration": 24.899999976158142,
+            "duration": 8,
             "meta": {
               "component": "box",
-              "token": 2,
+              "token": 5,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -67,94 +67,53 @@
           {
             "id": 5,
             "label": "box.data.collect",
-            "duration": 1.699999988079071,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 12,
-              "token": 3,
-              "traces": 3,
-              "labels": 3,
+              "cols": 17,
+              "token": 6,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
             "id": 4,
             "label": "box.draw",
-            "duration": 166.40000000596046,
+            "duration": 9.400000095367432,
             "meta": {
               "component": "box",
-              "token": 3,
+              "token": 6,
               "outcome": "success",
               "rows": 100,
-              "cols": 12,
-              "traces": 3
-            }
-          },
-          {
-            "id": 7,
-            "label": "box.data.collect",
-            "duration": 2.5999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 12,
-              "token": 4,
-              "traces": 3,
-              "labels": 3,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 6,
-            "label": "box.draw",
-            "duration": 98.80000001192093,
-            "meta": {
-              "component": "box",
-              "token": 4,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 3
-            }
-          },
-          {
-            "id": 8,
-            "label": "box.draw",
-            "duration": 81.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 5,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 3
+              "cols": 17,
+              "traces": 0
             }
           }
         ],
-        "maxEntryId": 8,
+        "maxEntryId": 5,
         "componentReport": [
           {
             "key": "box.draw",
-            "count": 5,
-            "totalMs": 436.7,
-            "avgMs": 87.34,
-            "p50Ms": 81.9,
-            "p95Ms": 152.88,
-            "maxMs": 166.4,
-            "minMs": 24.9
+            "count": 3,
+            "totalMs": 56.4,
+            "avgMs": 18.8,
+            "p50Ms": 9.4,
+            "p95Ms": 36.04,
+            "maxMs": 39,
+            "minMs": 8
           },
           {
             "key": "box.data.collect",
-            "count": 3,
-            "totalMs": 7.3,
-            "avgMs": 2.433,
-            "p50Ms": 2.6,
-            "p95Ms": 2.96,
-            "maxMs": 3,
-            "minMs": 1.7
+            "count": 2,
+            "totalMs": 1.6,
+            "avgMs": 0.8,
+            "p50Ms": 0.8,
+            "p95Ms": 0.8,
+            "maxMs": 0.8,
+            "minMs": 0.8
           }
         ],
         "hotReport": []
@@ -162,21 +121,21 @@
     },
     "afterExercise": {
       "componentType": "box",
-      "capturedAt": 1774686277278,
+      "capturedAt": 1780322595026,
       "componentHook": null,
       "sharedPerformance": {
-        "totalEntries": 88,
+        "totalEntries": 37,
         "relevantEntries": [
           {
             "id": 2,
             "label": "box.data.collect",
-            "duration": 3,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 1,
+              "token": 4,
               "traces": 0,
               "labels": 0,
               "outcome": "success"
@@ -185,10 +144,10 @@
           {
             "id": 1,
             "label": "box.draw",
-            "duration": 64.69999998807907,
+            "duration": 39,
             "meta": {
               "component": "box",
-              "token": 1,
+              "token": 4,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -198,10 +157,10 @@
           {
             "id": 3,
             "label": "box.draw",
-            "duration": 24.899999976158142,
+            "duration": 8,
             "meta": {
               "component": "box",
-              "token": 2,
+              "token": 5,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
@@ -211,1210 +170,483 @@
           {
             "id": 5,
             "label": "box.data.collect",
-            "duration": 1.699999988079071,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 12,
-              "token": 3,
-              "traces": 3,
-              "labels": 3,
+              "cols": 17,
+              "token": 6,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
             "id": 4,
             "label": "box.draw",
-            "duration": 166.40000000596046,
+            "duration": 9.400000095367432,
             "meta": {
               "component": "box",
-              "token": 3,
+              "token": 6,
               "outcome": "success",
               "rows": 100,
-              "cols": 12,
-              "traces": 3
+              "cols": 17,
+              "traces": 0
             }
           },
           {
             "id": 7,
             "label": "box.data.collect",
-            "duration": 2.5999999940395355,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "mode": "grouped",
               "rows": 100,
               "cols": 12,
-              "token": 4,
-              "traces": 3,
-              "labels": 3,
+              "token": 8,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
             "id": 6,
             "label": "box.draw",
-            "duration": 98.80000001192093,
+            "duration": 93.40000009536743,
             "meta": {
               "component": "box",
-              "token": 4,
+              "token": 8,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 3
+              "traces": 0
             }
           },
           {
-            "id": 8,
-            "label": "box.draw",
-            "duration": 81.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 5,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 3
-            }
-          },
-          {
-            "id": 10,
+            "id": 9,
             "label": "box.data.collect",
-            "duration": 3.399999976158142,
+            "duration": 0.7999997138977051,
             "meta": {
               "component": "box",
               "mode": "grouped",
               "rows": 100,
               "cols": 12,
-              "token": 6,
-              "traces": 3,
-              "labels": 3,
+              "token": 9,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
-            "id": 9,
+            "id": 8,
             "label": "box.draw",
-            "duration": 151.80000001192093,
-            "meta": {
-              "component": "box",
-              "token": 6,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 3
-            }
-          },
-          {
-            "id": 11,
-            "label": "box.draw",
-            "duration": 95.30000001192093,
-            "meta": {
-              "component": "box",
-              "token": 7,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 3
-            }
-          },
-          {
-            "id": 13,
-            "label": "box.data.collect",
-            "duration": 5.200000017881393,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 12,
-              "token": 8,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 12,
-            "label": "box.draw",
-            "duration": 216.89999997615814,
-            "meta": {
-              "component": "box",
-              "token": 8,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 12
-            }
-          },
-          {
-            "id": 14,
-            "label": "box.draw",
-            "duration": 180.19999998807907,
+            "duration": 97,
             "meta": {
               "component": "box",
               "token": 9,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 12
+              "traces": 0
             }
           },
           {
-            "id": 16,
+            "id": 11,
             "label": "box.data.collect",
-            "duration": 3.5,
+            "duration": 0.6000003814697266,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "mode": "grouped",
               "rows": 100,
               "cols": 12,
               "token": 10,
-              "traces": 12,
-              "labels": 12,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
-            "id": 15,
+            "id": 10,
             "label": "box.draw",
-            "duration": 156.60000002384186,
+            "duration": 63.19999980926514,
             "meta": {
               "component": "box",
               "token": 10,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 12
+              "traces": 0
             }
           },
           {
-            "id": 18,
+            "id": 13,
             "label": "box.data.collect",
-            "duration": 3.5999999940395355,
+            "duration": 0.6999998092651367,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
               "cols": 12,
-              "token": 11,
-              "traces": 12,
-              "labels": 12,
+              "token": 12,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
             }
           },
           {
-            "id": 17,
+            "id": 12,
             "label": "box.draw",
-            "duration": 154,
-            "meta": {
-              "component": "box",
-              "token": 11,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 12,
-              "traces": 12
-            }
-          },
-          {
-            "id": 19,
-            "label": "box.draw",
-            "duration": 157.89999997615814,
+            "duration": 10.899999618530273,
             "meta": {
               "component": "box",
               "token": 12,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 12
+              "traces": 0
             }
           },
           {
-            "id": 20,
+            "id": 15,
+            "label": "box.data.collect",
+            "duration": 0.5999999046325684,
+            "meta": {
+              "component": "box",
+              "mode": "single",
+              "rows": 100,
+              "cols": 12,
+              "token": 13,
+              "traces": 0,
+              "labels": 0,
+              "outcome": "success"
+            }
+          },
+          {
+            "id": 14,
             "label": "box.draw",
-            "duration": 133.09999999403954,
+            "duration": 8.899999618530273,
             "meta": {
               "component": "box",
               "token": 13,
               "outcome": "success",
               "rows": 100,
               "cols": 12,
-              "traces": 12
+              "traces": 0
             }
           },
           {
-            "id": 22,
+            "id": 17,
             "label": "box.data.collect",
-            "duration": 9.199999988079071,
+            "duration": 0.8000001907348633,
             "meta": {
               "component": "box",
               "mode": "single",
               "rows": 100,
-              "cols": 57,
+              "cols": 12,
               "token": 14,
-              "traces": 12,
-              "labels": 12,
+              "traces": 0,
+              "labels": 0,
               "outcome": "success"
+            }
+          },
+          {
+            "id": 16,
+            "label": "box.draw",
+            "duration": 10.099999904632568,
+            "meta": {
+              "component": "box",
+              "token": 14,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 0
+            }
+          },
+          {
+            "id": 19,
+            "label": "box.data.collect",
+            "duration": 0.6999998092651367,
+            "meta": {
+              "component": "box",
+              "mode": "single",
+              "rows": 100,
+              "cols": 12,
+              "token": 15,
+              "traces": 0,
+              "labels": 0,
+              "outcome": "success"
+            }
+          },
+          {
+            "id": 18,
+            "label": "box.draw",
+            "duration": 13.199999809265137,
+            "meta": {
+              "component": "box",
+              "token": 15,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 0
+            }
+          },
+          {
+            "id": 20,
+            "label": "box.draw",
+            "duration": 6.400000095367432,
+            "meta": {
+              "component": "box",
+              "token": 16,
+              "outcome": "success",
+              "rows": 100,
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 21,
             "label": "box.draw",
-            "duration": 107.59999999403954,
+            "duration": 6.299999713897705,
             "meta": {
               "component": "box",
-              "token": 14,
+              "token": 17,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 24,
-            "label": "box.data.collect",
-            "duration": 7.200000017881393,
+            "id": 22,
+            "label": "box.draw",
+            "duration": 9,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 18,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 15,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 23,
             "label": "box.draw",
-            "duration": 128.69999998807907,
+            "duration": 7.199999809265137,
             "meta": {
               "component": "box",
-              "token": 15,
+              "token": 19,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 26,
-            "label": "box.data.collect",
-            "duration": 11.599999994039536,
+            "id": 24,
+            "label": "box.draw",
+            "duration": 7.800000190734863,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 20,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 16,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 25,
             "label": "box.draw",
-            "duration": 141.5,
+            "duration": 7.400000095367432,
             "meta": {
               "component": "box",
-              "token": 16,
+              "token": 21,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 28,
-            "label": "box.data.collect",
-            "duration": 17,
+            "id": 26,
+            "label": "box.draw",
+            "duration": 7.300000190734863,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 22,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 17,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 27,
             "label": "box.draw",
-            "duration": 172.69999998807907,
+            "duration": 8.299999713897705,
             "meta": {
               "component": "box",
-              "token": 17,
+              "token": 23,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 30,
-            "label": "box.data.collect",
-            "duration": 17,
+            "id": 28,
+            "label": "box.draw",
+            "duration": 7.900000095367432,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 24,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 18,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 29,
             "label": "box.draw",
-            "duration": 182.30000001192093,
+            "duration": 8.300000190734863,
             "meta": {
               "component": "box",
-              "token": 18,
+              "token": 25,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 32,
-            "label": "box.data.collect",
-            "duration": 10.599999994039536,
+            "id": 30,
+            "label": "box.draw",
+            "duration": 7.200000286102295,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 26,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 19,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 31,
             "label": "box.draw",
-            "duration": 173.7999999821186,
+            "duration": 8.900000095367432,
             "meta": {
               "component": "box",
-              "token": 19,
+              "token": 27,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 34,
-            "label": "box.data.collect",
-            "duration": 15.300000011920929,
+            "id": 32,
+            "label": "box.draw",
+            "duration": 7.300000190734863,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 28,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 20,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 33,
             "label": "box.draw",
-            "duration": 138.2999999821186,
+            "duration": 8.900000095367432,
             "meta": {
               "component": "box",
-              "token": 20,
+              "token": 29,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 36,
-            "label": "box.data.collect",
-            "duration": 15.099999994039536,
+            "id": 34,
+            "label": "box.draw",
+            "duration": 7.900000095367432,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 30,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 21,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 35,
             "label": "box.draw",
-            "duration": 163.39999997615814,
+            "duration": 8,
             "meta": {
               "component": "box",
-              "token": 21,
+              "token": 31,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           },
           {
-            "id": 38,
-            "label": "box.data.collect",
-            "duration": 14.900000005960464,
+            "id": 36,
+            "label": "box.draw",
+            "duration": 7.599999904632568,
             "meta": {
               "component": "box",
-              "mode": "single",
+              "token": 32,
+              "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "token": 22,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
+              "cols": 12,
+              "traces": 0
             }
           },
           {
             "id": 37,
             "label": "box.draw",
-            "duration": 186.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 22,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 40,
-            "label": "box.data.collect",
-            "duration": 16.899999976158142,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 23,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 39,
-            "label": "box.draw",
-            "duration": 195.2000000178814,
-            "meta": {
-              "component": "box",
-              "token": 23,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 42,
-            "label": "box.data.collect",
-            "duration": 8.200000017881393,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 24,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 41,
-            "label": "box.draw",
-            "duration": 151.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 24,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 44,
-            "label": "box.data.collect",
-            "duration": 14.5,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 25,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 43,
-            "label": "box.draw",
-            "duration": 183.2999999821186,
-            "meta": {
-              "component": "box",
-              "token": 25,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 46,
-            "label": "box.data.collect",
-            "duration": 6.700000017881393,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 26,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 45,
-            "label": "box.draw",
-            "duration": 89.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 26,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 48,
-            "label": "box.data.collect",
-            "duration": 6.0999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 27,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 47,
-            "label": "box.draw",
-            "duration": 97,
-            "meta": {
-              "component": "box",
-              "token": 27,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 50,
-            "label": "box.data.collect",
-            "duration": 5.100000023841858,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 28,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 49,
-            "label": "box.draw",
-            "duration": 84.59999999403954,
-            "meta": {
-              "component": "box",
-              "token": 28,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 52,
-            "label": "box.data.collect",
-            "duration": 8.700000017881393,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 29,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 51,
-            "label": "box.draw",
-            "duration": 113.2000000178814,
-            "meta": {
-              "component": "box",
-              "token": 29,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 54,
-            "label": "box.data.collect",
-            "duration": 5.800000011920929,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 30,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 53,
-            "label": "box.draw",
-            "duration": 89,
-            "meta": {
-              "component": "box",
-              "token": 30,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 56,
-            "label": "box.data.collect",
-            "duration": 4,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 31,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 55,
-            "label": "box.draw",
-            "duration": 91.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 31,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 58,
-            "label": "box.data.collect",
-            "duration": 6.0999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 32,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 57,
-            "label": "box.draw",
-            "duration": 99.19999998807907,
-            "meta": {
-              "component": "box",
-              "token": 32,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 60,
-            "label": "box.data.collect",
-            "duration": 6.5999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 33,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 59,
-            "label": "box.draw",
-            "duration": 95.40000000596046,
+            "duration": 8.400000095367432,
             "meta": {
               "component": "box",
               "token": 33,
               "outcome": "success",
               "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 62,
-            "label": "box.data.collect",
-            "duration": 4.699999988079071,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 34,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 61,
-            "label": "box.draw",
-            "duration": 97.5,
-            "meta": {
-              "component": "box",
-              "token": 34,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 64,
-            "label": "box.data.collect",
-            "duration": 10.900000005960464,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 35,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 63,
-            "label": "box.draw",
-            "duration": 118.59999999403954,
-            "meta": {
-              "component": "box",
-              "token": 35,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 66,
-            "label": "box.data.collect",
-            "duration": 4.799999982118607,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 36,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 65,
-            "label": "box.draw",
-            "duration": 161.89999997615814,
-            "meta": {
-              "component": "box",
-              "token": 36,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 68,
-            "label": "box.data.collect",
-            "duration": 7.300000011920929,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 37,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 67,
-            "label": "box.draw",
-            "duration": 87.90000000596046,
-            "meta": {
-              "component": "box",
-              "token": 37,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 70,
-            "label": "box.data.collect",
-            "duration": 4,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 38,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 69,
-            "label": "box.draw",
-            "duration": 100.5,
-            "meta": {
-              "component": "box",
-              "token": 38,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 72,
-            "label": "box.data.collect",
-            "duration": 8.800000011920929,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 39,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 71,
-            "label": "box.draw",
-            "duration": 97.7999999821186,
-            "meta": {
-              "component": "box",
-              "token": 39,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 74,
-            "label": "box.data.collect",
-            "duration": 4.700000017881393,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 40,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 73,
-            "label": "box.draw",
-            "duration": 91,
-            "meta": {
-              "component": "box",
-              "token": 40,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 76,
-            "label": "box.data.collect",
-            "duration": 4.800000011920929,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 41,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 75,
-            "label": "box.draw",
-            "duration": 90.2000000178814,
-            "meta": {
-              "component": "box",
-              "token": 41,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 78,
-            "label": "box.data.collect",
-            "duration": 16.100000023841858,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 42,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 77,
-            "label": "box.draw",
-            "duration": 115.30000001192093,
-            "meta": {
-              "component": "box",
-              "token": 42,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 80,
-            "label": "box.data.collect",
-            "duration": 5.9000000059604645,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 43,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 79,
-            "label": "box.draw",
-            "duration": 85.59999999403954,
-            "meta": {
-              "component": "box",
-              "token": 43,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 82,
-            "label": "box.data.collect",
-            "duration": 7.5999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 44,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 81,
-            "label": "box.draw",
-            "duration": 89.2000000178814,
-            "meta": {
-              "component": "box",
-              "token": 44,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 84,
-            "label": "box.data.collect",
-            "duration": 6.0999999940395355,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 45,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 83,
-            "label": "box.draw",
-            "duration": 94.2999999821186,
-            "meta": {
-              "component": "box",
-              "token": 45,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 86,
-            "label": "box.data.collect",
-            "duration": 8,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 46,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 85,
-            "label": "box.draw",
-            "duration": 128.59999999403954,
-            "meta": {
-              "component": "box",
-              "token": 46,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
-            }
-          },
-          {
-            "id": 88,
-            "label": "box.data.collect",
-            "duration": 7.699999988079071,
-            "meta": {
-              "component": "box",
-              "mode": "single",
-              "rows": 100,
-              "cols": 57,
-              "token": 47,
-              "traces": 12,
-              "labels": 12,
-              "outcome": "success"
-            }
-          },
-          {
-            "id": 87,
-            "label": "box.draw",
-            "duration": 106,
-            "meta": {
-              "component": "box",
-              "token": 47,
-              "outcome": "success",
-              "rows": 100,
-              "cols": 57,
-              "traces": 12
+              "cols": 12,
+              "traces": 0
             }
           }
         ],
-        "maxEntryId": 88,
+        "maxEntryId": 37,
         "componentReport": [
           {
             "key": "box.draw",
-            "count": 47,
-            "totalMs": 5832.7,
-            "avgMs": 124.1,
-            "p50Ms": 113.2,
-            "p95Ms": 185.82,
-            "maxMs": 216.9,
-            "minMs": 24.9
+            "count": 28,
+            "totalMs": 493.2,
+            "avgMs": 17.614,
+            "p50Ms": 8.3,
+            "p95Ms": 82.83,
+            "maxMs": 97,
+            "minMs": 6.3
           },
           {
             "key": "box.data.collect",
-            "count": 41,
-            "totalMs": 331,
-            "avgMs": 8.073,
-            "p50Ms": 6.7,
-            "p95Ms": 16.9,
-            "maxMs": 17,
-            "minMs": 1.7
+            "count": 9,
+            "totalMs": 6.6,
+            "avgMs": 0.733,
+            "p50Ms": 0.8,
+            "p95Ms": 0.8,
+            "maxMs": 0.8,
+            "minMs": 0.6
           }
         ],
         "hotReport": []
@@ -1424,12 +656,12 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 9069,
+          "durationMs": 1377,
           "actionResult": {
-            "visible": 12,
+            "visible": 10,
             "attempted": 4,
             "changed": 3,
-            "durationMs": 9069
+            "durationMs": 1377
           },
           "perfDelta": {
             "hook": {},
@@ -1437,17 +669,17 @@
             "componentReport": [
               {
                 "key": "box.draw",
-                "deltaCount": 8,
-                "deltaTotalMs": 1245.8,
-                "latestAvgMs": 129.423,
-                "latestP95Ms": 194.88
+                "deltaCount": 9,
+                "deltaTotalMs": 309.4,
+                "latestAvgMs": 30.483,
+                "latestP95Ms": 95.02
               },
               {
                 "key": "box.data.collect",
-                "deltaCount": 4,
-                "deltaTotalMs": 15.7,
-                "latestAvgMs": 3.286,
-                "latestP95Ms": 4.72
+                "deltaCount": 7,
+                "deltaTotalMs": 5,
+                "latestAvgMs": 0.733,
+                "latestP95Ms": 0.8
               }
             ],
             "hotReport": []
@@ -1455,12 +687,12 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 5172,
+          "durationMs": 1235,
           "actionResult": {
-            "visible": 46,
+            "visible": 34,
             "attempted": 5,
             "toggled": 5,
-            "durationMs": 5172
+            "durationMs": 1235
           },
           "perfDelta": {
             "hook": {},
@@ -1471,14 +703,14 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 2142,
+          "durationMs": 286,
           "actionResult": {
-            "visible": 24,
+            "visible": 30,
             "clicked": 1,
             "clickedLabels": [
               "Guide me"
             ],
-            "durationMs": 2142
+            "durationMs": 286
           },
           "perfDelta": {
             "hook": {},
@@ -1489,11 +721,11 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 12132,
+          "durationMs": 778,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 12132
+            "durationMs": 778
           },
           "perfDelta": {
             "hook": {},
@@ -1501,17 +733,10 @@
             "componentReport": [
               {
                 "key": "box.draw",
-                "deltaCount": 34,
-                "deltaTotalMs": 4150.2,
-                "latestAvgMs": 124.1,
-                "latestP95Ms": 185.82
-              },
-              {
-                "key": "box.data.collect",
-                "deltaCount": 34,
-                "deltaTotalMs": 308,
-                "latestAvgMs": 8.073,
-                "latestP95Ms": 16.9
+                "deltaCount": 16,
+                "deltaTotalMs": 127.4,
+                "latestAvgMs": 17.614,
+                "latestP95Ms": 82.83
               }
             ],
             "hotReport": []
@@ -1519,11 +744,11 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 910,
+          "durationMs": 365,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 910
+            "durationMs": 365
           },
           "perfDelta": {
             "hook": {},
@@ -1535,21 +760,21 @@
       ],
       "before": {
         "componentType": "box",
-        "capturedAt": 1774686246574,
+        "capturedAt": 1780322590654,
         "componentHook": null,
         "sharedPerformance": {
-          "totalEntries": 8,
+          "totalEntries": 5,
           "relevantEntries": [
             {
               "id": 2,
               "label": "box.data.collect",
-              "duration": 3,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 1,
+                "token": 4,
                 "traces": 0,
                 "labels": 0,
                 "outcome": "success"
@@ -1558,10 +783,10 @@
             {
               "id": 1,
               "label": "box.draw",
-              "duration": 64.69999998807907,
+              "duration": 39,
               "meta": {
                 "component": "box",
-                "token": 1,
+                "token": 4,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1571,10 +796,10 @@
             {
               "id": 3,
               "label": "box.draw",
-              "duration": 24.899999976158142,
+              "duration": 8,
               "meta": {
                 "component": "box",
-                "token": 2,
+                "token": 5,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1584,94 +809,53 @@
             {
               "id": 5,
               "label": "box.data.collect",
-              "duration": 1.699999988079071,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 12,
-                "token": 3,
-                "traces": 3,
-                "labels": 3,
+                "cols": 17,
+                "token": 6,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
               "id": 4,
               "label": "box.draw",
-              "duration": 166.40000000596046,
+              "duration": 9.400000095367432,
               "meta": {
                 "component": "box",
-                "token": 3,
+                "token": 6,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 12,
-                "traces": 3
-              }
-            },
-            {
-              "id": 7,
-              "label": "box.data.collect",
-              "duration": 2.5999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 12,
-                "token": 4,
-                "traces": 3,
-                "labels": 3,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 6,
-              "label": "box.draw",
-              "duration": 98.80000001192093,
-              "meta": {
-                "component": "box",
-                "token": 4,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 3
-              }
-            },
-            {
-              "id": 8,
-              "label": "box.draw",
-              "duration": 81.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 5,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 3
+                "cols": 17,
+                "traces": 0
               }
             }
           ],
-          "maxEntryId": 8,
+          "maxEntryId": 5,
           "componentReport": [
             {
               "key": "box.draw",
-              "count": 5,
-              "totalMs": 436.7,
-              "avgMs": 87.34,
-              "p50Ms": 81.9,
-              "p95Ms": 152.88,
-              "maxMs": 166.4,
-              "minMs": 24.9
+              "count": 3,
+              "totalMs": 56.4,
+              "avgMs": 18.8,
+              "p50Ms": 9.4,
+              "p95Ms": 36.04,
+              "maxMs": 39,
+              "minMs": 8
             },
             {
               "key": "box.data.collect",
-              "count": 3,
-              "totalMs": 7.3,
-              "avgMs": 2.433,
-              "p50Ms": 2.6,
-              "p95Ms": 2.96,
-              "maxMs": 3,
-              "minMs": 1.7
+              "count": 2,
+              "totalMs": 1.6,
+              "avgMs": 0.8,
+              "p50Ms": 0.8,
+              "p95Ms": 0.8,
+              "maxMs": 0.8,
+              "minMs": 0.8
             }
           ],
           "hotReport": []
@@ -1679,21 +863,21 @@
       },
       "after": {
         "componentType": "box",
-        "capturedAt": 1774686277080,
+        "capturedAt": 1780322595020,
         "componentHook": null,
         "sharedPerformance": {
-          "totalEntries": 88,
+          "totalEntries": 37,
           "relevantEntries": [
             {
               "id": 2,
               "label": "box.data.collect",
-              "duration": 3,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 1,
+                "token": 4,
                 "traces": 0,
                 "labels": 0,
                 "outcome": "success"
@@ -1702,10 +886,10 @@
             {
               "id": 1,
               "label": "box.draw",
-              "duration": 64.69999998807907,
+              "duration": 39,
               "meta": {
                 "component": "box",
-                "token": 1,
+                "token": 4,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1715,10 +899,10 @@
             {
               "id": 3,
               "label": "box.draw",
-              "duration": 24.899999976158142,
+              "duration": 8,
               "meta": {
                 "component": "box",
-                "token": 2,
+                "token": 5,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
@@ -1728,1210 +912,483 @@
             {
               "id": 5,
               "label": "box.data.collect",
-              "duration": 1.699999988079071,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 12,
-                "token": 3,
-                "traces": 3,
-                "labels": 3,
+                "cols": 17,
+                "token": 6,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
               "id": 4,
               "label": "box.draw",
-              "duration": 166.40000000596046,
+              "duration": 9.400000095367432,
               "meta": {
                 "component": "box",
-                "token": 3,
+                "token": 6,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 12,
-                "traces": 3
+                "cols": 17,
+                "traces": 0
               }
             },
             {
               "id": 7,
               "label": "box.data.collect",
-              "duration": 2.5999999940395355,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "mode": "grouped",
                 "rows": 100,
                 "cols": 12,
-                "token": 4,
-                "traces": 3,
-                "labels": 3,
+                "token": 8,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
               "id": 6,
               "label": "box.draw",
-              "duration": 98.80000001192093,
+              "duration": 93.40000009536743,
               "meta": {
                 "component": "box",
-                "token": 4,
+                "token": 8,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 3
+                "traces": 0
               }
             },
             {
-              "id": 8,
-              "label": "box.draw",
-              "duration": 81.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 5,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 3
-              }
-            },
-            {
-              "id": 10,
+              "id": 9,
               "label": "box.data.collect",
-              "duration": 3.399999976158142,
+              "duration": 0.7999997138977051,
               "meta": {
                 "component": "box",
                 "mode": "grouped",
                 "rows": 100,
                 "cols": 12,
-                "token": 6,
-                "traces": 3,
-                "labels": 3,
+                "token": 9,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
-              "id": 9,
+              "id": 8,
               "label": "box.draw",
-              "duration": 151.80000001192093,
-              "meta": {
-                "component": "box",
-                "token": 6,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 3
-              }
-            },
-            {
-              "id": 11,
-              "label": "box.draw",
-              "duration": 95.30000001192093,
-              "meta": {
-                "component": "box",
-                "token": 7,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 3
-              }
-            },
-            {
-              "id": 13,
-              "label": "box.data.collect",
-              "duration": 5.200000017881393,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 12,
-                "token": 8,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 12,
-              "label": "box.draw",
-              "duration": 216.89999997615814,
-              "meta": {
-                "component": "box",
-                "token": 8,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 12
-              }
-            },
-            {
-              "id": 14,
-              "label": "box.draw",
-              "duration": 180.19999998807907,
+              "duration": 97,
               "meta": {
                 "component": "box",
                 "token": 9,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 12
+                "traces": 0
               }
             },
             {
-              "id": 16,
+              "id": 11,
               "label": "box.data.collect",
-              "duration": 3.5,
+              "duration": 0.6000003814697266,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "mode": "grouped",
                 "rows": 100,
                 "cols": 12,
                 "token": 10,
-                "traces": 12,
-                "labels": 12,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
-              "id": 15,
+              "id": 10,
               "label": "box.draw",
-              "duration": 156.60000002384186,
+              "duration": 63.19999980926514,
               "meta": {
                 "component": "box",
                 "token": 10,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 12
+                "traces": 0
               }
             },
             {
-              "id": 18,
+              "id": 13,
               "label": "box.data.collect",
-              "duration": 3.5999999940395355,
+              "duration": 0.6999998092651367,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
                 "cols": 12,
-                "token": 11,
-                "traces": 12,
-                "labels": 12,
+                "token": 12,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
               }
             },
             {
-              "id": 17,
+              "id": 12,
               "label": "box.draw",
-              "duration": 154,
-              "meta": {
-                "component": "box",
-                "token": 11,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 12,
-                "traces": 12
-              }
-            },
-            {
-              "id": 19,
-              "label": "box.draw",
-              "duration": 157.89999997615814,
+              "duration": 10.899999618530273,
               "meta": {
                 "component": "box",
                 "token": 12,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 12
+                "traces": 0
               }
             },
             {
-              "id": 20,
+              "id": 15,
+              "label": "box.data.collect",
+              "duration": 0.5999999046325684,
+              "meta": {
+                "component": "box",
+                "mode": "single",
+                "rows": 100,
+                "cols": 12,
+                "token": 13,
+                "traces": 0,
+                "labels": 0,
+                "outcome": "success"
+              }
+            },
+            {
+              "id": 14,
               "label": "box.draw",
-              "duration": 133.09999999403954,
+              "duration": 8.899999618530273,
               "meta": {
                 "component": "box",
                 "token": 13,
                 "outcome": "success",
                 "rows": 100,
                 "cols": 12,
-                "traces": 12
+                "traces": 0
               }
             },
             {
-              "id": 22,
+              "id": 17,
               "label": "box.data.collect",
-              "duration": 9.199999988079071,
+              "duration": 0.8000001907348633,
               "meta": {
                 "component": "box",
                 "mode": "single",
                 "rows": 100,
-                "cols": 57,
+                "cols": 12,
                 "token": 14,
-                "traces": 12,
-                "labels": 12,
+                "traces": 0,
+                "labels": 0,
                 "outcome": "success"
+              }
+            },
+            {
+              "id": 16,
+              "label": "box.draw",
+              "duration": 10.099999904632568,
+              "meta": {
+                "component": "box",
+                "token": 14,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 0
+              }
+            },
+            {
+              "id": 19,
+              "label": "box.data.collect",
+              "duration": 0.6999998092651367,
+              "meta": {
+                "component": "box",
+                "mode": "single",
+                "rows": 100,
+                "cols": 12,
+                "token": 15,
+                "traces": 0,
+                "labels": 0,
+                "outcome": "success"
+              }
+            },
+            {
+              "id": 18,
+              "label": "box.draw",
+              "duration": 13.199999809265137,
+              "meta": {
+                "component": "box",
+                "token": 15,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 0
+              }
+            },
+            {
+              "id": 20,
+              "label": "box.draw",
+              "duration": 6.400000095367432,
+              "meta": {
+                "component": "box",
+                "token": 16,
+                "outcome": "success",
+                "rows": 100,
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 21,
               "label": "box.draw",
-              "duration": 107.59999999403954,
+              "duration": 6.299999713897705,
               "meta": {
                 "component": "box",
-                "token": 14,
+                "token": 17,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 24,
-              "label": "box.data.collect",
-              "duration": 7.200000017881393,
+              "id": 22,
+              "label": "box.draw",
+              "duration": 9,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 18,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 15,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 23,
               "label": "box.draw",
-              "duration": 128.69999998807907,
+              "duration": 7.199999809265137,
               "meta": {
                 "component": "box",
-                "token": 15,
+                "token": 19,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 26,
-              "label": "box.data.collect",
-              "duration": 11.599999994039536,
+              "id": 24,
+              "label": "box.draw",
+              "duration": 7.800000190734863,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 20,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 16,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 25,
               "label": "box.draw",
-              "duration": 141.5,
+              "duration": 7.400000095367432,
               "meta": {
                 "component": "box",
-                "token": 16,
+                "token": 21,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 28,
-              "label": "box.data.collect",
-              "duration": 17,
+              "id": 26,
+              "label": "box.draw",
+              "duration": 7.300000190734863,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 22,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 17,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 27,
               "label": "box.draw",
-              "duration": 172.69999998807907,
+              "duration": 8.299999713897705,
               "meta": {
                 "component": "box",
-                "token": 17,
+                "token": 23,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 30,
-              "label": "box.data.collect",
-              "duration": 17,
+              "id": 28,
+              "label": "box.draw",
+              "duration": 7.900000095367432,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 24,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 18,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 29,
               "label": "box.draw",
-              "duration": 182.30000001192093,
+              "duration": 8.300000190734863,
               "meta": {
                 "component": "box",
-                "token": 18,
+                "token": 25,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 32,
-              "label": "box.data.collect",
-              "duration": 10.599999994039536,
+              "id": 30,
+              "label": "box.draw",
+              "duration": 7.200000286102295,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 26,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 19,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 31,
               "label": "box.draw",
-              "duration": 173.7999999821186,
+              "duration": 8.900000095367432,
               "meta": {
                 "component": "box",
-                "token": 19,
+                "token": 27,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 34,
-              "label": "box.data.collect",
-              "duration": 15.300000011920929,
+              "id": 32,
+              "label": "box.draw",
+              "duration": 7.300000190734863,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 28,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 20,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 33,
               "label": "box.draw",
-              "duration": 138.2999999821186,
+              "duration": 8.900000095367432,
               "meta": {
                 "component": "box",
-                "token": 20,
+                "token": 29,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 36,
-              "label": "box.data.collect",
-              "duration": 15.099999994039536,
+              "id": 34,
+              "label": "box.draw",
+              "duration": 7.900000095367432,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 30,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 21,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 35,
               "label": "box.draw",
-              "duration": 163.39999997615814,
+              "duration": 8,
               "meta": {
                 "component": "box",
-                "token": 21,
+                "token": 31,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             },
             {
-              "id": 38,
-              "label": "box.data.collect",
-              "duration": 14.900000005960464,
+              "id": 36,
+              "label": "box.draw",
+              "duration": 7.599999904632568,
               "meta": {
                 "component": "box",
-                "mode": "single",
+                "token": 32,
+                "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "token": 22,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
+                "cols": 12,
+                "traces": 0
               }
             },
             {
               "id": 37,
               "label": "box.draw",
-              "duration": 186.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 22,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 40,
-              "label": "box.data.collect",
-              "duration": 16.899999976158142,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 23,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 39,
-              "label": "box.draw",
-              "duration": 195.2000000178814,
-              "meta": {
-                "component": "box",
-                "token": 23,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 42,
-              "label": "box.data.collect",
-              "duration": 8.200000017881393,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 24,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 41,
-              "label": "box.draw",
-              "duration": 151.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 24,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 44,
-              "label": "box.data.collect",
-              "duration": 14.5,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 25,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 43,
-              "label": "box.draw",
-              "duration": 183.2999999821186,
-              "meta": {
-                "component": "box",
-                "token": 25,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 46,
-              "label": "box.data.collect",
-              "duration": 6.700000017881393,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 26,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 45,
-              "label": "box.draw",
-              "duration": 89.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 26,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 48,
-              "label": "box.data.collect",
-              "duration": 6.0999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 27,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 47,
-              "label": "box.draw",
-              "duration": 97,
-              "meta": {
-                "component": "box",
-                "token": 27,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 50,
-              "label": "box.data.collect",
-              "duration": 5.100000023841858,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 28,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 49,
-              "label": "box.draw",
-              "duration": 84.59999999403954,
-              "meta": {
-                "component": "box",
-                "token": 28,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 52,
-              "label": "box.data.collect",
-              "duration": 8.700000017881393,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 29,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 51,
-              "label": "box.draw",
-              "duration": 113.2000000178814,
-              "meta": {
-                "component": "box",
-                "token": 29,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 54,
-              "label": "box.data.collect",
-              "duration": 5.800000011920929,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 30,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 53,
-              "label": "box.draw",
-              "duration": 89,
-              "meta": {
-                "component": "box",
-                "token": 30,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 56,
-              "label": "box.data.collect",
-              "duration": 4,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 31,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 55,
-              "label": "box.draw",
-              "duration": 91.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 31,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 58,
-              "label": "box.data.collect",
-              "duration": 6.0999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 32,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 57,
-              "label": "box.draw",
-              "duration": 99.19999998807907,
-              "meta": {
-                "component": "box",
-                "token": 32,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 60,
-              "label": "box.data.collect",
-              "duration": 6.5999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 33,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 59,
-              "label": "box.draw",
-              "duration": 95.40000000596046,
+              "duration": 8.400000095367432,
               "meta": {
                 "component": "box",
                 "token": 33,
                 "outcome": "success",
                 "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 62,
-              "label": "box.data.collect",
-              "duration": 4.699999988079071,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 34,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 61,
-              "label": "box.draw",
-              "duration": 97.5,
-              "meta": {
-                "component": "box",
-                "token": 34,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 64,
-              "label": "box.data.collect",
-              "duration": 10.900000005960464,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 35,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 63,
-              "label": "box.draw",
-              "duration": 118.59999999403954,
-              "meta": {
-                "component": "box",
-                "token": 35,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 66,
-              "label": "box.data.collect",
-              "duration": 4.799999982118607,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 36,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 65,
-              "label": "box.draw",
-              "duration": 161.89999997615814,
-              "meta": {
-                "component": "box",
-                "token": 36,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 68,
-              "label": "box.data.collect",
-              "duration": 7.300000011920929,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 37,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 67,
-              "label": "box.draw",
-              "duration": 87.90000000596046,
-              "meta": {
-                "component": "box",
-                "token": 37,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 70,
-              "label": "box.data.collect",
-              "duration": 4,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 38,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 69,
-              "label": "box.draw",
-              "duration": 100.5,
-              "meta": {
-                "component": "box",
-                "token": 38,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 72,
-              "label": "box.data.collect",
-              "duration": 8.800000011920929,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 39,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 71,
-              "label": "box.draw",
-              "duration": 97.7999999821186,
-              "meta": {
-                "component": "box",
-                "token": 39,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 74,
-              "label": "box.data.collect",
-              "duration": 4.700000017881393,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 40,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 73,
-              "label": "box.draw",
-              "duration": 91,
-              "meta": {
-                "component": "box",
-                "token": 40,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 76,
-              "label": "box.data.collect",
-              "duration": 4.800000011920929,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 41,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 75,
-              "label": "box.draw",
-              "duration": 90.2000000178814,
-              "meta": {
-                "component": "box",
-                "token": 41,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 78,
-              "label": "box.data.collect",
-              "duration": 16.100000023841858,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 42,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 77,
-              "label": "box.draw",
-              "duration": 115.30000001192093,
-              "meta": {
-                "component": "box",
-                "token": 42,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 80,
-              "label": "box.data.collect",
-              "duration": 5.9000000059604645,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 43,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 79,
-              "label": "box.draw",
-              "duration": 85.59999999403954,
-              "meta": {
-                "component": "box",
-                "token": 43,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 82,
-              "label": "box.data.collect",
-              "duration": 7.5999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 44,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 81,
-              "label": "box.draw",
-              "duration": 89.2000000178814,
-              "meta": {
-                "component": "box",
-                "token": 44,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 84,
-              "label": "box.data.collect",
-              "duration": 6.0999999940395355,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 45,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 83,
-              "label": "box.draw",
-              "duration": 94.2999999821186,
-              "meta": {
-                "component": "box",
-                "token": 45,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 86,
-              "label": "box.data.collect",
-              "duration": 8,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 46,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 85,
-              "label": "box.draw",
-              "duration": 128.59999999403954,
-              "meta": {
-                "component": "box",
-                "token": 46,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
-              }
-            },
-            {
-              "id": 88,
-              "label": "box.data.collect",
-              "duration": 7.699999988079071,
-              "meta": {
-                "component": "box",
-                "mode": "single",
-                "rows": 100,
-                "cols": 57,
-                "token": 47,
-                "traces": 12,
-                "labels": 12,
-                "outcome": "success"
-              }
-            },
-            {
-              "id": 87,
-              "label": "box.draw",
-              "duration": 106,
-              "meta": {
-                "component": "box",
-                "token": 47,
-                "outcome": "success",
-                "rows": 100,
-                "cols": 57,
-                "traces": 12
+                "cols": 12,
+                "traces": 0
               }
             }
           ],
-          "maxEntryId": 88,
+          "maxEntryId": 37,
           "componentReport": [
             {
               "key": "box.draw",
-              "count": 47,
-              "totalMs": 5832.7,
-              "avgMs": 124.1,
-              "p50Ms": 113.2,
-              "p95Ms": 185.82,
-              "maxMs": 216.9,
-              "minMs": 24.9
+              "count": 28,
+              "totalMs": 493.2,
+              "avgMs": 17.614,
+              "p50Ms": 8.3,
+              "p95Ms": 82.83,
+              "maxMs": 97,
+              "minMs": 6.3
             },
             {
               "key": "box.data.collect",
-              "count": 41,
-              "totalMs": 331,
-              "avgMs": 8.073,
-              "p50Ms": 6.7,
-              "p95Ms": 16.9,
-              "maxMs": 17,
-              "minMs": 1.7
+              "count": 9,
+              "totalMs": 6.6,
+              "avgMs": 0.733,
+              "p50Ms": 0.8,
+              "p95Ms": 0.8,
+              "maxMs": 0.8,
+              "minMs": 0.6
             }
           ],
           "hotReport": []
@@ -2940,43 +1397,13 @@
     },
     "slowestSteps": [
       {
-        "step": "drag-panel-resizer",
-        "durationMs": 12132,
-        "actionResult": {
-          "present": true,
-          "moved": true,
-          "durationMs": 12132
-        },
-        "perfDelta": {
-          "hook": {},
-          "sharedEntries": [],
-          "componentReport": [
-            {
-              "key": "box.draw",
-              "deltaCount": 34,
-              "deltaTotalMs": 4150.2,
-              "latestAvgMs": 124.1,
-              "latestP95Ms": 185.82
-            },
-            {
-              "key": "box.data.collect",
-              "deltaCount": 34,
-              "deltaTotalMs": 308,
-              "latestAvgMs": 8.073,
-              "latestP95Ms": 16.9
-            }
-          ],
-          "hotReport": []
-        }
-      },
-      {
         "step": "cycle-selects",
-        "durationMs": 9069,
+        "durationMs": 1377,
         "actionResult": {
-          "visible": 12,
+          "visible": 10,
           "attempted": 4,
           "changed": 3,
-          "durationMs": 9069
+          "durationMs": 1377
         },
         "perfDelta": {
           "hook": {},
@@ -2984,17 +1411,17 @@
           "componentReport": [
             {
               "key": "box.draw",
-              "deltaCount": 8,
-              "deltaTotalMs": 1245.8,
-              "latestAvgMs": 129.423,
-              "latestP95Ms": 194.88
+              "deltaCount": 9,
+              "deltaTotalMs": 309.4,
+              "latestAvgMs": 30.483,
+              "latestP95Ms": 95.02
             },
             {
               "key": "box.data.collect",
-              "deltaCount": 4,
-              "deltaTotalMs": 15.7,
-              "latestAvgMs": 3.286,
-              "latestP95Ms": 4.72
+              "deltaCount": 7,
+              "deltaTotalMs": 5,
+              "latestAvgMs": 0.733,
+              "latestP95Ms": 0.8
             }
           ],
           "hotReport": []
@@ -3002,12 +1429,50 @@
       },
       {
         "step": "toggle-checkboxes",
-        "durationMs": 5172,
+        "durationMs": 1235,
         "actionResult": {
-          "visible": 46,
+          "visible": 34,
           "attempted": 5,
           "toggled": 5,
-          "durationMs": 5172
+          "durationMs": 1235
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "drag-panel-resizer",
+        "durationMs": 778,
+        "actionResult": {
+          "present": true,
+          "moved": true,
+          "durationMs": 778
+        },
+        "perfDelta": {
+          "hook": {},
+          "sharedEntries": [],
+          "componentReport": [
+            {
+              "key": "box.draw",
+              "deltaCount": 16,
+              "deltaTotalMs": 127.4,
+              "latestAvgMs": 17.614,
+              "latestP95Ms": 82.83
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      {
+        "step": "adjust-zoom",
+        "durationMs": 365,
+        "actionResult": {
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 365
         },
         "perfDelta": {
           "hook": {},
@@ -3018,29 +1483,14 @@
       },
       {
         "step": "click-analysis-buttons",
-        "durationMs": 2142,
+        "durationMs": 286,
         "actionResult": {
-          "visible": 24,
+          "visible": 30,
           "clicked": 1,
           "clickedLabels": [
             "Guide me"
           ],
-          "durationMs": 2142
-        },
-        "perfDelta": {
-          "hook": {},
-          "sharedEntries": [],
-          "componentReport": [],
-          "hotReport": []
-        }
-      },
-      {
-        "step": "adjust-zoom",
-        "durationMs": 910,
-        "actionResult": {
-          "zoomInClicks": 2,
-          "zoomOutClicks": 1,
-          "durationMs": 910
+          "durationMs": 286
         },
         "perfDelta": {
           "hook": {},

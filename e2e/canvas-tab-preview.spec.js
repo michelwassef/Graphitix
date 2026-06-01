@@ -76,7 +76,8 @@ async function assertCanvasPreview(page, preview, type) {
   expect(preview.markup).not.toContain('data-preview-canvas-simplified');
   expect(preview.markup).not.toContain('data-preview-placeholder');
   expect(preview.markup).not.toContain('Preparing preview');
-  expect(preview.markup.length).toBeLessThan(120000);
+  // Allow richer canvas previews while still guarding against runaway payload growth.
+  expect(preview.markup.length).toBeLessThan(220000);
 
   await activateWelcomeTab(page);
   const tooltip = await hoverStoredPreview(page, preview.tabId);

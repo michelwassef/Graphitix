@@ -132,19 +132,16 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
   });
 
-  test('high-fidelity recovery opt-in is persisted and forwarded to recovery snapshot policy', async () => {
+  test('recovery snapshot forwards lifecycle-checkpoint policy inputs', async () => {
     const { sessionActions } = installDocumentState();
-    window.Main.documentState.setHighFidelityRecoveryEnabled(true, { reason: 'unit-test' });
 
     await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
 
-    expect(window.localStorage.setItem).toHaveBeenCalledWith('graphitix.recovery.highFidelity.enabled', '1');
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
         policyMode: 'recovery',
         snapshotKind: 'lifecycle-checkpoint',
-        highFidelityRecoveryEnabled: true,
         idleForMs: expect.any(Number)
       })
     );

@@ -4,13 +4,13 @@
   "page": "scatterPage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 314,
-    "exampleMs": 2458,
-    "exerciseMs": 15093
+    "openMs": 123,
+    "exampleMs": 711,
+    "exerciseMs": 5046
   },
   "totals": {
-    "logEntries": 4916,
-    "warnings": 3,
+    "logEntries": 1608,
+    "warnings": 0,
     "errors": 0,
     "ignoredErrors": 0,
     "critical": 0
@@ -18,15 +18,15 @@
   "perf": {
     "beforeExercise": {
       "componentType": "scatter",
-      "capturedAt": 1774686284309,
+      "capturedAt": 1780322596461,
       "componentHook": null,
       "sharedPerformance": {
-        "totalEntries": 15,
+        "totalEntries": 4,
         "relevantEntries": [
           {
             "id": 2,
             "label": "scatter.data.collect",
-            "duration": 0.5999999940395355,
+            "duration": 0.19999980926513672,
             "meta": {
               "component": "scatter",
               "rows": 100,
@@ -37,19 +37,79 @@
           {
             "id": 1,
             "label": "scatter.draw",
-            "duration": 22.5,
+            "duration": 13.5,
             "meta": {
               "component": "scatter",
               "reasons": [
-                "payload-payload"
+                "workspace-view",
+                "resize"
               ],
-              "token": 1
+              "token": 3
+            }
+          },
+          {
+            "id": 3,
+            "label": "scatter.draw",
+            "duration": 2.9000000953674316,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "resize",
+                "row-selection-restore"
+              ],
+              "token": 4
             }
           },
           {
             "id": 4,
+            "label": "scatter.draw",
+            "duration": 4.299999713897705,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 5
+            }
+          }
+        ],
+        "maxEntryId": 4,
+        "componentReport": [
+          {
+            "key": "scatter.draw",
+            "count": 3,
+            "totalMs": 20.7,
+            "avgMs": 6.9,
+            "p50Ms": 4.3,
+            "p95Ms": 12.58,
+            "maxMs": 13.5,
+            "minMs": 2.9
+          },
+          {
+            "key": "scatter.data.collect",
+            "count": 1,
+            "totalMs": 0.2,
+            "avgMs": 0.2,
+            "p50Ms": 0.2,
+            "p95Ms": 0.2,
+            "maxMs": 0.2,
+            "minMs": 0.2
+          }
+        ],
+        "hotReport": []
+      }
+    },
+    "afterExercise": {
+      "componentType": "scatter",
+      "capturedAt": 1780322601511,
+      "componentHook": null,
+      "sharedPerformance": {
+        "totalEntries": 39,
+        "relevantEntries": [
+          {
+            "id": 2,
             "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
+            "duration": 0.19999980926513672,
             "meta": {
               "component": "scatter",
               "rows": 100,
@@ -58,1641 +118,471 @@
             }
           },
           {
+            "id": 1,
+            "label": "scatter.draw",
+            "duration": 13.5,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "workspace-view",
+                "resize"
+              ],
+              "token": 3
+            }
+          },
+          {
             "id": 3,
             "label": "scatter.draw",
-            "duration": 12.5,
+            "duration": 2.9000000953674316,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "resize",
+                "row-selection-restore"
+              ],
+              "token": 4
+            }
+          },
+          {
+            "id": 4,
+            "label": "scatter.draw",
+            "duration": 4.299999713897705,
             "meta": {
               "component": "scatter",
               "reasons": [
                 "row-selection"
               ],
-              "token": 2
+              "token": 5
             }
           },
           {
             "id": 6,
             "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
+            "duration": 0.19999980926513672,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 8,
-            "label": "scatter.stats.advisor",
-            "duration": 0.29999998211860657,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "points": 8
-            }
-          },
-          {
-            "id": 9,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 3,
-              "pruned": 0,
-              "total": 3
-            }
-          },
-          {
-            "id": 7,
-            "label": "scatter.points.prepare",
-            "duration": 10.200000017881393,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 10,
-            "label": "scatter.svg.layout",
-            "duration": 49.400000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "points": 8
-            }
-          },
-          {
-            "id": 11,
-            "label": "scatter.svg.draw",
-            "duration": 2.899999976158142,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 12,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "points": 8
-            }
-          },
-          {
-            "id": 13,
-            "label": "scatter.legend.render",
-            "duration": 7.899999976158142,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "entries": 3
-            }
-          },
-          {
-            "id": 14,
-            "label": "scatter.viewport.sync",
-            "duration": 7.4000000059604645,
-            "meta": {
-              "component": "scatter",
-              "token": 3
-            }
-          },
-          {
-            "id": 15,
-            "label": "scatter.layout.syncPanels",
-            "duration": 15,
-            "meta": {
-              "component": "scatter",
-              "token": 3,
-              "reason": null,
-              "viewOnly": false
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
             "id": 5,
             "label": "scatter.draw",
-            "duration": 119.09999999403954,
+            "duration": 4.200000286102295,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "afterChange",
+                "afterLoadData"
+              ],
+              "token": 6
+            }
+          },
+          {
+            "id": 8,
+            "label": "scatter.data.collect",
+            "duration": 0,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
+            }
+          },
+          {
+            "id": 7,
+            "label": "scatter.draw",
+            "duration": 3,
             "meta": {
               "component": "scatter",
               "reasons": [
                 "afterLoadData"
               ],
-              "token": 3
+              "token": 7
             }
-          }
-        ],
-        "maxEntryId": 15,
-        "componentReport": [
-          {
-            "key": "scatter.draw",
-            "count": 3,
-            "totalMs": 154.1,
-            "avgMs": 51.367,
-            "p50Ms": 22.5,
-            "p95Ms": 109.44,
-            "maxMs": 119.1,
-            "minMs": 12.5
           },
           {
-            "key": "scatter.svg.layout",
-            "count": 1,
-            "totalMs": 49.4,
-            "avgMs": 49.4,
-            "p50Ms": 49.4,
-            "p95Ms": 49.4,
-            "maxMs": 49.4,
-            "minMs": 49.4
-          },
-          {
-            "key": "scatter.layout.syncPanels",
-            "count": 1,
-            "totalMs": 15,
-            "avgMs": 15,
-            "p50Ms": 15,
-            "p95Ms": 15,
-            "maxMs": 15,
-            "minMs": 15
-          },
-          {
-            "key": "scatter.points.prepare",
-            "count": 1,
-            "totalMs": 10.2,
-            "avgMs": 10.2,
-            "p50Ms": 10.2,
-            "p95Ms": 10.2,
-            "maxMs": 10.2,
-            "minMs": 10.2
-          },
-          {
-            "key": "scatter.legend.render",
-            "count": 1,
-            "totalMs": 7.9,
-            "avgMs": 7.9,
-            "p50Ms": 7.9,
-            "p95Ms": 7.9,
-            "maxMs": 7.9,
-            "minMs": 7.9
-          },
-          {
-            "key": "scatter.viewport.sync",
-            "count": 1,
-            "totalMs": 7.4,
-            "avgMs": 7.4,
-            "p50Ms": 7.4,
-            "p95Ms": 7.4,
-            "maxMs": 7.4,
-            "minMs": 7.4
-          },
-          {
-            "key": "scatter.svg.draw",
-            "count": 1,
-            "totalMs": 2.9,
-            "avgMs": 2.9,
-            "p50Ms": 2.9,
-            "p95Ms": 2.9,
-            "maxMs": 2.9,
-            "minMs": 2.9
-          },
-          {
-            "key": "scatter.data.collect",
-            "count": 3,
-            "totalMs": 1,
-            "avgMs": 0.333,
-            "p50Ms": 0.2,
-            "p95Ms": 0.56,
-            "maxMs": 0.6,
-            "minMs": 0.2
-          },
-          {
-            "key": "scatter.stats.advisor",
-            "count": 1,
-            "totalMs": 0.3,
-            "avgMs": 0.3,
-            "p50Ms": 0.3,
-            "p95Ms": 0.3,
-            "maxMs": 0.3,
-            "minMs": 0.3
-          },
-          {
-            "key": "scatter.labels.colors",
-            "count": 1,
-            "totalMs": 0,
-            "avgMs": 0,
-            "p50Ms": 0,
-            "p95Ms": 0,
-            "maxMs": 0,
-            "minMs": 0
-          },
-          {
-            "key": "scatter.svg.attach",
-            "count": 1,
-            "totalMs": 0,
-            "avgMs": 0,
-            "p50Ms": 0,
-            "p95Ms": 0,
-            "maxMs": 0,
-            "minMs": 0
-          }
-        ],
-        "hotReport": []
-      }
-    },
-    "afterExercise": {
-      "componentType": "scatter",
-      "capturedAt": 1774686299454,
-      "componentHook": null,
-      "sharedPerformance": {
-        "totalEntries": 333,
-        "relevantEntries": [
-          {
-            "id": 216,
+            "id": 10,
             "label": "scatter.data.collect",
-            "duration": 0.10000002384185791,
+            "duration": 0,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 218,
-            "label": "scatter.stats.advisor",
-            "duration": 1,
+            "id": 9,
+            "label": "scatter.draw",
+            "duration": 4.5,
             "meta": {
               "component": "scatter",
-              "token": 26,
-              "points": 8
+              "reasons": [],
+              "token": 8
             }
           },
           {
-            "id": 219,
-            "label": "scatter.labels.colors",
+            "id": 12,
+            "label": "scatter.data.collect",
             "duration": 0,
             "meta": {
               "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 217,
-            "label": "scatter.points.prepare",
-            "duration": 1.399999976158142,
+            "id": 11,
+            "label": "scatter.draw",
+            "duration": 4.699999809265137,
             "meta": {
               "component": "scatter",
-              "token": 26,
-              "points": 8,
-              "viewOnly": false
+              "reasons": [],
+              "token": 9
             }
           },
           {
-            "id": 220,
-            "label": "scatter.svg.layout",
-            "duration": 38.5,
+            "id": 13,
+            "label": "scatter.draw",
+            "duration": 1.8000001907348633,
             "meta": {
               "component": "scatter",
-              "token": 26,
-              "points": 8
+              "reasons": [
+                "view-mode-change"
+              ],
+              "token": 10
             }
           },
           {
-            "id": 221,
-            "label": "scatter.svg.draw",
-            "duration": 1,
+            "id": 14,
+            "label": "scatter.draw",
+            "duration": 2.9000000953674316,
             "meta": {
               "component": "scatter",
-              "token": 26,
-              "points": 8,
-              "density": false
+              "reasons": [
+                "view-mode-change"
+              ],
+              "token": 11
             }
           },
           {
-            "id": 222,
-            "label": "scatter.svg.attach",
+            "id": 15,
+            "label": "scatter.draw",
+            "duration": 3.799999713897705,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "color-scheme-scatter"
+              ],
+              "token": 12
+            }
+          },
+          {
+            "id": 16,
+            "label": "scatter.draw",
+            "duration": 2.700000286102295,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection-restore"
+              ],
+              "token": 13
+            }
+          },
+          {
+            "id": 17,
+            "label": "scatter.draw",
+            "duration": 2.5,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 14
+            }
+          },
+          {
+            "id": 18,
+            "label": "scatter.draw",
+            "duration": 4.100000381469727,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "color-scheme-scatter"
+              ],
+              "token": 15
+            }
+          },
+          {
+            "id": 19,
+            "label": "scatter.draw",
+            "duration": 2.5999999046325684,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection-restore"
+              ],
+              "token": 16
+            }
+          },
+          {
+            "id": 20,
+            "label": "scatter.draw",
+            "duration": 2.8999996185302734,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 17
+            }
+          },
+          {
+            "id": 21,
+            "label": "scatter.draw",
+            "duration": 2.6999998092651367,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 18
+            }
+          },
+          {
+            "id": 22,
+            "label": "scatter.draw",
+            "duration": 1.9000000953674316,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 19
+            }
+          },
+          {
+            "id": 23,
+            "label": "scatter.draw",
+            "duration": 2.0999999046325684,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 20
+            }
+          },
+          {
+            "id": 24,
+            "label": "scatter.draw",
+            "duration": 2,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 21
+            }
+          },
+          {
+            "id": 25,
+            "label": "scatter.draw",
+            "duration": 2.5,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 22
+            }
+          },
+          {
+            "id": 26,
+            "label": "scatter.draw",
+            "duration": 2,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 23
+            }
+          },
+          {
+            "id": 27,
+            "label": "scatter.draw",
+            "duration": 1.799999713897705,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "row-selection"
+              ],
+              "token": 24
+            }
+          },
+          {
+            "id": 29,
+            "label": "scatter.data.collect",
             "duration": 0,
             "meta": {
               "component": "scatter",
-              "token": 26,
-              "points": 8
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 223,
-            "label": "scatter.viewport.sync",
-            "duration": 3,
+            "id": 28,
+            "label": "scatter.draw",
+            "duration": 6,
             "meta": {
               "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
+              "token": 25
+            }
+          },
+          {
+            "id": 31,
+            "label": "scatter.data.collect",
+            "duration": 0.09999990463256836,
+            "meta": {
+              "component": "scatter",
+              "rows": 100,
+              "points": 0,
+              "skippedRows": 99
+            }
+          },
+          {
+            "id": 30,
+            "label": "scatter.draw",
+            "duration": 4.800000190734863,
+            "meta": {
+              "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
               "token": 26
             }
           },
           {
-            "id": 224,
-            "label": "scatter.layout.syncPanels",
-            "duration": 4.800000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 26,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 215,
-            "label": "scatter.draw",
-            "duration": 74.90000000596046,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 26
-            }
-          },
-          {
-            "id": 226,
+            "id": 33,
             "label": "scatter.data.collect",
-            "duration": 0.10000002384185791,
+            "duration": 0,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 228,
-            "label": "scatter.stats.advisor",
-            "duration": 0.8999999761581421,
+            "id": 32,
+            "label": "scatter.draw",
+            "duration": 4.699999809265137,
             "meta": {
               "component": "scatter",
-              "token": 27,
-              "points": 8
-            }
-          },
-          {
-            "id": 229,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 227,
-            "label": "scatter.points.prepare",
-            "duration": 1.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 27,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 230,
-            "label": "scatter.svg.layout",
-            "duration": 36.599999994039536,
-            "meta": {
-              "component": "scatter",
-              "token": 27,
-              "points": 8
-            }
-          },
-          {
-            "id": 231,
-            "label": "scatter.svg.draw",
-            "duration": 1.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 27,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 232,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 27,
-              "points": 8
-            }
-          },
-          {
-            "id": 233,
-            "label": "scatter.viewport.sync",
-            "duration": 3.7000000178813934,
-            "meta": {
-              "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
               "token": 27
             }
           },
           {
-            "id": 234,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.199999988079071,
-            "meta": {
-              "component": "scatter",
-              "token": 27,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 225,
-            "label": "scatter.draw",
-            "duration": 75.60000002384186,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 27
-            }
-          },
-          {
-            "id": 236,
+            "id": 35,
             "label": "scatter.data.collect",
-            "duration": 0.09999999403953552,
+            "duration": 0.10000038146972656,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 238,
-            "label": "scatter.stats.advisor",
-            "duration": 2,
+            "id": 34,
+            "label": "scatter.draw",
+            "duration": 6.599999904632568,
             "meta": {
               "component": "scatter",
-              "token": 28,
-              "points": 8
-            }
-          },
-          {
-            "id": 239,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 237,
-            "label": "scatter.points.prepare",
-            "duration": 2.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 28,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 240,
-            "label": "scatter.svg.layout",
-            "duration": 36.900000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 28,
-              "points": 8
-            }
-          },
-          {
-            "id": 241,
-            "label": "scatter.svg.draw",
-            "duration": 1,
-            "meta": {
-              "component": "scatter",
-              "token": 28,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 242,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 28,
-              "points": 8
-            }
-          },
-          {
-            "id": 243,
-            "label": "scatter.viewport.sync",
-            "duration": 3,
-            "meta": {
-              "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
               "token": 28
             }
           },
           {
-            "id": 244,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.299999982118607,
-            "meta": {
-              "component": "scatter",
-              "token": 28,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 235,
-            "label": "scatter.draw",
-            "duration": 72.69999998807907,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 28
-            }
-          },
-          {
-            "id": 246,
+            "id": 37,
             "label": "scatter.data.collect",
-            "duration": 0.09999999403953552,
+            "duration": 0,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 248,
-            "label": "scatter.stats.advisor",
-            "duration": 1.0999999940395355,
+            "id": 36,
+            "label": "scatter.draw",
+            "duration": 4,
             "meta": {
               "component": "scatter",
-              "token": 29,
-              "points": 8
-            }
-          },
-          {
-            "id": 249,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 247,
-            "label": "scatter.points.prepare",
-            "duration": 1.699999988079071,
-            "meta": {
-              "component": "scatter",
-              "token": 29,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 250,
-            "label": "scatter.svg.layout",
-            "duration": 35,
-            "meta": {
-              "component": "scatter",
-              "token": 29,
-              "points": 8
-            }
-          },
-          {
-            "id": 251,
-            "label": "scatter.svg.draw",
-            "duration": 1.199999988079071,
-            "meta": {
-              "component": "scatter",
-              "token": 29,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 252,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 29,
-              "points": 8
-            }
-          },
-          {
-            "id": 253,
-            "label": "scatter.viewport.sync",
-            "duration": 3.2000000178813934,
-            "meta": {
-              "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
               "token": 29
             }
           },
           {
-            "id": 254,
-            "label": "scatter.layout.syncPanels",
-            "duration": 4.700000017881393,
-            "meta": {
-              "component": "scatter",
-              "token": 29,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 245,
-            "label": "scatter.draw",
-            "duration": 72.40000000596046,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 29
-            }
-          },
-          {
-            "id": 256,
+            "id": 39,
             "label": "scatter.data.collect",
-            "duration": 0.20000001788139343,
+            "duration": 0,
             "meta": {
               "component": "scatter",
               "rows": 100,
-              "points": 8,
-              "skippedRows": 91
+              "points": 0,
+              "skippedRows": 99
             }
           },
           {
-            "id": 258,
-            "label": "scatter.stats.advisor",
-            "duration": 2.2000000178813934,
+            "id": 38,
+            "label": "scatter.draw",
+            "duration": 4,
             "meta": {
               "component": "scatter",
-              "token": 30,
-              "points": 8
-            }
-          },
-          {
-            "id": 259,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 257,
-            "label": "scatter.points.prepare",
-            "duration": 2.7999999821186066,
-            "meta": {
-              "component": "scatter",
-              "token": 30,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 260,
-            "label": "scatter.svg.layout",
-            "duration": 37.099999994039536,
-            "meta": {
-              "component": "scatter",
-              "token": 30,
-              "points": 8
-            }
-          },
-          {
-            "id": 261,
-            "label": "scatter.svg.draw",
-            "duration": 1.899999976158142,
-            "meta": {
-              "component": "scatter",
-              "token": 30,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 262,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 30,
-              "points": 8
-            }
-          },
-          {
-            "id": 263,
-            "label": "scatter.viewport.sync",
-            "duration": 2.800000011920929,
-            "meta": {
-              "component": "scatter",
+              "reasons": [
+                "observer"
+              ],
               "token": 30
-            }
-          },
-          {
-            "id": 264,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.4000000059604645,
-            "meta": {
-              "component": "scatter",
-              "token": 30,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 255,
-            "label": "scatter.draw",
-            "duration": 100.7000000178814,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 30
-            }
-          },
-          {
-            "id": 266,
-            "label": "scatter.data.collect",
-            "duration": 0.09999999403953552,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 268,
-            "label": "scatter.stats.advisor",
-            "duration": 1,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "points": 8
-            }
-          },
-          {
-            "id": 269,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 267,
-            "label": "scatter.points.prepare",
-            "duration": 1.5,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 270,
-            "label": "scatter.svg.layout",
-            "duration": 32.69999998807907,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "points": 8
-            }
-          },
-          {
-            "id": 271,
-            "label": "scatter.svg.draw",
-            "duration": 1.5,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 272,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "points": 8
-            }
-          },
-          {
-            "id": 273,
-            "label": "scatter.viewport.sync",
-            "duration": 2.7999999821186066,
-            "meta": {
-              "component": "scatter",
-              "token": 31
-            }
-          },
-          {
-            "id": 274,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 31,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 265,
-            "label": "scatter.draw",
-            "duration": 67.59999999403954,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 31
-            }
-          },
-          {
-            "id": 276,
-            "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 278,
-            "label": "scatter.stats.advisor",
-            "duration": 1.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "points": 8
-            }
-          },
-          {
-            "id": 279,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 277,
-            "label": "scatter.points.prepare",
-            "duration": 1.5,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 280,
-            "label": "scatter.svg.layout",
-            "duration": 38.900000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "points": 8
-            }
-          },
-          {
-            "id": 281,
-            "label": "scatter.svg.draw",
-            "duration": 1.2999999821186066,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 282,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "points": 8
-            }
-          },
-          {
-            "id": 283,
-            "label": "scatter.viewport.sync",
-            "duration": 3.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 32
-            }
-          },
-          {
-            "id": 284,
-            "label": "scatter.layout.syncPanels",
-            "duration": 7,
-            "meta": {
-              "component": "scatter",
-              "token": 32,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 275,
-            "label": "scatter.draw",
-            "duration": 81.40000000596046,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 32
-            }
-          },
-          {
-            "id": 286,
-            "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 288,
-            "label": "scatter.stats.advisor",
-            "duration": 1.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "points": 8
-            }
-          },
-          {
-            "id": 289,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 287,
-            "label": "scatter.points.prepare",
-            "duration": 1.5,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 290,
-            "label": "scatter.svg.layout",
-            "duration": 32.69999998807907,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "points": 8
-            }
-          },
-          {
-            "id": 291,
-            "label": "scatter.svg.draw",
-            "duration": 1.300000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 292,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "points": 8
-            }
-          },
-          {
-            "id": 293,
-            "label": "scatter.viewport.sync",
-            "duration": 3.300000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 33
-            }
-          },
-          {
-            "id": 294,
-            "label": "scatter.layout.syncPanels",
-            "duration": 4.9000000059604645,
-            "meta": {
-              "component": "scatter",
-              "token": 33,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 285,
-            "label": "scatter.draw",
-            "duration": 69.69999998807907,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 33
-            }
-          },
-          {
-            "id": 296,
-            "label": "scatter.data.collect",
-            "duration": 0.09999999403953552,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 298,
-            "label": "scatter.stats.advisor",
-            "duration": 1.300000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "points": 8
-            }
-          },
-          {
-            "id": 299,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 297,
-            "label": "scatter.points.prepare",
-            "duration": 2,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 300,
-            "label": "scatter.svg.layout",
-            "duration": 35.400000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "points": 8
-            }
-          },
-          {
-            "id": 301,
-            "label": "scatter.svg.draw",
-            "duration": 1.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 302,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "points": 8
-            }
-          },
-          {
-            "id": 303,
-            "label": "scatter.viewport.sync",
-            "duration": 3.7000000178813934,
-            "meta": {
-              "component": "scatter",
-              "token": 34
-            }
-          },
-          {
-            "id": 304,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.300000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 34,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 295,
-            "label": "scatter.draw",
-            "duration": 74.2000000178814,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 34
-            }
-          },
-          {
-            "id": 306,
-            "label": "scatter.data.collect",
-            "duration": 0.09999999403953552,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 308,
-            "label": "scatter.stats.advisor",
-            "duration": 1,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "points": 8
-            }
-          },
-          {
-            "id": 309,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 307,
-            "label": "scatter.points.prepare",
-            "duration": 1.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 310,
-            "label": "scatter.svg.layout",
-            "duration": 33.900000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "points": 8
-            }
-          },
-          {
-            "id": 311,
-            "label": "scatter.svg.draw",
-            "duration": 1.2000000178813934,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 312,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "points": 8
-            }
-          },
-          {
-            "id": 313,
-            "label": "scatter.viewport.sync",
-            "duration": 3.7999999821186066,
-            "meta": {
-              "component": "scatter",
-              "token": 35
-            }
-          },
-          {
-            "id": 314,
-            "label": "scatter.layout.syncPanels",
-            "duration": 6.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 35,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 305,
-            "label": "scatter.draw",
-            "duration": 80,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 35
-            }
-          },
-          {
-            "id": 316,
-            "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 318,
-            "label": "scatter.stats.advisor",
-            "duration": 1,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "points": 8
-            }
-          },
-          {
-            "id": 319,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 317,
-            "label": "scatter.points.prepare",
-            "duration": 1.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 320,
-            "label": "scatter.svg.layout",
-            "duration": 40.900000005960464,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "points": 8
-            }
-          },
-          {
-            "id": 321,
-            "label": "scatter.svg.draw",
-            "duration": 1.5,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 322,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "points": 8
-            }
-          },
-          {
-            "id": 323,
-            "label": "scatter.viewport.sync",
-            "duration": 3.600000023841858,
-            "meta": {
-              "component": "scatter",
-              "token": 36
-            }
-          },
-          {
-            "id": 324,
-            "label": "scatter.layout.syncPanels",
-            "duration": 6.199999988079071,
-            "meta": {
-              "component": "scatter",
-              "token": 36,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 315,
-            "label": "scatter.draw",
-            "duration": 83.7999999821186,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 36
-            }
-          },
-          {
-            "id": 326,
-            "label": "scatter.data.collect",
-            "duration": 0.19999998807907104,
-            "meta": {
-              "component": "scatter",
-              "rows": 100,
-              "points": 8,
-              "skippedRows": 91
-            }
-          },
-          {
-            "id": 328,
-            "label": "scatter.stats.advisor",
-            "duration": 1.199999988079071,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "points": 8
-            }
-          },
-          {
-            "id": 329,
-            "label": "scatter.labels.colors",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "labels": 3,
-              "created": 0,
-              "pruned": 0,
-              "total": 3,
-              "skipped": true
-            }
-          },
-          {
-            "id": 327,
-            "label": "scatter.points.prepare",
-            "duration": 1.5999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "points": 8,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 330,
-            "label": "scatter.svg.layout",
-            "duration": 39.599999994039536,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "points": 8
-            }
-          },
-          {
-            "id": 331,
-            "label": "scatter.svg.draw",
-            "duration": 1.4000000059604645,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "points": 8,
-              "density": false
-            }
-          },
-          {
-            "id": 332,
-            "label": "scatter.svg.attach",
-            "duration": 0,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "points": 8
-            }
-          },
-          {
-            "id": 333,
-            "label": "scatter.viewport.sync",
-            "duration": 3.0999999940395355,
-            "meta": {
-              "component": "scatter",
-              "token": 37
-            }
-          },
-          {
-            "id": 334,
-            "label": "scatter.layout.syncPanels",
-            "duration": 5.300000011920929,
-            "meta": {
-              "component": "scatter",
-              "token": 37,
-              "reason": null,
-              "viewOnly": false
-            }
-          },
-          {
-            "id": 325,
-            "label": "scatter.draw",
-            "duration": 83.10000002384186,
-            "meta": {
-              "component": "scatter",
-              "reasons": [],
-              "token": 37
             }
           }
         ],
-        "maxEntryId": 334,
+        "maxEntryId": 39,
         "componentReport": [
           {
             "key": "scatter.draw",
-            "count": 37,
-            "totalMs": 2717.1,
-            "avgMs": 73.435,
-            "p50Ms": 75.6,
-            "p95Ms": 100.38,
-            "maxMs": 119.1,
-            "minMs": 8.2
-          },
-          {
-            "key": "scatter.svg.layout",
-            "count": 34,
-            "totalMs": 1344.9,
-            "avgMs": 39.556,
-            "p50Ms": 38.4,
-            "p95Ms": 49.01,
-            "maxMs": 58.2,
-            "minMs": 32.7
-          },
-          {
-            "key": "scatter.layout.syncPanels",
-            "count": 34,
-            "totalMs": 221.8,
-            "avgMs": 6.524,
-            "p50Ms": 6.15,
-            "p95Ms": 10.625,
-            "maxMs": 15,
-            "minMs": 4.6
-          },
-          {
-            "key": "scatter.viewport.sync",
-            "count": 34,
-            "totalMs": 119.9,
-            "avgMs": 3.526,
-            "p50Ms": 3.2,
-            "p95Ms": 4.815,
-            "maxMs": 7.4,
-            "minMs": 2.7
-          },
-          {
-            "key": "scatter.points.prepare",
-            "count": 34,
-            "totalMs": 55.7,
-            "avgMs": 1.638,
-            "p50Ms": 1.5,
-            "p95Ms": 2.67,
-            "maxMs": 10.2,
-            "minMs": 0.5
-          },
-          {
-            "key": "scatter.svg.draw",
-            "count": 34,
-            "totalMs": 45.2,
-            "avgMs": 1.329,
-            "p50Ms": 1.3,
-            "p95Ms": 1.9,
-            "maxMs": 2.9,
-            "minMs": 0.8
-          },
-          {
-            "key": "scatter.stats.advisor",
-            "count": 35,
-            "totalMs": 24.6,
-            "avgMs": 0.703,
-            "p50Ms": 0.3,
-            "p95Ms": 1.72,
-            "maxMs": 2.2,
-            "minMs": 0.1
-          },
-          {
-            "key": "scatter.legend.render",
-            "count": 1,
-            "totalMs": 7.9,
-            "avgMs": 7.9,
-            "p50Ms": 7.9,
-            "p95Ms": 7.9,
-            "maxMs": 7.9,
-            "minMs": 7.9
+            "count": 28,
+            "totalMs": 105.5,
+            "avgMs": 3.768,
+            "p50Ms": 2.95,
+            "p95Ms": 6.39,
+            "maxMs": 13.5,
+            "minMs": 1.8
           },
           {
             "key": "scatter.data.collect",
-            "count": 23,
-            "totalMs": 4.3,
-            "avgMs": 0.187,
-            "p50Ms": 0.2,
-            "p95Ms": 0.39,
-            "maxMs": 0.6,
-            "minMs": 0.1
-          },
-          {
-            "key": "scatter.labels.colors",
-            "count": 33,
-            "totalMs": 0.2,
-            "avgMs": 0.006,
+            "count": 11,
+            "totalMs": 0.6,
+            "avgMs": 0.055,
             "p50Ms": 0,
-            "p95Ms": 0.04,
-            "maxMs": 0.1,
-            "minMs": 0
-          },
-          {
-            "key": "scatter.svg.attach",
-            "count": 34,
-            "totalMs": 0.2,
-            "avgMs": 0.006,
-            "p50Ms": 0,
-            "p95Ms": 0.035,
-            "maxMs": 0.1,
+            "p95Ms": 0.2,
+            "maxMs": 0.2,
             "minMs": 0
           }
         ],
@@ -1703,12 +593,12 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 4262,
+          "durationMs": 1838,
           "actionResult": {
             "visible": 11,
             "attempted": 4,
             "changed": 4,
-            "durationMs": 4262
+            "durationMs": 1838
           },
           "perfDelta": {
             "hook": {},
@@ -1716,59 +606,17 @@
             "componentReport": [
               {
                 "key": "scatter.draw",
-                "deltaCount": 9,
-                "deltaTotalMs": 596.2,
-                "latestAvgMs": 62.525,
-                "latestP95Ms": 108.76
-              },
-              {
-                "key": "scatter.svg.layout",
-                "deltaCount": 8,
-                "deltaTotalMs": 324.3,
-                "latestAvgMs": 41.522,
-                "latestP95Ms": 54.68
-              },
-              {
-                "key": "scatter.layout.syncPanels",
-                "deltaCount": 8,
-                "deltaTotalMs": 59,
-                "latestAvgMs": 8.222,
-                "latestP95Ms": 13.64
-              },
-              {
-                "key": "scatter.viewport.sync",
-                "deltaCount": 8,
-                "deltaTotalMs": 28,
-                "latestAvgMs": 3.933,
-                "latestP95Ms": 6.6
-              },
-              {
-                "key": "scatter.svg.draw",
-                "deltaCount": 8,
-                "deltaTotalMs": 10.6,
-                "latestAvgMs": 1.5,
-                "latestP95Ms": 2.46
-              },
-              {
-                "key": "scatter.points.prepare",
-                "deltaCount": 8,
-                "deltaTotalMs": 7.2,
-                "latestAvgMs": 1.933,
-                "latestP95Ms": 6.84
-              },
-              {
-                "key": "scatter.stats.advisor",
-                "deltaCount": 9,
-                "deltaTotalMs": 1.7,
-                "latestAvgMs": 0.2,
-                "latestP95Ms": 0.3
+                "deltaCount": 12,
+                "deltaTotalMs": 39.7,
+                "latestAvgMs": 4.027,
+                "latestP95Ms": 7.34
               },
               {
                 "key": "scatter.data.collect",
                 "deltaCount": 4,
-                "deltaTotalMs": 1,
-                "latestAvgMs": 0.286,
-                "latestP95Ms": 0.54
+                "deltaTotalMs": 0.2,
+                "latestAvgMs": 0.08,
+                "latestP95Ms": 0.2
               }
             ],
             "hotReport": []
@@ -1776,12 +624,12 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 4600,
+          "durationMs": 1362,
           "actionResult": {
-            "visible": 37,
+            "visible": 36,
             "attempted": 5,
             "toggled": 5,
-            "durationMs": 4600
+            "durationMs": 1362
           },
           "perfDelta": {
             "hook": {},
@@ -1789,59 +637,10 @@
             "componentReport": [
               {
                 "key": "scatter.draw",
-                "deltaCount": 9,
-                "deltaTotalMs": 709.5,
-                "latestAvgMs": 69.514,
-                "latestP95Ms": 100.3
-              },
-              {
-                "key": "scatter.svg.layout",
-                "deltaCount": 9,
-                "deltaTotalMs": 380,
-                "latestAvgMs": 41.872,
-                "latestP95Ms": 50.72
-              },
-              {
-                "key": "scatter.layout.syncPanels",
-                "deltaCount": 9,
-                "deltaTotalMs": 59.8,
-                "latestAvgMs": 7.433,
-                "latestP95Ms": 12.11
-              },
-              {
-                "key": "scatter.viewport.sync",
-                "deltaCount": 9,
-                "deltaTotalMs": 31.3,
-                "latestAvgMs": 3.706,
-                "latestP95Ms": 5.7
-              },
-              {
-                "key": "scatter.svg.draw",
-                "deltaCount": 9,
-                "deltaTotalMs": 11.8,
-                "latestAvgMs": 1.406,
-                "latestP95Ms": 2.05
-              },
-              {
-                "key": "scatter.points.prepare",
-                "deltaCount": 9,
-                "deltaTotalMs": 9.3,
-                "latestAvgMs": 1.483,
-                "latestP95Ms": 3.23
-              },
-              {
-                "key": "scatter.stats.advisor",
-                "deltaCount": 9,
-                "deltaTotalMs": 2.2,
-                "latestAvgMs": 0.221,
-                "latestP95Ms": 0.31
-              },
-              {
-                "key": "scatter.labels.colors",
-                "deltaCount": 9,
-                "deltaTotalMs": 0.1,
-                "latestAvgMs": 0.012,
-                "latestP95Ms": 0.1
+                "deltaCount": 7,
+                "deltaTotalMs": 15,
+                "latestAvgMs": 3.427,
+                "latestP95Ms": 4.69
               }
             ],
             "hotReport": []
@@ -1849,14 +648,14 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 945,
+          "durationMs": 302,
           "actionResult": {
-            "visible": 24,
+            "visible": 30,
             "clicked": 1,
             "clickedLabels": [
               "Guide me"
             ],
-            "durationMs": 945
+            "durationMs": 302
           },
           "perfDelta": {
             "hook": {},
@@ -1867,11 +666,11 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 3392,
+          "durationMs": 773,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 3392
+            "durationMs": 773
           },
           "perfDelta": {
             "hook": {},
@@ -1879,59 +678,17 @@
             "componentReport": [
               {
                 "key": "scatter.draw",
-                "deltaCount": 16,
-                "deltaTotalMs": 1257.3,
-                "latestAvgMs": 73.435,
-                "latestP95Ms": 100.38
-              },
-              {
-                "key": "scatter.svg.layout",
-                "deltaCount": 16,
-                "deltaTotalMs": 591.2,
-                "latestAvgMs": 39.556,
-                "latestP95Ms": 49.01
-              },
-              {
-                "key": "scatter.layout.syncPanels",
-                "deltaCount": 16,
-                "deltaTotalMs": 88,
-                "latestAvgMs": 6.524,
-                "latestP95Ms": 10.625
-              },
-              {
-                "key": "scatter.viewport.sync",
-                "deltaCount": 16,
-                "deltaTotalMs": 53.2,
-                "latestAvgMs": 3.526,
-                "latestP95Ms": 4.815
-              },
-              {
-                "key": "scatter.points.prepare",
-                "deltaCount": 16,
-                "deltaTotalMs": 29,
-                "latestAvgMs": 1.638,
-                "latestP95Ms": 2.67
-              },
-              {
-                "key": "scatter.stats.advisor",
-                "deltaCount": 16,
-                "deltaTotalMs": 20.4,
-                "latestAvgMs": 0.703,
-                "latestP95Ms": 1.72
-              },
-              {
-                "key": "scatter.svg.draw",
-                "deltaCount": 16,
-                "deltaTotalMs": 19.9,
-                "latestAvgMs": 1.329,
-                "latestP95Ms": 1.9
+                "deltaCount": 6,
+                "deltaTotalMs": 30.1,
+                "latestAvgMs": 3.768,
+                "latestP95Ms": 6.39
               },
               {
                 "key": "scatter.data.collect",
-                "deltaCount": 16,
-                "deltaTotalMs": 2.3,
-                "latestAvgMs": 0.187,
-                "latestP95Ms": 0.39
+                "deltaCount": 6,
+                "deltaTotalMs": 0.2,
+                "latestAvgMs": 0.055,
+                "latestP95Ms": 0.2
               }
             ],
             "hotReport": []
@@ -1939,11 +696,11 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 811,
+          "durationMs": 369,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 811
+            "durationMs": 369
           },
           "perfDelta": {
             "hook": {},
@@ -1955,15 +712,15 @@
       ],
       "before": {
         "componentType": "scatter",
-        "capturedAt": 1774686284410,
+        "capturedAt": 1780322596520,
         "componentHook": null,
         "sharedPerformance": {
-          "totalEntries": 15,
+          "totalEntries": 4,
           "relevantEntries": [
             {
               "id": 2,
               "label": "scatter.data.collect",
-              "duration": 0.5999999940395355,
+              "duration": 0.19999980926513672,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
@@ -1974,19 +731,79 @@
             {
               "id": 1,
               "label": "scatter.draw",
-              "duration": 22.5,
+              "duration": 13.5,
               "meta": {
                 "component": "scatter",
                 "reasons": [
-                  "payload-payload"
+                  "workspace-view",
+                  "resize"
                 ],
-                "token": 1
+                "token": 3
+              }
+            },
+            {
+              "id": 3,
+              "label": "scatter.draw",
+              "duration": 2.9000000953674316,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "resize",
+                  "row-selection-restore"
+                ],
+                "token": 4
               }
             },
             {
               "id": 4,
+              "label": "scatter.draw",
+              "duration": 4.299999713897705,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 5
+              }
+            }
+          ],
+          "maxEntryId": 4,
+          "componentReport": [
+            {
+              "key": "scatter.draw",
+              "count": 3,
+              "totalMs": 20.7,
+              "avgMs": 6.9,
+              "p50Ms": 4.3,
+              "p95Ms": 12.58,
+              "maxMs": 13.5,
+              "minMs": 2.9
+            },
+            {
+              "key": "scatter.data.collect",
+              "count": 1,
+              "totalMs": 0.2,
+              "avgMs": 0.2,
+              "p50Ms": 0.2,
+              "p95Ms": 0.2,
+              "maxMs": 0.2,
+              "minMs": 0.2
+            }
+          ],
+          "hotReport": []
+        }
+      },
+      "after": {
+        "componentType": "scatter",
+        "capturedAt": 1780322601501,
+        "componentHook": null,
+        "sharedPerformance": {
+          "totalEntries": 39,
+          "relevantEntries": [
+            {
+              "id": 2,
               "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
+              "duration": 0.19999980926513672,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
@@ -1995,1641 +812,471 @@
               }
             },
             {
+              "id": 1,
+              "label": "scatter.draw",
+              "duration": 13.5,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "workspace-view",
+                  "resize"
+                ],
+                "token": 3
+              }
+            },
+            {
               "id": 3,
               "label": "scatter.draw",
-              "duration": 12.5,
+              "duration": 2.9000000953674316,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "resize",
+                  "row-selection-restore"
+                ],
+                "token": 4
+              }
+            },
+            {
+              "id": 4,
+              "label": "scatter.draw",
+              "duration": 4.299999713897705,
               "meta": {
                 "component": "scatter",
                 "reasons": [
                   "row-selection"
                 ],
-                "token": 2
+                "token": 5
               }
             },
             {
               "id": 6,
               "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
+              "duration": 0.19999980926513672,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 8,
-              "label": "scatter.stats.advisor",
-              "duration": 0.29999998211860657,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "points": 8
-              }
-            },
-            {
-              "id": 9,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 3,
-                "pruned": 0,
-                "total": 3
-              }
-            },
-            {
-              "id": 7,
-              "label": "scatter.points.prepare",
-              "duration": 10.200000017881393,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 10,
-              "label": "scatter.svg.layout",
-              "duration": 49.400000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "points": 8
-              }
-            },
-            {
-              "id": 11,
-              "label": "scatter.svg.draw",
-              "duration": 2.899999976158142,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 12,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "points": 8
-              }
-            },
-            {
-              "id": 13,
-              "label": "scatter.legend.render",
-              "duration": 7.899999976158142,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "entries": 3
-              }
-            },
-            {
-              "id": 14,
-              "label": "scatter.viewport.sync",
-              "duration": 7.4000000059604645,
-              "meta": {
-                "component": "scatter",
-                "token": 3
-              }
-            },
-            {
-              "id": 15,
-              "label": "scatter.layout.syncPanels",
-              "duration": 15,
-              "meta": {
-                "component": "scatter",
-                "token": 3,
-                "reason": null,
-                "viewOnly": false
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
               "id": 5,
               "label": "scatter.draw",
-              "duration": 119.09999999403954,
+              "duration": 4.200000286102295,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "afterChange",
+                  "afterLoadData"
+                ],
+                "token": 6
+              }
+            },
+            {
+              "id": 8,
+              "label": "scatter.data.collect",
+              "duration": 0,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
+              }
+            },
+            {
+              "id": 7,
+              "label": "scatter.draw",
+              "duration": 3,
               "meta": {
                 "component": "scatter",
                 "reasons": [
                   "afterLoadData"
                 ],
-                "token": 3
+                "token": 7
               }
-            }
-          ],
-          "maxEntryId": 15,
-          "componentReport": [
-            {
-              "key": "scatter.draw",
-              "count": 3,
-              "totalMs": 154.1,
-              "avgMs": 51.367,
-              "p50Ms": 22.5,
-              "p95Ms": 109.44,
-              "maxMs": 119.1,
-              "minMs": 12.5
             },
             {
-              "key": "scatter.svg.layout",
-              "count": 1,
-              "totalMs": 49.4,
-              "avgMs": 49.4,
-              "p50Ms": 49.4,
-              "p95Ms": 49.4,
-              "maxMs": 49.4,
-              "minMs": 49.4
-            },
-            {
-              "key": "scatter.layout.syncPanels",
-              "count": 1,
-              "totalMs": 15,
-              "avgMs": 15,
-              "p50Ms": 15,
-              "p95Ms": 15,
-              "maxMs": 15,
-              "minMs": 15
-            },
-            {
-              "key": "scatter.points.prepare",
-              "count": 1,
-              "totalMs": 10.2,
-              "avgMs": 10.2,
-              "p50Ms": 10.2,
-              "p95Ms": 10.2,
-              "maxMs": 10.2,
-              "minMs": 10.2
-            },
-            {
-              "key": "scatter.legend.render",
-              "count": 1,
-              "totalMs": 7.9,
-              "avgMs": 7.9,
-              "p50Ms": 7.9,
-              "p95Ms": 7.9,
-              "maxMs": 7.9,
-              "minMs": 7.9
-            },
-            {
-              "key": "scatter.viewport.sync",
-              "count": 1,
-              "totalMs": 7.4,
-              "avgMs": 7.4,
-              "p50Ms": 7.4,
-              "p95Ms": 7.4,
-              "maxMs": 7.4,
-              "minMs": 7.4
-            },
-            {
-              "key": "scatter.svg.draw",
-              "count": 1,
-              "totalMs": 2.9,
-              "avgMs": 2.9,
-              "p50Ms": 2.9,
-              "p95Ms": 2.9,
-              "maxMs": 2.9,
-              "minMs": 2.9
-            },
-            {
-              "key": "scatter.data.collect",
-              "count": 3,
-              "totalMs": 1,
-              "avgMs": 0.333,
-              "p50Ms": 0.2,
-              "p95Ms": 0.56,
-              "maxMs": 0.6,
-              "minMs": 0.2
-            },
-            {
-              "key": "scatter.stats.advisor",
-              "count": 1,
-              "totalMs": 0.3,
-              "avgMs": 0.3,
-              "p50Ms": 0.3,
-              "p95Ms": 0.3,
-              "maxMs": 0.3,
-              "minMs": 0.3
-            },
-            {
-              "key": "scatter.labels.colors",
-              "count": 1,
-              "totalMs": 0,
-              "avgMs": 0,
-              "p50Ms": 0,
-              "p95Ms": 0,
-              "maxMs": 0,
-              "minMs": 0
-            },
-            {
-              "key": "scatter.svg.attach",
-              "count": 1,
-              "totalMs": 0,
-              "avgMs": 0,
-              "p50Ms": 0,
-              "p95Ms": 0,
-              "maxMs": 0,
-              "minMs": 0
-            }
-          ],
-          "hotReport": []
-        }
-      },
-      "after": {
-        "componentType": "scatter",
-        "capturedAt": 1774686299415,
-        "componentHook": null,
-        "sharedPerformance": {
-          "totalEntries": 333,
-          "relevantEntries": [
-            {
-              "id": 216,
+              "id": 10,
               "label": "scatter.data.collect",
-              "duration": 0.10000002384185791,
+              "duration": 0,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 218,
-              "label": "scatter.stats.advisor",
-              "duration": 1,
+              "id": 9,
+              "label": "scatter.draw",
+              "duration": 4.5,
               "meta": {
                 "component": "scatter",
-                "token": 26,
-                "points": 8
+                "reasons": [],
+                "token": 8
               }
             },
             {
-              "id": 219,
-              "label": "scatter.labels.colors",
+              "id": 12,
+              "label": "scatter.data.collect",
               "duration": 0,
               "meta": {
                 "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 217,
-              "label": "scatter.points.prepare",
-              "duration": 1.399999976158142,
+              "id": 11,
+              "label": "scatter.draw",
+              "duration": 4.699999809265137,
               "meta": {
                 "component": "scatter",
-                "token": 26,
-                "points": 8,
-                "viewOnly": false
+                "reasons": [],
+                "token": 9
               }
             },
             {
-              "id": 220,
-              "label": "scatter.svg.layout",
-              "duration": 38.5,
+              "id": 13,
+              "label": "scatter.draw",
+              "duration": 1.8000001907348633,
               "meta": {
                 "component": "scatter",
-                "token": 26,
-                "points": 8
+                "reasons": [
+                  "view-mode-change"
+                ],
+                "token": 10
               }
             },
             {
-              "id": 221,
-              "label": "scatter.svg.draw",
-              "duration": 1,
+              "id": 14,
+              "label": "scatter.draw",
+              "duration": 2.9000000953674316,
               "meta": {
                 "component": "scatter",
-                "token": 26,
-                "points": 8,
-                "density": false
+                "reasons": [
+                  "view-mode-change"
+                ],
+                "token": 11
               }
             },
             {
-              "id": 222,
-              "label": "scatter.svg.attach",
+              "id": 15,
+              "label": "scatter.draw",
+              "duration": 3.799999713897705,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "color-scheme-scatter"
+                ],
+                "token": 12
+              }
+            },
+            {
+              "id": 16,
+              "label": "scatter.draw",
+              "duration": 2.700000286102295,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection-restore"
+                ],
+                "token": 13
+              }
+            },
+            {
+              "id": 17,
+              "label": "scatter.draw",
+              "duration": 2.5,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 14
+              }
+            },
+            {
+              "id": 18,
+              "label": "scatter.draw",
+              "duration": 4.100000381469727,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "color-scheme-scatter"
+                ],
+                "token": 15
+              }
+            },
+            {
+              "id": 19,
+              "label": "scatter.draw",
+              "duration": 2.5999999046325684,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection-restore"
+                ],
+                "token": 16
+              }
+            },
+            {
+              "id": 20,
+              "label": "scatter.draw",
+              "duration": 2.8999996185302734,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 17
+              }
+            },
+            {
+              "id": 21,
+              "label": "scatter.draw",
+              "duration": 2.6999998092651367,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 18
+              }
+            },
+            {
+              "id": 22,
+              "label": "scatter.draw",
+              "duration": 1.9000000953674316,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 19
+              }
+            },
+            {
+              "id": 23,
+              "label": "scatter.draw",
+              "duration": 2.0999999046325684,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 20
+              }
+            },
+            {
+              "id": 24,
+              "label": "scatter.draw",
+              "duration": 2,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 21
+              }
+            },
+            {
+              "id": 25,
+              "label": "scatter.draw",
+              "duration": 2.5,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 22
+              }
+            },
+            {
+              "id": 26,
+              "label": "scatter.draw",
+              "duration": 2,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 23
+              }
+            },
+            {
+              "id": 27,
+              "label": "scatter.draw",
+              "duration": 1.799999713897705,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "row-selection"
+                ],
+                "token": 24
+              }
+            },
+            {
+              "id": 29,
+              "label": "scatter.data.collect",
               "duration": 0,
               "meta": {
                 "component": "scatter",
-                "token": 26,
-                "points": 8
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 223,
-              "label": "scatter.viewport.sync",
-              "duration": 3,
+              "id": 28,
+              "label": "scatter.draw",
+              "duration": 6,
               "meta": {
                 "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
+                "token": 25
+              }
+            },
+            {
+              "id": 31,
+              "label": "scatter.data.collect",
+              "duration": 0.09999990463256836,
+              "meta": {
+                "component": "scatter",
+                "rows": 100,
+                "points": 0,
+                "skippedRows": 99
+              }
+            },
+            {
+              "id": 30,
+              "label": "scatter.draw",
+              "duration": 4.800000190734863,
+              "meta": {
+                "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
                 "token": 26
               }
             },
             {
-              "id": 224,
-              "label": "scatter.layout.syncPanels",
-              "duration": 4.800000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 26,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 215,
-              "label": "scatter.draw",
-              "duration": 74.90000000596046,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 26
-              }
-            },
-            {
-              "id": 226,
+              "id": 33,
               "label": "scatter.data.collect",
-              "duration": 0.10000002384185791,
+              "duration": 0,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 228,
-              "label": "scatter.stats.advisor",
-              "duration": 0.8999999761581421,
+              "id": 32,
+              "label": "scatter.draw",
+              "duration": 4.699999809265137,
               "meta": {
                 "component": "scatter",
-                "token": 27,
-                "points": 8
-              }
-            },
-            {
-              "id": 229,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 227,
-              "label": "scatter.points.prepare",
-              "duration": 1.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 27,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 230,
-              "label": "scatter.svg.layout",
-              "duration": 36.599999994039536,
-              "meta": {
-                "component": "scatter",
-                "token": 27,
-                "points": 8
-              }
-            },
-            {
-              "id": 231,
-              "label": "scatter.svg.draw",
-              "duration": 1.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 27,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 232,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 27,
-                "points": 8
-              }
-            },
-            {
-              "id": 233,
-              "label": "scatter.viewport.sync",
-              "duration": 3.7000000178813934,
-              "meta": {
-                "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
                 "token": 27
               }
             },
             {
-              "id": 234,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.199999988079071,
-              "meta": {
-                "component": "scatter",
-                "token": 27,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 225,
-              "label": "scatter.draw",
-              "duration": 75.60000002384186,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 27
-              }
-            },
-            {
-              "id": 236,
+              "id": 35,
               "label": "scatter.data.collect",
-              "duration": 0.09999999403953552,
+              "duration": 0.10000038146972656,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 238,
-              "label": "scatter.stats.advisor",
-              "duration": 2,
+              "id": 34,
+              "label": "scatter.draw",
+              "duration": 6.599999904632568,
               "meta": {
                 "component": "scatter",
-                "token": 28,
-                "points": 8
-              }
-            },
-            {
-              "id": 239,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 237,
-              "label": "scatter.points.prepare",
-              "duration": 2.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 28,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 240,
-              "label": "scatter.svg.layout",
-              "duration": 36.900000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 28,
-                "points": 8
-              }
-            },
-            {
-              "id": 241,
-              "label": "scatter.svg.draw",
-              "duration": 1,
-              "meta": {
-                "component": "scatter",
-                "token": 28,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 242,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 28,
-                "points": 8
-              }
-            },
-            {
-              "id": 243,
-              "label": "scatter.viewport.sync",
-              "duration": 3,
-              "meta": {
-                "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
                 "token": 28
               }
             },
             {
-              "id": 244,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.299999982118607,
-              "meta": {
-                "component": "scatter",
-                "token": 28,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 235,
-              "label": "scatter.draw",
-              "duration": 72.69999998807907,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 28
-              }
-            },
-            {
-              "id": 246,
+              "id": 37,
               "label": "scatter.data.collect",
-              "duration": 0.09999999403953552,
+              "duration": 0,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 248,
-              "label": "scatter.stats.advisor",
-              "duration": 1.0999999940395355,
+              "id": 36,
+              "label": "scatter.draw",
+              "duration": 4,
               "meta": {
                 "component": "scatter",
-                "token": 29,
-                "points": 8
-              }
-            },
-            {
-              "id": 249,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 247,
-              "label": "scatter.points.prepare",
-              "duration": 1.699999988079071,
-              "meta": {
-                "component": "scatter",
-                "token": 29,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 250,
-              "label": "scatter.svg.layout",
-              "duration": 35,
-              "meta": {
-                "component": "scatter",
-                "token": 29,
-                "points": 8
-              }
-            },
-            {
-              "id": 251,
-              "label": "scatter.svg.draw",
-              "duration": 1.199999988079071,
-              "meta": {
-                "component": "scatter",
-                "token": 29,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 252,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 29,
-                "points": 8
-              }
-            },
-            {
-              "id": 253,
-              "label": "scatter.viewport.sync",
-              "duration": 3.2000000178813934,
-              "meta": {
-                "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
                 "token": 29
               }
             },
             {
-              "id": 254,
-              "label": "scatter.layout.syncPanels",
-              "duration": 4.700000017881393,
-              "meta": {
-                "component": "scatter",
-                "token": 29,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 245,
-              "label": "scatter.draw",
-              "duration": 72.40000000596046,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 29
-              }
-            },
-            {
-              "id": 256,
+              "id": 39,
               "label": "scatter.data.collect",
-              "duration": 0.20000001788139343,
+              "duration": 0,
               "meta": {
                 "component": "scatter",
                 "rows": 100,
-                "points": 8,
-                "skippedRows": 91
+                "points": 0,
+                "skippedRows": 99
               }
             },
             {
-              "id": 258,
-              "label": "scatter.stats.advisor",
-              "duration": 2.2000000178813934,
+              "id": 38,
+              "label": "scatter.draw",
+              "duration": 4,
               "meta": {
                 "component": "scatter",
-                "token": 30,
-                "points": 8
-              }
-            },
-            {
-              "id": 259,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 257,
-              "label": "scatter.points.prepare",
-              "duration": 2.7999999821186066,
-              "meta": {
-                "component": "scatter",
-                "token": 30,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 260,
-              "label": "scatter.svg.layout",
-              "duration": 37.099999994039536,
-              "meta": {
-                "component": "scatter",
-                "token": 30,
-                "points": 8
-              }
-            },
-            {
-              "id": 261,
-              "label": "scatter.svg.draw",
-              "duration": 1.899999976158142,
-              "meta": {
-                "component": "scatter",
-                "token": 30,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 262,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 30,
-                "points": 8
-              }
-            },
-            {
-              "id": 263,
-              "label": "scatter.viewport.sync",
-              "duration": 2.800000011920929,
-              "meta": {
-                "component": "scatter",
+                "reasons": [
+                  "observer"
+                ],
                 "token": 30
-              }
-            },
-            {
-              "id": 264,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.4000000059604645,
-              "meta": {
-                "component": "scatter",
-                "token": 30,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 255,
-              "label": "scatter.draw",
-              "duration": 100.7000000178814,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 30
-              }
-            },
-            {
-              "id": 266,
-              "label": "scatter.data.collect",
-              "duration": 0.09999999403953552,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 268,
-              "label": "scatter.stats.advisor",
-              "duration": 1,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "points": 8
-              }
-            },
-            {
-              "id": 269,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 267,
-              "label": "scatter.points.prepare",
-              "duration": 1.5,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 270,
-              "label": "scatter.svg.layout",
-              "duration": 32.69999998807907,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "points": 8
-              }
-            },
-            {
-              "id": 271,
-              "label": "scatter.svg.draw",
-              "duration": 1.5,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 272,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "points": 8
-              }
-            },
-            {
-              "id": 273,
-              "label": "scatter.viewport.sync",
-              "duration": 2.7999999821186066,
-              "meta": {
-                "component": "scatter",
-                "token": 31
-              }
-            },
-            {
-              "id": 274,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 31,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 265,
-              "label": "scatter.draw",
-              "duration": 67.59999999403954,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 31
-              }
-            },
-            {
-              "id": 276,
-              "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 278,
-              "label": "scatter.stats.advisor",
-              "duration": 1.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "points": 8
-              }
-            },
-            {
-              "id": 279,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 277,
-              "label": "scatter.points.prepare",
-              "duration": 1.5,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 280,
-              "label": "scatter.svg.layout",
-              "duration": 38.900000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "points": 8
-              }
-            },
-            {
-              "id": 281,
-              "label": "scatter.svg.draw",
-              "duration": 1.2999999821186066,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 282,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "points": 8
-              }
-            },
-            {
-              "id": 283,
-              "label": "scatter.viewport.sync",
-              "duration": 3.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 32
-              }
-            },
-            {
-              "id": 284,
-              "label": "scatter.layout.syncPanels",
-              "duration": 7,
-              "meta": {
-                "component": "scatter",
-                "token": 32,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 275,
-              "label": "scatter.draw",
-              "duration": 81.40000000596046,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 32
-              }
-            },
-            {
-              "id": 286,
-              "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 288,
-              "label": "scatter.stats.advisor",
-              "duration": 1.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "points": 8
-              }
-            },
-            {
-              "id": 289,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 287,
-              "label": "scatter.points.prepare",
-              "duration": 1.5,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 290,
-              "label": "scatter.svg.layout",
-              "duration": 32.69999998807907,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "points": 8
-              }
-            },
-            {
-              "id": 291,
-              "label": "scatter.svg.draw",
-              "duration": 1.300000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 292,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "points": 8
-              }
-            },
-            {
-              "id": 293,
-              "label": "scatter.viewport.sync",
-              "duration": 3.300000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 33
-              }
-            },
-            {
-              "id": 294,
-              "label": "scatter.layout.syncPanels",
-              "duration": 4.9000000059604645,
-              "meta": {
-                "component": "scatter",
-                "token": 33,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 285,
-              "label": "scatter.draw",
-              "duration": 69.69999998807907,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 33
-              }
-            },
-            {
-              "id": 296,
-              "label": "scatter.data.collect",
-              "duration": 0.09999999403953552,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 298,
-              "label": "scatter.stats.advisor",
-              "duration": 1.300000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "points": 8
-              }
-            },
-            {
-              "id": 299,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 297,
-              "label": "scatter.points.prepare",
-              "duration": 2,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 300,
-              "label": "scatter.svg.layout",
-              "duration": 35.400000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "points": 8
-              }
-            },
-            {
-              "id": 301,
-              "label": "scatter.svg.draw",
-              "duration": 1.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 302,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "points": 8
-              }
-            },
-            {
-              "id": 303,
-              "label": "scatter.viewport.sync",
-              "duration": 3.7000000178813934,
-              "meta": {
-                "component": "scatter",
-                "token": 34
-              }
-            },
-            {
-              "id": 304,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.300000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 34,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 295,
-              "label": "scatter.draw",
-              "duration": 74.2000000178814,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 34
-              }
-            },
-            {
-              "id": 306,
-              "label": "scatter.data.collect",
-              "duration": 0.09999999403953552,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 308,
-              "label": "scatter.stats.advisor",
-              "duration": 1,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "points": 8
-              }
-            },
-            {
-              "id": 309,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 307,
-              "label": "scatter.points.prepare",
-              "duration": 1.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 310,
-              "label": "scatter.svg.layout",
-              "duration": 33.900000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "points": 8
-              }
-            },
-            {
-              "id": 311,
-              "label": "scatter.svg.draw",
-              "duration": 1.2000000178813934,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 312,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "points": 8
-              }
-            },
-            {
-              "id": 313,
-              "label": "scatter.viewport.sync",
-              "duration": 3.7999999821186066,
-              "meta": {
-                "component": "scatter",
-                "token": 35
-              }
-            },
-            {
-              "id": 314,
-              "label": "scatter.layout.syncPanels",
-              "duration": 6.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 35,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 305,
-              "label": "scatter.draw",
-              "duration": 80,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 35
-              }
-            },
-            {
-              "id": 316,
-              "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 318,
-              "label": "scatter.stats.advisor",
-              "duration": 1,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "points": 8
-              }
-            },
-            {
-              "id": 319,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 317,
-              "label": "scatter.points.prepare",
-              "duration": 1.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 320,
-              "label": "scatter.svg.layout",
-              "duration": 40.900000005960464,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "points": 8
-              }
-            },
-            {
-              "id": 321,
-              "label": "scatter.svg.draw",
-              "duration": 1.5,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 322,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "points": 8
-              }
-            },
-            {
-              "id": 323,
-              "label": "scatter.viewport.sync",
-              "duration": 3.600000023841858,
-              "meta": {
-                "component": "scatter",
-                "token": 36
-              }
-            },
-            {
-              "id": 324,
-              "label": "scatter.layout.syncPanels",
-              "duration": 6.199999988079071,
-              "meta": {
-                "component": "scatter",
-                "token": 36,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 315,
-              "label": "scatter.draw",
-              "duration": 83.7999999821186,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 36
-              }
-            },
-            {
-              "id": 326,
-              "label": "scatter.data.collect",
-              "duration": 0.19999998807907104,
-              "meta": {
-                "component": "scatter",
-                "rows": 100,
-                "points": 8,
-                "skippedRows": 91
-              }
-            },
-            {
-              "id": 328,
-              "label": "scatter.stats.advisor",
-              "duration": 1.199999988079071,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "points": 8
-              }
-            },
-            {
-              "id": 329,
-              "label": "scatter.labels.colors",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "labels": 3,
-                "created": 0,
-                "pruned": 0,
-                "total": 3,
-                "skipped": true
-              }
-            },
-            {
-              "id": 327,
-              "label": "scatter.points.prepare",
-              "duration": 1.5999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "points": 8,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 330,
-              "label": "scatter.svg.layout",
-              "duration": 39.599999994039536,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "points": 8
-              }
-            },
-            {
-              "id": 331,
-              "label": "scatter.svg.draw",
-              "duration": 1.4000000059604645,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "points": 8,
-                "density": false
-              }
-            },
-            {
-              "id": 332,
-              "label": "scatter.svg.attach",
-              "duration": 0,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "points": 8
-              }
-            },
-            {
-              "id": 333,
-              "label": "scatter.viewport.sync",
-              "duration": 3.0999999940395355,
-              "meta": {
-                "component": "scatter",
-                "token": 37
-              }
-            },
-            {
-              "id": 334,
-              "label": "scatter.layout.syncPanels",
-              "duration": 5.300000011920929,
-              "meta": {
-                "component": "scatter",
-                "token": 37,
-                "reason": null,
-                "viewOnly": false
-              }
-            },
-            {
-              "id": 325,
-              "label": "scatter.draw",
-              "duration": 83.10000002384186,
-              "meta": {
-                "component": "scatter",
-                "reasons": [],
-                "token": 37
               }
             }
           ],
-          "maxEntryId": 334,
+          "maxEntryId": 39,
           "componentReport": [
             {
               "key": "scatter.draw",
-              "count": 37,
-              "totalMs": 2717.1,
-              "avgMs": 73.435,
-              "p50Ms": 75.6,
-              "p95Ms": 100.38,
-              "maxMs": 119.1,
-              "minMs": 8.2
-            },
-            {
-              "key": "scatter.svg.layout",
-              "count": 34,
-              "totalMs": 1344.9,
-              "avgMs": 39.556,
-              "p50Ms": 38.4,
-              "p95Ms": 49.01,
-              "maxMs": 58.2,
-              "minMs": 32.7
-            },
-            {
-              "key": "scatter.layout.syncPanels",
-              "count": 34,
-              "totalMs": 221.8,
-              "avgMs": 6.524,
-              "p50Ms": 6.15,
-              "p95Ms": 10.625,
-              "maxMs": 15,
-              "minMs": 4.6
-            },
-            {
-              "key": "scatter.viewport.sync",
-              "count": 34,
-              "totalMs": 119.9,
-              "avgMs": 3.526,
-              "p50Ms": 3.2,
-              "p95Ms": 4.815,
-              "maxMs": 7.4,
-              "minMs": 2.7
-            },
-            {
-              "key": "scatter.points.prepare",
-              "count": 34,
-              "totalMs": 55.7,
-              "avgMs": 1.638,
-              "p50Ms": 1.5,
-              "p95Ms": 2.67,
-              "maxMs": 10.2,
-              "minMs": 0.5
-            },
-            {
-              "key": "scatter.svg.draw",
-              "count": 34,
-              "totalMs": 45.2,
-              "avgMs": 1.329,
-              "p50Ms": 1.3,
-              "p95Ms": 1.9,
-              "maxMs": 2.9,
-              "minMs": 0.8
-            },
-            {
-              "key": "scatter.stats.advisor",
-              "count": 35,
-              "totalMs": 24.6,
-              "avgMs": 0.703,
-              "p50Ms": 0.3,
-              "p95Ms": 1.72,
-              "maxMs": 2.2,
-              "minMs": 0.1
-            },
-            {
-              "key": "scatter.legend.render",
-              "count": 1,
-              "totalMs": 7.9,
-              "avgMs": 7.9,
-              "p50Ms": 7.9,
-              "p95Ms": 7.9,
-              "maxMs": 7.9,
-              "minMs": 7.9
+              "count": 28,
+              "totalMs": 105.5,
+              "avgMs": 3.768,
+              "p50Ms": 2.95,
+              "p95Ms": 6.39,
+              "maxMs": 13.5,
+              "minMs": 1.8
             },
             {
               "key": "scatter.data.collect",
-              "count": 23,
-              "totalMs": 4.3,
-              "avgMs": 0.187,
-              "p50Ms": 0.2,
-              "p95Ms": 0.39,
-              "maxMs": 0.6,
-              "minMs": 0.1
-            },
-            {
-              "key": "scatter.labels.colors",
-              "count": 33,
-              "totalMs": 0.2,
-              "avgMs": 0.006,
+              "count": 11,
+              "totalMs": 0.6,
+              "avgMs": 0.055,
               "p50Ms": 0,
-              "p95Ms": 0.04,
-              "maxMs": 0.1,
-              "minMs": 0
-            },
-            {
-              "key": "scatter.svg.attach",
-              "count": 34,
-              "totalMs": 0.2,
-              "avgMs": 0.006,
-              "p50Ms": 0,
-              "p95Ms": 0.035,
-              "maxMs": 0.1,
+              "p95Ms": 0.2,
+              "maxMs": 0.2,
               "minMs": 0
             }
           ],
@@ -3639,13 +1286,13 @@
     },
     "slowestSteps": [
       {
-        "step": "toggle-checkboxes",
-        "durationMs": 4600,
+        "step": "cycle-selects",
+        "durationMs": 1838,
         "actionResult": {
-          "visible": 37,
-          "attempted": 5,
-          "toggled": 5,
-          "durationMs": 4600
+          "visible": 11,
+          "attempted": 4,
+          "changed": 4,
+          "durationMs": 1838
         },
         "perfDelta": {
           "hook": {},
@@ -3653,72 +1300,30 @@
           "componentReport": [
             {
               "key": "scatter.draw",
-              "deltaCount": 9,
-              "deltaTotalMs": 709.5,
-              "latestAvgMs": 69.514,
-              "latestP95Ms": 100.3
+              "deltaCount": 12,
+              "deltaTotalMs": 39.7,
+              "latestAvgMs": 4.027,
+              "latestP95Ms": 7.34
             },
             {
-              "key": "scatter.svg.layout",
-              "deltaCount": 9,
-              "deltaTotalMs": 380,
-              "latestAvgMs": 41.872,
-              "latestP95Ms": 50.72
-            },
-            {
-              "key": "scatter.layout.syncPanels",
-              "deltaCount": 9,
-              "deltaTotalMs": 59.8,
-              "latestAvgMs": 7.433,
-              "latestP95Ms": 12.11
-            },
-            {
-              "key": "scatter.viewport.sync",
-              "deltaCount": 9,
-              "deltaTotalMs": 31.3,
-              "latestAvgMs": 3.706,
-              "latestP95Ms": 5.7
-            },
-            {
-              "key": "scatter.svg.draw",
-              "deltaCount": 9,
-              "deltaTotalMs": 11.8,
-              "latestAvgMs": 1.406,
-              "latestP95Ms": 2.05
-            },
-            {
-              "key": "scatter.points.prepare",
-              "deltaCount": 9,
-              "deltaTotalMs": 9.3,
-              "latestAvgMs": 1.483,
-              "latestP95Ms": 3.23
-            },
-            {
-              "key": "scatter.stats.advisor",
-              "deltaCount": 9,
-              "deltaTotalMs": 2.2,
-              "latestAvgMs": 0.221,
-              "latestP95Ms": 0.31
-            },
-            {
-              "key": "scatter.labels.colors",
-              "deltaCount": 9,
-              "deltaTotalMs": 0.1,
-              "latestAvgMs": 0.012,
-              "latestP95Ms": 0.1
+              "key": "scatter.data.collect",
+              "deltaCount": 4,
+              "deltaTotalMs": 0.2,
+              "latestAvgMs": 0.08,
+              "latestP95Ms": 0.2
             }
           ],
           "hotReport": []
         }
       },
       {
-        "step": "cycle-selects",
-        "durationMs": 4262,
+        "step": "toggle-checkboxes",
+        "durationMs": 1362,
         "actionResult": {
-          "visible": 11,
-          "attempted": 4,
-          "changed": 4,
-          "durationMs": 4262
+          "visible": 36,
+          "attempted": 5,
+          "toggled": 5,
+          "durationMs": 1362
         },
         "perfDelta": {
           "hook": {},
@@ -3726,59 +1331,10 @@
           "componentReport": [
             {
               "key": "scatter.draw",
-              "deltaCount": 9,
-              "deltaTotalMs": 596.2,
-              "latestAvgMs": 62.525,
-              "latestP95Ms": 108.76
-            },
-            {
-              "key": "scatter.svg.layout",
-              "deltaCount": 8,
-              "deltaTotalMs": 324.3,
-              "latestAvgMs": 41.522,
-              "latestP95Ms": 54.68
-            },
-            {
-              "key": "scatter.layout.syncPanels",
-              "deltaCount": 8,
-              "deltaTotalMs": 59,
-              "latestAvgMs": 8.222,
-              "latestP95Ms": 13.64
-            },
-            {
-              "key": "scatter.viewport.sync",
-              "deltaCount": 8,
-              "deltaTotalMs": 28,
-              "latestAvgMs": 3.933,
-              "latestP95Ms": 6.6
-            },
-            {
-              "key": "scatter.svg.draw",
-              "deltaCount": 8,
-              "deltaTotalMs": 10.6,
-              "latestAvgMs": 1.5,
-              "latestP95Ms": 2.46
-            },
-            {
-              "key": "scatter.points.prepare",
-              "deltaCount": 8,
-              "deltaTotalMs": 7.2,
-              "latestAvgMs": 1.933,
-              "latestP95Ms": 6.84
-            },
-            {
-              "key": "scatter.stats.advisor",
-              "deltaCount": 9,
-              "deltaTotalMs": 1.7,
-              "latestAvgMs": 0.2,
-              "latestP95Ms": 0.3
-            },
-            {
-              "key": "scatter.data.collect",
-              "deltaCount": 4,
-              "deltaTotalMs": 1,
-              "latestAvgMs": 0.286,
-              "latestP95Ms": 0.54
+              "deltaCount": 7,
+              "deltaTotalMs": 15,
+              "latestAvgMs": 3.427,
+              "latestP95Ms": 4.69
             }
           ],
           "hotReport": []
@@ -3786,11 +1342,11 @@
       },
       {
         "step": "drag-panel-resizer",
-        "durationMs": 3392,
+        "durationMs": 773,
         "actionResult": {
           "present": true,
           "moved": true,
-          "durationMs": 3392
+          "durationMs": 773
         },
         "perfDelta": {
           "hook": {},
@@ -3798,74 +1354,29 @@
           "componentReport": [
             {
               "key": "scatter.draw",
-              "deltaCount": 16,
-              "deltaTotalMs": 1257.3,
-              "latestAvgMs": 73.435,
-              "latestP95Ms": 100.38
-            },
-            {
-              "key": "scatter.svg.layout",
-              "deltaCount": 16,
-              "deltaTotalMs": 591.2,
-              "latestAvgMs": 39.556,
-              "latestP95Ms": 49.01
-            },
-            {
-              "key": "scatter.layout.syncPanels",
-              "deltaCount": 16,
-              "deltaTotalMs": 88,
-              "latestAvgMs": 6.524,
-              "latestP95Ms": 10.625
-            },
-            {
-              "key": "scatter.viewport.sync",
-              "deltaCount": 16,
-              "deltaTotalMs": 53.2,
-              "latestAvgMs": 3.526,
-              "latestP95Ms": 4.815
-            },
-            {
-              "key": "scatter.points.prepare",
-              "deltaCount": 16,
-              "deltaTotalMs": 29,
-              "latestAvgMs": 1.638,
-              "latestP95Ms": 2.67
-            },
-            {
-              "key": "scatter.stats.advisor",
-              "deltaCount": 16,
-              "deltaTotalMs": 20.4,
-              "latestAvgMs": 0.703,
-              "latestP95Ms": 1.72
-            },
-            {
-              "key": "scatter.svg.draw",
-              "deltaCount": 16,
-              "deltaTotalMs": 19.9,
-              "latestAvgMs": 1.329,
-              "latestP95Ms": 1.9
+              "deltaCount": 6,
+              "deltaTotalMs": 30.1,
+              "latestAvgMs": 3.768,
+              "latestP95Ms": 6.39
             },
             {
               "key": "scatter.data.collect",
-              "deltaCount": 16,
-              "deltaTotalMs": 2.3,
-              "latestAvgMs": 0.187,
-              "latestP95Ms": 0.39
+              "deltaCount": 6,
+              "deltaTotalMs": 0.2,
+              "latestAvgMs": 0.055,
+              "latestP95Ms": 0.2
             }
           ],
           "hotReport": []
         }
       },
       {
-        "step": "click-analysis-buttons",
-        "durationMs": 945,
+        "step": "adjust-zoom",
+        "durationMs": 369,
         "actionResult": {
-          "visible": 24,
-          "clicked": 1,
-          "clickedLabels": [
-            "Guide me"
-          ],
-          "durationMs": 945
+          "zoomInClicks": 2,
+          "zoomOutClicks": 1,
+          "durationMs": 369
         },
         "perfDelta": {
           "hook": {},
@@ -3875,12 +1386,15 @@
         }
       },
       {
-        "step": "adjust-zoom",
-        "durationMs": 811,
+        "step": "click-analysis-buttons",
+        "durationMs": 302,
         "actionResult": {
-          "zoomInClicks": 2,
-          "zoomOutClicks": 1,
-          "durationMs": 811
+          "visible": 30,
+          "clicked": 1,
+          "clickedLabels": [
+            "Guide me"
+          ],
+          "durationMs": 302
         },
         "perfDelta": {
           "hook": {},

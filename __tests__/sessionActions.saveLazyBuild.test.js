@@ -131,7 +131,7 @@ describe('sessionActions save lazy archive build', () => {
     }));
   });
 
-  test('recovery high-fidelity policy captures render cache only when idle and opt-in is enabled', async () => {
+  test('recovery snapshot policy captures render cache only when idle unless explicitly overridden', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
     const persistSpy = context.session.persistActiveTabState;
@@ -140,7 +140,6 @@ describe('sessionActions save lazy archive build', () => {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'lifecycle-checkpoint',
-      highFidelityRecoveryEnabled: true,
       idleForMs: 5000,
       reason: 'recovery-interval'
     });
@@ -153,7 +152,6 @@ describe('sessionActions save lazy archive build', () => {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'lifecycle-checkpoint',
-      highFidelityRecoveryEnabled: true,
       idleForMs: 10,
       reason: 'recovery-interval'
     });
@@ -166,8 +164,8 @@ describe('sessionActions save lazy archive build', () => {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'lifecycle-checkpoint',
-      highFidelityRecoveryEnabled: false,
       idleForMs: 9000,
+      captureRenderCacheBeforeSnapshot: false,
       reason: 'recovery-interval'
     });
     const disabledCall = persistSpy.mock.calls.at(-1) || [];

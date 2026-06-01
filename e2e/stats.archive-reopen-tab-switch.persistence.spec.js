@@ -281,16 +281,6 @@ async function openComponentAndPrepareStats(page, componentCase) {
   await waitForStatsReady(page, componentCase);
 }
 
-async function enableHighFidelityRecovery(page) {
-  await page.evaluate(() => {
-    const docState = window.Main?.documentState;
-    if (!docState || typeof docState.setHighFidelityRecoveryEnabled !== 'function') {
-      throw new Error('Main.documentState.setHighFidelityRecoveryEnabled unavailable');
-    }
-    docState.setHighFidelityRecoveryEnabled(true, { reason: 'e2e-high-fidelity-opt-in' });
-  });
-}
-
 async function seedRecoverySnapshotFromWorkspace(page) {
   return page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
@@ -335,7 +325,6 @@ async function seedRecoverySnapshotFromWorkspace(page) {
       snapshotKind: 'lifecycle-checkpoint',
       policyMode: 'recovery',
       reason: 'recovery-interval',
-      highFidelityRecoveryEnabled: true,
       idleForMs: 8000,
       useWorker: true
     });
@@ -411,7 +400,6 @@ for (const componentCase of STATS_COMPONENT_CASES) {
     await installLocalCdnOverrides(page);
 
     await openComponentAndPrepareStats(page, componentCase);
-    await enableHighFidelityRecovery(page);
     const snapshotResult = await seedRecoverySnapshotFromWorkspace(page);
     expect(snapshotResult?.status).toBe('saved');
 

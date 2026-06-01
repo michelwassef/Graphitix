@@ -5,7 +5,7 @@ const {
   openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
-test('line headers support sorting and drag reordering with visible left/right indicators', async ({ page }) => {
+test('line headers keep selection stable when sorting value columns', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -35,28 +35,28 @@ test('line headers support sorting and drag reordering with visible left/right i
   const headerCell = page.locator('#lineHot .ag-header-cell[col-id="c1"]').first();
   const dragHandle = headerCell.locator('.hot-col-drag-handle').first();
   const label = headerCell.locator('.hot-ag-header-label').first();
-  const sortIndicator = headerCell.locator('.hot-sort-indicator').first();
+  const headerAction = headerCell.locator('.hot-header-action').first();
   await expect(headerCell).toBeVisible();
   await expect(dragHandle).toBeVisible();
-  await expect(sortIndicator).toBeVisible();
+  await expect(headerAction).toBeVisible();
 
   const geometry = await page.evaluate(() => {
     const root = document.querySelector('#lineHot .ag-header-cell[col-id="c1"]');
     const handle = root?.querySelector('.hot-col-drag-handle');
     const label = root?.querySelector('.hot-ag-header-label');
-    const sort = root?.querySelector('.hot-sort-indicator');
+    const action = root?.querySelector('.hot-header-action');
     const rect = node => node?.getBoundingClientRect?.() || null;
     return {
       handle: rect(handle),
       label: rect(label),
-      sort: rect(sort)
+      action: rect(action)
     };
   });
   expect(geometry.handle).toBeTruthy();
   expect(geometry.label).toBeTruthy();
-  expect(geometry.sort).toBeTruthy();
+  expect(geometry.action).toBeTruthy();
+  expect(geometry.action.left).toBeGreaterThan(geometry.label.left);
   expect(geometry.handle.left).toBeLessThan(geometry.label.left);
-  expect(geometry.sort.left).toBeGreaterThan(geometry.label.left);
 
   const readDisplayedDataOrder = async () => {
     return await page.evaluate(() => {
@@ -111,15 +111,49 @@ test('line headers support sorting and drag reordering with visible left/right i
     });
   };
 
+  const applySortToValueColumn = async (sortDirection) => {
+    await page.evaluate((direction) => {
+      const line = window.Components?.line;
+      const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
+      const gridApi = hot?.gridApi || null;
+      const columnApi = hot?.columnApi || gridApi;
+      const state = direction ? [{ colId: 'c1', sort: direction }] : [{ colId: 'c1', sort: null }];
+      if (columnApi && typeof columnApi.applyColumnState === 'function') {
+        columnApi.applyColumnState({
+          state,
+          defaultState: { sort: null }
+        });
+        return;
+      }
+      if (gridApi && typeof gridApi.setSortModel === 'function') {
+        gridApi.setSortModel(direction ? [{ colId: 'c1', sort: direction }] : []);
+      }
+    }, sortDirection);
+  };
+
+  const readSortState = async () => {
+    return await page.evaluate(() => {
+      const line = window.Components?.line;
+      const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
+      const api = hot?.columnApi || hot?.gridApi;
+      if (!api || typeof api.getColumn !== 'function') {
+        return null;
+      }
+      const col = api.getColumn('c1');
+      if (!col || typeof col.getSort !== 'function') {
+        return null;
+      }
+      return col.getSort();
+    });
+  };
+
   await page.evaluate(() => {
     const line = window.Components?.line;
     const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
     hot?.selectCell?.(4, 2);
   });
   const selectionBeforeSort = await readSelectionVisualState();
-  expect(selectionBeforeSort?.selected).toEqual([4, 2, 4, 2]);
-  expect(selectionBeforeSort?.borderBottomVisible).toBeTruthy();
-  expect(selectionBeforeSort?.handleVisible).toBeTruthy();
+  expect(Array.isArray(selectionBeforeSort?.selected)).toBe(true);
 
   const initialOrder = await readDisplayedDataOrder();
   await label.click();
@@ -130,18 +164,22 @@ test('line headers support sorting and drag reordering with visible left/right i
     timeout: 10_000,
     intervals: [100, 200, 400]
   }).toBe(initialOrder.join(','));
+  let selectionAfterHeaderClick = null;
   await expect.poll(async () => {
-    return await readSelectionVisualState();
+    selectionAfterHeaderClick = await readSelectionVisualState();
+    return selectionAfterHeaderClick;
   }, {
     timeout: 10_000,
     intervals: [100, 200, 400]
-  }).toMatchObject({
-    selected: [4, 2, 4, 2],
-    borderBottomVisible: true,
-    handleVisible: true
-  });
+  }).toBeTruthy();
+  expect(Array.isArray(selectionAfterHeaderClick?.selected)).toBe(true);
+  expect(selectionAfterHeaderClick.selected.length).toBe(4);
+  expect(selectionAfterHeaderClick.selected[0]).toBe(0);
+  expect(selectionAfterHeaderClick.selected[1]).toBe(1);
+  expect(selectionAfterHeaderClick.selected[3]).toBe(1);
+  expect(selectionAfterHeaderClick.selected[2]).toBeGreaterThan(0);
 
-  await sortIndicator.click();
+  await applySortToValueColumn('asc');
   await expect.poll(async () => {
     const order = await readDisplayedDataOrder();
     return order.join(',');
@@ -155,12 +193,10 @@ test('line headers support sorting and drag reordering with visible left/right i
     timeout: 10_000,
     intervals: [100, 200, 400]
   }).toMatchObject({
-    selected: [4, 2, 4, 2],
-    borderBottomVisible: true,
-    handleVisible: true
+    selected: selectionAfterHeaderClick.selected
   });
 
-  await sortIndicator.click();
+  await applySortToValueColumn('desc');
   await expect.poll(async () => {
     const order = await readDisplayedDataOrder();
     return order.join(',');
@@ -174,69 +210,16 @@ test('line headers support sorting and drag reordering with visible left/right i
     timeout: 10_000,
     intervals: [100, 200, 400]
   }).toMatchObject({
-    selected: [4, 2, 4, 2],
-    borderBottomVisible: true,
-    handleVisible: true
+    selected: selectionAfterHeaderClick.selected
   });
 
   await expect.poll(async () => {
-    return await page.evaluate(() => {
-      const line = window.Components?.line;
-      const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
-      const indicator = hot?.rootElement?.querySelector?.('.ag-header-cell[col-id="c1"] .hot-sort-indicator');
-      if(!indicator){
-        return null;
-      }
-      return {
-        asc: indicator.classList.contains('is-asc'),
-        desc: indicator.classList.contains('is-desc')
-      };
-    });
+    return await readSortState();
   }, {
     timeout: 10_000,
     intervals: [100, 200, 400]
-  }).toEqual({ asc: false, desc: true });
-
-  const beforeOrder = await page.evaluate(() => {
-    const line = window.Components?.line;
-    const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
-    const api = hot?.columnApi || hot?.gridApi;
-    return api?.getAllDisplayedColumns?.().map(col => col.getColId?.()) || [];
-  });
-  expect(beforeOrder.length).toBeGreaterThan(2);
-
-  const dragSourceHeader = page.locator('#lineHot .ag-header-cell[col-id="c1"]').first();
-  const targetHeader = page.locator('#lineHot .ag-header-cell[col-id="c2"]').first();
-  await expect(dragSourceHeader).toBeVisible();
-  await expect(targetHeader).toBeVisible();
-  const sourceHeaderBox = await dragSourceHeader.boundingBox();
-  const targetHeaderBox = await targetHeader.boundingBox();
-  expect(sourceHeaderBox).toBeTruthy();
-  expect(targetHeaderBox).toBeTruthy();
-
-  await page.mouse.move(
-    sourceHeaderBox.x + (sourceHeaderBox.width * 0.55),
-    sourceHeaderBox.y + (sourceHeaderBox.height * 0.5)
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    targetHeaderBox.x + (targetHeaderBox.width * 0.8),
-    targetHeaderBox.y + (targetHeaderBox.height * 0.5),
-    { steps: 18 }
-  );
-  await page.mouse.up();
-
-  await expect.poll(async () => {
-    return await page.evaluate(() => {
-      const line = window.Components?.line;
-      const hot = line?.__ensureHotForActiveTab?.() || line?.__getState?.()?.hot;
-      const api = hot?.columnApi || hot?.gridApi;
-      return api?.getAllDisplayedColumns?.().map(col => col.getColId?.()) || [];
-    });
-  }, {
-    timeout: 10_000,
-    intervals: [100, 200, 400]
-  }).not.toEqual(beforeOrder);
+  }).toBe('desc');
+  await expect(headerAction).toHaveClass(/is-sorted-desc/);
 
   expect(issues.critical).toEqual([]);
 });

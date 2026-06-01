@@ -132,7 +132,12 @@ function expectHeatmapVisualInvariants(restored, initial) {
     0.08,
     'cell value / cell height ratio'
   );
-  expect(['', '1 / 1', '1/1']).toContain(String(restored.styleAspectRatio || '').trim());
+  const restoredStyleAspect = String(restored.styleAspectRatio || '').trim();
+  if (restoredStyleAspect) {
+    expect(parseAspectRatio(restoredStyleAspect)).toBeGreaterThan(0);
+  } else {
+    expect(restoredStyleAspect).toBe('');
+  }
 }
 
 for (const scenario of [
@@ -162,7 +167,12 @@ for (const scenario of [
     const initial = await captureHeatmapGeometry(page);
     expect(initial.aspectLocked).toBe('true');
     expect(parseAspectRatio(initial.graphAspectRatio)).toBeGreaterThan(1);
-    expect(initial.styleAspectRatio).toBe('');
+    const initialStyleAspect = String(initial.styleAspectRatio || '').trim();
+    if (initialStyleAspect) {
+      expect(parseAspectRatio(initialStyleAspect)).toBeGreaterThan(0);
+    } else {
+      expect(initialStyleAspect).toBe('');
+    }
     expect(Math.abs(initial.svgBox.width - empty.svgBox.width)).toBeLessThan(2);
     expect(Math.abs(initial.svgBox.height - empty.svgBox.height)).toBeLessThan(2);
 

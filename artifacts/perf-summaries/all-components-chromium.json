@@ -5,8 +5,8 @@
       "component": "venn",
       "page": "vennPage",
       "exampleLoaded": true,
-      "openMs": 634,
-      "exampleMs": 1191,
+      "openMs": 468,
+      "exampleMs": 806,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -17,29 +17,29 @@
       "component": "box",
       "page": "boxPage",
       "exampleLoaded": true,
-      "openMs": 516,
-      "exampleMs": 2632,
+      "openMs": 174,
+      "exampleMs": 715,
       "perf": {
         "componentReport": [
           {
             "key": "box.draw",
-            "count": 5,
-            "totalMs": 471.1,
-            "avgMs": 94.22,
-            "p50Ms": 100.4,
-            "p95Ms": 161.1,
-            "maxMs": 171,
-            "minMs": 22.4
+            "count": 3,
+            "totalMs": 55.4,
+            "avgMs": 18.467,
+            "p50Ms": 10.4,
+            "p95Ms": 33.35,
+            "maxMs": 35.9,
+            "minMs": 9.1
           },
           {
             "key": "box.data.collect",
-            "count": 3,
-            "totalMs": 7.1,
-            "avgMs": 2.367,
-            "p50Ms": 2.6,
-            "p95Ms": 2.6,
-            "maxMs": 2.6,
-            "minMs": 1.9
+            "count": 2,
+            "totalMs": 1.5,
+            "avgMs": 0.75,
+            "p50Ms": 0.75,
+            "p95Ms": 0.795,
+            "maxMs": 0.8,
+            "minMs": 0.7
           }
         ],
         "hotReport": [],
@@ -50,119 +50,29 @@
       "component": "scatter",
       "page": "scatterPage",
       "exampleLoaded": true,
-      "openMs": 442,
-      "exampleMs": 2084,
+      "openMs": 171,
+      "exampleMs": 718,
       "perf": {
         "componentReport": [
           {
             "key": "scatter.draw",
-            "count": 3,
-            "totalMs": 146.1,
-            "avgMs": 48.7,
-            "p50Ms": 21.4,
-            "p95Ms": 104.83,
-            "maxMs": 114.1,
-            "minMs": 10.6
-          },
-          {
-            "key": "scatter.svg.layout",
-            "count": 1,
-            "totalMs": 50.9,
-            "avgMs": 50.9,
-            "p50Ms": 50.9,
-            "p95Ms": 50.9,
-            "maxMs": 50.9,
-            "minMs": 50.9
-          },
-          {
-            "key": "scatter.layout.syncPanels",
-            "count": 1,
-            "totalMs": 16.5,
-            "avgMs": 16.5,
-            "p50Ms": 16.5,
-            "p95Ms": 16.5,
-            "maxMs": 16.5,
-            "minMs": 16.5
-          },
-          {
-            "key": "scatter.legend.render",
-            "count": 1,
-            "totalMs": 9.2,
-            "avgMs": 9.2,
-            "p50Ms": 9.2,
-            "p95Ms": 9.2,
-            "maxMs": 9.2,
-            "minMs": 9.2
-          },
-          {
-            "key": "scatter.points.prepare",
-            "count": 1,
-            "totalMs": 8.5,
-            "avgMs": 8.5,
-            "p50Ms": 8.5,
-            "p95Ms": 8.5,
-            "maxMs": 8.5,
-            "minMs": 8.5
-          },
-          {
-            "key": "scatter.viewport.sync",
-            "count": 1,
-            "totalMs": 5.4,
-            "avgMs": 5.4,
-            "p50Ms": 5.4,
-            "p95Ms": 5.4,
-            "maxMs": 5.4,
-            "minMs": 5.4
-          },
-          {
-            "key": "scatter.svg.draw",
-            "count": 1,
-            "totalMs": 2.6,
-            "avgMs": 2.6,
-            "p50Ms": 2.6,
-            "p95Ms": 2.6,
-            "maxMs": 2.6,
-            "minMs": 2.6
+            "count": 2,
+            "totalMs": 15.5,
+            "avgMs": 7.75,
+            "p50Ms": 7.75,
+            "p95Ms": 12.205,
+            "maxMs": 12.7,
+            "minMs": 2.8
           },
           {
             "key": "scatter.data.collect",
-            "count": 3,
-            "totalMs": 1.1,
-            "avgMs": 0.367,
+            "count": 1,
+            "totalMs": 0.4,
+            "avgMs": 0.4,
             "p50Ms": 0.4,
-            "p95Ms": 0.49,
-            "maxMs": 0.5,
-            "minMs": 0.2
-          },
-          {
-            "key": "scatter.stats.advisor",
-            "count": 1,
-            "totalMs": 0.3,
-            "avgMs": 0.3,
-            "p50Ms": 0.3,
-            "p95Ms": 0.3,
-            "maxMs": 0.3,
-            "minMs": 0.3
-          },
-          {
-            "key": "scatter.labels.colors",
-            "count": 1,
-            "totalMs": 0.1,
-            "avgMs": 0.1,
-            "p50Ms": 0.1,
-            "p95Ms": 0.1,
-            "maxMs": 0.1,
-            "minMs": 0.1
-          },
-          {
-            "key": "scatter.svg.attach",
-            "count": 1,
-            "totalMs": 0,
-            "avgMs": 0,
-            "p50Ms": 0,
-            "p95Ms": 0,
-            "maxMs": 0,
-            "minMs": 0
+            "p95Ms": 0.4,
+            "maxMs": 0.4,
+            "minMs": 0.4
           }
         ],
         "hotReport": [],
@@ -173,28 +83,28 @@
       "component": "pca",
       "page": "pcaPage",
       "exampleLoaded": true,
-      "openMs": 414,
-      "exampleMs": 2470,
+      "openMs": 848,
+      "exampleMs": 850,
       "perf": {
         "componentReport": [],
         "hotReport": [],
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1774686205466,
+              "timestamp": 1780322572466,
               "rows": 6,
               "cols": 9,
-              "totalMs": 144,
-              "hotMs": 143.09999999403954,
-              "evaluationMs": 0.9000000059604645
+              "totalMs": 28.899999618530273,
+              "hotMs": 28.699999809265137,
+              "evaluationMs": 0.19999980926513672
             },
             "draw": {
-              "timestamp": 1774686205868,
+              "timestamp": 1780322572574,
               "method": "pca",
-              "totalMs": 253.89999997615814,
-              "parseMs": 10.199999988079071,
-              "computeMs": 0.800000011920929,
-              "renderMs": 242.39999997615814,
+              "totalMs": 162.60000038146973,
+              "parseMs": 4.900000095367432,
+              "computeMs": 0.3000001907348633,
+              "renderMs": 68.69999980926514,
               "samples": 8,
               "features": 4,
               "fastMode": false,
@@ -207,14 +117,14 @@
               "reason": "example-load"
             },
             "evaluation": {
-              "timestamp": 1774686205510,
+              "timestamp": 1780322572476,
               "source": null,
               "rows": 6,
               "cols": 9,
               "featureEstimate": 5,
               "cellEstimate": 54,
               "thresholdExceeded": false,
-              "totalMs": 0.30000001192092896
+              "totalMs": 0
             }
           },
           "lastAutoDrawEvaluation": null,
@@ -234,8 +144,8 @@
       "component": "line",
       "page": "linePage",
       "exampleLoaded": true,
-      "openMs": 380,
-      "exampleMs": 2920,
+      "openMs": 451,
+      "exampleMs": 815,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -246,34 +156,34 @@
       "component": "heatmap",
       "page": "heatmapPage",
       "exampleLoaded": true,
-      "openMs": 278,
-      "exampleMs": 1759,
+      "openMs": 541,
+      "exampleMs": 785,
       "perf": {
         "componentReport": [],
         "hotReport": [],
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1774686211585,
+              "timestamp": 1780322575577,
               "rows": 6,
               "cols": 8,
-              "totalMs": 96,
-              "hotMs": 95.90000000596046,
-              "evaluationMs": 0.09999999403953552
+              "totalMs": 28,
+              "hotMs": 28,
+              "evaluationMs": 0
             },
             "draw": {
-              "timestamp": 1774686211873,
-              "totalMs": 250.5,
-              "prepareMs": 11.5,
-              "renderMs": 239,
+              "timestamp": 1780322575725,
+              "totalMs": 47.69999980926514,
+              "prepareMs": 5,
+              "renderMs": 27.799999713897705,
               "viewOnly": false,
-              "reason": "example-load",
+              "reason": null,
               "status": "complete",
               "view": "corr-columns",
               "error": null
             },
             "evaluation": {
-              "timestamp": 1774686211588,
+              "timestamp": 1780322575578,
               "source": "example-load",
               "rows": 6,
               "cols": 8,
@@ -300,8 +210,8 @@
       "component": "surface",
       "page": "surfacePage",
       "exampleLoaded": true,
-      "openMs": 979,
-      "exampleMs": 1131,
+      "openMs": 386,
+      "exampleMs": 763,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -312,8 +222,8 @@
       "component": "roc",
       "page": "rocPage",
       "exampleLoaded": true,
-      "openMs": 377,
-      "exampleMs": 1560,
+      "openMs": 332,
+      "exampleMs": 804,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -324,8 +234,8 @@
       "component": "survival",
       "page": "survivalPage",
       "exampleLoaded": true,
-      "openMs": 323,
-      "exampleMs": 803,
+      "openMs": 390,
+      "exampleMs": 782,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -336,8 +246,8 @@
       "component": "hist",
       "page": "histPage",
       "exampleLoaded": true,
-      "openMs": 366,
-      "exampleMs": 1656,
+      "openMs": 473,
+      "exampleMs": 890,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -348,8 +258,8 @@
       "component": "pie",
       "page": "piePage",
       "exampleLoaded": true,
-      "openMs": 1603,
-      "exampleMs": 1068,
+      "openMs": 323,
+      "exampleMs": 817,
       "perf": {
         "componentReport": [],
         "hotReport": [],
@@ -358,7 +268,7 @@
     }
   ],
   "totals": {
-    "logEntries": 5001,
+    "logEntries": 7933,
     "critical": 0
   },
   "criticalEntries": []

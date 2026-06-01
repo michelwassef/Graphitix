@@ -4,13 +4,13 @@
   "page": "heatmapPage",
   "exampleLoaded": true,
   "timingsMs": {
-    "openMs": 1151,
-    "exampleMs": 1270,
-    "exerciseMs": 18400
+    "openMs": 118,
+    "exampleMs": 1094,
+    "exerciseMs": 4437
   },
   "totals": {
-    "logEntries": 6889,
-    "warnings": 3,
+    "logEntries": 4120,
+    "warnings": 0,
     "errors": 0,
     "ignoredErrors": 0,
     "critical": 0
@@ -18,36 +18,38 @@
   "perf": {
     "beforeExercise": {
       "componentType": "heatmap",
-      "capturedAt": 1774686347324,
+      "capturedAt": 1780322615925,
       "componentHook": {
         "performance": {
           "loadData": {
-            "timestamp": 1774686346310,
+            "timestamp": 1780322615210,
             "rows": 6,
             "cols": 8,
-            "totalMs": 140.7000000178814,
-            "hotMs": 140.5,
-            "evaluationMs": 0.20000001788139343
+            "totalMs": 45.09999990463257,
+            "hotMs": 45.09999990463257,
+            "evaluationMs": 0
           },
           "draw": {
-            "timestamp": 1774686346563,
-            "totalMs": 215.7000000178814,
-            "prepareMs": 10.400000005960464,
-            "renderMs": 205.30000001192093,
-            "viewOnly": false,
-            "reason": "example-load",
+            "timestamp": 1780322615505,
+            "totalMs": 60,
+            "prepareMs": 31.799999713897705,
+            "renderMs": 31.799999713897705,
+            "viewOnly": true,
+            "reason": "resize-observer",
             "status": "complete",
             "view": "corr-columns",
+            "rows": 6,
+            "cols": 8,
             "error": null
           },
           "evaluation": {
-            "timestamp": 1774686346313,
+            "timestamp": 1780322615211,
             "source": "example-load",
             "rows": 6,
             "cols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.09999999403953552
+            "totalMs": 0
           }
         },
         "lastAutoDrawEvaluation": {
@@ -55,7 +57,7 @@
           "totalCols": 8,
           "cellEstimate": 48,
           "thresholdExceeded": false,
-          "totalMs": 0.09999999403953552
+          "totalMs": 0
         },
         "lastDataShape": {
           "rows": 6,
@@ -72,36 +74,38 @@
     },
     "afterExercise": {
       "componentType": "heatmap",
-      "capturedAt": 1774686365750,
+      "capturedAt": 1780322620368,
       "componentHook": {
         "performance": {
           "loadData": {
-            "timestamp": 1774686350922,
-            "rows": 100,
-            "cols": 12,
-            "totalMs": 121.7999999821186,
-            "hotMs": 121.69999998807907,
-            "evaluationMs": 0.09999999403953552
+            "timestamp": 1780322615210,
+            "rows": 6,
+            "cols": 8,
+            "totalMs": 45.09999990463257,
+            "hotMs": 45.09999990463257,
+            "evaluationMs": 0
           },
           "draw": {
-            "timestamp": 1774686364495,
-            "totalMs": 231.2000000178814,
-            "prepareMs": 8.200000017881393,
-            "renderMs": 64.89999997615814,
-            "viewOnly": false,
-            "reason": null,
+            "timestamp": 1780322620050,
+            "totalMs": 60,
+            "prepareMs": 16.800000190734863,
+            "renderMs": 16.800000190734863,
+            "viewOnly": true,
+            "reason": "resize-observer",
             "status": "complete",
             "view": "corr-columns",
+            "rows": 6,
+            "cols": 8,
             "error": null
           },
           "evaluation": {
-            "timestamp": 1774686364408,
+            "timestamp": 1780322619538,
             "source": "schedule",
             "rows": 6,
             "cols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.09999999403953552
+            "totalMs": 0
           }
         },
         "lastAutoDrawEvaluation": {
@@ -109,7 +113,7 @@
           "totalCols": 8,
           "cellEstimate": 48,
           "thresholdExceeded": false,
-          "totalMs": 0.09999999403953552
+          "totalMs": 0
         },
         "lastDataShape": {
           "rows": 6,
@@ -128,24 +132,15 @@
       "steps": [
         {
           "step": "cycle-selects",
-          "durationMs": 4212,
+          "durationMs": 683,
           "actionResult": {
-            "visible": 8,
+            "visible": 7,
             "attempted": 4,
             "changed": 3,
-            "durationMs": 4212
+            "durationMs": 683
           },
           "perfDelta": {
             "hook": {
-              "loadData": {
-                "totalMs": 121.8,
-                "parseMs": 0,
-                "computeMs": 0,
-                "renderMs": 0,
-                "rows": 100,
-                "cols": 12,
-                "reason": null
-              },
               "evaluation": {
                 "totalMs": 0,
                 "parseMs": 0,
@@ -156,13 +151,13 @@
                 "reason": null
               },
               "draw": {
-                "totalMs": 231.2,
+                "totalMs": 60,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 96.2,
+                "renderMs": 15.4,
                 "rows": 0,
                 "cols": 0,
-                "reason": null
+                "reason": "user-control-change"
               }
             },
             "sharedEntries": [],
@@ -172,32 +167,23 @@
         },
         {
           "step": "toggle-checkboxes",
-          "durationMs": 4277,
+          "durationMs": 1243,
           "actionResult": {
-            "visible": 19,
+            "visible": 16,
             "attempted": 5,
             "toggled": 5,
-            "durationMs": 4277
+            "durationMs": 1243
           },
           "perfDelta": {
             "hook": {
-              "evaluation": {
-                "totalMs": 0,
-                "parseMs": 0,
-                "computeMs": 0,
-                "renderMs": 0,
-                "rows": 6,
-                "cols": 8,
-                "reason": null
-              },
               "draw": {
-                "totalMs": 231.2,
+                "totalMs": 60,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 71.7,
+                "renderMs": 16.1,
                 "rows": 6,
                 "cols": 8,
-                "reason": "toggle-heatmapShowValues"
+                "reason": "toggle-heatmapShowSignificance"
               }
             },
             "sharedEntries": [],
@@ -207,12 +193,12 @@
         },
         {
           "step": "click-analysis-buttons",
-          "durationMs": 577,
+          "durationMs": 183,
           "actionResult": {
-            "visible": 23,
+            "visible": 29,
             "clicked": 0,
             "clickedLabels": [],
-            "durationMs": 577
+            "durationMs": 183
           },
           "perfDelta": {
             "hook": {},
@@ -223,16 +209,16 @@
         },
         {
           "step": "drag-panel-resizer",
-          "durationMs": 7748,
+          "durationMs": 1563,
           "actionResult": {
             "present": true,
             "moved": true,
-            "durationMs": 7748
+            "durationMs": 1563
           },
           "perfDelta": {
             "hook": {
               "evaluation": {
-                "totalMs": 0.1,
+                "totalMs": 0,
                 "parseMs": 0,
                 "computeMs": 0,
                 "renderMs": 0,
@@ -241,10 +227,10 @@
                 "reason": null
               },
               "draw": {
-                "totalMs": 231.2,
+                "totalMs": 60,
                 "parseMs": 0,
                 "computeMs": 0,
-                "renderMs": 64.9,
+                "renderMs": 16.6,
                 "rows": 0,
                 "cols": 0,
                 "reason": null
@@ -257,14 +243,24 @@
         },
         {
           "step": "adjust-zoom",
-          "durationMs": 688,
+          "durationMs": 428,
           "actionResult": {
             "zoomInClicks": 2,
             "zoomOutClicks": 1,
-            "durationMs": 688
+            "durationMs": 428
           },
           "perfDelta": {
-            "hook": {},
+            "hook": {
+              "draw": {
+                "totalMs": 60,
+                "parseMs": 0,
+                "computeMs": 0,
+                "renderMs": 16.8,
+                "rows": 6,
+                "cols": 8,
+                "reason": "resize-observer"
+              }
+            },
             "sharedEntries": [],
             "componentReport": [],
             "hotReport": []
@@ -273,36 +269,38 @@
       ],
       "before": {
         "componentType": "heatmap",
-        "capturedAt": 1774686347334,
+        "capturedAt": 1780322615931,
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1774686346310,
+              "timestamp": 1780322615210,
               "rows": 6,
               "cols": 8,
-              "totalMs": 140.7000000178814,
-              "hotMs": 140.5,
-              "evaluationMs": 0.20000001788139343
+              "totalMs": 45.09999990463257,
+              "hotMs": 45.09999990463257,
+              "evaluationMs": 0
             },
             "draw": {
-              "timestamp": 1774686346563,
-              "totalMs": 215.7000000178814,
-              "prepareMs": 10.400000005960464,
-              "renderMs": 205.30000001192093,
-              "viewOnly": false,
-              "reason": "example-load",
+              "timestamp": 1780322615505,
+              "totalMs": 60,
+              "prepareMs": 31.799999713897705,
+              "renderMs": 31.799999713897705,
+              "viewOnly": true,
+              "reason": "resize-observer",
               "status": "complete",
               "view": "corr-columns",
+              "rows": 6,
+              "cols": 8,
               "error": null
             },
             "evaluation": {
-              "timestamp": 1774686346313,
+              "timestamp": 1780322615211,
               "source": "example-load",
               "rows": 6,
               "cols": 8,
               "cellEstimate": 48,
               "thresholdExceeded": false,
-              "totalMs": 0.09999999403953552
+              "totalMs": 0
             }
           },
           "lastAutoDrawEvaluation": {
@@ -310,7 +308,7 @@
             "totalCols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.09999999403953552
+            "totalMs": 0
           },
           "lastDataShape": {
             "rows": 6,
@@ -327,36 +325,38 @@
       },
       "after": {
         "componentType": "heatmap",
-        "capturedAt": 1774686365722,
+        "capturedAt": 1780322620363,
         "componentHook": {
           "performance": {
             "loadData": {
-              "timestamp": 1774686350922,
-              "rows": 100,
-              "cols": 12,
-              "totalMs": 121.7999999821186,
-              "hotMs": 121.69999998807907,
-              "evaluationMs": 0.09999999403953552
+              "timestamp": 1780322615210,
+              "rows": 6,
+              "cols": 8,
+              "totalMs": 45.09999990463257,
+              "hotMs": 45.09999990463257,
+              "evaluationMs": 0
             },
             "draw": {
-              "timestamp": 1774686364495,
-              "totalMs": 231.2000000178814,
-              "prepareMs": 8.200000017881393,
-              "renderMs": 64.89999997615814,
-              "viewOnly": false,
-              "reason": null,
+              "timestamp": 1780322620050,
+              "totalMs": 60,
+              "prepareMs": 16.800000190734863,
+              "renderMs": 16.800000190734863,
+              "viewOnly": true,
+              "reason": "resize-observer",
               "status": "complete",
               "view": "corr-columns",
+              "rows": 6,
+              "cols": 8,
               "error": null
             },
             "evaluation": {
-              "timestamp": 1774686364408,
+              "timestamp": 1780322619538,
               "source": "schedule",
               "rows": 6,
               "cols": 8,
               "cellEstimate": 48,
               "thresholdExceeded": false,
-              "totalMs": 0.09999999403953552
+              "totalMs": 0
             }
           },
           "lastAutoDrawEvaluation": {
@@ -364,7 +364,7 @@
             "totalCols": 8,
             "cellEstimate": 48,
             "thresholdExceeded": false,
-            "totalMs": 0.09999999403953552
+            "totalMs": 0
           },
           "lastDataShape": {
             "rows": 6,
@@ -383,16 +383,16 @@
     "slowestSteps": [
       {
         "step": "drag-panel-resizer",
-        "durationMs": 7748,
+        "durationMs": 1563,
         "actionResult": {
           "present": true,
           "moved": true,
-          "durationMs": 7748
+          "durationMs": 1563
         },
         "perfDelta": {
           "hook": {
             "evaluation": {
-              "totalMs": 0.1,
+              "totalMs": 0,
               "parseMs": 0,
               "computeMs": 0,
               "renderMs": 0,
@@ -401,10 +401,10 @@
               "reason": null
             },
             "draw": {
-              "totalMs": 231.2,
+              "totalMs": 60,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 64.9,
+              "renderMs": 16.6,
               "rows": 0,
               "cols": 0,
               "reason": null
@@ -417,32 +417,23 @@
       },
       {
         "step": "toggle-checkboxes",
-        "durationMs": 4277,
+        "durationMs": 1243,
         "actionResult": {
-          "visible": 19,
+          "visible": 16,
           "attempted": 5,
           "toggled": 5,
-          "durationMs": 4277
+          "durationMs": 1243
         },
         "perfDelta": {
           "hook": {
-            "evaluation": {
-              "totalMs": 0,
-              "parseMs": 0,
-              "computeMs": 0,
-              "renderMs": 0,
-              "rows": 6,
-              "cols": 8,
-              "reason": null
-            },
             "draw": {
-              "totalMs": 231.2,
+              "totalMs": 60,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 71.7,
+              "renderMs": 16.1,
               "rows": 6,
               "cols": 8,
-              "reason": "toggle-heatmapShowValues"
+              "reason": "toggle-heatmapShowSignificance"
             }
           },
           "sharedEntries": [],
@@ -452,24 +443,15 @@
       },
       {
         "step": "cycle-selects",
-        "durationMs": 4212,
+        "durationMs": 683,
         "actionResult": {
-          "visible": 8,
+          "visible": 7,
           "attempted": 4,
           "changed": 3,
-          "durationMs": 4212
+          "durationMs": 683
         },
         "perfDelta": {
           "hook": {
-            "loadData": {
-              "totalMs": 121.8,
-              "parseMs": 0,
-              "computeMs": 0,
-              "renderMs": 0,
-              "rows": 100,
-              "cols": 12,
-              "reason": null
-            },
             "evaluation": {
               "totalMs": 0,
               "parseMs": 0,
@@ -480,13 +462,13 @@
               "reason": null
             },
             "draw": {
-              "totalMs": 231.2,
+              "totalMs": 60,
               "parseMs": 0,
               "computeMs": 0,
-              "renderMs": 96.2,
+              "renderMs": 15.4,
               "rows": 0,
               "cols": 0,
-              "reason": null
+              "reason": "user-control-change"
             }
           },
           "sharedEntries": [],
@@ -496,14 +478,24 @@
       },
       {
         "step": "adjust-zoom",
-        "durationMs": 688,
+        "durationMs": 428,
         "actionResult": {
           "zoomInClicks": 2,
           "zoomOutClicks": 1,
-          "durationMs": 688
+          "durationMs": 428
         },
         "perfDelta": {
-          "hook": {},
+          "hook": {
+            "draw": {
+              "totalMs": 60,
+              "parseMs": 0,
+              "computeMs": 0,
+              "renderMs": 16.8,
+              "rows": 6,
+              "cols": 8,
+              "reason": "resize-observer"
+            }
+          },
           "sharedEntries": [],
           "componentReport": [],
           "hotReport": []
@@ -511,12 +503,12 @@
       },
       {
         "step": "click-analysis-buttons",
-        "durationMs": 577,
+        "durationMs": 183,
         "actionResult": {
-          "visible": 23,
+          "visible": 29,
           "clicked": 0,
           "clickedLabels": [],
-          "durationMs": 577
+          "durationMs": 183
         },
         "perfDelta": {
           "hook": {},
