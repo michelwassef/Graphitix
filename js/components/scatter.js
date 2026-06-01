@@ -280,6 +280,8 @@
     statsContextVersion: 0,
     statsLastRunVersion: 0,
     statsComputationPending: false,
+    statsContextBootstrapPending: false,
+    statsContextBootstrapAttemptId: 0,
     statsNonVisualDrawSuppression: null,
     statsDrawSuppressionToken: 0,
     statsCacheBySignature: new Map(),
@@ -301,6 +303,7 @@
     dataDirty: true,
     cachedCollect: null,
     cachedGeometry: null,
+    suppressHotLoadDirtyMark: false,
     significanceRefreshSignature: null,
     significantLabelsUserModified: false,
     axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' },
@@ -2027,8 +2030,8 @@
     return true;
   }
 
-  function captureScatterRuntimeSnapshot(reason){
-    const activeTabId = scatter.__boundTabId || null;
+  function captureScatterRuntimeSnapshot(reason, tabLike = null){
+    const activeTabId = String(tabLike || scatter.__boundTabId || '').trim() || null;
     const themeSnapshot = resolveScatterThemeSnapshot({ tabId: activeTabId });
     const fillControl = getScatterNodeById('scatterFill') || null;
     const borderControl = getScatterNodeById('scatterBorder') || null;
@@ -2094,8 +2097,9 @@
         lastRegressionSummary: cloneSimple(scatterLastRegressionSummary) || null
       }
     };
-    applyScatterOwnedRuntimeSlicesFromSnapshot(snapshot, activeTabId, { reason: reason || 'scatter-runtime-capture' });
-    rememberScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-capture' });
+    if(activeTabId){
+      rememberScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-capture' });
+    }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: scatter runtime snapshot captured', {
         reason: reason || 'unspecified',
@@ -2212,6 +2216,7 @@
     scatterLastRegressionSummary = cloneSimple(runtime?.stats?.lastRegressionSummary) || scatterLastRegressionSummary || null;
     scatterState.statsContext = null;
     scatterState.statsComputationPending = false;
+    scatterState.statsContextBootstrapPending = false;
     scatterState.pendingDrawOpts = null;
     scatterState.pendingDrawReasons = null;
     scatterState.lastDrawAt = Number.isFinite(Number(runtime?.view?.lastDrawAt))
@@ -10723,6 +10728,29 @@
         }
       };
 
+      const markScatterPayloadDirtyFromTableLoad = (hotInstance, reason = 'scatter-table-load') => {
+        if(scatterState.suppressHotLoadDirtyMark === true){
+          return;
+        }
+        const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+        const ownerTabId = resolveScatterTabId(hotInstance || scatterHot || scatterRefs.hot) || scatter.__boundTabId || null;
+        if(sess && ownerTabId && typeof sess.markTabUserModified === 'function'){
+          sess.markTabUserModified(ownerTabId, reason, {
+            origin: 'user',
+            source: 'scatter-hot-load',
+            affectsPayload: true
+          });
+          return;
+        }
+        if(sess && typeof sess.markActiveTabUserModified === 'function'){
+          sess.markActiveTabUserModified(reason, {
+            origin: 'user',
+            source: 'scatter-hot-load',
+            affectsPayload: true
+          });
+        }
+      };
+
       const applyScatterTransformToNewView = (transformSpec, options = {}) => {
         const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
         if(!hot){
@@ -11260,6 +11288,7 @@
               if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
                 markScatterThresholdSelectionPending('data-load');
               }
+              markScatterPayloadDirtyFromTableLoad(hotInstance, 'scatter-data-load');
             },
             afterSelectionEnd(){
               activateScatterDataToolbar('table-selection');
@@ -11320,10 +11349,12 @@
         return hotInstance;
       };
       const ensureScatterHotForActiveTab = () => {
-        const candidateTabId = requestedTabId
-          || resolveScatterOwnedRuntimeTabId(null, {})
+        const candidateTabId = resolveScatterTabIdFromNode(scatterRoot)
+          || scatter.__boundTabId
+          || scatterHot?.__scatterTabId
           || Shared.workspaceTabs?.getActiveSessionInfo?.('scatter')?.tabId
           || global.Main?.session?.workspaceState?.activeTabId
+          || requestedTabId
           || null;
         const wrapper = getScatterNodeById('scatterHotWrapper', candidateTabId) || getScatterNodeById('scatterHotWrapper');
         const baseContainer = getScatterNodeById('scatterHot', candidateTabId) || getScatterNodeById('scatterHot');
@@ -11344,6 +11375,9 @@
           if(scatterHot){
             scatterHot.__scatterHostContainer = baseContainer;
             scatterHot.__scatterTabId = activeTabId;
+            if(activeTabId && String(scatter.__boundTabId || '') !== String(activeTabId)){
+              scatter.__boundTabId = activeTabId;
+            }
             // Restore persisted row selection only once per table instance. Re-applying it
             // on every ensure-hot call issues programmatic deselectAll/setSelected, which fires
             // AG grid selectionChanged -> auto-grow columns and spurious view refreshes.
@@ -11394,6 +11428,9 @@
         const resolvedTabId = entry?.tabId || activeTabId;
         if(scatterHot){
           scatterHot.__scatterTabId = resolvedTabId;
+          if(resolvedTabId && String(scatter.__boundTabId || '') !== String(resolvedTabId)){
+            scatter.__boundTabId = resolvedTabId;
+          }
           // Restore persisted row selection only once per table instance (see note above).
           if(!scatterHot.__scatterSelectionRestoreDone){
             scatterHot.__scatterSelectionRestoreDone = true;
@@ -12276,6 +12313,7 @@
         scatterState.statsContextVersion = 0;
         scatterState.statsLastRunVersion = 0;
         scatterState.statsComputationPending = false;
+        scatterState.statsContextBootstrapPending = false;
         scatterState.statsRestorePending = null;
         scatterLastRegressionSummary = null;
         clearScatterStatsOutputs(placeholder);
@@ -13268,15 +13306,79 @@
         return true;
       }
 
+      function requestScatterStatsContextBootstrapForCompute(){
+        if(scatterState.statsContextBootstrapPending){
+          return true;
+        }
+        const sessionMeta = buildScatterSessionMeta({
+          reason: 'scatter-stats-compute-context-bootstrap',
+          requirePayloadSignature: true
+        });
+        scatterState.statsContextBootstrapPending = true;
+        scatterState.statsContextBootstrapAttemptId = (Number(scatterState.statsContextBootstrapAttemptId) || 0) + 1;
+        const bootstrapAttemptId = scatterState.statsContextBootstrapAttemptId;
+        scatterState.statsRestorePending = {
+          contextSignature: scatterState.statsContextSignature || null,
+          precomputedStats: null,
+          precomputedSignature: null,
+          autoCompute: true
+        };
+        updateScatterStatsButtonState({ disabled:true, label:'Preparing…' });
+        setScatterStatsStatus('Preparing statistics context…');
+        scheduleScatterViewRefresh('scatter-stats-compute-context-bootstrap', {
+          force: true,
+          userInitiated: true,
+          tabId: sessionMeta?.tabId || scatter.__boundTabId || null,
+          sessionGeneration: sessionMeta?.sessionGeneration || 0,
+          __workspaceSessionMeta: sessionMeta || null
+        });
+        const startedAt = Date.now();
+        const maxBootstrapWaitMs = 35000;
+        const pollBootstrapState = () => {
+          if(scatterState.statsContextBootstrapAttemptId !== bootstrapAttemptId){
+            return;
+          }
+          if(scatterState.statsComputationPending){
+            scatterState.statsContextBootstrapPending = false;
+            return;
+          }
+          if(scatterState.statsContext){
+            scatterState.statsContextBootstrapPending = false;
+            return;
+          }
+          if((Date.now() - startedAt) >= maxBootstrapWaitMs){
+            scatterState.statsContextBootstrapPending = false;
+            scatterState.statsRestorePending = null;
+            updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+            setScatterStatsStatus('Statistics unavailable until data is loaded.');
+            return;
+          }
+          scheduleScatterAsyncTimeout('scatter-stats-compute-bootstrap-poll', pollBootstrapState, 150, {
+            tabId: sessionMeta?.tabId || scatter.__boundTabId || null,
+            sessionGeneration: sessionMeta?.sessionGeneration || 0,
+            __workspaceSessionMeta: sessionMeta || null
+          });
+        };
+        scheduleScatterAsyncTimeout('scatter-stats-compute-bootstrap-poll', pollBootstrapState, 150, {
+          tabId: sessionMeta?.tabId || scatter.__boundTabId || null,
+          sessionGeneration: sessionMeta?.sessionGeneration || 0,
+          __workspaceSessionMeta: sessionMeta || null
+        });
+        return true;
+      }
+
       function handleScatterStatsComputeClick(){
         if(scatterState.statsComputationPending){
           return;
         }
         const context=scatterState.statsContext;
         if(!context){
-          setScatterStatsStatus('Statistics unavailable until data is loaded.');
+          if(!requestScatterStatsContextBootstrapForCompute()){
+            setScatterStatsStatus('Statistics unavailable until data is loaded.');
+          }
           return;
         }
+        scatterState.statsContextBootstrapPending = false;
         const sessionMeta = buildScatterSessionMeta({
           reason: 'scatter-stats-compute',
           requirePayloadSignature: true
@@ -16810,8 +16912,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
       function waitScatterCanvasFrame(){
         return new Promise(resolve => {
+          const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot || null;
+          const frameTabId = resolveScatterTabId(activeHot) || scatter.__boundTabId || null;
           const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
-            tabId: scatter.__boundTabId || null,
+            tabId: frameTabId,
             reason: 'scatter-canvas-bucket-frame'
           }, () => resolve());
           if(!scheduled){
@@ -22940,20 +23044,26 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         scatterState.dataDirty = true;
         scatterState.cachedCollect = null;
         scatterState.cachedGeometry = null;
-        scatterHot.loadData(matrixToLoad);
-        if(obj.exclusions){
-          scatterHot.applyExclusions?.(obj.exclusions);
-        }else if(manager?.getActiveView?.()?.exclusions){
-          scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
+        const suppressDirtyMarkPrevious = scatterState.suppressHotLoadDirtyMark === true;
+        scatterState.suppressHotLoadDirtyMark = true;
+        try{
+          scatterHot.loadData(matrixToLoad);
+          if(obj.exclusions){
+            scatterHot.applyExclusions?.(obj.exclusions);
+          }else if(manager?.getActiveView?.()?.exclusions){
+            scatterHot.applyExclusions?.(manager.getActiveView().exclusions);
+          }
+          if(filtersToApply){
+            scatterHot.applyFilters?.(filtersToApply, { schedule: false });
+          }
+          ensureScatterHeaderTitles(scatterHot);
+          if(isGroupedScatterModeActive()){
+            normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
+          }
+          syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
+        }finally{
+          scatterState.suppressHotLoadDirtyMark = suppressDirtyMarkPrevious;
         }
-        if(filtersToApply){
-          scatterHot.applyFilters?.(filtersToApply, { schedule: false });
-        }
-        ensureScatterHeaderTitles(scatterHot);
-        if(isGroupedScatterModeActive()){
-          normalizeScatterGroupedHeaderRow(scatterHot, { source: 'scatter-grouped-header-normalize' });
-        }
-        syncScatterActiveDataViewFromHot(scatterHot, 'payload-load');
       }
         const c=obj.config||{};
         const defaultStatType = normalizeScatterAssociationSelection(resolveScatterSelectDefaultValue(scatterStatType, 'auto'));
@@ -23740,8 +23850,27 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || scatter.__boundTabId || null,
       reason: meta.reason || 'capture-runtime-state'
     };
-    const snapshot = captureScatterRuntimeSnapshot(effectiveMeta.reason);
-    rememberScatterOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, effectiveMeta);
+    const targetTabId = String(effectiveMeta.tabId || '').trim() || null;
+    const boundTabId = String(scatter.__boundTabId || '').trim() || null;
+    let snapshot = null;
+    if(targetTabId && boundTabId && targetTabId !== boundTabId){
+      const ownedRecord = getScatterOwnedRuntimeRecord(targetTabId, {
+        ...effectiveMeta,
+        tabId: targetTabId,
+        reason: `${effectiveMeta.reason || 'capture-runtime-state'}:inactive-owned-runtime`
+      }, { create: false });
+      snapshot = snapshotScatterOwnedRuntimeRecord(ownedRecord);
+      if(!snapshot){
+        scatterDebug('Debug: scatter inactive runtime capture missing owned record', {
+          targetTabId,
+          boundTabId,
+          reason: effectiveMeta.reason || 'capture-runtime-state'
+        });
+      }
+    }else{
+      snapshot = captureScatterRuntimeSnapshot(effectiveMeta.reason, targetTabId || boundTabId || null);
+      rememberScatterOwnedRuntimeRecord(effectiveMeta.tab || effectiveMeta.tabId || null, effectiveMeta);
+    }
     const remembered = Shared.componentLifecycle?.rememberComponentRuntimeSnapshot?.(scatter, snapshot, effectiveMeta);
     return remembered || (!Shared.componentLifecycle ? snapshot : null);
   };

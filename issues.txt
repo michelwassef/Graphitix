@@ -15,9 +15,7 @@
 
 [open][P0][2026-06-01] Scatter/box payload serialization and control state acquisition still depend on live DOM in critical paths instead of state-first snapshots, keeping inactive-tab/headless flows fragile. Introduce a shared state-authoritative accessor contract. (from 2026-05-19 issue 32)
 
-[open][P0][2026-06-01] Scatter restore still loses active data context after archive/recovery reopen: `e2e/stats.archive-reopen-tab-switch.persistence.spec.js` fails only for scatter in both Chromium and Firefox with `#scatterStatsStatus = "Statistics unavailable until data is loaded."` even after restored-tab activation. This is a true reopen-fidelity break (Rule 7) and likely a scatter hydration/activation ordering bug.
-
-[open][P0][2026-06-01] Same-type scatter tab isolation is still violated under heavy archive restore in Firefox: `e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js` restores both scatter tabs with first labels `["B1","B1"]` instead of preserving distinct `A*`/`B*` datasets, indicating cross-tab payload bleed during restore (Rule 6 violation).
+[open][P0][2026-06-01] Heavy same-type scatter rendering in Firefox still has an activation/readiness race: during `e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`, `waitForScatterCanvas` can time out with a loaded heavy table (`B*` rows present) but no completed canvas points layer, indicating tab-scoped draw-frame progression can still stall in same-type heavy flows. Keep this separate from box issues.
 
 [open][P0][2026-06-01] User-authored transforms still execute via `new Function` in `js/shared/dataTransforms.js`; this keeps an avoidable runtime code-generation trust boundary. Replace with an AST/parser-based evaluator. (from 2026-05-24 issue 52)
 
@@ -39,7 +37,6 @@
 
 [open][P1][2026-06-01] Scatter still carries architecture drift in hot access and stats draw suppression: `ensureScatterHotForActiveTab` performs repeated header/nested-header side effects, and non-visual stats suppression scaffolding remains complex/defensive. Move side effects to true change events and simplify stats draw flow. (merged from 2026-05-30 issues 78, 79)
 
-[open][P1][2026-06-01] Same-type inactive preview capture is still incomplete for `pca` and `surface`: even with trusted sample loading and forced capture, second same-type tabs can keep empty `previewMarkup` in both Chromium and Firefox (`e2e/component.same-type-dual-preview.spec.js`, deterministic on repeat). This points to a tab-owned preview readiness/capture contract gap for these components.
 
 [open][P2][2026-06-01] Scatter E2E regression tests still include stale/flaky patterns: an inverted reproduction assertion (`scatter.tab-grid-leak.repro`) and timeout-driven async races (`scatter.csv-import.mixed-tabs.reopen`, `scatter.manual-view-refresh`). Convert to deterministic positive contracts/signals. (merged from 2026-05-30 issues 80, 83, 88)
 

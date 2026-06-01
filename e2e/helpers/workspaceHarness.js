@@ -197,22 +197,62 @@ async function clickExampleButtonIfPresent(page, buttonId) {
   if (!buttonId) {
     return false;
   }
-  const activeType = await page.evaluate(() => {
-    const state = window.Main?.session?.workspaceState;
-    const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
-    return activeTab?.type || '';
-  });
-  if (activeType) {
-    const trustedButton = page.locator(`#${activeType}Page #${buttonId}`).first();
+  const activeTabMeta = await page.evaluate(async (targetId) => {
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 8000) {
+      const state = window.Main?.session?.workspaceState;
+      const activeTab = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
+      const type = activeTab?.type || '';
+      if (type) {
+        const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(activeTab.id, type) || null;
+        const pageRoot = document.getElementById(`${type}Page`);
+        const searchRoot = mountedRoot || pageRoot || null;
+        const button = searchRoot?.querySelector?.(`#${targetId}`) || null;
+        if (button && !button.disabled) {
+          const style = window.getComputedStyle(button);
+          const visible = !!button.offsetParent
+            && style.display !== 'none'
+            && style.visibility !== 'hidden';
+          if (visible) {
+            return {
+              tabId: String(activeTab.id || ''),
+              type,
+              hasMountedRoot: !!mountedRoot
+            };
+          }
+        }
+      }
+      await wait(120);
+    }
+    const fallbackState = window.Main?.session?.workspaceState;
+    const fallbackTab = fallbackState?.tabs?.find(tab => tab?.id === fallbackState?.activeTabId) || null;
+    return {
+      tabId: String(fallbackTab?.id || ''),
+      type: fallbackTab?.type || '',
+      hasMountedRoot: false
+    };
+  }, buttonId);
+  const activeType = String(activeTabMeta?.type || '').trim();
+  const activeTabId = String(activeTabMeta?.tabId || '').trim();
+  const clickCandidates = [
+    activeTabId ? `[data-tab-id="${activeTabId}"] #${buttonId}` : '',
+    activeTabId ? `[data-workspace-tab-id="${activeTabId}"] #${buttonId}` : '',
+    activeType ? `#${activeType}Page:not([hidden]) #${buttonId}` : '',
+    activeType ? `#${activeType}Page #${buttonId}` : ''
+  ].filter(Boolean);
+  for (const selector of clickCandidates) {
+    const trustedButton = page.locator(selector).first();
     const trustedVisible = await trustedButton.isVisible().catch(() => false);
     const trustedEnabled = trustedVisible
       ? await trustedButton.isEnabled().catch(() => false)
       : false;
-    if (trustedVisible && trustedEnabled) {
-      await trustedButton.click({ force: true });
-      await page.waitForTimeout(700);
-      return true;
+    if (!trustedVisible || !trustedEnabled) {
+      continue;
     }
+    await trustedButton.click({ force: true });
+    await page.waitForTimeout(700);
+    return true;
   }
   const clicked = await page.evaluate((targetId) => {
     const state = window.Main?.session?.workspaceState;
