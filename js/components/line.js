@@ -12675,11 +12675,21 @@
       return;
     }
     const data = seedLineDefaultHeaderRow(Shared.createEmptyData(DEFAULT_ROWS, LINE_DEFAULT_COLS));
-    const scheduleLineDrawProxy = () => {
+    const scheduleLineDrawProxy = (payload) => {
       if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
         scheduleLine3dDatasetSync('table-change');
       }
-      scheduleLineDraw();
+      // Forward the hot factory's schedule payload (reason / invalidate / source /
+      // userInitiated) instead of dropping it — matching the other components'
+      // proxies (e.g. scatter/pca). The previous `scheduleLineDraw()` with no args
+      // scheduled an anonymous 'schedule' draw that line's restore-draw guard
+      // (shouldSuppressLineRestoreDraw) swallowed after a file reopen, so a table
+      // edit didn't show until a forced redraw. Carrying the real reason
+      // ('afterChange', etc.) lets the genuine user edit through.
+      const meta = payload && typeof payload === 'object'
+        ? payload
+        : (typeof payload === 'string' ? { reason: payload } : {});
+      scheduleLineDraw({ ...meta, reason: meta.reason || 'hot-change' });
     };
 
     const createLineTable = (container) => {

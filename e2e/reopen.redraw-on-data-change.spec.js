@@ -200,15 +200,6 @@ test.describe('Reopen → data edit redraws immediately (all components)', () =>
   for (const component of COMPONENT_MATRIX) {
     test(`reopen + table edit redraws without resize: ${component.type}`, async ({ page }) => {
       test.setTimeout(240_000);
-      // line is a known separate bug (see issues.txt): after reopen its data edit
-      // commits and the post-restore draw guard is lifted, but its hot proxy routes
-      // table changes through the viewOnly draw (scheduleLineDraw=scheduleViewDraw),
-      // reusing the restored geometry cache instead of recomputing — so the chart
-      // doesn't auto-redraw until a forced draw. Distinct from the suppression
-      // regression this suite guards; un-fixme once line's data-draw path is wired.
-      if (component.type === 'line') {
-        test.fixme(true, 'line does not auto-redraw on data edit after reopen (separate draw-scheduling bug; see issues.txt)');
-      }
       const issues = registerIssueCollectors(page);
       await installLocalCdnOverrides(page);
 
