@@ -15,11 +15,80 @@ async function activateWorkspace(type){
     await result;
   }
   await flushAsyncWork(15);
+  if(type === 'box'){
+    await ensureActiveBoxBinding();
+  }
+}
+
+function getActiveBoxTabId(){
+  return window.Main?.session?.getActiveTab?.()?.id
+    || window.Components?.box?.__boundTabId
+    || null;
+}
+
+function resolveBoxRoot(tabLike = null){
+  const tabId = tabLike || getActiveBoxTabId();
+  const resolved = window.Shared?.workspaceTabs?.resolveComponentRoot?.({
+    tabLike: tabId,
+    componentKey: 'box',
+    staticRootId: 'boxPage'
+  });
+  return resolved || document.getElementById('boxPage') || document;
+}
+
+function queryBox(selector, tabLike = null){
+  const root = resolveBoxRoot(tabLike);
+  if(!root || typeof root.querySelector !== 'function'){
+    return null;
+  }
+  return root.querySelector(selector);
+}
+
+function getBoxNodeById(id, tabLike = null){
+  if(!id){
+    return null;
+  }
+  const root = resolveBoxRoot(tabLike);
+  if(!root){
+    return null;
+  }
+  if(typeof root.getElementById === 'function'){
+    return root.getElementById(id) || null;
+  }
+  if(typeof root.querySelector === 'function'){
+    return root.querySelector(`#${id}`) || null;
+  }
+  return null;
+}
+
+function getCommittedBoxSvg(tabLike = null){
+  return queryBox('#boxPlot svg#boxSvg:not([data-box-pending-render="1"]):not([aria-hidden="true"])', tabLike)
+    || queryBox('#boxPlot svg#boxSvg:last-of-type', tabLike)
+    || queryBox('#boxPlot svg', tabLike);
+}
+
+async function ensureActiveBoxBinding(){
+  const boxComponent = window.Components?.box;
+  const activeTabId = getActiveBoxTabId();
+  const root = resolveBoxRoot(activeTabId);
+  expect(boxComponent).toBeTruthy();
+  expect(activeTabId).toBeTruthy();
+  expect(root).toBeTruthy();
+  const ensureResult = boxComponent?.ensure?.({
+    tabId: activeTabId,
+    root,
+    reason: 'box-layout-reserve-test-ensure'
+  });
+  if(ensureResult && typeof ensureResult.then === 'function'){
+    await ensureResult;
+  }
+  await flushAsyncWork(10);
 }
 
 function createBoxDimensionController(initialWidth, initialHeight){
-  const plot = document.getElementById('boxPlot');
-  const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+  const plot = getBoxNodeById('boxPlot');
+  const svgBox = queryBox('#boxGraphPanel .svgbox');
+  const viewport = svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
   expect(plot).toBeTruthy();
   expect(svgBox).toBeTruthy();
 
@@ -56,6 +125,42 @@ function createBoxDimensionController(initialWidth, initialHeight){
   const apply = () => {
     svgBox.style.width = `${width}px`;
     svgBox.style.height = `${height}px`;
+    svgBox.style.flex = '0 0 auto';
+    svgBox.style.maxWidth = 'none';
+    svgBox.style.maxHeight = 'none';
+    svgBox.style.aspectRatio = `${width} / ${height}`;
+    const ratio = height > 0 ? width / height : 1;
+    svgBox.dataset.resizerWidth = `${width}px`;
+    svgBox.dataset.resizerHeight = `${height}px`;
+    svgBox.dataset.resizerBaseWidth = String(width);
+    svgBox.dataset.resizerBaseHeight = String(height);
+    svgBox.dataset.resizerDefaultWidth = String(width);
+    svgBox.dataset.resizerDefaultHeight = String(height);
+    svgBox.dataset.resizerAspectRatio = String(ratio);
+    svgBox.dataset.resizerAspectLocked = 'false';
+    svgBox.dataset.resizerResized = 'true';
+    svgBox.dataset.resizerLastAxis = 'both';
+    svgBox.dataset.svgWidth = String(width);
+    svgBox.dataset.svgHeight = String(height);
+    svgBox.dataset.defaultWidth = String(width);
+    svgBox.dataset.defaultHeight = String(height);
+    svgBox.dataset.graphWidthPx = String(width);
+    svgBox.dataset.graphHeightPx = String(height);
+    svgBox.dataset.graphAspectRatio = String(ratio);
+    svgBox.dataset.graphAspectLocked = 'false';
+    svgBox.dataset.aspectLocked = 'false';
+    if(typeof window.Shared?.applyResizableBoxSize === 'function'){
+      window.Shared.applyResizableBoxSize(svgBox, {
+        width,
+        height,
+        lockAspect: false,
+        source: 'box-layout-test-controller'
+      });
+    }
+    if(viewport?.style){
+      viewport.style.width = `${width}px`;
+      viewport.style.height = `${height}px`;
+    }
   };
   apply();
 
@@ -69,6 +174,17 @@ function createBoxDimensionController(initialWidth, initialHeight){
   });
   plot.getBoundingClientRect = readRect;
   svgBox.getBoundingClientRect = readRect;
+  if(viewport){
+    Object.defineProperty(viewport, 'clientWidth', {
+      configurable: true,
+      get: readWidth
+    });
+    Object.defineProperty(viewport, 'clientHeight', {
+      configurable: true,
+      get: readHeight
+    });
+    viewport.getBoundingClientRect = readRect;
+  }
 
   return {
     set(nextWidth, nextHeight){
@@ -84,8 +200,8 @@ function createBoxDimensionController(initialWidth, initialHeight){
 }
 
 function readBoxAxisMetrics(){
-  const svg = document.querySelector('#boxPlot svg');
-  const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+  const svg = getCommittedBoxSvg();
+  const svgBox = queryBox('#boxGraphPanel .svgbox');
   const state = window.Components?.box?.__getState?.();
   if(!svg || !state || !svgBox){
     return null;
@@ -163,13 +279,13 @@ function readBoxAxisMetrics(){
 }
 
 async function waitForBoxSvg(){
-  const svg = await waitFor(() => document.querySelector('#boxPlot svg'), { timeout: 20_000, interval: 40 });
+  const svg = await waitFor(() => getCommittedBoxSvg(), { timeout: 20_000, interval: 40 });
   expect(svg).toBeTruthy();
   return svg;
 }
 
 async function loadBoxExample(){
-  const button = document.getElementById('boxLoadExample');
+  const button = getBoxNodeById('boxLoadExample');
   expect(button).toBeTruthy();
   button.click();
   await flushAsyncWork(50);
@@ -190,41 +306,59 @@ async function applyLongBoxLabels(){
     hot.setDataAtCell(0, index, label, 'test:box-long-labels');
   });
   await flushAsyncWork(50);
-  await boxComponent.draw();
+  const state = boxComponent?.__getState?.();
+  const previousDrawToken = Number(state?.drawToken) || 0;
+  state?.scheduleDraw?.({ force: true, reason: 'box-layout-test-long-labels' });
+  await waitFor(() => (Number(boxComponent?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+    timeout: 15_000,
+    interval: 40
+  });
   await flushAsyncWork(50);
 }
 
 async function setBoxWidthAndRedraw(controller, width, height){
   const boxComponent = window.Components?.box;
-  expect(boxComponent?.draw).toBeInstanceOf(Function);
+  const state = boxComponent?.__getState?.();
+  expect(state?.scheduleDraw).toBeInstanceOf(Function);
   controller.set(width, height);
   await flushAsyncWork(30);
-  await boxComponent.draw();
+  const previousDrawToken = Number(state?.drawToken) || 0;
+  state.scheduleDraw({ force: true, reason: 'box-layout-test-resize' });
+  await waitFor(() => (Number(boxComponent?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+    timeout: 15_000,
+    interval: 40
+  });
   await flushAsyncWork(50);
 }
 
 async function setFlipAxesAndRedraw(enabled){
   const boxComponent = window.Components?.box;
-  const flipCheckbox = document.getElementById('boxFlipAxes');
-  expect(boxComponent?.draw).toBeInstanceOf(Function);
+  const flipCheckbox = getBoxNodeById('boxFlipAxes');
+  const state = boxComponent?.__getState?.();
+  expect(state?.scheduleDraw).toBeInstanceOf(Function);
   expect(flipCheckbox).toBeTruthy();
   flipCheckbox.checked = !!enabled;
   flipCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
   await flushAsyncWork(50);
-  await boxComponent.draw();
+  const previousDrawToken = Number(state?.drawToken) || 0;
+  state.scheduleDraw({ force: true, reason: 'box-layout-test-flip' });
+  await waitFor(() => (Number(boxComponent?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+    timeout: 15_000,
+    interval: 40
+  });
   await flushAsyncWork(50);
 }
 
 async function ensureStatsAndSignificanceReady(){
-  const computeButton = document.getElementById('boxComputeStats');
-  const toggle = document.getElementById('boxShowSignificance');
+  const computeButton = getBoxNodeById('boxComputeStats');
+  const toggle = getBoxNodeById('boxShowSignificance');
   expect(computeButton).toBeTruthy();
   expect(toggle).toBeTruthy();
 
   computeButton.click();
   await waitFor(() => {
     const state = window.Components?.box?.__getState?.();
-    const status = document.getElementById('boxStatsStatus');
+    const status = getBoxNodeById('boxStatsStatus');
     return !!state
       && !state.statsComputationPending
       && Number(state.statsLastRunVersion) > 0
@@ -236,7 +370,7 @@ async function ensureStatsAndSignificanceReady(){
 
   await waitFor(() => {
     const state = window.Components?.box?.__getState?.();
-    const count = document.querySelectorAll('#boxPlot path.box-significance-annotation').length;
+    const count = (getCommittedBoxSvg()?.querySelectorAll?.('path.box-significance-annotation') || []).length;
     return !!state
       && state.showSignificanceBars === true
       && count > 0
@@ -248,13 +382,19 @@ async function ensureStatsAndSignificanceReady(){
 
 async function setSignificanceAndRedraw(enabled){
   const boxComponent = window.Components?.box;
-  const toggle = document.getElementById('boxShowSignificance');
-  expect(boxComponent?.draw).toBeInstanceOf(Function);
+  const toggle = getBoxNodeById('boxShowSignificance');
+  const state = boxComponent?.__getState?.();
+  expect(state?.scheduleDraw).toBeInstanceOf(Function);
   expect(toggle).toBeTruthy();
   toggle.checked = !!enabled;
   toggle.dispatchEvent(new Event('change', { bubbles: true }));
   await flushAsyncWork(60);
-  await boxComponent.draw();
+  const previousDrawToken = Number(state?.drawToken) || 0;
+  state.scheduleDraw({ force: true, reason: 'box-layout-test-significance-toggle' });
+  await waitFor(() => (Number(boxComponent?.__getState?.()?.drawToken) || 0) > previousDrawToken, {
+    timeout: 15_000,
+    interval: 40
+  });
   await flushAsyncWork(60);
 }
 

@@ -168,13 +168,30 @@ async function dragBoxWidthHandle(page, deltaX) {
 async function ensureBoxStatsAndSignificanceReady(page) {
   const computeButton = page.locator('#boxComputeStats');
   await expect(computeButton).toBeVisible({ timeout: 20_000 });
-  await expect(async () => {
-    if (await computeButton.isEnabled()) {
-      await computeButton.click();
-      await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+  const alreadyReady = await page.evaluate(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    return !!(
+      state
+      && Number(state.statsLastRunVersion) > 0
+      && Number(state.statsLastRunVersion) === Number(state.statsContextVersion)
+    );
+  });
+  if (!alreadyReady && await computeButton.isEnabled()) {
+    await computeButton.click();
+  }
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    if (
+      state
+      && Number(state.statsLastRunVersion) > 0
+      && Number(state.statsLastRunVersion) === Number(state.statsContextVersion)
+    ) {
+      return true;
     }
-    await expect(page.locator('#boxShowSignificance')).toBeVisible();
-  }).toPass({ timeout: 45_000, intervals: [500, 1000, 2000] });
+    const status = document.getElementById('boxStatsStatus')?.textContent || '';
+    return status.includes('Statistics up to date.');
+  }, { timeout: 45_000 });
+  await expect(page.locator('#boxShowSignificance')).toBeVisible();
 }
 
 async function setBoxSignificanceToggle(page, enabled) {

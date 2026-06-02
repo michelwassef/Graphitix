@@ -240,23 +240,250 @@
       e: Math.E
     };
     const allowedIdentifiers = new Set(['x', ...Object.keys(FUNCTIONS), ...Object.keys(CONSTANTS)]);
-    const transformed = raw.replace(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g, (token, identifier) => {
-      const lowered = String(identifier || '').toLowerCase();
-      if(!allowedIdentifiers.has(lowered)){
-        throw new Error(`Unknown identifier "${identifier}".`);
-      }
-      if(lowered === 'x'){
-        return 'x';
-      }
-      if(Object.prototype.hasOwnProperty.call(FUNCTIONS, lowered)){
-        return `f.${lowered}`;
-      }
-      return `c.${lowered}`;
-    }).replace(/\^/g, '**');
+    const PRECEDENCE = {
+      '+': 1,
+      '-': 1,
+      '*': 2,
+      '/': 2,
+      '^': 3
+    };
 
-    const evaluator = new Function('x', 'f', 'c', `"use strict"; return (${transformed});`);
+    function tokenize(input){
+      const tokens = [];
+      let idx = 0;
+      while(idx < input.length){
+        const ch = input[idx];
+        if(/\s/.test(ch)){
+          idx += 1;
+          continue;
+        }
+        if(/[0-9.]/.test(ch)){
+          let end = idx;
+          let sawDot = false;
+          while(end < input.length){
+            const c = input[end];
+            if(c === '.'){
+              if(sawDot){
+                break;
+              }
+              sawDot = true;
+              end += 1;
+              continue;
+            }
+            if(/[0-9]/.test(c)){
+              end += 1;
+              continue;
+            }
+            break;
+          }
+          if(end < input.length && /[eE]/.test(input[end])){
+            let expEnd = end + 1;
+            if(expEnd < input.length && /[+-]/.test(input[expEnd])){
+              expEnd += 1;
+            }
+            let expDigitsStart = expEnd;
+            while(expEnd < input.length && /[0-9]/.test(input[expEnd])){
+              expEnd += 1;
+            }
+            if(expEnd > expDigitsStart){
+              end = expEnd;
+            }
+          }
+          const numText = input.slice(idx, end);
+          if(!numText || numText === '.'){
+            throw new Error(`Invalid numeric token near "${numText || ch}".`);
+          }
+          const numeric = Number(numText);
+          if(!Number.isFinite(numeric)){
+            throw new Error(`Invalid number "${numText}".`);
+          }
+          tokens.push({ type: 'number', value: numeric });
+          idx = end;
+          continue;
+        }
+        if(/[A-Za-z_]/.test(ch)){
+          let end = idx + 1;
+          while(end < input.length && /[A-Za-z0-9_]/.test(input[end])){
+            end += 1;
+          }
+          tokens.push({ type: 'identifier', value: input.slice(idx, end) });
+          idx = end;
+          continue;
+        }
+        if(ch === '(' || ch === ')' || ch === ','){
+          tokens.push({ type: ch, value: ch });
+          idx += 1;
+          continue;
+        }
+        if(Object.prototype.hasOwnProperty.call(PRECEDENCE, ch)){
+          tokens.push({ type: 'operator', value: ch });
+          idx += 1;
+          continue;
+        }
+        throw new Error(`Custom expression contains unsupported characters.`);
+      }
+      tokens.push({ type: 'eof', value: null });
+      return tokens;
+    }
+
+    function parseExpressionFromTokens(tokens){
+      let cursor = 0;
+      const peek = () => tokens[cursor] || { type: 'eof', value: null };
+      const consume = () => {
+        const token = peek();
+        cursor += 1;
+        return token;
+      };
+      const expectType = (type, message) => {
+        const token = consume();
+        if(token.type !== type){
+          throw new Error(message);
+        }
+        return token;
+      };
+
+      const parsePrimary = () => {
+        const token = peek();
+        if(token.type === 'number'){
+          consume();
+          return { kind: 'number', value: token.value };
+        }
+        if(token.type === 'identifier'){
+          consume();
+          const lowered = String(token.value || '').toLowerCase();
+          if(!allowedIdentifiers.has(lowered)){
+            throw new Error(`Unknown identifier "${token.value}".`);
+          }
+          if(peek().type === '('){
+            consume(); // (
+            if(!Object.prototype.hasOwnProperty.call(FUNCTIONS, lowered)){
+              throw new Error(`Unknown function "${token.value}".`);
+            }
+            const args = [];
+            if(peek().type !== ')'){
+              while(true){
+                args.push(parseBinary(0));
+                if(peek().type === ','){
+                  consume();
+                  continue;
+                }
+                break;
+              }
+            }
+            expectType(')', 'Missing closing ")" in custom expression.');
+            return { kind: 'call', name: lowered, args };
+          }
+          if(lowered === 'x'){
+            return { kind: 'variable' };
+          }
+          if(Object.prototype.hasOwnProperty.call(CONSTANTS, lowered)){
+            return { kind: 'constant', name: lowered };
+          }
+          throw new Error(`Function "${token.value}" must be called with parentheses.`);
+        }
+        if(token.type === '('){
+          consume();
+          const inner = parseBinary(0);
+          expectType(')', 'Missing closing ")" in custom expression.');
+          return inner;
+        }
+        throw new Error('Invalid custom expression syntax.');
+      };
+
+      const parseUnary = () => {
+        const token = peek();
+        if(token.type === 'operator' && (token.value === '+' || token.value === '-')){
+          consume();
+          return {
+            kind: 'unary',
+            op: token.value,
+            expr: parseUnary()
+          };
+        }
+        return parsePrimary();
+      };
+
+      const parseBinary = minPrecedence => {
+        let left = parseUnary();
+        while(true){
+          const opToken = peek();
+          if(opToken.type !== 'operator'){
+            break;
+          }
+          const precedence = PRECEDENCE[opToken.value];
+          if(!precedence || precedence < minPrecedence){
+            break;
+          }
+          consume();
+          const nextMin = opToken.value === '^' ? precedence : precedence + 1;
+          const right = parseBinary(nextMin);
+          left = { kind: 'binary', op: opToken.value, left, right };
+        }
+        return left;
+      };
+
+      const ast = parseBinary(0);
+      if(peek().type !== 'eof'){
+        throw new Error('Unexpected token in custom expression.');
+      }
+      return ast;
+    }
+
+    function evaluateAst(node, value){
+      if(!node || typeof node !== 'object'){
+        return null;
+      }
+      if(node.kind === 'number'){
+        return node.value;
+      }
+      if(node.kind === 'variable'){
+        return value;
+      }
+      if(node.kind === 'constant'){
+        return CONSTANTS[node.name];
+      }
+      if(node.kind === 'unary'){
+        const numeric = evaluateAst(node.expr, value);
+        if(!Number.isFinite(numeric)){
+          return null;
+        }
+        return node.op === '-' ? -numeric : numeric;
+      }
+      if(node.kind === 'binary'){
+        const left = evaluateAst(node.left, value);
+        const right = evaluateAst(node.right, value);
+        if(!Number.isFinite(left) || !Number.isFinite(right)){
+          return null;
+        }
+        if(node.op === '+'){ return left + right; }
+        if(node.op === '-'){ return left - right; }
+        if(node.op === '*'){ return left * right; }
+        if(node.op === '/'){ return right === 0 ? null : left / right; }
+        if(node.op === '^'){ return Math.pow(left, right); }
+        return null;
+      }
+      if(node.kind === 'call'){
+        const fn = FUNCTIONS[node.name];
+        if(typeof fn !== 'function'){
+          return null;
+        }
+        const args = [];
+        for(let i = 0; i < node.args.length; i += 1){
+          const argValue = evaluateAst(node.args[i], value);
+          if(!Number.isFinite(argValue)){
+            return null;
+          }
+          args.push(argValue);
+        }
+        const result = fn.apply(null, args);
+        return Number.isFinite(result) ? result : null;
+      }
+      return null;
+    }
+
+    const ast = parseExpressionFromTokens(tokenize(raw));
     return function evaluateExpression(value){
-      const computed = evaluator(value, FUNCTIONS, CONSTANTS);
+      const computed = evaluateAst(ast, value);
       return Number.isFinite(computed) ? computed : null;
     };
   }

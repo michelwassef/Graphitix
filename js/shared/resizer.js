@@ -1711,7 +1711,7 @@
         preserveAspectLock,
         finalAspectLocked: aspectLocked
       });
-      if(typeof opts.onResize === 'function'){
+      if(options.suppressOnResize !== true && typeof opts.onResize === 'function'){
         try { opts.onResize('programmatic'); } catch(err) { console.error('resizer onResize programmatic error', err); }
       }
       return applied;

@@ -11566,8 +11566,15 @@
       }
       ensureBoxFlipTransitionState();
       syncBoxFlipTransitionLegacyState('runtime-snapshot-apply');
-      state.restoredSignificanceGeometryLock = false;
       state.restoredSignificanceGeometry = cloneSimple(statsRuntime.restoredSignificanceGeometry) || null;
+      const hasRuntimeReserveGeometry = !!(
+        (Number(state.significanceViewportExtensionPx) || 0) > 0
+        || (Number(state.bottomViewportExtensionPx) || 0) > 0
+        || (Number(state.leftViewportExtensionPx) || 0) > 0
+        || (Number(state.rightViewportExtensionPx) || 0) > 0
+      );
+      state.restoredSignificanceGeometryLock = statsRuntime.restoredSignificanceGeometryLock === true
+        || hasRuntimeReserveGeometry;
     } else {
       resetBoxViewportRuntimeState(reason || 'runtime-restore-missing');
     }
@@ -11722,7 +11729,8 @@
       basePlotHeightPx: basePlotHeightPx,
       basePlotWidthPx: basePlotWidthPx
     };
-    state.restoredSignificanceGeometryLock = false;
+    state.restoredSignificanceGeometryLock = panelWidth > 0 && panelHeight > 0
+      && (significanceExtension > 0 || bottomExtension > 0 || leftExtension > 0 || rightExtension > 0);
     updateBoxGraphGeometry({
       frame: { widthPx: panelWidth, heightPx: panelHeight },
       reserves: {
@@ -15385,7 +15393,9 @@
     if(typeof state.scheduleDraw !== 'function'){
       return;
     }
-    if(nextReason && !shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+    const preservesRestoredGeometry = normalizedReason === 'show-significance-change'
+      || normalizedReason === 'significance-toggle';
+    if(nextReason && !preservesRestoredGeometry && !shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
       clearRestoredBoxSignificanceGeometryLock(nextReason);
     }
     if(state.authoritativeRenderRestoreActive){
@@ -17878,7 +17888,6 @@
           state.pendingAutoShowSignificance = false;
           return;
         }
-        clearRestoredBoxSignificanceGeometryLock('significance-toggle');
         state.showSignificanceBars = !!els.boxShowSignificance.checked;
         console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
         requestStatsContextRefresh('significance-toggle');
@@ -25782,8 +25791,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const stats = tab?.payload?.config?.stats;
     const savedVersionRaw = Number(stats?.lastRunVersion);
     const savedVersion = Number.isFinite(savedVersionRaw) && savedVersionRaw > 0 ? savedVersionRaw : 0;
-    const savedHtml = typeof stats?.resultsHtml === 'string' ? stats.resultsHtml : '';
-    const hasSavedResults = !!(stats && savedVersion > 0 && savedHtml);
+    const hasSavedResults = !!(
+      stats
+      && savedVersion > 0
+      && (stats.resultsModel || stats.reportModel)
+    );
     state.statsComputationPending = false;
     state.statsComputationOwnerTabId = null;
     state.statsComputeAfterContextReady = false;
@@ -25806,10 +25818,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         state.selectedCols = new Set(restoredSelection);
       }
       if(els.statsResults){
-        els.statsResults.innerHTML = savedHtml;
-      }
-      if(els.statsReportHost){
-        els.statsReportHost.innerHTML = typeof stats.reportHtml === 'string' ? stats.reportHtml : '';
+        if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+          Shared.statsReporting.restorePanelModel(els.statsResults, stats, {
+            ensureReportHost: () => getBoxStatsReportHost()
+          });
+        }else{
+          els.statsResults.textContent = '';
+        }
       }
       state.statsLastRunVersion = savedVersion;
       state.statsContextVersion = Math.max(Number(state.statsContextVersion) || 0, savedVersion);
@@ -34900,7 +34915,7 @@ Technical analysis record (advanced)
           resizePhase: drawOpts?.resizePhase || null
         });
       }
-    }else if(state.restoredSignificanceGeometryLock && showSignificance){
+    }else if(state.restoredSignificanceGeometryLock){
       extensionUpdate = {
         changed: false,
         previousExtension: previousSignificanceViewportExtension + previousBottomViewportExtension,
@@ -35481,9 +35496,11 @@ Technical analysis record (advanced)
           groupedMultiplicityFamily: sanitizeGroupedMultiplicityFamily(state.groupedStats?.multiplicityFamily),
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics),
-          // Persist last computed statistics output so each tab can restore its results
-          resultsHtml: (els.statsResults && typeof els.statsResults.innerHTML === 'string') ? els.statsResults.innerHTML : null,
-          reportHtml: getBoxStatsReportHtml(),
+          // Persist last computed statistics output as structured models so reopened
+          // tabs render through the shared safe stats renderer instead of raw HTML.
+          ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'
+            ? Shared.statsReporting.capturePanelModel(els.statsResults)
+            : { resultsModel: null, reportModel: null }),
           lastRunVersion: Number.isFinite(Number(state.statsLastRunVersion)) ? Number(state.statsLastRunVersion) : 0,
           contextSignature: state.statsContextSignature || null,
           annotationModel: serializeBoxStatsAnnotationModel(state.statsLastAnnotationModel),
@@ -35618,8 +35635,6 @@ Technical analysis record (advanced)
     payload.config.stats.groupedMultiplicityFamily = 'within-scope';
     payload.config.stats.selectedColumns = [];
     payload.config.stats.assumptions = null;
-    payload.config.stats.resultsHtml = null;
-    payload.config.stats.reportHtml = null;
     payload.config.stats.lastRunVersion = 0;
     payload.config.stats.contextSignature = null;
     payload.config.showSignificanceBars = false;
@@ -36360,24 +36375,15 @@ Technical analysis record (advanced)
         }
         let restoredComputedStats = false;
         if(c.stats && typeof c.stats === 'object'){
-          const savedHtml = c.stats.resultsHtml;
-          const savedReportHtml = typeof c.stats.reportHtml === 'string' ? c.stats.reportHtml : null;
           const savedVersionRaw = Number(c.stats.lastRunVersion);
           const savedVersion = Number.isFinite(savedVersionRaw) && savedVersionRaw > 0 ? savedVersionRaw : 0;
           const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
-          if(els.statsResults){
-            if(savedHtml != null){
-              try{
-                els.statsResults.innerHTML = savedHtml;
-              }catch(e){
-                els.statsResults.textContent = String(savedHtml || '');
-              }
-            }else{
-              els.statsResults.innerHTML = '';
-            }
-          }
-          if(els.statsReportHost){
-            els.statsReportHost.innerHTML = savedReportHtml || '';
+          if(els.statsResults && Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+            Shared.statsReporting.restorePanelModel(els.statsResults, c.stats, {
+              ensureReportHost: () => getBoxStatsReportHost()
+            });
+          }else if(els.statsResults){
+            els.statsResults.textContent = '';
           }
           state.statsLastRunVersion = savedVersion;
           state.statsContextVersion = savedVersion;

@@ -70,6 +70,15 @@ function expectSingleReportPanel(targetId, hostId){
   expect(host.parentElement?.lastElementChild).toBe(host);
 }
 
+function expectStructuredReport(stats){
+  expect(Object.prototype.hasOwnProperty.call(stats || {}, 'resultsHtml')).toBe(false);
+  expect(Object.prototype.hasOwnProperty.call(stats || {}, 'reportHtml')).toBe(false);
+  expect(stats?.reportModel).toEqual(expect.objectContaining({
+    kind: 'stats-report',
+    title: 'Reporting and reproducibility'
+  }));
+}
+
 async function prepareBoxStats(){
   await activateWorkspace('box');
   await flushAsyncWork(20);
@@ -282,8 +291,7 @@ describe('UI stats persistence and restore', () => {
     const box = await prepareBoxStats();
     const boxPayload = box.getPayload();
     expect(boxPayload?.config?.stats).toBeTruthy();
-    expect(boxPayload.config.stats.resultsHtml || '').not.toContain('stats-report-panel');
-    expect(boxPayload.config.stats.reportHtml || '').toContain('Reporting and reproducibility');
+    expectStructuredReport(boxPayload.config.stats);
     document.getElementById('statsResults').innerHTML = '';
     document.getElementById('boxStatsReportHost').innerHTML = '';
     box.loadFromPayload(boxPayload, { source: 'test-box-restore', skipDraw: true });
@@ -294,8 +302,7 @@ describe('UI stats persistence and restore', () => {
 
     const scatter = await prepareScatterStats();
     const scatterPayload = scatter.getPayload();
-    expect(scatterPayload?.config?.stats?.resultsHtml || '').not.toContain('stats-report-panel');
-    expect(scatterPayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
+    expectStructuredReport(scatterPayload?.config?.stats);
     document.getElementById('scatterStatsResults').innerHTML = '';
     scatter.loadFromPayload(scatterPayload, { source: 'test-scatter-restore', skipDraw: true });
     await flushAsyncWork(40);
@@ -304,8 +311,7 @@ describe('UI stats persistence and restore', () => {
 
     const line = await prepareLineStats();
     const linePayload = line.getPayload();
-    expect(linePayload?.config?.stats?.resultsHtml || '').not.toContain('stats-report-panel');
-    expect(linePayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
+    expectStructuredReport(linePayload?.config?.stats);
     document.getElementById('lineStatsResults').innerHTML = '';
     line.loadFromPayload(linePayload, { source: 'test-line-restore', skipDraw: true });
     await flushAsyncWork(40);
@@ -314,8 +320,8 @@ describe('UI stats persistence and restore', () => {
 
     const pca = await preparePcaStats();
     const pcaPayload = pca.getPayload();
-    expect(pcaPayload?.config?.stats?.summaryHtml || '').toContain('Samples analysed');
-    expect(pcaPayload?.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
+    expect(JSON.stringify(pcaPayload?.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expectStructuredReport(pcaPayload?.config?.stats);
     document.getElementById('pcaStatsResults').innerHTML = '';
     pca.loadFromPayload(pcaPayload, { source: 'test-pca-restore', skipDraw: true });
     await flushAsyncWork(60);

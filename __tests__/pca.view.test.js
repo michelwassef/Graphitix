@@ -1,8 +1,6 @@
 jest.setTimeout(30000);
 
 describe('PCA view controls', () => {
-  let pcaViewTestTabId = '';
-  let pcaViewTestTabCounter = 0;
   const flush = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
   const flushAll = async (count = 10) => {
     for (let i = 0; i < count; i += 1) {
@@ -19,16 +17,37 @@ describe('PCA view controls', () => {
     }
     throw new Error('flushUntil timed out');
   };
+  const activateWorkspace = async (type) => {
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+    const result = graphSelection(type);
+    if(result && typeof result.then === 'function'){
+      await result;
+    }
+    await Promise.resolve();
+  };
 
   beforeEach(async () => {
     jest.resetModules();
+    if(typeof window !== 'undefined'){
+      delete window.Main;
+      delete window.Components;
+      delete window.Shared;
+    }
+    if(typeof global !== 'undefined'){
+      delete global.Main;
+      delete global.Components;
+      delete global.Shared;
+    }
+    if(typeof global.__resetGrid__ === 'function'){
+      global.__resetGrid__();
+    }
     if (window.Components) {
       delete window.Components.pca;
     }
     if (global.Components) {
       delete global.Components.pca;
     }
-    pcaViewTestTabId = `pca-view-test-tab-${++pcaViewTestTabCounter}`;
     global.__svdCallCount = 0;
     global.SVDJS = {
       SVD(matrix = []) {
@@ -86,8 +105,10 @@ describe('PCA view controls', () => {
     require('../js/main/tabDrag.js');
     require('../js/main/previews.js');
     require('../js/main.js');
+    await activateWorkspace('pca');
+    const activePcaTabId = window.Main?.session?.getActiveTab?.()?.id || null;
     window.Components?.pca?.ensure?.({
-      tabId: pcaViewTestTabId,
+      tabId: activePcaTabId,
       root: document.getElementById('pcaPage'),
       reason: 'pca-view-test-ensure'
     });
@@ -175,8 +196,11 @@ describe('PCA view controls', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.stats).toBeTruthy();
-    expect(payload.config?.stats?.summaryHtml).toContain('Samples analysed');
-    expect(payload.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
+    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expect(payload.config?.stats?.reportModel).toEqual(expect.objectContaining({
+      kind: 'stats-report',
+      title: 'Reporting and reproducibility'
+    }));
 
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
     const loadingsContainer = document.getElementById('pcaLoadingsContainer');
@@ -241,8 +265,11 @@ describe('PCA view controls', () => {
     await flushAll(20);
 
     const payload = window.Components.pca.getPayload();
-    expect(payload.config?.stats?.summaryHtml).toContain('Samples analysed');
-    expect(payload.config?.stats?.reportHtml || '').toContain('Reporting and reproducibility');
+    expect(JSON.stringify(payload.config?.stats?.summaryModel || {})).toContain('Samples analysed');
+    expect(payload.config?.stats?.reportModel).toEqual(expect.objectContaining({
+      kind: 'stats-report',
+      title: 'Reporting and reproducibility'
+    }));
     expect(document.querySelector('#pcaStatsReportHost > .stats-report-panel')).toBeTruthy();
     expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
 
@@ -259,19 +286,19 @@ describe('PCA view controls', () => {
     expect(document.querySelector('#pcaStatsResults .stats-results-advanced-panel .stats-report-panel')).toBeFalsy();
   }, 180000);
 
-  test('PCA payload restore remains compatible with legacy summary-only stats HTML', async () => {
+  test('PCA payload restore keeps model-only summary stats', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
     exampleBtn.click();
     await flushAll(20);
 
     const payload = window.Components.pca.getPayload();
-    const legacySummaryHtml = payload.config?.stats?.summaryHtml;
-    expect(legacySummaryHtml).toContain('Samples analysed');
+    const summaryModel = payload.config?.stats?.summaryModel;
+    expect(JSON.stringify(summaryModel || {})).toContain('Samples analysed');
 
     payload.config.stats = {
-      resultsHtml: legacySummaryHtml,
-      summaryHtml: null
+      summaryModel,
+      reportModel: payload.config?.stats?.reportModel || null
     };
 
     document.getElementById('pcaStatsSummary').innerHTML = '';
@@ -280,7 +307,7 @@ describe('PCA view controls', () => {
       reportHost.innerHTML = '';
     }
 
-    window.Components.pca.loadFromPayload(payload, { source: 'test-legacy-summary-restore', skipDraw: true });
+    window.Components.pca.loadFromPayload(payload, { source: 'test-model-summary-restore', skipDraw: true });
     await flushAll(10);
 
     expect(document.getElementById('pcaStatsSummary')?.textContent || '').toContain('Samples analysed');

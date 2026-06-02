@@ -1210,11 +1210,49 @@
     target.appendChild(list);
   }
 
+  function cloneStatsReportingValue(value){
+    if(value == null || typeof value !== 'object'){
+      return value;
+    }
+    try{
+      if(typeof global.structuredClone === 'function'){
+        return global.structuredClone(value);
+      }
+    }catch(_err){}
+    try{ return JSON.parse(JSON.stringify(value)); }
+    catch(_err){ return value; }
+  }
+
+  function normalizeReportModel(report, options = {}){
+    const source = report && typeof report === 'object' ? report : {};
+    const title = typeof options?.title === 'string' && options.title.trim()
+      ? options.title.trim()
+      : (typeof source.title === 'string' && source.title.trim() ? source.title.trim() : 'Reporting and reproducibility');
+    return {
+      schemaVersion: 1,
+      kind: 'stats-report',
+      title,
+      methodsLabel: typeof options?.methodsLabel === 'string' && options.methodsLabel.trim()
+        ? options.methodsLabel.trim()
+        : (typeof source.methodsLabel === 'string' && source.methodsLabel.trim() ? source.methodsLabel.trim() : 'Methods text'),
+      resultsLabel: typeof options?.resultsLabel === 'string' && options.resultsLabel.trim()
+        ? options.resultsLabel.trim()
+        : (typeof source.resultsLabel === 'string' && source.resultsLabel.trim() ? source.resultsLabel.trim() : 'Results text'),
+      specLabel: typeof options?.specLabel === 'string' && options.specLabel.trim()
+        ? options.specLabel.trim()
+        : (typeof source.specLabel === 'string' && source.specLabel.trim() ? source.specLabel.trim() : 'Technical analysis record (advanced)'),
+      methodsText: typeof source.methodsText === 'string' ? source.methodsText : '',
+      resultsText: typeof source.resultsText === 'string' ? source.resultsText : '',
+      analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null)
+    };
+  }
+
   reporting.appendReportPanel = function appendReportPanel(target, report, options){
     const documentRef = global.document;
     if(!target || !report || !documentRef || !documentRef.createElement){
       return;
     }
+    const reportModel = normalizeReportModel(report, options || {});
     if(typeof reporting.clearReportHost === 'function' && options?.replaceExisting !== false){
       reporting.clearReportHost(target);
     }
@@ -1231,23 +1269,12 @@
     if(!reportTarget || !reportTarget.appendChild){
       reportTarget = target;
     }
-    const title = typeof options?.title === 'string' && options.title.trim()
-      ? options.title.trim()
-      : 'Reporting and reproducibility';
-    const methodsLabel = typeof options?.methodsLabel === 'string' && options.methodsLabel.trim()
-      ? options.methodsLabel.trim()
-      : 'Methods text';
-    const resultsLabel = typeof options?.resultsLabel === 'string' && options.resultsLabel.trim()
-      ? options.resultsLabel.trim()
-      : 'Results text';
-    const specLabel = typeof options?.specLabel === 'string' && options.specLabel.trim()
-      ? options.specLabel.trim()
-      : 'Technical analysis record (advanced)';
     const panel = documentRef.createElement('details');
     panel.className = 'stats-report-panel';
     panel.dataset.statsReporting = '1';
+    panel.__statsReportModel = cloneStatsReportingValue(reportModel);
     const summary = documentRef.createElement('summary');
-    summary.textContent = title;
+    summary.textContent = reportModel.title;
     panel.appendChild(summary);
 
     const addBlock = (labelText, valueText) => {
@@ -1258,10 +1285,10 @@
       panel.appendChild(pre);
     };
 
-    addBlock(methodsLabel, report.methodsText || '');
-    addBlock(resultsLabel, report.resultsText || '');
+    addBlock(reportModel.methodsLabel, reportModel.methodsText || '');
+    addBlock(reportModel.resultsLabel, reportModel.resultsText || '');
 
-    const spec = report.analysisSpec || options?.analysisSpecFallback || null;
+    const spec = reportModel.analysisSpec || null;
     const displaySpec = sanitizeAnalysisSpecForDisplay(spec);
     const summaryLines = buildAnalysisSummaryLines(displaySpec);
     if(summaryLines.length){
@@ -1271,7 +1298,7 @@
       const advanced = documentRef.createElement('details');
       advanced.className = 'stats-report-panel__advanced';
       const advancedSummary = documentRef.createElement('summary');
-      advancedSummary.textContent = specLabel;
+      advancedSummary.textContent = reportModel.specLabel;
       advanced.appendChild(advancedSummary);
       const note = documentRef.createElement('p');
       note.className = 'stats-report-panel__note';
@@ -1286,9 +1313,12 @@
     }
 
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: statsReporting.appendReportPanel',{ title, hasMethods: !!report.methodsText, hasResults: !!report.resultsText, hasAnalysisSpec: !!displaySpec });
+      console.debug('Debug: statsReporting.appendReportPanel',{ title: reportModel.title, hasMethods: !!reportModel.methodsText, hasResults: !!reportModel.resultsText, hasAnalysisSpec: !!displaySpec });
     }
     reportTarget.appendChild(panel);
+    if(reportTarget && typeof reportTarget === 'object'){
+      reportTarget.__statsReportModel = cloneStatsReportingValue(reportModel);
+    }
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
@@ -1822,9 +1852,9 @@
         target.appendChild(host);
       }
     }
-    if(options.migrateLegacyPanels && host.parentNode === target){
-      const legacyPanels = Array.from(target.children || []).filter(node => node !== host && isReportingNode(node));
-      legacyPanels.forEach(panel => {
+    if(options.migrateReportPanels && host.parentNode === target){
+      const strayPanels = Array.from(target.children || []).filter(node => node !== host && isReportingNode(node));
+      strayPanels.forEach(panel => {
         host.appendChild(panel);
       });
     }
@@ -1857,6 +1887,8 @@
     }
     if(reportHost !== target){
       reportHost.innerHTML = '';
+      delete reportHost.__statsReportModel;
+      delete reportHost.__statsPanelModel;
       return true;
     }
     let removed = false;
@@ -1866,78 +1898,246 @@
         removed = true;
       }
     });
+    if(removed){
+      delete reportHost.__statsReportModel;
+      delete reportHost.__statsPanelModel;
+    }
     return removed;
   };
 
-  reporting.capturePanelHtml = function capturePanelHtml(target){
+  const STATS_MODEL_ALLOWED_TAGS = new Set([
+    'div', 'p', 'span', 'strong', 'em', 'i', 'b', 'small',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+    'ul', 'ol', 'li', 'details', 'summary', 'pre', 'br'
+  ]);
+  const STATS_MODEL_ALLOWED_CLASS_PREFIXES = [
+    'stats-', 'variance-', 'pca-', 'box-', 'scatter-', 'line-', 'roc-', 'hist-', 'pie-', 'survival-', 'heatmap-', 'surface-'
+  ];
+
+  function sanitizeStatsClassName(value){
+    if(typeof value !== 'string' || !value.trim()){
+      return '';
+    }
+    return value.split(/\s+/)
+      .filter(name => STATS_MODEL_ALLOWED_CLASS_PREFIXES.some(prefix => name.startsWith(prefix)))
+      .join(' ');
+  }
+
+  function captureStatsNodeModel(node){
+    if(!node){
+      return null;
+    }
+    if(node.nodeType === 3){
+      const text = String(node.nodeValue || '');
+      return text ? { type: 'text', text } : null;
+    }
+    if(node.nodeType !== 1){
+      return null;
+    }
+    const tag = String(node.tagName || '').toLowerCase();
+    if(!STATS_MODEL_ALLOWED_TAGS.has(tag)){
+      const text = String(node.textContent || '').trim();
+      return text ? { type: 'text', text } : null;
+    }
+    const model = { type: 'element', tag };
+    const className = sanitizeStatsClassName(node.getAttribute?.('class') || '');
+    if(className){
+      model.className = className;
+    }
+    if(tag === 'details' && node.open === true){
+      model.open = true;
+    }
+    const children = Array.from(node.childNodes || [])
+      .map(captureStatsNodeModel)
+      .filter(Boolean);
+    if(children.length){
+      model.children = children;
+    }else if(tag !== 'br'){
+      const text = String(node.textContent || '');
+      if(text){
+        model.children = [{ type: 'text', text }];
+      }
+    }
+    return model;
+  }
+
+  function captureStatsChildrenModel(target, options = {}){
     if(!target || target.nodeType !== 1){
-      return { resultsHtml: null, reportHtml: null };
+      return null;
+    }
+    const children = Array.from(target.childNodes || [])
+      .filter(node => {
+        if(options.excludeNode && node === options.excludeNode){
+          return false;
+        }
+        return !(options.excludeReportNodes === true && node.nodeType === 1 && isReportingNode(node));
+      })
+      .map(captureStatsNodeModel)
+      .filter(Boolean);
+    return children.length
+      ? { schemaVersion: 1, kind: 'stats-panel', children }
+      : null;
+  }
+
+  function normalizeStatsPanelModel(model){
+    if(!model || typeof model !== 'object'){
+      return null;
+    }
+    const children = Array.isArray(model.children)
+      ? model.children
+      : (Array.isArray(model.nodes) ? model.nodes : null);
+    if(!children){
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      kind: 'stats-panel',
+      children: cloneStatsReportingValue(children)
+    };
+  }
+
+  function renderStatsNodeModel(documentRef, model){
+    if(!documentRef || !model || typeof model !== 'object'){
+      return null;
+    }
+    if(model.type === 'text'){
+      return documentRef.createTextNode(String(model.text || ''));
+    }
+    if(model.type !== 'element'){
+      return null;
+    }
+    const tag = STATS_MODEL_ALLOWED_TAGS.has(String(model.tag || '').toLowerCase())
+      ? String(model.tag).toLowerCase()
+      : 'span';
+    const node = documentRef.createElement(tag);
+    const className = sanitizeStatsClassName(model.className || '');
+    if(className){
+      node.className = className;
+    }
+    if(tag === 'details' && model.open === true){
+      node.open = true;
+    }
+    (Array.isArray(model.children) ? model.children : []).forEach(childModel => {
+      const child = renderStatsNodeModel(documentRef, childModel);
+      if(child){
+        node.appendChild(child);
+      }
+    });
+    return node;
+  }
+
+  function renderStatsPanelModel(target, model){
+    const documentRef = target?.ownerDocument || global.document;
+    const normalized = normalizeStatsPanelModel(model);
+    if(!target || !documentRef || !normalized){
+      return false;
+    }
+    target.textContent = '';
+    normalized.children.forEach(childModel => {
+      const child = renderStatsNodeModel(documentRef, childModel);
+      if(child){
+        target.appendChild(child);
+      }
+    });
+    target.__statsPanelModel = cloneStatsReportingValue(normalized);
+    return true;
+  }
+
+  function readDirectChildText(node, selector){
+    const child = node?.querySelector?.(selector) || null;
+    return child ? String(child.textContent || '').trim() : '';
+  }
+
+  function extractReportModelFromPanel(panel){
+    if(!panel || panel.nodeType !== 1){
+      return null;
+    }
+    const storedModel = panel.__statsReportModel;
+    if(storedModel && typeof storedModel === 'object'){
+      return normalizeReportModel(storedModel, storedModel);
+    }
+    if(!panel.classList?.contains('stats-report-panel')){
+      return null;
+    }
+    const title = readDirectChildText(panel, ':scope > summary') || 'Reporting and reproducibility';
+    const preBlocks = Array.from(panel.querySelectorAll?.(':scope > pre') || []);
+    const methodsText = preBlocks[0] ? String(preBlocks[0].textContent || '') : '';
+    const resultsText = preBlocks[1] ? String(preBlocks[1].textContent || '') : '';
+    const advancedPre = panel.querySelector?.(':scope > .stats-report-panel__advanced pre');
+    let analysisSpec = null;
+    if(advancedPre){
+      const rawSpec = String(advancedPre.textContent || '').trim();
+      if(rawSpec){
+        try{ analysisSpec = JSON.parse(rawSpec); }
+        catch(_err){ analysisSpec = { note: rawSpec }; }
+      }
+    }
+    if(!methodsText && !resultsText && !analysisSpec){
+      return null;
+    }
+    return normalizeReportModel({ title, methodsText, resultsText, analysisSpec }, { title });
+  }
+
+  function captureReportModelFromHost(reportHost){
+    if(!reportHost || reportHost.nodeType !== 1){
+      return null;
+    }
+    const storedModel = reportHost.__statsReportModel;
+    if(storedModel && typeof storedModel === 'object'){
+      return storedModel.kind === 'stats-report'
+        ? normalizeReportModel(storedModel, storedModel)
+        : normalizeStatsPanelModel(storedModel);
+    }
+    const reportPanel = reportHost.classList?.contains('stats-report-panel')
+      ? reportHost
+      : (reportHost.querySelector?.('.stats-report-panel') || null);
+    return extractReportModelFromPanel(reportPanel);
+  }
+
+  reporting.capturePanelModel = function capturePanelModel(target){
+    if(!target || target.nodeType !== 1){
+      return { resultsModel: null, reportModel: null };
     }
     const reportHost = resolveReportingHost(target);
-    const resultsHtmlFromTarget = () => {
-      const html = typeof target.innerHTML === 'string' ? target.innerHTML : '';
-      return html || null;
-    };
+    const reportModel = captureReportModelFromHost(reportHost);
     if(reportHost && reportHost !== target){
-      const reportHtml = reportHost.parentNode === target && typeof reportHost.innerHTML === 'string' && reportHost.innerHTML
-        ? reportHost.innerHTML
-        : null;
       if(reportHost.parentNode === target){
-        const documentRef = target.ownerDocument || global.document;
-        const placeholder = documentRef?.createComment ? documentRef.createComment('stats-report-host') : null;
-        if(placeholder){
-          target.replaceChild(placeholder, reportHost);
-          const resultsHtml = resultsHtmlFromTarget();
-          placeholder.parentNode?.replaceChild?.(reportHost, placeholder);
-          return { resultsHtml, reportHtml };
-        }
+        const resultsModel = captureStatsChildrenModel(target, { excludeReportNodes: true, excludeNode: reportHost });
+        return { resultsModel, reportModel };
       }
-      return { resultsHtml: resultsHtmlFromTarget(), reportHtml };
+      return { resultsModel: captureStatsChildrenModel(target), reportModel };
     }
-    return { resultsHtml: resultsHtmlFromTarget(), reportHtml: null };
-  };
-
-  reporting.normalizeSavedPanelHtml = function normalizeSavedPanelHtml(saved){
-    const source = saved && typeof saved === 'object' ? saved : {};
-    const normalized = {
-      resultsHtml: typeof source.resultsHtml === 'string' && source.resultsHtml ? source.resultsHtml : null,
-      reportHtml: typeof source.reportHtml === 'string' && source.reportHtml ? source.reportHtml : null,
-      legacyEmbeddedReport: false
+    const directReport = target.querySelector?.(':scope > .stats-report-panel') || null;
+    return {
+      resultsModel: captureStatsChildrenModel(target, { excludeReportNodes: true }),
+      reportModel: captureReportModelFromHost(directReport)
     };
-    if(normalized.reportHtml || !normalized.resultsHtml || !global.document?.createElement){
-      return normalized;
-    }
-    if(!normalized.resultsHtml.includes('stats-report-panel')){
-      return normalized;
-    }
-    const probe = global.document.createElement('div');
-    probe.innerHTML = normalized.resultsHtml;
-    const reportHost = global.document.createElement('div');
-    const reportNodes = Array.from(probe.children || []).filter(isReportingNode);
-    if(!reportNodes.length){
-      return normalized;
-    }
-    reportNodes.forEach(node => {
-      reportHost.appendChild(node);
-    });
-    normalized.resultsHtml = probe.innerHTML || null;
-    normalized.reportHtml = reportHost.innerHTML || null;
-    normalized.legacyEmbeddedReport = true;
-    return normalized;
   };
 
-  reporting.restorePanelHtml = function restorePanelHtml(target, saved, options = {}){
+  reporting.normalizeSavedPanelModel = function normalizeSavedPanelModel(saved){
+    const source = saved && typeof saved === 'object' ? saved : {};
+    const resultsModel = normalizeStatsPanelModel(source.resultsModel || source.panelModel || null);
+    const reportModel = source.reportModel && typeof source.reportModel === 'object'
+      ? (source.reportModel.kind === 'stats-report'
+        ? normalizeReportModel(source.reportModel, source.reportModel)
+        : normalizeStatsPanelModel(source.reportModel))
+      : null;
+    return {
+      resultsModel,
+      reportModel
+    };
+  };
+
+  reporting.restorePanelModel = function restorePanelModel(target, saved, options = {}){
     if(!target || target.nodeType !== 1){
       return { restoredMain: false, restoredReport: false };
     }
-    const normalized = reporting.normalizeSavedPanelHtml(saved);
+    const normalized = reporting.normalizeSavedPanelModel(saved);
     let restoredMain = false;
-    try{
-      target.innerHTML = normalized.resultsHtml || '';
-      restoredMain = normalized.resultsHtml != null;
-    }catch(err){
-      target.textContent = normalized.resultsHtml != null ? String(normalized.resultsHtml) : '';
-      restoredMain = normalized.resultsHtml != null;
+    if(normalized.resultsModel){
+      restoredMain = renderStatsPanelModel(target, normalized.resultsModel);
+    }else if(options.clearMainWhenMissing !== false){
+      target.textContent = '';
     }
     let reportHost = null;
     if(typeof options.ensureReportHost === 'function'){
@@ -1950,16 +2150,22 @@
     }
     let restoredReport = false;
     if(reportHost && reportHost !== target){
-      reportHost.innerHTML = normalized.reportHtml || '';
-      restoredReport = normalized.reportHtml != null;
+      if(normalized.reportModel?.kind === 'stats-report'){
+        reportHost.textContent = '';
+        reporting.appendReportPanel(target, normalized.reportModel, { replaceExisting: false });
+        restoredReport = true;
+      }else if(normalized.reportModel){
+        restoredReport = renderStatsPanelModel(reportHost, normalized.reportModel);
+      }else{
+        reportHost.textContent = '';
+      }
     }
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
     return {
       restoredMain,
-      restoredReport,
-      legacyEmbeddedReport: !!normalized.legacyEmbeddedReport
+      restoredReport
     };
   };
 

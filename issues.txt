@@ -1,25 +1,11 @@
 # Open Issues (Reviewed 2026-06-01)
 # Ordered by descending priority. Closed and stale items were removed.
 
-[open][P0][2026-06-01] Tab-scoped async safety is still fail-open: `workspaceTabs.isSessionMetaCurrent` returns `true` when session metadata is missing/invalid, so stale callbacks can bypass tab isolation guarantees. (from 2026-05-24 issue 55)
-
-[open][P0][2026-06-01] Box frame/reserve authority is still not fully unified across flip/resize/reopen paths, causing tab-isolation-visible layout drift under switch/restore flows (e.g., `e2e/box.significance-layout.spec.js` currently fails at line 330 with large restored height drift). Consolidate to one authoritative frame snapshot -> reserve transfer -> draw contract. (merged from 2026-05-18 issue 28, 2026-05-21 issue 38, 2026-05-22 issue 42)
-
-[open][P0][2026-06-01] Box reserve geometry regressions remain reproducible in unit tests: `__tests__/box.layoutReserves.regression.test.js` still fails 3 assertions (`yAxisSpan` drift on shrink with/without significance and `xAxisSpan` drift when significance toggles), confirming unresolved axis-stretch behavior beyond E2E symptoms. (new evidence 2026-06-01)
-
 [open][P0][2026-06-01] Restore-draw scheduling remains fragmented and brittle across components: resize cache invalidation policy, reason-string suppression, and draw-option merge precedence are not centralized, so user-initiated redraws can still be suppressed or over-expanded after reopen. Replace with one shared scheduler/suppression + merge policy contract. (merged from 2026-05-31 issues 89, 90, 91, 95)
-
-[open][P0][2026-06-01] `captureScatterRuntimeSnapshot` is still not a pure capture path; it writes through record->live rebind (`applyScatterOwnedRuntimeSlicesFromSnapshot`), so persist-time capture can mutate and clobber valid live scatter state. Split capture (live->record) from restore/bind (record->live). (from 2026-05-30 issue 82)
 
 [open][P0][2026-06-01] Stats restore authority is still inconsistent between payload apply and activation/draw suppression flows; restored stats metadata can diverge from runtime signature inputs and be invalidated later. Standardize one payload-time stats hydration contract across components before context priming. (merged from 2026-05-22 issues 43, 44)
 
 [open][P0][2026-06-01] Scatter/box payload serialization and control state acquisition still depend on live DOM in critical paths instead of state-first snapshots, keeping inactive-tab/headless flows fragile. Introduce a shared state-authoritative accessor contract. (from 2026-05-19 issue 32)
-
-[open][P0][2026-06-01] Heavy same-type scatter rendering in Firefox still has an activation/readiness race: during `e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js`, `waitForScatterCanvas` can time out with a loaded heavy table (`B*` rows present) but no completed canvas points layer, indicating tab-scoped draw-frame progression can still stall in same-type heavy flows. Keep this separate from box issues.
-
-[open][P0][2026-06-01] User-authored transforms still execute via `new Function` in `js/shared/dataTransforms.js`; this keeps an avoidable runtime code-generation trust boundary. Replace with an AST/parser-based evaluator. (from 2026-05-24 issue 52)
-
-[open][P0][2026-06-01] Persisted stats UI still round-trips HTML blobs (`resultsHtml`/`reportHtml`) and restores them via `innerHTML`; archive reopen and preview fidelity currently depend on trusted markup. Replace with structured report models + single safe renderer. (from 2026-05-24 issue 51)
 
 [open][P1][2026-06-01] Render-cache behavior lacks a shared computation/cache metadata contract and still duplicates canvas bitmap hydration logic. Heavy tabs can reopen visually but miss warm computational caches, then stall on first interaction. Consolidate capture/serialize/restore/validate for computation and bitmap caches. (merged from 2026-05-23 issue 45 and 2026-05-31 issue 92)
 
@@ -34,6 +20,8 @@
 [open][P1][2026-06-01] SVG frame publication lifecycle is still not standardized (build->validate token->publish->commit). Some paths can expose partial/stale intermediate frames. Introduce a shared frame publication contract with cancellation cleanup. (from 2026-05-26 issue 71)
 
 [open][P1][2026-06-01] `workspaceTabs.ensureActiveDomBindings` can still be misused; histogram remains sentinel-driven without explicit current-root reporting, allowing unnecessary rebind/init churn risk. Harden API expectations and add cross-component activation binding tests. (from 2026-05-26 issue 72)
+
+[open][P1][2026-06-02] Runtime snapshot tests do not yet enforce checkbox/control parity across all components. A line same-component activation regression showed live checkbox state can diverge from component-owned runtime shadow fields, then be restored as stale state. Add shared cross-component contracts that toggle critical controls, capture runtime/payload state, switch same-type tabs, and assert DOM/runtime/payload parity.
 
 [open][P1][2026-06-01] Scatter still carries architecture drift in hot access and stats draw suppression: `ensureScatterHotForActiveTab` performs repeated header/nested-header side effects, and non-visual stats suppression scaffolding remains complex/defensive. Move side effects to true change events and simplify stats draw flow. (merged from 2026-05-30 issues 78, 79)
 

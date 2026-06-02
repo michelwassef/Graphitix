@@ -831,6 +831,7 @@ describe('componentLifecycle — createRuntimeOwner', () => {
 
   test('tab-scoped schedulers may use a component-owned bound tab resolver, not the active tab', () => {
     const scheduleRaw = jest.fn();
+    window.Shared.workspaceTabs.ensureActiveSession('tab-b', 'box', { reason: 'unit-tab-b-activate' });
     const scheduler = window.Shared.workspaceTabs.createTabScopedScheduler({
       componentKey: 'box',
       getTabId: () => 'tab-b',

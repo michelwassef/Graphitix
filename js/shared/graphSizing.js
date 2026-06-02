@@ -69,6 +69,28 @@
     return match ? toPositiveNumber(match[0]) : null;
   }
 
+  function parseAspectRatioLike(value){
+    if(typeof value === 'number'){
+      return toPositiveNumber(value);
+    }
+    if(typeof value !== 'string'){
+      return null;
+    }
+    const trimmed = value.trim();
+    if(!trimmed || /^auto$/i.test(trimmed)){
+      return null;
+    }
+    const ratioMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+    if(ratioMatch){
+      const numerator = Number(ratioMatch[1]);
+      const denominator = Number(ratioMatch[2]);
+      return Number.isFinite(numerator) && numerator > 0 && Number.isFinite(denominator) && denominator > 0
+        ? numerator / denominator
+        : null;
+    }
+    return toPositiveNumber(trimmed);
+  }
+
   function computeFallbackSizing(context){
     const baseWidth = Number(chartStyle?.DEFAULT_WIDTH) || 640;
     const baseHeight = Number(chartStyle?.DEFAULT_HEIGHT) || baseWidth;
@@ -248,7 +270,10 @@
       style.minHeight = toPx(display.minHeightPx);
       style.maxWidth = display.allowUnlimitedWidth === true ? '' : toPx(display.maxWidthPx);
       style.maxHeight = toPx(display.maxHeightPx);
-      style.aspectRatio = Number.isFinite(display.aspectRatio) && display.aspectRatio > 0
+      style.aspectRatio = Number.isFinite(display.widthPx) && display.widthPx > 0
+        && Number.isFinite(display.heightPx) && display.heightPx > 0
+        ? `${Math.round(display.widthPx)} / ${Math.round(display.heightPx)}`
+        : Number.isFinite(display.aspectRatio) && display.aspectRatio > 0
         ? String(display.aspectRatio)
         : '';
     }
@@ -347,10 +372,12 @@
       || parsePxLike(data.resizerMaxHeight)
       || (styleMaxHeightPx ? styleMaxHeightPx / zoomScale : null)
       || fallback.maxHeight;
-    const aspectRatio = parsePxLike(style.aspectRatio)
-      || parsePxLike(data.graphAspectRatio)
-      || parsePxLike(data.resizerAspectRatio)
-      || (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : fallback.aspectRatio || 1);
+    const aspectRatio = (widthPx > 0 && heightPx > 0 ? widthPx / heightPx : null)
+      || parseAspectRatioLike(data.graphAspectRatio)
+      || parseAspectRatioLike(data.resizerAspectRatio)
+      || parseAspectRatioLike(style.aspectRatio)
+      || fallback.aspectRatio
+      || 1;
     const aspectLocked = Shared.aspectLock?.resolveLocked
       ? Shared.aspectLock.resolveLocked(data, { fallback: fallback.aspectLocked === true })
       : (data.graphAspectLocked === 'true'

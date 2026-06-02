@@ -93,7 +93,7 @@ describe('graphArchive component round-trip', () => {
           exclusions: { rows: [], cols: [], cells: [] },
           dataViews: { version: 1, activeViewId: 'raw', views: [{ id: 'raw', kind: 'raw', title: 'Raw', data: [['Label', false, false], ['Sample', 'S1', 'S2'], ['F1', '1', '2']] }] },
           activeDataViewId: 'raw',
-          config: { method: 'pca', axisSelection: { x: 1, y: 2, z: 3 }, notes: { text: '', open: false }, stats: { resultsHtml: '<div>ok</div>' } },
+          config: { method: 'pca', axisSelection: { x: 1, y: 2, z: 3 }, notes: { text: '', open: false }, stats: { resultsModel: { schemaVersion: 1, kind: 'stats-panel', children: [{ type: 'element', tag: 'div', children: [{ type: 'text', text: 'ok' }] }] } } },
           stats: { method: 'pca', dimensions: 2, scree: [0.8, 0.2] }
         },
         layout: { version: 1, component: 'pca', minSvgWidth: 600 }
@@ -107,7 +107,7 @@ describe('graphArchive component round-trip', () => {
           exclusions: { rows: [], cols: [], cells: [] },
           dataViews: { version: 1, activeViewId: 'raw', views: [{ id: 'raw', kind: 'raw', title: 'Raw', data: [['X', 'S1'], ['1', '2']] }] },
           activeDataViewId: 'raw',
-          config: { viewMode: '2d', showTrendLine: true, stats: { signature: 'sig-1', version: 3, lastRunVersion: 3, resultsHtml: '<table></table>' }, notes: { text: '', open: false } }
+          config: { viewMode: '2d', showTrendLine: true, stats: { signature: 'sig-1', version: 3, lastRunVersion: 3, resultsModel: { schemaVersion: 1, kind: 'stats-panel', children: [{ type: 'element', tag: 'table' }] } }, notes: { text: '', open: false } }
         },
         layout: { version: 1, component: 'line', minSvgWidth: 600 }
       },

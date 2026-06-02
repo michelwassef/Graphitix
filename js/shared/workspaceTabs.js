@@ -797,6 +797,18 @@
     }
   }
 
+  function readSessionGenerationForTab(tabLike, componentKey){
+    const key = String(componentKey || '').trim() || '__default__';
+    const tab = (tabLike && typeof tabLike === 'object')
+      ? tabLike
+      : findWorkspaceTabById(tabLike);
+    if(!tab || typeof tab !== 'object'){
+      return 0;
+    }
+    const generation = Number(tab?.sharedState?.sessions?.[key]?.generation);
+    return Number.isFinite(generation) && generation > 0 ? generation : 0;
+  }
+
   namespace.buildSessionMeta = function buildSessionMeta(componentKey, options = {}){
     const componentKeyText = String(componentKey || options?.type || options?.componentType || '').trim() || '__default__';
     const active = namespace.getActiveSessionInfo(componentKeyText) || null;
@@ -806,11 +818,20 @@
     const tabId = explicitTabId || (allowActiveFallback ? (active?.tabId || fallbackTab?.id || null) : null);
     const tab = findWorkspaceTabById(tabId) || (allowActiveFallback ? fallbackTab : null);
     const explicitGeneration = Number(options?.sessionGeneration ?? options?.generation);
+    const activeTabId = normalizeTabId(active?.tabId || '');
+    const targetTabId = normalizeTabId(tabId || tab?.id || '');
+    const activeGeneration = Number.isFinite(Number(active?.generation)) && Number(active.generation) > 0
+      ? Number(active.generation)
+      : 0;
+    const sessionGenerationFromTab = readSessionGenerationForTab(tab || targetTabId, componentKeyText);
+    const resolvedGeneration = Number.isFinite(explicitGeneration) && explicitGeneration > 0
+      ? explicitGeneration
+      : ((activeTabId && targetTabId && activeTabId === targetTabId)
+        ? activeGeneration
+        : sessionGenerationFromTab);
     return {
       tabId,
-      sessionGeneration: Number.isFinite(explicitGeneration) && explicitGeneration > 0
-        ? explicitGeneration
-        : (Number(active?.generation) || 0),
+      sessionGeneration: resolvedGeneration,
       componentKey: componentKeyText,
       payloadSignature: options?.payloadSignature ?? tab?.payloadSignature ?? null,
       layoutSignature: options?.layoutSignature ?? tab?.layoutSignature ?? null,
@@ -821,22 +842,38 @@
 
   namespace.isSessionMetaCurrent = function isSessionMetaCurrent(componentKey, meta){
     if(!meta || typeof meta !== 'object'){
-      return true;
+      debugLog('Debug: workspaceTabs session meta rejected: missing metadata', {
+        componentKey: String(componentKey || '').trim() || '__default__'
+      });
+      return false;
     }
     const componentKeyText = String(componentKey || meta.componentKey || '').trim() || '__default__';
+    const tabId = normalizeTabId(meta.tabId || meta.workspaceTabId || meta.tab?.id || '');
+    if(!tabId){
+      debugLog('Debug: workspaceTabs session meta rejected: missing tab id', {
+        componentKey: componentKeyText,
+        reason: meta.reason || null
+      });
+      return false;
+    }
     const generation = Number(meta.sessionGeneration ?? meta.generation);
     if(!Number.isFinite(generation) || generation <= 0){
-      return true;
+      debugLog('Debug: workspaceTabs session meta rejected: invalid generation', {
+        componentKey: componentKeyText,
+        tabId,
+        sessionGeneration: meta.sessionGeneration ?? meta.generation ?? null
+      });
+      return false;
     }
-    const sessionCurrent = !!namespace.isSessionCurrent(componentKeyText, meta.tabId || null, generation);
+    const sessionCurrent = !!namespace.isSessionCurrent(componentKeyText, tabId, generation);
     if(!sessionCurrent){
       return false;
     }
-    const tab = findWorkspaceTabById(meta.tabId || null);
+    const tab = findWorkspaceTabById(tabId);
     if(meta.requirePayloadSignature === true && meta.payloadSignature != null && tab && tab.payloadSignature !== meta.payloadSignature){
       debugLog('Debug: workspaceTabs session meta rejected by payload signature', {
         componentKey: componentKeyText,
-        tabId: meta.tabId || null,
+        tabId,
         expected: meta.payloadSignature,
         current: tab.payloadSignature || null
       });
@@ -845,7 +882,7 @@
     if(meta.requireLayoutSignature === true && meta.layoutSignature != null && tab && tab.layoutSignature !== meta.layoutSignature){
       debugLog('Debug: workspaceTabs session meta rejected by layout signature', {
         componentKey: componentKeyText,
-        tabId: meta.tabId || null,
+        tabId,
         expected: meta.layoutSignature,
         current: tab.layoutSignature || null
       });

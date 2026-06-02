@@ -1242,6 +1242,34 @@
             }
           }
         }
+        if (tab.layoutState && typeof config.applyLayoutState === 'function') {
+          let layoutSource = cloneFn?.(tab.layoutState) || tab.layoutState;
+          if (Shared.componentLayout?.withTabLayoutOverrides) {
+            layoutSource = Shared.componentLayout.withTabLayoutOverrides(layoutSource, tab);
+          }
+          try {
+            config.applyLayoutState(layoutSource, {
+              tabId: tab.id,
+              reason: `${fastReason}-layout-restore`,
+              resetStyles: true,
+              resetDataset: true,
+              skipSchedule: true,
+              passiveControls: true,
+              suppressDraw: true,
+              suppressAutoDraw: true,
+              suppressResizeDraw: true,
+              suppressStatsRecompute: true,
+              liveDomFastPath: true
+            });
+          } catch (err) {
+            console.debug('Debug: workspace live DOM layout restore failed', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: fastReason,
+              err: err?.message || String(err)
+            });
+          }
+        }
         loadedWorkspaces[tab.id] = {
           tabId: tab.id,
           type: tab.type,

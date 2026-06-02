@@ -97,4 +97,35 @@ describe('workspace tab-scoped scheduler isolation', () => {
     expect(document.querySelectorAll('#demoPage')).toHaveLength(1);
     expect(document.getElementById('demoPage')).toBe(rootA);
   });
+
+  test('session metadata validation fails closed when metadata is missing or invalid', () => {
+    const workspaceTabs = window.Shared.workspaceTabs;
+    expect(workspaceTabs.isSessionMetaCurrent('line', null)).toBe(false);
+    expect(workspaceTabs.isSessionMetaCurrent('line', undefined)).toBe(false);
+    expect(workspaceTabs.isSessionMetaCurrent('line', {})).toBe(false);
+    expect(workspaceTabs.isSessionMetaCurrent('line', {
+      componentKey: 'line',
+      tabId: 'workspace-1',
+      sessionGeneration: 0
+    })).toBe(false);
+  });
+
+  test('buildSessionMeta resolves generation from the targeted tab record, not an unrelated active tab', () => {
+    const workspaceTabs = window.Shared.workspaceTabs;
+    const tabs = window.Main.session.workspaceState.tabs;
+    const tabA = { id: 'workspace-1', type: 'line' };
+    const tabB = { id: 'workspace-2', type: 'line' };
+    tabs.push(tabA, tabB);
+
+    workspaceTabs.activateSession(tabA, 'line', { reason: 'unit-tab-a-activate' }); // generation = 1
+    workspaceTabs.activateSession(tabB, 'line', { reason: 'unit-tab-b-activate-1' }); // generation = 1
+    workspaceTabs.activateSession(tabB, 'line', { reason: 'unit-tab-b-activate-2' }); // generation = 2 (active)
+
+    const activeInfo = workspaceTabs.getActiveSessionInfo('line');
+    expect(activeInfo).toMatchObject({ tabId: tabB.id, generation: 2 });
+
+    const metaA = workspaceTabs.buildSessionMeta('line', { tabId: tabA.id });
+    expect(metaA.tabId).toBe(tabA.id);
+    expect(metaA.sessionGeneration).toBe(1);
+  });
 });

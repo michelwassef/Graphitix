@@ -379,8 +379,8 @@
         activated: false,
         answers: {}
       },
-      resultsHtml: null,
-      reportHtml: null,
+      resultsModel: null,
+      reportModel: null,
       contextSignature: null,
       lastRunSignature: null
     };
@@ -2057,15 +2057,15 @@ let state = {
     if(stats.restorePending){
       const restored = stats.restorePending;
       stats.restorePending = null;
-      if(!pieStatsPanelHasRenderedResults() && (restored.resultsHtml != null || restored.reportHtml != null)){
+      if(!pieStatsPanelHasRenderedResults() && (restored.resultsModel != null || restored.reportModel != null)){
         const out = getPieNodeById('pieStatsResults');
         if(out){
-          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
-            Shared.statsReporting.restorePanelHtml(out, restored, {
+          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+            Shared.statsReporting.restorePanelModel(out, restored, {
               ensureReportHost: () => ensurePieStatsReportHost(out)
             });
           }else{
-            try{ out.innerHTML = restored.resultsHtml || ''; }catch(_err){ out.textContent = String(restored.resultsHtml || ''); }
+            out.textContent = '';
           }
         }
       }
@@ -3272,9 +3272,9 @@ let state = {
   function exportPieStatsConfig(){
     const stats = getPieStatsConfig();
     const out = getPieNodeById('pieStatsResults');
-    const panelHtml = Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
-      ? Shared.statsReporting.capturePanelHtml(out)
-      : { resultsHtml: out ? (out.innerHTML || null) : null, reportHtml: null };
+    const panelHtml = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'
+      ? Shared.statsReporting.capturePanelModel(out)
+      : { resultsModel: null, reportModel: null };
     return {
       scope: sanitizePieStatsScope(stats.scope),
       test: sanitizePieStatsTest(stats.test),
@@ -3294,8 +3294,8 @@ let state = {
         activated: !!stats.advisor?.activated,
         answers: { ...(stats.advisor?.answers || {}) }
       },
-      resultsHtml: panelHtml.resultsHtml || null,
-      reportHtml: panelHtml.reportHtml || null,
+      resultsModel: panelHtml.resultsModel || null,
+      reportModel: panelHtml.reportModel || null,
       contextSignature: stats.contextSignature || null,
       lastRunSignature: stats.lastRunSignature || null
     };
@@ -3347,30 +3347,28 @@ let state = {
     stats.lastRunSignature = savedLastRunSignature;
     stats.controlsSignature = null;
     let restoredResults = false;
-    if(input.resultsHtml != null || input.reportHtml != null){
+    if(input.resultsModel != null || input.reportModel != null){
       const out = getPieNodeById('pieStatsResults');
       if(out){
-        if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
-          Shared.statsReporting.restorePanelHtml(out, input, {
+        if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+          Shared.statsReporting.restorePanelModel(out, input, {
             ensureReportHost: () => ensurePieStatsReportHost(out)
           });
         }else{
-          try{ out.innerHTML = input.resultsHtml || ''; }catch(_err){ out.textContent = String(input.resultsHtml || ''); }
+          out.textContent = '';
         }
         restoredResults = pieStatsPanelHasRenderedResults();
       }
     }
-    const hasSavedResultsHtml = typeof input.resultsHtml === 'string' && input.resultsHtml
-      && /stats-table-card|<table|stats-report-panel|stats-assumption-container/i.test(input.resultsHtml);
-    const hasSavedReportHtml = typeof input.reportHtml === 'string' && input.reportHtml
-      && /stats-report-panel|stats-table-card|<table|stats-assumption-container/i.test(input.reportHtml);
-    stats.restorePending = (restoredResults || hasSavedResultsHtml || hasSavedReportHtml) && !!savedLastRunSignature
+    const hasSavedResultsModel = !!input.resultsModel;
+    const hasSavedReportModel = !!input.reportModel;
+    stats.restorePending = (restoredResults || hasSavedResultsModel || hasSavedReportModel) && !!savedLastRunSignature
       ? {
           contextSignature: savedContextSignature,
           lastRunSignature: savedLastRunSignature,
           hasResults: true,
-          resultsHtml: typeof input.resultsHtml === 'string' ? input.resultsHtml : null,
-          reportHtml: typeof input.reportHtml === 'string' ? input.reportHtml : null
+          resultsModel: input.resultsModel || null,
+          reportModel: input.reportModel || null
         }
       : null;
   }

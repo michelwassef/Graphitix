@@ -1968,6 +1968,22 @@
     return false;
   }
 
+  function isPcaStructuralRowLabel(value) {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized === 'variable'
+      || normalized === 'variables'
+      || normalized === 'sample'
+      || normalized === 'samples'
+      || normalized === 'group'
+      || normalized === 'groups'
+      || normalized === 'label point'
+      || normalized === 'label points'
+      || normalized === 'labelpoint';
+  }
+
   function pcaTabHasMeaningfulData(matrix, tableFormat, tabId) {
     if (!Array.isArray(matrix)) {
       return false;
@@ -1983,11 +1999,15 @@
       if (!Array.isArray(row)) {
         continue;
       }
-      for (let c = 0; c < row.length; c += 1) {
+      for (let c = 1; c < row.length; c += 1) {
         if (hasMeaningfulCellValue(row[c])) {
           console.debug('Debug: pca tab data detected in matrix body', { tabId, rowIndex: r, colIndex: c });
           return true;
         }
+      }
+      if (hasMeaningfulCellValue(row[0]) && !isPcaStructuralRowLabel(row[0])) {
+        console.debug('Debug: pca tab data detected in matrix body label column', { tabId, rowIndex: r, colIndex: 0 });
+        return true;
       }
     }
 

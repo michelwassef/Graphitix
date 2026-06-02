@@ -673,10 +673,10 @@
     return raw;
   }
   function isLineConfidenceIntervalEnabled(){
-    return !!refs.showIntervals?.checked;
+    return !!resolveLineOverlayControls()?.showIntervals?.checked;
   }
   function isLinePredictionIntervalEnabled(){
-    return !!refs.showPredictionIntervals?.checked;
+    return !!resolveLineOverlayControls()?.showPredictionIntervals?.checked;
   }
   function isLineAnyIntervalEnabled(){
     return isLineConfidenceIntervalEnabled() || isLinePredictionIntervalEnabled();
@@ -974,6 +974,7 @@
       signature: null,
       version: 0,
       lastRunVersion: 0,
+      hasResults: false,
       computationPending: false,
       restorePending: null
     };
@@ -1074,6 +1075,7 @@
     next.signature = next.signature || null;
     next.version = Number(next.version) || 0;
     next.lastRunVersion = Number(next.lastRunVersion) || 0;
+    next.hasResults = !!next.hasResults && next.version > 0 && next.lastRunVersion === next.version;
     return next;
   }
 
@@ -1355,6 +1357,7 @@
     lineStatsState = record.statsState;
     lineModeCache = record.modeCache;
     line.__lineOwnedRuntimeTabId = record.tabId;
+    applyLineLast2dOverlayControls(record.tabId);
     console.debug('Debug: line owned runtime record bound', {
       tabId: record.tabId,
       reason: meta?.reason || 'bind-line-owned-runtime'
@@ -1387,6 +1390,7 @@
     lineStatsState.computationPending = false;
     lineStatsState.restorePending = null;
     lineModeCache.lastTwoDFormat = lineModeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single';
+    syncLineLast2dControlStateFromRefs(record.tabId);
     record.displayMode = sanitizeLineDisplayMode(lineDisplayMode);
     record.last2d = normalizeLineOwnedLast2dState({
       displayMode: lineLast2dDisplayMode,
@@ -2455,6 +2459,7 @@
 
   function clearLineStatsOutputs(message){
     const placeholder = message || lineStatsDefaultPlaceholder;
+    lineStatsState.hasResults = false;
     if(refs.statsResults){
       clearLineStatsReportHost();
       refs.statsResults.textContent = placeholder;
@@ -2466,6 +2471,12 @@
       return false;
     }
     return !!refs.statsResults.querySelector('.stats-table-card, table, .stats-report-panel, .stats-assumption-container');
+  }
+
+  function lineStatsResultsAvailable(){
+    return lineStatsPanelHasRenderedResults()
+      || !!lineStatsState.hasResults
+      || !!lineStatsState.restorePending?.hasResults;
   }
 
   function setLineStatsStatus(message){
@@ -2561,14 +2572,14 @@
     return version > 0
       && signature === lineStatsState.signature
       && lineStatsState.lastRunVersion === version
-      && lineStatsPanelHasRenderedResults();
+      && lineStatsResultsAvailable();
   }
 
   function lineHasComputedStats(){
     const version = Number(lineStatsState.version) || 0;
     return version > 0
       && lineStatsState.lastRunVersion === version
-      && lineStatsPanelHasRenderedResults()
+      && lineStatsResultsAvailable()
       && !lineStatsState.computationPending;
   }
 
@@ -2590,24 +2601,52 @@
     }
   }
 
-  function updateLineRegressionOverlayControlState(statsReady = lineHasComputedStats()){
-    const is3d = lineViewState.viewMode === '3d' || refs.viewMode?.value === '3d' || refs.replicateMode?.value === '3d';
+  function updateLineRegressionOverlayControlState(statsReady = lineHasComputedStats(), options = {}){
+    const tabLike = options.tab || options.tabId || line.__boundTabId || null;
+    const controls = resolveLineOverlayControls(tabLike);
+    const viewModeControl = getLineNodeById('lineViewMode', tabLike) || refs.viewMode || null;
+    const replicateModeControl = getLineNodeById('lineTableFormat', tabLike) || refs.replicateMode || null;
+    const is3d = lineViewState.viewMode === '3d' || viewModeControl?.value === '3d' || replicateModeControl?.value === '3d';
     const disabled = !!is3d || !statsReady;
     const msg = is3d
       ? 'Regression overlays are available in 2D line mode.'
       : (statsReady ? '' : 'Calculate statistics before enabling regression overlays.');
-    setLineOverlayInputDisabled(refs.showTrendLine, disabled, msg);
-    const trendReady = !disabled && !!refs.showTrendLine?.checked;
-    setLineOverlayInputDisabled(refs.showIntervals, disabled || !trendReady, trendReady ? '' : msg || 'Enable the trend line first.');
-    setLineOverlayInputDisabled(refs.showPredictionIntervals, disabled || !trendReady, trendReady ? '' : msg || 'Enable the trend line first.');
+    const clearWhenDisabled = options.preserveCheckedState === true ? false : true;
+    const clearTrendWhenDisabled = clearWhenDisabled && !!is3d;
+    setLineOverlayInputDisabled(controls.showTrendLine, disabled, msg, { clearWhenDisabled: clearTrendWhenDisabled });
+    const trendReady = !disabled && !!controls.showTrendLine?.checked;
+    const intervalMessage = trendReady ? '' : (msg || 'Enable the trend line first.');
+    const clearIntervalsWhenDisabled = clearWhenDisabled && (!!is3d || (!disabled && !trendReady));
+    setLineOverlayInputDisabled(controls.showIntervals, disabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
+    setLineOverlayInputDisabled(controls.showPredictionIntervals, disabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
     console.debug('Debug: line regression overlay controls synced', {
       statsReady: !!statsReady,
       is3d,
       disabled,
-      showTrendLine: !!refs.showTrendLine?.checked,
-      showConfidenceIntervals: !!refs.showIntervals?.checked,
-      showPredictionIntervals: !!refs.showPredictionIntervals?.checked
+      showTrendLine: !!controls.showTrendLine?.checked,
+      showConfidenceIntervals: !!controls.showIntervals?.checked,
+      showPredictionIntervals: !!controls.showPredictionIntervals?.checked
     });
+  }
+
+  function syncLineLast2dControlStateFromRefs(tabLike = null){
+    const activeTabId = tabLike || line.__boundTabId || null;
+    const replicateModeControl = getLineNodeById('lineTableFormat', activeTabId) || refs.replicateMode || null;
+    if(lineViewState.viewMode === '3d' || replicateModeControl?.value === '3d'){
+      return;
+    }
+    const displayModeControl = getLineNodeById('lineDisplayMode', activeTabId) || refs.displayMode || null;
+    const logXControl = getLineNodeById('lineLogX', activeTabId) || refs.logX || null;
+    const logYControl = getLineNodeById('lineLogY', activeTabId) || refs.logY || null;
+    const showFrameControl = getLineNodeById('lineShowFrame', activeTabId) || refs.showFrame || null;
+    const overlayState = readLineOverlayControlState(activeTabId);
+    lineLast2dDisplayMode = sanitizeLineDisplayMode(displayModeControl?.value ?? lineDisplayMode);
+    lineLast2dLogX = !!logXControl?.checked;
+    lineLast2dLogY = !!logYControl?.checked;
+    lineLast2dShowFrame = !!showFrameControl?.checked;
+    lineLast2dShowTrendLine = !!overlayState.showTrendLine;
+    lineLast2dShowIntervals = !!overlayState.showIntervals;
+    lineLast2dShowPredictionIntervals = !!overlayState.showPredictionIntervals;
   }
 
   function handleLineStatsUnavailable(statsOptions, placeholder){
@@ -2622,6 +2661,7 @@
       lineStatsState.signature = null;
       lineStatsState.version = 0;
       lineStatsState.lastRunVersion = 0;
+      lineStatsState.hasResults = false;
       lineStatsState.computationPending = false;
       lineStatsState.restorePending = null;
       lineLastRegressionSummaries = [];
@@ -2635,7 +2675,7 @@
     const pendingRestore = lineStatsState.restorePending;
     if(pendingRestore){
       lineStatsState.restorePending = null;
-      if(pendingRestore.hasResults && lineStatsPanelHasRenderedResults()){
+      if(pendingRestore.hasResults){
         const version = Math.max(
           Number(lineStatsState.version) || 0,
           Number(lineStatsState.lastRunVersion) || 0,
@@ -2646,6 +2686,7 @@
         lineStatsState.signature = signature;
         lineStatsState.context = { ...payload, version, signature };
         lineStatsState.lastRunVersion = version;
+        lineStatsState.hasResults = true;
         lineStatsState.computationPending = false;
         setLineStatsStatus('Statistics up to date.');
         updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
@@ -2663,6 +2704,7 @@
     if(changed){
       version += 1;
       lineStatsState.lastRunVersion = 0;
+      lineStatsState.hasResults = false;
       lineLastRegressionSummaries = [];
     }else if(!version){
       version = 1;
@@ -2677,7 +2719,7 @@
       updateLineRegressionOverlayControlState(false);
       return;
     }
-    if(lineStatsState.lastRunVersion === version && lineStatsPanelHasRenderedResults()){
+    if(lineStatsState.lastRunVersion === version && lineStatsResultsAvailable()){
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
       updateLineRegressionOverlayControlState(true);
@@ -2739,11 +2781,12 @@
     if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
       return false;
     }
-    if(!!refs.showTrendLine?.checked){
+    const controls = resolveLineOverlayControls(line.__boundTabId || null);
+    if(!!controls.showTrendLine?.checked){
       return true;
     }
-    return (!!refs.showIntervals?.checked && !refs.showIntervals?.disabled)
-      || (!!refs.showPredictionIntervals?.checked && !refs.showPredictionIntervals?.disabled);
+    return (!!controls.showIntervals?.checked && !controls.showIntervals?.disabled)
+      || (!!controls.showPredictionIntervals?.checked && !controls.showPredictionIntervals?.disabled);
   }
 
   function handleLineStatsComputeClick(){
@@ -2761,6 +2804,7 @@
     try{
       updateLineStats(context.series, context.statsOptions || {});
       lineStatsState.lastRunVersion = context.version;
+      lineStatsState.hasResults = true;
       setLineStatsStatus('Statistics up to date.');
       updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
       updateLineRegressionOverlayControlState(true);
@@ -2772,6 +2816,7 @@
       if(refs.statsResults){
         refs.statsResults.textContent = 'Unable to compute statistics. See console for details.';
       }
+      lineStatsState.hasResults = false;
       setLineStatsStatus('Failed to compute statistics.');
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       updateLineRegressionOverlayControlState(false);
@@ -3044,8 +3089,19 @@
 
   const refs = {};
   function resolveLineRoot(tabLike){
+    const activeTabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id)
+      || line.__boundTabId
+      || null;
+    const currentRootTabId = resolveLineTabIdFromNode(refs.root);
+    if(activeTabId
+      && line.__boundTabId
+      && String(activeTabId) === String(line.__boundTabId)
+      && refs.root?.isConnected
+      && (!currentRootTabId || String(currentRootTabId) === String(activeTabId))){
+      return refs.root;
+    }
     return Shared.workspaceTabs?.resolveComponentRoot?.({
-      tabLike: tabLike || null,
+      tabLike: activeTabId,
       componentKey: 'line',
       currentRoot: refs.root,
       staticRootId: 'linePage'
@@ -3065,11 +3121,45 @@
     const root = resolveLineRoot(tabLike);
     if(root?.getElementById){
       const node = root.getElementById(id);
-      if(node){
+      if(node && node.isConnected){
         return node;
       }
     }
-    return root?.querySelector?.(`#${id}`) || null;
+    const scoped = root?.querySelector?.(`#${id}`) || null;
+    if(scoped && scoped.isConnected){
+      return scoped;
+    }
+    return scoped || null;
+  }
+  function resolveLineOverlayControls(tabLike = null){
+    const activeTabId = resolveLineOwnedRuntimeTabId(tabLike || line.__boundTabId || null, {
+      reason: 'line-overlay-controls-resolve'
+    }) || null;
+    return {
+      showTrendLine: getLineNodeById('lineShowTrendLine', activeTabId) || refs.showTrendLine || null,
+      showIntervals: getLineNodeById('lineShowIntervals', activeTabId) || refs.showIntervals || null,
+      showPredictionIntervals: getLineNodeById('lineShowPredictionIntervals', activeTabId) || refs.showPredictionIntervals || null
+    };
+  }
+  function readLineOverlayControlState(tabLike = null){
+    const controls = resolveLineOverlayControls(tabLike);
+    return {
+      showTrendLine: !!controls.showTrendLine?.checked,
+      showIntervals: !!controls.showIntervals?.checked,
+      showPredictionIntervals: !!controls.showPredictionIntervals?.checked
+    };
+  }
+  function applyLineLast2dOverlayControls(tabLike = null){
+    const controls = resolveLineOverlayControls(tabLike);
+    if(controls.showTrendLine){
+      controls.showTrendLine.checked = !!lineLast2dShowTrendLine;
+    }
+    if(controls.showIntervals){
+      controls.showIntervals.checked = !!lineLast2dShowIntervals;
+    }
+    if(controls.showPredictionIntervals){
+      controls.showPredictionIntervals.checked = !!lineLast2dShowPredictionIntervals;
+    }
   }
 
   function resolveLineDrawableFrame(plotEl){
@@ -4412,9 +4502,10 @@
           Array.from(activeSet).forEach(pushOrdered);
           return ordered;
         })();
-        const overlayTrendEnabled = !!refs.showTrendLine?.checked;
-        const overlayConfidenceEnabled = isLineConfidenceIntervalEnabled();
-        const overlayPredictionEnabled = isLinePredictionIntervalEnabled();
+        const overlayState = readLineOverlayControlState(line.__boundTabId || null);
+        const overlayTrendEnabled = !!overlayState.showTrendLine;
+        const overlayConfidenceEnabled = !!overlayState.showIntervals;
+        const overlayPredictionEnabled = !!overlayState.showPredictionIntervals;
         const hasOverlayEnabled = overlayTrendEnabled || overlayConfidenceEnabled || overlayPredictionEnabled;
         const overlayScopeOptions = (() => {
           const options = [{ value: 'global', label: 'Global' }];
@@ -7022,13 +7113,7 @@
         lineModeCache.twoD = snapshot;
         lineModeCache.lastTwoDFormat = snapshot.tableFormat === 'grouped' ? 'grouped' : 'single';
       }
-      lineLast2dDisplayMode = sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode);
-      lineLast2dLogX = !!refs.logX?.checked;
-      lineLast2dLogY = !!refs.logY?.checked;
-      lineLast2dShowFrame = !!refs.showFrame?.checked;
-      lineLast2dShowTrendLine = !!refs.showTrendLine?.checked;
-      lineLast2dShowIntervals = !!refs.showIntervals?.checked;
-      lineLast2dShowPredictionIntervals = !!refs.showPredictionIntervals?.checked;
+      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
     }
     lineViewState.viewMode = '3d';
     if(refs.viewMode){
@@ -8091,6 +8176,13 @@
     syncLineActiveDataViewFromHot(activeHot, 'payload');
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
     const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
+    const activeTabId = resolveLineOwnedRuntimeTabId(activeHot.__lineTabId || line.__boundTabId || null, {
+      reason: 'line-payload-active-tab'
+    }) || null;
+    const overlayControls = resolveLineOverlayControls(activeTabId);
+    const showTrendLine = !!overlayControls.showTrendLine?.checked;
+    const showConfidenceIntervals = !!overlayControls.showIntervals?.checked;
+    const showPredictionIntervals = !!overlayControls.showPredictionIntervals?.checked;
     return {
       type:'line',
       data:Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
@@ -8142,10 +8234,10 @@
         logY:refs.logY?.checked,
         logPlusOneX:!!lineLogPlusOneX,
         logPlusOneY:!!lineLogPlusOneY,
-        showTrendLine: !!refs.showTrendLine?.checked,
-        showIntervals:isLineAnyIntervalEnabled(),
-        showConfidenceIntervals: isLineConfidenceIntervalEnabled(),
-        showPredictionIntervals: isLinePredictionIntervalEnabled(),
+        showTrendLine,
+        showIntervals: showConfidenceIntervals || showPredictionIntervals,
+        showConfidenceIntervals,
+        showPredictionIntervals,
         showDiagnostics:isLineDiagnosticsEnabled(),
         overlayStyles: sanitizeLineOverlayStylesMap(lineOverlayStyles),
         xMin:refs.xMin?.value,
@@ -8195,10 +8287,11 @@
         },
         labelPositions: lineLabelPositions || null,
         stats: {
-          ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
-            ? Shared.statsReporting.capturePanelHtml(refs.statsResults)
-            : { resultsHtml: refs.statsResults ? refs.statsResults.innerHTML : null, reportHtml: null }),
+          ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function'
+            ? Shared.statsReporting.capturePanelModel(refs.statsResults)
+            : { resultsModel: null, reportModel: null }),
           lastRunVersion: lineStatsState.lastRunVersion || 0,
+          hasResults: lineStatsResultsAvailable(),
           signature: lineStatsState.signature || null,
           version: lineStatsState.version || 0,
           controls: {
@@ -8540,9 +8633,14 @@
     if(refs.logY) refs.logY.checked=!!c.logY;
     lineLogPlusOneX=!!c.logPlusOneX;
     lineLogPlusOneY=!!c.logPlusOneY;
-    if(refs.showTrendLine) refs.showTrendLine.checked=!!c.showTrendLine;
-    if(refs.showIntervals) refs.showIntervals.checked=!!(c.showConfidenceIntervals ?? c.showIntervals);
-    if(refs.showPredictionIntervals) refs.showPredictionIntervals.checked=!!(c.showPredictionIntervals ?? c.showIntervals);
+    if(wants3d){
+      const overlayControls = resolveLineOverlayControls(meta?.tab || meta?.tabId || line.__boundTabId || null);
+      if(overlayControls.showTrendLine){ overlayControls.showTrendLine.checked = false; }
+      if(overlayControls.showIntervals){ overlayControls.showIntervals.checked = false; }
+      if(overlayControls.showPredictionIntervals){ overlayControls.showPredictionIntervals.checked = false; }
+    }else{
+      applyLineLast2dOverlayControls(meta?.tab || meta?.tabId || line.__boundTabId || null);
+    }
     if(refs.xMin) refs.xMin.value=c.xMin||'';
     if(refs.xMax) refs.xMax.value=c.xMax||'';
     if(refs.yMin) refs.yMin.value=c.yMin||'';
@@ -8694,12 +8792,12 @@
         lineStatsState.version = Number(s.version) || lineStatsState.version || 0;
         lineStatsState.lastRunVersion = Number(s.lastRunVersion) || 0;
         if(refs.statsResults){
-          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
-            Shared.statsReporting.restorePanelHtml(refs.statsResults, s, {
+          if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+            Shared.statsReporting.restorePanelModel(refs.statsResults, s, {
               ensureReportHost: () => ensureLineStatsReportHost()
             });
-          }else if(typeof s.resultsHtml === 'string'){
-            refs.statsResults.innerHTML = s.resultsHtml;
+          }else{
+            refs.statsResults.textContent = '';
           }
         }
         // restore stat control values if saved
@@ -8710,7 +8808,9 @@
             refs.regressionMode.value = s.controls.regressionMode;
           }
         }
-        const hasRestoredResults = lineStatsPanelHasRenderedResults();
+        const hasSavedStatsModel = !!(s.resultsModel || s.reportModel);
+        const hasRestoredResults = hasSavedStatsModel || lineStatsPanelHasRenderedResults();
+        lineStatsState.hasResults = hasRestoredResults && lineStatsState.lastRunVersion > 0;
         lineStatsState.restorePending = hasRestoredResults && lineStatsState.lastRunVersion > 0
           ? {
               signature: typeof s.signature === 'string' ? s.signature : null,
@@ -8741,6 +8841,7 @@
         lineStatsState.signature = null;
         lineStatsState.version = 0;
         lineStatsState.lastRunVersion = 0;
+        lineStatsState.hasResults = false;
         lineStatsState.context = null;
         lineStatsState.computationPending = false;
         lineStatsState.restorePending = null;
@@ -9866,9 +9967,10 @@
       if(logY && storedManualIntervalY){
         console.debug('Debug: line manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
       }
-      let showTrendLine=!!refs.showTrendLine?.checked;
-      let showConfidenceIntervals = isLineConfidenceIntervalEnabled();
-      let showPredictionIntervals = isLinePredictionIntervalEnabled();
+      const overlayState = readLineOverlayControlState(line.__boundTabId || null);
+      let showTrendLine = !!overlayState.showTrendLine;
+      let showConfidenceIntervals = !!overlayState.showIntervals;
+      let showPredictionIntervals = !!overlayState.showPredictionIntervals;
       let showIntervals = showConfidenceIntervals || showPredictionIntervals;
       const showDiagnostics=isLineDiagnosticsEnabled();
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
@@ -10045,6 +10147,7 @@
           regressionMode: regressionModeCurrent
         }
       };
+      primeLineStatsContext(lineStatsPayloadForDraw);
       const regressionStatsCurrent = isLineStatsCurrentForPayload(lineStatsPayloadForDraw);
       updateLineRegressionOverlayControlState(regressionStatsCurrent);
       if(!regressionStatsCurrent && (showTrendLine || showIntervals)){
@@ -12052,7 +12155,6 @@
         });
       }
       renderLineStatsAdvisor(seriesWithData, statsContext);
-      primeLineStatsContext(lineStatsPayloadForDraw);
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
@@ -13372,6 +13474,8 @@
       const statsReady = lineHasComputedStats();
       if(!statsReady){
         e.target.checked = false;
+        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-trend-blocked' });
         updateLineRegressionOverlayControlState(false);
         console.debug('Debug: line showTrendLine blocked until stats are calculated');
         return;
@@ -13385,30 +13489,42 @@
           }
         }catch(err){}
       }
+      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-trend-change' });
       updateLineRegressionOverlayControlState(true);
       scheduleLineViewRefresh('line-show-trend-change', { force: true, skipThresholdEvaluation: true });
     });
     refs.showIntervals?.addEventListener('change',e=>{
       const statsReady = lineHasComputedStats();
-      if(!statsReady || !refs.showTrendLine?.checked){
+      const controls = resolveLineOverlayControls(line.__boundTabId || null);
+      if(!statsReady || !controls.showTrendLine?.checked){
         e.target.checked = false;
+        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-intervals-blocked' });
         updateLineRegressionOverlayControlState(statsReady);
-        console.debug('Debug: line showIntervals blocked', { statsReady, showTrendLine: !!refs.showTrendLine?.checked });
+        console.debug('Debug: line showIntervals blocked', { statsReady, showTrendLine: !!controls.showTrendLine?.checked });
         return;
       }
       console.debug('Debug: line showIntervals change',{checked:e.target.checked});
+      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-intervals-change' });
       requestLineStatsContextRefresh('intervals-toggle');
       scheduleLineViewRefresh('line-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
     refs.showPredictionIntervals?.addEventListener('change',e=>{
       const statsReady = lineHasComputedStats();
-      if(!statsReady || !refs.showTrendLine?.checked){
+      const controls = resolveLineOverlayControls(line.__boundTabId || null);
+      if(!statsReady || !controls.showTrendLine?.checked){
         e.target.checked = false;
+        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-prediction-intervals-blocked' });
         updateLineRegressionOverlayControlState(statsReady);
-        console.debug('Debug: line showPredictionIntervals blocked', { statsReady, showTrendLine: !!refs.showTrendLine?.checked });
+        console.debug('Debug: line showPredictionIntervals blocked', { statsReady, showTrendLine: !!controls.showTrendLine?.checked });
         return;
       }
       console.debug('Debug: line showPredictionIntervals change',{checked:e.target.checked});
+      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-prediction-intervals-change' });
       requestLineStatsContextRefresh('prediction-intervals-toggle');
       scheduleLineViewRefresh('line-prediction-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
@@ -13609,6 +13725,34 @@
 
   line.init = setup;
   line.ensure = ensureReady;
+  function syncLineActivationControlsFromPayload(tabLike = null){
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike || line.__boundTabId || null, {
+      reason: 'line-activation-controls-tab'
+    }) || null;
+    const tab = Shared.workspaceTabs?.resolveTab?.(tabLike || tabId || null)
+      || (tabId && typeof global.Main?.session?.getTabById === 'function' ? global.Main.session.getTabById(tabId) : null)
+      || (tabLike && typeof tabLike === 'object' ? tabLike : null);
+    const payloadConfig = tab?.payload?.config;
+    if(!payloadConfig || typeof payloadConfig !== 'object'){
+      applyLineLast2dOverlayControls(tabId);
+      return;
+    }
+    const viewMode = String(payloadConfig.viewMode || '').toLowerCase() === '3d' ? '3d' : '2d';
+    const controls = resolveLineOverlayControls(tabId);
+    if(controls.showTrendLine && Object.prototype.hasOwnProperty.call(payloadConfig, 'showTrendLine')){
+      controls.showTrendLine.checked = viewMode === '2d' && !!payloadConfig.showTrendLine;
+    }
+    const savedConfidence = Object.prototype.hasOwnProperty.call(payloadConfig, 'showConfidenceIntervals')
+      ? payloadConfig.showConfidenceIntervals
+      : payloadConfig.showIntervals;
+    if(controls.showIntervals && savedConfidence !== undefined){
+      controls.showIntervals.checked = viewMode === '2d' && !!savedConfidence;
+    }
+    if(controls.showPredictionIntervals && Object.prototype.hasOwnProperty.call(payloadConfig, 'showPredictionIntervals')){
+      controls.showPredictionIntervals.checked = viewMode === '2d' && !!payloadConfig.showPredictionIntervals;
+    }
+    syncLineLast2dControlStateFromRefs(tabId);
+  }
   function syncLineActivationState(){
     if(typeof line.__ensureHotForActiveTab === 'function'){
       const hot = line.__ensureHotForActiveTab();
@@ -13620,6 +13764,7 @@
         syncLineActiveDataViewFromHot(hot, 'prepare-tab');
       }
     }
+    syncLineActivationControlsFromPayload(line.__boundTabId || null);
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
   }
 
@@ -13627,7 +13772,7 @@
     component: line,
     componentKey: 'line',
     resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'line')
-      || refs.root
+      || resolveLineRoot(tabLike || line.__boundTabId || null)
       || getLineNodeById('linePage')
       || global.document,
     setRoot: root => { refs.root = root || refs.root || null; },
@@ -14152,6 +14297,7 @@
     line.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
   }
   line.captureRuntimeState = function captureLineRuntimeState(meta = {}){
+    syncLineLast2dControlStateFromRefs(meta?.tab || meta?.tabId || meta?.workspaceTabId || line.__boundTabId || null);
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
@@ -14205,6 +14351,7 @@
         signature: lineStatsState.signature || null,
         version: Number(lineStatsState.version) || 0,
         lastRunVersion: Number(lineStatsState.lastRunVersion) || 0,
+        hasResults: lineStatsResultsAvailable(),
         computationPending: false,
         restorePending: null,
         regressionSummaries: cloneSimple(lineLastRegressionSummaries) || []
@@ -14281,6 +14428,7 @@
       lineLast2dShowTrendLine = !!snapshot.last2d.showTrendLine;
       lineLast2dShowIntervals = !!snapshot.last2d.showIntervals;
       lineLast2dShowPredictionIntervals = !!snapshot.last2d.showPredictionIntervals;
+      applyLineLast2dOverlayControls(effectiveMeta.tab || effectiveMeta.tabId || null);
     }
     if(snapshot.logPlusOne && typeof snapshot.logPlusOne === 'object'){
       lineLogPlusOneX = !!snapshot.logPlusOne.x;
@@ -14323,6 +14471,9 @@
       lineStatsState.signature = snapshot.stats.signature || null;
       lineStatsState.version = Number(snapshot.stats.version) || 0;
       lineStatsState.lastRunVersion = Number(snapshot.stats.lastRunVersion) || 0;
+      lineStatsState.hasResults = !!snapshot.stats.hasResults
+        && lineStatsState.version > 0
+        && lineStatsState.lastRunVersion === lineStatsState.version;
       lineStatsState.computationPending = false;
       lineStatsState.restorePending = null;
       lineLastRegressionSummaries = Array.isArray(snapshot.stats.regressionSummaries) ? snapshot.stats.regressionSummaries.slice() : lineLastRegressionSummaries;

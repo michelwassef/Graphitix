@@ -197,6 +197,19 @@ async function loadWorkspaceArchiveFromPath(page, archivePath) {
   await page.waitForTimeout(1_000);
 }
 
+async function awaitPostLoadWarmup(page, reason = 'e2e-await-post-load-warmup') {
+  await page.evaluate(async (reasonText) => {
+    const sessionActions = window.Main?.sessionActions;
+    if (!sessionActions || typeof sessionActions.awaitPostLoadWarmup !== 'function') {
+      return;
+    }
+    await sessionActions.awaitPostLoadWarmup({
+      timeoutMs: 90_000,
+      reason: reasonText || 'e2e-await-post-load-warmup'
+    });
+  }, reason);
+}
+
 async function seedRecoverySnapshot(page) {
   await page.evaluate(async () => {
     const openWebDb = () => new Promise((resolve, reject) => {
@@ -414,6 +427,7 @@ test('mixed heavy scatter tabs + normal tab survive archive reopen with tab isol
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await loadWorkspaceArchiveFromPath(page, archivePath);
+  await awaitPostLoadWarmup(page, 'e2e-heavy-mixed-archive-await-warmup');
   await verifyMixedTabsAfterRestore(page, workspace);
   expect(issues.critical).toEqual([]);
 });
@@ -426,6 +440,7 @@ test('mixed heavy scatter tabs + normal tab survive crash-recovery restore with 
   const workspace = await buildMixedHeavyWorkspace(page);
   await seedRecoverySnapshot(page);
   await reloadAndAcceptRecovery(page);
+  await awaitPostLoadWarmup(page, 'e2e-heavy-mixed-recovery-await-warmup');
   await verifyMixedTabsAfterRestore(page, workspace);
   expect(issues.critical).toEqual([]);
 });

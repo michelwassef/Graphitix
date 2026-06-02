@@ -116,6 +116,77 @@ function rankValues(source = []) {
   return ranks;
 }
 
+function transpose(matrix = []) {
+  if (!Array.isArray(matrix) || !matrix.length || !Array.isArray(matrix[0])) {
+    return [];
+  }
+  return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
+}
+
+function multiply(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return [];
+  }
+  const bIsVector = !Array.isArray(b[0]);
+  const bMatrix = bIsVector ? b.map(value => [value]) : b;
+  if (!Array.isArray(a[0]) || !Array.isArray(bMatrix[0])) {
+    return [];
+  }
+  const rows = a.length;
+  const cols = bMatrix[0].length;
+  const inner = bMatrix.length;
+  const result = Array.from({ length: rows }, () => Array(cols).fill(0));
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      let sum = 0;
+      for (let idx = 0; idx < inner; idx += 1) {
+        sum += Number(a[row][idx] || 0) * Number(bMatrix[idx][col] || 0);
+      }
+      result[row][col] = sum;
+    }
+  }
+  return bIsVector ? result.map(row => row[0]) : result;
+}
+
+function inv(matrix = []) {
+  if (!Array.isArray(matrix) || !matrix.length || matrix.some(row => !Array.isArray(row) || row.length !== matrix.length)) {
+    return null;
+  }
+  const n = matrix.length;
+  const augmented = matrix.map((row, rowIndex) => [
+    ...row.map(value => Number(value)),
+    ...Array.from({ length: n }, (_, colIndex) => (colIndex === rowIndex ? 1 : 0))
+  ]);
+  for (let col = 0; col < n; col += 1) {
+    let pivotRow = col;
+    for (let row = col + 1; row < n; row += 1) {
+      if (Math.abs(augmented[row][col]) > Math.abs(augmented[pivotRow][col])) {
+        pivotRow = row;
+      }
+    }
+    const pivot = augmented[pivotRow][col];
+    if (!Number.isFinite(pivot) || Math.abs(pivot) < 1e-12) {
+      return null;
+    }
+    if (pivotRow !== col) {
+      [augmented[col], augmented[pivotRow]] = [augmented[pivotRow], augmented[col]];
+    }
+    for (let idx = 0; idx < 2 * n; idx += 1) {
+      augmented[col][idx] /= pivot;
+    }
+    for (let row = 0; row < n; row += 1) {
+      if (row === col) {
+        continue;
+      }
+      const factor = augmented[row][col];
+      for (let idx = 0; idx < 2 * n; idx += 1) {
+        augmented[row][idx] -= factor * augmented[col][idx];
+      }
+    }
+  }
+  return augmented.map(row => row.slice(n));
+}
+
 function createJStatTestStub() {
   const stub = {
     normal: { cdf: normalCdf },
@@ -199,7 +270,10 @@ function createJStatTestStub() {
       return clean[base + 1] !== undefined
         ? clean[base] + rest * (clean[base + 1] - clean[base])
         : clean[base];
-    }
+    },
+    transpose,
+    multiply,
+    inv
   };
   return stub;
 }

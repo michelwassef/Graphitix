@@ -642,10 +642,10 @@
         width: size.width,
         height: size.height,
         forceExact: true,
-        simulateAspectLock: size.aspectLocked,
         preserveAspectLock: true,
         updateAspectRatio: true,
         updateDefaults: true,
+        suppressOnResize: true,
         reason: options.reason || `${componentName}-layout-apply-size`
       });
     }catch(err){
@@ -732,7 +732,9 @@
       ? { ...nextState.svgBox.dataset }
       : {};
     nextState.svgBox.dataset.resizerAspectLocked = resizer.aspectLocked ? 'true' : 'false';
-    if(resizer.aspectRatio !== undefined && resizer.aspectRatio !== null){
+    const snapshotHasAspectRatio = Number.isFinite(Number(nextState.svgBox.dataset.resizerAspectRatio))
+      && Number(nextState.svgBox.dataset.resizerAspectRatio) > 0;
+    if(!snapshotHasAspectRatio && resizer.aspectRatio !== undefined && resizer.aspectRatio !== null){
       nextState.svgBox.dataset.resizerAspectRatio = String(resizer.aspectRatio);
     }
     console.debug('Debug: componentLayout tab layout override merged', {
@@ -1561,6 +1563,7 @@
       }
       if(dataset.resizerAspectLocked === 'true' && Number.isFinite(baseWidthPx) && baseWidthPx > 0 && Number.isFinite(baseHeightPx) && baseHeightPx > 0){
         dataset.resizerAspectRatio = String(baseWidthPx / baseHeightPx);
+        style.aspectRatio = `${Math.round(baseWidthPx)} / ${Math.round(baseHeightPx)}`;
       }
       console.debug('Debug: componentLayout live resizable snapshot normalized', {
         component: componentName,
@@ -1753,14 +1756,6 @@
           sharedAspectLock: overrideAspectLocked
         });
       }
-      // Keep the shared resizer API's internal defaults/aspect-lock state in sync with
-      // the restored DOM state. Scatter-like components already behaved because they
-      // do not trigger additional programmatic resizes on reopen; line/box could later
-      // re-enforce the stale default square ratio unless the API is synchronized here.
-      syncResizableApiFromLayout(componentName, elements.svgBox, clonedState.svgBox, {
-        tabId: options.tabId || layoutTabId || null,
-        reason: `${componentName}-layout-apply-state-sync`
-      });
       const zoomApi = elements.svgBox?.__sharedResizableBoxApi;
       if(zoomApi && typeof zoomApi.setZoomLevel === 'function'){
         const requestedZoom = Number(elements.svgBox?.dataset?.resizerZoomLevel || elements.svgBox?.dataset?.resizerZoom);
@@ -1771,6 +1766,13 @@
       const skipSchedule = options.skipSchedule === true;
       syncPanels({ skipSchedule });
       harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || 'layout-apply-post-sync');
+      // Keep the shared resizer API's internal defaults/aspect-lock state in sync
+      // after panel sync, so restored layout snapshots remain the final authority.
+      syncResizableApiFromLayout(componentName, elements.svgBox, clonedState.svgBox, {
+        tabId: options.tabId || layoutTabId || null,
+        reason: `${componentName}-layout-apply-state-sync`
+      });
+      harmonizeSvgBoxStyleWithGraphDataset(elements.svgBox, componentName, options.reason || 'layout-apply-final-sync');
       console.debug('Debug: componentLayout applyState', {
         component: componentName,
         applied: true,

@@ -419,8 +419,13 @@
   }
 
   function resolveScatterRoot(tabLike){
-    const activeTabId = tabLike || scatter.__boundTabId || null;
-    if(activeTabId && scatter.__boundTabId && String(activeTabId) === String(scatter.__boundTabId) && scatterRoot?.isConnected){
+    const activeTabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id) || scatter.__boundTabId || null;
+    const currentRootTabId = resolveScatterTabIdFromNode(scatterRoot);
+    if(activeTabId
+      && scatter.__boundTabId
+      && String(activeTabId) === String(scatter.__boundTabId)
+      && scatterRoot?.isConnected
+      && (!currentRootTabId || String(currentRootTabId) === String(activeTabId))){
       return scatterRoot;
     }
     return Shared.workspaceTabs?.resolveComponentRoot?.({
@@ -924,6 +929,19 @@
     scatterLabelStyles = cloneSimple(record.styles.labelStyles) || {};
     scatterOverlayStyles = sanitizeScatterOverlayStylesMap(record.styles.overlayStyles);
     scatterOverlayToolbarScope = normalizeScatterOverlayToolbarScope(record.styles.overlayToolbarScope || 'global');
+    if(record.styles.fill != null && scatterFill){ scatterFill.value = String(record.styles.fill); }
+    if(record.styles.border != null && scatterBorder){ scatterBorder.value = String(record.styles.border); }
+    if(record.styles.borderWidth != null && scatterBorderWidth){ scatterBorderWidth.value = String(record.styles.borderWidth); }
+    if(record.styles.alpha != null && scatterAlpha){
+      scatterAlpha.value = String(record.styles.alpha);
+      if(scatterAlphaVal){ scatterAlphaVal.textContent = String(record.styles.alpha); }
+    }
+    if(record.styles.colorMode != null && scatterColorMode){
+      scatterColorMode.value = normalizeScatterColorMode(record.styles.colorMode);
+    }
+    if(record.styles.densityPalette != null && scatterDensityPalette){
+      scatterDensityPalette.value = normalizeScatterDensityPalette(record.styles.densityPalette);
+    }
     scatterCurrentGraphType = normalizeScatterGraphType(record.grouped.graphType);
     scatterTableFormat = normalizeScatterTableFormat(record.grouped.tableFormat);
     scatterReplicates = clampScatterReplicateCount(record.grouped.replicates);
@@ -982,7 +1000,19 @@
       textColor: scatterTextColor,
       backgroundColor: scatterBackgroundColor
     });
+    const liveFillControl = getScatterLiveNodeById('scatterFill') || scatterFill || null;
+    const liveBorderControl = getScatterLiveNodeById('scatterBorder') || scatterBorder || null;
+    const liveBorderWidthControl = getScatterLiveNodeById('scatterBorderWidth') || scatterBorderWidth || null;
+    const liveAlphaControl = getScatterLiveNodeById('scatterAlpha') || scatterAlpha || null;
+    const liveColorModeControl = getScatterLiveNodeById('scatterColorMode') || scatterColorMode || null;
+    const liveDensityPaletteControl = getScatterLiveNodeById('scatterDensityPalette') || scatterDensityPalette || null;
     record.styles = normalizeScatterOwnedStyleState({
+      fill: liveFillControl?.value ?? record.styles?.fill ?? null,
+      border: liveBorderControl?.value ?? record.styles?.border ?? null,
+      borderWidth: liveBorderWidthControl?.value ?? record.styles?.borderWidth ?? null,
+      alpha: liveAlphaControl?.value ?? record.styles?.alpha ?? null,
+      colorMode: liveColorModeControl?.value ?? record.styles?.colorMode ?? null,
+      densityPalette: liveDensityPaletteControl?.value ?? record.styles?.densityPalette ?? null,
       labelColors: scatterLabelColors,
       labelShapes: scatterLabelShapes,
       labelStyles: scatterLabelStyles,
@@ -7956,6 +7986,11 @@
       return null;
     };
     const document = global.document;
+    let scatterHot = null;
+    let scatterDataViewsManager = null;
+    let scatterDataToolbarBound = false;
+    let scatterDataToolbarLastActivation = 0;
+    let scatterLegendChangeInternal = false;
     let scatterTableFormatSelect = null;
     let scatterTitleText = 'Scatter plot';
     let scatterXLabelText = 'X';
@@ -10555,11 +10590,6 @@
         console.debug('Debug: scatter markFontEditable', payload); // Debug: font target tagging summary
       }
     };
-  let scatterHot = null;
-  let scatterDataViewsManager = null;
-  let scatterDataToolbarBound = false;
-  let scatterDataToolbarLastActivation = 0;
-  let scatterLegendChangeInternal = false;
       // Scatter plot setup
       const scatterHotContainer=getScatterNodeById('scatterHot');
       const scatterHotWrapper=getScatterNodeById('scatterHotWrapper');
@@ -12368,7 +12398,9 @@
         const statsComputed = scatterState.statsContextVersion > 0
           && scatterState.statsLastRunVersion === scatterState.statsContextVersion
           && scatterStatsPanelHasRenderedResults();
-        const statsReady = statsComputed || !!scatterState.statsRestorePending;
+        // Keep controls enabled when a restored/precomputed context is already primed,
+        // even before the stats panel HTML is rendered.
+        const statsReady = statsComputed || scatterHasComputedStats() || !!scatterState.statsRestorePending;
         const baseDisabled = type !== 'scatter';
         // Trend line / stats-on-plot are unavailable until statistics have been calculated,
         // mirroring line.js (updateLineRegressionOverlayControlState).
@@ -12390,8 +12422,9 @@
         setScatterOverlayInputDisabled(showPlotStatsControl, overlayDisabled, overlayMessage, { clearWhenDisabled: clearTrendWhenDisabled });
         const trendReady = !overlayDisabled && !!showLineControl?.checked;
         const intervalMessage = trendReady ? '' : (overlayMessage || 'Enable the trend line first.');
-        setScatterOverlayInputDisabled(showCIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
-        setScatterOverlayInputDisabled(showPIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled });
+        const clearIntervalsWhenDisabled = clearWhenDisabled && (baseDisabled || (!overlayDisabled && !trendReady));
+        setScatterOverlayInputDisabled(showCIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
+        setScatterOverlayInputDisabled(showPIControl, overlayDisabled || !trendReady, intervalMessage, { clearWhenDisabled: clearIntervalsWhenDisabled });
         console.debug('Debug: scatter overlay controls synced', {
           type,
           statsReady,
@@ -22031,7 +22064,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           primeScatterStatsContextFromDraw(statsPayloadBase);
           const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
           let visualStats=cachedStatsResult.stats;
-          const scatterOverlayStatsReady = scatterHasComputedStats() && !!visualStats;
+          const scatterOverlayStatsReady = !!visualStats;
           if(!scatterOverlayStatsReady && (showLine || showLineStats || showIntervals)){
             debug('Debug: scatter regression overlays disabled until stats are calculated', { showLine, showLineStats, showIntervals });
             showLine = false;
@@ -22762,17 +22795,23 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       notesState.open = notesOpen;
       const axisSettings = ensureScatterAxisSettings();
       const fontStyles = exportFontStyles('scatter');
-      const activeTabId = scatter.__boundTabId || null;
+      const activeTabId = resolveScatterOwnedRuntimeTabId(null, { reason: 'scatter-payload-active-tab' }) || scatter.__boundTabId || null;
+      const ownedRecord = getScatterOwnedRuntimeRecord(activeTabId, {
+        tabId: activeTabId,
+        reason: 'scatter-payload-owned-runtime-read'
+      }, { create: false });
+      const ownedStyles = ownedRecord?.styles && typeof ownedRecord.styles === 'object'
+        ? ownedRecord.styles
+        : null;
       const resolvePayloadControl = (id, fallback) => {
-        const liveControl = global.document?.getElementById?.(id) || null;
-        return liveControl || getScatterNodeById(id, activeTabId) || fallback || null;
+        return getScatterLiveNodeById(id, activeTabId) || getScatterNodeById(id, activeTabId) || fallback || null;
       };
       const payloadScatterShowLine = resolvePayloadControl('scatterShowLine', scatterShowLine);
       const payloadScatterShowPlotStats = resolvePayloadControl('scatterShowPlotStats', scatterShowPlotStats);
       const payloadScatterShowCI = resolvePayloadControl('scatterShowCI', scatterShowCI);
       const payloadScatterShowPI = resolvePayloadControl('scatterShowPI', scatterShowPI);
-      const payloadScatterGraphType = getScatterNodeById('scatterGraphType') || scatterGraphTypeSelect;
-      const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat') || scatterTableFormatSelect;
+      const payloadScatterGraphType = getScatterNodeById('scatterGraphType', activeTabId) || scatterGraphTypeSelect;
+      const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat', activeTabId) || scatterTableFormatSelect;
       const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
       const activeManager = activeHot?.__scatterDataViewsManager || scatterDataViewsManager || null;
       const dataViewsPayload = normalizeScatterDataViewsPayload(activeManager?.serialize?.({ includeData: true }) || null);
@@ -22787,6 +22826,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const persistedLabelColors = compactScatterLabelMapForPayload(scatterLabelColors, persistedPaletteDefaults, 'labelColors');
       const persistedLabelShapes = compactScatterLabelMapForPayload(scatterLabelShapes, SCATTER_SHAPE_DEFAULTS, 'labelShapes');
       const persistedStats = getScatterPersistedStatsSnapshot();
+      const statsPanelSnapshot = (Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function')
+        ? (Shared.statsReporting.capturePanelModel(scatterStatsResults) || { resultsModel: null, reportModel: null })
+        : { resultsModel: null, reportModel: null };
       const selectedRows = activeHot ? getScatterSelectedRowSet(activeHot) : null;
       const readValue = (el, fallback = '') => (el && el.value !== undefined ? el.value : fallback);
       const readChecked = (el, fallback = false) => (el && typeof el.checked === 'boolean' ? !!el.checked : !!fallback);
@@ -22819,15 +22861,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             dotSize:readValue(scatterDotSize, ''),
             dotSizeOverrideEnabled: !!scatterState.dotSizeOverrideEnabled,
             dotSizeOverrideRaw: Number.isFinite(scatterState.dotSizeOverrideRaw) ? scatterState.dotSizeOverrideRaw : null,
-            fill:readValue(scatterFill, ''),
-            colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
-            densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
+            fill:readValue(scatterFill, ownedStyles?.fill || ''),
+            colorMode: normalizeScatterColorMode((scatterColorMode && scatterColorMode.value) || ownedStyles?.colorMode || SCATTER_DENSITY_MODE_DEFAULT),
+            densityPalette: normalizeScatterDensityPalette((scatterDensityPalette && scatterDensityPalette.value) || ownedStyles?.densityPalette || SCATTER_DENSITY_PALETTE_DEFAULT),
             colorScheme: themeSnapshot.schemeId,
             textColor: themeSnapshot.textColor,
             backgroundColor: themeSnapshot.backgroundColor,
-            border:readValue(scatterBorder, ''),
-            borderWidth:readValue(scatterBorderWidth, ''),
-            alpha:readValue(scatterAlpha, ''),
+            border:readValue(scatterBorder, ownedStyles?.border || ''),
+            borderWidth:readValue(scatterBorderWidth, ownedStyles?.borderWidth || ''),
+            alpha:readValue(scatterAlpha, ownedStyles?.alpha || ''),
             labelColors: persistedLabelColors,
             labelShapes: persistedLabelShapes,
             labelStyles:{ ...scatterLabelStyles },
@@ -22914,9 +22956,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             } : null,
             labelPositions: scatterLabelPositions || null,
             stats: {
-              ...(Shared.statsReporting && typeof Shared.statsReporting.capturePanelHtml === 'function'
-                ? Shared.statsReporting.capturePanelHtml(scatterStatsResults)
-                : { resultsHtml: (scatterStatsResults ? (scatterStatsResults.innerHTML || '') : null), reportHtml: null }),
+              ...statsPanelSnapshot,
               lastRunVersion: Number.isFinite(scatterState.statsLastRunVersion) ? scatterState.statsLastRunVersion : 0,
               contextSignature: scatterState.statsContextSignature || null,
               contextVersion: Number.isFinite(scatterState.statsContextVersion) ? scatterState.statsContextVersion : 0,
@@ -23335,7 +23375,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         try{
           let restoredComputedStats = false;
           if(hasStatsPayload){
-            const savedHtml = c.stats.resultsHtml;
             const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
             const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
             const savedCtxVer = Number.isFinite(Number(c.stats.contextVersion)) ? Number(c.stats.contextVersion) : 0;
@@ -23351,13 +23390,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             const savedPrecomputedSignature = typeof c.stats.precomputedSignature === 'string'
               ? c.stats.precomputedSignature
               : null;
-            if(scatterStatsResults){
-              if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelHtml === 'function'){
-                Shared.statsReporting.restorePanelHtml(scatterStatsResults, c.stats, {
+            if(scatterStatsResults && (c.stats.resultsModel || c.stats.reportModel)){
+              if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+                Shared.statsReporting.restorePanelModel(scatterStatsResults, c.stats, {
                   ensureReportHost: () => ensureScatterStatsReportHost()
                 });
-              }else if(savedHtml != null){
-                try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
+              }else{
+                scatterStatsResults.textContent = '';
               }
             }
             // restore control values if present
@@ -23374,8 +23413,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             scatterState.statsContextVersion = savedCtxVer || scatterState.statsContextVersion;
             scatterState.statsContext = null;
             scatterState.statsComputationPending = false;
-            const hasResults = scatterStatsPanelHasRenderedResults();
+            const hasResults = !!savedPrecomputedStats || scatterStatsPanelHasRenderedResults();
             if(hasResults && savedVersion > 0){
+              if(savedSig && savedPrecomputedStats){
+                writeScatterStatsCache(savedSig, savedPrecomputedStats, savedPrecomputedSignature, null);
+              }
               scatterState.statsRestorePending = {
                 contextSignature: savedSig,
                 precomputedStats: savedPrecomputedStats,
@@ -23617,8 +23659,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
         ? payload.config.stats
         : {};
-      payload.config.stats.resultsHtml = null;
-      payload.config.stats.reportHtml = null;
       payload.config.stats.lastRunVersion = 0;
       payload.config.stats.contextSignature = null;
       payload.config.stats.contextVersion = 0;
@@ -24046,11 +24086,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       : null;
   }
 
-  function getScatterLiveNodeById(id){
+  function getScatterLiveNodeById(id, tabLike = null){
     if(!id){
       return null;
     }
-    return global.document?.getElementById?.(id) || getScatterNodeById(id, scatter.__boundTabId || null);
+    const live = global.document?.getElementById?.(id) || null;
+    if(live){
+      return live;
+    }
+    return getScatterNodeById(id, tabLike || scatter.__boundTabId || null);
   }
 
   function isCompleteScatterRenderCache(cache){
