@@ -146,4 +146,39 @@ describe('documentState recovery snapshot throttling', () => {
       })
     );
   });
+
+  test('recovery flushes the active tab before inspecting recoverable data', async () => {
+    // Reproduces the single-tab-never-deactivated case: the active tab's live edits
+    // are not yet flushed into its persisted payload, so graphTabsHaveData() reports
+    // false until persistActiveTabIfNeeded captures it. Without the pre-gate flush the
+    // snapshot is skipped/cleared and recovery never fires.
+    let activeTabFlushed = false;
+    const { sessionActions, session } = installDocumentState({
+      sessionActions: {
+        persistActiveTabIfNeeded: jest.fn(() => {
+          activeTabFlushed = true;
+        })
+      },
+      session: {
+        graphTabsHaveData: jest.fn(() => activeTabFlushed),
+        tabHasTableData: jest.fn(() => activeTabFlushed)
+      }
+    });
+
+    const result = await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
+
+    expect(sessionActions.persistActiveTabIfNeeded).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        snapshotIntent: expect.objectContaining({
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false
+        })
+      })
+    );
+    expect(session.graphTabsHaveData).toHaveBeenCalled();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('saved');
+    expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
+  });
 });

@@ -415,6 +415,7 @@
       snapshotIntent
     }));
   }
+  namespace.persistActiveTabIfNeeded = persistActiveTabIfNeeded;
 
   function buildArchiveTabSnapshot(context, tab) {
     const { session, workspaces } = context || {};
@@ -1553,11 +1554,24 @@
     try {
       const active = session.getActiveTab?.();
       if (active && !active.isWelcome) {
+        // Force a live payload capture (not the lifecycle "skip if clean" default): a clean
+        // tab.payload is not proof it matches the live component. Bulk hot.loadData() (CSV/
+        // import) is a programmatic non-user load that populates the hot WITHOUT syncing
+        // tab.payload, so the stored payload can be the empty-default template while the
+        // component holds real data. Skipping the capture here would make graphTabsHaveData()
+        // report no data and suppress the unsaved-changes warning (and the same stale payload
+        // would feed an empty recovery snapshot). Reading live state mirrors what a save does.
         persistedActive = !!session.persistActiveTabState(active, withSessionContext({
           reason: 'beforeunload',
           origin: 'lifecycle',
-          snapshotKind: 'lifecycle-checkpoint',
-          snapshotIntent: resolvePersistSnapshotIntent({ snapshotKind: 'lifecycle-checkpoint' }),
+          snapshotIntent: {
+            saveLike: false,
+            lifecycleSnapshot: true,
+            captureLivePayload: true,
+            allowSkipLivePayloadCapture: false,
+            reasonSkippable: false,
+            snapshotCapture: true
+          },
           captureRenderCache: false
         }));
       }

@@ -7,7 +7,15 @@
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
-  const RECOVERY_DELAY_MS = 1200;
+  const RECOVERY_DELAY_MS = 700;
+  // Hard cap on how long a recovery snapshot can be deferred once the session has unsaved
+  // changes. The per-change debounce (RECOVERY_DELAY_MS / getRecoveryDelayMs) restarts on
+  // every change, so a burst of internal "dirty" events right after a data import (redraws,
+  // stats settling, resize) would otherwise keep sliding the timer for several seconds — long
+  // enough that closing the window in the first couple of seconds loses recovery entirely.
+  // This bounds the wait from the FIRST pending change so a snapshot is always written within
+  // ~1s of data appearing, regardless of churn.
+  const RECOVERY_MAX_WAIT_MS = 1000;
   const RECOVERY_INTERVAL_MS = 10000;
   const AUTOSAVE_INTERVAL_MS = 30000;
 
@@ -19,6 +27,7 @@
   let recoveryWriteSequence = 0;
   let documentStateChangeHandler = null;
   let recoveryTimerRevision = 0;
+  let recoveryPendingSince = 0;
   let recoveryInFlightRevision = 0;
   let lastRecoverySavedRevision = 0;
   let autosaveInFlightRevision = 0;
@@ -333,6 +342,45 @@
     };
   }
 
+  // Flush the active tab's live edits into its persisted payload before the recovery
+  // path inspects recoverable data. The active tab's payload is otherwise only flushed
+  // on tab deactivation (switch) or save, so a single never-deactivated tab would report
+  // no recoverable data and the snapshot would be skipped/cleared.
+  //
+  // We FORCE a live payload capture (captureLivePayload) rather than the default
+  // lifecycle-checkpoint "skip if clean" behavior. A clean tab.payload is NOT proof the
+  // stored payload matches the live component: bulk hot.loadData() (CSV/import) is treated
+  // as a programmatic non-user load (see Shared.hot afterLoadData), so it populates the hot
+  // WITHOUT syncing tab.payload or marking the tab dirty. The stored payload then stays as
+  // the empty-default template while the component holds real data. A recovery snapshot must
+  // capture authoritative live state (getPayload), exactly like a save does, so it reflects
+  // what the user actually sees regardless of how the data was entered.
+  function flushActiveTabForRecovery(reason) {
+    const sessionActions = state?.sessionActions;
+    if (!sessionActions || typeof sessionActions.persistActiveTabIfNeeded !== 'function') {
+      return;
+    }
+    if (typeof state.getSessionActionsContext !== 'function') {
+      return;
+    }
+    try {
+      sessionActions.persistActiveTabIfNeeded(state.getSessionActionsContext(), {
+        reason: reason || 'recovery-flush',
+        captureRenderCache: false,
+        snapshotIntent: {
+          saveLike: false,
+          lifecycleSnapshot: true,
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false,
+          reasonSkippable: false,
+          snapshotCapture: true
+        }
+      });
+    } catch (err) {
+      debug('recovery.flushActiveTabFailed', { reason, message: err?.message || String(err) });
+    }
+  }
+
   async function writeRecoverySnapshot(reason = 'recovery') {
     if (!state?.workspaceState?.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
@@ -347,6 +395,7 @@
       debug('recovery.write.skippedInFlight', { reason, revision });
       return { status: 'skipped', reason: 'in-flight', revision };
     }
+    flushActiveTabForRecovery(reason);
     if (!currentWorkspaceHasRecoverableData()) {
       await clearRecoverySnapshot('no-recoverable-data');
       lastRecoverySavedRevision = revision;
@@ -403,11 +452,18 @@
     if (recoveryTimer) {
       window.clearTimeout(recoveryTimer);
     }
-    const delay = getRecoveryDelayMs();
+    const now = Date.now();
+    if (!recoveryPendingSince) {
+      recoveryPendingSince = now;
+    }
+    // Bound the debounce: never defer past RECOVERY_MAX_WAIT_MS from the first pending change.
+    const remainingMaxWait = Math.max(0, RECOVERY_MAX_WAIT_MS - (now - recoveryPendingSince));
+    const delay = Math.min(getRecoveryDelayMs(), remainingMaxWait);
     recoveryTimer = window.setTimeout(() => {
       const scheduledRevision = recoveryTimerRevision;
       recoveryTimer = null;
       recoveryTimerRevision = 0;
+      recoveryPendingSince = 0;
       if (scheduledRevision > 0 && lastRecoverySavedRevision >= scheduledRevision) {
         debug('recovery.timer.skippedCurrent', { reason, scheduledRevision, lastRecoverySavedRevision });
         return;
@@ -597,6 +653,7 @@
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {
         lastRecoverySavedRevision = getSessionRevision();
         lastAutosaveNoTargetRevision = 0;
+        recoveryPendingSince = 0;
         void clearRecoverySnapshot(type);
       }
     };
@@ -635,6 +692,8 @@
       });
     }
     recoveryTimer = null;
+    recoveryTimerRevision = 0;
+    recoveryPendingSince = 0;
     recoveryInterval = null;
     autosaveInterval = null;
     documentStateChangeHandler = null;

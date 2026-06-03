@@ -2914,12 +2914,19 @@
           tab.lastUserModifiedReason = reason;
           tab.lastUserModifiedAt = Date.now();
         }
-        markSessionDirty(options.reason || 'tab-state-updated', {
-          tabId: tab.id,
-          type: tab.type,
-          layoutChanged,
-          origin: lifecyclePersist ? 'lifecycle' : (options.origin || null)
-        });
+        // A snapshot capture (recovery / beforeunload) reads live state to persist it; it must
+        // NOT advance the session revision. Doing so re-dirties the session, which reschedules
+        // another recovery write, whose own capture re-detects live-DOM layout drift, and so on
+        // — an unbounded, expensive feedback loop. Update tab.payload/layout for the snapshot but
+        // leave the session revision untouched.
+        if (!snapshotIntent.snapshotCapture) {
+          markSessionDirty(options.reason || 'tab-state-updated', {
+            tabId: tab.id,
+            type: tab.type,
+            layoutChanged,
+            origin: lifecyclePersist ? 'lifecycle' : (options.origin || null)
+          });
+        }
       }
       console.debug('Debug: workspace state persisted', {
         tabId: tab.id,
