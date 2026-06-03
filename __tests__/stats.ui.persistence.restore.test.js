@@ -287,7 +287,7 @@ describe('UI stats persistence and restore', () => {
     console.log = originalLog;
   });
 
-  test('payload restore preserves stats content for box, scatter, line, pca, and heatmap', async () => {
+  test('payload restore preserves stats content for box, scatter, line, pie, pca, and heatmap', async () => {
     const box = await prepareBoxStats();
     const boxPayload = box.getPayload();
     expect(boxPayload?.config?.stats).toBeTruthy();
@@ -318,6 +318,17 @@ describe('UI stats persistence and restore', () => {
     expect(document.getElementById('lineStatsResults')?.textContent || '').toMatch(/correlation coefficients|Reporting and reproducibility|Series/i);
     expectSingleReportPanel('lineStatsResults', 'lineStatsReportHost');
 
+    // pie's render cache carries the graph only; its stats panel is rebuilt from the
+    // persisted payload on load (not replayed as DOM), so verify the payload path.
+    const pie = await preparePieStats();
+    const piePayload = pie.getPayload();
+    const pieBefore = document.getElementById('pieStatsResults')?.textContent || '';
+    document.getElementById('pieStatsResults').innerHTML = '';
+    pie.loadFromPayload(piePayload, { source: 'test-pie-restore', skipDraw: true });
+    await flushAsyncWork(40);
+    expect(document.getElementById('pieStatsResults')?.textContent || '').toContain(pieBefore.slice(0, Math.min(20, pieBefore.length)));
+    expectSingleReportPanel('pieStatsResults', 'pieStatsReportHost');
+
     const pca = await preparePcaStats();
     const pcaPayload = pca.getPayload();
     expect(JSON.stringify(pcaPayload?.config?.stats?.summaryModel || {})).toContain('Samples analysed');
@@ -337,16 +348,7 @@ describe('UI stats persistence and restore', () => {
     expectSingleReportPanel('heatmapStatsContent', 'heatmapStatsReportHost');
   }, 120000);
 
-  test('render cache restore preserves stats panels for pie, hist, roc, survival, pca, and heatmap', async () => {
-    const pie = await preparePieStats();
-    const pieBefore = document.getElementById('pieStatsResults')?.textContent || '';
-    const pieCache = pie.captureRenderCache();
-    document.getElementById('pieStatsResults').innerHTML = '';
-    expect(pie.restoreRenderCache(pieCache)).toBe(true);
-    await flushAsyncWork(20);
-    expect(document.getElementById('pieStatsResults')?.textContent || '').toContain(pieBefore.slice(0, Math.min(20, pieBefore.length)));
-    expectSingleReportPanel('pieStatsResults', 'pieStatsReportHost');
-
+  test('render cache restore preserves stats panels for hist, roc, survival, pca, and heatmap', async () => {
     const hist = await prepareHistStats();
     const histBefore = document.getElementById('histStatsResults')?.textContent || '';
     const histCache = hist.captureRenderCache();
@@ -378,26 +380,21 @@ describe('UI stats persistence and restore', () => {
     expectSingleReportPanel('survivalStatsCox', 'survivalStatsCoxReportHost');
 
     const pca = await preparePcaStats();
+    // The render cache carries only the graph; the stats panel (summary, scree, biplot,
+    // eigen, loadings) is rebuilt from lastPcaStats on restore rather than replayed as DOM.
+    // Removing the rendered scree + biplot first proves restore rebuilds them from data
+    // (the reopen/recovery regression: snapshotted stats DOM orphaned the node refs).
     const pcaCache = pca.captureRenderCache();
+    document.getElementById('pcaBiplotCard')?.remove();
     const screeContainer = document.getElementById('pcaScreeContainer');
-    const screeExportControls = document.getElementById('pcaScreeExportControls');
-    const eigenTableContainer = document.getElementById('pcaEigenTableContainer');
-    const loadingsContainer = document.getElementById('pcaLoadingsContainer');
-    if(screeContainer){
-      screeContainer.hidden = true;
-    }
-    if(screeExportControls){
-      screeExportControls.style.display = 'none';
-    }
-    if(eigenTableContainer){
-      eigenTableContainer.hidden = true;
-    }
-    if(loadingsContainer){
-      loadingsContainer.hidden = true;
-    }
+    const screePlot = document.getElementById('pcaScreePlot');
+    if(screePlot){ screePlot.innerHTML = ''; }
+    if(screeContainer){ screeContainer.hidden = true; }
     expect(pca.restoreRenderCache(pcaCache)).toBe(true);
     await flushAsyncWork(40);
     expect(document.getElementById('pcaStatsResults')?.textContent || '').toContain('Reporting and reproducibility');
+    expect(document.getElementById('pcaBiplotCard')).toBeTruthy();
+    expect(document.getElementById('pcaScreeContainer')?.hidden).toBe(false);
     expectSingleReportPanel('pcaStatsResults', 'pcaStatsReportHost');
 
     const heatmap = await prepareHeatmapStats('values');

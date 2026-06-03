@@ -5759,12 +5759,9 @@ let state = {
       });
       return null;
     }
-    const stats = getPieNodeById('pieStatsResults');
     const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
     if(!pieFragmentPayloadHasGraph(plotCache)){
       restoreChildren(plot, plotCache);
-      restoreChildren(stats, statsCache);
       pieDebug('Debug: pie render cache capture skipped', {
         reason: 'empty-runtime-cache',
         tabId: pie.__boundTabId || null
@@ -5773,11 +5770,12 @@ let state = {
     }
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       pieDebug('Debug: pie render cache captured', {
-        plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0
+        plotNodes: plotCache?.count || 0
       });
     }
-    return { plot: plotCache, stats: statsCache };
+    // Render cache carries the graph only; the stats panel is rebuilt from state on
+    // restore (see restoreRenderCache), so it is not snapshotted as DOM.
+    return { plot: plotCache };
   };
 
   pie.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -5801,15 +5799,12 @@ let state = {
     if(!cache){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getPieNodeById('piePlot');
-    const stats = getPieNodeById('pieStatsResults');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
-    const restoredStats = restoreChildren(stats, cache.stats);
     const hasGraph = piePlotHasMeaningfulGraph(plot);
     if(!restoredPlot || !hasGraph){
       pieDebug('Debug: pie render cache restore rejected after restore', {
         reason: !restoredPlot ? 'plot-not-restored' : 'empty-restored-graph',
         plot: restoredPlot,
-        stats: restoredStats,
         hasGraph
       });
       return false;
@@ -5819,7 +5814,6 @@ let state = {
       pieDebug('Debug: pie render cache restored', {
         restored,
         plot: restoredPlot,
-        stats: restoredStats,
         hasGraph
       });
     }

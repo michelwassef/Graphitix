@@ -3662,6 +3662,11 @@
     const restoredSvg = restoreChildren(state.svg, graphCachePayload);
     const restoredStats = restoreChildren(state.statsEl, cache.stats);
     const restoredMessage = restoreChildren(state.messageEl, cache.message);
+    if(restoredStats){
+      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
+      // survive serialization); re-mount them from the restored tables.
+      Shared.statsTable?.rehydrateExportControls?.(state.statsEl);
+    }
     if(restoredSvg){
       syncSurfaceGeometryPoolsFromDom('render-cache-restore');
     }

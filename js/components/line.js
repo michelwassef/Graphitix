@@ -14130,7 +14130,6 @@
   // PART: CACHE
   line.captureRenderCache = function captureRenderCache(meta = {}){
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
-    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
     const svg = plot ? (plot.querySelector('#lineSvg') || plot.querySelector('svg')) : null;
     if(!plot || !svg || !lineSvgHasMeaningfulContent(svg)){
       console.debug('Debug: line render cache capture skipped', {
@@ -14147,10 +14146,8 @@
       dataViewMode: svg.dataset ? svg.dataset.viewMode : null
     } : null;
     const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
     if(!lineFragmentPayloadHasGraph(plotCache)){
       restoreChildren(plot, plotCache);
-      restoreChildren(stats, statsCache);
       console.debug('Debug: line render cache capture skipped', {
         reason: 'empty-runtime-cache',
         tabId: meta?.tabId || line.__boundTabId || null
@@ -14162,12 +14159,13 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache captured', {
         plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0,
         hasSvg: !!svg,
         viewMode: svgState?.dataViewMode || null
       });
     }
-    return { plot: plotCache, stats: statsCache, plotStyle, svgState, __graphitixRenderCache: cacheMeta };
+    // Render cache carries the graph only; the stats panel is rebuilt from state on
+    // restore (loadFromPayload), so it is not snapshotted as DOM.
+    return { plot: plotCache, plotStyle, svgState, __graphitixRenderCache: cacheMeta };
   };
 
   line.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -14191,9 +14189,7 @@
     }
     const graphCachePayload = resolveLineGraphCachePayload(cache);
     const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
-    const stats = refs.statsResults || refs.root?.querySelector?.('#lineStatsResults') || getLineNodeById('lineStatsResults');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
-    const restoredStats = restoreChildren(stats, cache.stats);
     if(plot && typeof cache.plotStyle === 'string' && cache.plotStyle){
       plot.setAttribute('style', cache.plotStyle);
     }
@@ -14218,7 +14214,6 @@
       console.debug('Debug: line render cache restore rejected after restore', {
         reason: !restoredPlot ? 'plot-not-restored' : 'empty-restored-graph',
         plot: restoredPlot,
-        stats: restoredStats,
         hasGraph
       });
       return false;
@@ -14247,7 +14242,6 @@
       console.debug('Debug: line render cache restored', {
         restored: true,
         plot: restoredPlot,
-        stats: restoredStats,
         hasGraph,
         viewMode: cache.svgState?.dataViewMode || getLineRenderCacheMetadata(cache)?.viewMode || null
       });

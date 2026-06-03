@@ -12262,39 +12262,6 @@
       return true;
     }
 
-    function captureElementState(node, options = {}){
-      if(!node){ return null; }
-      const includeMaxWidth = !!options.includeMaxWidth;
-      return {
-        hidden: !!node.hidden,
-        display: node.style?.display || '',
-        maxWidth: includeMaxWidth ? (node.style?.maxWidth || '') : undefined
-      };
-    }
-
-    function restoreElementState(node, state, options = {}){
-      if(!node || !state){ return false; }
-      const includeMaxWidth = !!options.includeMaxWidth;
-      if(Object.prototype.hasOwnProperty.call(state, 'hidden')){
-        node.hidden = !!state.hidden;
-      }
-      if(node.style && Object.prototype.hasOwnProperty.call(state, 'display')){
-        if(state.display){
-          node.style.display = state.display;
-        }else{
-          node.style.removeProperty('display');
-        }
-      }
-      if(includeMaxWidth && node.style && Object.prototype.hasOwnProperty.call(state, 'maxWidth')){
-        if(state.maxWidth){
-          node.style.maxWidth = state.maxWidth;
-        }else{
-          node.style.removeProperty('max-width');
-        }
-      }
-      return true;
-    }
-
     pca.captureRenderCache = function captureRenderCache(){
       let plot = getPcaNodeById('pcaPlot');
       const activeHot = ensurePcaHotForActiveTab();
@@ -12314,44 +12281,18 @@
         }
         plot = getPcaNodeById('pcaPlot');
       }
-      const stats = getPcaNodeById('pcaStatsResults');
-      const summary = getPcaNodeById('pcaStatsSummary');
-      const scree = getPcaNodeById('pcaScreePlot');
-      const screeContainer = getPcaNodeById('pcaScreeContainer');
-      const screeExportControls = getPcaNodeById('pcaScreeExportControls');
-      const varianceSummary = getPcaNodeById('pcaVarianceSummary');
-      const eigenTableContainer = getPcaNodeById('pcaEigenTableContainer');
-      const loadingsContainer = getPcaNodeById('pcaLoadingsContainer');
-      const screeVarianceRow = getPcaNodeById('pcaScreeVarianceRow');
+      // Only the (expensive) graph is snapshotted. The stats panel is derived from
+      // lastPcaStats and is rebuilt on restore (see restoreRenderCache); snapshotting its
+      // DOM orphaned the component's cached node refs and dropped scree/biplot/summary.
       const plotCache = detachChildren(plot);
-      const statsCache = detachChildren(stats);
-      const summaryCache = detachChildren(summary);
-      const screeCache = detachChildren(scree);
-      const uiState = {
-        screeContainer: captureElementState(screeContainer, { includeMaxWidth: true }),
-        screeExportControls: captureElementState(screeExportControls),
-        varianceSummary: captureElementState(varianceSummary),
-        eigenTableContainer: captureElementState(eigenTableContainer),
-        loadingsContainer: captureElementState(loadingsContainer),
-        screeVarianceRow: captureElementState(screeVarianceRow)
-      };
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache captured', {
           plotNodes: plotCache?.count || 0,
-          statsNodes: statsCache?.count || 0,
-          summaryNodes: summaryCache?.count || 0,
-          screeNodes: screeCache?.count || 0,
-          hasRuntimeCache: !!pcaState.cachedRender,
-          screeHidden: uiState.screeContainer?.hidden ?? null,
-          varianceHidden: uiState.varianceSummary?.hidden ?? null
+          hasRuntimeCache: !!pcaState.cachedRender
         });
       }
       return {
         plot: plotCache,
-        stats: statsCache,
-        summary: summaryCache,
-        scree: screeCache,
-        uiState,
         runtimeCache: cloneSimple(pcaState.cachedRender) || null
       };
     };
@@ -12375,48 +12316,23 @@
 
     pca.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
       if(!cache){ return false; }
-    const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
+      const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
       const plot = getPcaNodeById('pcaPlot');
-      const stats = getPcaNodeById('pcaStatsResults');
-      const summary = getPcaNodeById('pcaStatsSummary');
-      const scree = getPcaNodeById('pcaScreePlot');
-      const screeContainer = getPcaNodeById('pcaScreeContainer');
-      const screeExportControls = getPcaNodeById('pcaScreeExportControls');
-      const varianceSummary = getPcaNodeById('pcaVarianceSummary');
-      const eigenTableContainer = getPcaNodeById('pcaEigenTableContainer');
-      const loadingsContainer = getPcaNodeById('pcaLoadingsContainer');
-      const screeVarianceRow = getPcaNodeById('pcaScreeVarianceRow');
       const restoredPlot = restoreChildren(plot, graphCachePayload);
-      const restoredStats = restoreChildren(stats, cache.stats);
-      const restoredSummary = restoreChildren(summary, cache.summary);
-      const restoredScree = restoreChildren(scree, cache.scree);
       const restoredRuntimeCache = cache.runtimeCache && typeof cache.runtimeCache === 'object'
         ? (cloneSimple(cache.runtimeCache) || null)
         : null;
-      restoreElementState(screeContainer, cache.uiState?.screeContainer, { includeMaxWidth: true });
-      restoreElementState(screeExportControls, cache.uiState?.screeExportControls);
-      restoreElementState(varianceSummary, cache.uiState?.varianceSummary);
-      restoreElementState(eigenTableContainer, cache.uiState?.eigenTableContainer);
-      restoreElementState(loadingsContainer, cache.uiState?.loadingsContainer);
-      restoreElementState(screeVarianceRow, cache.uiState?.screeVarianceRow);
-      if(restoredScree && screeContainer && !cache.uiState?.screeContainer){
-        screeContainer.hidden = false;
-      }
-      if(restoredScree && screeExportControls && !cache.uiState?.screeExportControls){
-        screeExportControls.style.display = '';
-      }
-      if(lastPcaStats && (!restoredScree || (screeContainer && screeContainer.hidden) || !restoredSummary)){
-        restorePcaStatsFromPayload({
-          savedSummaryModel: null
-        });
-      }
-      updateScreeVarianceRowVisibility();
-      const restored = restoredPlot || restoredStats || restoredSummary || restoredScree;
+      // Rebuild the stats panel from lastPcaStats (the single source of truth) instead of
+      // replaying snapshotted DOM: this reattaches the scree/biplot controls and keeps
+      // scree/summary/biplot/eigen/loadings in sync on every restore path (file reopen,
+      // recovery, tab switch). lastPcaStats is set for the target tab by loadFromPayload /
+      // applyRuntimeState before this runs, so tab isolation is preserved.
+      restorePcaStatsFromPayload();
       if(restoredRuntimeCache){
         pcaState.cachedRender = restoredRuntimeCache;
         pcaState.dataDirty = false;
         pcaState.viewDirty = false;
-      }else if(restored){
+      }else if(restoredPlot){
         // The restored DOM graph already matches the payload/layout snapshot.
         // Keep resize/view refreshes lightweight instead of forcing an eager
         // full data recompute on the first interaction after reopen.
@@ -12426,19 +12342,11 @@
       pcaState.resizeWarmupPending = false;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache restored', {
-          restored,
           plot: restoredPlot,
-          stats: restoredStats,
-          summary: restoredSummary,
-          scree: restoredScree,
-          runtimeCache: !!restoredRuntimeCache,
-          screeHidden: screeContainer?.hidden ?? null,
-          varianceHidden: varianceSummary?.hidden ?? null,
-          eigenHidden: eigenTableContainer?.hidden ?? null,
-          loadingsHidden: loadingsContainer?.hidden ?? null
+          runtimeCache: !!restoredRuntimeCache
         });
       }
-      return restored;
+      return restoredPlot;
     };
     pca.__state = pcaState;
     initNotes();

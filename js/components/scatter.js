@@ -24399,7 +24399,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.captureRenderCache = function captureRenderCache(meta = {}){
     const plot = getScatterNodeById('scatterPlot');
-    const stats = getScatterNodeById('scatterStatsResults');
     const plotSvg = plot?.querySelector?.('#scatterSvg') || plot?.querySelector?.('svg') || null;
     if(!plot || !plotSvg){
       scatterDebug('Debug: scatter render cache capture skipped', {
@@ -24409,11 +24408,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       return null;
     }
     const plotCache = detachChildren(plot);
-    const statsCache = detachChildren(stats);
-    const total = (plotCache?.count || 0) + (statsCache?.count || 0);
-    if(total <= 0){
+    if((plotCache?.count || 0) <= 0){
       restoreChildren(plot, plotCache);
-      restoreChildren(stats, statsCache);
       scatterDebug('Debug: scatter render cache capture skipped', {
         reason: 'empty-runtime',
         tabId: meta?.tabId || null
@@ -24424,12 +24420,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     cacheMeta.complete = true;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       scatterDebug('Debug: scatter render cache captured', {
-        plotNodes: plotCache?.count || 0,
-        statsNodes: statsCache?.count || 0,
-        total
+        plotNodes: plotCache?.count || 0
       });
     }
-    return { plot: plotCache, stats: statsCache, __graphitixRenderCache: cacheMeta };
+    // Render cache carries the graph only; the stats panel is rebuilt from state on
+    // restore (loadFromPayload), so it is not snapshotted as DOM.
+    return { plot: plotCache, __graphitixRenderCache: cacheMeta };
   };
 
   scatter.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
@@ -24450,14 +24446,11 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       return false;
     }
     const plot = getScatterNodeById('scatterPlot');
-    const stats = getScatterNodeById('scatterStatsResults');
     const restoredPlot = restoreChildren(plot, cache.plot);
-    const restoredStats = restoreChildren(stats, cache.stats);
-    const restored = restoredPlot || restoredStats;
+    const restored = restoredPlot;
     let hydratedBitmaps = 0;
     if(restored){
       hydratedBitmaps += rehydrateScatterCanvasBitmapImages(plot);
-      hydratedBitmaps += rehydrateScatterCanvasBitmapImages(stats);
     }
     if(restored){
       scatterState.rotationPending = false;
@@ -24490,7 +24483,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       scatterDebug('Debug: scatter render cache restored', {
         restored,
         plot: restoredPlot,
-        stats: restoredStats,
         hydratedBitmaps
       });
     }

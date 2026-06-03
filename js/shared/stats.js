@@ -1934,6 +1934,18 @@
     if(node.nodeType !== 1){
       return null;
     }
+    // Stats-table cards carry interactive Download/Copy export controls (buttons/menus)
+    // that the tag whitelist below would mangle into raw text and that cannot be re-wired
+    // from markup. Capture the card's plain data model instead and re-render it (with live
+    // controls) on restore — see renderStatsNodeModel.
+    if(node.__statsTableModel && typeof node.__statsTableModel === 'object'){
+      const captured = { type: 'stats-table', model: cloneStatsReportingValue(node.__statsTableModel) };
+      const cardClass = sanitizeStatsClassName(node.getAttribute?.('class') || '');
+      if(cardClass){ captured.className = cardClass; }
+      const advanced = node.getAttribute?.('data-stats-advanced');
+      if(advanced != null){ captured.advanced = advanced; }
+      return captured;
+    }
     const tag = String(node.tagName || '').toLowerCase();
     if(!STATS_MODEL_ALLOWED_TAGS.has(tag)){
       const text = String(node.textContent || '').trim();
@@ -2002,6 +2014,26 @@
     }
     if(model.type === 'text'){
       return documentRef.createTextNode(String(model.text || ''));
+    }
+    // Re-render a stats-table card from its persisted data model so the interactive
+    // Download/Copy export controls are mounted live again (they cannot survive DOM
+    // serialization). Falls back to null if the shared renderer is unavailable.
+    if(model.type === 'stats-table'){
+      if(!model.model || !global.Shared?.statsTable || typeof global.Shared.statsTable.render !== 'function'){
+        return null;
+      }
+      const holder = documentRef.createElement('div');
+      global.Shared.statsTable.render({
+        target: holder,
+        model: model.model,
+        contextLabel: model.model?.options?.contextLabel
+      });
+      const card = holder.firstChild;
+      if(card && card.nodeType === 1){
+        if(model.className){ card.setAttribute('class', model.className); }
+        if(model.advanced != null){ card.setAttribute('data-stats-advanced', model.advanced); }
+      }
+      return card || null;
     }
     if(model.type !== 'element'){
       return null;

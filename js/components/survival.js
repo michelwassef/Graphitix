@@ -5642,6 +5642,11 @@
     const restoredLogRank = restoreChildren(logRank, cache.logRank);
     const restoredHazard = restoreChildren(hazard, cache.hazard);
     const restoredCox = restoreChildren(cox, cache.cox);
+    if(restoredSummary || restoredLogRank || restoredHazard || restoredCox){
+      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
+      // survive serialization); re-mount them from the restored tables.
+      [summary, logRank, hazard, cox].forEach(node => Shared.statsTable?.rehydrateExportControls?.(node));
+    }
     const restored = restoredPlot || restoredSummary || restoredLogRank || restoredHazard || restoredCox;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       survivalDebug('Debug: survival render cache restored', {

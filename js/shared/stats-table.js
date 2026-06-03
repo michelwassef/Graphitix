@@ -490,12 +490,25 @@
       logDebug('render skipped', { reason: 'no target' });
       return null;
     }
-    const model = buildModel(config);
+    // Accept a pre-built model so a restored stats panel can re-render the card (and
+    // re-mount live export controls) from the persisted data model instead of replaying
+    // serialized DOM, which cannot carry the interactive Download/Copy dropdowns.
+    const model = (config && config.model && typeof config.model === 'object')
+      ? config.model
+      : buildModel(config);
     if (!config?.append) {
       target.innerHTML = '';
     }
     const wrapper = doc.createElement('div');
     wrapper.className = 'stats-table-card';
+    // Stash the data model so capturePanelModel can persist it (and restore can re-render
+    // this exact card with working export controls). The model is plain, JSON-serializable.
+    wrapper.__statsTableModel = model;
+    // Persist the export identity as attributes too, so components that restore via a
+    // serialized-DOM render cache (where the JS model is lost) can still rebuild faithful
+    // export controls from the markup — see rehydrateExportControls.
+    wrapper.setAttribute('data-stats-export-filename', model.options.fileName);
+    wrapper.setAttribute('data-stats-export-context', model.options.contextLabel || model.options.fileName);
     if (config?.className) {
       wrapper.classList.add(config.className);
     }
@@ -579,6 +592,89 @@
     target.appendChild(wrapper);
     logDebug('render complete', { rowCount: model.rows.length, columnCount: model.columns.length });
     return { wrapper, table, model };
+  };
+
+  // Rebuild a table data model from an already-rendered card's DOM. Used when a card is
+  // restored from a serialized render cache (which cannot carry the live JS model), so its
+  // export controls can be re-mounted with a working data source.
+  const reconstructModelFromCard = card => {
+    if (!card || typeof card.querySelector !== 'function') {
+      return null;
+    }
+    const table = card.querySelector('.stats-table');
+    if (!table) {
+      return null;
+    }
+    const headerCells = Array.from(table.querySelectorAll('thead th'));
+    const rawColumns = headerCells.map(th => {
+      const cls = th.getAttribute('class') || '';
+      const align = cls.includes('stats-table__cell--center')
+        ? 'center'
+        : (cls.includes('stats-table__cell--right') ? 'right' : 'left');
+      return { label: (th.textContent || '').trim(), align };
+    });
+    if (!rawColumns.length) {
+      return null;
+    }
+    const rawRows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
+      Array.from(tr.querySelectorAll('td')).map(td => (td.textContent != null ? td.textContent : ''))
+    );
+    const caption = card.getAttribute('data-stats-caption')
+      || (card.querySelector('.stats-table-caption')?.textContent || '').trim();
+    const footnotes = Array.from(card.querySelectorAll('.stats-table-footnote'))
+      .map(node => (node.textContent || '').trim())
+      .filter(Boolean);
+    const columns = normalizeColumns(rawColumns);
+    return {
+      columns,
+      rows: normalizeRows(rawRows, columns),
+      caption,
+      footnotes,
+      options: mergeOptions({
+        fileName: card.getAttribute('data-stats-export-filename') || undefined,
+        contextLabel: card.getAttribute('data-stats-export-context') || undefined
+      })
+    };
+  };
+
+  // Re-mount the Download/Copy export controls for every stats-table card under `root`.
+  // Interactive controls cannot survive DOM serialization, so any restore path that
+  // replays a serialized stats panel (render-cache replay) leaves them dead/mangled; this
+  // rebuilds them from the card's live model when available, otherwise from its DOM.
+  statsTable.rehydrateExportControls = function rehydrateExportControls(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') {
+      return 0;
+    }
+    if (!Shared.exporter || typeof Shared.exporter.mountSvgStringControls !== 'function') {
+      return 0;
+    }
+    const cards = Array.from(root.querySelectorAll('.stats-table-card'));
+    let remounted = 0;
+    cards.forEach(card => {
+      const actions = card.querySelector('.stats-table-actions');
+      if (!actions) {
+        return;
+      }
+      const model = (card.__statsTableModel && typeof card.__statsTableModel === 'object')
+        ? card.__statsTableModel
+        : reconstructModelFromCard(card);
+      if (!model || !Array.isArray(model.columns) || !model.columns.length) {
+        return;
+      }
+      card.__statsTableModel = model;
+      actions.innerHTML = '';
+      Shared.exporter.mountSvgStringControls({
+        container: actions,
+        getSvgString: () => statsTable.buildSvgString(model),
+        getDimensions: () => statsTable.measureSvgDimensions(model),
+        fileName: model.options.fileName,
+        contextLabel: model.options.contextLabel,
+        extraActions: createDataActions(model, {})
+      });
+      remounted += 1;
+    });
+    logDebug('rehydrate export controls', { cards: cards.length, remounted });
+    return remounted;
   };
 
   logDebug('module ready', { hasExporter: !!Shared.exporter });

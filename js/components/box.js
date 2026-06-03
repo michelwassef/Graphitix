@@ -21805,10 +21805,10 @@
       tr.appendChild(labelCell);
       const badgeCell=document.createElement('td');
       badgeCell.className='stats-table__cell stats-table__cell--center stats-assumption__badge';
-      badgeCell.appendChild(createAssumptionBadge(group.normality?.passed));
+      badgeCell.appendChild(createAssumptionBadge(group.normality?.passed ?? group.passed));
       tr.appendChild(badgeCell);
       const pCell=document.createElement('td');
-      const pValue=group.normality?.pValue;
+      const pValue=group.normality?.pValue ?? group.pValue;
       pCell.className='stats-table__cell stats-table__cell--left stats-assumption__pvalue';
       pCell.textContent=Number.isFinite(pValue)?formatP(pValue):'—';
       tr.appendChild(pCell);
@@ -21826,7 +21826,7 @@
       varianceRow.style.borderTop='1px solid #d7e0ef';
       varianceRow.style.padding='10px 20px';
       const label=document.createElement('span');
-      label.textContent=`Variance test (${diagnostics.variance?.method==='bartlett' ? 'Bartlett' : 'Brown–Forsythe'}):`;
+      label.textContent=`Variance test (${(diagnostics.variance?.method ?? diagnostics.varianceMethod)==='bartlett' ? 'Bartlett' : 'Brown–Forsythe'}):`;
       label.className='assumption-variance-label';
       varianceRow.appendChild(label);
       varianceRow.appendChild(createAssumptionBadge(diagnostics.variance.passed, diagnostics.variance.passed===false?'FAIL':'PASS'));
@@ -22143,7 +22143,15 @@
         size:g.size,
         statistic:Number.isFinite(g.normality?.statistic)?g.normality.statistic:null,
         pValue:Number.isFinite(g.normality?.pValue)?g.normality.pValue:null,
-        passed:g.normality?.passed
+        passed:g.normality?.passed,
+        // QQ sparkline geometry is the only stats artifact the panel-model capture cannot
+        // carry (SVG is outside the serialized tag whitelist), so persist it as data and
+        // re-render the sparkline from it on restore (see hydrateBoxStatsSurfaceFromTabPayload).
+        qqPoints:Array.isArray(g.qqPoints)
+          ? g.qqPoints
+              .filter(p=>p && Number.isFinite(p.theoretical) && Number.isFinite(p.observed))
+              .map(p=>({ theoretical:p.theoretical, observed:p.observed }))
+          : []
       })),
       variance:diag.variance?{
         statistic:Number.isFinite(diag.variance.statistic)?diag.variance.statistic:null,
@@ -22162,7 +22170,8 @@
         }))
         : [],
       warnings:Array.isArray(diag.warnings)?diag.warnings.slice():[],
-      recommendNonParametric:!!diag.recommendNonParametric
+      recommendNonParametric:!!diag.recommendNonParametric,
+      parametricOverrideActive:!!diag.parametricOverrideActive
     };
   }
 
@@ -25824,6 +25833,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           });
         }else{
           els.statsResults.textContent = '';
+        }
+        // The panel-model capture strips SVG, so the assumption QQ sparklines do not
+        // survive in the restored markup. Rebuild the assumption section from the
+        // persisted diagnostics data (qqPoints included) — the same data-driven render
+        // used during a live stats compute — so reopen matches the original exactly.
+        if(stats.assumptions){
+          let assumptionContainer = els.statsResults.querySelector('.box-stats-assumption-container');
+          if(!assumptionContainer){
+            assumptionContainer = document.createElement('div');
+            assumptionContainer.className = 'box-stats-assumption-container';
+            els.statsResults.insertBefore(assumptionContainer, els.statsResults.firstChild);
+          }
+          renderAssumptionSection(assumptionContainer, stats.assumptions);
         }
       }
       state.statsLastRunVersion = savedVersion;

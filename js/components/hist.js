@@ -5948,6 +5948,11 @@
     const stats = getHistNodeById('histStatsResults');
     const restoredPlot = restoreChildren(plot, graphCachePayload);
     const restoredStats = restoreChildren(stats, cache.stats);
+    if(restoredStats){
+      // The replayed stats DOM carries dead Download/Copy controls (listeners cannot
+      // survive serialization); re-mount them from the restored tables.
+      Shared.statsTable?.rehydrateExportControls?.(stats);
+    }
     const restored = restoredPlot || restoredStats;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       histDebug('Debug: hist render cache restored', {
