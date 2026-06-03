@@ -4540,7 +4540,9 @@ input[type=number]::-webkit-inner-spin-button{
 .svgbox .resizer-options-summary:hover{background:transparent;color:#4f5b68}
 .svgbox .resizer-options-summary:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 .svgbox .resizer-options-summary::-webkit-details-marker{display:none}
-.svgbox .resizer-options-icon{display:block;width:16px;height:16px;fill:currentColor}
+.svgbox .resizer-options-icon{display:block;width:16px;height:16px;fill:currentColor;filter:drop-shadow(0 .5px .5px rgba(15,23,42,.35))}
+.svgbox .resizer-options-icon-hub-ring{fill:rgba(214,219,226,.95)}
+.svgbox .resizer-options-icon-hub{fill:rgba(15,23,42,.5)}
 .svgbox .resizer-options-menu{position:absolute;top:calc(100% + 4px);left:0;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:205px;padding:7px 8px;background:var(--ui-menu-bg);border:var(--ui-menu-border);border-radius:0;box-shadow:var(--ui-menu-shadow);z-index:230}
 .svgbox .resizer-options-control:not([open]) .resizer-options-menu{display:none}
 .svgbox .resizer-zoom-button{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border:1px solid #8d97a6;background:#fff;color:#1b2634;cursor:pointer;font-size:12px;line-height:1;box-sizing:border-box}
