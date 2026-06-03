@@ -70,4 +70,27 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(minY).toBeCloseTo(0, 5);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
   });
+
+  test('preserves the base aspect ratio so round symbols stay circular', () => {
+    const { svg } = createSvg({ locked: false });
+
+    // Content bbox is 300x300 (square) but it was rendered into a 600x300 frame.
+    // Without preservation the square viewBox is stretched 2:1 to fill the box,
+    // turning circles into ellipses. With the base viewport supplied the viewBox
+    // is padded to the 2:1 frame aspect and rendered with "meet" → no distortion.
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      remeasure: false,
+      baseViewport: { width: 600, height: 300 }
+    });
+
+    const [minX, minY, width, height] = readViewBox(svg);
+    expect(width / height).toBeCloseTo(600 / 300, 5);
+    expect(width).toBeCloseTo(600, 5);
+    expect(height).toBeCloseTo(300, 5);
+    // Square content (300 wide) centered within the widened viewBox.
+    expect(minX).toBeCloseTo(-150, 5);
+    expect(minY).toBeCloseTo(0, 5);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+  });
 });

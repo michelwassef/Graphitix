@@ -329,6 +329,21 @@
         scheduleHeatmapResizeRefresh(nextReason);
         return;
       }
+      // A render-cache restore (notably an archive/recovery restore while this tab was in
+      // the background) can rehydrate the SVG markup without the component's private
+      // render state, leaving textAspectMetrics/lastRenderModel absent. The readable-label
+      // and cell-value text scales are derived from those metrics, so applying the text
+      // aspect correction now would fall back to defaults and corrupt the text (shrunken
+      // labels, oversized overlapping cell values). Recompute the model+metrics from the
+      // restored data with a full draw at this settled, visible size instead.
+      if(!state.textAspectMetrics && state.hot && state.svg && !isHeatmapWorkspaceHidden()){
+        // Drive the draw directly (not via the suppressed post-restore scheduler) so the
+        // model+metrics are recomputed now, at this settled visible size.
+        debugLog('Debug: heatmap resize refresh recomputing render state (missing metrics)', { reason: nextReason });
+        pendingDrawOptions = { reason: `heatmap-recover-render-state-${nextReason}` };
+        draw();
+        return;
+      }
       applyHeatmapTextAspect(`heatmap-resize-aspect-${nextReason}`);
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw({ viewOnly: true, reason: nextReason });

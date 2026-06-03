@@ -12156,7 +12156,7 @@
       }
       renderLineStatsAdvisor(seriesWithData, statsContext);
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-      ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
+      ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph', baseViewport: { width: W, height: H } });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit

@@ -4,6 +4,7 @@ desktop/dist/
 desktop/app/
 test-results/
 playwright-report/
+e2e/.tmp/
 artifacts/
 benchmarks/
 scripts/__pycache__/

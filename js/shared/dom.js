@@ -2282,6 +2282,7 @@
       debugLabel = 'sharedAutoResize',
       remeasure = true,
       preserveAspectRatio = null,
+      baseViewport = null,
     } = opts;
 
     const raf = typeof global.requestAnimationFrame === 'function'
@@ -2348,6 +2349,33 @@
           frozenAxes.y = true;
           orthogonalExpansion.y = minY !== stableMinY || mergedMaxY !== stableMaxY;
         }
+        // Homogenize with box.js (drawBox viewport): when the caller supplies the
+        // rendered base viewport, expand the computed viewBox symmetrically so its
+        // aspect ratio matches the frame the content was laid out for. Combined with
+        // preserveAspectRatio="xMidYMid meet" this keeps round symbols perfectly
+        // circular on screen (matching the exported SVG) instead of stretching the
+        // whole graph to fill a container of a different aspect ratio. Skipped while an
+        // orthogonal resize axis is frozen so the single-axis resize stability holds.
+        const baseW = Number(baseViewport?.width);
+        const baseH = Number(baseViewport?.height);
+        const preserveBaseAspect = !frozenAxes.x && !frozenAxes.y
+          && Number.isFinite(baseW) && baseW > 0
+          && Number.isFinite(baseH) && baseH > 0
+          && Number.isFinite(viewW) && viewW > 0
+          && Number.isFinite(viewH) && viewH > 0;
+        if (preserveBaseAspect) {
+          const baseRatio = baseW / baseH;
+          const currentRatio = viewW / viewH;
+          if (currentRatio > baseRatio) {
+            const extra = Math.max(0, (viewW / baseRatio) - viewH);
+            minY -= extra / 2;
+            viewH = Math.max(1, viewH + extra);
+          } else if (currentRatio < baseRatio) {
+            const extra = Math.max(0, (viewH * baseRatio) - viewW);
+            minX -= extra / 2;
+            viewW = Math.max(1, viewW + extra);
+          }
+        }
         if (fill) {
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
@@ -2370,7 +2398,7 @@
         svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         const preserve = preserveAspectRatio != null
           ? preserveAspectRatio
-          : 'none';
+          : (preserveBaseAspect ? 'xMidYMid meet' : 'none');
         svg.setAttribute('preserveAspectRatio', preserve);
         if(dataset){
           writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));

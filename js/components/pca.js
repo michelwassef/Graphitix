@@ -11072,7 +11072,7 @@
         loadingsTruncated
       });
       registerPcaGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-      ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph' });
+      ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph', baseViewport: { width: W, height: H } });
       pcaLayout?.syncPanels?.({ skipSchedule: true });
       syncPcaAutoDrawNoticeWidth('draw');
     } catch(err){
@@ -11823,7 +11823,22 @@
           dataDirty: !!pcaState.dataDirty,
           viewDirty: !!pcaState.viewDirty,
           labelPositions: cloneSimple(pcaState.labelPositions) || {},
-          theme: cloneSimple(pcaState.theme) || null
+          theme: cloneSimple(pcaState.theme) || null,
+          // Per-tab resolved colors. The snapshot must carry the actual color values,
+          // not just theme.colorScheme: on a same-component tab switch the activation
+          // path restores this runtime snapshot instead of re-applying the payload, so
+          // omitting these left the redraw using the previously rendered tab's colors
+          // (scheme id said grayscale while the graph kept the sibling's palette).
+          colors: {
+            labelColors: cloneSimple(pcaLabelColors) || {},
+            labelShapes: cloneSimple(pcaLabelShapes) || {},
+            labelPointStyles: cloneSimple(pcaLabelPointStyles) || {},
+            fill: pcaFill ? pcaFill.value : undefined,
+            border: pcaBorder ? pcaBorder.value : undefined,
+            borderWidth: pcaBorderWidth ? pcaBorderWidth.value : undefined,
+            dotSize: pcaDotSize ? pcaDotSize.value : undefined,
+            alpha: pcaAlpha ? pcaAlpha.value : undefined
+          }
         },
         stats: cloneSimple(lastPcaStats) || null,
         notes: { text: notesText, open: notesOpen },
@@ -11894,6 +11909,34 @@
         pcaState.viewDirty = !!nextState.viewDirty;
         pcaState.labelPositions = cloneSimple(nextState.labelPositions) || pcaState.labelPositions;
         pcaState.theme = cloneSimple(nextState.theme) || pcaState.theme;
+        if(nextState.colors && typeof nextState.colors === 'object'){
+          const restoredColors = nextState.colors;
+          if(Object.prototype.hasOwnProperty.call(restoredColors, 'labelColors')){
+            pcaLabelColors = cloneSimple(restoredColors.labelColors) || {};
+          }
+          if(Object.prototype.hasOwnProperty.call(restoredColors, 'labelShapes')){
+            pcaLabelShapes = cloneSimple(restoredColors.labelShapes) || {};
+          }
+          if(Object.prototype.hasOwnProperty.call(restoredColors, 'labelPointStyles')){
+            pcaLabelPointStyles = cloneSimple(restoredColors.labelPointStyles) || {};
+          }
+          if(pcaFill && typeof restoredColors.fill === 'string' && restoredColors.fill){
+            pcaFill.value = restoredColors.fill;
+          }
+          if(pcaBorder && typeof restoredColors.border === 'string' && restoredColors.border){
+            pcaBorder.value = restoredColors.border;
+          }
+          if(pcaBorderWidth && restoredColors.borderWidth != null && restoredColors.borderWidth !== ''){
+            pcaBorderWidth.value = restoredColors.borderWidth;
+          }
+          if(pcaDotSize && restoredColors.dotSize != null && restoredColors.dotSize !== ''){
+            pcaDotSize.value = restoredColors.dotSize;
+          }
+          if(pcaAlpha && restoredColors.alpha != null && restoredColors.alpha !== ''){
+            pcaAlpha.value = restoredColors.alpha;
+            if(pcaAlphaVal){ pcaAlphaVal.textContent = pcaAlpha.value; }
+          }
+        }
       }
       if(Object.prototype.hasOwnProperty.call(snapshot, 'stats')){
         lastPcaStats = cloneSimple(snapshot.stats);

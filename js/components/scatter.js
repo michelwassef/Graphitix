@@ -22412,7 +22412,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           token
         });
         registerScatterGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-        ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
+        ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph', baseViewport: { width: W, height: H } });
         if(perfApi && viewportPerf){
           perfApi.end(viewportPerf, { component: 'scatter', token });
         }
