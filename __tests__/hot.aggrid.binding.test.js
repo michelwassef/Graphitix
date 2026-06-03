@@ -712,4 +712,135 @@ describe('Shared.hot AG Grid binding', () => {
       Shared.componentLayout = prevLayout;
     }
   });
+
+  test('pinned first row follows horizontal scroll with transform sync', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHotPinnedScroll';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-pinned-scroll',
+        pinFirstRow: true,
+        data: [
+          ['H1', 'H2', 'H3', 'H4'],
+          ['A', 'B', 'C', 'D'],
+          ['E', 'F', 'G', 'H']
+        ]
+      }
+    );
+    expect(hot).toBeTruthy();
+
+    const headerViewport = document.createElement('div');
+    headerViewport.className = 'ag-header-viewport';
+    headerViewport.scrollLeft = 12;
+    const headerContainer = document.createElement('div');
+    headerContainer.className = 'ag-header-container';
+    headerViewport.appendChild(headerContainer);
+    container.appendChild(headerViewport);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.scrollLeft = 96;
+    const centerContainer = document.createElement('div');
+    centerContainer.className = 'ag-center-cols-container';
+    centerViewport.appendChild(centerContainer);
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const pinnedViewport = document.createElement('div');
+    pinnedViewport.className = 'ag-center-cols-viewport';
+    pinnedViewport.scrollLeft = 24;
+    const pinnedContainer = document.createElement('div');
+    pinnedContainer.className = 'ag-center-cols-container';
+    pinnedViewport.appendChild(pinnedContainer);
+    floatingTop.appendChild(pinnedViewport);
+    container.appendChild(floatingTop);
+
+    capturedGridOptions.onFirstDataRendered();
+    centerViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
+
+    expect(pinnedViewport.scrollLeft).toBe(0);
+    expect(pinnedContainer.style.transform).toBe('translate3d(-96px, 0px, 0px)');
+    expect(pinnedContainer.style.willChange).toBe('transform');
+    expect(headerViewport.scrollLeft).toBe(0);
+    expect(headerContainer.style.transform).toBe('translate3d(-96px, 0px, 0px)');
+    expect(headerContainer.style.willChange).toBe('transform');
+  });
+
+  test('horizontal scroll auto-growth uses the real horizontal viewport', () => {
+    jest.useFakeTimers();
+    try {
+      const Shared = global.window.Shared;
+      const container = document.createElement('div');
+      container.id = 'testAgHotHorizontalAutoGrow';
+      document.body.appendChild(container);
+
+      const hot = Shared.hot.createStandardTable(
+        container,
+        { rows: 3, cols: 4 },
+        () => {},
+        {
+          debugLabel: 'test-ag-grid-horizontal-autogrow',
+          autoGrowth: {
+            colCap: 20,
+            colThresholdPx: 200,
+            scrollIdleDelayMs: 80
+          },
+          data: [
+            ['H1', 'H2', 'H3', 'H4'],
+            ['A', 'B', 'C', 'D'],
+            ['E', 'F', 'G', 'H']
+          ]
+        }
+      );
+
+      const setMetric = (el, key, value) => {
+        Object.defineProperty(el, key, {
+          configurable: true,
+          value
+        });
+      };
+
+      const bodyViewport = document.createElement('div');
+      bodyViewport.className = 'ag-body-viewport';
+      setMetric(bodyViewport, 'scrollWidth', 400);
+      setMetric(bodyViewport, 'clientWidth', 400);
+      bodyViewport.scrollLeft = 0;
+      container.appendChild(bodyViewport);
+
+      const centerViewport = document.createElement('div');
+      centerViewport.className = 'ag-center-cols-viewport';
+      setMetric(centerViewport, 'scrollWidth', 1600);
+      setMetric(centerViewport, 'clientWidth', 400);
+      centerViewport.scrollLeft = 300;
+      bodyViewport.appendChild(centerViewport);
+
+      const horizontalViewport = document.createElement('div');
+      horizontalViewport.className = 'ag-body-horizontal-scroll-viewport';
+      setMetric(horizontalViewport, 'scrollWidth', 1600);
+      setMetric(horizontalViewport, 'clientWidth', 400);
+      horizontalViewport.scrollLeft = 300;
+      container.appendChild(horizontalViewport);
+
+      capturedGridOptions.onFirstDataRendered();
+      const initialColCount = hot.countCols();
+      expect(initialColCount).toBeGreaterThanOrEqual(4);
+
+      horizontalViewport.dispatchEvent(new global.window.Event('scroll', { bubbles: true }));
+      jest.advanceTimersByTime(120);
+
+      expect(hot.countCols()).toBe(initialColCount);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

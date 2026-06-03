@@ -6503,7 +6503,7 @@
         : [];
       return brands.some(entry => /firefox/i.test(entry.brand || ''));
     })();
-    const preferPinnedTransform = isFirefox;
+    const preferPinnedTransform = true;
     const virtualizationConfig = (() => {
       const raw = Object.assign({}, hotOptions.virtualization || {}, overrides?.virtualization || {});
       const enabled = raw.enabled !== false;
@@ -6656,6 +6656,8 @@
     let pinnedTopScrollLeft = null;
     let pinnedTopViewport = null;
     let pinnedTopContainer = null;
+    let headerViewport = null;
+    let headerContainer = null;
     let centerColsContainer = null;
     let pinnedTopObserver = null;
     let pinnedTopObservedTarget = null;
@@ -6667,8 +6669,18 @@
       if(!container || typeof container.querySelector !== 'function'){
         pinnedTopViewport = null;
         pinnedTopContainer = null;
+        headerViewport = null;
+        headerContainer = null;
         centerColsContainer = null;
         return;
+      }
+      if(!headerViewport || !headerViewport.isConnected){
+        headerViewport = container.querySelector('.ag-header-viewport') || null;
+      }
+      if(!headerContainer || !headerContainer.isConnected){
+        headerContainer = container.querySelector('.ag-header-viewport .ag-header-container')
+          || container.querySelector('.ag-header-container')
+          || null;
       }
       if(!pinnedTopViewport || !pinnedTopViewport.isConnected){
         pinnedTopViewport = container.querySelector('.ag-floating-top .ag-center-cols-viewport')
@@ -6847,77 +6859,6 @@
       return true;
     };
 
-    const alignPinnedTopByRect = (reason)=>{
-      if(!usePinnedRows || !isFirefox || !pinnedTopContainer || !centerColsContainer){
-        return false;
-      }
-      if(typeof pinnedTopContainer.getBoundingClientRect !== 'function' || typeof centerColsContainer.getBoundingClientRect !== 'function'){
-        return false;
-      }
-      const centerRect = centerColsContainer.getBoundingClientRect();
-      const pinnedRect = pinnedTopContainer.getBoundingClientRect();
-      if(!centerRect || !pinnedRect){
-        return false;
-      }
-      const delta = centerRect.left - pinnedRect.left;
-      if(!Number.isFinite(delta) || Math.abs(delta) < 0.5){
-        return false;
-      }
-      const currentOffset = resolveTransformTranslateX(pinnedTopContainer) || 0;
-      const nextOffset = currentOffset + delta;
-      if(!Number.isFinite(nextOffset)){
-        return false;
-      }
-      pinnedTopScrollLeft = nextOffset;
-      const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
-      if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        hotDebug('Debug: Shared.hot pinFirstRow rect sync', { debugLabel, reason, delta, nextOffset });
-      }
-      return applied;
-    };
-
-    const resolveCellLeft = (root)=>{
-      if(!root || typeof root.querySelector !== 'function'){
-        return null;
-      }
-      const row = root.querySelector('.ag-row');
-      if(!row){
-        return null;
-      }
-      const cell = row.querySelector('.ag-cell');
-      if(!cell || typeof cell.getBoundingClientRect !== 'function'){
-        return null;
-      }
-      const rect = cell.getBoundingClientRect();
-      return Number.isFinite(rect.left) ? rect.left : null;
-    };
-
-    const alignPinnedTopByCells = (reason)=>{
-      if(!usePinnedRows || !isFirefox || !pinnedTopContainer || !centerColsContainer){
-        return false;
-      }
-      const bodyLeft = resolveCellLeft(centerColsContainer);
-      const pinnedLeft = resolveCellLeft(pinnedTopContainer);
-      if(!Number.isFinite(bodyLeft) || !Number.isFinite(pinnedLeft)){
-        return false;
-      }
-      const delta = bodyLeft - pinnedLeft;
-      if(!Number.isFinite(delta) || Math.abs(delta) < 0.5){
-        return false;
-      }
-      const currentOffset = resolveTransformTranslateX(pinnedTopContainer) || 0;
-      const nextOffset = currentOffset + delta;
-      if(!Number.isFinite(nextOffset)){
-        return false;
-      }
-      pinnedTopScrollLeft = nextOffset;
-      const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
-      if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        hotDebug('Debug: Shared.hot pinFirstRow cell sync', { debugLabel, reason, delta, nextOffset });
-      }
-      return applied;
-    };
-
     const schedulePinnedTopRowSync = (reason)=>{
       if(!usePinnedRows){
         return;
@@ -6934,46 +6875,61 @@
         pinnedTopSyncRafId = null;
         const prev = pinnedTopScrollLeft;
         syncPinnedTopRowScroll(reason || 'raf');
-        alignPinnedTopByRect(reason || 'raf');
-        alignPinnedTopByCells(reason || 'raf');
         const current = pinnedTopScrollLeft;
         if(current === prev){
           pinnedTopSyncStableFrames += 1;
         }else{
           pinnedTopSyncStableFrames = 0;
         }
-        const stableThreshold = isFirefox ? 6 : 2;
+        const stableThreshold = 6;
         if(pinnedTopSyncStableFrames < stableThreshold){
           schedulePinnedTopRowSync('raf-follow');
         }
       });
     };
 
-    const syncPinnedTopRowScroll = (reason)=>{
+    const resolveExplicitScrollLeft = (value)=>{
+      const num = Number(value);
+      return Number.isFinite(num) && num >= 0 ? num : null;
+    };
+
+    const syncPinnedTopRowScroll = (reason, explicitScrollLeft)=>{
       if(!usePinnedRows || !container || typeof container.querySelector !== 'function'){
         return;
       }
       resolvePinnedTopElements();
       attachPinnedTopObserver();
-      const hasPinnedTarget = !!(pinnedTopViewport || pinnedTopContainer);
+      const hasPinnedTarget = !!(pinnedTopViewport || pinnedTopContainer || headerViewport || headerContainer);
       if(!hasPinnedTarget){
         pinnedTopScrollLeft = null;
         return;
       }
-      const transformX = resolveTransformTranslateX(centerColsContainer);
-      const useTransformOffset = preferPinnedTransform && Number.isFinite(transformX) && transformX !== 0;
-      const scrollLeft = useTransformOffset ? Math.abs(transformX) : resolveHorizontalScrollLeft();
+      const explicitLeft = resolveExplicitScrollLeft(explicitScrollLeft);
+      const transformX = explicitLeft == null ? resolveTransformTranslateX(centerColsContainer) : null;
+      const useTransformOffset = explicitLeft == null && preferPinnedTransform && Number.isFinite(transformX) && transformX !== 0;
+      const scrollLeft = explicitLeft != null
+        ? explicitLeft
+        : (useTransformOffset ? Math.abs(transformX) : resolveHorizontalScrollLeft());
       const offset = useTransformOffset ? transformX : -scrollLeft;
       const needsForceSync = preferPinnedTransform
         && pinnedTopViewport
         && typeof pinnedTopViewport.scrollLeft === 'number'
         && pinnedTopViewport.scrollLeft !== 0;
-      if(offset === pinnedTopScrollLeft && !needsForceSync){
+      const headerNeedsForceSync = headerViewport
+        && typeof headerViewport.scrollLeft === 'number'
+        && headerViewport.scrollLeft !== 0;
+      if(offset === pinnedTopScrollLeft && !needsForceSync && !headerNeedsForceSync){
         return;
       }
       pinnedTopScrollLeft = offset;
       let applied = false;
       const useTransform = (preferPinnedTransform || useTransformOffset) && !!pinnedTopContainer;
+      if(headerViewport && typeof headerViewport.scrollLeft === 'number' && headerViewport.scrollLeft !== 0){
+        headerViewport.scrollLeft = 0;
+      }
+      if(headerContainer){
+        applied = applyPinnedTopTranslateX(headerContainer, offset) || applied;
+      }
       if(useTransform){
         if(pinnedTopViewport && typeof pinnedTopViewport.scrollLeft === 'number' && pinnedTopViewport.scrollLeft !== 0){
           pinnedTopViewport.scrollLeft = 0;
@@ -6990,9 +6946,6 @@
         if(pinnedTopSyncAttempts <= 3){
           hotDebug('Debug: Shared.hot pinFirstRow scroll sync skipped', { debugLabel, reason, scrollLeft });
         }
-      }
-      if(applied && isFirefox){
-        alignPinnedTopByCells(reason || 'scroll');
       }
     };
 
@@ -8633,7 +8586,7 @@
       try{
         viewport.scrollTop = 0;
         viewport.scrollLeft = 0;
-        syncPinnedTopRowScroll('scroll-top');
+        syncPinnedTopRowScroll('scroll-top', 0);
         schedulePinnedTopRowSync('scroll-top-follow');
       }catch(err){
         // best effort
@@ -8687,7 +8640,7 @@
         }
         viewport.scrollTop = targetTop;
         viewport.scrollLeft = snapshot.left || 0;
-        syncPinnedTopRowScroll('restore');
+        syncPinnedTopRowScroll('restore', snapshot.left || 0);
         schedulePinnedTopRowSync('restore-follow');
       });
     };
@@ -8701,6 +8654,7 @@
       rowCap: Math.max(rowCount, 50000),
       colCap: Math.max(colCount, 200),
       selectionThreshold: 2,
+      scrollIdleDelayMs: 180,
       scheduleOnGrow: false
     };
     const autoGrowthConfig = Object.assign({}, autoGrowthDefaults, overrides?.autoGrowth || {});
@@ -8714,7 +8668,7 @@
       source !== 'autoGrow' || !!autoGrowthConfig.scheduleOnGrow
     );
 
-    const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null, scrollElements: [] };
+    const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null, scrollElements: [], autoGrowTimerId: null };
 
     const shouldGrowRows = ()=>{
       if(!autoGrowthConfig.enabled){
@@ -8738,6 +8692,15 @@
       return nearSelection || nearScroll;
     };
 
+    const resolveHorizontalGrowthViewport = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        return null;
+      }
+      return container.querySelector('.ag-body-horizontal-scroll-viewport')
+        || container.querySelector('.ag-center-cols-viewport')
+        || null;
+    };
+
     const shouldGrowCols = ()=>{
       if(!autoGrowthConfig.enabled){
         return false;
@@ -8751,7 +8714,7 @@
         nearSelection = (colCount - 1 - selection.to.col) <= autoGrowthConfig.selectionThreshold;
       }
       let nearScroll = false;
-      const viewport = resolveViewport();
+      const viewport = resolveHorizontalGrowthViewport();
       if(viewport){
         const remaining = viewport.scrollWidth - (viewport.scrollLeft + viewport.clientWidth);
         nearScroll = remaining <= autoGrowthConfig.colThresholdPx;
@@ -8797,6 +8760,22 @@
       }
     };
 
+    const scheduleAutoGrowthCheck = (reason)=>{
+      const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      const clear = typeof win?.clearTimeout === 'function' ? win.clearTimeout.bind(win) : clearTimeout;
+      const set = typeof win?.setTimeout === 'function' ? win.setTimeout.bind(win) : setTimeout;
+      if(autoGrowthState.autoGrowTimerId != null){
+        clear(autoGrowthState.autoGrowTimerId);
+      }
+      const delay = Math.max(50, Number(autoGrowthConfig.scrollIdleDelayMs) || 180);
+      autoGrowthState.autoGrowTimerId = set(()=>{
+        autoGrowthState.autoGrowTimerId = null;
+        maybeGrowRows(reason || 'scroll');
+        maybeGrowCols(reason || 'scroll');
+      }, delay);
+    };
+
     const ensureViewportScrollHandler = ()=>{
       const viewport = resolveViewport();
       if(!viewport || !container || typeof container.querySelector !== 'function'){
@@ -8806,11 +8785,18 @@
       const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
       const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
         if(!autoGrowthState.viewportScrollHandler){
-        autoGrowthState.viewportScrollHandler = ()=>{
-          maybeGrowRows('scroll');
-          maybeGrowCols('scroll');
-          syncPinnedTopRowScroll('scroll');
-          schedulePinnedTopRowSync('scroll-follow');
+        autoGrowthState.viewportScrollHandler = (event)=>{
+          const target = event?.target;
+          const candidates = [target, centerViewport, horizontalViewport, horizontalScroll, viewport];
+          let horizontalLeft = 0;
+          candidates.forEach(el=>{
+            const left = resolveExplicitScrollLeft(el?.scrollLeft);
+            if(left != null && left > horizontalLeft){
+              horizontalLeft = left;
+            }
+          });
+          syncPinnedTopRowScroll('scroll', horizontalLeft);
+          scheduleAutoGrowthCheck('scroll');
           scheduleFillHandleUpdate('scroll');
         };
       }
@@ -10115,6 +10101,16 @@
             });
           }
           autoGrowthState.scrollElements = [];
+        }
+        if(autoGrowthState.autoGrowTimerId != null){
+          const doc = container?.ownerDocument || document;
+          const win = doc?.defaultView || global;
+          if(typeof win?.clearTimeout === 'function'){
+            win.clearTimeout(autoGrowthState.autoGrowTimerId);
+          }else{
+            clearTimeout(autoGrowthState.autoGrowTimerId);
+          }
+          autoGrowthState.autoGrowTimerId = null;
         }
         if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
           instance.gridApi.destroy();
@@ -11865,33 +11861,6 @@
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
 
-      // IMPORTANT: The first N rows exist twice when using pinnedTopRowData:
-      // - as pinned rows (rowPinned === 'top')
-      // - and as normal body rows (ghost duplicates)
-      // If we only hide the ghost rows with CSS, AG Grid still reserves their space.
-      // Returning height 0 removes the blank band while keeping indexing stable.
-      getRowHeight: (params) => {
-        try {
-          const node = params?.node;
-          if (
-            usePinnedRows &&
-            pinRowCount > 0 &&
-            node &&
-            !node.rowPinned &&
-            Number.isInteger(node.rowIndex) &&
-            node.rowIndex >= 0 &&
-            node.rowIndex < pinRowCount
-          ) {
-            return 1;
-          }
-        } catch (err) {
-          console.error("Shared.hot getRowHeight error", {
-            message: err?.message || String(err),
-          });
-        }
-        return undefined; // default height
-      },
-
       columnDefs,
       rowBuffer: initialRowBuffer,
       suppressColumnVirtualisation: initialSuppressColumnVirtualisation,
@@ -11904,6 +11873,8 @@
         comparator: valueComparator
       },
       singleClickEdit,
+      // Pinned rows also remain in rowData as ghost rows so visual and physical
+      // indexing stay stable; collapse those body duplicates to a 1px seam.
       getRowHeight(params){
         if(!usePinnedRows){
           return undefined;
@@ -12082,8 +12053,7 @@
           if(params?.direction && params.direction !== 'horizontal'){
             return;
           }
-          syncPinnedTopRowScroll('body-scroll');
-          schedulePinnedTopRowSync('body-scroll-follow');
+          syncPinnedTopRowScroll('body-scroll', params?.left);
         },
         onSortChanged(params){
           const apiRef = params?.api || instance?.gridApi;
