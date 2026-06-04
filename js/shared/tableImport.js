@@ -709,14 +709,15 @@
     return data[offset] | (data[offset + 1] << 8);
   }
 
-  function inferPrismColumnGraphTypeFromWrapper(rawData){
+  function inferPrismColumnGraphTypeFromWrapperAt(rawData, baseOffset){
     if(!rawData){
       return '';
     }
-    const primaryKind = prismReadUInt16LE(rawData, 548);
-    const secondaryKind = prismReadUInt16LE(rawData, 572);
-    const tertiaryKind = prismReadUInt16LE(rawData, 574);
-    const subtypeKind = prismReadUInt16LE(rawData, 576);
+    const base = Math.max(0, Number(baseOffset) || 0);
+    const primaryKind = prismReadUInt16LE(rawData, base + 548);
+    const secondaryKind = prismReadUInt16LE(rawData, base + 572);
+    const tertiaryKind = prismReadUInt16LE(rawData, base + 574);
+    const subtypeKind = prismReadUInt16LE(rawData, base + 576);
     if(primaryKind === 11 && secondaryKind === 11 && tertiaryKind === 11 && subtypeKind === 17){
       return 'violin';
     }
@@ -729,10 +730,29 @@
     return '';
   }
 
+  function inferPrismColumnGraphTypeFromWrapper(rawData){
+    return inferPrismColumnGraphTypeFromWrapperAt(rawData, 0);
+  }
+
+  function inferPrismColumnGraphTypeFromEmbeddedWrapper(rawData){
+    if(!rawData || rawData.length < 578){
+      return '';
+    }
+    const maxOffset = Math.min(Math.max(0, rawData.length - 578), 1024 * 1024);
+    for(let offset = 0; offset <= maxOffset; offset += 1){
+      const graphType = inferPrismColumnGraphTypeFromWrapperAt(rawData, offset);
+      if(graphType){
+        return graphType;
+      }
+    }
+    return '';
+  }
+
   function inferPrismPreferredGraphType(strings, tableFormat, rawData, inflatedData){
     const format = normalizePrismString(tableFormat).toLowerCase();
     if(format === 'column'){
-      const wrapperGraphType = inferPrismColumnGraphTypeFromWrapper(rawData);
+      const wrapperGraphType = inferPrismColumnGraphTypeFromWrapper(rawData)
+        || inferPrismColumnGraphTypeFromEmbeddedWrapper(rawData);
       if(wrapperGraphType){
         return wrapperGraphType;
       }
@@ -756,6 +776,715 @@
       }
     }
     return '';
+  }
+
+
+  function prismXmlLocalName(node){
+    const rawName = node?.localName || node?.nodeName || '';
+    const text = String(rawName || '');
+    const colon = text.indexOf(':');
+    return colon >= 0 ? text.slice(colon + 1) : text;
+  }
+
+  function prismXmlAttribute(node, name){
+    if(!node || typeof node.getAttribute !== 'function' || !name){
+      return '';
+    }
+    const direct = node.getAttribute(name);
+    if(direct != null){
+      return direct;
+    }
+    const target = String(name).toLowerCase();
+    const attrs = node.attributes || [];
+    for(let i = 0; i < attrs.length; i += 1){
+      const attr = attrs[i];
+      const attrName = prismXmlLocalName(attr).toLowerCase();
+      if(attrName === target){
+        return attr.value || '';
+      }
+    }
+    return '';
+  }
+
+  function prismXmlChildren(node, localName){
+    if(!node || !node.childNodes){
+      return [];
+    }
+    const target = localName ? String(localName).toLowerCase() : '';
+    const children = [];
+    for(let i = 0; i < node.childNodes.length; i += 1){
+      const child = node.childNodes[i];
+      if(!child || child.nodeType !== 1){
+        continue;
+      }
+      if(target && prismXmlLocalName(child).toLowerCase() !== target){
+        continue;
+      }
+      children.push(child);
+    }
+    return children;
+  }
+
+  function prismXmlDescendants(node, localNames){
+    if(!node || typeof node.getElementsByTagName !== 'function'){
+      return [];
+    }
+    const names = Array.isArray(localNames) ? localNames : [localNames];
+    const wanted = new Set(names.filter(Boolean).map(name => String(name).toLowerCase()));
+    const matches = [];
+    const all = node.getElementsByTagName('*');
+    for(let i = 0; i < all.length; i += 1){
+      const element = all[i];
+      if(!wanted.size || wanted.has(prismXmlLocalName(element).toLowerCase())){
+        matches.push(element);
+      }
+    }
+    return matches;
+  }
+
+  function prismXmlFirstChild(node, localName){
+    return prismXmlChildren(node, localName)[0] || null;
+  }
+
+  function prismXmlDirectText(node){
+    if(!node){
+      return '';
+    }
+    return normalizePrismString(node.textContent || '');
+  }
+
+  function prismXmlChildText(node, localName){
+    return prismXmlDirectText(prismXmlFirstChild(node, localName));
+  }
+
+  function parsePrismXmlText(xmlText, sourceLabel){
+    if(typeof global.DOMParser !== 'function'){
+      throw new Error('XML parser unavailable in this environment');
+    }
+    const parser = new global.DOMParser();
+    const doc = parser.parseFromString(String(xmlText || ''), 'application/xml');
+    const parserErrors = prismXmlDescendants(doc, 'parsererror');
+    if(parserErrors.length){
+      const message = prismXmlDirectText(parserErrors[0]) || 'Invalid XML';
+      throw new Error(`${sourceLabel || 'Prism XML'} parse error: ${message}`);
+    }
+    return doc;
+  }
+
+  function asciiStringToBytes(text){
+    const raw = String(text || '');
+    const bytes = new Uint8Array(raw.length);
+    for(let i = 0; i < raw.length; i += 1){
+      bytes[i] = raw.charCodeAt(i) & 0x7F;
+    }
+    return bytes;
+  }
+
+  function findByteSequence(bytes, sequence){
+    if(!bytes || !sequence || !sequence.length || sequence.length > bytes.length){
+      return -1;
+    }
+    outer: for(let i = 0; i <= bytes.length - sequence.length; i += 1){
+      for(let j = 0; j < sequence.length; j += 1){
+        if(bytes[i + j] !== sequence[j]){
+          continue outer;
+        }
+      }
+      return i;
+    }
+    return -1;
+  }
+
+  function decodeUtf8Bytes(bytes){
+    const source = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+    if(typeof global.TextDecoder === 'function'){
+      return new global.TextDecoder('utf-8').decode(source);
+    }
+    let text = '';
+    for(let i = 0; i < source.length; i += 1){
+      text += String.fromCharCode(source[i]);
+    }
+    return text;
+  }
+
+  function extractPzfxXmlAndOpaquePayload(input){
+    if(typeof input === 'string'){
+      const closeTag = '</GraphPadPrismFile>';
+      const closeIndex = input.indexOf(closeTag);
+      const xmlText = closeIndex >= 0 ? input.slice(0, closeIndex + closeTag.length) : input;
+      return { xmlText, opaqueBytes: new Uint8Array(0), xmlByteLength: xmlText.length };
+    }
+    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+    const closeTagBytes = asciiStringToBytes('</GraphPadPrismFile>');
+    const closeOffset = findByteSequence(bytes, closeTagBytes);
+    const xmlEnd = closeOffset >= 0 ? closeOffset + closeTagBytes.length : bytes.length;
+    const xmlBytes = bytes.subarray(0, xmlEnd);
+    const opaqueBytes = xmlEnd < bytes.length ? bytes.subarray(xmlEnd) : new Uint8Array(0);
+    return {
+      xmlText: decodeUtf8Bytes(xmlBytes),
+      opaqueBytes,
+      xmlByteLength: xmlEnd
+    };
+  }
+
+  function isPzfxColumnRawValueFormat(formatKey){
+    const key = String(formatKey || '').trim().toLowerCase();
+    return !key || key === 'single' || key === 'y_single' || key === 'replicates';
+  }
+
+  function isPzfxColumnSummaryFormat(formatKey){
+    const key = String(formatKey || '').trim().toLowerCase();
+    return key === 'sdn' || key === 'sen' || key === 'cvn'
+      || key === 'sd' || key === 'se' || key === 'cv'
+      || key === 'low-high' || key === 'upper-lower-limits'
+      || key === 'error';
+  }
+
+  function normalizePzfxFormat(value){
+    return normalizePrismString(value);
+  }
+
+  function normalizePzfxDataValue(value, options = {}){
+    if(value == null){
+      return '';
+    }
+    if(options.excluded){
+      return '';
+    }
+    let text = normalizePrismString(value);
+    if(!text){
+      return '';
+    }
+    if(text.indexOf(',') !== -1 && text.indexOf('.') === -1){
+      const decimalComma = /^([+-]?(?:\d+|\d{1,3}(?:\.\d{3})*)),(\d+(?:[eE][+-]?\d+)?)$/.exec(text);
+      if(decimalComma){
+        text = `${decimalComma[1].replace(/\./g, '')}.${decimalComma[2]}`;
+      }
+    }
+    if(/^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/.test(text)){
+      const numeric = Number(text);
+      if(Number.isFinite(numeric)){
+        return String(numeric);
+      }
+    }
+    return text;
+  }
+
+  function resolvePzfxSubcolumnNames(baseName, count, format){
+    const base = normalizePrismString(baseName) || 'Y';
+    const n = Math.max(0, Number(count) || 0);
+    if(n <= 0){
+      return [];
+    }
+    if(n === 1){
+      return [base];
+    }
+    const normalized = normalizePzfxFormat(format);
+    const formatKey = normalized.toLowerCase();
+    const fixed = {
+      error: ['_X', '_ERROR'],
+      sdn: ['_MEAN', '_SD', '_N'],
+      sen: ['_MEAN', '_SEM', '_N'],
+      cvn: ['_MEAN', '_CV', '_N'],
+      sd: ['_MEAN', '_SD'],
+      se: ['_MEAN', '_SE'],
+      cv: ['_MEAN', '_CV'],
+      'low-high': ['_MEAN', '_PLUSERROR', '_MINUSERROR'],
+      'upper-lower-limits': ['_MEAN', '_UPPERLIMIT', '_LOWERLIMIT']
+    };
+    if(formatKey === 'replicates'){
+      return Array.from({ length: n }, (_, index) => `${base}_${index + 1}`);
+    }
+    const suffixes = fixed[formatKey];
+    if(Array.isArray(suffixes) && suffixes.length === n){
+      return suffixes.map(suffix => `${base}${suffix}`);
+    }
+    prismDebug('pzfx.columnFormatFallback', { base, count: n, format: normalized || '' });
+    return Array.from({ length: n }, (_, index) => `${base}_${index + 1}`);
+  }
+
+  function readPzfxSubcolumn(subcolumn){
+    const values = [];
+    const valueNodes = prismXmlChildren(subcolumn);
+    valueNodes.forEach(node => {
+      const excluded = prismXmlAttribute(node, 'Excluded') === '1';
+      values.push(normalizePzfxDataValue(node.textContent || '', { excluded }));
+    });
+    return values;
+  }
+
+  function readPzfxColumn(columnNode, options = {}){
+    const requestedKind = options.kind || prismXmlLocalName(columnNode);
+    const defaultName = options.defaultName || '';
+    const format = options.format || '';
+    const title = prismXmlChildText(columnNode, 'Title') || defaultName || requestedKind || 'Column';
+    const subcolumnNodes = prismXmlChildren(columnNode, 'Subcolumn');
+    const subcolumns = subcolumnNodes.map(readPzfxSubcolumn);
+    if(!subcolumns.length){
+      return {
+        kind: requestedKind,
+        title,
+        names: [],
+        subcolumns: [],
+        rowCount: 0,
+        format
+      };
+    }
+    const names = resolvePzfxSubcolumnNames(title, subcolumns.length, format);
+    const rowCount = subcolumns.reduce((max, values) => Math.max(max, values.length), 0);
+    return {
+      kind: requestedKind,
+      title,
+      names,
+      subcolumns,
+      rowCount,
+      format
+    };
+  }
+
+  function pzfxColumnValue(column, subcolumnIndex, rowIndex){
+    const subcolumn = column?.subcolumns?.[subcolumnIndex];
+    if(!Array.isArray(subcolumn) || rowIndex < 0 || rowIndex >= subcolumn.length){
+      return '';
+    }
+    return subcolumn[rowIndex] ?? '';
+  }
+
+  function pzfxModelRowCount(model, columns){
+    const relevant = Array.isArray(columns) ? columns : [];
+    return relevant.reduce((max, column) => Math.max(max, column?.rowCount || 0), 0);
+  }
+
+  function pzfxColumnsToRows(columns){
+    const activeColumns = (columns || []).filter(column => column && Array.isArray(column.names) && column.names.length);
+    if(!activeColumns.length){
+      return [];
+    }
+    const header = [];
+    activeColumns.forEach(column => {
+      column.names.forEach(name => header.push(name));
+    });
+    const rowCount = pzfxModelRowCount(null, activeColumns);
+    const rows = [header];
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const row = [];
+      activeColumns.forEach(column => {
+        for(let sub = 0; sub < column.names.length; sub += 1){
+          row.push(pzfxColumnValue(column, sub, rowIndex));
+        }
+      });
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function normalizePzfxTableFormat(tableType){
+    const raw = normalizePrismString(tableType).toLowerCase().replace(/[_\s-]+/g, ' ');
+    if(!raw){
+      return '';
+    }
+    if(raw.includes('parts') || raw.includes('whole') || raw.includes('pie')){
+      return 'parts_of_whole';
+    }
+    if(raw.includes('survival')){
+      return 'survival';
+    }
+    if(raw.includes('column')){
+      return 'column';
+    }
+    if(raw.includes('contingency')){
+      return 'contingency';
+    }
+    if(raw === 'xy' || raw.includes('xy')){
+      return 'xy';
+    }
+    return raw.replace(/\s+/g, '_');
+  }
+
+  function selectPzfxTable(xmlDoc){
+    const tables = prismXmlDescendants(xmlDoc, ['Table', 'HugeTable']);
+    if(!tables.length){
+      throw new Error('No Prism data tables found in PZFX file');
+    }
+    const sequence = prismXmlDescendants(xmlDoc, 'TableSequence')[0] || null;
+    const selectedRefs = sequence
+      ? prismXmlChildren(sequence, 'Ref').filter(ref => prismXmlAttribute(ref, 'Selected') === '1')
+      : [];
+    const selectedId = selectedRefs.length ? prismXmlAttribute(selectedRefs[0], 'ID') : '';
+    if(selectedId){
+      const selectedTable = tables.find(table => prismXmlAttribute(table, 'ID') === selectedId);
+      if(selectedTable){
+        return selectedTable;
+      }
+    }
+    return tables[0];
+  }
+
+  function buildPzfxModel(tableNode){
+    const title = prismXmlChildText(tableNode, 'Title');
+    const tableType = prismXmlAttribute(tableNode, 'TableType');
+    const tableFormat = normalizePzfxTableFormat(tableType);
+    const xFormat = normalizePzfxFormat(prismXmlAttribute(tableNode, 'XFormat'));
+    const yFormat = normalizePzfxFormat(prismXmlAttribute(tableNode, 'YFormat'));
+    const childNodes = prismXmlChildren(tableNode);
+    const rowTitleColumns = [];
+    const xColumns = [];
+    const xAdvancedColumns = [];
+    const yColumns = [];
+    childNodes.forEach(child => {
+      const name = prismXmlLocalName(child);
+      if(name === 'RowTitlesColumn'){
+        rowTitleColumns.push(readPzfxColumn(child, { kind: 'rowTitles', defaultName: 'ROWTITLE', format: '' }));
+      }else if(name === 'XColumn'){
+        xColumns.push(readPzfxColumn(child, { kind: 'x', defaultName: 'X', format: xFormat === 'date' ? '' : xFormat }));
+      }else if(name === 'XAdvancedColumn'){
+        xAdvancedColumns.push(readPzfxColumn(child, { kind: 'xAdvanced', defaultName: 'X', format: '' }));
+      }else if(name === 'YColumn'){
+        yColumns.push(readPzfxColumn(child, { kind: 'y', defaultName: `Y${yColumns.length + 1}`, format: yFormat }));
+      }
+    });
+    const useAdvancedDateX = xFormat.toLowerCase() === 'date' && xAdvancedColumns.some(column => column.names.length);
+    const xColumn = useAdvancedDateX
+      ? xAdvancedColumns.find(column => column.names.length) || null
+      : xColumns.find(column => column.names.length) || null;
+    const rowTitleColumn = rowTitleColumns.find(column => column.names.length) || null;
+    const dataColumns = [];
+    if(rowTitleColumn){
+      dataColumns.push(rowTitleColumn);
+    }
+    if(xColumn){
+      dataColumns.push(xColumn);
+    }
+    yColumns.forEach(column => {
+      if(column.names.length){
+        dataColumns.push(column);
+      }
+    });
+    return {
+      title,
+      tableType,
+      tableFormat,
+      xFormat,
+      yFormat,
+      rowTitleColumn,
+      xColumn,
+      yColumns: yColumns.filter(column => column.names.length),
+      rows: pzfxColumnsToRows(dataColumns)
+    };
+  }
+
+  function pzfxBaseGroupLabels(model){
+    const yColumns = model?.yColumns || [];
+    return yColumns.length
+      ? yColumns.map((column, index) => normalizePrismString(column.title) || `Series ${index + 1}`)
+      : ['Series 1'];
+  }
+
+  function buildPzfxLineImport(model){
+    const yColumns = model?.yColumns || [];
+    if(!model?.xColumn || !yColumns.length){
+      return null;
+    }
+    const replicateCount = yColumns.reduce((max, column) => Math.max(max, column.names.length || 0), 0) || 1;
+    const groupLabels = pzfxBaseGroupLabels(model);
+    const header = [normalizePrismString(model.xColumn.title) || 'X'];
+    groupLabels.forEach(label => {
+      for(let rep = 0; rep < replicateCount; rep += 1){
+        header.push(`${label || 'Series'} Rep ${rep + 1}`);
+      }
+    });
+    const rowCount = pzfxModelRowCount(model, [model.xColumn, ...yColumns]);
+    const rows = [header];
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const row = [pzfxColumnValue(model.xColumn, 0, rowIndex)];
+      yColumns.forEach(column => {
+        for(let rep = 0; rep < replicateCount; rep += 1){
+          row.push(pzfxColumnValue(column, rep, rowIndex));
+        }
+      });
+      rows.push(row);
+    }
+    return {
+      rows,
+      meta: {
+        kind: 'line',
+        dataFormat: 'y_replicates',
+        tableClass: 'PZFXTable',
+        replicatesCount: replicateCount,
+        groupLabels,
+        xTitle: normalizePrismString(model.xColumn.title) || ''
+      }
+    };
+  }
+
+  function buildPzfxScatterImport(model){
+    const yColumns = model?.yColumns || [];
+    if(!model?.xColumn || !yColumns.length || yColumns.some(column => column.names.length !== 1)){
+      return null;
+    }
+    const seriesCount = Math.max(1, yColumns.length);
+    const headerLabel = model.rowTitleColumn ? (normalizePrismString(model.rowTitleColumn.title) || 'Labels') : 'Labels';
+    const xHeader = normalizePrismString(model.xColumn.title) || 'X';
+    const yHeader = seriesCount === 1 ? (normalizePrismString(yColumns[0].title) || 'Y') : 'Y';
+    const rows = [[headerLabel, xHeader, yHeader]];
+    const rowCount = pzfxModelRowCount(model, [model.rowTitleColumn, model.xColumn, ...yColumns].filter(Boolean));
+    const groupLabels = pzfxBaseGroupLabels(model);
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const baseLabel = model.rowTitleColumn ? pzfxColumnValue(model.rowTitleColumn, 0, rowIndex) : '';
+      yColumns.forEach((column, seriesIndex) => {
+        const dsLabel = groupLabels[seriesIndex] || '';
+        let label = baseLabel;
+        if(seriesCount > 1 && dsLabel){
+          const trimmedBase = normalizePrismString(baseLabel);
+          label = trimmedBase ? `${trimmedBase} (${dsLabel})` : dsLabel;
+        }
+        rows.push([
+          label || '',
+          pzfxColumnValue(model.xColumn, 0, rowIndex),
+          pzfxColumnValue(column, 0, rowIndex)
+        ]);
+      });
+    }
+    return {
+      rows,
+      meta: {
+        kind: 'scatter',
+        dataFormat: 'y_single',
+        tableClass: 'PZFXTable',
+        seriesCount,
+        xTitle: xHeader,
+        yTitles: groupLabels.slice(),
+        headerRow: rows[0]
+      }
+    };
+  }
+
+  function buildPzfxSurvivalImport(model){
+    const yColumns = model?.yColumns || [];
+    const timeColumn = model?.xColumn || model?.rowTitleColumn || null;
+    if(!timeColumn || !yColumns.length){
+      return null;
+    }
+    const groupLabels = pzfxBaseGroupLabels(model);
+    const rowCount = pzfxModelRowCount(model, [timeColumn, ...yColumns]);
+    const rows = [];
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      const timeValue = pzfxColumnValue(timeColumn, 0, rowIndex);
+      yColumns.forEach((column, seriesIndex) => {
+        const eventValue = pzfxColumnValue(column, 0, rowIndex);
+        if(isPrismBlankCell(eventValue)){
+          return;
+        }
+        rows.push([
+          groupLabels[seriesIndex] || `Group ${seriesIndex + 1}`,
+          timeValue,
+          eventValue,
+          '',
+          '',
+          '',
+          ''
+        ]);
+      });
+    }
+    return {
+      rows,
+      meta: {
+        kind: 'survival',
+        dataFormat: 'y_single',
+        tableClass: 'PZFXTable',
+        seriesCount: groupLabels.length,
+        groupLabels: groupLabels.slice(),
+        xTitle: normalizePrismString(timeColumn.title) || 'Time'
+      }
+    };
+  }
+
+  function buildPzfxPieImport(model){
+    const yColumns = model?.yColumns || [];
+    if(!yColumns.length){
+      return null;
+    }
+    const categoryColumn = model?.rowTitleColumn || model?.xColumn || null;
+    const firstY = yColumns[0];
+    const secondY = yColumns[1] || null;
+    const headerRow = [
+      categoryColumn ? (normalizePrismString(categoryColumn.title) || 'Category') : 'Category',
+      normalizePrismString(firstY.title) || 'Value',
+      secondY ? (normalizePrismString(secondY.title) || 'Expected') : 'Expected'
+    ];
+    const rows = [headerRow];
+    const rowCount = pzfxModelRowCount(model, [categoryColumn, firstY, secondY].filter(Boolean));
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      rows.push([
+        categoryColumn ? pzfxColumnValue(categoryColumn, 0, rowIndex) : `Category ${rowIndex + 1}`,
+        pzfxColumnValue(firstY, 0, rowIndex),
+        secondY ? pzfxColumnValue(secondY, 0, rowIndex) : ''
+      ]);
+    }
+    return {
+      rows,
+      meta: {
+        kind: 'pie',
+        dataFormat: 'y_single',
+        tableClass: 'PZFXTable',
+        seriesCount: yColumns.length || 1,
+        categoryTitle: headerRow[0],
+        valueTitles: yColumns.map(column => normalizePrismString(column.title)).filter(Boolean)
+      }
+    };
+  }
+
+  function inferPzfxColumnGraphType(model, options = {}){
+    if((model?.tableFormat || '') !== 'column'){
+      return '';
+    }
+    const yFormatKey = normalizePzfxFormat(model?.yFormat || '').toLowerCase();
+    const graphMetadataType = normalizePrismString(options.graphMetadataType || '').toLowerCase();
+    if(graphMetadataType && isPzfxColumnRawValueFormat(yFormatKey)){
+      return graphMetadataType;
+    }
+    if(isPzfxColumnRawValueFormat(yFormatKey)){
+      return 'strip';
+    }
+    return '';
+  }
+
+  async function inferPzfxOpaqueGraphMetadata(model, payload){
+    if((model?.tableFormat || '') !== 'column'){
+      return { graphMetadataType: '', source: 'none', stringCount: 0, inflated: false };
+    }
+    const bytes = payload?.opaqueBytes instanceof Uint8Array ? payload.opaqueBytes : new Uint8Array(0);
+    if(!bytes.length){
+      return { graphMetadataType: '', source: 'none', stringCount: 0, inflated: false };
+    }
+    const extracted = extractPrismStringsFromBuffer(bytes);
+    const normalizedStrings = (extracted.strings || []).map(item => normalizePrismString(item));
+    const inflated = await inflatePrismGraphData(bytes);
+    const graphMetadataType = inferPrismPreferredGraphType(
+      normalizedStrings,
+      'column',
+      bytes,
+      inflated
+    );
+    return {
+      graphMetadataType,
+      source: graphMetadataType ? 'opaque-graph-payload' : 'none',
+      stringCount: normalizedStrings.length,
+      inflated: !!inflated
+    };
+  }
+
+  function buildPzfxImportRowsAndMeta(model, graphMetadata = {}){
+    const tableFormat = model?.tableFormat || '';
+    const yFormat = normalizePzfxFormat(model?.yFormat || '');
+    const yFormatKey = yFormat.toLowerCase();
+    if((tableFormat === 'xy' || tableFormat === 'survival') && yFormatKey === 'replicates'){
+      const lineImport = buildPzfxLineImport(model);
+      if(lineImport){
+        prismDebug('pzfx.xy.line', {
+          replicatesCount: lineImport.meta.replicatesCount,
+          seriesCount: lineImport.meta.groupLabels.length,
+          rows: Math.max(0, lineImport.rows.length - 1)
+        });
+        return lineImport;
+      }
+    }
+    if(tableFormat === 'survival'){
+      const survivalImport = buildPzfxSurvivalImport(model);
+      if(survivalImport){
+        prismDebug('pzfx.xy.survival', {
+          seriesCount: survivalImport.meta.groupLabels.length,
+          rows: survivalImport.rows.length
+        });
+        return survivalImport;
+      }
+    }
+    if(tableFormat === 'xy' && (!yFormatKey || yFormatKey === 'single')){
+      const scatterImport = buildPzfxScatterImport(model);
+      if(scatterImport){
+        prismDebug('pzfx.xy.scatter', {
+          seriesCount: scatterImport.meta.seriesCount,
+          rows: Math.max(0, scatterImport.rows.length - 1)
+        });
+        return scatterImport;
+      }
+    }
+    if(tableFormat === 'parts_of_whole'){
+      const pieImport = buildPzfxPieImport(model);
+      if(pieImport){
+        prismDebug('pzfx.table.pie', {
+          seriesCount: pieImport.meta.seriesCount,
+          rows: Math.max(0, pieImport.rows.length - 1)
+        });
+        return pieImport;
+      }
+    }
+    const meta = tableFormat === 'column'
+      ? {
+          kind: 'column',
+          dataFormat: yFormat || 'y_single',
+          tableClass: 'PZFXTable',
+          seriesCount: model?.yColumns?.length || 0,
+          groupLabels: (model?.yColumns || []).map(column => normalizePrismString(column.title)).filter(Boolean),
+          graphType: inferPzfxColumnGraphType(model, graphMetadata),
+          graphTypeSource: graphMetadata.source || '',
+          graphMetadataType: graphMetadata.graphMetadataType || '',
+          summaryFormat: isPzfxColumnSummaryFormat(yFormatKey),
+          rawValueCompatible: isPzfxColumnRawValueFormat(yFormatKey)
+        }
+      : null;
+    if(tableFormat === 'column'){
+      prismDebug('pzfx.table.column', {
+        seriesCount: meta.seriesCount,
+        rows: Math.max(0, (model?.rows?.length || 1) - 1),
+        graphType: meta.graphType || '',
+        graphTypeSource: meta.graphTypeSource || '',
+        yFormat,
+        rawValueCompatible: meta.rawValueCompatible === true,
+        summaryFormat: meta.summaryFormat === true
+      });
+    }else{
+      prismDebug('pzfx.table.raw', {
+        tableFormat,
+        yFormat,
+        rows: Math.max(0, (model?.rows?.length || 1) - 1)
+      });
+    }
+    return { rows: model?.rows || [], meta };
+  }
+
+  async function parsePzfxInput(input){
+    const payload = extractPzfxXmlAndOpaquePayload(input);
+    const doc = parsePrismXmlText(payload.xmlText, 'PZFX');
+    const tableNode = selectPzfxTable(doc);
+    const model = buildPzfxModel(tableNode);
+    const graphMetadata = await inferPzfxOpaqueGraphMetadata(model, payload);
+    const built = buildPzfxImportRowsAndMeta(model, graphMetadata);
+    const rows = filterRows(built.rows || []);
+    return {
+      rows,
+      prismMeta: built.meta || null,
+      tableTitle: model.title || '',
+      tableFormat: model.tableFormat || '',
+      yFormat: model.yFormat || '',
+      opaqueBytes: payload.opaqueBytes?.length || 0,
+      graphMetadata
+    };
+  }
+
+  function parsePzfxText(xmlText){
+    const doc = parsePrismXmlText(xmlText, 'PZFX');
+    const tableNode = selectPzfxTable(doc);
+    const model = buildPzfxModel(tableNode);
+    const built = buildPzfxImportRowsAndMeta(model);
+    const rows = filterRows(built.rows || []);
+    return {
+      rows,
+      prismMeta: built.meta || null,
+      tableTitle: model.title || '',
+      tableFormat: model.tableFormat || '',
+      yFormat: model.yFormat || ''
+    };
   }
 
   async function readZipJson(zip, path){
@@ -1265,6 +1994,34 @@
         : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
       return handler(rows, meta);
     };
+    if(ext === 'pzfx'){
+      try{
+        const buffer = await readFileAsArrayBuffer(file);
+        prismDebug('pzfx.load', { name: file.name, size: file.size });
+        const parsed = await parsePzfxInput(buffer);
+        if(!parsed.rows.length){
+          throw new Error('PZFX table contained no importable data');
+        }
+        const result = await applyRows(parsed.rows, { delimiter: '\t' });
+        if(result && parsed.prismMeta){
+          result.prismMeta = parsed.prismMeta;
+        }
+        prismDebug('pzfx.import.complete', {
+          tableTitle: parsed.tableTitle || '',
+          tableFormat: parsed.tableFormat || '',
+          yFormat: parsed.yFormat || '',
+          rows: result?.rows || 0,
+          cols: result?.cols || 0,
+          opaqueBytes: parsed.opaqueBytes || 0,
+          graphMetadataType: parsed.graphMetadata?.graphMetadataType || '',
+          graphMetadataSource: parsed.graphMetadata?.source || ''
+        });
+        return result;
+      }catch(err){
+        notifyError(options, 'Failed to import PZFX Prism file', err);
+        return null;
+      }
+    }
     if(ext === 'prism'){
       try{
         const buffer = await readFileAsArrayBuffer(file);
