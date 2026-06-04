@@ -56,6 +56,7 @@ describe('Shared.hot AG Grid binding', () => {
     require('../js/vendor.js');
     require('../js/shared/agGridAdapter.js');
     require('../js/shared/undo.js');
+    require('../js/shared/formulaEngine.js');
     require('../js/shared/hot.js');
 
     const manager = global.window?.Shared?.undoManager;
@@ -711,6 +712,52 @@ describe('Shared.hot AG Grid binding', () => {
       Shared.componentLifecycle = prevLifecycle;
       Shared.componentLayout = prevLayout;
     }
+  });
+
+  test('formula evaluation stays lazy for plain data and activates for formulas', () => {
+    const Shared = global.window.Shared;
+    const createModelSpy = jest.spyOn(Shared.formulaEngine, 'createModel');
+    const container = document.createElement('div');
+    container.id = 'formulaLazyAgHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'formula-lazy-ag-grid',
+        data: [
+          ['A', 'B', 'C'],
+          ['1', '2', '3']
+        ]
+      }
+    );
+
+    const getCellViaColumnDef = (rowIndex, colIndex) => {
+      const def = capturedGridOptions.columnDefs.find(col => col.colId === `c${colIndex}`);
+      expect(def).toBeTruthy();
+      return def.valueGetter({ data: { __rowIndex: rowIndex }, node: { rowIndex } });
+    };
+
+    expect(getCellViaColumnDef(1, 2)).toBe('3');
+    expect(createModelSpy).not.toHaveBeenCalled();
+
+    hot.loadData([
+      ['A', 'B', 'C'],
+      ['1', '2', '=A1+B1']
+    ]);
+
+    expect(getCellViaColumnDef(1, 2)).toBe(3);
+    expect(createModelSpy).toHaveBeenCalledTimes(1);
+
+    hot.loadData([
+      ['A', 'B', 'C'],
+      ['1', '2', '3']
+    ]);
+
+    expect(getCellViaColumnDef(1, 2)).toBe('3');
+    expect(createModelSpy).toHaveBeenCalledTimes(1);
   });
 
   test('pinned first row follows horizontal scroll with transform sync', () => {

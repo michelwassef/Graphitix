@@ -104,6 +104,31 @@ describe('Pie tab host isolation', () => {
     expect(wrapper.querySelectorAll('[id=\"pieHot\"]').length).toBe(1);
   });
 
+  test('reinitializing pie does not stack import file-picker handlers', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pie');
+
+    const pie = window.Components?.pie;
+    const activeTab = Main.session?.getActiveTab?.();
+    const root = document.getElementById('piePage');
+    const importButton = document.getElementById('pieImport');
+    const fileInput = document.getElementById('pieFile');
+    expect(pie).toBeTruthy();
+    expect(root).toBeTruthy();
+    expect(importButton).toBeTruthy();
+    expect(fileInput).toBeTruthy();
+
+    const fileClick = jest.spyOn(fileInput, 'click').mockImplementation(() => {});
+
+    pie.ready = false;
+    pie.init({ root, tabId: activeTab?.id || null, reason: 'test-rebind-1' });
+    pie.ready = false;
+    pie.init({ root, tabId: activeTab?.id || null, reason: 'test-rebind-2' });
+
+    importButton.click();
+    expect(fileClick).toHaveBeenCalledTimes(1);
+  });
+
   test('user style control routes through the view-refresh suppression contract as userInitiated', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'pie');

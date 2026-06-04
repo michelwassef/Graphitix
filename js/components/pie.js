@@ -1483,6 +1483,25 @@ let state = {
     }
   }
 
+  function bindPieControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function' || typeof handler !== 'function'){
+      return false;
+    }
+    const eventKey = String(eventName || '').trim();
+    if(!eventKey){
+      return false;
+    }
+    const storeKey = `${eventKey}:${String(key || 'handler')}`;
+    const store = node.__pieControlHandlers || (node.__pieControlHandlers = {});
+    const previous = store[storeKey];
+    if(previous && typeof node.removeEventListener === 'function'){
+      node.removeEventListener(eventKey, previous);
+    }
+    node.addEventListener(eventKey, handler);
+    store[storeKey] = handler;
+    return true;
+  }
+
   function getPieStatsConfig(){
     if(!state.statsConfig || typeof state.statsConfig !== 'object'){
       state.statsConfig = createDefaultPieStatsConfig();
@@ -3828,8 +3847,8 @@ let state = {
     });
     const pieImportBtn=getPieNodeById('pieImport');
     const pieFileInput=getPieNodeById('pieFile');
-    pieImportBtn.addEventListener('click',()=>{ pieFileInput.value=''; pieFileInput.click(); });
-    pieFileInput.addEventListener('change',async ()=>{
+    bindPieControlHandler(pieImportBtn, 'click', 'import-table', ()=>{ pieFileInput.value=''; pieFileInput.click(); });
+    bindPieControlHandler(pieFileInput, 'change', 'import-file', async ()=>{
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('pie import skipped: Shared.tableImport.openFile unavailable');

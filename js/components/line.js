@@ -12206,6 +12206,25 @@
     });
   }
 
+  function bindLineControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__lineControlHandlers){
+      Object.defineProperty(node, '__lineControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__lineControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+    }
+    node.__lineControlHandlers[registryKey] = handler;
+    node.addEventListener(eventName, handler);
+  }
+
   // PART: SETUP
   function setup(options = {}){
     const targetTabId = resolveLineOwnedRuntimeTabId(options?.tabId || options?.tab || null, options) || null;
@@ -13204,8 +13223,8 @@
       console.debug('Debug: line example loaded',{ key, replicates: example.replicates, mode: isGroupedMode ? 'grouped' : 'single' });
       scheduleLineDraw();
     });
-    refs.importBtn?.addEventListener('click',()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
-    refs.fileInput?.addEventListener('change',async e=>{
+    bindLineControlHandler(refs.importBtn, 'click', 'import-table', ()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
+    bindLineControlHandler(refs.fileInput, 'change', 'import-file', async e=>{
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('line import skipped: Shared.tableImport.openFile unavailable');

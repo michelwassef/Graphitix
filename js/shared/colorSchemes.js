@@ -6,6 +6,7 @@
 
   const DEFAULT_SCHEME_ID = 'scientific';
   const CUSTOM_SCHEME_ID = 'custom';
+  const COLOR_SCHEME_DATA_KEY_SCAN_ROW_LIMIT = 5000;
   const BASE_SCHEME_OPTION_IDS = Object.freeze(['scientific', 'soft', 'normal', 'grayscale', 'colorblind', 'dark']);
   const SURFACE_SCHEME_OPTION_IDS = Object.freeze(['surface-viridis', 'surface-plasma', 'surface-magma', 'surface-turbo', 'surface-bluered', 'surface-grayscale', 'dark']);
   const TYPE_DEFAULT_SCHEME_IDS = Object.freeze({
@@ -732,9 +733,29 @@
     return out;
   }
 
+  function getMatrixRowCount(matrix){
+    return Array.isArray(matrix) ? matrix.length : 0;
+  }
+
+  function shouldScanMatrixColorKeys(matrix, options){
+    const opts = options || {};
+    const rowLimit = Number.isFinite(Number(opts.rowLimit))
+      ? Math.max(0, Number(opts.rowLimit))
+      : COLOR_SCHEME_DATA_KEY_SCAN_ROW_LIMIT;
+    return rowLimit <= 0 || getMatrixRowCount(matrix) <= rowLimit;
+  }
+
   function collectUniqueColumnValues(matrix, colIndex, options){
     const rows = ensureArray(matrix);
     const opts = options || {};
+    if(!shouldScanMatrixColorKeys(rows, opts)){
+      debugLog('Debug: colorSchemes skipped large matrix key scan', {
+        rowCount: rows.length,
+        colIndex,
+        rowLimit: Number.isFinite(Number(opts.rowLimit)) ? Number(opts.rowLimit) : COLOR_SCHEME_DATA_KEY_SCAN_ROW_LIMIT
+      });
+      return [];
+    }
     const start = Number.isFinite(opts.startRow) ? opts.startRow : 1;
     const out = [];
     const seen = new Set();
@@ -1969,6 +1990,28 @@
     return JSON.stringify(buildPayloadColorState(type, payload, referencePayload) || {});
   }
 
+  function createColorComparisonPayload(type, payload){
+    if(!payload || typeof payload !== 'object'){
+      return null;
+    }
+    const out = {
+      type: payload.type || type,
+      config: cloneValue(payload.config || {})
+    };
+    if(payload.style && typeof payload.style === 'object'){
+      out.style = cloneValue(payload.style);
+    }
+    const data = Array.isArray(payload.data) ? payload.data : null;
+    if(data){
+      if(shouldScanMatrixColorKeys(data)){
+        out.data = data;
+      }else{
+        out.data = Array.isArray(data[0]) ? [data[0].slice()] : [];
+      }
+    }
+    return out;
+  }
+
   function getComparisonPayload(type, options){
     const opts = ensureObject(options);
     const active = getActiveTab();
@@ -1986,14 +2029,14 @@
             origin: 'colorSchemes'
           });
           if(livePayload){
-            return cloneValue(livePayload);
+            return createColorComparisonPayload(type, livePayload);
           }
         }catch(err){
           debugLog('Debug: colorSchemes live payload read failed', { type, err: err?.message || String(err) });
         }
       }
     }
-    return cloneValue(active.payload);
+    return createColorComparisonPayload(type, active.payload);
   }
 
   function payloadMatchesPreset(type, payload, schemeId){

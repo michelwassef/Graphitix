@@ -3,6 +3,7 @@
   const Shared = global.Shared = global.Shared || {};
   const workspaceToolbar = Shared.workspaceToolbar = Shared.workspaceToolbar || {};
   const doc = global.document;
+  const TABLE_IMPORT_TOOLTIP = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, PRISM, or PZFX files';
 
   const ICON_PATHS = Object.freeze({
     open: {
@@ -645,7 +646,7 @@
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
-    const importTooltip = config.icon === 'import' ? 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, or PRISM files' : null;
+    const importTooltip = config.icon === 'import' ? TABLE_IMPORT_TOOLTIP : null;
     const tooltip = config.tooltip;
     if(config.title || tooltip || importTooltip){ button.title = config.title || tooltip || importTooltip; }
     if(config.disabled){ button.disabled = true; }

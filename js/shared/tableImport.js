@@ -33,6 +33,74 @@
     tableImportDebug(`Debug: tableImport.${step}`, payload); // Debug: table import trace
   }
 
+  const PRISM_IMPORT_LIMITATION_MESSAGE = [
+    'PRISM/PZFX import is experimental.',
+    'Only data tables are imported; graph-specific settings are not preserved.',
+    'Saving/exporting back to PRISM/PZFX is not supported.'
+  ].join('\n');
+
+  function showPrismImportLimitations(){
+    if(typeof global.alert !== 'function'){
+      return;
+    }
+    try{
+      global.alert(PRISM_IMPORT_LIMITATION_MESSAGE);
+    }catch(err){
+      tableImportDebug('Debug: tableImport.prismLimitationAlertSkipped', { message: err?.message || String(err) });
+    }
+  }
+
+  function getImportFileBaseName(fileName){
+    const raw = String(fileName || '').split(/[\\/]/).pop().trim();
+    if(!raw){
+      return '';
+    }
+    const withoutExtension = raw.replace(/\.[^.]*$/, '').trim();
+    return withoutExtension || raw;
+  }
+
+  function renameActiveTabForImport(file, result, options = {}){
+    if(!result || options.renameTab === false){
+      return;
+    }
+    const nextTitleBase = getImportFileBaseName(file?.name || '');
+    if(!nextTitleBase){
+      return;
+    }
+    const tabsApi = global.Main?.tabs || null;
+    const session = global.Main?.session || null;
+    const activeTab = session?.getActiveTab?.() || tabsApi?.getActiveTab?.() || null;
+    if(!activeTab || activeTab.isWelcome || !activeTab.id){
+      return;
+    }
+    try{
+      if(typeof tabsApi?.commitTabRename === 'function'){
+        tabsApi.commitTabRename(activeTab.id, nextTitleBase, { reason: 'table-import-file-name' });
+      }else{
+        const previousTitle = activeTab.title || '';
+        const nextTitle = typeof session?.generateUniqueTabTitle === 'function'
+          ? session.generateUniqueTabTitle(nextTitleBase, { excludeTabId: activeTab.id })
+          : nextTitleBase;
+        activeTab.title = nextTitle;
+        if(typeof tabsApi?.renderTabs === 'function'){
+          tabsApi.renderTabs();
+        }
+        if(nextTitle !== previousTitle && typeof session?.markSessionDirty === 'function'){
+          session.markSessionDirty('tab-title-updated-from-import', {
+            tabId: activeTab.id,
+            previousTitle,
+            nextTitle,
+            origin: 'user',
+            fileName: file?.name || ''
+          });
+        }
+      }
+      debugLog('openFile.tabRenamed', { tabId: activeTab.id, title: nextTitleBase, fileName: file?.name || '' }, options.debugLabel || 'tableImport');
+    }catch(err){
+      debugLog('openFile.tabRenameError', { message: err?.message || String(err), fileName: file?.name || '' }, options.debugLabel || 'tableImport');
+    }
+  }
+
   function filterRows(rows){
     return (rows || []).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
   }
@@ -1995,6 +2063,7 @@
       return handler(rows, meta);
     };
     if(ext === 'pzfx'){
+      showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
         prismDebug('pzfx.load', { name: file.name, size: file.size });
@@ -2006,6 +2075,7 @@
         if(result && parsed.prismMeta){
           result.prismMeta = parsed.prismMeta;
         }
+        renameActiveTabForImport(file, result, options);
         prismDebug('pzfx.import.complete', {
           tableTitle: parsed.tableTitle || '',
           tableFormat: parsed.tableFormat || '',
@@ -2023,6 +2093,7 @@
       }
     }
     if(ext === 'prism'){
+      showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
         const JSZip = await ensureZip();
@@ -2333,6 +2404,7 @@
             options.onPrismStyle(prismStyle);
           }
         }
+        renameActiveTabForImport(file, result, options);
         prismDebug('import.complete', { rows: result?.rows || 0, cols: result?.cols || 0 });
         return result;
       }catch(err){
@@ -2349,6 +2421,7 @@
         const filtered = filterRows(rows);
         debugLog('openFile.rows', { rows: filtered.length, cols: filtered[0]?.length || 0 }, debugLabel);
         const result = await applyRows(filtered, { delimiter });
+        renameActiveTabForImport(file, result, options);
         debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
         return result;
       }catch(err){
@@ -2367,6 +2440,7 @@
         const filtered = filterRows(rows);
         debugLog('openFile.rows', { rows: filtered.length, cols: filtered[0]?.length || 0 }, debugLabel);
         const result = await applyRows(filtered, { delimiter: ',' });
+        renameActiveTabForImport(file, result, options);
         debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
         return result;
       }catch(err){

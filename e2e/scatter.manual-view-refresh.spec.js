@@ -41,6 +41,16 @@ async function waitForScatterIdle(page, timeout = 90000) {
   }, null, { timeout });
 }
 
+async function waitForScatterPointCanvas(page, timeout = 180000) {
+  await page.waitForFunction(() => {
+    const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+    return !!layer
+      && layer.getAttribute('data-render-mode') === 'canvas'
+      && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas')
+      && !!layer.getAttribute('data-canvas-render-strategy');
+  }, null, { timeout });
+}
+
 test.describe('Scatter live updates with view-only optimizations', () => {
   test('large dataset keeps style changes view-only and recollects only on data edits', async ({ page }) => {
     test.setTimeout(300000);
@@ -91,7 +101,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     });
     if(largeRenderMeta.renderMode === 'canvas'){
       expect(largeRenderMeta.hasCanvasLayer, 'large scatter point layer should use canvas foreignObject rendering').toBe(true);
-      expect(largeRenderMeta.canvasStrategy, 'large scatter canvas should use cached marker sprites').toBe('sprite');
+      expect(largeRenderMeta.canvasStrategy, 'large scatter canvas should use cached marker sprites').toMatch(/^(indexed-sprite|sprite)$/);
       expect(largeRenderMeta.canvasSpriteBuckets, 'large scatter canvas should draw at least one sprite bucket').toBeGreaterThan(0);
       expect(largeRenderMeta.canvasPathBuckets, 'uniform large scatter canvas should avoid path buckets').toBe(0);
       expect(largeRenderMeta.nodeCount, 'canvas point layer should stay compact on huge datasets').toBeLessThan(10);
@@ -387,17 +397,25 @@ test.describe('Scatter live updates with view-only optimizations', () => {
         viewMode: '2d'
       }) || {};
       const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const canvas = layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas') || null;
       return {
         ...state,
         autoApplied: autoMode.applied || null,
         explicitDensityApplied: explicitDensity.applied || null,
         collectLabelSet: !!policy.collectLabelSet,
         useLargePointMode: !!policy.useLargePointMode,
-        nodeCount: layer ? layer.querySelectorAll('*').length : 0
+        nodeCount: layer ? layer.querySelectorAll('*').length : 0,
+        canvasStrategy: layer?.getAttribute?.('data-canvas-render-strategy') || null,
+        indexedPoints: Number(layer?.getAttribute?.('data-canvas-indexed-points') || 0),
+        canvasWidth: canvas?.width || 0,
+        canvasHeight: canvas?.height || 0,
+        dataUrl: canvas?.toDataURL?.('image/png') || ''
       };
     });
 
     expect(summary.renderMode).toBe('canvas');
+    expect(summary.canvasStrategy).toBe('indexed-sprite');
+    expect(summary.indexedPoints).toBe(20000);
     expect(summary.nodeCount).toBeLessThan(10);
     expect(summary.colorModeDesired).toBe('auto');
     expect(summary.colorModeApplied).toBe('density');
@@ -406,5 +424,29 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     expect(summary.collectLabelSet).toBe(false);
     expect(summary.useLargePointMode).toBe(true);
     expect(summary.labelCount).toBe(0);
+
+    const beforeDraw = await collectCount(page, 'scatter.draw');
+    await page.evaluate(() => {
+      window.__GRAPHITIX_SCATTER_DISABLE_INDEXED_CANVAS_FAST_PATH = true;
+      window.Components?.scatter?.draw?.({ reason: 'e2e-indexed-pixel-compare', viewOnly: true });
+    });
+    await waitForCountIncrease(page, 'scatter.draw', beforeDraw, 120000);
+    await waitForScatterPointCanvas(page, 180000);
+
+    const legacy = await page.evaluate(() => {
+      const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+      const canvas = layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas') || null;
+      return {
+        strategy: layer?.getAttribute?.('data-canvas-render-strategy') || null,
+        width: canvas?.width || 0,
+        height: canvas?.height || 0,
+        dataUrl: canvas?.toDataURL?.('image/png') || ''
+      };
+    });
+
+    expect(legacy.strategy).toBe('sprite');
+    expect(legacy.width).toBe(summary.canvasWidth);
+    expect(legacy.height).toBe(summary.canvasHeight);
+    expect(legacy.dataUrl).toBe(summary.dataUrl);
   });
 });

@@ -2605,6 +2605,25 @@
     return numeric.toExponential(2).replace('e+', 'e');
   }
 
+  function bindHeatmapControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__heatmapControlHandlers){
+      Object.defineProperty(node, '__heatmapControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__heatmapControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+    }
+    node.__heatmapControlHandlers[registryKey] = handler;
+    node.addEventListener(eventName, handler);
+  }
+
   function getCheckedRadioValue(name){
     const checked = queryHeatmapRoot(`input[name="${name}"]:checked`);
     if(checked){
@@ -3120,13 +3139,13 @@
 
     const importBtn = $('heatmapImport');
     const fileInput = $('heatmapFile');
-    importBtn?.addEventListener('click', () => {
+    bindHeatmapControlHandler(importBtn, 'click', 'import-table', () => {
       if(fileInput){
         fileInput.value = '';
         fileInput.click();
       }
     });
-    fileInput?.addEventListener('change', async () => {
+    bindHeatmapControlHandler(fileInput, 'change', 'import-file', async () => {
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('heatmap import skipped - Shared.tableImport.openFile unavailable');

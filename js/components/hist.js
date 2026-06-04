@@ -2899,6 +2899,25 @@
     bindHistDataToolbar();
   }
 
+  function bindHistControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__histControlHandlers){
+      Object.defineProperty(node, '__histControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__histControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+    }
+    node.__histControlHandlers[registryKey] = handler;
+    node.addEventListener(eventName, handler);
+  }
+
   function initControls(){
     const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histXMin=$('#histXMin'), histXMax=$('#histXMax'), histYMax=$('#histYMax'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
     const histStatsDiagnosticsMode=$('#histStatsDiagnosticsMode'), histStatsComparisonMode=$('#histStatsComparisonMode');
@@ -3098,8 +3117,8 @@
     const histFileInput=getHistNodeById('histFile');
     const tableImport = Shared.tableImport;
     if(histImportBtn && histFileInput){
-      histImportBtn.addEventListener('click',()=>{histFileInput.value=''; histFileInput.click();});
-      histFileInput.addEventListener('change',()=>{
+      bindHistControlHandler(histImportBtn, 'click', 'import-table', ()=>{histFileInput.value=''; histFileInput.click();});
+      bindHistControlHandler(histFileInput, 'change', 'import-file', ()=>{
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('hist import skipped: Shared.tableImport.openFile unavailable');
           return;

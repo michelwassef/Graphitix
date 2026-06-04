@@ -5282,6 +5282,25 @@
     });
   }
 
+  function bindSurvivalControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__survivalControlHandlers){
+      Object.defineProperty(node, '__survivalControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__survivalControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+    }
+    node.__survivalControlHandlers[registryKey] = handler;
+    node.addEventListener(eventName, handler);
+  }
+
   function initExampleAndImport(){
     const example = [
       ['Control', 1.2, 1],
@@ -5311,13 +5330,13 @@
         state.scheduleDraw();
       }
     });
-    refs.importBtn?.addEventListener('click', () => {
+    bindSurvivalControlHandler(refs.importBtn, 'click', 'import-table', () => {
       if(refs.fileInput){
         refs.fileInput.value = '';
         refs.fileInput.click();
       }
     });
-    refs.fileInput?.addEventListener('change', () => {
+    bindSurvivalControlHandler(refs.fileInput, 'change', 'import-file', () => {
       if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
         console.warn('Survival import skipped: Shared.tableImport.openFile unavailable');
         return;

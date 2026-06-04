@@ -1807,11 +1807,33 @@
     const formulaEvaluationState = {
       enabled: !!enableFormulaEvaluation,
       model: null,
-      dirty: !!enableFormulaEvaluation,
+      dirty: false,
+      active: false,
       headerRows: Math.max(0, Number(headerRowCount) || 0),
       a1RowOffset: Math.max(0, Number(getFormulaA1RowOffset()) || 0),
       unavailableLogged: false,
       createdLogged: false
+    };
+    const isFormulaLikeValue = value => {
+      if(typeof value !== 'string'){
+        return false;
+      }
+      return value.trim().startsWith('=');
+    };
+    const matrixContainsFormulaValue = matrix => {
+      if(!Array.isArray(matrix)){
+        return false;
+      }
+      const startRow = Math.max(0, Number(headerRowCount) || 0);
+      for(let row = startRow; row < matrix.length; row += 1){
+        const rowData = Array.isArray(matrix[row]) ? matrix[row] : [];
+        for(let col = 0; col < rowData.length; col += 1){
+          if(isFormulaLikeValue(rowData[col])){
+            return true;
+          }
+        }
+      }
+      return false;
     };
     const isFormulaEvaluationDebugEnabled = ()=>(
       typeof Shared.isDebugEnabled === 'function'
@@ -1829,6 +1851,9 @@
     };
     const markFormulaModelDirty = (reason)=>{
       if(!formulaEvaluationState.enabled){
+        return;
+      }
+      if(!formulaEvaluationState.active){
         return;
       }
       formulaEvaluationState.dirty = true;
@@ -1888,6 +1913,38 @@
       }
       return formulaEvaluationState.model;
     };
+    const deactivateFormulaModel = reason => {
+      formulaEvaluationState.active = false;
+      formulaEvaluationState.dirty = false;
+      formulaEvaluationState.model = null;
+      logFormulaEvaluationDebug('Debug: Shared.hot formula model deactivated', {
+        debugLabel,
+        reason: reason || 'formula-none'
+      });
+    };
+    const activateFormulaModel = reason => {
+      if(!formulaEvaluationState.enabled){
+        return false;
+      }
+      formulaEvaluationState.active = true;
+      formulaEvaluationState.dirty = true;
+      logFormulaEvaluationDebug('Debug: Shared.hot formula model activated', {
+        debugLabel,
+        reason: reason || 'formula-detected'
+      });
+      return true;
+    };
+    const syncFormulaModelActivityFromMatrix = reason => {
+      if(!formulaEvaluationState.enabled){
+        return false;
+      }
+      if(matrixContainsFormulaValue(dataHandle.current || [])){
+        activateFormulaModel(reason || 'matrix-formula-detected');
+        return true;
+      }
+      deactivateFormulaModel(reason || 'matrix-without-formulas');
+      return false;
+    };
     const rebuildFormulaModelFromMatrix = (reason)=>{
       const model = ensureFormulaModel(reason || 'rebuild');
       if(!model){
@@ -1914,6 +1971,9 @@
       }
     };
     const ensureFormulaModelCurrent = (reason)=>{
+      if(!formulaEvaluationState.active){
+        return null;
+      }
       const model = ensureFormulaModel(reason || 'ensure-current');
       if(!model){
         return null;
@@ -1932,6 +1992,12 @@
       if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
         return false;
       }
+      if(!formulaEvaluationState.active && !isFormulaLikeValue(value)){
+        return true;
+      }
+      if(!formulaEvaluationState.active){
+        activateFormulaModel(reason || 'set-formula-cell');
+      }
       const model = ensureFormulaModel(reason || 'set-cell');
       if(!model){
         return false;
@@ -1941,6 +2007,12 @@
       }
       try{
         model.setCellRaw(row, col, value);
+        formulaEvaluationState.active = typeof model.hasFormulas === 'function'
+          ? model.hasFormulas()
+          : true;
+        if(!formulaEvaluationState.active){
+          formulaEvaluationState.dirty = false;
+        }
         return true;
       }catch(err){
         console.error('Shared.hot formula model setCellRaw failed', {
@@ -1963,6 +2035,9 @@
       if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
         return fallbackValue;
       }
+      if(!formulaEvaluationState.active){
+        return fallbackValue;
+      }
       const model = ensureFormulaModelCurrent('resolve-raw');
       if(!model){
         return fallbackValue;
@@ -1980,6 +2055,12 @@
       }
       if(isHeaderRow(row)){
         return fallbackValue;
+      }
+      if(!formulaEvaluationState.active && !isFormulaLikeValue(fallbackValue)){
+        return fallbackValue;
+      }
+      if(!formulaEvaluationState.active){
+        activateFormulaModel('resolve-display-formula');
       }
       const model = ensureFormulaModelCurrent('resolve-display');
       if(!model){
@@ -4783,8 +4864,6 @@
       return results;
     };
 
-    const isFormulaLikeValue = value=>typeof value === 'string' && value.trim().startsWith('=');
-
     const resolveSeedPatternIndex = (direction, sequenceLength, outputIndex)=>{
       const len = Math.max(0, Number(sequenceLength) || 0);
       const idx = Math.max(0, Number(outputIndex) || 0);
@@ -6177,7 +6256,7 @@
       data = incoming ? adoptMatrixForLoad(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
       dataHandle.current = data;
       markDataRevision('loadData');
-      markFormulaModelDirty('load-data');
+      syncFormulaModelActivityFromMatrix('load-data');
       colHeaders = resolveColHeaders(colCount);
       if(explicitExclusions && typeof explicitExclusions === 'object'){
         exclusionController.importState(cloneExclusionState(explicitExclusions));
@@ -8296,7 +8375,7 @@
       const withNested = applyNestedHeadersToDefs(enhancedDataColumnDefs);
       return rowHeaderCol ? [rowHeaderCol, ...withNested] : withNested;
     };
-    if(formulaEvaluationState.enabled){
+    if(formulaEvaluationState.enabled && syncFormulaModelActivityFromMatrix('initial')){
       rebuildFormulaModelFromMatrix('initial');
     }
     let columnDefs = buildColumnDefs();
@@ -8351,6 +8430,13 @@
       if(!list.length){
         return;
       }
+      if(!formulaEvaluationState.active){
+        const hasFormulaUpdate = list.some(entry => Array.isArray(entry) && entry.length >= 4 && isFormulaLikeValue(entry[3]));
+        if(!hasFormulaUpdate){
+          return;
+        }
+        activateFormulaModel(reason || 'sync-visual-formula');
+      }
       const model = ensureFormulaModelCurrent(reason || 'sync-visual-changes');
       if(!model){
         return;
@@ -8390,6 +8476,9 @@
         return;
       }
       formulaEvaluationState.dirty = false;
+      formulaEvaluationState.active = typeof model.hasFormulas === 'function'
+        ? model.hasFormulas()
+        : true;
       logFormulaEvaluationDebug('Debug: Shared.hot formula model synchronized from visual changes', {
         debugLabel,
         reason: reason || 'sync-visual-changes',

@@ -1724,6 +1724,25 @@
     console.debug('Debug: ensureLabelColors sync complete', { count: Object.keys(state.labelColors).length });
   }
 
+  function bindRocControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__rocControlHandlers){
+      Object.defineProperty(node, '__rocControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__rocControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+    }
+    node.__rocControlHandlers[registryKey] = handler;
+    node.addEventListener(eventName, handler);
+  }
+
   function initExampleAndImport(){
     const example = [
       ['Label','Model1','Model2','Model3'],
@@ -1766,7 +1785,7 @@
       state.scheduleDraw?.();
     });
 
-    refs.importBtn?.addEventListener('click', () => {
+    bindRocControlHandler(refs.importBtn, 'click', 'import-table', () => {
       if(refs.fileInput){
         refs.fileInput.value = '';
         refs.fileInput.click();
@@ -1782,7 +1801,7 @@
       });
     }
 
-    refs.fileInput?.addEventListener('change', async () => {
+    bindRocControlHandler(refs.fileInput, 'change', 'import-file', async () => {
       const tableImport = Shared.tableImport;
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('roc import skipped: Shared.tableImport.openFile unavailable');

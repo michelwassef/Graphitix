@@ -945,6 +945,28 @@
     node.addEventListener(type, handler, options);
     try{ state._listeners.push({ node, type, handler, options }); }catch(e){ /* ignore */ }
   }
+
+  function bindSurfaceControlHandler(node, eventName, key, handler){
+    if(!node || typeof node.addEventListener !== 'function'){
+      return;
+    }
+    const registryKey = `${eventName}:${key}`;
+    if(!node.__surfaceControlHandlers){
+      Object.defineProperty(node, '__surfaceControlHandlers', {
+        value: Object.create(null),
+        configurable: true
+      });
+    }
+    const previous = node.__surfaceControlHandlers[registryKey];
+    if(previous){
+      node.removeEventListener(eventName, previous);
+      if(Array.isArray(state._listeners)){
+        state._listeners = state._listeners.filter(rec => !(rec && rec.node === node && rec.type === eventName && rec.handler === previous));
+      }
+    }
+    node.__surfaceControlHandlers[registryKey] = handler;
+    attachListener(node, eventName, handler);
+  }
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
@@ -2022,11 +2044,11 @@
       });
     }
     if(state.controls.importBtn && state.controls.importFile){
-      attachListener(state.controls.importBtn, 'click', () => {
+      bindSurfaceControlHandler(state.controls.importBtn, 'click', 'import-table', () => {
         state.controls.importFile.value = '';
         state.controls.importFile.click();
       });
-      attachListener(state.controls.importFile, 'change', () => {
+      bindSurfaceControlHandler(state.controls.importFile, 'change', 'import-file', () => {
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('surface import skipped: tableImport unavailable');
           return;

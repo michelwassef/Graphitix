@@ -17075,6 +17075,133 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return true;
       }
 
+      function paintScatterPointCanvasIndexedSprites(ctx, sprite, indices, cxValues, cyValues, start, end, bounds){
+        if(!ctx || !sprite || !indices || !cxValues || !cyValues || !bounds){
+          return false;
+        }
+        const { canvas, cssSize, offset } = sprite;
+        if(!canvas || !(cssSize > 0)){
+          return false;
+        }
+        for(let pos = start; pos < end; pos += 1){
+          const pointIndex = indices[pos];
+          ctx.drawImage(
+            canvas,
+            (cxValues[pointIndex] - bounds.minX) - offset,
+            (cyValues[pointIndex] - bounds.minY) - offset,
+            cssSize,
+            cssSize
+          );
+        }
+        return true;
+      }
+
+      function appendScatterPointCanvasIndexedBucketsAsPaths(group, buckets, cxValues, cyValues){
+        const doc = global.document;
+        if(!doc || !group || !buckets || !buckets.size || !cxValues || !cyValues){
+          return false;
+        }
+        let appended = false;
+        buckets.forEach(bucket => {
+          const indices = bucket?.indices;
+          if(!indices || !indices.length){
+            return;
+          }
+          const segments = [];
+          for(let pos = 0; pos < indices.length; pos += 1){
+            const pointIndex = indices[pos];
+            const segment = buildScatterCirclePathSegment(cxValues[pointIndex], cyValues[pointIndex], bucket.radius);
+            if(segment){ segments.push(segment); }
+          }
+          if(segments.length){
+            const path = doc.createElementNS(NS, 'path');
+            path.setAttribute('d', segments.join(' '));
+            path.setAttribute('fill', bucket.fill || '#000000');
+            if(bucket.fillOpacity !== 1){
+              path.setAttribute('fill-opacity', String(bucket.fillOpacity));
+            }
+            if(bucket.stroke && bucket.strokeWidth > 0){
+              path.setAttribute('stroke', bucket.stroke);
+              path.setAttribute('stroke-width', String(bucket.strokeWidth));
+              if(bucket.strokeOpacity !== 1){
+                path.setAttribute('stroke-opacity', String(bucket.strokeOpacity));
+              }
+            }else{
+              path.setAttribute('stroke', 'none');
+            }
+            group.appendChild(path);
+            appended = true;
+          }
+        });
+        if(appended){
+          group.setAttribute('data-render-mode', 'batched-indexed-fallback');
+        }
+        return appended;
+      }
+
+      async function renderScatterPointCanvasIndexedBuckets(group, buckets, bounds, cxValues, cyValues, options = {}){
+        const doc = options.doc || global.document;
+        if(!doc || !group || !buckets || !buckets.size || !cxValues || !cyValues || !canUseScatterPointCanvas()){
+          return false;
+        }
+        const shouldCancel = typeof options.shouldCancel === 'function' ? options.shouldCancel : null;
+        const expandedBounds = expandScatterPointCanvasBounds(bounds, 2);
+        if(!expandedBounds){
+          return false;
+        }
+        const surface = createScatterPointCanvasSurface(doc, expandedBounds, 'canvas-preview');
+        if(!surface){
+          return false;
+        }
+        const { foreignObject, canvas, ctx, dpr } = surface;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const bucketList = Array.from(buckets.values());
+        let pointsSinceYield = 0;
+        let spriteBucketCount = 0;
+        let spritePointCount = 0;
+        for(let bucketIndex = 0; bucketIndex < bucketList.length; bucketIndex += 1){
+          if(shouldCancel?.()){
+            return false;
+          }
+          const bucket = bucketList[bucketIndex];
+          const indices = bucket?.indices;
+          if(!indices || !indices.length){
+            continue;
+          }
+          const sprite = createScatterPointCanvasMarkerSprite(bucket, dpr);
+          if(!sprite){
+            return false;
+          }
+          spriteBucketCount += 1;
+          spritePointCount += indices.length;
+          const frameBudget = SCATTER_POINT_CANVAS_SPRITE_FRAME_POINT_BUDGET;
+          for(let start = 0; start < indices.length; start += frameBudget){
+            if(shouldCancel?.()){
+              return false;
+            }
+            const end = Math.min(indices.length, start + frameBudget);
+            paintScatterPointCanvasIndexedSprites(ctx, sprite, indices, cxValues, cyValues, start, end, expandedBounds);
+            pointsSinceYield += end - start;
+            if(pointsSinceYield >= frameBudget && (end < indices.length || bucketIndex < bucketList.length - 1)){
+              pointsSinceYield = 0;
+              await waitScatterCanvasFrame();
+            }
+          }
+        }
+        if(shouldCancel?.()){
+          return false;
+        }
+        foreignObject.appendChild(canvas);
+        group.appendChild(foreignObject);
+        group.setAttribute('data-render-mode', 'canvas');
+        group.setAttribute('data-point-renderer', 'canvas-preview');
+        group.setAttribute('data-canvas-render-strategy', 'indexed-sprite');
+        group.setAttribute('data-canvas-sprite-buckets', String(spriteBucketCount));
+        group.setAttribute('data-canvas-path-buckets', '0');
+        group.setAttribute('data-canvas-indexed-points', String(spritePointCount));
+        return true;
+      }
+
       async function renderScatterPointCanvasBuckets(group, buckets, bounds, options = {}){
         const doc = options.doc || global.document;
         if(!doc || !group || !buckets || !buckets.size || !canUseScatterPointCanvas()){
@@ -20896,6 +21023,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           : 0;
         const enablePointInteractivity = !largePointMode;
         const canvasPointBuckets = useCanvasPointRender ? new Map() : null;
+        const indexedCanvasPointBuckets = useCanvasPointRender ? new Map() : null;
         let canvasPointBounds = null;
         const batchedCircleBuckets = useBatchedCircleRender ? new Map() : null;
         const resizePhase = typeof drawOptions?.resizePhase === 'string' ? drawOptions.resizePhase : '';
@@ -20924,8 +21052,93 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             isBubbleView
           });
         }
+        const labelStyleOverrideCount = scatterLabelStyles && typeof scatterLabelStyles === 'object'
+          ? Object.keys(scatterLabelStyles).length
+          : 0;
+        const disableIndexedCanvasFastPath = !!global.__GRAPHITIX_SCATTER_DISABLE_INDEXED_CANVAS_FAST_PATH;
+        const useIndexedCanvasPointRender = !!(
+          useCanvasPointRender
+          && !disableIndexedCanvasFastPath
+          && scatterCurrentGraphType === 'scatter'
+          && useUniformLabelStyle
+          && !isBubbleView
+          && !showGroupedErrorBars
+          && !shouldCollectManualLabels
+          && !labelStyleOverrideCount
+          && Number.isFinite(dotSizePx)
+          && dotSizePx > 0
+        );
         let pointLayer = null;
         if(!canReuseCanvasLayerOnMove){
+        if(useIndexedCanvasPointRender){
+          const markerOpacity = 1 - alpha;
+          const strokeValue = borderWidthPx > 0 ? borderColor : '';
+          const strokeWidthValue = borderWidthPx > 0 ? borderWidthPx : 0;
+          const styleCache = new Map();
+          const resolveIndexedStyle = binKey => {
+            const key = String(binKey);
+            let style = styleCache.get(key);
+            if(style){
+              return style;
+            }
+            const ratio = densityColorSteps > 0
+              ? (Number(binKey) / densityColorSteps)
+              : 0;
+            const color = scatterColorModeApplied === 'density'
+              ? (densityColorFor ? densityColorFor(ratio) : fill)
+              : fill;
+            style = {
+              shape: 'circle',
+              fill: color,
+              fillOpacity: markerOpacity,
+              stroke: strokeValue,
+              strokeWidth: strokeWidthValue,
+              strokeOpacity: markerOpacity,
+              radius: dotSizePx,
+              indices: []
+            };
+            style.bucketKey = [
+              style.shape,
+              style.fill,
+              style.fillOpacity,
+              style.stroke,
+              style.strokeWidth,
+              style.strokeOpacity
+            ].join('|');
+            styleCache.set(key, style);
+            return style;
+          };
+          for(pointIndex = 0; pointIndex < points.length; pointIndex += 1){
+            if((pointIndex & 2047) === 0 && !(await checkpointScatterDraw('points-indexed'))){
+              return;
+            }
+            const cxVal = pointCx ? pointCx[pointIndex] : x2px(pointXv ? pointXv[pointIndex] : (logX ? Math.log10(points[pointIndex]?.x) : points[pointIndex]?.x));
+            const cyVal = pointCy ? pointCy[pointIndex] : y2px(pointYv ? pointYv[pointIndex] : (logY ? Math.log10(points[pointIndex]?.y) : points[pointIndex]?.y));
+            const densityRatioRaw = densityInfo && densityInfo.max > 0
+              ? (densityInfo.values[pointIndex] || 0) / densityInfo.max
+              : 0;
+            const densityBin = densityColorSteps > 0
+              ? Math.round(Math.min(1, Math.max(0, densityRatioRaw)) * densityColorSteps)
+              : 0;
+            const style = resolveIndexedStyle(densityBin);
+            let bucket = indexedCanvasPointBuckets.get(style.bucketKey);
+            if(!bucket){
+              bucket = {
+                shape: style.shape,
+                fill: style.fill,
+                fillOpacity: style.fillOpacity,
+                stroke: style.stroke,
+                strokeWidth: style.strokeWidth,
+                strokeOpacity: style.strokeOpacity,
+                radius: style.radius,
+                indices: []
+              };
+              indexedCanvasPointBuckets.set(style.bucketKey, bucket);
+            }
+            bucket.indices.push(pointIndex);
+            canvasPointBounds = updateScatterPointCanvasBounds(canvasPointBounds, cxVal, cyVal, dotSizePx, strokeWidthValue);
+          }
+        }else{
         for(const p of points){
           if((pointIndex & 2047) === 0 && !(await checkpointScatterDraw('points'))){
             return;
@@ -21175,6 +21388,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           pointIndex++;
           if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
         }
+        }
         if(batchedCircleBuckets && batchedCircleBuckets.size){
           const doc = global.document;
           batchedCircleBuckets.forEach(bucket => {
@@ -21252,10 +21466,17 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         });
         let canvasPointLayerRendered = false;
         if(useCanvasPointRender && !reusedCanvasPointLayerOnMove){
-          canvasPointLayerRendered = await renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, {
-            doc: global.document,
-            shouldCancel: () => token !== scatterDrawToken
-          });
+          if(useIndexedCanvasPointRender){
+            canvasPointLayerRendered = await renderScatterPointCanvasIndexedBuckets(pointLayer, indexedCanvasPointBuckets, canvasPointBounds, pointCx, pointCy, {
+              doc: global.document,
+              shouldCancel: () => token !== scatterDrawToken
+            });
+          }else{
+            canvasPointLayerRendered = await renderScatterPointCanvasBuckets(pointLayer, canvasPointBuckets, canvasPointBounds, {
+              doc: global.document,
+              shouldCancel: () => token !== scatterDrawToken
+            });
+          }
           if(token !== scatterDrawToken){
             if(perfApi && pointAttachPerf){
               perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: false, outcome: 'stale' });
@@ -21264,12 +21485,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             return;
           }
           if(!canvasPointLayerRendered){
-            appendScatterPointCanvasBucketsAsPaths(pointLayer, canvasPointBuckets);
+            if(useIndexedCanvasPointRender){
+              appendScatterPointCanvasIndexedBucketsAsPaths(pointLayer, indexedCanvasPointBuckets, pointCx, pointCy);
+            }else{
+              appendScatterPointCanvasBucketsAsPaths(pointLayer, canvasPointBuckets);
+            }
             debug('Debug: scatter canvas point render fallback used', { pointCount: points.length });
           }else{
             debug('Debug: scatter canvas point render complete', {
               pointCount: points.length,
-              bucketCount: canvasPointBuckets?.size || 0,
+              bucketCount: useIndexedCanvasPointRender ? (indexedCanvasPointBuckets?.size || 0) : (canvasPointBuckets?.size || 0),
               bounds: canvasPointBounds
             });
           }
