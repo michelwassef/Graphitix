@@ -3184,18 +3184,60 @@
       const genes = [...(state.analysis.lastUpSetRegionMap[code] || new Set())];
       return genes.join('\n');
     }
-    if (!state.analysis.lastRegions) return '';
+    const regions = ensureVennRegionsForLookup();
+    if (!regions) return '';
     const map = {
-      A: state.analysis.lastRegions.Aonly,
-      B: state.analysis.lastRegions.Bonly,
-      C: state.analysis.lastRegions.Conly,
-      AB: state.analysis.lastRegions.AB,
-      AC: state.analysis.lastRegions.AC,
-      BC: state.analysis.lastRegions.BC,
-      ABC: state.analysis.lastRegions.ABC
+      A: regions.Aonly,
+      B: regions.Bonly,
+      C: regions.Conly,
+      AB: regions.AB,
+      AC: regions.AC,
+      BC: regions.BC,
+      ABC: regions.ABC
     };
     const genes = [...(map[code] || new Set())];
     return genes.join('\n');
+  }
+
+  // Region Sets/Counts are derived from the gene lists and are not persisted (Map/Set do
+  // not survive JSON archives). Rebuild them from the current table inputs on demand so
+  // overlap-group switching and the count summary work after a reopen/recovery, where the
+  // render cache restores only the diagram DOM. Returns true if state was (re)built.
+  function ensureVennAnalysisStateFromData(reason) {
+    if (getActivePlotType() === 'upset') {
+      return false;
+    }
+    if (state.analysis.lastRegions && state.analysis.lastCounts) {
+      return false;
+    }
+    // Mirror the just-restored table into the text inputs before parsing.
+    syncVennInputsFromTable({ scheduleDraw: false, scheduleSpecies: false });
+    const parsed = ensureParsedLists({ includeRegions: true, reason: reason || 'venn-analysis-rebuild' });
+    const regions = parsed && parsed.regions ? parsed.regions : null;
+    if (!regions) {
+      return false;
+    }
+    state.analysis.lastRegions = regions;
+    if (!state.analysis.lastDrawMode) {
+      state.analysis.lastDrawMode = 'lists';
+    }
+    state.analysis.lastCounts = {
+      nA: regions.A.size, nB: regions.B.size, nC: regions.C.size,
+      Aonly: regions.Aonly.size, Bonly: regions.Bonly.size, Conly: regions.Conly.size,
+      AB: regions.AB.size, AC: regions.AC.size, BC: regions.BC.size, ABC: regions.ABC.size
+    };
+    debugLog('venn analysis state rebuilt from data', { reason: reason || null });
+    return true;
+  }
+
+  function ensureVennRegionsForLookup() {
+    if (getActivePlotType() === 'upset') {
+      return state.analysis.lastUpSetRegionMap || null;
+    }
+    if (!state.analysis.lastRegions) {
+      ensureVennAnalysisStateFromData('region-lookup');
+    }
+    return state.analysis.lastRegions || null;
   }
 
   function populateRegion(code, options = {}) {
@@ -3208,18 +3250,19 @@
     if (plotType === 'upset' && state.analysis.lastUpSetRegionMap) {
       arr = [...(state.analysis.lastUpSetRegionMap[code] || new Set())].sort();
     } else {
-      if (!state.analysis.lastRegions) {
+      const regions = ensureVennRegionsForLookup();
+      if (!regions) {
         debug('Debug: venn populateRegion skipped', { hasRegions: false });
         return;
       }
       const map = {
-        A: state.analysis.lastRegions.Aonly,
-        B: state.analysis.lastRegions.Bonly,
-        C: state.analysis.lastRegions.Conly,
-        AB: state.analysis.lastRegions.AB,
-        AC: state.analysis.lastRegions.AC,
-        BC: state.analysis.lastRegions.BC,
-        ABC: state.analysis.lastRegions.ABC
+        A: regions.Aonly,
+        B: regions.Bonly,
+        C: regions.Conly,
+        AB: regions.AB,
+        AC: regions.AC,
+        BC: regions.BC,
+        ABC: regions.ABC
       };
       arr = [...(map[code] || new Set())].sort();
     }
@@ -3410,6 +3453,25 @@
       state.ui.analysisTabString.classList.toggle('is-active', showTabs && visibleTab === 'string');
       state.ui.analysisTabString.setAttribute('aria-selected', showTabs && visibleTab === 'string' ? 'true' : 'false');
       state.ui.analysisTabString.tabIndex = showTabs && visibleTab === 'string' ? 0 : -1;
+    }
+    // The GO chart canvas is sized from its layout width, so a chart drawn while the GO
+    // panel was hidden (0-width) or only restored as a bitmap must be re-rendered from data
+    // once the panel is visible. Reopen restores lastGOResult, so this also rebuilds the
+    // chart after a file reopen/recovery.
+    if (showGoPanel && Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length) {
+      const goCanvas = getVennNodeById('goChart');
+      if (!state.analysis.goChart || !goCanvas || !goCanvas.width) {
+        const renderGoChartReflow = () => {
+          if (Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length) {
+            renderGOChart(state.analysis.goDisplayLimit || 5);
+          }
+        };
+        if (typeof global.requestAnimationFrame === 'function') {
+          global.requestAnimationFrame(renderGoChartReflow);
+        } else {
+          setTimeout(renderGoChartReflow, 0);
+        }
+      }
     }
     return { hasGo, hasString, showTabs, visibleTab };
   }
@@ -3660,6 +3722,7 @@
       if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; }
       return;
     }
+    state.analysis.goDisplayLimit = limit;
     const data = state.analysis.lastGOResult.slice(0, limit);
     const labels = data.map(r => r.term_name || r.name || '');
     const values = data.map(r => -Math.log10(r.p_value));
@@ -3676,7 +3739,10 @@
     const chartHeight = Math.max(300, barHeight * labels.length);
     canvas.style.height = chartHeight + 'px';
     canvas.height = chartHeight;
-    canvas.width = canvas.offsetWidth;
+    // The GO tab may be hidden when this runs (e.g. a re-render triggered while the STRING
+    // tab is active), where offsetWidth is 0 and would produce a blank 0-width chart. Fall
+    // back to the surrounding layout width so the chart is always drawable.
+    canvas.width = canvas.offsetWidth || canvas.clientWidth || canvas.parentElement?.clientWidth || 600;
     const ctx = canvas.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const config = {
@@ -6977,7 +7043,18 @@
       syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
       debugLog('venn table structure change', { label });
     };
-    state.ui.hot = Shared.hot.createStandardTable(container, { rows: 20, cols: 3 }, () => {}, {
+    // The hot wrapper invokes this draw callback for every table mutation it applies,
+    // including undo/redo, fill, and structural changes — not only direct cell edits (which
+    // also fire the afterChange hook below). Routing it through syncVennInputsFromTable so
+    // those paths redraw the diagram normalizes venn to scatter/box/line, which pass their
+    // real draw proxy here. A no-op was the reason undo did not update the graph.
+    const scheduleVennTableDraw = (payload) => {
+      if (payload && payload.source === 'loadData') {
+        return;
+      }
+      syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
+    };
+    state.ui.hot = Shared.hot.createStandardTable(container, { rows: 20, cols: 3 }, scheduleVennTableDraw, {
       debugLabel: 'venn',
       data,
         pinFirstRow: true,
@@ -7937,6 +8014,12 @@
       const labels = getCurrentVennLabelMap();
       updateCountLabels(labels);
       updateColorLabels(labels);
+      // Region Sets/Counts are derived state that the cache cannot carry; rebuild them
+      // from the restored gene-list data so the count summary and overlap-group switching
+      // work after reopen/recovery (the render cache only restores the diagram DOM).
+      if(!state.analysis.lastCounts){
+        ensureVennAnalysisStateFromData('render-cache-restore');
+      }
       if(state.analysis.lastCounts){
         refreshCounts(state.analysis.lastCounts);
         if (getActivePlotType() !== 'upset') {
