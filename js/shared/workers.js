@@ -50,6 +50,9 @@
       if(entry?.timer){
         clearTimeout(entry.timer);
       }
+      if(entry?.abortCleanup){
+        try{ entry.abortCleanup(); }catch(_err){}
+      }
       if(message.ok === false){
         entry.reject(new Error(message.error || 'Worker task failed'));
       }else{
@@ -102,6 +105,48 @@
     }
   };
 
+  function rejectPendingEntry(record, id, reason){
+    if(!record || !record.pending?.has?.(id)){
+      return false;
+    }
+    const entry = record.pending.get(id);
+    record.pending.delete(id);
+    if(entry?.timer){
+      clearTimeout(entry.timer);
+    }
+    if(entry?.abortCleanup){
+      try{ entry.abortCleanup(); }catch(_err){}
+    }
+    const error = reason instanceof Error ? reason : new Error(reason || 'Worker task cancelled');
+    try{ entry.reject(error); }catch(_err){}
+    return true;
+  }
+
+  Workers.cancelTask = function cancelTask(task, reason = 'cancelled'){
+    const name = typeof task === 'object' && task ? task.name : null;
+    const id = typeof task === 'object' && task ? task.id : task;
+    if(!name || id == null || !registry.has(name)){
+      return false;
+    }
+    const record = registry.get(name);
+    const entry = record.pending.get(id);
+    const cancelled = rejectPendingEntry(record, id, reason);
+    if(cancelled && entry?.terminateOnCancel){
+      const otherPending = Array.from(record.pending.keys());
+      try{
+        record.worker.terminate();
+      }catch(_err){}
+      registry.delete(name);
+      otherPending.forEach(otherId => {
+        rejectPendingEntry(record, otherId, new Error('Worker was terminated by a cancelled task'));
+      });
+      logDebug('Debug: Workers task cancelled with termination', { name, id, reason });
+    }else if(cancelled){
+      logDebug('Debug: Workers task cancelled', { name, id, reason });
+    }
+    return cancelled;
+  };
+
   Workers.runTask = function runTask(config){
     const name = config?.name || 'default';
     const url = config?.url;
@@ -110,6 +155,8 @@
     const fallback = typeof config?.fallback === 'function' ? config.fallback : null;
     const timeoutMs = Number.isFinite(config?.timeoutMs) ? config.timeoutMs : 0;
     const transfer = Array.isArray(config?.transfer) ? config.transfer : undefined;
+    const signal = config?.signal || null;
+    const terminateOnCancel = config?.cancelStrategy === 'terminate' || config?.terminateOnCancel === true;
 
     if(!Workers.isSupported()){
       if(fallback){
@@ -130,15 +177,25 @@
     const message = { id, action, payload };
     logDebug('Debug: Workers task queued', { name, action, id });
 
-    return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, timer: null };
+    const promise = new Promise((resolve, reject) => {
+      const entry = { resolve, reject, timer: null, abortCleanup: null, terminateOnCancel };
       if(timeoutMs > 0){
         entry.timer = setTimeout(() => {
           if(record.pending.has(id)){
-            record.pending.delete(id);
-            reject(new Error('Worker task timeout'));
+            rejectPendingEntry(record, id, 'Worker task timeout');
           }
         }, timeoutMs);
+      }
+      if(signal && typeof signal.addEventListener === 'function'){
+        const onAbort = () => {
+          Workers.cancelTask({ name, id }, signal.reason || 'Worker task cancelled');
+        };
+        if(signal.aborted){
+          reject(signal.reason instanceof Error ? signal.reason : new Error('Worker task cancelled'));
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+        entry.abortCleanup = () => signal.removeEventListener('abort', onAbort);
       }
       record.pending.set(id, entry);
       try{
@@ -152,6 +209,9 @@
         if(entry.timer){
           clearTimeout(entry.timer);
         }
+        if(entry.abortCleanup){
+          entry.abortCleanup();
+        }
         if(fallback){
           Promise.resolve().then(() => fallback(payload)).then(resolve).catch(reject);
           return;
@@ -159,5 +219,8 @@
         reject(err);
       }
     });
+    promise.task = { name, id, action };
+    promise.cancel = reason => Workers.cancelTask({ name, id }, reason || 'cancelled');
+    return promise;
   };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

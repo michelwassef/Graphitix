@@ -824,6 +824,7 @@
   const histOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'hist',
     message: 'Rendering histogram...',
+    getTabId: () => hist.__boundTabId || null,
     getHost: () => (
       state.svgBox
       || queryHistRoot('#histGraphPanel .svgbox')
@@ -5662,6 +5663,18 @@
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
     return draw(options);
+  };
+  hist.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || hist.__boundTabId || null;
+    try{ hist.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'hist-draw-cancel'); }catch(_err){}
+    resolveHistOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'hist',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'hist-draw-cancel'
+    });
+    return true;
   };
   function ensureHistDomBindings(tabLike){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){

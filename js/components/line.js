@@ -3212,6 +3212,7 @@
   const lineOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'line',
     message: 'Rendering line chart...',
+    getTabId: () => line.__boundTabId || null,
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
@@ -14267,6 +14268,18 @@
       }
       scheduleLineDraw(drawOptions);
     }
+  };
+  line.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || line.__boundTabId || null;
+    try{ line.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'line-draw-cancel'); }catch(_err){}
+    resolveLineOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'line',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'line-draw-cancel'
+    });
+    return true;
   };
   line.save = saveLineFile;
   line.saveAs = saveAsLineFile;

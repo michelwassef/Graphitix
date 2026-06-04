@@ -22,6 +22,16 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on('desktop:openGraphFile', listener);
     return () => ipcRenderer.removeListener('desktop:openGraphFile', listener);
   },
+  onMenuCommand: (handler) => {
+    if (typeof handler !== 'function') {
+      return () => {};
+    }
+    const listener = (_event, payload) => {
+      handler(payload);
+    };
+    ipcRenderer.on('desktop:menuCommand', listener);
+    return () => ipcRenderer.removeListener('desktop:menuCommand', listener);
+  },
   writeRecoverySnapshot: (payload) => ipcRenderer.invoke('desktop:writeRecoverySnapshot', payload),
   readRecoverySnapshot: () => ipcRenderer.invoke('desktop:readRecoverySnapshot'),
   clearRecoverySnapshot: () => ipcRenderer.invoke('desktop:clearRecoverySnapshot'),

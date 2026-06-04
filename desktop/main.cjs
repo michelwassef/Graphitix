@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, clipboard, nativeImage } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
@@ -64,6 +64,172 @@ function enqueueGraphFilePaths(filePaths) {
     pendingGraphFilePaths.push(filePath);
   }
   flushPendingGraphFilePaths();
+}
+
+function sendDesktopMenuCommand(command, detail = {}) {
+  const normalized = String(command || '').trim();
+  if (!normalized || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('desktop:menuCommand', {
+    command: normalized,
+    ...detail
+  });
+}
+
+function createCommandItem(label, command, accelerator, options = {}) {
+  return {
+    label,
+    ...(accelerator ? { accelerator } : {}),
+    enabled: options.enabled !== false,
+    click: () => sendDesktopMenuCommand(command, options.detail || {})
+  };
+}
+
+function showAboutDialog() {
+  const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+  dialog.showMessageBox(focusedWindow, {
+    type: 'info',
+    title: 'About Graphitix',
+    message: 'Graphitix',
+    detail: [
+      `Version ${app.getVersion()}`,
+      'A desktop wrapper for the Graphitix visualization and statistical analysis workspace.',
+      '',
+      'Workspace files are saved as .graph archives.'
+    ].join('\n'),
+    buttons: ['OK'],
+    noLink: true
+  }).catch(() => {});
+}
+
+function revealUserDataFolder() {
+  shell.openPath(app.getPath('userData')).catch(err => {
+    const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow || undefined;
+    dialog.showMessageBox(focusedWindow, {
+      type: 'error',
+      title: 'Could Not Open Folder',
+      message: 'Graphitix could not open the application data folder.',
+      detail: String((err && err.message) || err),
+      buttons: ['OK'],
+      noLink: true
+    }).catch(() => {});
+  });
+}
+
+function buildApplicationMenuTemplate() {
+  const redoAccelerator = process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Y';
+  const template = [];
+
+  if (process.platform === 'darwin') {
+    template.push({
+      label: app.name || 'Graphitix',
+      submenu: [
+        { label: 'About Graphitix', click: showAboutDialog },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+
+  template.push(
+    {
+      label: 'File',
+      submenu: [
+        createCommandItem('New Graph Tab', 'newTab', 'CmdOrCtrl+N'),
+        { type: 'separator' },
+        createCommandItem('Open Workspace...', 'openWorkspace', 'CmdOrCtrl+O'),
+        createCommandItem('Import Data...', 'importData', 'CmdOrCtrl+I'),
+        { type: 'separator' },
+        createCommandItem('Save', 'saveWorkspace', 'CmdOrCtrl+S'),
+        createCommandItem('Save As...', 'saveWorkspaceAs', 'CmdOrCtrl+Shift+S'),
+        { type: 'separator' },
+        createCommandItem('Load Example Data', 'loadExampleData'),
+        createCommandItem('Match Styles...', 'matchStyles'),
+        { type: 'separator' },
+        createCommandItem('Close Tab', 'closeTab', 'CmdOrCtrl+W'),
+        ...(process.platform === 'darwin' ? [] : [
+          { type: 'separator' },
+          { role: 'quit', label: 'Exit' }
+        ])
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        createCommandItem('Undo', 'undo', 'CmdOrCtrl+Z'),
+        createCommandItem('Redo', 'redo', redoAccelerator),
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'delete' },
+        { type: 'separator' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        createCommandItem('Parameters / Graph Controls', 'showParameters', 'CmdOrCtrl+1'),
+        createCommandItem('Data Controls', 'showDataControls', 'CmdOrCtrl+2'),
+        createCommandItem('Format Controls', 'showFormatControls', 'CmdOrCtrl+3'),
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(process.platform === 'darwin' ? [
+          { type: 'separator' },
+          { role: 'front' }
+        ] : [
+          { role: 'close' }
+        ])
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        ...(process.platform === 'darwin' ? [] : [
+          { label: 'About Graphitix', click: showAboutDialog },
+          { type: 'separator' }
+        ]),
+        { label: 'Reveal Application Data Folder', click: revealUserDataFolder }
+      ]
+    }
+  );
+
+  if (isDev) {
+    template.push({
+      label: 'Developer',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' }
+      ]
+    });
+  }
+
+  return template;
+}
+
+function installApplicationMenu() {
+  const menu = Menu.buildFromTemplate(buildApplicationMenuTemplate());
+  Menu.setApplicationMenu(menu);
 }
 
 const initialGraphFilePaths = collectGraphFilePaths(process.argv, process.cwd());
@@ -300,13 +466,14 @@ function createMainWindow() {
     minWidth: 1200,
     minHeight: 760,
     show: false,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+  win.setMenuBarVisibility(true);
   mainWindow = win;
 
   win.once('ready-to-show', () => {
@@ -336,6 +503,8 @@ function createMainWindow() {
 
 if (hasSingleInstanceLock) {
 app.whenReady().then(() => {
+  installApplicationMenu();
+
   ipcMain.handle('desktop:showOpenDialog', async (_event, options = {}) => {
     return dialog.showOpenDialog({
       properties: ['openFile'],

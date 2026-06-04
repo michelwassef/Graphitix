@@ -3074,6 +3074,54 @@ select {
     color:#d1d5db;
     order:3;
 }
+.workspace-job-activity{
+    order:4;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+    max-width:min(32vw,360px);
+    height:24px;
+    padding:0 7px;
+    border:1px solid rgba(255,255,255,0.26);
+    background:rgba(255,255,255,0.12);
+    color:#ffffff;
+    font-size:11px;
+    line-height:1;
+    white-space:nowrap;
+}
+.workspace-job-activity[hidden]{
+    display:none !important;
+}
+.workspace-job-activity__spinner{
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    border:2px solid rgba(255,255,255,0.38);
+    border-top-color:#ffffff;
+    animation:venn-loading-spin .85s linear infinite;
+    flex:0 0 auto;
+}
+.workspace-job-activity__label{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+.workspace-job-activity__button{
+    appearance:none;
+    border:1px solid rgba(255,255,255,0.42);
+    background:rgba(255,255,255,0.16);
+    color:#ffffff;
+    font:inherit;
+    font-weight:600;
+    line-height:1;
+    padding:3px 7px;
+    cursor:pointer;
+    flex:0 0 auto;
+}
+.workspace-job-activity__button:hover{
+    background:rgba(255,255,255,0.25);
+}
 .workspace-toolbar__autosave{
     display:inline-flex;
     align-items:center;
@@ -4522,6 +4570,12 @@ input[type=number]::-webkit-inner-spin-button{
 .venn-loading-overlay.is-visible{opacity:1;pointer-events:auto}
 .venn-loading-overlay__spinner{width:38px;height:38px;border-radius:50%;border:3px solid rgba(15,23,42,0.25);border-top-color:#2563eb;animation:venn-loading-spin .85s linear infinite}
 .venn-loading-overlay__message{font-size:.95rem;font-weight:500;color:#111b2c}
+.venn-loading-overlay__actions{display:flex;align-items:center;justify-content:center;gap:8px;min-height:30px}
+.venn-loading-overlay__actions[hidden]{display:none !important}
+.venn-loading-overlay__button{appearance:none;border:1px solid #9aa8bc;background:#ffffff;color:#0f172a;font:inherit;font-size:.82rem;font-weight:600;line-height:1;padding:7px 12px;cursor:pointer}
+.venn-loading-overlay__button:hover{background:#eef4ff;border-color:#2563eb;color:#1d4ed8}
+.venn-loading-overlay[data-job-status='cancelled'] .venn-loading-overlay__message,
+.venn-loading-overlay[data-job-status='error'] .venn-loading-overlay__message{font-weight:700}
 @keyframes venn-loading-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 .svgbox .resizer{position:absolute;z-index:40;background:rgba(0,0,0,0);touch-action:none}
 .svgbox .resizer-vertical{top:0;right:0;width:12px;height:100%;cursor:ew-resize}

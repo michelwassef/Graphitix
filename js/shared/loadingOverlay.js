@@ -8,6 +8,8 @@
   const VISIBLE_CLASS = 'is-visible';
   const DEFAULT_MESSAGE = 'Rendering chart...';
   const MIN_VISIBLE_MS = 150;
+  const overlayStates = new Set();
+  let jobsSubscriptionBound = false;
 
   function isDebug(){
     try{
@@ -52,22 +54,80 @@
     const messageEl = doc.createElement('div');
     messageEl.className = `${OVERLAY_CLASS}__message`;
     messageEl.textContent = DEFAULT_MESSAGE;
+    const actionsEl = doc.createElement('div');
+    actionsEl.className = `${OVERLAY_CLASS}__actions`;
+    actionsEl.hidden = true;
+    const stopButton = doc.createElement('button');
+    stopButton.type = 'button';
+    stopButton.className = `${OVERLAY_CLASS}__button`;
+    stopButton.dataset.overlayAction = 'cancel';
+    stopButton.textContent = 'Stop';
+    const retryButton = doc.createElement('button');
+    retryButton.type = 'button';
+    retryButton.className = `${OVERLAY_CLASS}__button`;
+    retryButton.dataset.overlayAction = 'retry';
+    retryButton.textContent = 'Draw again';
+    retryButton.hidden = true;
+    actionsEl.appendChild(stopButton);
+    actionsEl.appendChild(retryButton);
     overlay.appendChild(spinner);
     overlay.appendChild(messageEl);
+    overlay.appendChild(actionsEl);
+    overlay.addEventListener('click', event => {
+      const action = event.target?.closest?.('[data-overlay-action]');
+      if(!action){ return; }
+      const current = overlay.dataset.jobId || '';
+      if(!current || !Shared.jobs){ return; }
+      if(action.dataset.overlayAction === 'cancel'){
+        Shared.jobs.cancel(current, 'overlay-stop');
+        renderJobState(state, Shared.jobs.get(current));
+        event.preventDefault();
+      }else if(action.dataset.overlayAction === 'retry'){
+        Shared.jobs.retry(current, { reason: 'overlay-retry' });
+        event.preventDefault();
+      }
+    });
     host.appendChild(overlay);
     state = {
       host,
       overlay,
       spinner,
       messageEl,
+      actionsEl,
+      stopButton,
+      retryButton,
       handles: new Set(),
       count: 0,
       lastMessage: DEFAULT_MESSAGE,
+      jobId: null,
       lastShowTs: 0,
       hideTimer: null
     };
     overlayState.set(host, state);
+    overlayStates.add(state);
+    bindJobsSubscription();
     return state;
+  }
+
+  function bindJobsSubscription(){
+    if(jobsSubscriptionBound || !Shared.jobs?.onChange){
+      return;
+    }
+    jobsSubscriptionBound = true;
+    Shared.jobs.onChange(() => {
+      overlayStates.forEach(state => {
+        if(!state?.overlay?.isConnected){
+          overlayStates.delete(state);
+          return;
+        }
+        const jobId = state.jobId || state.overlay.dataset.jobId || '';
+        if(!jobId){ return; }
+        const job = Shared.jobs.get(jobId);
+        if(job){
+          renderJobState(state, job);
+        }
+      });
+    });
   }
 
   function updateMessage(state, message){
@@ -96,8 +156,44 @@
     state.lastShowTs = Date.now();
   }
 
-  function deactivate(state){
+  function renderJobState(state, job){
     if(!state){ return; }
+    const status = job?.status || 'running';
+    state.overlay.dataset.jobStatus = status;
+    if(job?.id){
+      state.overlay.dataset.jobId = job.id;
+      state.jobId = job.id;
+    }else{
+      delete state.overlay.dataset.jobId;
+      state.jobId = null;
+    }
+    const showActions = !!job && (job.cancellable || job.retryable || status === 'cancelled' || status === 'error');
+    state.actionsEl.hidden = !showActions;
+    if(state.stopButton){
+      state.stopButton.hidden = !(job?.cancellable && status === 'running');
+    }
+    if(state.retryButton){
+      const retryable = !!(job?.retryable || status === 'cancelled' || status === 'error');
+      state.retryButton.hidden = !retryable || status === 'running';
+      state.retryButton.textContent = status === 'error' ? 'Try again' : 'Draw again';
+    }
+    if(status === 'cancelled'){
+      state.spinner.hidden = true;
+      updateMessage(state, 'Drawing stopped');
+    }else if(status === 'error'){
+      state.spinner.hidden = true;
+      updateMessage(state, 'Rendering failed');
+    }else{
+      state.spinner.hidden = false;
+    }
+  }
+
+  function deactivate(state, options = {}){
+    if(!state){ return; }
+    if(options.preserveStopped && state.jobId && Shared.jobs?.isCancelled?.(state.jobId)){
+      renderJobState(state, Shared.jobs.get(state.jobId));
+      return;
+    }
     cancelHideTimer(state);
     const elapsed = Date.now() - (state.lastShowTs || 0);
     const delay = elapsed < MIN_VISIBLE_MS ? MIN_VISIBLE_MS - elapsed : 0;
@@ -106,6 +202,13 @@
       state.overlay.setAttribute('aria-hidden','true');
       state.overlay.hidden = true;
       state.host.classList.remove(HOST_CLASS);
+      delete state.overlay.dataset.jobId;
+      delete state.overlay.dataset.jobStatus;
+      state.jobId = null;
+      state.actionsEl.hidden = true;
+      state.stopButton.hidden = false;
+      state.retryButton.hidden = true;
+      state.spinner.hidden = false;
     };
     if(delay > 0){
       state.hideTimer = global.setTimeout(finalize, delay);
@@ -115,7 +218,7 @@
   }
 
   function createHandle(host){
-    return { host, id: Symbol('loadingOverlayHandle') };
+    return { host, id: Symbol('loadingOverlayHandle'), jobId: null };
   }
 
   function show(target, options = {}){
@@ -127,6 +230,12 @@
     state.handles.add(handle.id);
     state.count += 1;
     updateMessage(state, options.message || DEFAULT_MESSAGE);
+    if(options.job){
+      handle.jobId = options.job.id || null;
+      renderJobState(state, options.job);
+    }else{
+      renderJobState(state, null);
+    }
     activate(state);
     if(isDebug()){
       console.debug('Debug: loading overlay show',{ component: options.component || null, reason: options.reason || null });
@@ -141,7 +250,7 @@
     state.handles.delete(handle.id);
     state.count = Math.max(0, state.count - 1);
     if(state.count === 0){
-      deactivate(state);
+      deactivate(state, { preserveStopped: options.preserveStopped !== false });
       if(isDebug()){
         console.debug('Debug: loading overlay hide',{ component: options.component || null, reason: options.reason || null });
       }
@@ -156,7 +265,7 @@
     if(!state){ return false; }
     state.handles.clear();
     state.count = 0;
-    deactivate(state);
+    deactivate(state, { preserveStopped: options.preserveStopped === true });
     if(isDebug()){
       console.debug('Debug: loading overlay hideHost',{ component: options.component || null, reason: options.reason || null });
     }
@@ -181,6 +290,7 @@
       ? config.getHost
       : () => config.host || null;
     let handle = null;
+    let job = null;
     let queuedPayload = null;
     let showTimer = null;
     const baseMessage = config.message;
@@ -200,11 +310,73 @@
         clearPendingShow();
         return null;
       }
+      const jobOptions = typeof config.createJobOptions === 'function'
+        ? config.createJobOptions(payload || {})
+        : {};
+      const component = config.component || jobOptions.component || null;
+      const resolvedTabId = jobOptions.tabId
+        || (typeof config.getTabId === 'function' ? config.getTabId(payload || {}) : null)
+        || payload?.tabId
+        || null;
+      const retry = typeof jobOptions.retry === 'function'
+        ? jobOptions.retry
+        : (() => {
+            if(handle){
+              loadingOverlay.hide(handle, {
+                reason: 'overlay-retry-reset',
+                component: config.component || null,
+                preserveStopped: false
+              });
+              handle = null;
+              job = null;
+            }else{
+              loadingOverlay.hideHost(host, {
+                reason: 'overlay-retry-reset',
+                component: config.component || null,
+                preserveStopped: false
+              });
+            }
+            const targetComponent = component ? global.Components?.[component] : null;
+            if(targetComponent && typeof targetComponent.draw === 'function'){
+              targetComponent.draw({
+                force: true,
+                userInitiated: true,
+                reason: 'overlay-retry'
+              });
+            }
+          });
+      const onCancel = typeof jobOptions.onCancel === 'function'
+        ? jobOptions.onCancel
+        : (meta => {
+            const targetComponent = component ? global.Components?.[component] : null;
+            if(targetComponent && typeof targetComponent.cancelCurrentDraw === 'function'){
+              targetComponent.cancelCurrentDraw({
+                reason: meta?.reason || 'overlay-stop',
+                tabId: meta?.tabId || resolvedTabId || null
+              });
+            }
+          });
+      job = Shared.jobs?.start?.({
+        kind: jobOptions.kind || 'graph',
+        component,
+        tabId: resolvedTabId,
+        tabTitle: jobOptions.tabTitle || null,
+        label: jobOptions.label || payload?.message || baseMessage || DEFAULT_MESSAGE,
+        message: payload?.message || jobOptions.message || baseMessage || DEFAULT_MESSAGE,
+        reason: payload?.reason || payload?.source || jobOptions.reason || null,
+        cancellable: jobOptions.cancellable !== false,
+        retry,
+        onCancel
+      }) || null;
       handle = loadingOverlay.show(host, {
         message: payload?.message || baseMessage || DEFAULT_MESSAGE,
         reason: payload?.reason || payload?.source || null,
-        component: config.component || null
+        component: config.component || null,
+        job
       });
+      if(handle && job){
+        handle.jobId = job.id;
+      }
       clearPendingShow();
       return handle;
     };
@@ -240,11 +412,22 @@
         const payload = typeof meta === 'object' && meta !== null ? meta : { reason: meta };
         clearPendingShow();
         if(handle){
+          if(job && payload?.status === 'error'){
+            Shared.jobs?.fail?.(job.id, payload?.error || new Error(payload?.reason || 'Rendering failed'));
+            renderJobState(overlayState.get(handle.host), Shared.jobs?.get?.(job.id));
+            job = null;
+            return true;
+          }
+          if(job && !Shared.jobs?.isCancelled?.(job.id)){
+            Shared.jobs?.complete?.(job.id, { reason: payload?.reason || payload?.source || null });
+          }
           loadingOverlay.hide(handle, {
             reason: payload?.reason || payload?.source || null,
-            component: config.component || null
+            component: config.component || null,
+            preserveStopped: true
           });
           handle = null;
+          job = null;
           return true;
         }
         const host = getHost();

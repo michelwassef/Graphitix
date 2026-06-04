@@ -752,6 +752,7 @@
   const pcaOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'pca',
     message: 'Rendering PCA workspace...',
+    getTabId: () => pca.__boundTabId || null,
     getHost: () => (
       pcaSvgBoxRef
       || getPcaNodeById('pcaGraphPanel')?.querySelector?.('.svgbox')
@@ -12366,6 +12367,21 @@
 
   pca.init = setup;
   pca.ensure = ensureReady;
+  pca.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    pcaState.drawToken = (Number(pcaState.drawToken) || 0) + 1;
+    const tabId = meta?.tabId || pca.__boundTabId || null;
+    try{ pca.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'pca-draw-cancel'); }catch(_err){}
+    try{ pca.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'pca-draw-cancel'); }catch(_err){}
+    resolvePcaOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'pca',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'pca-draw-cancel',
+      details: { drawToken: pcaState.drawToken }
+    });
+    return true;
+  };
   pca.draw = function draw(){ ensureReady(); scheduleDrawPca && scheduleDrawPca(); };
 
   function benchmarkPcaLoad(config){

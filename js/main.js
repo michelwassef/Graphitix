@@ -75,6 +75,14 @@
       debug('Debug: main.js tabs fallback require failed', { err });
     }
   }
+  if ((!Main.desktopCommands || typeof Main.desktopCommands.init !== 'function') && typeof require === 'function') {
+    try {
+      require('./main/desktopCommands.js');
+      debug('Debug: main.js desktop commands fallback required via Node');
+    } catch (err) {
+      debug('Debug: main.js desktop commands fallback require failed', { err });
+    }
+  }
   if (!Main.bootstrap || typeof Main.bootstrap.init !== 'function') {
     const message = 'main.js requires Main.bootstrap.init to be available.';
     console.error(message);
@@ -714,6 +722,21 @@
         console.error('document recovery restore error', err);
       });
     }
+  }
+
+  if (Main.desktopCommands && typeof Main.desktopCommands.init === 'function') {
+    Main.desktopCommands.init({
+      session: MainSession,
+      workspaceState,
+      tabsManager,
+      sessionActions: MainSessionActions,
+      workspaces: WORKSPACES,
+      styleSyncApi,
+      getSessionActionsContext,
+      handleSessionSaveClick,
+      handleSessionLoadClick
+    });
+    debug('Debug: desktop command dispatcher initialized');
   }
 
   function handleDesktopOpenGraphFilePayload(payload) {

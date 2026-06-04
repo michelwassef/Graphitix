@@ -162,6 +162,7 @@
   const SCATTER_POINT_BATCH_THRESHOLD = 7000;
   const SCATTER_POINT_CANVAS_RESOLUTION_SCALE = 2;
   const SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET = 6000;
+  const SCATTER_POINT_CANVAS_SPRITE_FRAME_POINT_BUDGET = 24000;
   const SCATTER_DENSITY_LARGE_COLOR_STEPS = 32;
   const SCATTER_THRESHOLD_SELECTION_ROW_LIMIT = 5000;
   const SCATTER_THRESHOLD_SELECTION_SELECTED_LIMIT = 1000;
@@ -1290,6 +1291,28 @@
       return false;
     }
     return source.startsWith('scatter-x-axis-') || source.startsWith('scatter-y-axis-');
+  }
+
+  function isScatterLayoutScheduleMeta(meta){
+    if(!meta || typeof meta !== 'object'){
+      return false;
+    }
+    if(meta.viewOnly === true){
+      return true;
+    }
+    const candidates = [meta.source, meta.reason]
+      .filter(value => typeof value === 'string')
+      .map(value => value.toLowerCase());
+    return candidates.some(value => (
+      value === 'observer'
+      || value === 'sync'
+      || value === 'layout'
+      || value === 'resize'
+      || value.includes('observer')
+      || value.includes('layout')
+      || value.includes('resize')
+      || value.includes('sync')
+    ));
   }
 
   function appendScatter3dBackground(svg, width, height, themeSnapshot){
@@ -7758,6 +7781,7 @@
   const scatterOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'scatter',
     message: 'Rendering scatter plot...',
+    getTabId: () => scatter.__boundTabId || null,
     getHost: () => (
       getScatterNodeById('scatterGraphPanel')?.querySelector?.('.svgbox')
       || getScatterNodeById('scatterGraphPanel')
@@ -11111,19 +11135,20 @@
           ? payload
           : (typeof payload === 'string' ? { reason: payload } : {});
         const headerOnlyChange = isScatterHeaderScheduleSource(meta.source);
+        const layoutOnlyChange = headerOnlyChange || isScatterLayoutScheduleMeta(meta);
         const invalidate = typeof meta.invalidate === 'string'
           ? meta.invalidate
-          : (headerOnlyChange ? 'layout' : 'data');
+          : (layoutOnlyChange ? 'layout' : 'data');
         if(invalidate === 'data'){
           scatterState.dataDirty = true;
           scatterState.cachedCollect = null;
           scatterState.cachedGeometry = null;
         }
-        const scheduleMeta = headerOnlyChange
+        const scheduleMeta = layoutOnlyChange
           ? Object.assign({}, meta, {
               invalidate,
               viewOnly: true,
-              reason: meta.reason || 'axis-header-sync'
+              reason: meta.reason || (headerOnlyChange ? 'axis-header-sync' : 'layout-sync')
             })
           : (meta.invalidate === invalidate ? meta : Object.assign({}, meta, { invalidate }));
         scheduleDrawScatter(scheduleMeta);
@@ -13218,7 +13243,7 @@
         return true;
       }
 
-      function runScatterRenderWorker(payload){
+      function runScatterRenderWorker(payload, options = {}){
         const workerApi = Shared.Workers;
         if(!workerApi || typeof workerApi.runTask !== 'function'){
           return Promise.reject(new Error('Scatter render worker unavailable'));
@@ -13228,7 +13253,9 @@
           url: SCATTER_RENDER_WORKER.url,
           action: 'scatter-render',
           payload,
-          timeoutMs: SCATTER_RENDER_WORKER.timeoutMs
+          timeoutMs: SCATTER_RENDER_WORKER.timeoutMs,
+          signal: options.signal || null,
+          cancelStrategy: options.cancelStrategy || 'terminate'
         });
       }
 
@@ -16983,6 +17010,71 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ctx.globalAlpha = 1;
       }
 
+      function createScatterPointCanvasMarkerSprite(bucket, dpr){
+        const doc = global.document;
+        const shape = bucket?.shape || 'circle';
+        const radius = Math.max(0.2, Number(bucket?.radius) || 0.2);
+        const strokeWidth = Math.max(0, Number(bucket?.strokeWidth) || 0);
+        const edgePadding = 2;
+        const halfSize = radius + (strokeWidth * 0.5) + edgePadding;
+        const cssSize = Math.max(1, Math.ceil(halfSize * 2));
+        const canvas = doc && typeof doc.createElement === 'function'
+          ? doc.createElement('canvas')
+          : null;
+        if(!canvas || typeof canvas.getContext !== 'function'){
+          return null;
+        }
+        const scale = Math.max(1, Number(dpr) || 1);
+        canvas.width = Math.max(1, Math.ceil(cssSize * scale));
+        canvas.height = Math.max(1, Math.ceil(cssSize * scale));
+        const ctx = canvas.getContext('2d');
+        if(!ctx){
+          return null;
+        }
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        const center = cssSize / 2;
+        ctx.beginPath();
+        appendScatterPointCanvasShapePath(ctx, shape, center, center, radius);
+        if(bucket.fill && bucket.fill !== 'none'){
+          ctx.fillStyle = bucket.fill;
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.fillOpacity)));
+          ctx.fill();
+        }
+        if(bucket.stroke && bucket.strokeWidth > 0){
+          ctx.strokeStyle = bucket.stroke;
+          ctx.lineWidth = strokeWidth;
+          ctx.globalAlpha = Math.max(0, Math.min(1, Number(bucket.strokeOpacity)));
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        return {
+          canvas,
+          cssSize,
+          offset: center
+        };
+      }
+
+      function paintScatterPointCanvasBucketSprites(ctx, sprite, points, start, end, bounds){
+        if(!ctx || !sprite || !Array.isArray(points) || !bounds){
+          return false;
+        }
+        const { canvas, cssSize, offset } = sprite;
+        if(!canvas || !(cssSize > 0)){
+          return false;
+        }
+        for(let i = start; i < end; i += 1){
+          const point = points[i];
+          ctx.drawImage(
+            canvas,
+            (point.x - bounds.minX) - offset,
+            (point.y - bounds.minY) - offset,
+            cssSize,
+            cssSize
+          );
+        }
+        return true;
+      }
+
       async function renderScatterPointCanvasBuckets(group, buckets, bounds, options = {}){
         const doc = options.doc || global.document;
         if(!doc || !group || !buckets || !buckets.size || !canUseScatterPointCanvas()){
@@ -17001,6 +17093,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         const bucketList = Array.from(buckets.values());
         let pointsSinceYield = 0;
+        let spriteBucketCount = 0;
+        let spritePointCount = 0;
+        let pathBucketCount = 0;
         for(let bucketIndex = 0; bucketIndex < bucketList.length; bucketIndex += 1){
           if(shouldCancel?.()){
             return false;
@@ -17010,14 +17105,30 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             continue;
           }
           const points = bucket.points;
-          for(let start = 0; start < points.length; start += SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET){
+          const sprite = !bucket.variableRadius
+            ? createScatterPointCanvasMarkerSprite(bucket, dpr)
+            : null;
+          const frameBudget = sprite
+            ? SCATTER_POINT_CANVAS_SPRITE_FRAME_POINT_BUDGET
+            : SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET;
+          if(sprite){
+            spriteBucketCount += 1;
+            spritePointCount += points.length;
+          }else{
+            pathBucketCount += 1;
+          }
+          for(let start = 0; start < points.length; start += frameBudget){
             if(shouldCancel?.()){
               return false;
             }
-            const end = Math.min(points.length, start + SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET);
-            paintScatterPointCanvasBucketChunk(ctx, bucket, points, start, end, expandedBounds);
+            const end = Math.min(points.length, start + frameBudget);
+            if(sprite){
+              paintScatterPointCanvasBucketSprites(ctx, sprite, points, start, end, expandedBounds);
+            }else{
+              paintScatterPointCanvasBucketChunk(ctx, bucket, points, start, end, expandedBounds);
+            }
             pointsSinceYield += end - start;
-            if(pointsSinceYield >= SCATTER_POINT_CANVAS_FRAME_POINT_BUDGET && (end < points.length || bucketIndex < bucketList.length - 1)){
+            if(pointsSinceYield >= frameBudget && (end < points.length || bucketIndex < bucketList.length - 1)){
               pointsSinceYield = 0;
               await waitScatterCanvasFrame();
             }
@@ -17030,6 +17141,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         group.appendChild(foreignObject);
         group.setAttribute('data-render-mode', 'canvas');
         group.setAttribute('data-point-renderer', 'canvas-preview');
+        group.setAttribute('data-canvas-render-strategy', spritePointCount > 0 ? 'sprite' : 'path');
+        group.setAttribute('data-canvas-sprite-buckets', String(spriteBucketCount));
+        group.setAttribute('data-canvas-path-buckets', String(pathBucketCount));
         return true;
       }
 
@@ -17214,6 +17328,28 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const viewOnly = !!drawOptions?.viewOnly;
         const token=++scatterDrawToken; // debug token for cancellation
+        const drawTabId = drawOptions?.tabId || scatter.__boundTabId || null;
+        const drawJob = Shared.jobs?.getActiveFor?.({ component: 'scatter', tabId: drawTabId, kind: 'graph' }) || null;
+        const drawYield = Shared.jobs?.createYieldController?.({ signal: drawJob?.signal || null, budgetMs: 10 }) || null;
+        const checkpointScatterDraw = async phase => {
+          if(token !== scatterDrawToken || drawJob?.signal?.aborted){
+            info('scatter draw cancelled', { token, phase });
+            return false;
+          }
+          if(drawYield){
+            try{
+              await drawYield.checkpoint(drawJob || {});
+            }catch(_err){
+              info('scatter draw cancelled at checkpoint', { token, phase });
+              return false;
+            }
+            if(token !== scatterDrawToken || drawJob?.signal?.aborted){
+              info('scatter draw cancelled after yield', { token, phase });
+              return false;
+            }
+          }
+          return true;
+        };
         const perfApi = Shared.Performance;
         const drawReasons = scatterState.activeDrawReasons ? Array.from(scatterState.activeDrawReasons) : [];
         scatterState.activeDrawReasons = null;
@@ -17944,6 +18080,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               skippedRows++;
               recordRowSkip('ma:nonNumeric');
             }
+          }
+          if((r & 1023) === 0 && !(await checkpointScatterDraw('collect'))){
+            return;
           }
           if(r >= nextCollectProgressRow){
             info('scatter collect progress',{row:r,token});
@@ -20609,6 +20748,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           });
           if(useRenderWorker){
             try{
+              const geometryJob = drawJob || Shared.jobs?.getActiveFor?.({ component: 'scatter', tabId: drawTabId, kind: 'graph' }) || null;
               geometryPrep = await runScatterRenderWorker({
                 points: points.map(p => ({ x: p.x, y: p.y })),
                 logX,
@@ -20620,6 +20760,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 plotH,
                 densityEnabled: densityEnabled,
                 debug: debugEnabled
+              }, {
+                signal: geometryJob?.signal || null,
+                cancelStrategy: 'terminate'
               });
               if(token !== scatterDrawToken){
                 if(perfApi && renderPerf){
@@ -20665,6 +20808,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             pointCx = new Float64Array(geometryCount);
             pointCy = new Float64Array(geometryCount);
             for(let i = 0; i < geometryCount; i += 1){
+              if((i & 2047) === 0 && !(await checkpointScatterDraw('geometry'))){
+                return;
+              }
               const p = points[i];
               const xv = logX ? Math.log10(p.x) : p.x;
               const yv = logY ? Math.log10(p.y) : p.y;
@@ -20781,6 +20927,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         let pointLayer = null;
         if(!canReuseCanvasLayerOnMove){
         for(const p of points){
+          if((pointIndex & 2047) === 0 && !(await checkpointScatterDraw('points'))){
+            return;
+          }
           const xv = pointXv ? pointXv[pointIndex] : (logX ? Math.log10(p.x) : p.x);
           const yv = pointYv ? pointYv[pointIndex] : (logY ? Math.log10(p.y) : p.y);
           const cxVal = pointCx ? pointCx[pointIndex] : x2px(xv);
@@ -20932,6 +21081,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(canCanvasPoint){
             const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
             const strokeWidthValue = markerBorderWidth>0 ? markerBorderWidth : 0;
+            const radiusValue = Number.isFinite(markerRadius) ? markerRadius : 0;
             const bucketKey = [
               markerShape,
               color,
@@ -20949,11 +21099,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 stroke: strokeValue,
                 strokeWidth: strokeWidthValue,
                 strokeOpacity: markerOpacity,
+                radius: radiusValue,
+                variableRadius: false,
                 points: []
               };
               canvasPointBuckets.set(bucketKey, bucket);
+            }else if(Math.abs((Number(bucket.radius) || 0) - radiusValue) > 1e-6){
+              bucket.variableRadius = true;
             }
-            bucket.points.push({ x: cxVal, y: cyVal, r: markerRadius });
+            bucket.points.push({ x: cxVal, y: cyVal, r: radiusValue });
             canvasPointBounds = updateScatterPointCanvasBounds(canvasPointBounds, cxVal, cyVal, markerRadius, strokeWidthValue);
           }else if(canBatchCirclePoint){
             const strokeValue = markerBorderWidth>0 ? markerBorderColor : '';
@@ -24518,6 +24672,22 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       }
     }
     scheduleDrawScatter && scheduleDrawScatter(drawOptions);
+  };
+
+  scatter.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    scatterDrawToken += 1;
+    const tabId = meta?.tabId || scatter.__boundTabId || null;
+    try{ scatter.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
+    try{ scatter.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
+    resolveScatterOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'scatter',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'scatter-draw-cancel',
+      details: { drawToken: scatterDrawToken }
+    });
+    return true;
   };
 
   function benchmarkScatterLoad(config){

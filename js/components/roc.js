@@ -754,6 +754,7 @@
   const rocOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'roc',
     message: 'Rendering ROC/PR plot...',
+    getTabId: () => roc.__boundTabId || null,
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
@@ -4055,6 +4056,18 @@
       reason: meta?.reason || 'roc-draw'
     });
     void runRocDrawCycle(meta || {});
+  };
+  roc.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || roc.__boundTabId || null;
+    try{ roc.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'roc-draw-cancel'); }catch(_err){}
+    resolveRocOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'roc',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'roc-draw-cancel'
+    });
+    return true;
   };
   roc.scheduleDraw = () => state.scheduleDraw?.();
   roc.save = saveFile;

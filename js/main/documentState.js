@@ -403,6 +403,14 @@
     }
     const sequence = ++recoveryWriteSequence;
     recoveryInFlightRevision = inFlightToken;
+    const recoveryJob = window.Shared?.jobs?.start?.({
+      kind: 'recovery',
+      component: 'document',
+      label: 'Saving recovery snapshot...',
+      message: 'Saving recovery snapshot...',
+      reason,
+      cancellable: false
+    }) || null;
     try {
       const record = await buildRecoveryRecord(reason);
       if (!record) {
@@ -429,9 +437,13 @@
       debug('recovery.write.web', { bytes: record.blob.size, reason });
       return { status: 'saved', via: 'web', bytes: record.blob.size };
     } catch (err) {
+      window.Shared?.jobs?.fail?.(recoveryJob?.id, err);
       console.error('documentState recovery snapshot error', err);
       return { status: 'error', error: err };
     } finally {
+      if (recoveryJob && !window.Shared?.jobs?.isCancelled?.(recoveryJob.id)) {
+        window.Shared?.jobs?.complete?.(recoveryJob.id, { reason });
+      }
       if (recoveryInFlightRevision === inFlightToken) {
         recoveryInFlightRevision = 0;
       }
@@ -569,6 +581,14 @@
       return { status: 'skipped', reason: 'no-file-target', revision };
     }
     autosaveInFlightRevision = revision;
+    const autosaveJob = window.Shared?.jobs?.start?.({
+      kind: 'save',
+      component: 'document',
+      label: 'Autosaving workspace...',
+      message: 'Autosaving workspace...',
+      reason,
+      cancellable: false
+    }) || null;
     let result = null;
     try {
       result = await state.sessionActions.autosaveWorkspace(state.getSessionActionsContext(), { reason });
@@ -584,6 +604,9 @@
         }
       }
     } finally {
+      if (autosaveJob && !window.Shared?.jobs?.isCancelled?.(autosaveJob.id)) {
+        window.Shared?.jobs?.complete?.(autosaveJob.id, { reason });
+      }
       if (autosaveInFlightRevision === revision) {
         autosaveInFlightRevision = 0;
       }

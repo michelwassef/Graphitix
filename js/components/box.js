@@ -13443,6 +13443,7 @@
   const boxOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'box',
     message: 'Rendering box plot...',
+    getTabId: () => box.__boundTabId || null,
     getHost: () => (
       els.svgBox
       || els.graphPanel?.querySelector?.('.svgbox')
@@ -36883,6 +36884,21 @@ Technical analysis record (advanced)
         restoreRenderCache: options.restoreRenderCache === true
       });
     }
+  };
+
+  box.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    state.drawToken = (Number(state.drawToken) || 0) + 1;
+    const tabId = meta?.tabId || box.__boundTabId || null;
+    try{ box.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'box-draw-cancel'); }catch(_err){}
+    resolveBoxLoading(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'box',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'box-draw-cancel',
+      details: { drawToken: state.drawToken }
+    });
+    return true;
   };
 
   box.draw = function(options = {}){

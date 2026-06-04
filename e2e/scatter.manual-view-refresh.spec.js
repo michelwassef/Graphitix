@@ -28,6 +28,19 @@ async function waitForCountIncrease(page, label, before, timeout = 30000) {
   );
 }
 
+async function waitForScatterIdle(page, timeout = 90000) {
+  await page.waitForFunction(() => {
+    const state = window.Components?.scatter?.__testGetState?.();
+    const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
+    const mode = layer?.getAttribute?.('data-render-mode') || null;
+    return !!state
+      && state.drawInProgress !== true
+      && !state.pendingDrawOpts
+      && !state.pendingDrawReasons
+      && mode !== 'canvas-pending';
+  }, null, { timeout });
+}
+
 test.describe('Scatter live updates with view-only optimizations', () => {
   test('large dataset keeps style changes view-only and recollects only on data edits', async ({ page }) => {
     test.setTimeout(300000);
@@ -63,17 +76,24 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     if(!hasSvgAfterWait){
       return;
     }
+    await waitForScatterIdle(page, 180000);
 
     const largeRenderMeta = await page.evaluate(() => {
       const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
       return {
         renderMode: layer?.getAttribute?.('data-render-mode') || null,
+        canvasStrategy: layer?.getAttribute?.('data-canvas-render-strategy') || null,
+        canvasSpriteBuckets: Number(layer?.getAttribute?.('data-canvas-sprite-buckets') || 0),
+        canvasPathBuckets: Number(layer?.getAttribute?.('data-canvas-path-buckets') || 0),
         nodeCount: layer ? layer.querySelectorAll('*').length : 0,
         hasCanvasLayer: !!layer?.querySelector?.('foreignObject[data-point-renderer="canvas-preview"] canvas')
       };
     });
     if(largeRenderMeta.renderMode === 'canvas'){
       expect(largeRenderMeta.hasCanvasLayer, 'large scatter point layer should use canvas foreignObject rendering').toBe(true);
+      expect(largeRenderMeta.canvasStrategy, 'large scatter canvas should use cached marker sprites').toBe('sprite');
+      expect(largeRenderMeta.canvasSpriteBuckets, 'large scatter canvas should draw at least one sprite bucket').toBeGreaterThan(0);
+      expect(largeRenderMeta.canvasPathBuckets, 'uniform large scatter canvas should avoid path buckets').toBe(0);
       expect(largeRenderMeta.nodeCount, 'canvas point layer should stay compact on huge datasets').toBeLessThan(10);
     }else if(largeRenderMeta.renderMode === 'batched-circles'){
       expect(largeRenderMeta.nodeCount, 'batched point layer should stay compact on huge datasets').toBeLessThan(300);

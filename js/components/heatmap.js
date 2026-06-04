@@ -723,6 +723,7 @@
   const heatmapOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'heatmap',
     message: 'Rendering heatmap...',
+    getTabId: () => heatmap.__boundTabId || null,
     getHost: () => (
       state.svgBox
       || getHeatmapNodeById('heatmapGraphPanel')?.querySelector?.('.svgbox')
@@ -8538,6 +8539,23 @@
   });
 
   heatmap.draw = draw;
+  heatmap.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    pendingDrawOptions = {};
+    deferredHiddenDrawOptions = null;
+    state.drawToken = (Number(state.drawToken) || 0) + 1;
+    const tabId = meta?.tabId || heatmap.__boundTabId || null;
+    try{ heatmap.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
+    try{ heatmap.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
+    resolveHeatmapOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'heatmap',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'heatmap-draw-cancel',
+      details: { drawToken: state.drawToken }
+    });
+    return true;
+  };
 
   function initNotes(){
     const stack = queryHeatmapRoot('#heatmapGraphPanel .heatmap-plot-stack')

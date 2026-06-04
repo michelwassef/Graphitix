@@ -948,6 +948,7 @@
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
+    getTabId: () => surface.__boundTabId || null,
     getHost: () => (
       state.svgBox
       || state.layout?.elements?.svgBox
@@ -2690,6 +2691,22 @@
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || surface.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'surface.draw' } });
     runSurfaceDrawCycle(options);
+  };
+  surface.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || surface.__boundTabId || null;
+    try{ surface.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'surface-draw-cancel'); }catch(_err){}
+    if(_surfaceOverlayTimeout){
+      try{ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); }catch(_err){}
+      _surfaceOverlayTimeout = null;
+    }
+    resolveSurfaceOverlay(meta?.reason || 'cancelled');
+    Shared.componentLifecycle?.emitLifecycleEvent?.({
+      componentKey: 'surface',
+      tabId,
+      action: 'draw-cancelled',
+      reason: meta?.reason || 'surface-draw-cancel'
+    });
+    return true;
   };
 
   function initNotes(){
