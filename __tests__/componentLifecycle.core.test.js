@@ -401,6 +401,250 @@ describe('componentLifecycle — post-restore draw suppression', () => {
   });
 });
 
+describe('componentLifecycle — graph edit cache invalidation', () => {
+  let tab;
+  let draw;
+
+  beforeEach(() => {
+    jest.resetModules();
+    delete window.Shared;
+    delete window.Components;
+    delete window.Main;
+    document.body.innerHTML = '';
+    tab = {
+      id: 'tab-a',
+      type: 'box',
+      renderCache: { cache: { plot: { count: 1 } } },
+      renderCacheSignature: 'payload-sig',
+      archiveRenderCache: { plot: { count: 1 } },
+      archiveRenderCacheSignature: 'archive-sig',
+      authoritativeRenderRestore: true
+    };
+    draw = jest.fn();
+    window.Components = { box: { draw, isIdleForSnapshot: () => true } };
+    window.Main = {
+      session: {
+        workspaceState: { tabs: [tab] },
+        getActiveTab: () => tab,
+        clearTabRenderCache(target) {
+          target.renderCache = null;
+          target.renderCacheSignature = null;
+          target.renderCacheLayoutSignature = null;
+          target.renderCacheTabId = null;
+          return true;
+        },
+        clearTabArchiveRenderCache(target) {
+          target.archiveRenderCache = null;
+          target.archiveRenderCacheSignature = null;
+          target.archiveRenderCacheLayoutSignature = null;
+          return true;
+        },
+        markTabAuthoritativeRenderRestore(target, active) {
+          target.authoritativeRenderRestore = !!active;
+          return target.authoritativeRenderRestore;
+        }
+      },
+      components: {
+        get: () => ({ draw })
+      }
+    };
+    require('../js/shared/componentLifecycle.js');
+    lc = window.Shared.componentLifecycle;
+  });
+
+  test('beginGraphEdit clears render caches and forces a user redraw for restored graphs', () => {
+    const result = lc.beginGraphEdit('box', {
+      tabId: 'tab-a',
+      reason: 'unit-graph-edit'
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.hadRestoredGraph).toBe(true);
+    expect(result.redrawRequested).toBe(true);
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+    expect(tab.authoritativeRenderRestore).toBe(false);
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'tab-a',
+      force: true,
+      forceDraw: true,
+      userInitiated: true
+    }));
+  });
+
+  test('beginGraphEdit does not redraw when no restored cache was present', () => {
+    tab.renderCache = null;
+    tab.renderCacheSignature = null;
+    tab.archiveRenderCache = null;
+    tab.archiveRenderCacheSignature = null;
+    tab.authoritativeRenderRestore = false;
+
+    const result = lc.beginGraphEdit('box', {
+      tabId: 'tab-a',
+      reason: 'unit-graph-edit-clean'
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.hadRestoredGraph).toBe(false);
+    expect(result.redrawRequested).toBe(false);
+    expect(draw).not.toHaveBeenCalled();
+  });
+
+  test('trusted first graph click on a restored graph is intercepted before stale handlers', () => {
+    const staleHandler = jest.fn();
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><circle id="stalePoint" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('stalePoint');
+    target.addEventListener('click', staleHandler);
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(event);
+
+    expect(staleHandler).not.toHaveBeenCalled();
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'graph-edit-click-live-redraw',
+      forceDraw: true,
+      userInitiated: true
+    }));
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+
+  test('trusted graph click invalidates only the owning restored tab', () => {
+    const otherTab = {
+      id: 'tab-b',
+      type: 'box',
+      renderCache: { cache: { plot: { count: 1 } } },
+      renderCacheSignature: 'tab-b-sig',
+      archiveRenderCache: { plot: { count: 1 } },
+      archiveRenderCacheSignature: 'tab-b-archive',
+      authoritativeRenderRestore: true
+    };
+    window.Main.session.workspaceState.tabs.push(otherTab);
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-b">
+        <div class="svgbox"><svg id="boxSvgB"><circle id="pointB" cx="1" cy="1" r="1"></circle></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('pointB');
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(event);
+
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+    expect(otherTab.renderCache).toBeNull();
+    expect(otherTab.archiveRenderCache).toBeNull();
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'tab-b',
+      reason: 'graph-edit-click-live-redraw'
+    }));
+  });
+
+  test('trusted graph drag movement begins graph edit for a restored graph', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox"><svg id="boxSvg"><text id="dragLabel" x="1" y="1">Title</text></svg></div>
+      </div>
+    `;
+    const target = document.getElementById('dragLabel');
+    const down = new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10
+    });
+    down.__graphitixUserTrusted = true;
+    const move = new window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 22,
+      clientY: 10
+    });
+    move.__graphitixUserTrusted = true;
+
+    target.dispatchEvent(down);
+    document.dispatchEvent(move);
+
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'graph-edit-drag-live-redraw',
+      forceDraw: true,
+      userInitiated: true
+    }));
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+
+  test('trusted toolbar input also begins graph edit for restored graphs', () => {
+    document.body.innerHTML = `
+      <div class="font-toolbar-host" data-font-toolbar-scope="box">
+        <div class="workspace-toolbar__panel--symbol">
+          <input id="fillInput" type="color" value="#112233" data-undo-ignore="1" />
+        </div>
+      </div>
+    `;
+    const input = document.getElementById('fillInput');
+    const event = new window.Event('input', { bubbles: true, cancelable: true });
+    event.__graphitixUserTrusted = true;
+
+    input.dispatchEvent(event);
+
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'graph-toolbar-input-live-redraw',
+      forceDraw: true,
+      userInitiated: true
+    }));
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+
+  test('trusted toolbar mousedown also begins graph edit for restored graphs', () => {
+    document.body.innerHTML = `
+      <div class="font-toolbar-host" data-font-toolbar-scope="box">
+        <div class="axis-controls-panel">
+          <button id="axisDragChip" type="button" data-undo-ignore="1">Axis</button>
+        </div>
+      </div>
+    `;
+    const button = document.getElementById('axisDragChip');
+    const event = new window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    button.dispatchEvent(event);
+
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'graph-toolbar-mousedown-live-redraw',
+      forceDraw: true,
+      userInitiated: true
+    }));
+    expect(tab.renderCache).toBeNull();
+    expect(tab.archiveRenderCache).toBeNull();
+  });
+});
+
 describe('componentLifecycle — diffPayload / validatePayload / normalizePayloadEnvelope', () => {
   beforeEach(loadFresh);
 

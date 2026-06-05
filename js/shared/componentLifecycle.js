@@ -625,6 +625,533 @@
     return false;
   };
 
+  function resolveSessionApi(){
+    return global.Main?.session || null;
+  }
+
+  function resolveWorkspaceRegistryEntry(componentKey){
+    const key = normalizeLifecycleComponentKey(componentKey);
+    if(!key){
+      return null;
+    }
+    if(global.Main?.components && typeof global.Main.components.get === 'function'){
+      try{
+        return global.Main.components.get(key) || null;
+      }catch(_err){
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function resolveTabForGraphEdit(componentKey, meta = {}){
+    const session = resolveSessionApi();
+    const requestedTabId = String(
+      meta.tabId
+      || meta.workspaceTabId
+      || meta.tab?.id
+      || meta.targetTabId
+      || ''
+    ).trim();
+    const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+    if(requestedTabId){
+      return tabs.find(tab => tab && String(tab.id || '') === requestedTabId) || meta.tab || null;
+    }
+    const active = typeof session?.getActiveTab === 'function' ? session.getActiveTab() : null;
+    if(active && (!componentKey || String(active.type || '') === String(componentKey || ''))){
+      return active;
+    }
+    return null;
+  }
+
+  function tabHasRestoredGraphCache(tab){
+    if(!tab){
+      return false;
+    }
+    return !!(
+      tab.authoritativeRenderRestore
+      || tab.renderCache
+      || tab.renderCacheSignature
+      || tab.archiveRenderCache
+      || tab.archiveRenderCacheSignature
+    );
+  }
+
+  function forceComponentGraphRedraw(componentKey, tab, meta = {}){
+    const key = normalizeLifecycleComponentKey(componentKey || tab?.type || meta.componentKey || meta.type || '');
+    if(!key || !tab){
+      return null;
+    }
+    const component = global.Components?.[key] || null;
+    const workspace = resolveWorkspaceRegistryEntry(key);
+    const draw = typeof component?.draw === 'function'
+      ? component.draw.bind(component)
+      : (typeof workspace?.draw === 'function' ? workspace.draw.bind(workspace) : null);
+    if(typeof draw !== 'function'){
+      namespace.emitLifecycleEvent({
+        componentKey: key,
+        tabId: tab.id || null,
+        action: 'graph-edit-redraw-skipped',
+        reason: meta.reason || 'graph-edit',
+        details: { reason: 'missing-draw-hook' }
+      });
+      return null;
+    }
+    const drawMeta = {
+      tabId: tab.id || null,
+      type: key,
+      componentKey: key,
+      force: true,
+      forceDraw: true,
+      userInitiated: true,
+      reason: meta.redrawReason || meta.reason || 'graph-edit-live-redraw'
+    };
+    try{
+      const result = draw(drawMeta);
+      namespace.emitLifecycleEvent({
+        componentKey: key,
+        tabId: tab.id || null,
+        action: 'graph-edit-redraw-requested',
+        reason: drawMeta.reason,
+        details: { hadPromise: !!(result && typeof result.then === 'function') }
+      });
+      return result && typeof result.then === 'function' ? result : null;
+    }catch(err){
+      warn('Debug: graph edit redraw failed', {
+        componentKey: key,
+        tabId: tab.id || null,
+        reason: drawMeta.reason,
+        err: err?.message || String(err)
+      });
+      return null;
+    }
+  }
+
+  namespace.beginGraphEdit = function beginGraphEdit(componentKey, meta = {}){
+    const key = normalizeLifecycleComponentKey(componentKey || meta.componentKey || meta.type || meta.tab?.type || '');
+    if(!key){
+      return { ok: false, reason: 'missing-component-key' };
+    }
+    const session = resolveSessionApi();
+    const tab = resolveTabForGraphEdit(key, meta);
+    const tabId = tab?.id || meta.tabId || null;
+    const hadRestoredGraph = tabHasRestoredGraphCache(tab);
+    try{
+      if(tab && typeof session?.clearTabRenderCache === 'function'){
+        session.clearTabRenderCache(tab, { reason: meta.reason || 'graph-edit' });
+      }
+      if(tab && typeof session?.clearTabArchiveRenderCache === 'function'){
+        session.clearTabArchiveRenderCache(tab, { reason: meta.reason || 'graph-edit' });
+      }
+      if(tab && typeof session?.markTabAuthoritativeRenderRestore === 'function'){
+        session.markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'graph-edit' });
+      }
+    }catch(err){
+      warn('Debug: graph edit cache invalidation failed', {
+        componentKey: key,
+        tabId,
+        reason: meta.reason || 'graph-edit',
+        err: err?.message || String(err)
+      });
+    }
+    try{
+      if(tabId){
+        namespace.clearPostRestoreDrawSuppression(key, {
+          tabId,
+          reason: meta.reason || 'graph-edit'
+        });
+      }
+    }catch(_err){}
+    try{
+      if(tabId && Shared.componentLayout?.releaseSuppressedSchedulesFor){
+        Shared.componentLayout.releaseSuppressedSchedulesFor(key, {
+          tabId,
+          reason: meta.reason || 'graph-edit'
+        });
+      }
+    }catch(_err){}
+    const shouldRedraw = meta.forceRedraw === true || (hadRestoredGraph && meta.forceRedraw !== false);
+    const redrawPromise = shouldRedraw ? forceComponentGraphRedraw(key, tab, {
+      ...meta,
+      reason: meta.reason || 'graph-edit-live-redraw'
+    }) : null;
+    namespace.emitLifecycleEvent({
+      componentKey: key,
+      tabId,
+      action: 'graph-edit-begin',
+      reason: meta.reason || 'graph-edit',
+      details: {
+        hadRestoredGraph,
+        redrawRequested: shouldRedraw,
+        source: meta.source || null
+      }
+    });
+    return {
+      ok: true,
+      componentKey: key,
+      tabId,
+      tab,
+      hadRestoredGraph,
+      redrawRequested: shouldRedraw,
+      redrawPromise
+    };
+  };
+
+  function resolveGraphEditOwner(target){
+    if(!target || typeof target.closest !== 'function'){
+      return null;
+    }
+    const owner = target.closest('[data-workspace-component], [data-workspace-instance-root="true"]');
+    const componentKey = String(
+      owner?.dataset?.workspaceComponent
+      || owner?.getAttribute?.('data-workspace-component')
+      || ''
+    ).trim();
+    const tabId = String(
+      owner?.dataset?.workspaceTabId
+      || owner?.dataset?.tabId
+      || owner?.getAttribute?.('data-workspace-tab-id')
+      || owner?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim();
+    return { owner, componentKey, tabId };
+  }
+
+  function isGraphSurfaceEventTarget(target){
+    if(!target || typeof target.closest !== 'function'){
+      return false;
+    }
+    if(target.closest('.ag-root, .ag-theme-alpine, [data-hot-wrapper], [id$="HotWrapper"], [id$="TablePanel"]')){
+      return false;
+    }
+    if(target.closest('.workspace-toolbar, .font-toolbar-host, .shared-color-picker, .config-panel, .stats-advisor, [id$="StatsPanel"], [id$="StatsContent"], [id$="StatsResults"]')){
+      return false;
+    }
+    return !!target.closest('.svgbox, svg, canvas, [id$="Plot"], [id$="GraphPanel"], [data-graph-edit-surface="1"]');
+  }
+
+  function resolveToolbarGraphEditComponent(target){
+    if(!target || typeof target.closest !== 'function'){
+      return '';
+    }
+    const host = target.closest('.font-toolbar-host[data-font-toolbar-scope]');
+    if(host?.dataset?.fontToolbarScope){
+      return String(host.dataset.fontToolbarScope || '').trim();
+    }
+    const topbar = target.closest('.workspace-page__topbar[data-toolbar]');
+    if(topbar?.dataset?.toolbar){
+      return String(topbar.dataset.toolbar || '').trim();
+    }
+    const scopedPanel = target.closest('[data-scope], [data-component], [data-workspace-component]');
+    return String(
+      scopedPanel?.dataset?.scope
+      || scopedPanel?.dataset?.component
+      || scopedPanel?.dataset?.workspaceComponent
+      || ''
+    ).trim();
+  }
+
+  function isGraphToolbarEditTarget(target){
+    if(!target || typeof target.closest !== 'function'){
+      return false;
+    }
+    if(target.closest('[data-session-affects-payload="0"], [data-session-ignore-dirty="1"]')){
+      return false;
+    }
+    return !!target.closest([
+      '.font-toolbar-host',
+      '.workspace-toolbar__panel--font',
+      '.workspace-toolbar__panel--axis',
+      '.workspace-toolbar__panel--symbol',
+      '.axis-controls-panel',
+      '.heatmap-palette-controls-panel',
+      '.grid-controls-panel',
+      '.significance-controls-panel',
+      '[data-point-controls="1"]'
+    ].join(', '));
+  }
+
+  function getEventPointerIdentity(event){
+    if(!event){
+      return null;
+    }
+    return typeof event.pointerId === 'number' ? `pointer:${event.pointerId}` : `mouse:${Number(event.button) || 0}`;
+  }
+
+  function getEventPoint(event){
+    if(!event){
+      return null;
+    }
+    const x = Number(event.clientX);
+    const y = Number(event.clientY);
+    if(!Number.isFinite(x) || !Number.isFinite(y)){
+      return null;
+    }
+    return { x, y };
+  }
+
+  function resolveGraphEditEventContext(target){
+    const owner = resolveGraphEditOwner(target);
+    const componentKey = owner?.componentKey || global.Main?.session?.getActiveTab?.()?.type || '';
+    if(!componentKey){
+      return null;
+    }
+    const tab = resolveTabForGraphEdit(componentKey, {
+      tabId: owner?.tabId || null,
+      target
+    });
+    return {
+      componentKey,
+      tabId: tab?.id || owner?.tabId || null,
+      tab,
+      owner,
+      target
+    };
+  }
+
+  async function replayGraphEditClick(event, result){
+    if(!event || !result?.redrawRequested){
+      return;
+    }
+    const doc = event.target?.ownerDocument || global.document;
+    if(!doc || typeof doc.elementFromPoint !== 'function'){
+      return;
+    }
+    const x = Number(event.clientX);
+    const y = Number(event.clientY);
+    if(!Number.isFinite(x) || !Number.isFinite(y)){
+      return;
+    }
+    try{
+      if(result.redrawPromise && typeof result.redrawPromise.then === 'function'){
+        await Promise.race([
+          result.redrawPromise,
+          timeoutPromise(1800)
+        ]);
+      }
+      const component = global.Components?.[result.componentKey] || null;
+      if(component && typeof component.awaitReadyForSnapshot === 'function'){
+        await Promise.race([
+          component.awaitReadyForSnapshot({
+            tabId: result.tabId,
+            reason: 'graph-edit-click-replay-ready',
+            timeoutMs: 1800,
+            settleFrames: 2
+          }),
+          timeoutPromise(1900)
+        ]);
+      }else{
+        await namespace.waitForAnimationFrames(2);
+      }
+      const freshTarget = doc.elementFromPoint(x, y);
+      if(!freshTarget || !isGraphSurfaceEventTarget(freshTarget)){
+        return;
+      }
+      const replay = new global.MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        view: global,
+        clientX: x,
+        clientY: y,
+        screenX: Number(event.screenX) || 0,
+        screenY: Number(event.screenY) || 0,
+        button: Number(event.button) || 0,
+        buttons: 0,
+        ctrlKey: !!event.ctrlKey,
+        shiftKey: !!event.shiftKey,
+        altKey: !!event.altKey,
+        metaKey: !!event.metaKey
+      });
+      replay.__graphitixGraphEditReplay = true;
+      freshTarget.dispatchEvent(replay);
+      namespace.emitLifecycleEvent({
+        componentKey: result.componentKey,
+        tabId: result.tabId,
+        action: 'graph-edit-click-replayed',
+        reason: 'graph-edit-click-replay',
+        details: {
+          targetTag: String(freshTarget.tagName || '').toLowerCase(),
+          targetId: freshTarget.id || null
+        }
+      });
+    }catch(err){
+      warn('Debug: graph edit click replay failed', {
+        componentKey: result.componentKey,
+        tabId: result.tabId,
+        err: err?.message || String(err)
+      });
+    }
+  }
+
+  namespace.installGraphEditIntentListener = function installGraphEditIntentListener(){
+    const doc = global.document;
+    if(!doc || typeof doc.addEventListener !== 'function' || namespace.__graphEditIntentListenerInstalled){
+      return false;
+    }
+    namespace.__graphEditIntentListenerInstalled = true;
+    const isTrustedGraphEditEvent = event => !!(event && (event.isTrusted === true || event.__graphitixUserTrusted === true));
+    let pendingGraphDragIntent = null;
+    const clearPendingGraphDragIntent = () => {
+      pendingGraphDragIntent = null;
+    };
+    const startGraphDragIntent = event => {
+      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+        return;
+      }
+      const target = event.target;
+      if(!isGraphSurfaceEventTarget(target)){
+        clearPendingGraphDragIntent();
+        return;
+      }
+      const context = resolveGraphEditEventContext(target);
+      if(!context?.componentKey || !tabHasRestoredGraphCache(context.tab)){
+        clearPendingGraphDragIntent();
+        return;
+      }
+      const point = getEventPoint(event);
+      if(!point){
+        clearPendingGraphDragIntent();
+        return;
+      }
+      pendingGraphDragIntent = {
+        componentKey: context.componentKey,
+        tabId: context.tabId || null,
+        target,
+        source: target?.id || target?.tagName || 'graph',
+        identity: getEventPointerIdentity(event),
+        x: point.x,
+        y: point.y
+      };
+    };
+    const maybeCommitGraphDragIntent = event => {
+      if(!pendingGraphDragIntent || !isTrustedGraphEditEvent(event)){
+        return;
+      }
+      const identity = getEventPointerIdentity(event);
+      if(pendingGraphDragIntent.identity && identity && pendingGraphDragIntent.identity !== identity){
+        return;
+      }
+      const point = getEventPoint(event);
+      if(!point){
+        return;
+      }
+      const dx = point.x - pendingGraphDragIntent.x;
+      const dy = point.y - pendingGraphDragIntent.y;
+      if((dx * dx) + (dy * dy) < 16){
+        return;
+      }
+      const intent = pendingGraphDragIntent;
+      clearPendingGraphDragIntent();
+      const result = namespace.beginGraphEdit(intent.componentKey, {
+        tabId: intent.tabId || null,
+        target: intent.target || null,
+        source: intent.source || 'graph-drag',
+        reason: 'graph-edit-drag',
+        redrawReason: 'graph-edit-drag-live-redraw'
+      });
+      if(result?.redrawRequested){
+        try{
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }catch(_err){}
+      }
+    };
+    doc.addEventListener('pointerdown', startGraphDragIntent, true);
+    doc.addEventListener('mousedown', startGraphDragIntent, true);
+    doc.addEventListener('pointermove', maybeCommitGraphDragIntent, true);
+    doc.addEventListener('mousemove', maybeCommitGraphDragIntent, true);
+    doc.addEventListener('pointerup', clearPendingGraphDragIntent, true);
+    doc.addEventListener('mouseup', clearPendingGraphDragIntent, true);
+    doc.addEventListener('pointercancel', clearPendingGraphDragIntent, true);
+    doc.addEventListener('click', event => {
+      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+        return;
+      }
+      const target = event.target;
+      if(!isGraphSurfaceEventTarget(target)){
+        return;
+      }
+      const context = resolveGraphEditEventContext(target);
+      if(!context?.componentKey){
+        return;
+      }
+      const result = namespace.beginGraphEdit(context.componentKey, {
+        tabId: context.tabId || null,
+        target,
+        source: target?.id || target?.tagName || 'graph',
+        reason: 'graph-edit-click',
+        redrawReason: 'graph-edit-click-live-redraw'
+      });
+      if(!result?.redrawRequested){
+        return;
+      }
+      try{
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }catch(_err){}
+      void replayGraphEditClick(event, result);
+    }, true);
+    const toolbarHandler = reason => event => {
+      if(!isTrustedGraphEditEvent(event)){
+        return;
+      }
+      const target = event.target;
+      if(!isGraphToolbarEditTarget(target)){
+        return;
+      }
+      const componentKey = resolveToolbarGraphEditComponent(target)
+        || global.Main?.session?.getActiveTab?.()?.type
+        || '';
+      if(!componentKey){
+        return;
+      }
+      namespace.beginGraphEdit(componentKey, {
+        target,
+        source: target?.id || target?.tagName || 'toolbar',
+        reason,
+        redrawReason: `${reason}-live-redraw`
+      });
+    };
+    doc.addEventListener('input', toolbarHandler('graph-toolbar-input'), true);
+    doc.addEventListener('change', toolbarHandler('graph-toolbar-change'), true);
+    doc.addEventListener('mousedown', toolbarHandler('graph-toolbar-mousedown'), true);
+    doc.addEventListener('click', event => {
+      if(event.__graphitixGraphEditReplay === true || !isTrustedGraphEditEvent(event)){
+        return;
+      }
+      const target = event.target;
+      if(!isGraphToolbarEditTarget(target)){
+        return;
+      }
+      const interactive = target?.closest?.('button, [role="button"], [data-action], [data-transform-option], [data-transform-apply], [data-transform-clear]');
+      if(!interactive){
+        return;
+      }
+      const componentKey = resolveToolbarGraphEditComponent(target)
+        || global.Main?.session?.getActiveTab?.()?.type
+        || '';
+      if(!componentKey){
+        return;
+      }
+      namespace.beginGraphEdit(componentKey, {
+        target,
+        source: interactive?.id || interactive?.tagName || 'toolbar-click',
+        reason: 'graph-toolbar-click',
+        redrawReason: 'graph-toolbar-click-live-redraw'
+      });
+    }, true);
+    debug('Debug: graph edit intent listener installed');
+    return true;
+  };
+
+  if(typeof global.document !== 'undefined'){
+    if(global.document.readyState === 'loading'){
+      global.document.addEventListener('DOMContentLoaded', () => namespace.installGraphEditIntentListener(), { once: true });
+    }else{
+      namespace.installGraphEditIntentListener();
+    }
+  }
+
   function cssNumber(value){
     const parsed = Number.parseFloat(value);
     return Number.isFinite(parsed) ? parsed : NaN;
