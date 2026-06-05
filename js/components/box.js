@@ -10888,6 +10888,7 @@
       whiskerCustomMultiplier: normalizeBoxOwnedNumber(state.whiskerCustomMultiplier, DEFAULT_WHISKER_MULTIPLIER),
       showGrid: !!els.boxShowGrid?.checked,
       showFrame: !!els.boxShowFrame?.checked,
+      showLegend: !!els.boxShowLegend?.checked,
       logScale: !!els.boxLogScale?.checked,
       showCaps: !!els.boxShowCaps?.checked,
       flipAxes: !!state.flipAxes,
@@ -11038,6 +11039,26 @@
     }
   }
 
+  function getDefaultBoxShowLegend(tableFormat){
+    return normalizeBoxTableFormat(tableFormat || state.tableFormat) === 'grouped';
+  }
+
+  function syncBoxShowLegendDefault(tableFormat, options = {}){
+    if(!els.boxShowLegend || options.preserve === true){
+      return false;
+    }
+    const checked = getDefaultBoxShowLegend(tableFormat);
+    els.boxShowLegend.checked = checked;
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box showLegend default synced', {
+        tableFormat: normalizeBoxTableFormat(tableFormat || state.tableFormat),
+        checked,
+        reason: options.reason || null
+      });
+    }
+    return true;
+  }
+
   function applyBoxOwnedRuntimeControls(record){
     const controls = record?.controls || {};
     if(!controls || typeof controls !== 'object'){
@@ -11061,6 +11082,7 @@
     applyBoxControlValue(els.groupedReplicates, controls.groupedReplicates ?? record.visual?.grouped?.replicatesPerGroup);
     applyBoxControlChecked(els.boxShowGrid, controls.showGrid);
     applyBoxControlChecked(els.boxShowFrame, controls.showFrame);
+    applyBoxControlChecked(els.boxShowLegend, controls.showLegend ?? getDefaultBoxShowLegend(controls.tableFormat));
     applyBoxControlChecked(els.boxLogScale, controls.logScale);
     applyBoxControlChecked(els.boxShowCaps, controls.showCaps);
     applyBoxControlChecked(els.boxFlipAxes, controls.flipAxes ?? record.visual?.flipAxes);
@@ -14863,6 +14885,7 @@
     }
     els.boxShowGrid=byId('boxShowGrid');
     els.boxShowFrame=byId('boxShowFrame');
+    els.boxShowLegend=byId('boxShowLegend');
     els.boxLogScale=byId('boxLogScale');
     els.boxLogScaleLabel=byId('boxLogScaleLabel');
     clearBoxLogWarning();
@@ -16894,6 +16917,10 @@
     }
     state.tableFormat = normalized;
     console.debug('Debug: setTableFormat',{ mode: normalized });
+    syncBoxShowLegendDefault(normalized, {
+      preserve: opts.preserveLegend === true,
+      reason: 'table-format-change'
+    });
     if(normalized === 'grouped' && (state.showSignificanceBars || state.pendingAutoShowSignificance)){
       state.showSignificanceBars = false;
       state.pendingAutoShowSignificance = false;
@@ -17671,6 +17698,11 @@
         return;
       }
       scheduleBoxViewRefresh('frame-toggle');
+    });
+    bindBoxControlHandler(els.boxShowLegend, 'change', 'show-legend', ()=>{
+      const checked = !!els.boxShowLegend.checked;
+      console.debug('Debug: box showLegend change',{checked});
+      scheduleBoxViewRefresh('legend-toggle');
     });
     bindBoxControlHandler(els.boxLogScale, 'change', 'log-scale', ()=>{
       const enabling=!!els.boxLogScale.checked;
@@ -29299,7 +29331,7 @@ Technical analysis record (advanced)
     const showGrid = els.boxShowGrid.checked;
     const showFrame = !!els.boxShowFrame?.checked;
     console.debug('Debug: box showFrame state',{ showFrame });
-    const showLegend = false;
+    const showLegend = !!els.boxShowLegend?.checked;
     console.debug('Debug: box showLegend state',{ showLegend });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
@@ -29367,6 +29399,7 @@ Technical analysis record (advanced)
     }
     console.debug('Debug: box draw orientation',{ isFlipped });
     let legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+    let legendLayout = null;
     let legendGapPx = 0;
     let legendWidthForMargin = 0;
     console.debug('Debug: box legend initial state',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length });
@@ -29412,13 +29445,13 @@ Technical analysis record (advanced)
           }
           state.borderColors[colorIndex] = borderColor;
         }
-        if(isGroupedMode && trace?.groupName){
-          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
-        }
         const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
         const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
         const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
         const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
+        if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
+          groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
+        }
         return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
       }
       const themeUnifiedDefaults = resolveThemeAwareDefaultTraceColors({
@@ -29431,15 +29464,13 @@ Technical analysis record (advanced)
       });
       const fillColor = themeUnifiedDefaults.fillColor;
       const borderColor = themeUnifiedDefaults.borderColor;
-      if(isGroupedMode && trace?.groupName){
-        if(!groupColorAssignments.has(trace.groupName)){
-          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
-        }
-      }
       const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
       const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
       const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
       const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
+      if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
+        groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
+      }
       return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
     };
     const isGroupedMode = state.tableFormat === 'grouped';
@@ -30476,22 +30507,30 @@ Technical analysis record (advanced)
       ? computeSeparatedCategoryUnits(axisGroupIndices)
       : null;
     if(isGroupedMode && groupColorAssignments.size && showLegend){
+      const legendStrokeWidth = borderWidthPx > 0
+        ? borderWidthPx
+        : chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-legend-border', min: 0.5 });
       const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
         label: name,
         fill: colors.fill,
         stroke: colors.border,
-        strokeWidth: borderWidthPx
+        strokeWidth: legendStrokeWidth,
+        shape: 'rectangle'
       }));
-      legendRenderer = chartStyle.createLegendRenderer({
+      legendLayout = chartStyle.computeLegendLayout({
         entries: legendEntries,
         fontSize: fs,
-        strokeWidth: borderWidthPx
+        strokeWidth: legendStrokeWidth,
+        swatchWidth: Math.max(12, Math.round(fs * 1.15)),
+        swatchHeight: Math.max(6, Math.round(fs * 0.55))
       });
-      legendGapPx = legendRenderer.entries.length ? Math.max(12, Math.round(fs * 0.5)) : 0;
-      legendWidthForMargin = legendRenderer.entries.length ? legendRenderer.width + legendGapPx : 0;
+      legendRenderer = legendLayout.renderer;
+      legendGapPx = legendLayout.legendGapPx;
+      legendWidthForMargin = legendLayout.legendWidthForMargin;
       console.debug('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length, showLegend });
     }else{
-      legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+      legendLayout = chartStyle.computeLegendLayout({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+      legendRenderer = legendLayout.renderer;
       legendGapPx = 0;
       legendWidthForMargin = 0;
       console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size, showLegend });
@@ -35407,7 +35446,7 @@ Technical analysis record (advanced)
         showGrid:els.boxShowGrid.checked,
         gridStyle: getGridStyle(axisSnapshot.strokeWidth),
         showFrame:!!els.boxShowFrame?.checked,
-        showLegend:false,
+        showLegend:els.boxShowLegend ? !!els.boxShowLegend.checked : getDefaultBoxShowLegend(state.tableFormat),
         logScale:els.boxLogScale.checked,
         logPlusOne:!!state.logPlusOne,
         graphType:els.boxGraphType.value,
@@ -35669,6 +35708,7 @@ Technical analysis record (advanced)
     payload.config.stats.contextSignature = null;
     payload.config.showSignificanceBars = false;
     payload.config.significanceLabelMode = 'stars';
+    payload.config.showLegend = getDefaultBoxShowLegend(tableFormat);
     payload.config.connectPointsAcrossDatasets = false;
     payload.config.connectionLineStyle = null;
     payload.config.shapeStyles = null;
@@ -35885,6 +35925,11 @@ Technical analysis record (advanced)
     els.boxShowGrid.checked=!!c.showGrid;
     setGridStyle(c.gridStyle, c.axis?.strokeWidth);
     if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
+    if(els.boxShowLegend){
+      els.boxShowLegend.checked = Object.prototype.hasOwnProperty.call(c, 'showLegend')
+        ? c.showLegend !== false
+        : getDefaultBoxShowLegend(incomingTableFormat);
+    }
     els.boxLogScale.checked=!!c.logScale;
     state.logPlusOne=!!c.logPlusOne;
     els.boxGraphType.value=c.graphType||els.boxGraphType.value;
@@ -36089,7 +36134,7 @@ Technical analysis record (advanced)
           restoredConditionLabels = groupCfg.conditions.map((name, idx) => normalizeBoxGroupedConditionLabel(name, idx));
         }
       }
-      setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
+      setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true, preserveLegend: true });
       if(typeof obj?.config?.colorScheme !== 'string' || !obj.config.colorScheme.trim()){
         syncBoxDefaultColorSchemeForFormat(restoredFormat, { previousFormat: state.tableFormat });
       }

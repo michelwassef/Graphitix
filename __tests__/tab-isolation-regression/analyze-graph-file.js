@@ -79,7 +79,7 @@ function extractVariantProperties(tab, payload, layout, type) {
     aspectLocked: String(dataset.aspectLocked ?? dataset.resizerAspectLocked ?? layout?.aspectLocked ?? '')
   };
   switch (type) {
-    case 'box': return { ...base, graphType: c.graphType || '', pointMode: c.pointMode || '', groupLayout: c.groupLayout || '', showGrid: !!c.showGrid };
+    case 'box': return { ...base, graphType: c.graphType || '', pointMode: c.pointMode || '', groupLayout: c.groupLayout || '', showGrid: !!c.showGrid, showLegend: !!c.showLegend };
     case 'scatter': return { ...base, graphType: c.graphType || '', viewMode: c.viewMode || '', colorMode: c.colorMode || '', regressionMode: c.regression?.mode || c.stats?.regressionMode || '', showGrid: !!c.showGrid };
     case 'line': return { ...base, displayMode: c.displayMode || '', viewMode: c.viewMode || '', regressionMode: c.regression?.mode || '', showGrid: !!c.showGrid };
     case 'hist': return { ...base, plotMode: c.plotMode || '', createMode: c.frequency?.createMode || '', tabulateMode: c.frequency?.tabulateMode || '', diagnosticsMode: c.stats?.diagnosticsMode || '' };

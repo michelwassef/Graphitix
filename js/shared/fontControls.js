@@ -1150,6 +1150,75 @@
     return hasValue ? clone : null;
   }
 
+  function mergeStyleSnapshots(baseStyle, overrideStyle){
+    const merged = {};
+    let hasValue = false;
+    [baseStyle, overrideStyle].forEach(style => {
+      const snapshot = cloneStyleSnapshot(style);
+      if(!snapshot){ return; }
+      STYLE_KEYS.forEach(key => {
+        const value = snapshot[key];
+        if(value !== undefined && value !== null && value !== ''){
+          merged[key] = value;
+          hasValue = true;
+        }
+      });
+      if(Array.isArray(snapshot.inlineSegments) && snapshot.inlineSegments.length){
+        merged.inlineSegments = snapshot.inlineSegments.map(segment => ({
+          start: segment.start,
+          end: segment.end,
+          style: { ...segment.style }
+        }));
+        hasValue = true;
+      }
+    });
+    return hasValue ? merged : null;
+  }
+
+  function normalizeStylePatchKeys(patch){
+    if(!patch || typeof patch !== 'object'){ return []; }
+    return STYLE_KEYS.filter(key => Object.prototype.hasOwnProperty.call(patch, key));
+  }
+
+  function applyStylePatchToSnapshot(style, patch){
+    const merged = cloneStyleSnapshot(style) || {};
+    const patchKeys = normalizeStylePatchKeys(patch);
+    patchKeys.forEach(key => {
+      const value = patch[key];
+      if(value === undefined){ return; }
+      if(value === null || value === ''){
+        delete merged[key];
+        return;
+      }
+      merged[key] = value;
+    });
+    return cloneStyleSnapshot(merged);
+  }
+
+  function removeStyleProperties(style, keys){
+    const keySet = new Set(Array.isArray(keys) ? keys.filter(Boolean) : []);
+    if(!style || !keySet.size){ return cloneStyleSnapshot(style); }
+    const clone = cloneStyleSnapshot(style) || {};
+    keySet.forEach(key => {
+      delete clone[key];
+    });
+    if(Array.isArray(clone.inlineSegments)){
+      const segments = normalizeInlineSegments(clone.inlineSegments).map(segment => {
+        const nextStyle = { ...segment.style };
+        keySet.forEach(key => {
+          delete nextStyle[key];
+        });
+        return { start: segment.start, end: segment.end, style: nextStyle };
+      }).filter(segment => sanitizeInlineStyleEntry(segment.style));
+      if(segments.length){
+        clone.inlineSegments = segments;
+      }else{
+        delete clone.inlineSegments;
+      }
+    }
+    return cloneStyleSnapshot(clone);
+  }
+
   function stylesAreEqual(a, b){
     if(a === b){ return true; }
     const refA = a || {};
@@ -1191,12 +1260,17 @@
       key: options?.key,
       mode: options?.mode
     });
-    if(!snapshot || isStyleEmpty(snapshot)){
-      clearStyleFromNode(node);
-    } else {
-      applyStyleToNode(node, snapshot);
-    }
-    storeStyleForNode(node, snapshot, storeContext);
+    const hasStoreSnapshot = Object.prototype.hasOwnProperty.call(options || {}, 'storeSnapshot');
+    const storeSnapshot = hasStoreSnapshot ? cloneStyleSnapshot(options.storeSnapshot) : cloneStyleSnapshot(snapshot);
+    storeStyleForNode(node, storeSnapshot, {
+      ...storeContext,
+      patchKeys: options?.patchKeys || STYLE_KEYS
+    });
+    applyEffectiveStyleForNode(node, {
+      storeKey: storeContext.storeKey,
+      style: storeSnapshot,
+      clearWhenEmpty: true
+    });
     if(node === currentTarget){
       syncPanelStateFromTarget();
       updatePreviewFromInputs();
@@ -1213,15 +1287,20 @@
     const label = `font-controls:${describeUndoTarget(node, meta)}`;
     const prevClone = prevSnapshot ? { ...prevSnapshot } : null;
     const nextClone = nextSnapshot ? { ...nextSnapshot } : null;
+    const hasPrevStoreStyle = Object.prototype.hasOwnProperty.call(meta || {}, 'prevStoreStyle');
+    const hasNextStoreStyle = Object.prototype.hasOwnProperty.call(meta || {}, 'nextStoreStyle');
+    const prevStoreClone = hasPrevStoreStyle ? cloneStyleSnapshot(meta.prevStoreStyle) : prevClone;
+    const nextStoreClone = hasNextStoreStyle ? cloneStyleSnapshot(meta.nextStoreStyle) : nextClone;
+    const patchKeys = Array.isArray(meta?.patchKeys) && meta.patchKeys.length ? meta.patchKeys.slice() : STYLE_KEYS;
     manager.record({
       label,
       scope,
       undo: () => {
-        applyStyleSnapshot(node, prevClone, { storeContext });
+        applyStyleSnapshot(node, prevClone, { storeContext, storeSnapshot: prevStoreClone, patchKeys });
         logDebug('undo applied for style change', { label, scope });
       },
       redo: () => {
-        applyStyleSnapshot(node, nextClone, { storeContext });
+        applyStyleSnapshot(node, nextClone, { storeContext, storeSnapshot: nextStoreClone, patchKeys });
         logDebug('redo applied for style change', { label, scope });
       }
     });
@@ -2770,6 +2849,72 @@
     });
   }
 
+  function resolveTokenFromStoreKey(storeKey){
+    if(!storeKey){ return null; }
+    const segments = String(storeKey).split('::').filter(Boolean);
+    return segments.length ? segments[segments.length - 1] : null;
+  }
+
+  function resolveScopeFromStoreKey(storeKey){
+    if(!storeKey){ return null; }
+    const text = String(storeKey);
+    const idx = text.indexOf('::');
+    return idx >= 0 ? text.slice(0, idx) : null;
+  }
+
+  function isGraphStoreKey(storeKey){
+    return resolveTokenFromStoreKey(storeKey) === GRAPH_SCOPE_TOKEN;
+  }
+
+  function isStoreKeyInScope(storeKey, scope, tabToken){
+    if(!storeKey || !scope){ return false; }
+    if(tabToken){
+      return storeKey.startsWith(`${scope}::${TAB_SCOPE_TOKEN_PREFIX}${tabToken}::`);
+    }
+    return storeKey.startsWith(`${scope}::`) && !isTabbedStoreKey(storeKey, scope);
+  }
+
+  function resolveEffectiveStyleForNode(node, options = {}){
+    if(!node){ return { style: null, hasStoredStyle: false }; }
+    const dataset = node.dataset || {};
+    const changedStoreKey = options.storeKey || null;
+    const hasChangedStyle = Object.prototype.hasOwnProperty.call(options, 'style');
+    const changedStyle = options.style || null;
+    const scope = dataset.fontScope || resolveScopeFromStoreKey(changedStoreKey) || null;
+    const key = dataset.fontKey || resolveTokenFromStoreKey(changedStoreKey) || null;
+    const tabId = dataset.fontTabId || resolveTabTokenFromStoreKey(changedStoreKey) || null;
+    const graphStoreKey = buildStoreKey(scope, GRAPH_SCOPE_TOKEN, { node, tabId });
+    const nodeStoreKey = key && key !== GRAPH_SCOPE_TOKEN
+      ? buildStoreKey(scope, key, { node, tabId })
+      : null;
+    const graphStyle = hasChangedStyle && changedStoreKey === graphStoreKey
+      ? changedStyle
+      : getStoredStyle(graphStoreKey, { tabId, reason: 'effective-style-graph' });
+    const nodeStyle = nodeStoreKey
+      ? (hasChangedStyle && changedStoreKey === nodeStoreKey
+          ? changedStyle
+          : getStoredStyle(nodeStoreKey, { tabId, reason: 'effective-style-node' }))
+      : null;
+    const hasStoredStyle = !!(cloneStyleSnapshot(graphStyle) || cloneStyleSnapshot(nodeStyle));
+    return {
+      style: mergeStyleSnapshots(graphStyle, nodeStyle),
+      hasStoredStyle
+    };
+  }
+
+  function applyEffectiveStyleForNode(node, options = {}){
+    const resolved = resolveEffectiveStyleForNode(node, options);
+    if(resolved.style && !isStyleEmpty(resolved.style)){
+      applyStyleToNode(node, resolved.style);
+      return true;
+    }
+    if(options.clearWhenEmpty && resolved.hasStoredStyle === false){
+      clearStyleFromNode(node);
+      return true;
+    }
+    return false;
+  }
+
   function registerNodeForKey(node, storeKey){
     if(!node || !storeKey){ return; }
     let entry = nodeGroupStore.get(storeKey);
@@ -2790,6 +2935,39 @@
     }
   }
 
+  function pruneSelectionStylesForGraphPatch(context, patchKeys){
+    const scope = context?.scopeId || resolveScopeFromStoreKey(context?.storeKey) || null;
+    const graphStoreKey = context?.storeKey || null;
+    const tabToken = resolveTabTokenFromStoreKey(graphStoreKey)
+      || sanitizeTabToken(context?.tabId || null);
+    const keys = Array.isArray(patchKeys) ? patchKeys.filter(Boolean) : [];
+    if(!scope || !graphStoreKey || !keys.length){ return 0; }
+    let pruned = 0;
+    const stale = [];
+    forEachStoredStyle(tabToken, (style, storeKey) => {
+      if(!isStoreKeyInScope(storeKey, scope, tabToken)){ return; }
+      if(storeKey === graphStoreKey || isGraphStoreKey(storeKey)){ return; }
+      const nextStyle = removeStyleProperties(style, keys);
+      if(nextStyle){
+        setStoredStyle(storeKey, nextStyle, { tabId: resolveTabTokenFromStoreKey(storeKey), reason: 'graph-patch-prune-selection' });
+      }else{
+        stale.push(storeKey);
+      }
+      pruned += 1;
+    }, { reason: 'graph-patch-prune-selection-iterate' });
+    stale.forEach(storeKey => {
+      deleteStoredStyle(storeKey, { tabId: resolveTabTokenFromStoreKey(storeKey), reason: 'graph-patch-prune-empty-selection' });
+    });
+    logDebug('graph patch pruned selection overrides', {
+      scope,
+      tabToken: tabToken || null,
+      keys,
+      pruned,
+      removed: stale.length
+    });
+    return pruned;
+  }
+
   function broadcastStyle(storeKey, style, sourceNode){
     if(!storeKey){ return; }
     const entry = nodeGroupStore.get(storeKey);
@@ -2799,11 +2977,7 @@
         const node = ref?.deref?.();
         if(!node){ return false; }
         if(node !== sourceNode){
-          if(style && !isStyleEmpty(style)){
-            applyStyleToNode(node, style);
-          } else {
-            clearStyleFromNode(node);
-          }
+          applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
         }
         return true;
       });
@@ -2815,11 +2989,7 @@
           return;
         }
         if(node === sourceNode){ return; }
-        if(style && !isStyleEmpty(style)){
-          applyStyleToNode(node, style);
-        } else {
-          clearStyleFromNode(node);
-        }
+        applyEffectiveStyleForNode(node, { storeKey, style, clearWhenEmpty: true });
       });
       stale.forEach(node => entry.nodes.delete(node));
     }
@@ -2843,10 +3013,22 @@
     }
     const normalized = cloneStyleSnapshot(style);
     if(!normalized){
+      if(key === GRAPH_SCOPE_TOKEN || isGraphStoreKey(storeKey)){
+        pruneSelectionStylesForGraphPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS
+        );
+      }
       deleteStoredStyle(storeKey, { tabId, reason: 'store-style-for-node-clear' });
       broadcastStyle(storeKey, null, node);
       logDebug('storeStyleForNode cleared', { scope, key, storeKey });
     } else {
+      if(key === GRAPH_SCOPE_TOKEN || isGraphStoreKey(storeKey)){
+        pruneSelectionStylesForGraphPatch(
+          { scopeId: scope, tabId, storeKey },
+          options?.patchKeys || STYLE_KEYS
+        );
+      }
       setStoredStyle(storeKey, normalized, { tabId, reason: 'store-style-for-node-save' });
       broadcastStyle(storeKey, normalized, node);
       logDebug('storeStyleForNode saved', {
@@ -2997,12 +3179,6 @@
       imported: incoming ? Object.keys(incoming).length : 0,
       pruned: opts.prune === false ? 0 : undefined
     });
-  }
-
-  function storeCurrentStyle(style){
-    if(!currentTarget){ return; }
-    const context = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
-    storeStyleForNode(currentTarget, style, context);
   }
 
   function syncPanelStateFromTarget(){
@@ -3615,41 +3791,16 @@
     }
 
     function resolveStorePayloadForPatch(storeContext, nextStyle, patch, options){
-      const opts = options || {};
       const normalizedPatch = (patch && typeof patch === 'object') ? patch : {};
-      const nextSnapshot = cloneStyleSnapshot(nextStyle || null) || {};
-      if(storeContext?.mode === FONT_SCOPE_GRAPH){
-        const existingSnapshot = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'graph-scope-patch-read' })) || {};
-        const merged = { ...existingSnapshot };
-        Object.keys(normalizedPatch).forEach(key => {
-          if(!Object.prototype.hasOwnProperty.call(normalizedPatch, key)){ return; }
-          const value = normalizedPatch[key];
-          if(value === undefined){ return; }
-          if(value === null || value === ''){
-            delete merged[key];
-            return;
-          }
-          merged[key] = value;
-        });
-        return cloneStyleSnapshot(merged);
-      }
-      const payload = { ...nextSnapshot };
-      if(
-        opts.includeFallbackFill
-        && (payload.fill === undefined || payload.fill === null || payload.fill === '')
-      ){
-        const fallbackFill = opts.fallbackFill;
-        if(fallbackFill !== undefined && fallbackFill !== null && fallbackFill !== ''){
-          payload.fill = fallbackFill;
-        }
-      }
-      return cloneStyleSnapshot(payload);
+      const existingSnapshot = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-scope-patch-read' })) || {};
+      return applyStylePatchToSnapshot(existingSnapshot, normalizedPatch);
     }
 
     function commitFontFamily(rawValue, meta){
       if(!currentTarget){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
+      const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-family-prev-store' }));
       const value = (rawValue || '').trim();
       const inlineResult = handleInlineSelectionPatch({ fontFamily: value || null }, {
         source: meta?.source || 'unknown',
@@ -3664,13 +3815,10 @@
       const storePayload = resolveStorePayloadForPatch(
         storeContext,
         nextStyle,
-        { fontFamily: value || null },
-        {
-          includeFallbackFill: true,
-          fallbackFill: colorInput?.value || null
-        }
+        { fontFamily: value || null }
       );
-      storeStyleForNode(currentTarget, storePayload, storeContext);
+      const patchKeys = ['fontFamily'];
+      storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -3678,7 +3826,13 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-family', storeContext });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, {
+        label: 'font-family',
+        storeContext,
+        prevStoreStyle,
+        nextStoreStyle: storePayload,
+        patchKeys
+      });
       logDebug('font family committed', {
         value: value || null,
         source: meta?.source || 'unknown',
@@ -3731,6 +3885,7 @@
       if(!currentTarget) return;
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
+      const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'fill-prev-store' }));
       const val = colorInput.value;
       const inlineResult = handleInlineSelectionPatch({ fill: val }, {
         source: 'color-input',
@@ -3747,7 +3902,8 @@
         nextStyle,
         { fill: val }
       );
-      storeStyleForNode(currentTarget, storePayload, storeContext);
+      const patchKeys = ['fill'];
+      storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -3755,7 +3911,13 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'fill', storeContext });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, {
+        label: 'fill',
+        storeContext,
+        prevStoreStyle,
+        nextStoreStyle: storePayload,
+        patchKeys
+      });
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
 
@@ -3763,6 +3925,7 @@
       if(!currentTarget || !sizeInput){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
+      const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-size-prev-store' }));
       const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta?.source || 'change' });
       sizeInput.value = normalized;
       highlightSizeMenuSelection(normalized);
@@ -3789,13 +3952,10 @@
       const storePayload = resolveStorePayloadForPatch(
         storeContext,
         nextStyle,
-        { fontSize: val || null },
-        {
-          includeFallbackFill: true,
-          fallbackFill: colorInput?.value || null
-        }
+        { fontSize: val || null }
       );
-      storeStyleForNode(currentTarget, storePayload, storeContext);
+      const patchKeys = ['fontSize'];
+      storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -3803,7 +3963,13 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-size', storeContext });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, {
+        label: 'font-size',
+        storeContext,
+        prevStoreStyle,
+        nextStoreStyle: storePayload,
+        patchKeys
+      });
       logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
     }
 
@@ -3829,6 +3995,7 @@
         if(!currentTarget) return;
         const prevStyle = captureStyleSnapshot(currentTarget);
         const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
+        const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: `${attr}-prev-store` }));
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
         setToggleState(btn, nextActive);
@@ -3853,13 +4020,10 @@
         const storePayload = resolveStorePayloadForPatch(
           storeContext,
           nextStyle,
-          patch,
-          {
-            includeFallbackFill: true,
-            fallbackFill: colorInput?.value || null
-          }
+          patch
         );
-        storeStyleForNode(currentTarget, storePayload, storeContext);
+        const patchKeys = normalizeStylePatchKeys(patch);
+        storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
         if(inlineResult.entire && propKey){
           const inlineState = getInlineState(currentTarget);
           if(inlineState && inlineState.baseStyle){
@@ -3867,7 +4031,13 @@
           }
         }
         updatePreviewFromInputs();
-        recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: attr, storeContext });
+        recordStyleUndo(currentTarget, prevStyle, nextStyle, {
+          label: attr,
+          storeContext,
+          prevStoreStyle,
+          nextStoreStyle: storePayload,
+          patchKeys
+        });
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });
         if(typeof config.onToggleApplied === 'function'){
           config.onToggleApplied({ nextActive });
@@ -4204,12 +4374,7 @@
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
     }
-    if(hasStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'mark-text-graph-style' })){
-      applyStyleToNode(node, getStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'mark-text-graph-style' }));
-    }
-    if(hasStoredStyle(storeKey, { tabId: tabToken, reason: 'mark-text-style' })){
-      applyStyleToNode(node, getStoredStyle(storeKey, { tabId: tabToken, reason: 'mark-text-style' }));
-    }
+    applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
     logDebug('markText applied', { scopeId, tabToken: tabToken || null, role, key, text: node?.textContent });
   }
 
@@ -4219,13 +4384,7 @@
     const key = node.dataset?.fontKey || null;
     const tabToken = resolveStoreTabToken({ node, tabId: node.dataset?.fontTabId || null });
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
-    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
-    if(hasStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'apply-saved-graph-style' })){
-      applyStyleToNode(node, getStoredStyle(graphStoreKey, { tabId: tabToken, reason: 'apply-saved-graph-style' }));
-    }
-    if(hasStoredStyle(storeKey, { tabId: tabToken, reason: 'apply-saved-style' })){
-      applyStyleToNode(node, getStoredStyle(storeKey, { tabId: tabToken, reason: 'apply-saved-style' }));
-    }
+    applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
   }
 
   function isStoreKeyOwnedByTab(storeKey, tabToken){

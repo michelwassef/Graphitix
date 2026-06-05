@@ -1284,6 +1284,7 @@
         c.groupLayout = variant === 1 ? 'interleaved' : 'separated';
         c.showGrid = variant === 1;
         c.showFrame = true;
+        c.showLegend = variant === 1;
         c.significance = Object.assign({}, c.significance || {}, { labelMode: variant === 1 ? 'stars' : 'p' });
         break;
       case 'scatter':

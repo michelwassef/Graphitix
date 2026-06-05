@@ -2321,6 +2321,8 @@
     const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
     // Keep legend symbols compact by default while scaling with legend font size.
     const swatchSize = Number.isFinite(opts.swatchSize) ? Number(opts.swatchSize) : Math.max(4, Math.round(fontSize * 0.6));
+    const swatchWidth = Number.isFinite(opts.swatchWidth) ? Math.max(1, Number(opts.swatchWidth)) : swatchSize;
+    const swatchHeight = Number.isFinite(opts.swatchHeight) ? Math.max(1, Number(opts.swatchHeight)) : swatchSize;
     const swatchGap = Number.isFinite(opts.swatchGap) ? Number(opts.swatchGap) : Math.max(8, Math.round(fontSize * 0.4));
     const minWidth = Number.isFinite(opts.minWidth) ? Number(opts.minWidth) : Math.max(60, Math.round(fontSize * 5.5));
     const fontForMeasure = chartStyle.makeFont(fontSize);
@@ -2332,19 +2334,21 @@
         maxLabelWidth = width;
       }
     });
-    const width = normalizedEntries.length ? Math.max(minWidth, swatchSize + swatchGap + maxLabelWidth) : 0;
+    const width = normalizedEntries.length ? Math.max(minWidth, swatchWidth + swatchGap + maxLabelWidth) : 0;
     // Keep row spacing large enough for either text or swatch content to avoid overlap at small fonts.
-    const rowContentHeight = Math.max(fontSize, swatchSize);
+    const rowContentHeight = Math.max(fontSize, swatchHeight);
     const rowHeight = rowContentHeight + rowGap;
     const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
     const textCenterOffset = rowContentHeight / 2;
-    const swatchOffsetY = (rowContentHeight - swatchSize) / 2;
+    const swatchOffsetY = (rowContentHeight - swatchHeight) / 2;
     const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + rowContentHeight : 0;
     const debugSummary = {
       entryCount: normalizedEntries.length,
       fontSize,
       rowGap,
       swatchSize,
+      swatchWidth,
+      swatchHeight,
       swatchGap,
       minWidth,
       width,
@@ -2355,10 +2359,10 @@
     const createLegendSwatch = (doc, entry, idx, swatchCenterY) => {
       const rawShape = entry?.raw?.shape;
       const shape = typeof rawShape === 'string' ? rawShape : 'square';
-      const swatchTop = swatchCenterY - (swatchSize / 2);
-      const centerX = swatchSize / 2;
+      const swatchTop = swatchCenterY - (swatchHeight / 2);
+      const centerX = swatchWidth / 2;
       const centerY = swatchCenterY;
-      const radius = Math.max(1, swatchSize * 0.42);
+      const radius = Math.max(1, Math.min(swatchWidth, swatchHeight) * 0.42);
       let node = null;
       if(shape === 'circle'){
         node = doc.createElementNS(NS, 'circle');
@@ -2418,10 +2422,16 @@
         }
         const d = points.map((pt, pointIdx) => `${pointIdx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
         node.setAttribute('d', d);
-      }else{
+      }else if(shape === 'rect' || shape === 'rectangle'){
         node = doc.createElementNS(NS, 'rect');
         node.setAttribute('x', '0');
         node.setAttribute('y', String(swatchTop));
+        node.setAttribute('width', String(swatchWidth));
+        node.setAttribute('height', String(swatchHeight));
+      }else{
+        node = doc.createElementNS(NS, 'rect');
+        node.setAttribute('x', '0');
+        node.setAttribute('y', String(swatchCenterY - (swatchSize / 2)));
         node.setAttribute('width', String(swatchSize));
         node.setAttribute('height', String(swatchSize));
       }
@@ -2449,6 +2459,8 @@
       rowHeight,
       rowContentHeight,
       swatchSize,
+      swatchWidth,
+      swatchHeight,
       swatchGap,
       baselineOffset,
       minWidth,
@@ -2493,7 +2505,7 @@
           }
           group.appendChild(swatch);
           const text = doc.createElementNS(NS, 'text');
-          text.setAttribute('x', swatchSize + swatchGap);
+          text.setAttribute('x', swatchWidth + swatchGap);
           text.setAttribute('y', textCenterY);
           text.setAttribute('font-size', fontSize);
           text.setAttribute('fill', textColor);
@@ -2520,6 +2532,8 @@
       fontSize: opts.fontSize,
       strokeWidth: opts.strokeWidth,
       swatchSize: opts.swatchSize,
+      swatchWidth: opts.swatchWidth,
+      swatchHeight: opts.swatchHeight,
       swatchGap: opts.swatchGap,
       rowGap: opts.rowGap,
       minWidth: opts.minWidth,

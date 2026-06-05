@@ -591,6 +591,73 @@ describe('UI events and example loaders', () => {
     expect(String(reloaded?.[1]?.[4] || '')).toBe('Day 7');
   }, 20000);
 
+  test('Box Plot: grouped replicates show a Prism-style movable legend by default', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork(20);
+
+    const boxComponent = window.Components?.box;
+    const state = boxComponent?.__getState?.();
+    const hot = state?.hot;
+    expect(hot).toBeTruthy();
+
+    const legendToggle = document.getElementById('boxShowLegend');
+    const formatSelect = document.getElementById('boxTableFormat');
+    const graphTypeSelect = document.getElementById('boxGraphType');
+    expect(legendToggle).toBeTruthy();
+    expect(formatSelect).toBeTruthy();
+    expect(graphTypeSelect).toBeTruthy();
+    expect(legendToggle.checked).toBe(false);
+
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    graphTypeSelect.value = 'bar';
+    graphTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+    expect(legendToggle.checked).toBe(true);
+
+    hot.loadData([
+      ['Control', '', '', 'Treated', '', ''],
+      ['Week 1', 'Week 2', 'Week 3', 'Week 1', 'Week 2', 'Week 3'],
+      [23, 24, 21, 80, 30, 67],
+      [21, 23, 25, 84, 31, 68],
+      [19, 25, 27, 82, 29, 66],
+      [22, 26, 24, 86, 32, 69]
+    ]);
+    await flushAsyncWork(80);
+    await boxComponent.draw?.({ reason: 'test-box-legend' });
+    await flushAsyncWork(80);
+
+    const legend = document.querySelector('#boxPlot svg g[data-box-legend="1"]');
+    expect(legend).toBeTruthy();
+    expect(legend.getAttribute('transform')).toMatch(/^translate\(/);
+    expect(Array.from(legend.querySelectorAll('text')).map(node => node.textContent)).toEqual(['Control', 'Treated']);
+
+    const swatches = Array.from(legend.querySelectorAll('rect[data-legend-key]'));
+    expect(swatches.length).toBe(2);
+    swatches.forEach(swatch => {
+      expect(Number(swatch.getAttribute('width'))).toBeGreaterThan(Number(swatch.getAttribute('height')));
+      expect(swatch.getAttribute('fill')).toBeTruthy();
+      expect(swatch.getAttribute('stroke')).toBeTruthy();
+      expect(Number(swatch.getAttribute('stroke-width'))).toBeGreaterThan(0);
+    });
+    const firstSwatch = swatches[0];
+    const matchingGraphRect = Array.from(document.querySelectorAll('#boxPlot svg rect:not([data-legend-key])')).find(rect => (
+      rect.getAttribute('fill') === firstSwatch.getAttribute('fill')
+    ));
+    expect(matchingGraphRect).toBeTruthy();
+
+    let payload = boxComponent.getPayload?.();
+    expect(payload?.config?.showLegend).toBe(true);
+    legendToggle.checked = false;
+    legendToggle.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(40);
+    payload = boxComponent.getPayload?.();
+    expect(payload?.config?.showLegend).toBe(false);
+    boxComponent.loadFromPayload(payload);
+    await flushAsyncWork(60);
+    expect(document.getElementById('boxShowLegend')?.checked).toBe(false);
+  }, 20000);
+
   test('Scatter Plot: additional axis ticks/lines persist from FORMAT controls', async () => {
     await activateWorkspace('scatter');
     await flushAsyncWork(20);
