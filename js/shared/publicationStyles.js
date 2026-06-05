@@ -315,6 +315,12 @@
     pie: Object.freeze({ inputId: 'pieFontSize', labelId: 'pieFontSizeVal' })
   });
 
+  const FONT_SIZE_PAYLOAD_PATHS = Object.freeze({
+    venn: Object.freeze(['style.fontsize']),
+    surface: Object.freeze(['config.settings.fontSize']),
+    default: Object.freeze(['config.fontSize'])
+  });
+
   const state = {
     initialized: false,
     controlsByType: {},
@@ -730,12 +736,9 @@
       next.config.showFrame = !!preset.showFrame;
     }
 
-    if('fontSize' in next.config){
-      next.config.fontSize = preset.fontSizePt;
-    }
-    if('fontsize' in next.config){
-      next.config.fontsize = preset.fontSizePt;
-    }
+    (FONT_SIZE_PAYLOAD_PATHS[type] || FONT_SIZE_PAYLOAD_PATHS.default).forEach(path => {
+      setDeep(next, path, preset.fontSizePt);
+    });
 
     // Typography: only mutate existing graph-scope styles to avoid creating
     // a new graph-wide font override that can desynchronize toolbar sizing.
@@ -893,6 +896,15 @@
       style.upset.axisColor = preset.axisColor;
     }
 
+    if(type === 'surface'){
+      cfg.settings = ensureObject(cfg.settings);
+      cfg.settings.fontSize = preset.fontSizePt;
+      cfg.settings.axisStroke = preset.axisStrokeWidth;
+      cfg.settings.axisColor = preset.axisColor;
+      cfg.settings.showGrid = !!preset.showGrid;
+      cfg.settings.showFrame = !!preset.showFrame;
+    }
+
     if(type === 'scatter' || type === 'pca' || type === 'line' || type === 'roc' || type === 'survival'){
       // Many of these graphs have marker styles under labelStyles and/or a global marker.
       // We only apply conservative defaults if the structures exist.
@@ -946,10 +958,11 @@
       return false;
     }
     const doc = global.document || null;
-    const scopedRoot = resolveTabScopedRoot(type, getActiveTab(), { allowPageFallback: false });
+    const activeTab = getActiveTab();
+    const scopedRoot = resolveTabScopedRoot(type, activeTab, { allowPageFallback: false });
     const input = (scopedRoot?.getElementById?.(descriptor.inputId))
       || (scopedRoot?.querySelector?.(`#${descriptor.inputId}`))
-      || (doc ? doc.getElementById(descriptor.inputId) : null);
+      || (!activeTab && doc ? doc.getElementById(descriptor.inputId) : null);
     if(!input){
       debugLog('Debug: publicationStyles manual font apply skipped', { type, reason: 'missing-input', inputId: descriptor.inputId });
       return false;
@@ -972,7 +985,7 @@
     const label = descriptor.labelId
       ? ((scopedRoot?.getElementById?.(descriptor.labelId))
         || (scopedRoot?.querySelector?.(`#${descriptor.labelId}`))
-        || (doc ? doc.getElementById(descriptor.labelId) : null))
+        || (!activeTab && doc ? doc.getElementById(descriptor.labelId) : null))
       : null;
     if(label && Shared.chartStyle && typeof Shared.chartStyle.renderFontSizeLabel === 'function'){
       try{

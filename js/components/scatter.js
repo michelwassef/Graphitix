@@ -23234,6 +23234,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       const payloadScatterShowPI = resolvePayloadControl('scatterShowPI', scatterShowPI);
       const payloadScatterGraphType = getScatterNodeById('scatterGraphType', activeTabId) || scatterGraphTypeSelect;
       const payloadScatterTableFormat = getScatterNodeById('scatterTableFormat', activeTabId) || scatterTableFormatSelect;
+      const payloadScatterFontSize = resolvePayloadControl('scatterFontSize', scatterFontSize);
       const activeHot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot;
       const activeManager = activeHot?.__scatterDataViewsManager || scatterDataViewsManager || null;
       const dataViewsPayload = normalizeScatterDataViewsPayload(activeManager?.serialize?.({ includeData: true }) || null);
@@ -23291,6 +23292,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             backgroundColor: themeSnapshot.backgroundColor,
             border:readValue(scatterBorder, ownedStyles?.border || ''),
             borderWidth:readValue(scatterBorderWidth, ownedStyles?.borderWidth || ''),
+            fontSize:readValue(payloadScatterFontSize, ''),
             alpha:readValue(scatterAlpha, ownedStyles?.alpha || ''),
             labelColors: persistedLabelColors,
             labelShapes: persistedLabelShapes,
@@ -23574,6 +23576,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(c.zLabel !== undefined){ styleAxisModes.z = 'manual'; }
           if(Object.keys(styleAxisModes).length){
             scatterState.axisLabelModes = normalizeScatterAxisLabelModes(styleAxisModes, scatterState.axisLabelModes);
+          }
+        }
+        if(c.fontSize !== undefined && scatterFontSize){
+          const restoredFontSize = Number(c.fontSize);
+          if(Number.isFinite(restoredFontSize) && restoredFontSize > 0){
+            scatterFontSize.value = String(c.fontSize);
+            if(scatterFontSize.dataset){
+              scatterFontSize.dataset.fontBasePt = String(c.fontSize);
+              scatterFontSize.dataset.fontDisplayPt = String(c.fontSize);
+              console.debug('Debug: scatter font size base restored',{ value: scatterFontSize.value });
+            }
+            if(typeof chartStyle.renderFontSizeLabel === 'function'){
+              chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: restoredFontSize, input: scatterFontSize, manual: true });
+            }
           }
         }
         scatterDotSize.value=c.dotSize||scatterDotSize.value;

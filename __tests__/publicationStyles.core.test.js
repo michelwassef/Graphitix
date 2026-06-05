@@ -6,7 +6,10 @@
 // publicationStyles.init() starts a setInterval(…, 1200) via startActiveMonitor().
 // Fake timers prevent that interval from leaking into the real timer queue and
 // interfering with timing-sensitive tests in other suites.
-beforeEach(() => { jest.useFakeTimers(); });
+beforeEach(() => {
+  jest.useFakeTimers();
+  document.body.innerHTML = '';
+});
 afterEach(() => { jest.useRealTimers(); });
 
 function loadModule() {
@@ -33,6 +36,46 @@ function buildConfigPanel(type) {
     page.appendChild(panel);
   }
   return { page, panel };
+}
+
+const FONT_CONTROL_IDS = {
+  venn: { inputId: 'fontsize', labelId: 'fontsizeVal' },
+  box: { inputId: 'boxFontSize', labelId: 'boxFontSizeVal' },
+  scatter: { inputId: 'scatterFontSize', labelId: 'scatterFontSizeVal' },
+  pca: { inputId: 'pcaFontSize', labelId: 'pcaFontSizeVal' },
+  line: { inputId: 'lineFontSize', labelId: 'lineFontSizeVal' },
+  heatmap: { inputId: 'heatmapFontSize', labelId: 'heatmapFontSizeVal' },
+  surface: { inputId: 'surfaceFontSize', labelId: 'surfaceFontSizeVal' },
+  roc: { inputId: 'rocFontSize', labelId: 'rocFontSizeVal' },
+  survival: { inputId: 'survivalFontSize', labelId: 'survivalFontSizeVal' },
+  hist: { inputId: 'histFontSize', labelId: 'histFontSizeVal' },
+  pie: { inputId: 'pieFontSize', labelId: 'pieFontSizeVal' }
+};
+
+function buildFontControl(type, initialValue = '12') {
+  const descriptor = FONT_CONTROL_IDS[type];
+  if (!descriptor) throw new Error(`Missing font control descriptor for ${type}`);
+  const { page } = buildConfigPanel(type);
+  const input = document.createElement('input');
+  input.id = descriptor.inputId;
+  input.type = 'range';
+  input.min = '1';
+  input.max = '48';
+  input.value = initialValue;
+  const label = document.createElement('output');
+  label.id = descriptor.labelId;
+  page.appendChild(input);
+  page.appendChild(label);
+  const events = [];
+  input.addEventListener('input', () => events.push(`input:${input.value}`));
+  input.addEventListener('change', () => events.push(`change:${input.value}`));
+  return { input, label, events };
+}
+
+function readPath(obj, path) {
+  return String(path).split('.').reduce((cursor, key) => (
+    cursor && typeof cursor === 'object' ? cursor[key] : undefined
+  ), obj);
 }
 
 // Minimal session / workspace / domControls scaffold
@@ -63,6 +106,19 @@ function buildMain(type, payloadOverrides = {}) {
       clone.config.colorScheme = schemeId;
       return clone;
     })
+  };
+  window.Shared.chartStyle = {
+    renderFontSizeLabel: jest.fn(({ element, pt, input }) => {
+      if (element) element.textContent = `${pt} pt`;
+      if (input?.dataset) {
+        input.dataset.fontBasePt = String(pt);
+        input.dataset.fontDisplayPt = String(pt);
+      }
+    }),
+    setTextSizeLock: jest.fn()
+  };
+  window.Shared.workspaceTabs = {
+    resolveTabScopedRoot: jest.fn((t) => document.getElementById(`${t}Page`) || null)
   };
 
   const session = {
@@ -164,8 +220,8 @@ describe('publicationStyles — init()', () => {
       'jci_single',
       'jci_double'
     ]);
-    expect(options.map(option => option.text)).toContain('PLOS — text column (132 mm)');
-    expect(options.map(option => option.text)).toContain('JCI — double column (180 mm)');
+    expect(options.find(option => option.value === 'plos_text')?.text).toBe('Text column (132 mm)');
+    expect(options.find(option => option.value === 'jci_double')?.text).toBe('Double column (180 mm)');
   });
 });
 
@@ -225,6 +281,25 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
     expect(fs).toBeGreaterThan(0);
   });
 
+  test('NPG preset applies font size through the manual input route', () => {
+    const { input, label, events } = buildFontControl('scatter');
+
+    clickApplyButton('scatter');
+
+    expect(input.value).toBe('7');
+    expect(input.dataset.fontBasePt).toBe('7');
+    expect(input.dataset.fontDisplayPt).toBe('7');
+    expect(events.slice(0, 2)).toEqual(['input:7', 'change:7']);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(scaffold.tab.payload.config?.fontSize).toBe(7);
+    expect(window.Shared.chartStyle.renderFontSizeLabel).toHaveBeenCalledWith(expect.objectContaining({
+      element: label,
+      input,
+      pt: 7,
+      manual: true
+    }));
+  });
+
   test('workspace payload fallback propagates explicit tab ownership metadata', () => {
     scaffold.tab.payload = null;
     scaffold.workspace.getPayload.mockReturnValue({
@@ -242,6 +317,37 @@ describe('publicationStyles — NPG single preset on scatter (via DOM click)', (
       origin: 'publicationStyles'
     }));
     expect(String(metaArg.reason || '')).toContain('publication-style-source-scatter');
+  });
+});
+
+describe('publicationStyles — canonical font-size persistence path', () => {
+  const cases = [
+    ['venn', 'style.fontsize'],
+    ['box', 'config.fontSize'],
+    ['scatter', 'config.fontSize'],
+    ['pca', 'config.fontSize'],
+    ['line', 'config.fontSize'],
+    ['heatmap', 'config.fontSize'],
+    ['surface', 'config.settings.fontSize'],
+    ['roc', 'config.fontSize'],
+    ['survival', 'config.fontSize'],
+    ['hist', 'config.fontSize'],
+    ['pie', 'config.fontSize']
+  ];
+
+  test.each(cases)('%s preset writes %s even when missing from the source payload', (type, path) => {
+    buildConfigPanel(type);
+    buildFontControl(type);
+    const ps = loadModule();
+    ps.init();
+    const scaffold = buildMain(type);
+    scaffold.tab.payload = type === 'venn'
+      ? { type, data: {}, style: {}, config: { colorScheme: 'scientific', axis: {} } }
+      : { type, data: [], config: { colorScheme: 'scientific', axis: {} } };
+
+    clickApplyButton(type);
+
+    expect(readPath(scaffold.tab.payload, path)).toBe(7);
   });
 });
 
@@ -381,14 +487,14 @@ describe('publicationStyles — documented publisher presets', () => {
     const hint = select.closest('[data-publication-style-fieldset="1"]')
       .querySelector('[data-publication-style-hint="1"]');
 
-    expect(select.querySelector('optgroup[label="Nature / NPG — same style, choose final width"]')).not.toBeNull();
-    expect(hint.textContent).toMatch(/same visual rules/i);
-    expect(hint.textContent).toMatch(/documented final figure width/i);
+    expect(select.querySelector('optgroup[label="Nature / NPG — choose final width"]')).not.toBeNull();
+    expect(hint.textContent).toMatch(/89 mm single column/i);
+    expect(hint.textContent).toMatch(/Arial\/Helvetica, 7 pt/i);
 
     select.value = 'npg_double';
     select.dispatchEvent(new window.Event('change'));
-    expect(hint.textContent).toMatch(/same Nature\/NPG visual rules/i);
-    expect(hint.textContent).toMatch(/double-column figures/i);
+    expect(hint.textContent).toMatch(/183 mm double column/i);
+    expect(hint.textContent).toMatch(/0\.25-1 pt strokes/i);
   });
 });
 

@@ -56,4 +56,24 @@ describe('scatter listener binding contract', () => {
     const matches = [...setupBody.matchAll(/bindScatterControlListener\(scatterShowPI, 'change'/g)];
     expect(matches).toHaveLength(1);
   });
+
+  test('getScatterGraphPayload persists the live font-size control value', () => {
+    const source = scatterSource();
+    const payloadMatch = source.match(/function getScatterGraphPayload\(\)\{([\s\S]*?)async function saveScatterFile/);
+    expect(payloadMatch).toBeTruthy();
+    const payloadBody = payloadMatch[1];
+    expect(payloadBody).toContain("resolvePayloadControl('scatterFontSize', scatterFontSize)");
+    expect(payloadBody).toMatch(/fontSize\s*:\s*readValue\(payloadScatterFontSize,\s*''\)/);
+  });
+
+  test('applyScatterPayload restores config.fontSize into the live font-size control', () => {
+    const source = scatterSource();
+    const payloadMatch = source.match(/function applyScatterPayload\(obj, meta = \{\}\)\{([\s\S]*?)function initNotes/);
+    expect(payloadMatch).toBeTruthy();
+    const payloadBody = payloadMatch[1];
+    expect(payloadBody).toContain('if(c.fontSize !== undefined && scatterFontSize)');
+    expect(payloadBody).toContain('scatterFontSize.value = String(c.fontSize)');
+    expect(payloadBody).toContain('scatterFontSize.dataset.fontBasePt = String(c.fontSize)');
+    expect(payloadBody).toContain('scatterFontSize.dataset.fontDisplayPt = String(c.fontSize)');
+  });
 });
