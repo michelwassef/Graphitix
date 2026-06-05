@@ -824,6 +824,13 @@
   const histOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'hist',
     message: 'Rendering histogram...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 0,
+      rowThreshold: 5000,
+      cellThreshold: 5000
+    }),
     getTabId: () => hist.__boundTabId || null,
     getHost: () => (
       state.svgBox

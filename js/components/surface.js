@@ -970,6 +970,13 @@
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 1,
+      rowThreshold: 500,
+      cellThreshold: 5000
+    }),
     getTabId: () => surface.__boundTabId || null,
     getHost: () => (
       state.svgBox

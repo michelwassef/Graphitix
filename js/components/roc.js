@@ -754,6 +754,13 @@
   const rocOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'roc',
     message: 'Rendering ROC/PR plot...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 0,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
     getTabId: () => roc.__boundTabId || null,
     getHost: () => (
       refs.svgBox

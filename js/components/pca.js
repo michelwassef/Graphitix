@@ -752,6 +752,13 @@
   const pcaOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'pca',
     message: 'Rendering PCA workspace...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => pcaHot,
+      startRow: 1,
+      startCol: 1,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
     getTabId: () => pca.__boundTabId || null,
     getHost: () => (
       pcaSvgBoxRef

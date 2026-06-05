@@ -1845,6 +1845,14 @@
     documentTitle.textContent = 'Untitled.graph';
     documentArea.appendChild(documentTitle);
 
+    const jobActivity = doc.createElement('div');
+    jobActivity.className = 'workspace-job-activity';
+    jobActivity.dataset.jobActivity = '1';
+    jobActivity.dataset.jobStatus = 'idle';
+    jobActivity.setAttribute('aria-live', 'polite');
+    jobActivity.hidden = true;
+    documentArea.appendChild(jobActivity);
+
     const autosaveLabel = doc.createElement('label');
     autosaveLabel.className = 'workspace-toolbar__autosave';
     autosaveLabel.title = 'Autosave this .graph file when possible';
@@ -1865,14 +1873,6 @@
     documentStatus.setAttribute('aria-live', 'polite');
     documentStatus.textContent = 'Autosave Off · Saved';
     documentArea.appendChild(documentStatus);
-
-    const jobActivity = doc.createElement('div');
-    jobActivity.className = 'workspace-job-activity';
-    jobActivity.dataset.jobActivity = '1';
-    jobActivity.dataset.jobStatus = 'idle';
-    jobActivity.setAttribute('aria-live', 'polite');
-    jobActivity.hidden = true;
-    documentArea.appendChild(jobActivity);
 
     tabs.appendChild(documentArea);
     Shared.jobs?.bindStatusUi?.();

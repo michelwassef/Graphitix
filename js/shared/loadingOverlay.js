@@ -312,7 +312,7 @@
       }
       const jobOptions = typeof config.createJobOptions === 'function'
         ? config.createJobOptions(payload || {})
-        : {};
+        : (config.jobOptions && typeof config.jobOptions === 'object' ? config.jobOptions : {});
       const component = config.component || jobOptions.component || null;
       const resolvedTabId = jobOptions.tabId
         || (typeof config.getTabId === 'function' ? config.getTabId(payload || {}) : null)
@@ -365,6 +365,9 @@
         message: payload?.message || jobOptions.message || baseMessage || DEFAULT_MESSAGE,
         reason: payload?.reason || payload?.source || jobOptions.reason || null,
         cancellable: jobOptions.cancellable !== false,
+        activityDelayMs: Number.isFinite(Number(jobOptions.activityDelayMs))
+          ? Number(jobOptions.activityDelayMs)
+          : 0,
         retry,
         onCancel
       }) || null;
@@ -460,6 +463,24 @@
       activeReason: null,
       forceActive: false
     };
+    const showOnlyWhenForced = config.showOnlyWhenForced !== false;
+    const isHeavy = (reason, options = {}) => {
+      if(options.heavy === true || options.forceOverlay === true){
+        return true;
+      }
+      if(options.heavy === false || options.forceOverlay === false){
+        return false;
+      }
+      if(typeof config.isHeavy === 'function'){
+        try{
+          return !!config.isHeavy(reason, options);
+        }catch(err){
+          console.error('loading overlay heavy predicate failed', err);
+          return false;
+        }
+      }
+      return true;
+    };
     const markPending = reason => {
       const label = reason || 'data-change';
       state.pendingReason = label;
@@ -473,10 +494,27 @@
         return false;
       }
       if(options.force){
+        if(!isHeavy(reason, options)){
+          state.pendingReason = null;
+          state.forceActive = false;
+          if(isDebug()){
+            console.debug('Debug: loading overlay force skipped for light work',{
+              component: config.component || null,
+              reason
+            });
+          }
+          return false;
+        }
         state.pendingReason = null;
         state.forceActive = true;
         state.activeReason = options.source || reason || 'forced';
-        ctrl.queue({ reason, source: state.activeReason, message: options.message });
+        ctrl.queue({
+          reason,
+          source: state.activeReason,
+          message: options.message,
+          immediate: true,
+          delayMs: 0
+        });
         return true;
       }
       const pending = state.pendingReason;
@@ -484,6 +522,16 @@
       if(!pending){
         if(isDebug()){
           console.debug('Debug: loading overlay queue skipped',{
+            component: config.component || null,
+            reason,
+            pendingReason: pending
+          });
+        }
+        return false;
+      }
+      if(showOnlyWhenForced){
+        if(isDebug()){
+          console.debug('Debug: loading overlay queue skipped for non-heavy pending work',{
             component: config.component || null,
             reason,
             pendingReason: pending
@@ -511,6 +559,74 @@
       resolve,
       force: (reason, options = {}) => queue(reason, { ...options, force: true }),
       isActive: () => state.forceActive || !!controller?.isActive?.()
+    };
+  };
+
+  loadingOverlay.hasTableBodyData = function hasTableBodyData(source, options = {}){
+    const matrix = Array.isArray(source)
+      ? source
+      : (typeof source?.getSourceData === 'function'
+        ? source.getSourceData()
+        : (typeof source?.getData === 'function' ? source.getData() : null));
+    if(!Array.isArray(matrix)){
+      return false;
+    }
+    const startRow = Math.max(0, Math.floor(Number(options.startRow) || 0));
+    const startCol = Math.max(0, Math.floor(Number(options.startCol) || 0));
+    for(let rowIndex = startRow; rowIndex < matrix.length; rowIndex += 1){
+      const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+      for(let colIndex = startCol; colIndex < row.length; colIndex += 1){
+        const value = row[colIndex];
+        if(value != null && String(value).trim() !== ''){
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  loadingOverlay.createTableHeavyPredicate = function createTableHeavyPredicate(config = {}){
+    const startRow = Math.max(0, Math.floor(Number(config.startRow) || 0));
+    const startCol = Math.max(0, Math.floor(Number(config.startCol) || 0));
+    const rowThreshold = Math.max(1, Math.floor(Number(config.rowThreshold) || 1000));
+    const cellThreshold = Math.max(1, Math.floor(Number(config.cellThreshold) || 5000));
+    return function isTableOverlayHeavy(reason, options = {}){
+      if(options.heavy === true || options.forceOverlay === true){
+        return true;
+      }
+      if(options.heavy === false || options.forceOverlay === false){
+        return false;
+      }
+      const reasonText = String(reason || options.reason || '').toLowerCase();
+      if(reasonText === 'file-import' || reasonText.includes('opening saved')){
+        return true;
+      }
+      const hot = typeof config.getHot === 'function' ? config.getHot() : config.hot;
+      const matrix = Array.isArray(hot)
+        ? hot
+        : (typeof hot?.getSourceData === 'function'
+          ? hot.getSourceData()
+          : (typeof hot?.getData === 'function' ? hot.getData() : null));
+      if(!Array.isArray(matrix)){
+        return false;
+      }
+      let nonEmptyRows = 0;
+      let nonEmptyCells = 0;
+      for(let rowIndex = startRow; rowIndex < matrix.length; rowIndex += 1){
+        const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+        let rowHasData = false;
+        for(let colIndex = startCol; colIndex < row.length; colIndex += 1){
+          const value = row[colIndex];
+          if(value != null && String(value).trim() !== ''){
+            nonEmptyCells += 1;
+            rowHasData = true;
+          }
+        }
+        if(rowHasData){
+          nonEmptyRows += 1;
+        }
+      }
+      return nonEmptyRows > 0 && (nonEmptyRows >= rowThreshold || nonEmptyCells >= cellThreshold);
     };
   };
 })(window);

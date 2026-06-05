@@ -723,6 +723,13 @@
   const heatmapOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'heatmap',
     message: 'Rendering heatmap...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 1,
+      rowThreshold: 500,
+      cellThreshold: 5000
+    }),
     getTabId: () => heatmap.__boundTabId || null,
     getHost: () => (
       state.svgBox

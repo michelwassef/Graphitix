@@ -13443,6 +13443,13 @@
   const boxOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'box',
     message: 'Rendering box plot...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 0,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
     getTabId: () => box.__boundTabId || null,
     getHost: () => (
       els.svgBox

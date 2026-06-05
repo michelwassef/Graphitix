@@ -7778,9 +7778,36 @@
     context:null,
     pendingPoints:null
   };
+
+  function getScatterOverlayPointCount(){
+    if(Array.isArray(scatterState.cachedCollect?.points)){
+      return scatterState.cachedCollect.points.length;
+    }
+    const hot = scatter.__ensureHotForActiveTab?.() || scatterHot || scatterRefs.hot || null;
+    if(!hot){
+      return 0;
+    }
+    if(typeof hot.countRows === 'function'){
+      return Math.max(0, hot.countRows() - 1);
+    }
+    const source = typeof hot.getData === 'function' ? hot.getData() : null;
+    return Array.isArray(source) ? Math.max(0, source.length - 1) : 0;
+  }
+
+  function isScatterOverlayHeavy(reason, options = {}){
+    if(options.heavy === true || options.forceOverlay === true){
+      return true;
+    }
+    if(options.heavy === false || options.forceOverlay === false){
+      return false;
+    }
+    return getScatterOverlayPointCount() >= SCATTER_POINT_BATCH_THRESHOLD;
+  }
+
   const scatterOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'scatter',
     message: 'Rendering scatter plot...',
+    isHeavy: isScatterOverlayHeavy,
     getTabId: () => scatter.__boundTabId || null,
     getHost: () => (
       getScatterNodeById('scatterGraphPanel')?.querySelector?.('.svgbox')
@@ -22890,6 +22917,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           return;
         }
         scatterState.drawInProgress = true;
+        const drawCycleId = (Number(scatterState.drawCycleId) || 0) + 1;
+        scatterState.drawCycleId = drawCycleId;
         scatterState.activeDrawReasons = scatterState.pendingDrawReasons;
         scatterState.pendingDrawReasons = null;
         let status = 'complete';
@@ -22911,23 +22940,32 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           status = 'error';
           throw err;
         }finally{
-          scatterState.drawInProgress = false;
-          scatterState.lastDrawAt = (global.performance && typeof global.performance.now === 'function')
-            ? global.performance.now()
-            : Date.now();
-          resolveScatterOverlay(status);
-          const pending = scatterState.pendingDrawOpts;
-          scatterState.pendingDrawOpts = null;
-          if(pending){
-            if(isScatterDrawQueueEpochCurrent(pending)){
-              scheduleDrawScatterRaw(pending);
-            }else{
-              scatterDebug('Debug: scatter pending draw dropped (stale draw queue epoch)', {
-                reason: pending.reason || null,
-                queuedEpoch: pending.__scatterDrawQueueEpoch,
-                currentEpoch: scatterState.drawQueueEpoch || 0
-              });
+          if(Number(scatterState.drawCycleId) === drawCycleId){
+            scatterState.drawInProgress = false;
+            scatterState.lastDrawAt = (global.performance && typeof global.performance.now === 'function')
+              ? global.performance.now()
+              : Date.now();
+            resolveScatterOverlay(status);
+            const pending = scatterState.pendingDrawOpts;
+            scatterState.pendingDrawOpts = null;
+            if(pending){
+              if(isScatterDrawQueueEpochCurrent(pending)){
+                scheduleDrawScatterRaw(pending);
+              }else{
+                scatterDebug('Debug: scatter pending draw dropped (stale draw queue epoch)', {
+                  reason: pending.reason || null,
+                  queuedEpoch: pending.__scatterDrawQueueEpoch,
+                  currentEpoch: scatterState.drawQueueEpoch || 0
+                });
+              }
             }
+          }else{
+            scatterDebug('Debug: scatter draw cleanup skipped (stale draw cycle)', {
+              reason: nextOpts.reason || null,
+              cycleId: drawCycleId,
+              currentCycleId: scatterState.drawCycleId || 0,
+              status
+            });
           }
         }
       };
@@ -23069,9 +23107,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const shouldDelayForOverlay = scatterOverlayController?.isActive?.() && !nextOpts.viewOnly;
         if(shouldDelayForOverlay){
+          const raf = typeof global.requestAnimationFrame === 'function'
+            ? global.requestAnimationFrame.bind(global)
+            : cb => global.setTimeout(cb, 0);
           const scheduleAfterPaint = () => {
-            scatterDebug('Debug: scatter autoDraw deferred for overlay',{ reason: overlayReason });
-            runSchedule(nextOpts);
+            raf(() => {
+              scatterDebug('Debug: scatter autoDraw deferred for overlay paint',{ reason: overlayReason });
+              runSchedule(nextOpts);
+            });
           };
           Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
             tabId: nextOpts.tabId || scatter.__boundTabId || null,
@@ -24901,7 +24944,15 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
 
   scatter.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     scatterDrawToken += 1;
+    scatterState.drawCycleId = (Number(scatterState.drawCycleId) || 0) + 1;
     const tabId = meta?.tabId || scatter.__boundTabId || null;
+    clearScatterScheduledDraw(meta?.reason || 'scatter-draw-cancel');
+    scatterState.drawInProgress = false;
+    scatterState.pendingDrawOpts = null;
+    scatterState.pendingDrawReasons = null;
+    scatterState.activeDrawReasons = null;
+    scatterState.rotationPending = false;
+    scatterState.rotationPendingLogged = false;
     try{ scatter.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
     try{ scatter.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
     resolveScatterOverlay(meta?.reason || 'cancelled');

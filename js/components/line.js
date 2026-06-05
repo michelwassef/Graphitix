@@ -3212,6 +3212,13 @@
   const lineOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'line',
     message: 'Rendering line chart...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => lineHot,
+      startRow: 1,
+      startCol: 0,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
     getTabId: () => line.__boundTabId || null,
     getHost: () => (
       refs.svgBox

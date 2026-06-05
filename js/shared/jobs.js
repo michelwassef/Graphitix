@@ -7,8 +7,10 @@
   const activeJobs = new Map();
   const finishedJobs = new Map();
   const listeners = new Set();
+  const DEFAULT_ACTIVITY_DELAY_MS = 700;
   let nextJobId = 1;
   let statusBound = false;
+  let activityRenderTimer = null;
 
   function isDebug(){
     try{
@@ -73,6 +75,7 @@
       try{ listener(snapshot); }
       catch(err){ console.warn('Debug: jobs listener error', { message: err?.message || String(err) }); }
     });
+    clearActivityRenderTimer();
     renderActivityHosts(snapshot);
   }
 
@@ -100,6 +103,7 @@
       startedAt: record.startedAt,
       updatedAt: record.updatedAt,
       finishedAt: record.finishedAt || null,
+      activityDelayMs: record.activityDelayMs,
       elapsedMs: now() - record.startedAt,
       error: record.error || null,
       signal: record.controller?.signal || null,
@@ -171,6 +175,11 @@
       retry: typeof options.retry === 'function' ? options.retry : null,
       onCancel: typeof options.onCancel === 'function' ? options.onCancel : null,
       metadata: options.metadata && typeof options.metadata === 'object' ? { ...options.metadata } : {},
+      activityDelayMs: Number.isFinite(Number(options.activityDelayMs))
+        ? Math.max(0, Number(options.activityDelayMs))
+        : (Number.isFinite(Number(options.metadata?.activityDelayMs))
+          ? Math.max(0, Number(options.metadata.activityDelayMs))
+          : DEFAULT_ACTIVITY_DELAY_MS),
       startedAt: now(),
       updatedAt: now(),
       finishedAt: null,
@@ -422,6 +431,24 @@
     });
   }
 
+  function clearActivityRenderTimer(){
+    if(activityRenderTimer && typeof global.clearTimeout === 'function'){
+      global.clearTimeout(activityRenderTimer);
+    }
+    activityRenderTimer = null;
+  }
+
+  function scheduleActivityRender(delayMs){
+    if(activityRenderTimer || typeof global.setTimeout !== 'function'){
+      return;
+    }
+    const delay = Math.max(0, Number(delayMs) || 0);
+    activityRenderTimer = global.setTimeout(() => {
+      activityRenderTimer = null;
+      renderActivityHosts();
+    }, delay);
+  }
+
   function clearHost(host){
     while(host.firstChild){
       host.removeChild(host.firstChild);
@@ -433,6 +460,18 @@
     if(!primary){
       host.hidden = true;
       host.dataset.jobStatus = 'idle';
+      delete host.dataset.jobId;
+      return;
+    }
+    const elapsedMs = Number(primary.elapsedMs);
+    const activityDelayMs = Number.isFinite(Number(primary.activityDelayMs))
+      ? Math.max(0, Number(primary.activityDelayMs))
+      : DEFAULT_ACTIVITY_DELAY_MS;
+    if(Number.isFinite(elapsedMs) && elapsedMs < activityDelayMs){
+      host.hidden = true;
+      host.dataset.jobStatus = 'pending';
+      host.dataset.jobId = primary.id;
+      scheduleActivityRender(activityDelayMs - elapsedMs);
       return;
     }
     host.hidden = false;
@@ -492,6 +531,7 @@
   jobs.bindStatusUi = bindStatusUi;
 
   jobs.__resetForTests = function resetForTests(){
+    clearActivityRenderTimer();
     activeJobs.clear();
     finishedJobs.clear();
     nextJobId = 1;
