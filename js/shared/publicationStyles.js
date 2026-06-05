@@ -18,7 +18,7 @@
     pie: { pageId: 'piePage', panelSelector: '.config-panel' }
   });
 
-  const PUBLICATION_STYLE_ZOOM_LEVEL = 1.4;
+  const PUBLICATION_STYLE_ZOOM_LEVEL = 1.0;
 
   // Graphitix stores on-screen/export dimensions in CSS pixels. Publisher
   // specifications are stated in print millimetres; 96 CSS px per inch keeps
@@ -119,8 +119,8 @@
     // Helvetica/Arial, max 7 pt non-panel text, 0.25-1 pt strokes.
     makePublisherPreset({
       id: 'npg_single',
-      label: 'Nature / NPG — single column (89 mm)',
-      group: 'Nature / NPG — same style, choose final width',
+      label: 'Single column (89 mm)',
+      group: 'Nature / NPG — choose final width',
       widthPx: 336,
       heightPx: 300,
       widthMm: 89,
@@ -130,8 +130,8 @@
     }),
     makePublisherPreset({
       id: 'npg_15col_120',
-      label: 'Nature / NPG — 1.5 column (120 mm)',
-      group: 'Nature / NPG — same style, choose final width',
+      label: '1.5 column (120 mm)',
+      group: 'Nature / NPG — choose final width',
       widthMm: 120,
       fontSizePt: 7,
       axisStrokeWidth: 0.333,
@@ -139,8 +139,8 @@
     }),
     makePublisherPreset({
       id: 'npg_15col_136',
-      label: 'Nature / NPG — 1.5 column (136 mm)',
-      group: 'Nature / NPG — same style, choose final width',
+      label: '1.5 column (136 mm)',
+      group: 'Nature / NPG — choose final width',
       widthMm: 136,
       fontSizePt: 7,
       axisStrokeWidth: 0.333,
@@ -148,8 +148,8 @@
     }),
     makePublisherPreset({
       id: 'npg_double',
-      label: 'Nature / NPG — double column (183 mm)',
-      group: 'Nature / NPG — same style, choose final width',
+      label: 'Double column (183 mm)',
+      group: 'Nature / NPG — choose final width',
       widthMm: 183,
       fontSizePt: 7,
       axisStrokeWidth: 0.333,
@@ -159,7 +159,7 @@
     // Science/AAAS: published figure widths are 5.7, 12.1, and 18.4 cm.
     makePublisherPreset({
       id: 'science_1col',
-      label: 'Science / AAAS — 1 column (57 mm)',
+      label: '1 column (57 mm)',
       group: 'Science / AAAS',
       widthMm: 57,
       fontSizePt: 7,
@@ -168,7 +168,7 @@
     }),
     makePublisherPreset({
       id: 'science_2col',
-      label: 'Science / AAAS — 2 columns (121 mm)',
+      label: '2 columns (121 mm)',
       group: 'Science / AAAS',
       widthMm: 121,
       fontSizePt: 7,
@@ -177,7 +177,7 @@
     }),
     makePublisherPreset({
       id: 'science_3col',
-      label: 'Science / AAAS — 3 columns (184 mm)',
+      label: '3 columns (184 mm)',
       group: 'Science / AAAS',
       widthMm: 184,
       fontSizePt: 7,
@@ -190,7 +190,7 @@
     // than pretending that a precise Cell-wide column geometry exists.
     makePublisherPreset({
       id: 'cell_press_single',
-      label: 'Cell Press — typography preset (89 mm working width)',
+      label: 'Typography preset (89 mm)',
       group: 'Cell Press / Nature-compatible typography',
       widthMm: 89,
       fontSizePt: 7,
@@ -202,7 +202,7 @@
     // 8 pt text, 0.2 mm lines.
     makePublisherPreset({
       id: 'plos_text',
-      label: 'PLOS — text column (132 mm)',
+      label: 'Text column (132 mm)',
       group: 'PLOS',
       widthMm: 132,
       maxHeightMm: 222.3,
@@ -213,7 +213,7 @@
     }),
     makePublisherPreset({
       id: 'plos_full',
-      label: 'PLOS — full page (190.5 mm)',
+      label: 'Full page (190.5 mm)',
       group: 'PLOS',
       widthMm: 190.5,
       maxHeightMm: 222.3,
@@ -226,7 +226,7 @@
     // JCB: maximum figure size 17.5 x 22.8 cm; 8 pt text; 0.5-1.0 pt strokes.
     makePublisherPreset({
       id: 'jcb_max',
-      label: 'JCB / Rockefeller UP — max width (175 mm)',
+      label: 'Max width (175 mm)',
       group: 'JCB / Rockefeller University Press',
       widthMm: 175,
       maxHeightMm: 228,
@@ -241,7 +241,7 @@
     // circle/triangle/square/diamond family already available in Graphitix.
     makePublisherPreset({
       id: 'jcs_full',
-      label: 'Journal of Cell Science / CoB — max width (180 mm)',
+      label: 'Max width (180 mm)',
       group: 'Journal of Cell Science / Company of Biologists',
       widthMm: 180,
       maxHeightMm: 210,
@@ -254,7 +254,7 @@
     // EMBO Press: 87 mm one-column or 180 mm two-column printed figure widths.
     makePublisherPreset({
       id: 'embo_single',
-      label: 'EMBO Press — single column (87 mm)',
+      label: 'Single column (87 mm)',
       group: 'EMBO Press',
       widthMm: 87,
       fontSizePt: 7,
@@ -263,7 +263,7 @@
     }),
     makePublisherPreset({
       id: 'embo_double',
-      label: 'EMBO Press — double column (180 mm)',
+      label: 'Double column (180 mm)',
       group: 'EMBO Press',
       widthMm: 180,
       fontSizePt: 7,
@@ -274,7 +274,7 @@
     // JCI: 9-18 cm width, 17.25 cm max height, 8 pt Helvetica/Arial, RGB.
     makePublisherPreset({
       id: 'jci_single',
-      label: 'JCI — single column (90 mm)',
+      label: 'Single column (90 mm)',
       group: 'Journal of Clinical Investigation',
       widthMm: 90,
       maxHeightMm: 172.5,
@@ -285,7 +285,7 @@
     }),
     makePublisherPreset({
       id: 'jci_double',
-      label: 'JCI — double column (180 mm)',
+      label: 'Double column (180 mm)',
       group: 'Journal of Clinical Investigation',
       widthMm: 180,
       maxHeightMm: 172.5,
@@ -1230,7 +1230,7 @@
     if(source.stroke) specParts.push(`${source.stroke} strokes`);
     if(source.color) specParts.push(source.color);
     if(specParts.length){
-      pieces.push(`Applied specs: ${specParts.join('; ')}.`);
+      pieces.push(`${specParts.join('; ')}.`);
     }
     return pieces.join(' ');
   }
