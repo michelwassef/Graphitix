@@ -3367,14 +3367,157 @@
   namespace.applyWorkspaceUiState = applyWorkspaceUiState;
   namespace.applySessionData = applySessionData;
 
+  function isDomLikeTarget(target) {
+    return !!(target && typeof target === 'object' && typeof target.closest === 'function');
+  }
+
+  function resolveWorkspaceOwnerTabIdFromTarget(target) {
+    if (!isDomLikeTarget(target)) return '';
+    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
+    const dataset = owner?.dataset || null;
+    return String(dataset?.workspaceTabId || dataset?.tabId || owner?.getAttribute?.('data-workspace-tab-id') || owner?.getAttribute?.('data-tab-id') || '').trim();
+  }
+
+  function resolveWorkspaceComponentKeyFromTarget(target) {
+    if (!isDomLikeTarget(target)) return '';
+    const owner = target.closest('[data-workspace-component]');
+    const dataset = owner?.dataset || null;
+    return String(dataset?.workspaceComponent || owner?.getAttribute?.('data-workspace-component') || '').trim();
+  }
+
+  function isInsideWorkspaceTarget(target) {
+    if (!isDomLikeTarget(target)) return false;
+    return !!target.closest('[data-workspace-component], [data-workspace-instance-root="true"]');
+  }
+
+  function isDocumentStateTarget(target) {
+    if (!isDomLikeTarget(target)) return false;
+    return !!target.closest('input[data-document-autosave="1"], [data-document-title="1"], [data-document-status="1"]');
+  }
+
+  function shouldIgnoreDirtyTrackingTarget(target) {
+    if (!isDomLikeTarget(target)) return false;
+    return !!target.closest('[data-session-ignore-dirty="1"], [data-session-affects-payload="0"]');
+  }
+
+  function resolveTargetAffectsPayload(target) {
+    if (!isDomLikeTarget(target)) return true;
+    const node = target.closest('[data-session-affects-payload]');
+    if (!node) return true;
+    const raw = String(node.getAttribute('data-session-affects-payload') || '').trim().toLowerCase();
+    return !(raw === '0' || raw === 'false' || raw === 'no');
+  }
+
+  function clearPostRestoreSuppressionForMutation(tabId, componentKey, reason, source) {
+    const resolvedTabId = String(tabId || '').trim();
+    const resolvedComponentKey = String(componentKey || '').trim();
+    if (!resolvedTabId || !resolvedComponentKey) {
+      return;
+    }
+    try {
+      Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(resolvedComponentKey, {
+        tabId: resolvedTabId,
+        reason: reason || 'user-input'
+      });
+    } catch (err) {
+      console.warn('Global user-input listener could not clear post-restore draw suppression', {
+        tabId: resolvedTabId,
+        componentKey: resolvedComponentKey,
+        reason,
+        source: source || 'unknown',
+        message: err?.message || String(err)
+      });
+    }
+    try {
+      Shared.componentLayout?.releaseSuppressedSchedulesFor?.(resolvedComponentKey, {
+        tabId: resolvedTabId,
+        reason: reason || 'user-input'
+      });
+    } catch (err) {
+      console.warn('Global user-input listener could not release component layout suppression', {
+        tabId: resolvedTabId,
+        componentKey: resolvedComponentKey,
+        reason,
+        source: source || 'unknown',
+        message: err?.message || String(err)
+      });
+    }
+  }
+
+  function markWorkspaceTargetUserModified(targetOrTabLike, reason, meta = {}) {
+    const source = meta.source || 'unknown';
+    const reasonText = normalizeReason(reason) || 'workspace-mutation';
+    const tabLikeId = !isDomLikeTarget(targetOrTabLike)
+      ? (typeof targetOrTabLike === 'string'
+          ? targetOrTabLike.trim()
+          : (targetOrTabLike && typeof targetOrTabLike === 'object' ? String(targetOrTabLike.id || '').trim() : ''))
+      : '';
+    const explicitTabId = String(meta.tabId || meta.ownerTabId || tabLikeId || '').trim();
+    const explicitComponentKey = String(meta.componentKey || '').trim();
+    const target = isDomLikeTarget(targetOrTabLike) ? targetOrTabLike : null;
+    if (target) {
+      if (isDocumentStateTarget(target) || shouldIgnoreDirtyTrackingTarget(target)) {
+        return false;
+      }
+      if (meta.requireWorkspace !== false && !isInsideWorkspaceTarget(target)) {
+        return false;
+      }
+    }
+    const ownerId = explicitTabId || resolveWorkspaceOwnerTabIdFromTarget(target);
+    let resolvedTabId = ownerId;
+    let resolvedComponentKey = explicitComponentKey || resolveWorkspaceComponentKeyFromTarget(target);
+    if (ownerId && !resolvedComponentKey) {
+      const ownerTab = resolveTab(ownerId);
+      resolvedComponentKey = String(ownerTab?.type || '').trim();
+    }
+    const activeTab = (!resolvedTabId || !resolvedComponentKey)
+      ? getActiveTab()
+      : null;
+    if (!resolvedTabId) {
+      resolvedTabId = String(activeTab?.id || '').trim();
+    }
+    if (!resolvedComponentKey) {
+      resolvedComponentKey = String(activeTab?.type || '').trim();
+    }
+    const affectsPayload = Object.prototype.hasOwnProperty.call(meta, 'affectsPayload')
+      ? meta.affectsPayload !== false
+      : resolveTargetAffectsPayload(target);
+    let marked = false;
+    if (resolvedTabId) {
+      marked = !!markTabUserModified(resolvedTabId, reasonText, {
+        origin: meta.origin || 'user',
+        source,
+        ownerResolvedFrom: explicitTabId ? 'explicit-tab' : (ownerId ? 'workspace-dom' : 'active-tab'),
+        affectsPayload,
+        markSessionDirty: meta.markSessionDirty !== false
+      });
+    } else {
+      marked = !!markActiveTabUserModified(reasonText, {
+        origin: meta.origin || 'user',
+        source,
+        affectsPayload,
+        markSessionDirty: meta.markSessionDirty !== false
+      });
+      resolvedTabId = String(getActiveTab()?.id || '').trim();
+      resolvedComponentKey = resolvedComponentKey || String(getActiveTab()?.type || '').trim();
+    }
+    if (marked) {
+      clearPostRestoreSuppressionForMutation(resolvedTabId, resolvedComponentKey, reasonText, source);
+    }
+    return marked;
+  }
+
+  namespace.markWorkspaceTargetUserModified = markWorkspaceTargetUserModified;
+
   // Single document-level listener that promotes ANY user-trusted input/change/click
   // event inside a workspace component into a tab-dirty mark. It resolves the owning
   // per-tab DOM root first, then falls back to the active tab. This saves us from
-  // wiring ~30 individual control handlers across 11 components while avoiding
-  // accidental active-tab writes from late or delegated UI events.
+  // wiring individual control handlers across components while avoiding accidental
+  // active-tab writes from late or delegated UI events.
   //
   // Programmatic events from component setup/restore code use dispatchEvent() which
-  // produces isTrusted=false, so they correctly do NOT mark anything dirty.
+  // produces isTrusted=false, so they correctly do NOT mark anything dirty. Shared
+  // controls that intentionally synthesize events must call markWorkspaceTargetUserModified.
   //
   // Components that already call markTabUserModified / persistUserModifiedTabState
   // explicitly remain correct — markTabUserModified is idempotent.
@@ -3386,116 +3529,28 @@
       return;
     }
     namespace.__globalUserInputListenerInstalled = true;
-    const resolveWorkspaceOwnerTabId = target => {
-      if (!target || typeof target.closest !== 'function') return '';
-      const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-      const dataset = owner?.dataset || null;
-      return String(dataset?.workspaceTabId || dataset?.tabId || owner?.getAttribute?.('data-workspace-tab-id') || owner?.getAttribute?.('data-tab-id') || '').trim();
-    };
-    const resolveWorkspaceComponentKey = target => {
-      if (!target || typeof target.closest !== 'function') return '';
-      const owner = target.closest('[data-workspace-component]');
-      const dataset = owner?.dataset || null;
-      return String(dataset?.workspaceComponent || owner?.getAttribute?.('data-workspace-component') || '').trim();
-    };
-    const isInsideWorkspace = target => {
-      if (!target || typeof target.closest !== 'function') return false;
-      // Workspace per-tab DOM roots all sit under #workspacePages and carry
-      // data-workspace-component or data-workspace-instance-root attributes.
-      return !!target.closest('[data-workspace-component], [data-workspace-instance-root="true"]');
-    };
-    const isDocumentStateControl = target => {
-      if (!target || typeof target.closest !== 'function') return false;
-      return !!target.closest('input[data-document-autosave="1"], [data-document-title="1"], [data-document-status="1"]');
-    };
-    const shouldIgnoreDirtyTracking = target => {
-      if (!target || typeof target.closest !== 'function') return false;
-      return !!target.closest('[data-session-ignore-dirty="1"], [data-session-affects-payload="0"]');
-    };
-    const resolveAffectsPayload = target => {
-      if (!target || typeof target.closest !== 'function') return true;
-      const node = target.closest('[data-session-affects-payload]');
-      if (!node) return true;
-      const raw = String(node.getAttribute('data-session-affects-payload') || '').trim().toLowerCase();
-      if (raw === '0' || raw === 'false' || raw === 'no') {
-        return false;
-      }
-      return true;
-    };
-    // Late-bind through window.Main.session so the listener always invokes the current
-    // session module — important for tests that load session.js multiple times.
-    const callMark = (reason, source, ownerTabId, affectsPayload = true, componentKey = '') => {
+    const callMark = (reason, source, ownerTabId, affectsPayload = true, componentKey = '', target = null) => {
       try {
         const sess = (typeof window !== 'undefined' && window.Main && window.Main.session) || namespace;
-        if (!sess) return;
-        const ownerId = String(ownerTabId || '').trim();
-        let resolvedTabId = ownerId;
-        let resolvedComponentKey = String(componentKey || '').trim();
-        if (ownerId && !resolvedComponentKey) {
-          const ownerTab = resolveTab(ownerId);
-          resolvedComponentKey = String(ownerTab?.type || '').trim();
-        }
-        if (!resolvedTabId || !resolvedComponentKey) {
-          const activeTab = typeof sess.getActiveTab === 'function' ? sess.getActiveTab() : getActiveTab();
-          if (!resolvedTabId) {
-            resolvedTabId = String(activeTab?.id || '').trim();
-          }
-          if (!resolvedComponentKey) {
-            resolvedComponentKey = String(activeTab?.type || '').trim();
-          }
-        }
-        let marked = false;
-        if (ownerId && typeof sess.markTabUserModified === 'function') {
-          marked = !!sess.markTabUserModified(ownerId, reason, {
+        if (!sess || typeof sess.markWorkspaceTargetUserModified !== 'function') return;
+        const explicitTarget = target || null;
+        if (explicitTarget) {
+          sess.markWorkspaceTargetUserModified(explicitTarget, reason, {
             origin: 'user',
             source: source || 'unknown',
-            ownerResolvedFrom: 'workspace-dom',
-            affectsPayload
+            affectsPayload,
+            ownerTabId,
+            componentKey
           });
-          if (!marked) {
-            console.warn('Global user-input listener could not mark owner tab, falling back to active tab', {
-              ownerTabId,
-              reason,
-              source: source || 'unknown'
-            });
-          }
-        }
-        if (!marked && typeof sess.markActiveTabUserModified === 'function') {
-          sess.markActiveTabUserModified(reason, {
+        } else if (ownerTabId || componentKey) {
+          sess.markWorkspaceTargetUserModified(null, reason, {
             origin: 'user',
             source: source || 'unknown',
-            affectsPayload
+            affectsPayload,
+            ownerTabId,
+            componentKey,
+            requireWorkspace: false
           });
-        }
-        if (resolvedTabId && resolvedComponentKey) {
-          try {
-            Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(resolvedComponentKey, {
-              tabId: resolvedTabId,
-              reason: reason || 'user-input'
-            });
-          } catch (err) {
-            console.warn('Global user-input listener could not clear post-restore draw suppression', {
-              tabId: resolvedTabId,
-              componentKey: resolvedComponentKey,
-              reason,
-              source: source || 'unknown',
-              message: err?.message || String(err)
-            });
-          }
-          try {
-            Shared.componentLayout?.releaseSuppressedSchedulesFor?.(resolvedComponentKey, {
-              tabId: resolvedTabId,
-              reason: reason || 'user-input'
-            });
-          } catch (err) {
-            console.warn('Global user-input listener could not release component layout suppression', {
-              tabId: resolvedTabId,
-              componentKey: resolvedComponentKey,
-              reason,
-              source: source || 'unknown',
-              message: err?.message || String(err)
-            });
-          }
         }
       } catch (err) { /* listener must never throw */ }
     };
@@ -3509,18 +3564,19 @@
     const handler = reason => event => {
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
-      if (!target || !isInsideWorkspace(target)) return;
-      if (isDocumentStateControl(target)) return;
-      if (shouldIgnoreDirtyTracking(target)) return;
+      if (!target || !isInsideWorkspaceTarget(target)) return;
+      if (isDocumentStateTarget(target)) return;
+      if (shouldIgnoreDirtyTrackingTarget(target)) return;
       // Skip events on the per-tab tab list itself (clicking tabs is lifecycle, not
       // a content change).
       if (target.closest && target.closest('[data-workspace-tablist], .workspace-tab')) return;
       callMark(
         reason,
         target?.id || target?.tagName,
-        resolveWorkspaceOwnerTabId(target),
-        resolveAffectsPayload(target),
-        resolveWorkspaceComponentKey(target)
+        resolveWorkspaceOwnerTabIdFromTarget(target),
+        resolveTargetAffectsPayload(target),
+        resolveWorkspaceComponentKeyFromTarget(target),
+        target
       );
     };
     document.addEventListener('change', handler('control-change'), true);
@@ -3530,9 +3586,9 @@
     document.addEventListener('click', event => {
       if (!isTrustedUserEvent(event)) return;
       const target = event.target;
-      if (!target || !isInsideWorkspace(target)) return;
-      if (isDocumentStateControl(target)) return;
-      if (shouldIgnoreDirtyTracking(target)) return;
+      if (!target || !isInsideWorkspaceTarget(target)) return;
+      if (isDocumentStateTarget(target)) return;
+      if (shouldIgnoreDirtyTrackingTarget(target)) return;
       const interactive = target.closest && target.closest('button, [role="button"], [data-action]');
       if (!interactive) return;
       // Skip the workspace tab strip and its close buttons (lifecycle, not content).
@@ -3540,9 +3596,10 @@
       callMark(
         'control-click',
         interactive?.id || 'button',
-        resolveWorkspaceOwnerTabId(target),
-        resolveAffectsPayload(target),
-        resolveWorkspaceComponentKey(target)
+        resolveWorkspaceOwnerTabIdFromTarget(target),
+        resolveTargetAffectsPayload(target),
+        resolveWorkspaceComponentKeyFromTarget(target),
+        target
       );
     }, true);
     console.debug('Debug: Main session global user-input listener installed');

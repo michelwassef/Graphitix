@@ -380,6 +380,60 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     }
   });
 
+  test('undo state-change records mark the active payload dirty for recovery', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.sessionUserDirty = false;
+    require('../js/shared/undo.js');
+
+    const recorded = window.Shared.undoManager.recordStateChange({
+      label: 'box:shape-style:0',
+      scope: 'boxGraphPanel',
+      from: '#000000',
+      to: '#ff0000',
+      apply: () => true
+    });
+
+    expect(recorded).toBe(true);
+    expect(tab.userModified).toBe(true);
+    expect(tab.payloadDirty).toBe(true);
+    expect(tab.payloadDirtyReason).toBe('box:shape-style:0');
+    expect(session.workspaceState.sessionUserDirty).toBe(true);
+  });
+
+  test('shared color picker overlay marks the source workspace target dirty even with synthetic events', () => {
+    const tab = createTabWithPayload();
+    session.workspaceState.activeTabId = tab.id;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.sessionUserDirty = false;
+    require('../js/shared/colorPicker.js');
+    const root = document.createElement('div');
+    root.setAttribute('data-workspace-component', 'heatmap');
+    root.setAttribute('data-workspace-tab-id', tab.id);
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = '#000000';
+    root.appendChild(input);
+    document.body.appendChild(root);
+    try {
+      const overlay = window.Shared.openColorPicker({
+        anchor: input,
+        element: input
+      });
+      expect(overlay).toBeTruthy();
+      overlay.targetEl.onOverlayInput('#ff0000', {});
+      expect(tab.userModified).toBe(true);
+      expect(tab.payloadDirty).toBe(true);
+      expect(tab.payloadDirtyReason).toBe('color-picker-input');
+      expect(session.workspaceState.sessionUserDirty).toBe(true);
+    } finally {
+      document.body.removeChild(root);
+    }
+  });
+
   // ─── serializePayloadSignature auto-compact regression ─────────────────────
   // structuredClone (used by clonePayload) strips named properties from arrays
   // (e.g. arr.__graphitixMatrixSignature). The fix auto-detects large array-of-arrays

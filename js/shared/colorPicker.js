@@ -122,6 +122,27 @@
     }
   }
 
+  function markPickerTargetUserModified(reason){
+    const session = global.Main?.session || null;
+    if(!session || typeof session.markWorkspaceTargetUserModified !== 'function'){
+      return false;
+    }
+    const target = overlayState.anchor || overlay?.targetEl?.element || null;
+    if(!target || typeof target.closest !== 'function'){
+      return false;
+    }
+    try{
+      return !!session.markWorkspaceTargetUserModified(target, reason || 'color-picker-change', {
+        origin: 'user',
+        source: 'shared-color-picker',
+        affectsPayload: true
+      });
+    }catch(err){
+      console.debug('Debug: colorPicker session mutation mark failed', { message: err?.message || String(err) });
+      return false;
+    }
+  }
+
   function ensureFallbackColorInput(){
     if(overlayState.__fallbackColorInput && overlayState.__fallbackColorInput.isConnected){
       return overlayState.__fallbackColorInput;
@@ -792,6 +813,7 @@
       }
     }
     if(trigger && typeof overlayState.shapeOnChange === 'function'){
+      markPickerTargetUserModified('color-picker-shape-change');
       try{
         overlayState.shapeOnChange(normalized);
       }catch(err){
@@ -1244,6 +1266,7 @@
       const element = opts.target instanceof HTMLElement ? opts.target : (opts.element instanceof HTMLElement ? opts.element : null);
       ov.targetEl = {
         onOverlayInput(value, meta){
+          markPickerTargetUserModified('color-picker-input');
           if(typeof opts.onInput === 'function'){
             opts.onInput(value, meta);
           }else if(element){
@@ -1252,6 +1275,7 @@
           }
         },
         onOverlayChange(value, meta){
+          markPickerTargetUserModified('color-picker-change');
           if(typeof opts.onChange === 'function'){
             opts.onChange(value, meta);
           }else if(element){

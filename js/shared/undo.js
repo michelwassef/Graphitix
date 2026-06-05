@@ -639,6 +639,37 @@
     return true;
   }
 
+  function markSessionMutationForEntry(entry){
+    if(!entry || entry.sessionCommit !== true){
+      return;
+    }
+    const session = resolveSession();
+    if(!session){
+      return;
+    }
+    const reason = String(entry.sessionReason || entry.label || 'undo-state-change').trim() || 'undo-state-change';
+    const affectsPayload = entry.affectsPayload !== false;
+    try{
+      if(entry.tabId && typeof session.markTabUserModified === 'function'){
+        session.markTabUserModified(entry.tabId, reason, {
+          origin: 'user',
+          source: 'undo-manager',
+          affectsPayload
+        });
+        return;
+      }
+      if(typeof session.markActiveTabUserModified === 'function'){
+        session.markActiveTabUserModified(reason, {
+          origin: 'user',
+          source: 'undo-manager',
+          affectsPayload
+        });
+      }
+    }catch(err){
+      console.error('Shared.undoManager session mutation mark error', err);
+    }
+  }
+
   function normalizeUndoEntry(input, mode){
     if(!input){
       return null;
@@ -660,6 +691,9 @@
         label: input.label || (element ? `state:${describeElement(element)}` : 'state-change'),
         scope: input.scope || (element ? inferScope(element) : null),
         tabId,
+        sessionCommit: input.sessionCommit !== false,
+        sessionReason: input.sessionReason || input.label || null,
+        affectsPayload: input.affectsPayload !== false,
         undo: () => apply(before, 'undo'),
         redo: () => apply(after, 'redo')
       };
@@ -672,6 +706,9 @@
       label: input.label || 'action',
       scope: input.scope || null,
       tabId,
+      sessionCommit: input.sessionCommit === true,
+      sessionReason: input.sessionReason || input.label || null,
+      affectsPayload: input.affectsPayload !== false,
       undo: input.undo,
       redo: typeof input.redo === 'function' ? input.redo : undefined
     };
@@ -700,6 +737,7 @@
     const tx = getMatchingTransaction(entry);
     if(tx){
       tx.entries.push(entry);
+      markSessionMutationForEntry(entry);
       undoDebug('Debug: undo transaction buffered entry', {
         transactionId: tx.id,
         tabId: tx.tabId || null,
@@ -708,7 +746,11 @@
       });
       return true;
     }
-    return pushEntryToBucket(entry);
+    const recorded = pushEntryToBucket(entry);
+    if(recorded){
+      markSessionMutationForEntry(entry);
+    }
+    return recorded;
   }
 
   function flushPendingTransactions(reason, meta = {}){
