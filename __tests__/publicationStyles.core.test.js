@@ -96,6 +96,14 @@ function clickApplyButton(type) {
   btn.click();
 }
 
+function selectPublicationPreset(type, presetId) {
+  const select = document.querySelector(
+    `select[data-publication-style-select="1"][data-component-type="${type}"]`
+  );
+  if (!select) throw new Error(`Publication style select not found for type "${type}"`);
+  select.value = presetId;
+}
+
 // ─── init() ────────────────────────────────────────────────────────────────
 
 describe('publicationStyles — init()', () => {
@@ -132,6 +140,32 @@ describe('publicationStyles — init()', () => {
     ps.init();
     const selects = document.querySelectorAll('select[data-publication-style-select="1"]');
     expect(selects.length).toBeGreaterThanOrEqual(11);
+  });
+
+  test('init() exposes the documented publisher style presets in stable order', () => {
+    ps.init();
+    const select = document.querySelector('select[data-publication-style-select="1"]');
+    const options = Array.from(select.options).map(option => ({ value: option.value, text: option.textContent }));
+    expect(options.map(option => option.value)).toEqual([
+      'npg_single',
+      'npg_15col_120',
+      'npg_15col_136',
+      'npg_double',
+      'science_1col',
+      'science_2col',
+      'science_3col',
+      'cell_press_single',
+      'plos_text',
+      'plos_full',
+      'jcb_max',
+      'jcs_full',
+      'embo_single',
+      'embo_double',
+      'jci_single',
+      'jci_double'
+    ]);
+    expect(options.map(option => option.text)).toContain('PLOS — text column (132 mm)');
+    expect(options.map(option => option.text)).toContain('JCI — double column (180 mm)');
   });
 });
 
@@ -287,6 +321,74 @@ describe('publicationStyles — NPG single preset on box/grouped (via DOM click)
   test('grouped-format box: colorScheme is colorblind', () => {
     clickApplyButton('box');
     expect(scaffold.tab.payload.config?.colorScheme).toBe('colorblind');
+  });
+});
+
+
+// ─── Non-NPG publisher presets ─────────────────────────────────────────────
+
+describe('publicationStyles — documented publisher presets', () => {
+  let ps;
+  let scaffold;
+
+  beforeEach(() => {
+    buildConfigPanel('scatter');
+    ps = loadModule();
+    ps.init();
+    scaffold = buildMain('scatter');
+  });
+
+  afterEach(() => { delete window.Main; });
+
+  test('PLOS text-column preset applies 8 pt text and 0.2 mm line width', () => {
+    selectPublicationPreset('scatter', 'plos_text');
+    clickApplyButton('scatter');
+
+    expect(scaffold.tab.payload.config?.fontSize).toBe(8);
+    expect(scaffold.tab.payload.config?.axis?.strokeWidth).toBeCloseTo(0.567, 3);
+  });
+
+  test('Science one-column preset applies the documented 57 mm width', () => {
+    window.Shared.graphSizing = {
+      setPayloadSizing: jest.fn((payload, sizing) => ({
+        ...JSON.parse(JSON.stringify(payload)),
+        __testSizing: JSON.parse(JSON.stringify(sizing))
+      })),
+      getPayloadSizing: jest.fn(() => null)
+    };
+
+    selectPublicationPreset('scatter', 'science_1col');
+    clickApplyButton('scatter');
+
+    expect(scaffold.tab.payload.__testSizing?.display?.widthPx).toBe(215);
+    expect(scaffold.tab.payload.__testSizing?.display?.heightPx).toBe(192);
+  });
+
+  test('JCI double-column preset respects the 8 pt Helvetica/Arial typography rule', () => {
+    selectPublicationPreset('scatter', 'jci_double');
+    clickApplyButton('scatter');
+
+    expect(scaffold.tab.payload.config?.fontSize).toBe(8);
+    expect(scaffold.tab.payload.config?.axis?.color).toBe('#000000');
+    expect(scaffold.tab.payload.config?.showGrid).toBe(false);
+  });
+
+
+  test('Nature/NPG variants are grouped and explained as width variants, not separate visual styles', () => {
+    const select = document.querySelector(
+      'select[data-publication-style-select="1"][data-component-type="scatter"]'
+    );
+    const hint = select.closest('[data-publication-style-fieldset="1"]')
+      .querySelector('[data-publication-style-hint="1"]');
+
+    expect(select.querySelector('optgroup[label="Nature / NPG — same style, choose final width"]')).not.toBeNull();
+    expect(hint.textContent).toMatch(/same visual rules/i);
+    expect(hint.textContent).toMatch(/documented final figure width/i);
+
+    select.value = 'npg_double';
+    select.dispatchEvent(new window.Event('change'));
+    expect(hint.textContent).toMatch(/same Nature\/NPG visual rules/i);
+    expect(hint.textContent).toMatch(/double-column figures/i);
   });
 });
 

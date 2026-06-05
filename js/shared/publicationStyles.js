@@ -18,13 +18,304 @@
     pie: { pageId: 'piePage', panelSelector: '.config-panel' }
   });
 
-  const PRESETS = Object.freeze({
-    npg_single: Object.freeze({
-      id: 'npg_single',
-      label: 'Nature / NPG (single-column)'
-    })
-  });
   const PUBLICATION_STYLE_ZOOM_LEVEL = 1.4;
+
+  // Graphitix stores on-screen/export dimensions in CSS pixels. Publisher
+  // specifications are stated in print millimetres; 96 CSS px per inch keeps
+  // existing Graphitix sizing behavior unchanged while making the presets
+  // auditable against publisher documentation.
+  const MM_TO_PX = 96 / 25.4;
+  const MM_TO_PT = 72 / 25.4;
+  const DEFAULT_GRAPH_ASPECT = 300 / 336;
+  const DEFAULT_PRESET_ID = 'npg_single';
+  const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_FONT_FAMILY = 'Arial';
+  const DEFAULT_SINGLE_BOX_FILL = '#666666';
+  const DEFAULT_SINGLE_BOX_STROKE = '#000000';
+
+  function roundNumber(value, digits = 3){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)) return numeric;
+    const factor = Math.pow(10, Math.max(0, Number(digits) || 0));
+    return Math.round(numeric * factor) / factor;
+  }
+
+  function mmToPx(mm){
+    const numeric = Number(mm);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return 1;
+    }
+    return Math.max(1, Math.round(numeric * MM_TO_PX));
+  }
+
+  function mmToPt(mm){
+    const numeric = Number(mm);
+    if(!Number.isFinite(numeric) || numeric <= 0){
+      return 0.5;
+    }
+    return roundNumber(numeric * MM_TO_PT, 3);
+  }
+
+  function proportionalHeightPx(widthPx, maxHeightMm){
+    const width = Math.max(1, Math.round(Number(widthPx) || 1));
+    const proportional = Math.max(1, Math.round(width * DEFAULT_GRAPH_ASPECT));
+    const maxHeightPx = Number.isFinite(Number(maxHeightMm)) && Number(maxHeightMm) > 0
+      ? mmToPx(maxHeightMm)
+      : null;
+    return maxHeightPx ? Math.min(proportional, maxHeightPx) : proportional;
+  }
+
+  function makePublisherPreset(options){
+    const opts = options && typeof options === 'object' ? options : {};
+    const id = String(opts.id || '').trim();
+    if(!id){
+      throw new Error('Publication style preset requires a stable id.');
+    }
+    const widthPx = Number.isFinite(Number(opts.widthPx)) && Number(opts.widthPx) > 0
+      ? Math.round(Number(opts.widthPx))
+      : mmToPx(opts.widthMm);
+    const heightPx = Number.isFinite(Number(opts.heightPx)) && Number(opts.heightPx) > 0
+      ? Math.round(Number(opts.heightPx))
+      : (Number.isFinite(Number(opts.heightMm)) && Number(opts.heightMm) > 0
+        ? mmToPx(opts.heightMm)
+        : proportionalHeightPx(widthPx, opts.maxHeightMm));
+    const source = opts.source && typeof opts.source === 'object' ? opts.source : {};
+    return Object.freeze({
+      id,
+      label: String(opts.label || id),
+      group: String(opts.group || source.publisher || 'Other publisher presets'),
+      styleNote: String(opts.styleNote || ''),
+      targetWidthPx: widthPx,
+      targetHeightPx: heightPx,
+      widthMm: Number.isFinite(Number(opts.widthMm)) ? Number(opts.widthMm) : null,
+      heightMm: Number.isFinite(Number(opts.heightMm)) ? Number(opts.heightMm) : null,
+      fontFamily: String(opts.fontFamily || DEFAULT_FONT_FAMILY),
+      fontSizePt: Number.isFinite(Number(opts.fontSizePt)) && Number(opts.fontSizePt) > 0 ? Number(opts.fontSizePt) : 7,
+      axisColor: String(opts.axisColor || DEFAULT_AXIS_COLOR),
+      axisStrokeWidth: Number.isFinite(Number(opts.axisStrokeWidth)) && Number(opts.axisStrokeWidth) > 0 ? Number(opts.axisStrokeWidth) : 0.5,
+      textSizeLocked: opts.textSizeLocked !== false,
+      pointSize: Number.isFinite(Number(opts.pointSize)) && Number(opts.pointSize) > 0 ? Number(opts.pointSize) : 4,
+      pointBorderWidth: Number.isFinite(Number(opts.pointBorderWidth)) && Number(opts.pointBorderWidth) >= 0 ? Number(opts.pointBorderWidth) : 1,
+      summaryColor: String(opts.summaryColor || DEFAULT_AXIS_COLOR),
+      significanceColor: String(opts.significanceColor || DEFAULT_AXIS_COLOR),
+      schemeId: String(opts.schemeId || 'colorblind'),
+      showGrid: opts.showGrid === true,
+      showFrame: opts.showFrame === true,
+      singleBoxFill: String(opts.singleBoxFill || DEFAULT_SINGLE_BOX_FILL),
+      singleBoxStroke: String(opts.singleBoxStroke || DEFAULT_SINGLE_BOX_STROKE),
+      boxDatasetSpacingX: Number.isFinite(Number(opts.boxDatasetSpacingX)) ? Number(opts.boxDatasetSpacingX) : 0.6,
+      source: Object.freeze({
+        publisher: String(source.publisher || ''),
+        sizing: String(source.sizing || ''),
+        typography: String(source.typography || ''),
+        stroke: String(source.stroke || ''),
+        color: String(source.color || '')
+      })
+    });
+  }
+
+  const PRESET_LIST = Object.freeze([
+    // Nature/NPG: 89 mm single, 120-136 mm intermediate, 183 mm double;
+    // Helvetica/Arial, max 7 pt non-panel text, 0.25-1 pt strokes.
+    makePublisherPreset({
+      id: 'npg_single',
+      label: 'Nature / NPG — single column (89 mm)',
+      group: 'Nature / NPG — same style, choose final width',
+      styleNote: 'Nature/NPG uses the same visual rules here; these variants differ only by the documented final figure width. Use this for single-column figures.',
+      widthPx: 336,
+      heightPx: 300,
+      widthMm: 89,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.333,
+      source: { publisher: 'Nature / NPG', sizing: '89 mm single column', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+    }),
+    makePublisherPreset({
+      id: 'npg_15col_120',
+      label: 'Nature / NPG — 1.5 column (120 mm)',
+      group: 'Nature / NPG — same style, choose final width',
+      styleNote: 'Same Nature/NPG visual rules as the 89 mm preset; only the final figure width changes. Use when the target journal/page layout needs an intermediate-width figure.',
+      widthMm: 120,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.333,
+      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+    }),
+    makePublisherPreset({
+      id: 'npg_15col_136',
+      label: 'Nature / NPG — 1.5 column (136 mm)',
+      group: 'Nature / NPG — same style, choose final width',
+      styleNote: 'Same Nature/NPG visual rules as the 89 mm preset; only the final figure width changes. Use when the target journal/page layout needs the wider intermediate-width figure.',
+      widthMm: 136,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.333,
+      source: { publisher: 'Nature / NPG', sizing: '120-136 mm intermediate figure width', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+    }),
+    makePublisherPreset({
+      id: 'npg_double',
+      label: 'Nature / NPG — double column (183 mm)',
+      group: 'Nature / NPG — same style, choose final width',
+      styleNote: 'Same Nature/NPG visual rules as the 89 mm preset; only the final figure width changes. Use for double-column figures.',
+      widthMm: 183,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.333,
+      source: { publisher: 'Nature / NPG', sizing: '183 mm double column', typography: 'Arial/Helvetica, 7 pt', stroke: '0.25-1 pt' }
+    }),
+
+    // Science/AAAS: published figure widths are 5.7, 12.1, and 18.4 cm.
+    makePublisherPreset({
+      id: 'science_1col',
+      label: 'Science / AAAS — 1 column (57 mm)',
+      group: 'Science / AAAS',
+      styleNote: 'Science/AAAS variants share one visual preset; choose the documented final print width.',
+      widthMm: 57,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'Science / AAAS', sizing: '57 mm one column', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+    }),
+    makePublisherPreset({
+      id: 'science_2col',
+      label: 'Science / AAAS — 2 columns (121 mm)',
+      group: 'Science / AAAS',
+      styleNote: 'Science/AAAS variants share one visual preset; choose the documented final print width.',
+      widthMm: 121,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'Science / AAAS', sizing: '121 mm two columns', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+    }),
+    makePublisherPreset({
+      id: 'science_3col',
+      label: 'Science / AAAS — 3 columns (184 mm)',
+      group: 'Science / AAAS',
+      styleNote: 'Science/AAAS variants share one visual preset; choose the documented final print width.',
+      widthMm: 184,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'Science / AAAS', sizing: '184 mm three columns', typography: 'legible after reduction, about 7 pt', stroke: 'sufficient final line weight' }
+    }),
+
+    // Cell Press specifies figure text around 6-8 pt, but does not provide a
+    // single universal graph width; use an NPG-like single-panel width rather
+    // than pretending that a precise Cell-wide column geometry exists.
+    makePublisherPreset({
+      id: 'cell_press_single',
+      label: 'Cell Press — typography preset (89 mm working width)',
+      group: 'Cell Press / Nature-compatible typography',
+      styleNote: 'Cell Press documents 6-8 pt lettering but no single universal graph width; this preset uses a Nature-like 89 mm working width and Cell-compatible typography.',
+      widthMm: 89,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'Cell Press', sizing: 'no universal graph width; Graphitix single-panel default 89 mm', typography: '6-8 pt at print size', stroke: 'clean vector line art' }
+    }),
+
+    // PLOS SigmaPlot guidance: 132.0 mm text column or 190.5 mm page width,
+    // 8 pt text, 0.2 mm lines.
+    makePublisherPreset({
+      id: 'plos_text',
+      label: 'PLOS — text column (132 mm)',
+      group: 'PLOS',
+      styleNote: 'PLOS variants share the same 8 pt / 0.2 mm graph style; choose text-column or full-page width.',
+      widthMm: 132,
+      maxHeightMm: 222.3,
+      fontSizePt: 8,
+      axisStrokeWidth: mmToPt(0.2),
+      pointSize: 4.5,
+      source: { publisher: 'PLOS', sizing: '132.0 mm text-column graph width', typography: '8 pt', stroke: '0.2 mm' }
+    }),
+    makePublisherPreset({
+      id: 'plos_full',
+      label: 'PLOS — full page (190.5 mm)',
+      group: 'PLOS',
+      styleNote: 'PLOS variants share the same 8 pt / 0.2 mm graph style; choose text-column or full-page width.',
+      widthMm: 190.5,
+      maxHeightMm: 222.3,
+      fontSizePt: 8,
+      axisStrokeWidth: mmToPt(0.2),
+      pointSize: 4.5,
+      source: { publisher: 'PLOS', sizing: '190.5 mm full-page graph width', typography: '8 pt', stroke: '0.2 mm' }
+    }),
+
+    // JCB: maximum figure size 17.5 x 22.8 cm; 8 pt text; 0.5-1.0 pt strokes.
+    makePublisherPreset({
+      id: 'jcb_max',
+      label: 'JCB / Rockefeller UP — max width (175 mm)',
+      group: 'JCB / Rockefeller University Press',
+      styleNote: 'JCB uses its own 8 pt / 0.5-1.0 pt line-art preset; this is not the same as the Nature/NPG preset.',
+      widthMm: 175,
+      maxHeightMm: 228,
+      fontSizePt: 8,
+      axisStrokeWidth: 0.75,
+      pointSize: 4.5,
+      source: { publisher: 'Journal of Cell Biology / Rockefeller University Press', sizing: '175 mm max width', typography: '8 pt', stroke: '0.5-1.0 pt' }
+    }),
+
+    // Journal of Cell Science / Company of Biologists: max 180 x 210 mm;
+    // 8 pt Arial graph labels; preferred graph symbols are the standard
+    // circle/triangle/square/diamond family already available in Graphitix.
+    makePublisherPreset({
+      id: 'jcs_full',
+      label: 'Journal of Cell Science / CoB — max width (180 mm)',
+      group: 'Journal of Cell Science / Company of Biologists',
+      styleNote: 'JCS/Company of Biologists uses 8 pt Arial-style labels and a 180 mm maximum figure width.',
+      widthMm: 180,
+      maxHeightMm: 210,
+      fontSizePt: 8,
+      axisStrokeWidth: 0.75,
+      pointSize: 4.5,
+      source: { publisher: 'Journal of Cell Science / Company of Biologists', sizing: '180 mm max width, 210 mm max height', typography: '8 pt Arial labels', stroke: 'sufficient line thickness' }
+    }),
+
+    // EMBO Press: 87 mm one-column or 180 mm two-column printed figure widths.
+    makePublisherPreset({
+      id: 'embo_single',
+      label: 'EMBO Press — single column (87 mm)',
+      group: 'EMBO Press',
+      styleNote: 'EMBO variants share one restrained molecular-biology style; choose the documented final width.',
+      widthMm: 87,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'EMBO Press', sizing: '87 mm one column', typography: 'small readable graph labels', stroke: 'clean vector line art' }
+    }),
+    makePublisherPreset({
+      id: 'embo_double',
+      label: 'EMBO Press — double column (180 mm)',
+      group: 'EMBO Press',
+      styleNote: 'EMBO variants share one restrained molecular-biology style; choose the documented final width.',
+      widthMm: 180,
+      fontSizePt: 7,
+      axisStrokeWidth: 0.5,
+      source: { publisher: 'EMBO Press', sizing: '180 mm two columns', typography: 'small readable graph labels', stroke: 'clean vector line art' }
+    }),
+
+    // JCI: 9-18 cm width, 17.25 cm max height, 8 pt Helvetica/Arial, RGB.
+    makePublisherPreset({
+      id: 'jci_single',
+      label: 'JCI — single column (90 mm)',
+      group: 'Journal of Clinical Investigation',
+      styleNote: 'JCI variants share the same 8 pt Helvetica/Arial-style preset; choose a width within the documented 9-18 cm range.',
+      widthMm: 90,
+      maxHeightMm: 172.5,
+      fontSizePt: 8,
+      axisStrokeWidth: 0.5,
+      pointSize: 4.5,
+      source: { publisher: 'Journal of Clinical Investigation', sizing: '90 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial', stroke: 'clean vector line art' }
+    }),
+    makePublisherPreset({
+      id: 'jci_double',
+      label: 'JCI — double column (180 mm)',
+      group: 'Journal of Clinical Investigation',
+      styleNote: 'JCI variants share the same 8 pt Helvetica/Arial-style preset; choose a width within the documented 9-18 cm range.',
+      widthMm: 180,
+      maxHeightMm: 172.5,
+      fontSizePt: 8,
+      axisStrokeWidth: 0.5,
+      pointSize: 4.5,
+      source: { publisher: 'Journal of Clinical Investigation', sizing: '180 mm within 9-18 cm range', typography: '8 pt Helvetica/Arial', stroke: 'clean vector line art' }
+    })
+  ]);
+
+  const PRESETS = Object.freeze(PRESET_LIST.reduce((acc, preset) => {
+    acc[preset.id] = preset;
+    return acc;
+  }, {}));
 
   const FONT_CONTROL_IDS = Object.freeze({
     venn: Object.freeze({ inputId: 'fontsize', labelId: 'fontsizeVal' }),
@@ -38,24 +329,6 @@
     survival: Object.freeze({ inputId: 'survivalFontSize', labelId: 'survivalFontSizeVal' }),
     hist: Object.freeze({ inputId: 'histFontSize', labelId: 'histFontSizeVal' }),
     pie: Object.freeze({ inputId: 'pieFontSize', labelId: 'pieFontSizeVal' })
-  });
-
-  // 89mm single-column at 96 dpi.
-  const NPG_SINGLE = Object.freeze({
-    targetWidthPx: 336,
-    targetHeightPx: 300,
-    fontFamily: 'Arial',
-    fontSizePt: 7,
-    axisColor: '#000000',
-    axisStrokeWidth: 0.333,
-    textSizeLocked: true,
-    pointSize: 4,
-    pointBorderWidth: 1,
-    summaryColor: '#000000',
-    significanceColor: '#000000',
-    schemeId: 'colorblind',
-    showGrid: false,
-    showFrame: false
   });
 
   const state = {
@@ -545,18 +818,22 @@
         });
       }
 
-      // NPG default for box dataset spacing.
+      // Keep publication-style dataset spacing on the same manual-style path
+      // for every publisher preset.
+      const datasetSpacingX = Number.isFinite(Number(preset.boxDatasetSpacingX))
+        ? Number(preset.boxDatasetSpacingX)
+        : 0.6;
       cfg.axis = ensureObject(cfg.axis);
       cfg.axis.datasetSpacing = ensureObject(cfg.axis.datasetSpacing);
-      cfg.axis.datasetSpacing.x = 0.6;
-      cfg.axis.datasetSpacingX = 0.6;
+      cfg.axis.datasetSpacing.x = datasetSpacingX;
+      cfg.axis.datasetSpacingX = datasetSpacingX;
 
-      // NPG single-replicate rule:
-      // - all traces use one shared gray fill
-      // - all borders/bars stay pure black
+      // Single-format Prism/GraphPad-style column plots should stay neutral:
+      // one shared fill, black structural elements. Grouped formats keep the
+      // selected colorblind-safe categorical palette.
       if(!isGroupedReplicates){
-        const singleFill = '#666666';
-        const singleStroke = '#000000';
+        const singleFill = preset.singleBoxFill || DEFAULT_SINGLE_BOX_FILL;
+        const singleStroke = preset.singleBoxStroke || DEFAULT_SINGLE_BOX_STROKE;
         const inferredTraceCount = Math.max(
           Array.isArray(cfg.colors) ? cfg.colors.length : 0,
           Array.isArray(cfg.borderColors) ? cfg.borderColors.length : 0,
@@ -787,7 +1064,7 @@
   }
 
   function applyPresetToActiveTab(type, presetId){
-    const preset = presetId === PRESETS.npg_single.id ? NPG_SINGLE : null;
+    const preset = PRESETS[presetId] || null;
     if(!preset){
       debugLog('Debug: publicationStyles apply skipped', { reason: 'unknown-preset', type, presetId });
       return false;
@@ -954,6 +1231,70 @@
     }
   }
 
+  function formatPresetHint(preset){
+    if(!preset || typeof preset !== 'object'){
+      return '';
+    }
+    const source = preset.source && typeof preset.source === 'object' ? preset.source : {};
+    const pieces = [];
+    if(preset.styleNote){
+      pieces.push(preset.styleNote);
+    }
+    const specParts = [];
+    if(source.sizing) specParts.push(source.sizing);
+    if(source.typography) specParts.push(source.typography);
+    if(source.stroke) specParts.push(`${source.stroke} strokes`);
+    if(source.color) specParts.push(source.color);
+    if(specParts.length){
+      pieces.push(`Applied specs: ${specParts.join('; ')}.`);
+    }
+    return pieces.join(' ');
+  }
+
+  function updatePresetHint(select, hint){
+    if(!select || !hint){
+      return;
+    }
+    const preset = PRESETS[String(select.value || DEFAULT_PRESET_ID)] || PRESETS[DEFAULT_PRESET_ID];
+    hint.textContent = formatPresetHint(preset);
+  }
+
+  function appendPresetOptions(select){
+    if(!select){
+      return;
+    }
+    const groups = [];
+    const groupsByName = new Map();
+    Object.values(PRESETS).forEach(preset => {
+      const groupName = String(preset.group || preset.source?.publisher || 'Other publisher presets');
+      let group = groupsByName.get(groupName);
+      if(!group){
+        group = { name: groupName, presets: [] };
+        groupsByName.set(groupName, group);
+        groups.push(group);
+      }
+      group.presets.push(preset);
+    });
+    groups.forEach(group => {
+      const target = group.presets.length > 1
+        ? global.document.createElement('optgroup')
+        : select;
+      if(target.tagName === 'OPTGROUP'){
+        target.label = group.name;
+      }
+      group.presets.forEach(p => {
+        const opt = global.document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.label;
+        opt.title = formatPresetHint(p);
+        target.appendChild(opt);
+      });
+      if(target !== select){
+        select.appendChild(target);
+      }
+    });
+  }
+
   function renderControlForType(type, descriptor){
     const panel = findPanelForType(type);
     if(!panel){
@@ -982,12 +1323,7 @@
     const select = global.document.createElement('select');
     select.dataset.publicationStyleSelect = '1';
     select.dataset.componentType = type;
-    Object.values(PRESETS).forEach(p => {
-      const opt = global.document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.label;
-      select.appendChild(opt);
-    });
+    appendPresetOptions(select);
 
     const applyBtn = global.document.createElement('button');
     applyBtn.type = 'button';
@@ -1003,6 +1339,10 @@
 
     const hint = global.document.createElement('div');
     hint.className = 'idx-inline-048';
+    hint.dataset.publicationStyleHint = '1';
+    updatePresetHint(select, hint);
+    select.addEventListener('change', () => updatePresetHint(select, hint));
+    fieldset.appendChild(hint);
 
     panel.appendChild(fieldset);
 
@@ -1010,7 +1350,7 @@
       Shared.formControls.autoSizeSelect(select);
     }
 
-    state.controlsByType[type] = { select, applyBtn };
+    state.controlsByType[type] = { select, applyBtn, hint };
     debugLog('Debug: publicationStyles control mounted', { type, pageId: descriptor.pageId });
   }
 
@@ -1035,7 +1375,7 @@
       }
       const row = button.closest('.config-panel__line');
       const select = row?.querySelector?.('select[data-publication-style-select="1"]') || null;
-      const presetId = String(select?.value || PRESETS.npg_single.id);
+      const presetId = String(select?.value || DEFAULT_PRESET_ID);
       const ok = applyPresetToActiveTab(type, presetId);
       debugLog('Debug: publicationStyles apply click', { type, presetId, ok });
     });
@@ -1055,15 +1395,18 @@
         return;
       }
       if(!fallback.value){
-        fallback.value = PRESETS.npg_single.id;
+        fallback.value = DEFAULT_PRESET_ID;
       }
+      updatePresetHint(fallback, state.controlsByType[tab.type]?.hint || null);
       debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
       return;
     }
     controls.forEach(control => {
       if(!control.value){
-        control.value = PRESETS.npg_single.id;
+        control.value = DEFAULT_PRESET_ID;
       }
+      const hint = control.closest('[data-publication-style-fieldset="1"]')?.querySelector?.('[data-publication-style-hint="1"]') || null;
+      updatePresetHint(control, hint);
     });
     debugLog('Debug: publicationStyles visuals synced', { reason, tabId: tab.id, type: tab.type });
   }
