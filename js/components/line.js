@@ -7313,7 +7313,40 @@
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line rotation redraw scheduled');
     }
-    scheduleLineDraw({ viewOnly: true, reason: 'rotation' });
+    scheduleLineDraw({
+      viewOnly: true,
+      silentOverlay: true,
+      force: true,
+      userInitiated: true,
+      reason: 'rotation'
+    });
+  }
+
+  function bindLine3dRotationControls(svg, debugLabel){
+    if(!svg || !svg.dataset || svg.dataset.viewMode !== '3d'){
+      return false;
+    }
+    plot3d.attachRotationControls(svg, {
+      state: lineViewState.rotation,
+      onChange: () => scheduleLineRotationRedraw(),
+      shouldIgnorePointer: (event) => {
+        if(typeof plot3d.isInteractivePointerTarget === 'function'){
+          return plot3d.isInteractivePointerTarget(event?.target);
+        }
+        return plot3d.isLegendPointerTarget(event?.target);
+      },
+      debugLabel: debugLabel || 'line-3d'
+    });
+    lineDebug('Debug: line 3d rotation handlers bound', {
+      label: debugLabel || 'line-3d'
+    });
+    return true;
+  }
+
+  function bindActiveLine3dRotationControls(debugLabel){
+    const plot = refs.plot || refs.root?.querySelector?.('#linePlot') || getLineNodeById('linePlot');
+    const svg = plot ? (plot.querySelector('#lineSvg') || plot.querySelector('svg')) : null;
+    return bindLine3dRotationControls(svg, debugLabel);
   }
 
   function addLineGroup(){
@@ -9337,17 +9370,7 @@
       svg3.setAttribute('data-color-scheme', lineColorSchemeId || 'scientific');
       appendLine3dBackground(svg3, W3, H3);
       svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
-      plot3d.attachRotationControls(svg3, {
-        state: lineViewState.rotation,
-        onChange: () => scheduleLineRotationRedraw(),
-        shouldIgnorePointer: (event) => {
-          if(typeof plot3d.isInteractivePointerTarget === 'function'){
-            return plot3d.isInteractivePointerTarget(event?.target);
-          }
-          return plot3d.isLegendPointerTarget(event?.target);
-        },
-        debugLabel: 'line-3d'
-      });
+      bindLine3dRotationControls(svg3, 'line-3d');
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg3, { scopeId: 'line' });
       }
@@ -13792,6 +13815,7 @@
       }
     }
     syncLineActivationControlsFromPayload(line.__boundTabId || null);
+    bindActiveLine3dRotationControls('line-3d-activate');
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
   }
 
@@ -14248,29 +14272,14 @@
     suppressLineRestoreDraws('render-cache-restore', { delayMs: 2500, count: 12 });
     lineViewState.rotationPending = false;
     lineViewState.rotationPendingLogged = false;
-    if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
-      delete svg.dataset.rotationControlsAttached;
-      plot3d.attachRotationControls(svg, {
-        state: lineViewState.rotation,
-        onChange: () => scheduleLineRotationRedraw(),
-        shouldIgnorePointer: (event) => {
-          if(typeof plot3d.isInteractivePointerTarget === 'function'){
-            return plot3d.isInteractivePointerTarget(event?.target);
-          }
-          return plot3d.isLegendPointerTarget(event?.target);
-        },
-        debugLabel: 'line-3d-restore'
-      });
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        lineDebug('Debug: line 3d rotation handlers rebound');
-      }
-    }
+    const rebound3dRotation = bindLine3dRotationControls(svg, 'line-3d-restore');
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: line render cache restored', {
         restored: true,
         plot: restoredPlot,
         hasGraph,
-        viewMode: cache.svgState?.dataViewMode || getLineRenderCacheMetadata(cache)?.viewMode || null
+        viewMode: cache.svgState?.dataViewMode || getLineRenderCacheMetadata(cache)?.viewMode || null,
+        rebound3dRotation
       });
     }
     return true;
@@ -14529,11 +14538,13 @@
       ...(meta || {}),
       reason: meta?.reason || 'line-runtime-apply'
     });
+    const rebound3dRotation = bindActiveLine3dRotationControls('line-3d-runtime');
     console.debug('Debug: line runtime snapshot applied', {
       tabId: meta?.tabId || line.__boundTabId || null,
       displayMode: lineDisplayMode,
       ownedRuntimeTabId: line.__lineOwnedRuntimeTabId || null,
-      reason: meta?.reason || 'line-runtime-apply'
+      reason: meta?.reason || 'line-runtime-apply',
+      rebound3dRotation
     });
     return true;
   };

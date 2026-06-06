@@ -493,7 +493,7 @@
       const depth = Number.isFinite(pt?.z) ? pt.z : 0;
       return {
         x: offsetX + (x - minX) * uniformScale,
-        y: (margin.top || 0) + scaledHeight - (y - minY) * uniformScale,
+        y: offsetY + scaledHeight - (y - minY) * uniformScale,
         depth
       };
     };

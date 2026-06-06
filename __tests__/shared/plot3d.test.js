@@ -101,6 +101,26 @@ describe('Shared.plot3d helper', () => {
     expect(projectedB.y).toBeLessThanOrEqual(200 - 20);
   });
 
+  it('centers projected points within the available vertical plot area', () => {
+    const { plot3d } = global.Shared;
+    const projector = plot3d.createProjector({
+      rotatedPoints: [
+        { x: -4, y: -1, z: 0 },
+        { x: 4, y: 1, z: 0 }
+      ],
+      width: 300,
+      height: 300,
+      margin: { top: 20, right: 20, bottom: 20, left: 20 }
+    });
+
+    const low = projector.project({ x: -4, y: -1, z: 0 });
+    const high = projector.project({ x: 4, y: 1, z: 0 });
+
+    expect(high.y).toBeCloseTo(117.5);
+    expect(low.y).toBeCloseTo(182.5);
+    expect(projector.offsets.y).toBeCloseTo(117.5);
+  });
+
   it('styles frame edges differently for foreground and background', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

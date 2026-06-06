@@ -54,6 +54,7 @@ describe('Surface render cache redraw', () => {
     require('../js/shared/dom.js');
     require('../js/shared/exporter.js');
     require('../js/shared/chartStyle.js');
+    require('../js/shared/plot3d.js');
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
@@ -100,6 +101,8 @@ describe('Surface render cache redraw', () => {
 
     const surface = window.Components?.surface;
     expect(surface).toBeTruthy();
+    expect(surface.__getState().settings.axisStroke).toBe(1);
+    expect(document.getElementById('surfaceAxisStroke')?.value).toBe('1');
 
     const exampleBtn = document.getElementById('surfaceLoadExample');
     expect(exampleBtn).toBeTruthy();
@@ -118,6 +121,9 @@ describe('Surface render cache redraw', () => {
     const originalFaceCount = svg.querySelectorAll('g.surface-faces polygon').length;
     const originalPointCount = svg.querySelectorAll('g.surface-points circle').length;
     expect(originalFaceCount).toBeGreaterThan(0);
+    const frontFrameEdge = svg.querySelector('[data-frame-edge="front"]');
+    expect(frontFrameEdge).toBeTruthy();
+    expect(Number(frontFrameEdge.getAttribute('stroke-width'))).toBeCloseTo(1);
 
     const cache = surface.captureRenderCache();
     expect(cache).toBeTruthy();
@@ -155,6 +161,10 @@ describe('Surface render cache redraw', () => {
 
     const restored = surface.restoreRenderCache(cache);
     expect(restored).toBe(true);
+    expect(svg.dataset.rotationControlsAttached).toBe('true');
+    expect(svg.__plot3dRotationControl).toBeTruthy();
+    expect(svg.__plot3dRotationControl.state).toBe(state.rotation);
+    expect(typeof svg.__plot3dRotationControl.onChange).toBe('function');
     expect(svg.querySelectorAll('g.surface-faces polygon').length).toBe(originalFaceCount);
     expect(svg.querySelectorAll('g.surface-points circle').length).toBe(originalPointCount);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');

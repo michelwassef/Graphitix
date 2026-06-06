@@ -130,7 +130,7 @@
     colorRamp: 'viridis',
     interpolation: 'grid',
     fontSize: 12,
-    axisStroke: 1.2,
+    axisStroke: 1,
     axisColor: '#3b3b3b',
     textColor: '#000000',
     backgroundColor: '#ffffff',
@@ -580,6 +580,40 @@
     state.scheduleDraw(scheduleOptions);
   }
 
+  function scheduleSurfaceRotationRedraw(){
+    state.scheduleDraw?.({
+      viewOnly: true,
+      silentOverlay: true,
+      reason: 'rotation'
+    });
+  }
+
+  function bindSurface3dRotationControls(svg, debugLabel){
+    if(!svg || typeof plot3d.attachRotationControls !== 'function'){
+      return false;
+    }
+    plot3d.attachRotationControls(svg, {
+      state: state.rotation,
+      onChange: scheduleSurfaceRotationRedraw,
+      debugLabel: debugLabel || 'surface-plot',
+      shouldIgnorePointer: (event) => {
+        if(typeof plot3d.isInteractivePointerTarget === 'function'){
+          return plot3d.isInteractivePointerTarget(event?.target);
+        }
+        return typeof plot3d.isLegendPointerTarget === 'function' && plot3d.isLegendPointerTarget(event?.target);
+      }
+    });
+    debugLog('Debug: surface 3d rotation handlers bound', {
+      label: debugLabel || 'surface-plot'
+    });
+    return true;
+  }
+
+  function bindActiveSurface3dRotationControls(debugLabel){
+    const svg = state.svg || getSurfaceNodeById('surfaceSvg');
+    return bindSurface3dRotationControls(svg, debugLabel);
+  }
+
   function isSurfaceFontStyleEvent(detail){
     const scopeId = detail?.scopeId || null;
     const storeKey = typeof detail?.storeKey === 'string' ? detail.storeKey : '';
@@ -602,7 +636,7 @@
 
   function getAxisStrokeWidthBase(){
     const numeric = Number(state.settings?.axisStroke);
-    return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : DEFAULT_SURFACE_SETTINGS.axisStroke;
   }
 
   function normalizeSurfaceThemeColor(value, fallback){
@@ -617,7 +651,7 @@
   function createDefaultGridStyle(fallbackThickness){
     const thickness = Number.isFinite(Number(fallbackThickness)) && Number(fallbackThickness) >= 0
       ? Number(fallbackThickness)
-      : 1.2;
+      : DEFAULT_SURFACE_SETTINGS.axisStroke;
     return {
       color: DEFAULT_GRID_COLOR,
       thickness,
@@ -2075,7 +2109,7 @@
     }
     if(state.controls.axisStroke){
       attachListener(state.controls.axisStroke, 'input', () => {
-        state.settings.axisStroke = Number(state.controls.axisStroke.value) || 1.2;
+        state.settings.axisStroke = Number(state.controls.axisStroke.value) || DEFAULT_SURFACE_SETTINGS.axisStroke;
         if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
         state.scheduleDraw();
       });
@@ -2360,19 +2394,7 @@
       };
     }
     const projectRotated = (rot) => projector.project(rot);
-    if(svg && typeof plot3d.attachRotationControls === 'function'){
-      plot3d.attachRotationControls(svg, {
-        state: state.rotation,
-        onChange: () => state.scheduleDraw(),
-        debugLabel: 'surface-plot',
-        shouldIgnorePointer: (event) => {
-          if(typeof plot3d.isInteractivePointerTarget === 'function'){
-            return plot3d.isInteractivePointerTarget(event?.target);
-          }
-          return typeof plot3d.isLegendPointerTarget === 'function' && plot3d.isLegendPointerTarget(event?.target);
-        }
-      });
-    }
+    bindSurface3dRotationControls(svg, 'surface-plot');
     const tickTargetX = Math.max(3, typeof chartStyle.estimateTickCount === 'function'
       ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 })
       : 6);
@@ -3082,6 +3104,7 @@
       }
     }
     cacheDom();
+    bindActiveSurface3dRotationControls('surface-activate');
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
   }
 
@@ -3176,6 +3199,7 @@
       ...(meta || {}),
       reason: meta.reason || 'surface-runtime-apply'
     });
+    bindActiveSurface3dRotationControls('surface-runtime-apply');
     return true;
   };
 
@@ -3751,6 +3775,16 @@
   };
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    if(String(meta?.reason || '').toLowerCase().includes('recovery')){
+      if(meta?.tab && global.Main?.session?.clearTabArchiveRenderCache){
+        global.Main.session.clearTabArchiveRenderCache(meta.tab, { reason: 'surface-recovery-render-cache-rejected' });
+      }
+      debugLog('Debug: surface render cache restore rejected for recovery', {
+        reason: meta?.reason || null,
+        tabId: meta?.tabId || meta?.tab?.id || surface.__boundTabId || null
+      });
+      return false;
+    }
     return Shared.componentLifecycle?.validateRenderCache?.(cache, meta, {
       componentKey: 'surface',
       graph: { selectors: ['#surfaceSvg', 'svg', 'canvas'], markupPattern: /(<svg\b|id=["']surfaceSvg["']|<canvas\b)/i },
@@ -3784,6 +3818,7 @@
     }
     if(restoredSvg){
       syncSurfaceGeometryPoolsFromDom('render-cache-restore');
+      bindSurface3dRotationControls(state.svg, 'surface-restore');
       const restoredFrame = resolveSurface3dFrame(resolveSurfaceDrawableFrame(state.svg));
       state.svg?.setAttribute?.('data-surface-base-width', String(restoredFrame.width));
       state.svg?.setAttribute?.('data-surface-base-height', String(restoredFrame.height));

@@ -2278,6 +2278,7 @@
     scatterState.lastDrawMeta = cloneSimple(runtime?.view?.lastDrawMeta) || null;
     scatterDrawToken += 1;
     rememberScatterOwnedRuntimeRecord(activeTabId, { reason: reason || 'scatter-runtime-apply' });
+    const rebound3dRotation = bindActiveScatter3dRotationControls('scatter-3d-runtime');
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: scatter runtime snapshot applied', {
         reason: reason || 'unspecified',
@@ -2287,11 +2288,62 @@
         viewMode: scatterState.viewMode || null,
         ownedRuntimeTabId: scatter.__scatterOwnedRuntimeTabId || null,
         statsContextVersion: scatterState.statsContextVersion,
-        drawToken: scatterDrawToken
+        drawToken: scatterDrawToken,
+        rebound3dRotation
       });
     }
     return !!runtime;
   }
+
+  function scheduleScatterRotationRedraw(){
+    if(scatterState.rotationPending){
+      if(!scatterState.rotationPendingLogged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: scatter rotation redraw skipped',{ reason: 'pending' });
+      }
+      scatterState.rotationPendingLogged = true;
+      return;
+    }
+    scatterState.rotationPending = true;
+    scatterState.rotationPendingLogged = false;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: scatter rotation redraw scheduled');
+    }
+    scheduleDrawScatter({
+      viewOnly: true,
+      silentOverlay: true,
+      force: true,
+      userInitiated: true,
+      reason: 'rotation'
+    });
+  }
+
+  function bindScatter3dRotationControls(svg, debugLabel){
+    if(!svg || !svg.dataset || svg.dataset.viewMode !== '3d'){
+      return false;
+    }
+    plot3d.attachRotationControls(svg, {
+      state: scatterState.rotation,
+      onChange: () => scheduleScatterRotationRedraw(),
+      shouldIgnorePointer: (event) => {
+        if(typeof plot3d.isInteractivePointerTarget === 'function'){
+          return plot3d.isInteractivePointerTarget(event?.target);
+        }
+        return plot3d.isLegendPointerTarget(event?.target);
+      },
+      debugLabel: debugLabel || 'scatter-3d'
+    });
+    scatterDebug('Debug: scatter 3d rotation handlers bound', {
+      label: debugLabel || 'scatter-3d'
+    });
+    return true;
+  }
+
+  function bindActiveScatter3dRotationControls(debugLabel){
+    const plot = getScatterNodeById('scatterPlot');
+    const svg = plot ? (plot.querySelector('#scatterSvg') || plot.querySelector('svg')) : null;
+    return bindScatter3dRotationControls(svg, debugLabel);
+  }
+
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(scatterState.rotation);
   }
@@ -15072,21 +15124,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         return normalized;
       }
-      function scheduleScatterRotationRedraw(){
-        if(scatterState.rotationPending){
-          if(!scatterState.rotationPendingLogged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: scatter rotation redraw skipped',{ reason: 'pending' });
-          }
-          scatterState.rotationPendingLogged = true;
-          return;
-        }
-        scatterState.rotationPending = true;
-        scatterState.rotationPendingLogged = false;
-        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: scatter rotation redraw scheduled');
-        }
-        scheduleDrawScatter({ viewOnly: true, reason: 'rotation' });
-      }
       if(scatterViewMode){
         scatterViewMode.value = scatterState.viewMode;
         scatterViewMode.addEventListener('change', event => {
@@ -19121,17 +19158,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           svg3.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
           appendScatter3dBackground(svg3, W3, H3, themeSnapshot);
           svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
-          plot3d.attachRotationControls(svg3, {
-            state: scatterState.rotation,
-            onChange: () => scheduleScatterRotationRedraw(),
-            shouldIgnorePointer: (event) => {
-              if(typeof plot3d.isInteractivePointerTarget === 'function'){
-                return plot3d.isInteractivePointerTarget(event?.target);
-              }
-              return plot3d.isLegendPointerTarget(event?.target);
-            },
-            debugLabel: 'scatter-3d'
-          });
+          bindScatter3dRotationControls(svg3, 'scatter-3d');
           if(fontControls && typeof fontControls.enableForSvg === 'function'){
             fontControls.enableForSvg(svg3,{ scopeId: 'scatter' });
           }
@@ -24452,6 +24479,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     if(isScatterRuntimeFreshForTab(tabLike) && tabLike?.loadedFromArchive !== true){
       resetScatterHotViewportToTop(scatter.__getActiveHot?.() || scatterRefs.hot || scatterHot || null);
     }
+    bindActiveScatter3dRotationControls('scatter-3d-activate');
   }
 
   scatter.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
@@ -24894,23 +24922,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       scatterState.rotationPending = false;
       scatterState.rotationPendingLogged = false;
       const svg = plot ? plot.querySelector('#scatterSvg') : null;
-      if(svg && svg.dataset && svg.dataset.viewMode === '3d'){
-        delete svg.dataset.rotationControlsAttached;
-        plot3d.attachRotationControls(svg, {
-          state: scatterState.rotation,
-          onChange: () => scheduleScatterRotationRedraw(),
-          shouldIgnorePointer: (event) => {
-            if(typeof plot3d.isInteractivePointerTarget === 'function'){
-              return plot3d.isInteractivePointerTarget(event?.target);
-            }
-            return plot3d.isLegendPointerTarget(event?.target);
-          },
-          debugLabel: 'scatter-3d-restore'
-        });
-        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          scatterDebug('Debug: scatter 3d rotation handlers rebound');
-        }
-      }
+      bindScatter3dRotationControls(svg, 'scatter-3d-restore');
     }
     if(restored && meta?.temporaryRestore !== true){
       scatterState.skipNextDraw = true;
