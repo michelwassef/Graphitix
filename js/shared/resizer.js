@@ -2108,9 +2108,15 @@
       let fontResizeCheckbox = fontResizeControl ? fontResizeControl.querySelector('input[type="checkbox"]') : null;
       if(!fontResizeControl){
         fontResizeControl = doc.createElement('label');
+        fontResizeControl.className = 'resizer-fontresize-control';
+        fontResizeControl.title = 'Resize fonts proportionally with graph resizing';
         const fontCheckbox = doc.createElement('input');
         fontCheckbox.type = 'checkbox';
+        fontCheckbox.className = 'resizer-fontresize-checkbox';
+        fontCheckbox.setAttribute('aria-label', 'Proportional font resize');
         const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-fontresize-text';
+        textSpan.textContent = 'Proportional font resize';
         fontResizeControl.appendChild(fontCheckbox);
         fontResizeControl.appendChild(textSpan);
         controlTray.appendChild(fontResizeControl);
@@ -2121,23 +2127,6 @@
           controlTray.appendChild(fontResizeControl);
         }
         fontResizeCheckbox = fontResizeControl.querySelector('input[type="checkbox"]');
-      }
-      if(fontResizeControl){
-        fontResizeControl.classList.add('resizer-fontresize-control');
-        fontResizeControl.title = 'Resize fonts proportionally with graph resizing';
-      }
-      if(fontResizeCheckbox){
-        fontResizeCheckbox.classList.add('resizer-fontresize-checkbox');
-        fontResizeCheckbox.setAttribute('aria-label', 'Proportional font resize');
-      }
-      let fontResizeText = fontResizeControl ? fontResizeControl.querySelector('.resizer-fontresize-text') : null;
-      if(!fontResizeText && fontResizeControl){
-        fontResizeText = doc.createElement('span');
-        fontResizeControl.appendChild(fontResizeText);
-      }
-      if(fontResizeText){
-        fontResizeText.classList.add('resizer-fontresize-text');
-        fontResizeText.textContent = 'Proportional font resize';
       }
       if(fontResizeCheckbox){
         if(fontResizeCheckbox.dataset){
