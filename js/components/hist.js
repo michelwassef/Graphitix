@@ -4832,6 +4832,7 @@
       ? chartStyle.computeLegendLayout({
           entries: legendEntries,
           fontSize: fs,
+          scaleInfo: styleScaleInfo,
           strokeWidth: borderWidthPx > 0 ? borderWidthPx : 1,
           textColor: chartStyle.TEXT_COLOR,
           onSwatchClick: ({ entry, swatch, event, index }) => {

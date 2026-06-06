@@ -3710,6 +3710,7 @@
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize: fs,
+      scaleInfo: styleScaleInfo,
       strokeWidth: legendStrokeWidth,
       onSwatchClick: legendEditable ? handleSurvivalLegendSwatchClick : undefined
     });

@@ -2643,6 +2643,7 @@
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize,
+      scaleInfo: styleScaleInfo,
       strokeWidth: borderWidthPx,
       onSwatchClick: ({ entry, swatch, event }) => {
         const labelKey = entry?.key || entry?.label;

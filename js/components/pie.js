@@ -4642,6 +4642,7 @@ let state = {
       const stackedLegendLayout = chartStyle.computeLegendLayout({
         entries: stackedLegendEntries,
         fontSize: fs,
+        scaleInfo: styleScaleInfo,
         onSwatchClick: handlePieLegendSwatchClick
       });
       const stackedLegendVisible = showLegend && stackedLegendLayout.renderer.entries.length > 0;
@@ -5121,6 +5122,7 @@ let state = {
     const radialLegendLayout = chartStyle.computeLegendLayout({
       entries: radialLegendEntries,
       fontSize: fs,
+      scaleInfo: styleScaleInfo,
       onSwatchClick: handlePieLegendSwatchClick
     });
     const radialLegendVisible = showLegend && radialLegendLayout.renderer.entries.length > 0;

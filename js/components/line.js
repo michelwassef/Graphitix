@@ -9206,6 +9206,7 @@
       const legendLayout = chartStyle.computeLegendLayout({
         entries: showLegend ? legendEntries : [],
         fontSize: fs,
+        scaleInfo: styleScaleInfo,
         strokeWidth: borderWidthPx,
         textColor: lineThemeTextColor,
         onSwatchClick: ({ entry, swatch, event, index }) => {
@@ -10248,6 +10249,7 @@
       const legendLayout=chartStyle.computeLegendLayout({
         entries:showLegend ? legendEntries : [],
         fontSize:fs,
+        scaleInfo: styleScaleInfo,
         strokeWidth:borderWidthPx,
         onSwatchClick:({ entry, swatch, event, index })=>{
           const legendKey=entry?.key || entry?.label;

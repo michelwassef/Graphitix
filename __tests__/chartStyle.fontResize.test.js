@@ -180,4 +180,48 @@ describe('chartStyle proportional font resize behavior', () => {
     expect(tinyResize.styleScale).toBeGreaterThan(0.98);
     expect(tinyResize.styleScale).toBeLessThan(1.01);
   });
+
+  test('locked-ratio legend layout follows graph style scale without double-scaling proportional fonts', () => {
+    const { chartStyle } = window.Shared;
+    const entries = [{ label: 'Treatment', fill: '#377eb8' }];
+
+    const locked = chartStyle.computeLegendLayout({
+      entries,
+      fontSize: 12,
+      scaleInfo: {
+        aspectLocked: true,
+        proportionalFontResize: false,
+        styleScale: 1.5
+      }
+    });
+
+    expect(locked.renderer.fontSize).toBe(18);
+    expect(locked.renderer.swatchSize).toBe(Math.round(18 * 0.6));
+    expect(locked.legendGapPx).toBeGreaterThan(0);
+
+    const proportional = chartStyle.computeLegendLayout({
+      entries,
+      fontSize: 18,
+      scaleInfo: {
+        aspectLocked: true,
+        proportionalFontResize: true,
+        styleScale: 1.5
+      }
+    });
+
+    expect(proportional.renderer.fontSize).toBe(18);
+    expect(proportional.renderer.swatchSize).toBe(Math.round(18 * 0.6));
+
+    const unlocked = chartStyle.computeLegendLayout({
+      entries,
+      fontSize: 12,
+      scaleInfo: {
+        aspectLocked: false,
+        proportionalFontResize: false,
+        styleScale: 1.5
+      }
+    });
+
+    expect(unlocked.renderer.fontSize).toBe(12);
+  });
 });

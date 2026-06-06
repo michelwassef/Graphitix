@@ -18907,6 +18907,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           legendLayout = chartStyle.computeLegendLayout({
             entries:legendEntries,
             fontSize:fs,
+            scaleInfo: styleScaleInfo,
             strokeWidth:borderWidthPx,
             textColor: scatterThemeTextColor,
             onSwatchClick:({ entry, event, swatch, index })=>{

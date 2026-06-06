@@ -126,6 +126,9 @@
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
   const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
+  const SURFACE_LEGEND_BAR_REFERENCE_WIDTH = 360;
+  const SURFACE_LEGEND_BAR_MIN_WIDTH = 4;
+  const SURFACE_LEGEND_BAR_MAX_WIDTH_RATIO = 0.07;
   const DEFAULT_SURFACE_SETTINGS = Object.freeze({
     colorRamp: 'viridis',
     interpolation: 'grid',
@@ -1807,6 +1810,82 @@
     return { min, max };
   }
 
+  function resolveSurfaceLegendMetrics(options){
+    const opts = options || {};
+    const width = Number.isFinite(Number(opts.width)) && Number(opts.width) > 0 ? Number(opts.width) : 640;
+    const height = Number.isFinite(Number(opts.height)) && Number(opts.height) > 0 ? Number(opts.height) : width;
+    const margin = opts.margin || {};
+    const marginTop = Number.isFinite(Number(margin.top)) ? Number(margin.top) : 0;
+    const marginRight = Number.isFinite(Number(margin.right)) ? Number(margin.right) : 0;
+    const marginBottom = Number.isFinite(Number(margin.bottom)) ? Number(margin.bottom) : 0;
+    const availableHeight = Math.max(1, height - marginTop - marginBottom);
+    const fontSize = Math.max(4, Number(opts.fontSize) || 12);
+    const legendFontSize = Math.max(4, fontSize * 0.75);
+    const barWidthScale = Math.sqrt(Math.max(1, width) / SURFACE_LEGEND_BAR_REFERENCE_WIDTH);
+    const preferredBarWidth = fontSize * barWidthScale;
+    const barWidth = Math.max(
+      SURFACE_LEGEND_BAR_MIN_WIDTH,
+      Math.min(preferredBarWidth, width * SURFACE_LEGEND_BAR_MAX_WIDTH_RATIO)
+    );
+    const maxBarHeight = Math.max(1, availableHeight * 0.7);
+    const readableFloor = Math.min(maxBarHeight, Math.max(legendFontSize * 2.6, Math.min(24, maxBarHeight)));
+    const barHeight = Math.max(1, Math.min(maxBarHeight, Math.max(availableHeight * 0.36, readableFloor)));
+    const labelOffset = Math.max(2, legendFontSize * 0.9);
+    const topLabelGap = Math.max(2, legendFontSize * 0.4);
+    const legendRightPad = Math.max(barWidth + legendFontSize * 2.2, width * 0.075);
+    return {
+      width,
+      height,
+      marginTop,
+      marginRight,
+      marginBottom,
+      availableHeight,
+      fontSize,
+      legendFontSize,
+      barWidth,
+      barHeight,
+      labelOffset,
+      topLabelGap,
+      legendRightPad
+    };
+  }
+
+  function resolveSurfacePlotMargins(options){
+    const opts = options || {};
+    const width = Number.isFinite(Number(opts.width)) && Number(opts.width) > 0 ? Number(opts.width) : 640;
+    const height = Number.isFinite(Number(opts.height)) && Number(opts.height) > 0 ? Number(opts.height) : width;
+    const fontSize = Math.max(4, Number(opts.fontSize) || 12);
+    const showLegend = opts.showLegend === true;
+    const capReserve = (preferred, span, ratio, floor) => {
+      const safeSpan = Math.max(1, Number(span) || 1);
+      const safeFloor = Math.max(1, Number(floor) || 1);
+      const cap = Math.max(safeFloor, safeSpan * ratio);
+      return Math.max(safeFloor, Math.min(preferred, cap));
+    };
+    let top = capReserve(Math.max(fontSize * 3.2, 42), height, 0.24, fontSize * 1.7);
+    let bottom = capReserve(Math.max(fontSize * 3.4, 44), height, 0.26, fontSize * 1.8);
+    let left = capReserve(Math.max(fontSize * 3.6, 58), width, 0.25, fontSize * 2.1);
+    const rightPreferred = showLegend
+      ? Math.max(fontSize * 5.8, width * 0.22)
+      : Math.max(fontSize * 3.2, width * 0.10);
+    let right = capReserve(rightPreferred, width, showLegend ? 0.34 : 0.20, fontSize * (showLegend ? 3.0 : 2.0));
+    const maxHorizontalReserve = Math.max(40, width - 40);
+    const horizontalReserve = left + right;
+    if(horizontalReserve > maxHorizontalReserve){
+      const scale = maxHorizontalReserve / horizontalReserve;
+      left *= scale;
+      right *= scale;
+    }
+    const maxVerticalReserve = Math.max(40, height - 40);
+    const verticalReserve = top + bottom;
+    if(verticalReserve > maxVerticalReserve){
+      const scale = maxVerticalReserve / verticalReserve;
+      top *= scale;
+      bottom *= scale;
+    }
+    return { top, right, bottom, left };
+  }
+
   function renderLegend(svg, options){
     if(!svg || !options){ return; }
     const legendTextColor = isSurfaceDarkTheme()
@@ -1867,131 +1946,86 @@
     while(legend.firstChild){ legend.removeChild(legend.firstChild); }
     // mark which gradient id this legend relies on so we can safely remove it later
     try{ legend.setAttribute('data-gradient-id', gradientId); }catch(e){}
-    const marginTop = Number.isFinite(options?.margin?.top) ? options.margin.top : 0;
-    const marginBottom = Number.isFinite(options?.margin?.bottom) ? options.margin.bottom : 0;
-    const rawHeight = Number.isFinite(options?.height)
-      ? options.height - marginTop - marginBottom
-      : NaN;
-    const fallbackBarHeight = Math.max(120, options.fontSize * 6);
-    let barHeight = fallbackBarHeight;
-    if(Number.isFinite(rawHeight) && rawHeight > 0){
-      barHeight = Math.min(fallbackBarHeight, rawHeight);
-    }
-    barHeight = Math.max(60, barHeight);
-    // Calculate legend dimensions based on font size and available space (following roc.js pattern)
-    const fontSize = options.fontSize || 12;
-    const barWidth = Math.max(14, fontSize * 0.8);
-    const legendRightPad = Math.max(36, fontSize * 1.9);
-    
-    // Make legend height responsive based on graph height
-    const availableHeight = Math.max(0, options.height - options.margin.top - options.margin.bottom);
-    const minLegendHeight = Math.max(80, fontSize * 6);
-    const maxLegendHeight = Math.min(200, availableHeight * 0.6);
-    const legendHeight = Math.max(minLegendHeight, availableHeight * 0.3);
-    
-    // Ensure legend height is reasonable
-    const finalLegendHeight = Number.isFinite(legendHeight) && legendHeight > 0 ? legendHeight : minLegendHeight;
-    
-    const defaultLegendX = options.width - options.margin.right + legendRightPad;
-    const defaultLegendY = options.margin.top;
+    const metrics = resolveSurfaceLegendMetrics(options);
+    const {
+      fontSize,
+      legendFontSize,
+      barWidth,
+      barHeight: finalLegendHeight,
+      labelOffset,
+      topLabelGap,
+      legendRightPad
+    } = metrics;
+
+    const defaultLegendX = metrics.width - metrics.marginRight + legendRightPad;
+    const defaultLegendY = metrics.marginTop;
     const position = options.position || state.labelPositions?.legend || state.legendPosition || null;
-    
-    // Convert relative positions to absolute if needed for legend (following roc.js pattern)
     let absoluteLegendX = defaultLegendX;
     let absoluteLegendY = defaultLegendY;
-    if (position) {
-      if (position.relX !== undefined && position.relY !== undefined) {
-        // Use relative positioning with validation to prevent NaN errors
-        const width = Number(options.width);
-        const marginRight = Number(options.margin.right);
-        const height = Number(options.height);
-        const marginTop = Number(options.margin.top);
-        const relX = Number(position.relX);
-        const relY = Number(position.relY);
-        
-        if (Number.isFinite(width) && Number.isFinite(marginRight) && Number.isFinite(relX)) {
-          absoluteLegendX = width - marginRight + relX * legendRightPad;
-        }
-        if (Number.isFinite(height) && Number.isFinite(marginTop) && Number.isFinite(relY) && Number.isFinite(options.margin.bottom)) {
-          // Use plotHeight as reference (like roc.js) instead of options.height
-          // Ensure we use the same calculation as in the drag handler
-          const plotHeight = height - marginTop - options.margin.bottom;
-          if (Number.isFinite(plotHeight) && plotHeight > 0) {
-            absoluteLegendY = marginTop + relY * plotHeight;
-          }
-        }
-        // If any calculation failed, fall back to default positions
-        if (!Number.isFinite(absoluteLegendX)) absoluteLegendX = defaultLegendX;
-        if (!Number.isFinite(absoluteLegendY)) absoluteLegendY = defaultLegendY;
-      } else if (position.x !== undefined && position.y !== undefined) {
-        // Use absolute positioning (backward compatibility) with validation
+    if(position){
+      const relX = Number(position.relX);
+      const relY = Number(position.relY);
+      if(Number.isFinite(relX) && Number.isFinite(relY)){
+        absoluteLegendX = metrics.width - metrics.marginRight + relX * legendRightPad;
+        absoluteLegendY = metrics.marginTop + relY * metrics.availableHeight;
+      }else{
         const absX = Number(position.x);
         const absY = Number(position.y);
-        if (Number.isFinite(absX)) absoluteLegendX = absX;
-        if (Number.isFinite(absY)) absoluteLegendY = absY;
+        if(Number.isFinite(absX)){ absoluteLegendX = absX; }
+        if(Number.isFinite(absY)){ absoluteLegendY = absY; }
       }
     }
-    
-    // Final validation to ensure we don't set invalid transform values
-    if (!Number.isFinite(absoluteLegendX)) absoluteLegendX = defaultLegendX;
-    if (!Number.isFinite(absoluteLegendY)) absoluteLegendY = defaultLegendY;
-    
-    // Debug logging for legend positioning
-    if (Shared.isDebugEnabled?.()) {
-      console.debug('Debug: surface legend positioning', {
-        absoluteLegendX,
-        absoluteLegendY,
-        defaultLegendX,
-        defaultLegendY,
-        finalLegendHeight,
-        legendHeight,
-        barWidth,
-        legendRightPad,
-        position,
-        plotHeight: options.height - options.margin.top - options.margin.bottom,
-        options: {
-          width: options.width,
-          height: options.height,
-          margin: options.margin
-        }
-      });
-    }
-    
+    if(!Number.isFinite(absoluteLegendX)){ absoluteLegendX = defaultLegendX; }
+    if(!Number.isFinite(absoluteLegendY)){ absoluteLegendY = defaultLegendY; }
+
+    debugLog('Debug: surface legend positioning', {
+      absoluteLegendX,
+      absoluteLegendY,
+      defaultLegendX,
+      defaultLegendY,
+      barWidth,
+      barHeight: finalLegendHeight,
+      legendFontSize,
+      legendRightPad,
+      availableHeight: metrics.availableHeight,
+      position
+    });
+
     legend.setAttribute('transform', `translate(${absoluteLegendX},${absoluteLegendY})`);
     const rect = doc.createElementNS(NS, 'rect');
     rect.setAttribute('width', barWidth);
     rect.setAttribute('height', finalLegendHeight);
     rect.setAttribute('fill', `url(#${gradientId})`);
     rect.setAttribute('stroke', legendStrokeColor);
-    rect.setAttribute('stroke-width', Math.max(0.6, options.fontSize * 0.04));
+    rect.setAttribute('stroke-width', Math.max(0.4, fontSize * 0.04));
     rect.setAttribute('data-legend-key', 'surface-scale');
     legend.appendChild(rect);
     const minText = doc.createElementNS(NS, 'text');
-    const legendFontSize = Math.max(9, fontSize * 0.75);
-    const labelOffset = Math.max(10, legendFontSize * 0.9);
     minText.setAttribute('x', barWidth / 2);
     minText.setAttribute('y', finalLegendHeight + labelOffset);
     minText.setAttribute('font-size', legendFontSize);
     minText.setAttribute('fill', legendTextColor);
-    minText.style.fill = legendTextColor;
     minText.setAttribute('text-anchor', 'middle');
     minText.setAttribute('data-legend-key', 'surface-scale');
     minText.textContent = formatNumber(options.min);
     legend.appendChild(minText);
+    markFontEditable(minText, 'legendTick', 'legendMin');
+
     const maxText = doc.createElementNS(NS, 'text');
     maxText.setAttribute('x', barWidth / 2);
-    maxText.setAttribute('y', -Math.max(6, legendFontSize * 0.4));
+    maxText.setAttribute('y', -topLabelGap);
     maxText.setAttribute('font-size', legendFontSize);
     maxText.setAttribute('fill', legendTextColor);
-    maxText.style.fill = legendTextColor;
     maxText.setAttribute('text-anchor', 'middle');
     maxText.setAttribute('dominant-baseline', 'baseline');
     maxText.setAttribute('data-legend-key', 'surface-scale');
     maxText.textContent = formatNumber(options.max);
     legend.appendChild(maxText);
+    markFontEditable(maxText, 'legendTick', 'legendMax');
 
-    if(typeof plot3d.applyLegendPointerGuards === 'function'){
+    if(typeof plot3d.applyLegendPointerGuards === 'function' && legend.dataset?.pointerGuardBound !== '1'){
       plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
+      if(legend.dataset){ legend.dataset.pointerGuardBound = '1'; }
     }
 
     if(typeof Shared.enableLegendDrag === 'function' && legend.dataset){
@@ -1999,20 +2033,16 @@
         legend.dataset.dragBound = '1';
         Shared.enableLegendDrag(legend, svg, {
           onDragEnd: pos => {
-            // Store both absolute and relative positions for legend (following roc.js pattern)
-            // Use plotHeight as reference (like roc.js) instead of options.height
-            const plotHeight = options.height - options.margin.top - options.margin.bottom;
-            const relX = (pos.x - (options.width - options.margin.right)) / legendRightPad;
-            const relY = Number.isFinite(plotHeight) && plotHeight > 0 
-              ? (pos.y - options.margin.top) / plotHeight 
+            const relX = (pos.x - (metrics.width - metrics.marginRight)) / legendRightPad;
+            const relY = metrics.availableHeight > 0
+              ? (pos.y - metrics.marginTop) / metrics.availableHeight
               : 0;
-            state.labelPositions.legend = { 
-              x: pos.x, 
+            state.labelPositions.legend = {
+              x: pos.x,
               y: pos.y,
-              relX: relX, 
-              relY: relY 
+              relX,
+              relY
             };
-            // Also update legacy field for backward compatibility
             state.legendPosition = state.labelPositions.legend;
             debugLog('Debug: surface legend position saved', { absolute: pos, relative: { relX, relY } });
           },
@@ -2021,7 +2051,6 @@
       }
     }
     
-    // Return legend dimensions for layout calculations (following roc.js pattern)
     return {
       width: barWidth + legendRightPad,
       height: finalLegendHeight
@@ -2040,7 +2069,7 @@
           const grad = defs && defs.querySelector && defs.querySelector(`#${gradId}`);
           if(grad && grad.parentNode){ grad.parentNode.removeChild(grad); }
         }
-      }catch(e){ /* defensive */ }
+      }catch(e){ /* ignore missing gradient cleanup */ }
       legend.parentNode.removeChild(legend);
     }
   }
@@ -2341,12 +2370,12 @@
     const canShowLegend = Number.isFinite(parsed.stats.zMin)
       && Number.isFinite(parsed.stats.zMax)
       && parsed.stats.zMin !== parsed.stats.zMax;
-    const margin = {
-      top: Math.max(fs * 3.2, 42),
-      right: Math.max(fs * 6.5, canShowLegend ? 140 : 60),
-      bottom: Math.max(fs * 3.4, 44),
-      left: Math.max(fs * 3.6, 58)
-    };
+    const margin = resolveSurfacePlotMargins({
+      width,
+      height,
+      fontSize: fs,
+      showLegend: canShowLegend
+    });
     const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
       ? plot3d.resolveLegendShiftX({ legendVisible: canShowLegend, margin, fontSize: fs })
       : 0;
@@ -3844,7 +3873,9 @@
   surface.__getState = () => state;
   surface.__testHooks = Object.assign({}, surface.__testHooks, {
     resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl),
-    resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame)
+    resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
+    resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),
+    resolvePlotMargins: options => resolveSurfacePlotMargins(options)
   });
 
   surface.destroy = function destroy(){

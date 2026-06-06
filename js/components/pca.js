@@ -9332,6 +9332,7 @@
       const legendLayout = chartStyle.computeLegendLayout({
         entries: legendMeasureEntries,
         fontSize: fs,
+        scaleInfo: styleScaleInfo,
         strokeWidth: borderWidthPx,
         textColor: pcaThemeTextColor,
         onSwatchClick: ({ event, swatch, index }) => {

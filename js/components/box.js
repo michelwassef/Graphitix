@@ -29413,7 +29413,7 @@ Technical analysis record (advanced)
       els.boxLogScaleLabel.textContent = isFlipped ? 'Log scale (values)' : 'Log scale (Y)';
     }
     console.debug('Debug: box draw orientation',{ isFlipped });
-    let legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+    let legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: chartStyle.resolveLegendFontSize ? chartStyle.resolveLegendFontSize(fs, styleScaleInfo) : fs, strokeWidth: borderWidthPx });
     let legendLayout = null;
     let legendGapPx = 0;
     let legendWidthForMargin = 0;
@@ -30535,6 +30535,7 @@ Technical analysis record (advanced)
       legendLayout = chartStyle.computeLegendLayout({
         entries: legendEntries,
         fontSize: fs,
+        scaleInfo: styleScaleInfo,
         strokeWidth: legendStrokeWidth,
         swatchWidth: Math.max(12, Math.round(fs * 1.15)),
         swatchHeight: Math.max(6, Math.round(fs * 0.55))
@@ -30544,7 +30545,7 @@ Technical analysis record (advanced)
       legendWidthForMargin = legendLayout.legendWidthForMargin;
       console.debug('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length, showLegend });
     }else{
-      legendLayout = chartStyle.computeLegendLayout({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+      legendLayout = chartStyle.computeLegendLayout({ entries: [], fontSize: fs, scaleInfo: styleScaleInfo, strokeWidth: borderWidthPx });
       legendRenderer = legendLayout.renderer;
       legendGapPx = 0;
       legendWidthForMargin = 0;
