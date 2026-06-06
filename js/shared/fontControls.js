@@ -478,6 +478,8 @@
   }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
+  const STYLE_META_KEYS = ['fontSizeResizeReference'];
+  const STYLE_STATE_KEYS = STYLE_KEYS.concat(STYLE_META_KEYS);
   const STYLE_ATTR_MAP = {
     fontFamily: 'font-family',
     fontWeight: 'font-weight',
@@ -559,6 +561,128 @@
     if(parsed.unit === 'em' || parsed.unit === 'rem'){ return parsed.numeric * 16; }
     if(parsed.unit === 'pt'){ return parsed.numeric * (96 / 72); }
     return parsed.numeric;
+  }
+
+  function formatFontSizePx(px){
+    const numeric = Number(px);
+    if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
+    const rounded = Math.round(numeric * 100) / 100;
+    return `${rounded}px`;
+  }
+
+  function parsePositiveNumber(value){
+    const numeric = Number.parseFloat(String(value ?? '').replace(/px$/i, ''));
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function resolveTextSvgBox(node){
+    if(!node){ return null; }
+    if(typeof node.closest === 'function'){
+      const directBox = node.closest('.svgbox');
+      if(directBox){ return directBox; }
+      const directSvg = node.closest('svg');
+      if(directSvg){
+        const ownerBox = directSvg.closest?.('.svgbox');
+        return ownerBox || directSvg;
+      }
+    }
+    const ownerSvg = node.ownerSVGElement || null;
+    if(ownerSvg){
+      return ownerSvg.closest?.('.svgbox') || ownerSvg;
+    }
+    return null;
+  }
+
+  function readDimensionFromElement(el, names){
+    if(!el){ return null; }
+    const dataset = el.dataset || {};
+    for(const name of names){
+      const value = dataset[name];
+      const numeric = parsePositiveNumber(value);
+      if(numeric){ return numeric; }
+    }
+    if(el.style){
+      for(const name of names){
+        const styleName = name.toLowerCase().includes('height') ? 'height' : 'width';
+        const numeric = parsePositiveNumber(el.style[styleName]);
+        if(numeric){ return numeric; }
+      }
+    }
+    if(typeof el.getBoundingClientRect === 'function'){
+      try {
+        const rect = el.getBoundingClientRect();
+        const wantsHeight = names.some(name => String(name).toLowerCase().includes('height'));
+        const numeric = wantsHeight ? rect?.height : rect?.width;
+        if(Number.isFinite(numeric) && numeric > 0){ return numeric; }
+      } catch(rectErr){
+        logDebug('resize dimension rect read failed', { error: rectErr?.message || String(rectErr) });
+      }
+    }
+    return null;
+  }
+
+  function resolveFontResizeContext(node, options = {}){
+    const chartStyleApi = Shared.chartStyle || global.Shared?.chartStyle || null;
+    const svgBox = options.svgBox || resolveTextSvgBox(node);
+    const dataset = svgBox?.dataset || {};
+    const width = readDimensionFromElement(svgBox, ['graphWidthPx', 'svgWidth', 'resizerWidth', 'width']);
+    const height = readDimensionFromElement(svgBox, ['graphHeightPx', 'svgHeight', 'resizerHeight', 'height']);
+    const defaultWidth = readDimensionFromElement(svgBox, ['graphDefaultWidth', 'defaultWidth', 'resizerDefaultWidth']) || width || undefined;
+    const defaultHeight = readDimensionFromElement(svgBox, ['graphDefaultHeight', 'defaultHeight', 'resizerDefaultHeight']) || height || undefined;
+    let scale = 1;
+    if(chartStyleApi && typeof chartStyleApi.computeResizeScale === 'function'){
+      try {
+        const resizeInfo = chartStyleApi.computeResizeScale({
+          width,
+          height,
+          defaultWidth,
+          defaultHeight,
+          svgBox
+        });
+        const candidate = Number(resizeInfo?.fontResizeScale);
+        if(Number.isFinite(candidate) && candidate > 0){
+          scale = candidate;
+        }
+      } catch(scaleErr){
+        logDebug('resolveFontResizeContext scale failed', { error: scaleErr?.message || String(scaleErr) });
+      }
+    }
+    let enabled;
+    if(typeof options.enabledOverride === 'boolean'){
+      enabled = options.enabledOverride;
+    }else if(typeof dataset.resizerProportionalFontResize === 'string'){
+      enabled = dataset.resizerProportionalFontResize === 'true';
+    }else if(chartStyleApi && typeof chartStyleApi.isProportionalFontResizeEnabled === 'function'){
+      try {
+        enabled = !!chartStyleApi.isProportionalFontResizeEnabled({ svgBox, scopeId: dataset.resizerProportionalFontResizeScope || null });
+      } catch(enabledErr){
+        logDebug('resolveFontResizeContext enabled failed', { error: enabledErr?.message || String(enabledErr) });
+      }
+    }
+    return {
+      enabled: enabled === true,
+      scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+      svgBox
+    };
+  }
+
+  function resolveStoredFontSizeForNode(fontSize, reference, node, options = {}){
+    const basePx = fontSizeValueToPx(fontSize);
+    if(!Number.isFinite(basePx) || basePx <= 0){
+      return fontSize || null;
+    }
+    const context = resolveFontResizeContext(node, options);
+    if(!context.enabled){
+      return formatFontSizePx(basePx) || fontSize;
+    }
+    const referenceScale = Number(reference);
+    const safeReference = Number.isFinite(referenceScale) && referenceScale > 0 ? referenceScale : context.scale;
+    const scaledPx = basePx * (context.scale / safeReference);
+    return formatFontSizePx(scaledPx) || fontSize;
+  }
+
+  function currentFontResizeReference(node){
+    return resolveFontResizeContext(node).scale;
   }
 
   function sanitizeInlineStyleEntry(entry){
@@ -1138,6 +1262,10 @@
         hasValue = true;
       }
     });
+    const reference = Number(style.fontSizeResizeReference);
+    if(Number.isFinite(reference) && reference > 0 && clone.fontSize){
+      clone.fontSizeResizeReference = reference;
+    }
     const segments = normalizeInlineSegments(style.inlineSegments || []);
     if(segments.length){
       clone.inlineSegments = segments.map(segment => ({
@@ -1163,6 +1291,15 @@
           hasValue = true;
         }
       });
+      if(snapshot.fontSize && !Number.isFinite(Number(snapshot.fontSizeResizeReference))){
+        delete merged.fontSizeResizeReference;
+      }
+      STYLE_META_KEYS.forEach(key => {
+        const value = snapshot[key];
+        if(value !== undefined && value !== null && value !== ''){
+          merged[key] = value;
+        }
+      });
       if(Array.isArray(snapshot.inlineSegments) && snapshot.inlineSegments.length){
         merged.inlineSegments = snapshot.inlineSegments.map(segment => ({
           start: segment.start,
@@ -1177,7 +1314,7 @@
 
   function normalizeStylePatchKeys(patch){
     if(!patch || typeof patch !== 'object'){ return []; }
-    return STYLE_KEYS.filter(key => Object.prototype.hasOwnProperty.call(patch, key));
+    return STYLE_STATE_KEYS.filter(key => Object.prototype.hasOwnProperty.call(patch, key));
   }
 
   function applyStylePatchToSnapshot(style, patch){
@@ -1188,10 +1325,16 @@
       if(value === undefined){ return; }
       if(value === null || value === ''){
         delete merged[key];
+        if(key === 'fontSize'){
+          delete merged.fontSizeResizeReference;
+        }
         return;
       }
       merged[key] = value;
     });
+    if(!merged.fontSize){
+      delete merged.fontSizeResizeReference;
+    }
     return cloneStyleSnapshot(merged);
   }
 
@@ -1201,6 +1344,9 @@
     const clone = cloneStyleSnapshot(style) || {};
     keySet.forEach(key => {
       delete clone[key];
+      if(key === 'fontSize'){
+        delete clone.fontSizeResizeReference;
+      }
     });
     if(Array.isArray(clone.inlineSegments)){
       const segments = normalizeInlineSegments(clone.inlineSegments).map(segment => {
@@ -1223,7 +1369,7 @@
     if(a === b){ return true; }
     const refA = a || {};
     const refB = b || {};
-    const baseEqual = STYLE_KEYS.every(key => {
+    const baseEqual = STYLE_STATE_KEYS.every(key => {
       const valA = refA[key] || null;
       const valB = refB[key] || null;
       return valA === valB;
@@ -2765,6 +2911,14 @@
 
   function applyStyleToNode(node, style){
     if(!node || !style){ return; }
+    const resolvedStyle = cloneStyleSnapshot(style) || {};
+    if(resolvedStyle.fontSize){
+      resolvedStyle.fontSize = resolveStoredFontSizeForNode(
+        resolvedStyle.fontSize,
+        resolvedStyle.fontSizeResizeReference,
+        node
+      );
+    }
     const isSvgNode = isSvgTextTarget(node);
     const applyToken = (attrName, cssProp, value) => {
       if(isSvgNode){
@@ -2782,15 +2936,15 @@
       }
       node.style[cssProp] = value || '';
     };
-    applyToken('font-family', 'fontFamily', style.fontFamily);
-    applyToken('font-weight', 'fontWeight', style.fontWeight);
-    applyToken('font-style', 'fontStyle', style.fontStyle);
-    applyToken('font-size', 'fontSize', style.fontSize);
-    applyToken('fill', 'color', style.fill);
-    applyToken('text-decoration', 'textDecoration', style.textDecoration);
-    applyToken('baseline-shift', 'verticalAlign', style.baselineShift);
-    if(styleHasInlineSegments(style)){
-      applyInlineSegmentsToNode(node, style.inlineSegments);
+    applyToken('font-family', 'fontFamily', resolvedStyle.fontFamily);
+    applyToken('font-weight', 'fontWeight', resolvedStyle.fontWeight);
+    applyToken('font-style', 'fontStyle', resolvedStyle.fontStyle);
+    applyToken('font-size', 'fontSize', resolvedStyle.fontSize);
+    applyToken('fill', 'color', resolvedStyle.fill);
+    applyToken('text-decoration', 'textDecoration', resolvedStyle.textDecoration);
+    applyToken('baseline-shift', 'verticalAlign', resolvedStyle.baselineShift);
+    if(styleHasInlineSegments(resolvedStyle)){
+      applyInlineSegmentsToNode(node, resolvedStyle.inlineSegments);
     } else {
       resetInlineSegments(node);
     }
@@ -2798,8 +2952,9 @@
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
       key: node?.dataset?.fontKey || null,
-      hasInlineSegments: styleHasInlineSegments(style),
-      style
+      hasInlineSegments: styleHasInlineSegments(resolvedStyle),
+      style: resolvedStyle,
+      storedStyle: style
     });
   }
 
@@ -3023,6 +3178,9 @@
       broadcastStyle(storeKey, null, node);
       logDebug('storeStyleForNode cleared', { scope, key, storeKey });
     } else {
+      if(normalized.fontSize && !Number.isFinite(Number(normalized.fontSizeResizeReference))){
+        normalized.fontSizeResizeReference = currentFontResizeReference(node);
+      }
       if(key === GRAPH_SCOPE_TOKEN || isGraphStoreKey(storeKey)){
         pruneSelectionStylesForGraphPatch(
           { scopeId: scope, tabId, storeKey },
@@ -3949,10 +4107,14 @@
       }
       applyDirectStyleToken(currentTarget, 'font-size', val || null);
       const nextStyle = captureStyleSnapshot(currentTarget);
+      const resizeReference = currentFontResizeReference(currentTarget);
       const storePayload = resolveStorePayloadForPatch(
         storeContext,
         nextStyle,
-        { fontSize: val || null }
+        {
+          fontSize: val || null,
+          fontSizeResizeReference: val ? resizeReference : null
+        }
       );
       const patchKeys = ['fontSize'];
       storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
