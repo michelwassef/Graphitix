@@ -5302,7 +5302,6 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #boxPage #boxGraphSignificanceRow>#boxSignificanceControls{margin-top:0}
 #boxPage .panel{display:flex;flex-direction:column;min-width:0}
 #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-#boxPage .box-export-controls-row{margin:8px 0 0;align-self:flex-start;flex:0 0 auto}
 #boxPage .table-format-controls,#pcaPage .table-format-controls,#linePage .table-format-controls,#scatterPage .table-format-controls{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:nowrap}
 #boxPage .table-format-controls label,#pcaPage .table-format-controls label,#linePage .table-format-controls label,#scatterPage .table-format-controls label{white-space:nowrap}
 #boxPage .table-format-controls select,#pcaPage .table-format-controls select,#linePage .table-format-controls select,#scatterPage .table-format-controls select{width:fit-content;min-width:0;max-width:100%;flex:0 0 auto}
