@@ -1209,6 +1209,13 @@
     debugLog('Debug: surface markFontEditable', payload);
   };
 
+  const applySavedFontStyle = node => {
+    if(!node || !fontControls || typeof fontControls.applySavedStyle !== 'function'){
+      return false;
+    }
+    return fontControls.applySavedStyle(node);
+  };
+
   function debugLog(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
       return;
@@ -2753,6 +2760,7 @@
       try{ title.setAttribute('font-size', fs); }catch(e){}
       try{ title.setAttribute('fill', surfaceTextColor); }catch(e){}
       if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
+      applySavedFontStyle(title);
     }
     if(!hasTitlePos && axisLabelBounds.length && typeof title.getBBox === 'function'){
       try {
@@ -3875,7 +3883,8 @@
     resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl),
     resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
     resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),
-    resolvePlotMargins: options => resolveSurfacePlotMargins(options)
+    resolvePlotMargins: options => resolveSurfacePlotMargins(options),
+    applySavedFontStyle: node => applySavedFontStyle(node)
   });
 
   surface.destroy = function destroy(){
