@@ -6255,6 +6255,26 @@
         debugLog('Debug: pca rotation redraw scheduled');
         requestPcaViewRefresh('rotation');
       }
+      function bindPca3dRotationControls(svg, debugLabel){
+        if(!svg || !svg.dataset || svg.dataset.viewMode !== '3d'){
+          return false;
+        }
+        plot3d.attachRotationControls(svg, {
+          state: pcaState.rotation,
+          onChange: () => scheduleRotationRedraw(),
+          shouldIgnorePointer: (event) => {
+            if(typeof plot3d.isInteractivePointerTarget === 'function'){
+              return plot3d.isInteractivePointerTarget(event?.target);
+            }
+            return plot3d.isLegendPointerTarget(event?.target);
+          },
+          debugLabel: debugLabel || 'pca-3d'
+        });
+        debugLog('Debug: pca 3d rotation handlers bound', {
+          label: debugLabel || 'pca-3d'
+        });
+        return true;
+      }
       const axisSelectEntries = [
         { axis: 'x', element: pcaXAxis },
         { axis: 'y', element: pcaYAxis },
@@ -9416,17 +9436,7 @@
           ? normalizePcaThemeColor(pcaState.theme?.backgroundColor, '#000000')
           : '';
         appendPca3dBackground(svg3, W3, H3);
-        plot3d.attachRotationControls(svg3, {
-          state: pcaState.rotation,
-          onChange: () => scheduleRotationRedraw(),
-          shouldIgnorePointer: (event) => {
-            if(typeof plot3d.isInteractivePointerTarget === 'function'){
-              return plot3d.isInteractivePointerTarget(event?.target);
-            }
-            return plot3d.isLegendPointerTarget(event?.target);
-          },
-          debugLabel: 'pca-3d'
-        });
+        bindPca3dRotationControls(svg3, 'pca-3d');
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg3,{ scopeId: 'pca' });
           debugLog('Debug: pca fontControls enableForSvg invoked',{ width: W3, height: H3, mode: '3d' });
@@ -12348,10 +12358,13 @@
         pcaState.viewDirty = false;
       }
       pcaState.resizeWarmupPending = false;
+      const svg = plot ? (plot.querySelector('#pcaSvg') || plot.querySelector('svg')) : null;
+      const rebound3dRotation = restoredPlot ? bindPca3dRotationControls(svg, 'pca-3d-restore') : false;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         debugLog('Debug: pca render cache restored', {
           plot: restoredPlot,
-          runtimeCache: !!restoredRuntimeCache
+          runtimeCache: !!restoredRuntimeCache,
+          rebound3dRotation
         });
       }
       return restoredPlot;
@@ -12389,7 +12402,7 @@
     });
     return true;
   };
-  pca.draw = function draw(){ ensureReady(); scheduleDrawPca && scheduleDrawPca(); };
+  pca.draw = function draw(options = {}){ ensureReady(options || {}); scheduleDrawPca && scheduleDrawPca(options || {}); };
 
   function benchmarkPcaLoad(config){
     const rows = Math.max(2, Math.floor(Number(config?.rows) || 200));

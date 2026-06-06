@@ -277,6 +277,80 @@
     };
   }
 
+  function ensureSurfaceGraphViewport(svg, options = {}){
+    const helper = Shared.graphViewport?.ensure
+      || Shared.ensureGraphViewport
+      || Shared.autoResizeSvg
+      || global.ensureGraphViewport
+      || global.autoResizeSvg;
+    if(typeof helper !== 'function' || !svg){
+      debugLog('Debug: surface graph viewport helper missing', {
+        hasSvg: !!svg,
+        reason: options?.debugLabel || options?.reason || null
+      });
+      return;
+    }
+    helper(svg, {
+      padding: 16,
+      debugLabel: 'surface-3d-graph',
+      preserveAspectRatio: 'xMidYMid meet',
+      ...options
+    });
+  }
+
+  function parseSurfacePositiveNumber(value){
+    const numeric = Number.parseFloat(value);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+  }
+
+  function resolveSurface3dFrame(drawableFrame){
+    const availableWidth = parseSurfacePositiveNumber(drawableFrame?.width);
+    const availableHeight = parseSurfacePositiveNumber(drawableFrame?.height);
+    const dataset = state.svgBox?.dataset || {};
+    const graphWidth = parseSurfacePositiveNumber(dataset.graphWidthPx || dataset.svgWidth || dataset.resizerBaseWidth);
+    const graphHeight = parseSurfacePositiveNumber(dataset.graphHeightPx || dataset.svgHeight || dataset.resizerBaseHeight);
+    const datasetAspect = parseSurfacePositiveNumber(dataset.resizerAspectRatio);
+    const graphAspect = Number.isFinite(graphWidth) && Number.isFinite(graphHeight) && graphHeight > 0
+      ? graphWidth / graphHeight
+      : NaN;
+    const targetAspect = Number.isFinite(datasetAspect) && datasetAspect > 0
+      ? datasetAspect
+      : (Number.isFinite(graphAspect) && graphAspect > 0 ? graphAspect : 1);
+    const fallbackWidth = Number.isFinite(graphWidth) ? graphWidth : 640;
+    const fallbackHeight = Number.isFinite(graphHeight) ? graphHeight : Math.round(fallbackWidth / targetAspect);
+    let width = Number.isFinite(availableWidth) ? availableWidth : fallbackWidth;
+    let height = Math.round(width / targetAspect);
+    if(Number.isFinite(availableHeight) && height > availableHeight){
+      height = availableHeight;
+      width = Math.round(height * targetAspect);
+      if(Number.isFinite(availableWidth) && width > availableWidth){
+        width = availableWidth;
+        height = Math.round(width / targetAspect);
+      }
+    }else if(!Number.isFinite(availableHeight)){
+      height = fallbackHeight;
+    }
+    if(!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0){
+      width = 640;
+      height = 640;
+    }
+    const resolved = {
+      width: Math.max(1, Math.floor(width)),
+      height: Math.max(1, Math.floor(height)),
+      targetAspect
+    };
+    debugLog('Debug: surface 3d frame resolved', {
+      availableWidth: Number.isFinite(availableWidth) ? availableWidth : null,
+      availableHeight: Number.isFinite(availableHeight) ? availableHeight : null,
+      graphWidth: Number.isFinite(graphWidth) ? graphWidth : null,
+      graphHeight: Number.isFinite(graphHeight) ? graphHeight : null,
+      targetAspect,
+      width: resolved.width,
+      height: resolved.height
+    });
+    return resolved;
+  }
+
   function getSurfaceLockRatioCheckbox(){
     if(surfaceLockRatioInput && surfaceLockRatioInput.isConnected){
       return surfaceLockRatioInput;
@@ -2146,10 +2220,13 @@
     updateAxisLabelsFromHeaders();
     displayMessage('');
     const drawableFrame = resolveSurfaceDrawableFrame(svg);
-    const width = Math.max(280, Math.floor(drawableFrame.width || 640));
-    const height = Math.max(240, Math.floor(drawableFrame.height || 420));
+    const surfaceFrame = resolveSurface3dFrame(drawableFrame);
+    const width = surfaceFrame.width;
+    const height = surfaceFrame.height;
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
+    svg.setAttribute('data-surface-base-width', String(width));
+    svg.setAttribute('data-surface-base-height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY || 'Segoe UI, sans-serif');
     if(typeof chartStyle.applySvgDefaults === 'function'){
@@ -2347,10 +2424,6 @@
       }else{
         svg.removeAttribute('data-color-scheme-bg-color');
       }
-      if(surfaceThemeDark){
-        // Keep the 3D background out of the plot geometry tree to avoid
-        // dark-mode size side-effects from extra SVG nodes.
-      }
       plot3d.renderAxesAndGrid({
         svg: axisLayer,
         project: projectRotated,
@@ -2475,12 +2548,7 @@
         polygon.setAttribute('stroke', surfaceGeometryStroke);
         polygon.setAttribute('stroke-opacity', String(surfaceGeometryStrokeOpacity));
         polygon.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.6, 0.6));
-        // append to group to ensure draw order
-        if(polygon.parentNode !== faceGroup){
-          faceGroup.appendChild(polygon);
-        } else {
-          faceGroup.appendChild(polygon);
-        }
+        faceGroup.appendChild(polygon);
         polygon.style.display = '';
         state._facePoolUsed += 1;
       });
@@ -2527,11 +2595,7 @@
         circle.setAttribute('stroke-opacity', String(surfaceGeometryStrokeOpacity));
         circle.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.4, 0.4));
         circle.setAttribute('opacity', effectiveMode === 'grid' ? 0.78 : 0.95);
-        if(circle.parentNode !== pointGroup){
-          pointGroup.appendChild(circle);
-        } else {
-          pointGroup.appendChild(circle);
-        }
+        pointGroup.appendChild(circle);
         circle.style.display = '';
         state._pointPoolUsed += 1;
       });
@@ -2701,6 +2765,11 @@
       removeLegend(svg);
     }
     registerSurfaceGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
+    ensureSurfaceGraphViewport(svg, {
+      padding: Math.max(fs, 18),
+      debugLabel: 'surface-3d-graph',
+      baseViewport: { width, height }
+    });
     updateStats(parsed.stats);
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncSurfaceAutoDrawNoticeWidth('draw');
@@ -3506,7 +3575,7 @@
     if(!svg){
       return null;
     }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family'];
+    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'data-surface-base-width', 'data-surface-base-height'];
     const styleNames = ['display'];
     const attributes = {};
     const style = {};
@@ -3532,7 +3601,7 @@
     if(!svg){
       return false;
     }
-    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family'];
+    const attributeNames = ['width', 'height', 'viewBox', 'preserveAspectRatio', 'font-family', 'data-surface-base-width', 'data-surface-base-height'];
     const styleNames = ['display'];
     attributeNames.forEach(name => {
       try{
@@ -3715,6 +3784,14 @@
     }
     if(restoredSvg){
       syncSurfaceGeometryPoolsFromDom('render-cache-restore');
+      const restoredFrame = resolveSurface3dFrame(resolveSurfaceDrawableFrame(state.svg));
+      state.svg?.setAttribute?.('data-surface-base-width', String(restoredFrame.width));
+      state.svg?.setAttribute?.('data-surface-base-height', String(restoredFrame.height));
+      ensureSurfaceGraphViewport(state.svg, {
+        padding: Math.max(Number(state.settings?.fontSize) || 12, 18),
+        debugLabel: 'surface-3d-graph-restore',
+        baseViewport: { width: restoredFrame.width, height: restoredFrame.height }
+      });
     }
     const restored = restoredSvg || restoredStats || restoredMessage;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -3731,7 +3808,8 @@
 
   surface.__getState = () => state;
   surface.__testHooks = Object.assign({}, surface.__testHooks, {
-    resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl)
+    resolveDrawableFrame: targetEl => resolveSurfaceDrawableFrame(targetEl),
+    resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame)
   });
 
   surface.destroy = function destroy(){

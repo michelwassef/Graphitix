@@ -12,6 +12,13 @@ describe('Surface render cache redraw', () => {
     }
   }
 
+  function parseViewBox(svg) {
+    return String(svg.getAttribute('viewBox') || '')
+      .trim()
+      .split(/\s+/)
+      .map(value => Number(value));
+  }
+
   async function handleGraphSelection(Main, type) {
     const maybe = Main.tabs.handleGraphSelection(type, { reason: 'test-selection' });
     if (maybe && typeof maybe.then === 'function') {
@@ -104,6 +111,9 @@ describe('Surface render cache redraw', () => {
 
     const svg = document.getElementById('surfaceSvg');
     expect(svg).toBeTruthy();
+    svg.getBBox = jest.fn(() => ({ x: -42, y: -26, width: 720, height: 520 }));
+    surface.draw();
+    await flushMany(8);
 
     const originalFaceCount = svg.querySelectorAll('g.surface-faces polygon').length;
     const originalPointCount = svg.querySelectorAll('g.surface-points circle').length;
@@ -111,8 +121,33 @@ describe('Surface render cache redraw', () => {
 
     const cache = surface.captureRenderCache();
     expect(cache).toBeTruthy();
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+    expect(svg.getAttribute('width')).toBe('100%');
+    expect(svg.getAttribute('height')).toBe('100%');
+    let viewBox = parseViewBox(svg);
+    expect(viewBox[0]).toBeLessThan(0);
+    expect(viewBox[1]).toBeLessThan(0);
+    expect(cache.svgRootState.attributes['data-surface-base-width']).toBeTruthy();
+    expect(cache.svgRootState.attributes['data-surface-base-height']).toBeTruthy();
+    cache.svgRootState.attributes.viewBox = '0 0 120 80';
+    cache.svgRootState.attributes.width = '120';
+    cache.svgRootState.attributes.height = '80';
+    cache.svgRootState.attributes.preserveAspectRatio = 'none';
 
     const state = surface.__getState();
+    state.svgBox.dataset.resizerAspectRatio = '1';
+    state.svgBox.getBoundingClientRect = jest.fn(() => ({
+      width: 1000,
+      height: 500,
+      top: 0,
+      left: 0,
+      right: 1000,
+      bottom: 500
+    }));
+    const cappedFrame = surface.__testHooks.resolve3dFrame({ width: 1000, height: 500 });
+    expect(cappedFrame.width).toBe(500);
+    expect(cappedFrame.height).toBe(500);
+
     state._facePool = [];
     state._pointPool = [];
     state._facePoolUsed = 0;
@@ -122,6 +157,14 @@ describe('Surface render cache redraw', () => {
     expect(restored).toBe(true);
     expect(svg.querySelectorAll('g.surface-faces polygon').length).toBe(originalFaceCount);
     expect(svg.querySelectorAll('g.surface-points circle').length).toBe(originalPointCount);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('xMidYMid meet');
+    expect(svg.getAttribute('width')).toBe('100%');
+    expect(svg.getAttribute('height')).toBe('100%');
+    viewBox = parseViewBox(svg);
+    expect(viewBox[0]).toBeLessThan(0);
+    expect(viewBox[1]).toBeLessThan(0);
+    expect(svg.getAttribute('data-surface-base-width')).toBe('500');
+    expect(svg.getAttribute('data-surface-base-height')).toBe('500');
 
     surface.draw();
     await flushMany(8);
