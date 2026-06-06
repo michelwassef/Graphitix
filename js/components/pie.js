@@ -857,91 +857,6 @@ let state = {
     return resizeState;
   }
 
-  function clampPieResizeScale(scale){
-    const numeric = Number(scale);
-    if(!Number.isFinite(numeric) || numeric <= 0){
-      return 1;
-    }
-    const minScaleRaw = Number(chartStyle.RESIZE_MIN_SCALE);
-    const maxScaleRaw = Number(chartStyle.RESIZE_MAX_SCALE);
-    const minScale = Number.isFinite(minScaleRaw) && minScaleRaw > 0 ? minScaleRaw : 0.3;
-    const maxScale = Number.isFinite(maxScaleRaw) && maxScaleRaw > 0
-      ? Math.max(minScale, maxScaleRaw)
-      : Math.max(minScale, 3);
-    return Math.min(maxScale, Math.max(minScale, numeric));
-  }
-
-  function resolvePieUnlockedStyleScale(scaleInfo){
-    if(!scaleInfo || typeof scaleInfo !== 'object'){
-      return 1;
-    }
-    const fallback = clampPieResizeScale(Number(scaleInfo.styleScale) || Number(scaleInfo.scale) || 1);
-    if(scaleInfo.aspectLocked){
-      return fallback;
-    }
-    const axis = (scaleInfo.resizeAxis === 'x' || scaleInfo.resizeAxis === 'y')
-      ? scaleInfo.resizeAxis
-      : 'both';
-    const scaleX = Number(scaleInfo.scaleX);
-    const scaleY = Number(scaleInfo.scaleY);
-    if(axis === 'x' && Number.isFinite(scaleX) && scaleX > 0){
-      return clampPieResizeScale(scaleX);
-    }
-    if(axis === 'y' && Number.isFinite(scaleY) && scaleY > 0){
-      return clampPieResizeScale(scaleY);
-    }
-    if(Number.isFinite(scaleX) && scaleX > 0 && Number.isFinite(scaleY) && scaleY > 0){
-      return clampPieResizeScale(Math.sqrt(Math.max(scaleX * scaleY, 0)));
-    }
-    return fallback;
-  }
-
-  function applyPieResizeScaleToFontInfo(fontInfo){
-    if(!fontInfo || typeof fontInfo !== 'object' || fontInfo.textLocked){
-      return fontInfo;
-    }
-    const scaleInfo = fontInfo.scaleInfo && typeof fontInfo.scaleInfo === 'object'
-      ? fontInfo.scaleInfo
-      : {};
-    const nextStyleScale = resolvePieUnlockedStyleScale(scaleInfo);
-    const currentStyleScale = Number(scaleInfo.styleScale);
-    if(Number.isFinite(currentStyleScale) && Math.abs(currentStyleScale - nextStyleScale) < 1e-6){
-      return fontInfo;
-    }
-    const basePx = Number(fontInfo.px);
-    const normalizedBasePx = Number.isFinite(basePx) && basePx > 0 ? basePx : DEFAULT_PIE_FONT_SIZE_PX;
-    const scaledPx = Math.max(4, Math.round(normalizedBasePx * nextStyleScale));
-    const scaledPt = chartStyle.pxToPt(scaledPx);
-    const adjustedScaleInfo = {
-      ...scaleInfo,
-      styleScale: nextStyleScale,
-      scale: nextStyleScale,
-      radiusScale: Math.sqrt(nextStyleScale),
-      strokeScale: Math.sqrt(nextStyleScale),
-      textScale: nextStyleScale
-    };
-    const adjusted = {
-      ...fontInfo,
-      scaledPx,
-      scaledPt,
-      displayPt: scaledPt,
-      scaleInfo: adjustedScaleInfo
-    };
-    if(state.svgBox?.dataset){
-      state.svgBox.dataset.fontDisplayPt = String(scaledPt);
-    }
-    pieDebug('Debug: pie unlocked resize style scale applied', {
-      currentStyleScale: Number.isFinite(currentStyleScale) ? currentStyleScale : null,
-      nextStyleScale,
-      scaledPx,
-      scaledPt,
-      resizeAxis: adjustedScaleInfo.resizeAxis || null,
-      scaleX: Number.isFinite(adjustedScaleInfo.scaleX) ? adjustedScaleInfo.scaleX : null,
-      scaleY: Number.isFinite(adjustedScaleInfo.scaleY) ? adjustedScaleInfo.scaleY : null
-    });
-    return adjusted;
-  }
-
   function parsePiePositivePx(value){
     const numeric = Number.parseFloat(String(value == null ? '' : value));
     return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
@@ -4567,14 +4482,13 @@ let state = {
     const isResizeViewDraw = isResizeDrivenDraw && drawOptions?.viewOnly === true;
     const pieFontInput=$('#pieFontSize');
     const rawPieFontSize = pieFontInput?.value || String(DEFAULT_PIE_FONT_SIZE_PT);
-    const rawFontInfo=chartStyle.resolveScaledFontSize({
+    const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: rawPieFontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
       svgBox: state.svgBox,
       input: pieFontInput
     });
-    const fontInfo = applyPieResizeScaleToFontInfo(rawFontInfo);
     const fs=fontInfo.scaledPx || DEFAULT_PIE_FONT_SIZE_PT;
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo, input: pieFontInput });
     pieDebug('Debug: pie font scaling applied',{

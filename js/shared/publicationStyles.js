@@ -93,7 +93,7 @@
       fontSizePt: Number.isFinite(Number(opts.fontSizePt)) && Number(opts.fontSizePt) > 0 ? Number(opts.fontSizePt) : 7,
       axisColor: String(opts.axisColor || DEFAULT_AXIS_COLOR),
       axisStrokeWidth: Number.isFinite(Number(opts.axisStrokeWidth)) && Number(opts.axisStrokeWidth) > 0 ? Number(opts.axisStrokeWidth) : 0.5,
-      textSizeLocked: opts.textSizeLocked !== false,
+      proportionalFontResize: opts.proportionalFontResize === true,
       pointSize: Number.isFinite(Number(opts.pointSize)) && Number(opts.pointSize) > 0 ? Number(opts.pointSize) : 4,
       pointBorderWidth: Number.isFinite(Number(opts.pointBorderWidth)) && Number(opts.pointBorderWidth) >= 0 ? Number(opts.pointBorderWidth) : 1,
       summaryColor: String(opts.summaryColor || DEFAULT_AXIS_COLOR),
@@ -928,25 +928,25 @@
     return next;
   }
 
-  function applyTextSizeLockToActiveGraph(type, locked){
+  function applyProportionalFontResizeToActiveGraph(type, enabled){
     const chartStyle = Shared.chartStyle || null;
-    if(!chartStyle || typeof chartStyle.setTextSizeLock !== 'function'){
-      debugLog('Debug: publicationStyles text lock apply skipped', { type, reason: 'missing-chartStyle-setter' });
+    if(!chartStyle || typeof chartStyle.setProportionalFontResize !== 'function'){
+      debugLog('Debug: publicationStyles proportional font resize apply skipped', { type, reason: 'missing-chartStyle-setter' });
       return false;
     }
     const svgBox = resolvePrimarySvgBox(type, getActiveTab());
     const scopeId = `${type}GraphPanel`;
     try{
-      chartStyle.setTextSizeLock(!!locked, {
+      chartStyle.setProportionalFontResize(!!enabled, {
         origin: `publication-style-${type}`,
         scopeId,
         svgBox: svgBox || undefined,
         force: true
       });
-      debugLog('Debug: publicationStyles text lock applied', { type, scopeId, locked: !!locked, hasSvgBox: !!svgBox });
+      debugLog('Debug: publicationStyles proportional font resize applied', { type, scopeId, enabled: !!enabled, hasSvgBox: !!svgBox });
       return true;
     }catch(err){
-      console.error('publicationStyles text lock apply error', { type, err });
+      console.error('publicationStyles proportional font resize apply error', { type, err });
       return false;
     }
   }
@@ -1152,7 +1152,7 @@
         sizingAppliedViaPayload = true;
       }
 
-      applyTextSizeLockToActiveGraph(type, preset.textSizeLocked === true);
+      applyProportionalFontResizeToActiveGraph(type, preset.proportionalFontResize === true);
 
       const manualFontApplied = applyManualFontSizeToActiveControl(type, preset.fontSizePt);
       debugLog('Debug: publicationStyles font application route', {

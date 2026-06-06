@@ -2133,8 +2133,7 @@
         defaultWidth,
         defaultHeight,
         hasSvgBox: !!svgBox,
-        styleScale: info?.scaleInfo?.styleScale,
-        textLocked: info?.scaleInfo?.textLocked
+        styleScale: info?.scaleInfo?.styleScale
       });
       return info;
     }
@@ -2171,8 +2170,7 @@
       radiusScale: 1,
       strokeScale: 1,
       legacyMinScale: Math.min(scaleX, scaleY),
-      textScale: 1,
-      textLocked: false
+      textScale: 1
     };
     const info = {
       pt: safePt,
@@ -5849,8 +5847,7 @@
       borderWidthRaw,
       borderWidthPx,
       fontScale: fontInfo?.scaleInfo?.styleScale,
-      fontSizePx,
-      textLocked: fontInfo?.scaleInfo?.textLocked
+      fontSizePx
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = getCurrentVennLabelMap();
@@ -5929,8 +5926,7 @@
       borderWidthRaw,
       borderWidthPx,
       fontScale: fontInfo?.scaleInfo?.styleScale,
-      fontSizePx,
-      textLocked: fontInfo?.scaleInfo?.textLocked
+      fontSizePx
     });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = getCurrentVennLabelMap();

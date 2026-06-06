@@ -96,11 +96,11 @@
   const DEFAULT_ASPECT_LOCKED = false;
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const GLOBAL_TEXT_SCOPE = '__chartstyle_global__';
-  let textSizeLocked = false;
-  // DOM/runtime registries for text-lock controls. Durable text style state is not stored here.
-  const textLockState = new Map();
-  const textLockInputs = new Map();
-  const textLockListeners = new Map();
+  let proportionalFontResizeEnabled = false;
+  // DOM/runtime registries for the proportional-font-resize option. Durable graph text style state is not stored here.
+  const proportionalFontResizeState = new Map();
+  const proportionalFontResizeInputs = new Map();
+  const proportionalFontResizeListeners = new Map();
 
   function normalizeScopeId(raw){
     if(typeof raw === 'string'){
@@ -205,14 +205,14 @@
     }
     const svgBox = opts.svgBox || opts.container || opts.element || null;
     if(svgBox && svgBox.dataset){
-      const datasetScope = normalizeScopeId(svgBox.dataset.resizerTextLockScope || svgBox.dataset.textLockScope);
+      const datasetScope = normalizeScopeId(svgBox.dataset.resizerProportionalFontResizeScope);
       if(datasetScope){
         return applyTabScope(datasetScope, opts);
       }
     }
     const input = opts.input || opts.control || null;
     if(input && input.dataset){
-      const inputScope = normalizeScopeId(input.dataset.textLockScope);
+      const inputScope = normalizeScopeId(input.dataset.proportionalFontResizeScope);
       if(inputScope){
         return applyTabScope(inputScope, opts);
       }
@@ -226,34 +226,34 @@
     return null;
   }
 
-  function getScopedLock(scopeId){
-    if(scopeId && textLockState.has(scopeId)){
-      return !!textLockState.get(scopeId);
+  function getScopedProportionalFontResize(scopeId){
+    if(scopeId && proportionalFontResizeState.has(scopeId)){
+      return !!proportionalFontResizeState.get(scopeId);
     }
-    return !!textSizeLocked;
+    return !!proportionalFontResizeEnabled;
   }
 
-  function setScopedLock(scopeId, value){
+  function setScopedProportionalFontResize(scopeId, value){
     const normalized = !!value;
     if(scopeId){
-      textLockState.set(scopeId, normalized);
+      proportionalFontResizeState.set(scopeId, normalized);
     }else{
-      textSizeLocked = normalized;
+      proportionalFontResizeEnabled = normalized;
     }
     return normalized;
   }
 
-  function snapshotLockSummary(){
-    const summary = { global: !!textSizeLocked, scoped: {} };
-    textLockState.forEach((val, key) => {
+  function snapshotProportionalFontResizeSummary(){
+    const summary = { global: !!proportionalFontResizeEnabled, scoped: {} };
+    proportionalFontResizeState.forEach((val, key) => {
       summary.scoped[key] = !!val;
     });
     return summary;
   }
 
-  function syncTextLockInputs(origin, scopeFilter){
+  function syncProportionalFontResizeInputs(origin, scopeFilter){
     const stale = [];
-    textLockInputs.forEach((scopeId, input) => {
+    proportionalFontResizeInputs.forEach((scopeId, input) => {
       if(!input || typeof input !== 'object' || typeof input.addEventListener !== 'function'){
         stale.push(input);
         return;
@@ -262,41 +262,41 @@
       if(scopeFilter && effectiveScope !== scopeFilter){
         return;
       }
-      const scopedLock = getScopedLock(scopeId);
-      if('checked' in input && input.checked !== scopedLock){
+      const enabled = getScopedProportionalFontResize(scopeId);
+      if('checked' in input && input.checked !== enabled){
         try {
-          input.checked = scopedLock;
+          input.checked = enabled;
         } catch(syncErr){
-          console.error('chartStyle.syncTextLockInputs assignment error', syncErr);
+          console.error('chartStyle.syncProportionalFontResizeInputs assignment error', syncErr);
         }
       }
     });
     if(stale.length){
-      stale.forEach(item => textLockInputs.delete(item));
+      stale.forEach(item => proportionalFontResizeInputs.delete(item));
     }
-    console.debug('Debug: chartStyle.syncTextLockInputs', {
+    console.debug('Debug: chartStyle.syncProportionalFontResizeInputs', {
       origin: origin || 'unknown',
       scope: scopeFilter || 'all',
-      controlCount: textLockInputs.size,
+      controlCount: proportionalFontResizeInputs.size,
       staleCount: stale.length,
-      stateSummary: snapshotLockSummary()
-    }); // Debug: text lock control sync trace
+      stateSummary: snapshotProportionalFontResizeSummary()
+    }); // Debug: proportional font resize control sync trace
   }
 
-  function emitTextLockChange(origin, scopeId, lockedValue){
+  function emitProportionalFontResizeChange(origin, scopeId, enabledValue){
     const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
-    console.debug('Debug: chartStyle.emitTextLockChange start', {
+    console.debug('Debug: chartStyle.emitProportionalFontResizeChange start', {
       origin: origin || 'unknown',
-      locked: lockedValue,
+      enabled: enabledValue,
       scope: effectiveScope,
-      listenerCount: textLockListeners.size
-    }); // Debug: text lock listener broadcast start
-    textLockListeners.forEach((info, listener) => {
+      listenerCount: proportionalFontResizeListeners.size
+    }); // Debug: proportional font resize listener broadcast start
+    proportionalFontResizeListeners.forEach((info, listener) => {
       if(!info || typeof listener !== 'function'){
         return;
       }
       if(info.scope && info.scope !== effectiveScope){
-        console.debug('Debug: chartStyle.emitTextLockChange skip listener', {
+        console.debug('Debug: chartStyle.emitProportionalFontResizeChange skip listener', {
           listenerScope: info.scope,
           eventScope: effectiveScope,
           listenerOrigin: info.origin || listener.name || 'anonymous'
@@ -304,9 +304,9 @@
         return;
       }
       try {
-        listener(lockedValue, origin || 'unknown', { scopeId: scopeId || null, locked: lockedValue });
+        listener(enabledValue, origin || 'unknown', { scopeId: scopeId || null, enabled: enabledValue });
       } catch(err){
-        console.error('chartStyle text lock listener error', err);
+        console.error('chartStyle proportional font resize listener error', err);
       }
     });
   }
@@ -456,6 +456,137 @@
     return font;
   };
 
+  function parsePositiveNumber(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+  }
+
+  function readElementSizePx(element, axis){
+    if(!element || typeof element !== 'object'){
+      return NaN;
+    }
+    const dataset = element.dataset || {};
+    const keys = axis === 'width'
+      ? ['resizerBaseWidth', 'graphWidthPx', 'svgWidth', 'resizerDefaultWidth', 'graphDefaultWidth']
+      : ['resizerBaseHeight', 'graphHeightPx', 'svgHeight', 'resizerDefaultHeight', 'graphDefaultHeight'];
+    for(let i = 0; i < keys.length; i += 1){
+      const value = parsePositiveNumber(dataset[keys[i]]);
+      if(Number.isFinite(value)){
+        return value;
+      }
+    }
+    if(typeof element.getBoundingClientRect === 'function'){
+      const rect = element.getBoundingClientRect();
+      const rectValue = parsePositiveNumber(axis === 'width' ? rect?.width : rect?.height);
+      if(Number.isFinite(rectValue)){
+        return rectValue;
+      }
+    }
+    const styleValue = parsePositiveNumber(axis === 'width' ? element.style?.width : element.style?.height);
+    return Number.isFinite(styleValue) ? styleValue : NaN;
+  }
+
+  function resolveFontResizeReferenceSize(svgBox, width, height, zoomScale){
+    const scale = Number.isFinite(zoomScale) && zoomScale > 0 ? zoomScale : 1;
+    const rawWidth = parsePositiveNumber(width);
+    const rawHeight = parsePositiveNumber(height);
+    const widthFromBox = readElementSizePx(svgBox, 'width');
+    const heightFromBox = readElementSizePx(svgBox, 'height');
+    return {
+      width: Number.isFinite(rawWidth) ? rawWidth / scale : widthFromBox,
+      height: Number.isFinite(rawHeight) ? rawHeight / scale : heightFromBox
+    };
+  }
+
+  function resolveCurrentDisplayFontPt(options){
+    const opts = options || {};
+    const inputEl = opts.input || opts.control || null;
+    const svgBox = opts.svgBox || null;
+    const inputDataset = inputEl?.dataset || null;
+    const svgDataset = svgBox?.dataset || null;
+    const candidates = [
+      opts.displayPt,
+      opts.fontPt,
+      opts.pt,
+      opts.scaledPt,
+      inputDataset?.fontDisplayPt,
+      svgDataset?.fontDisplayPt,
+      svgDataset?.fontBasePt,
+      inputDataset?.fontBasePt,
+      inputEl?.value,
+      opts.rawSize,
+      opts.basePt
+    ];
+    for(let i = 0; i < candidates.length; i += 1){
+      const value = Number(candidates[i]);
+      if(Number.isFinite(value) && value > 0){
+        return value;
+      }
+    }
+    return NaN;
+  }
+
+  function syncFontInputBaseline(inputEl, pt, options = {}){
+    if(!inputEl || !inputEl.dataset || !Number.isFinite(pt) || pt <= 0){
+      return false;
+    }
+    inputEl.dataset.fontBasePt = String(pt);
+    inputEl.dataset.fontDisplayPt = String(pt);
+    delete inputEl.dataset.fontResizeBaselinePending;
+    if(options.syncValue === true && 'value' in inputEl){
+      const min = Number(inputEl.min);
+      const max = Number(inputEl.max);
+      const bounded = Math.min(
+        Number.isFinite(max) ? max : pt,
+        Math.max(Number.isFinite(min) ? min : pt, pt)
+      );
+      try{
+        inputEl.value = String(Math.round(bounded * 10) / 10);
+      }catch(err){
+        console.error('chartStyle.syncFontInputBaseline value sync error', err);
+      }
+    }
+    return true;
+  }
+
+  function commitFontResizeBaseline(options){
+    const opts = options || {};
+    const svgBox = opts.svgBox || null;
+    const dataset = svgBox?.dataset || null;
+    const inputEl = opts.input || opts.control || null;
+    const displayPt = resolveCurrentDisplayFontPt(opts);
+    const size = resolveFontResizeReferenceSize(svgBox, opts.width, opts.height, opts.zoomScale);
+    if(dataset){
+      if(Number.isFinite(size.width) && size.width > 0){
+        dataset.resizerFontResizeBaseWidth = String(size.width);
+      }
+      if(Number.isFinite(size.height) && size.height > 0){
+        dataset.resizerFontResizeBaseHeight = String(size.height);
+      }
+      if(Number.isFinite(displayPt) && displayPt > 0){
+        dataset.fontBasePt = String(displayPt);
+        dataset.fontDisplayPt = String(displayPt);
+      }
+    }
+    syncFontInputBaseline(inputEl, displayPt, { syncValue: opts.syncInputValue === true });
+    console.debug('Debug: chartStyle.commitFontResizeBaseline', {
+      origin: opts.origin || 'unknown',
+      scope: opts.scopeId || dataset?.resizerProportionalFontResizeScope || 'global',
+      width: Number.isFinite(size.width) ? size.width : null,
+      height: Number.isFinite(size.height) ? size.height : null,
+      displayPt: Number.isFinite(displayPt) ? displayPt : null,
+      hasSvgBox: !!svgBox,
+      inputId: inputEl?.id || null
+    }); // Debug: font resize baseline commit
+    return {
+      width: Number.isFinite(size.width) ? size.width : null,
+      height: Number.isFinite(size.height) ? size.height : null,
+      displayPt: Number.isFinite(displayPt) ? displayPt : null
+    };
+  }
+
+  chartStyle.commitFontResizeBaseline = commitFontResizeBaseline;
+
   chartStyle.computeResizeScale = function computeResizeScale(options){
     const defaultWidth = Number(options?.defaultWidth) || DEFAULT_WIDTH;
     const defaultHeight = Number(options?.defaultHeight) || DEFAULT_HEIGHT;
@@ -466,6 +597,12 @@
     const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
     const scaleX = safeWidth / (defaultWidth || 1);
     const scaleY = safeHeight / (defaultHeight || 1);
+    const fontBaseWidth = dataset ? parsePositiveNumber(dataset.resizerFontResizeBaseWidth) : NaN;
+    const fontBaseHeight = dataset ? parsePositiveNumber(dataset.resizerFontResizeBaseHeight) : NaN;
+    const fontReferenceWidth = Number.isFinite(fontBaseWidth) ? fontBaseWidth : defaultWidth;
+    const fontReferenceHeight = Number.isFinite(fontBaseHeight) ? fontBaseHeight : defaultHeight;
+    const fontScaleX = safeWidth / (fontReferenceWidth || 1);
+    const fontScaleY = safeHeight / (fontReferenceHeight || 1);
     const aspectLocked = dataset
       ? (Shared.aspectLock?.resolveLocked
         ? Shared.aspectLock.resolveLocked(dataset, { fallback: false })
@@ -474,15 +611,25 @@
     const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y') ? dataset.resizerLastAxis : 'both';
     const unlockedStyleScaleBase = dataset ? Number(dataset.resizerUnlockedStyleScaleBase) : NaN;
     const lockedStyleScaleBase = dataset ? Number(dataset.resizerLockedStyleScaleBase) : NaN;
-    let styleUnclamped = Math.sqrt(Math.max(scaleX * scaleY, 0));
-    // Keep typography/margins stable in unlocked manual resize flows so
-    // one-axis drag changes only the corresponding axis length.
+    const rawStyleScale = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    const rawFontScale = Math.sqrt(Math.max(fontScaleX * fontScaleY, 0));
+    let fontResizeUnclamped = rawFontScale;
+    if(!aspectLocked && resizeAxis === 'x' && Number.isFinite(fontScaleX) && fontScaleX > 0){
+      fontResizeUnclamped = fontScaleX;
+    }else if(!aspectLocked && resizeAxis === 'y' && Number.isFinite(fontScaleY) && fontScaleY > 0){
+      fontResizeUnclamped = fontScaleY;
+    }
+    let styleUnclamped = rawStyleScale;
+    // Keep non-text style metrics stable in unlocked manual resize flows so
+    // one-axis drags change only axis length unless text explicitly opts into
+    // proportional font resizing.
     if(!aspectLocked && Number.isFinite(unlockedStyleScaleBase) && unlockedStyleScaleBase > 0){
       styleUnclamped = unlockedStyleScaleBase;
     }else if(aspectLocked && Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0){
       styleUnclamped = styleUnclamped / lockedStyleScaleBase;
     }
     const styleScale = clampScale(styleUnclamped);
+    const fontResizeScale = clampScale(fontResizeUnclamped);
     const radiusScale = Math.sqrt(styleScale);
     const payload = {
       width: safeWidth,
@@ -491,10 +638,17 @@
       defaultHeight,
       scaleX,
       scaleY,
+      fontScaleX,
+      fontScaleY,
+      fontReferenceWidth,
+      fontReferenceHeight,
       scaleW: scaleX,
       scaleH: scaleY,
+      rawStyleScale,
       styleUnclamped,
       styleScale,
+      fontResizeUnclamped,
+      fontResizeScale,
       radiusScale,
       strokeScale: radiusScale,
       aspectLocked,
@@ -514,13 +668,24 @@
     const svgBox = opts.svgBox || null;
     const dataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
     const rawSizeNumeric = Number(opts.rawSize);
+    const manualBaselinePending = inputEl?.dataset?.fontResizeBaselinePending === 'true';
     let basePt = Number(opts.basePt);
+    if(manualBaselinePending){
+      const pendingBase = Number(inputEl.dataset.fontBasePt);
+      basePt = Number.isFinite(pendingBase) && pendingBase > 0
+        ? pendingBase
+        : (Number.isFinite(rawSizeNumeric) ? rawSizeNumeric : basePt);
+    }
+    if(!manualBaselinePending && !Number.isFinite(basePt)){
+      const storedGraphBase = Number(dataset?.fontBasePt);
+      if(Number.isFinite(storedGraphBase) && storedGraphBase > 0){
+        basePt = storedGraphBase;
+      }
+    }
     if(!Number.isFinite(basePt)){
-      if(inputEl && inputEl.dataset){
-        const storedBase = Number(inputEl.dataset.fontBasePt);
-        if(Number.isFinite(storedBase)){
-          basePt = storedBase;
-        }
+      const storedControlBase = Number(inputEl?.dataset?.fontBasePt);
+      if(Number.isFinite(storedControlBase) && storedControlBase > 0){
+        basePt = storedControlBase;
       }
     }
     if(!Number.isFinite(basePt)){
@@ -537,15 +702,6 @@
         }); // Debug: base initialization for control
       }
     }
-    let lastDisplayPt = Number.isFinite(Number(inputEl?.dataset?.fontDisplayPt))
-      ? Number(inputEl.dataset.fontDisplayPt)
-      : NaN;
-    if(!Number.isFinite(lastDisplayPt) && dataset){
-      const datasetDisplay = Number(dataset.fontDisplayPt);
-      if(Number.isFinite(datasetDisplay)){
-        lastDisplayPt = datasetDisplay;
-      }
-    }
     const explicitZoomScale = Number(opts.zoomScale);
     const datasetZoomScale = Number(dataset?.resizerZoomLevel || dataset?.resizerZoom);
     const zoomScale = Number.isFinite(explicitZoomScale) && explicitZoomScale > 0
@@ -555,6 +711,18 @@
     const rawHeight = Number(opts.height);
     const effectiveWidth = Number.isFinite(rawWidth) ? (rawWidth / zoomScale) : opts.width;
     const effectiveHeight = Number.isFinite(rawHeight) ? (rawHeight / zoomScale) : opts.height;
+    if(manualBaselinePending){
+      commitFontResizeBaseline({
+        svgBox,
+        input: inputEl,
+        displayPt: normalized.pt,
+        width: effectiveWidth,
+        height: effectiveHeight,
+        zoomScale: 1,
+        origin: 'manual-font-size',
+        syncInputValue: false
+      });
+    }
     const resizeInfo = chartStyle.computeResizeScale({
       width: effectiveWidth,
       height: effectiveHeight,
@@ -564,71 +732,40 @@
     });
     const scopeId = resolveScopeKey({ scopeId: opts.scopeId, svgBox, input: inputEl });
     const isManualResize = dataset ? dataset.resizerResized === 'true' : null;
-    const lockForUnresized = opts.lockScaleWhenUnresized !== false;
-    const autoLock = !isManualResize && !!dataset && lockForUnresized;
-    let lockOverride;
-    if(typeof opts.lockScale === 'boolean'){
-      lockOverride = !!opts.lockScale;
-    }else if(autoLock){
-      lockOverride = true;
-    }else if(typeof opts.lockScaleDefault === 'boolean'){
-      lockOverride = !!opts.lockScaleDefault;
-    }else if(dataset && typeof dataset.resizerTextLock === 'string'){
-      lockOverride = dataset.resizerTextLock === 'true';
+    let proportionalResizeEnabled;
+    if(typeof opts.proportionalFontResize === 'boolean'){
+      proportionalResizeEnabled = !!opts.proportionalFontResize;
+    }else if(dataset && typeof dataset.resizerProportionalFontResize === 'string'){
+      proportionalResizeEnabled = dataset.resizerProportionalFontResize === 'true';
     }else if(scopeId){
-      lockOverride = getScopedLock(scopeId);
+      proportionalResizeEnabled = getScopedProportionalFontResize(scopeId);
     }else{
-      lockOverride = textSizeLocked;
+      proportionalResizeEnabled = proportionalFontResizeEnabled;
     }
-    if(lockOverride){
-      const manualResizeActive = dataset ? dataset.resizerResized === 'true' : false;
-      const resizeScale = Number.isFinite(resizeInfo?.styleScale) ? resizeInfo.styleScale : 1;
-      if(manualResizeActive){
-        const fallbackDisplayPt = chartStyle.pxToPt(normalized.px * resizeScale);
-        const displayCandidate = Number.isFinite(lastDisplayPt) ? lastDisplayPt : fallbackDisplayPt;
-        if(Number.isFinite(displayCandidate) && Math.abs(displayCandidate - normalized.pt) > 0.01){
-          const normalizedDisplay = chartStyle.normalizeFontSize(displayCandidate);
-          normalized = normalizedDisplay;
-          basePt = normalizedDisplay.pt;
-          if(inputEl && inputEl.dataset){
-            inputEl.dataset.fontBasePt = String(normalizedDisplay.pt);
-            inputEl.dataset.fontDisplayPt = String(normalizedDisplay.pt);
-          }
-          if(dataset){
-            dataset.fontBasePt = String(normalizedDisplay.pt);
-            dataset.fontDisplayPt = String(normalizedDisplay.pt);
-          }
-          console.debug('Debug: chartStyle.resolveScaledFontSize lock base updated', {
-            scope: scopeId || 'global',
-            manualResize: manualResizeActive,
-            displayCandidate,
-            normalizedPt: normalizedDisplay.pt
-          }); // Debug: lock base sync after manual resize
-        }
-      }
-    }
-    const textScale = lockOverride ? 1 : resizeInfo.styleScale;
+    const textScale = proportionalResizeEnabled
+      ? (Number.isFinite(resizeInfo.fontResizeScale) && resizeInfo.fontResizeScale > 0
+        ? resizeInfo.fontResizeScale
+        : resizeInfo.styleScale)
+      : 1;
     const scaledPxRaw = normalized.px * textScale;
-    // Preserve exact pt values when text is locked: rounding 7pt (9.333px)
-    // down to 9px causes a visible 6.75pt drift in the toolbar/readback.
-    const scaledPx = lockOverride
-      ? Math.max(4, scaledPxRaw)
-      : Math.max(4, Math.round(scaledPxRaw));
+    // Preserve exact pt values when proportional resizing is disabled: rounding
+    // 7pt (9.333px) down to 9px causes visible drift in toolbar readback.
+    const scaledPx = proportionalResizeEnabled
+      ? Math.max(4, Math.round(scaledPxRaw))
+      : Math.max(4, scaledPxRaw);
     const scaledPt = chartStyle.pxToPt(scaledPx);
     if(inputEl && inputEl.dataset){
       inputEl.dataset.fontDisplayPt = String(scaledPt);
       console.debug('Debug: chartStyle.resolveScaledFontSize display stored', {
         inputId: inputEl.id || null,
-        scaledPt,
-        textLocked: lockOverride
+        scaledPt
       }); // Debug: display pt tracking
     }
     if(dataset){
       dataset.fontDisplayPt = String(scaledPt);
       console.debug('Debug: chartStyle.resolveScaledFontSize dataset display stored', {
         scope: scopeId || 'global',
-        scaledPt,
-        textLocked: lockOverride
+        scaledPt
       }); // Debug: dataset display tracking
     }
     const scaleInfo = {
@@ -636,7 +773,7 @@
       zoomScale: 1,
       displayZoomScale: zoomScale,
       textScale,
-      textLocked: lockOverride,
+      proportionalFontResize: proportionalResizeEnabled,
       manualResize: !!isManualResize,
       scopeId
     };
@@ -647,7 +784,7 @@
       displayPt: scaledPt,
       basePt: normalized.pt,
       scaleInfo,
-      textLocked: lockOverride,
+      proportionalFontResize: proportionalResizeEnabled,
       scopeId
     };
     console.debug('Debug: chartStyle.resolveScaledFontSize', {
@@ -663,7 +800,7 @@
       rawHeight,
       effectiveWidth: Number.isFinite(effectiveWidth) ? effectiveWidth : null,
       effectiveHeight: Number.isFinite(effectiveHeight) ? effectiveHeight : null,
-      locked: lockOverride,
+      proportionalFontResize: proportionalResizeEnabled,
       manualResize: isManualResize,
       width: resizeInfo.width,
       height: resizeInfo.height,
@@ -690,9 +827,7 @@
       defaultHeight: opts.defaultHeight,
       svgBox,
       scopeId,
-      lockScale: opts.lockScale,
-      lockScaleDefault: opts.lockScaleDefault,
-      lockScaleWhenUnresized: opts.lockScaleWhenUnresized,
+      proportionalFontResize: opts.proportionalFontResize,
       input: opts.input
     });
     console.debug('Debug: chartStyle.computeFontInfoForSvg', {
@@ -701,7 +836,7 @@
       width,
       height,
       scope: fontInfo.scopeId || scopeId || 'global',
-      locked: fontInfo.textLocked,
+      proportionalFontResize: fontInfo.proportionalFontResize,
       scaledPx: fontInfo.scaledPx
     }); // Debug: svg font helper summary
     return fontInfo;
@@ -789,56 +924,66 @@
     };
   };
 
-  chartStyle.setTextSizeLock = function setTextSizeLock(locked, options){
-    const nextValue = !!locked;
+  chartStyle.setProportionalFontResize = function setProportionalFontResize(enabled, options){
+    const nextValue = !!enabled;
     const opts = options || {};
-    const origin = opts.origin || 'setTextSizeLock';
+    const origin = opts.origin || 'setProportionalFontResize';
     const svgBox = opts.svgBox || null;
     const scopeId = resolveScopeKey({ ...opts, svgBox });
     const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
     const force = opts.force === true;
-    const previous = getScopedLock(scopeId);
+    const previous = getScopedProportionalFontResize(scopeId);
     if(previous === nextValue && !force){
-      console.debug('Debug: chartStyle.setTextSizeLock noop', { locked: previous, origin, scope: effectiveScope }); // Debug: no change branch
+      console.debug('Debug: chartStyle.setProportionalFontResize noop', { enabled: previous, origin, scope: effectiveScope });
       return previous;
     }
-    setScopedLock(scopeId, nextValue);
+    commitFontResizeBaseline({
+      svgBox,
+      displayPt: opts.displayPt,
+      width: opts.width,
+      height: opts.height,
+      zoomScale: opts.zoomScale,
+      scopeId,
+      origin,
+      syncInputValue: true
+    });
+    setScopedProportionalFontResize(scopeId, nextValue);
     if(svgBox && svgBox.dataset){
       if(scopeId){
-        svgBox.dataset.resizerTextLockScope = scopeId;
+        svgBox.dataset.resizerProportionalFontResizeScope = scopeId;
       }
-      svgBox.dataset.resizerTextLock = nextValue ? 'true' : 'false';
+      svgBox.dataset.resizerProportionalFontResize = nextValue ? 'true' : 'false';
     }
-    console.debug('Debug: chartStyle.setTextSizeLock', {
-      locked: nextValue,
+    console.debug('Debug: chartStyle.setProportionalFontResize', {
+      enabled: nextValue,
       origin,
       force,
       scope: effectiveScope,
-      stateSummary: snapshotLockSummary()
-    }); // Debug: text lock toggle trace
-    syncTextLockInputs(origin, effectiveScope);
-    emitTextLockChange(origin, scopeId, nextValue);
+      stateSummary: snapshotProportionalFontResizeSummary()
+    });
+    syncProportionalFontResizeInputs(origin, effectiveScope);
+    emitProportionalFontResizeChange(origin, scopeId, nextValue);
     return nextValue;
   };
 
-  chartStyle.isTextSizeLocked = function isTextSizeLocked(scopeOptions){
+  chartStyle.isProportionalFontResizeEnabled = function isProportionalFontResizeEnabled(scopeOptions){
     const scopeId = resolveScopeKey(scopeOptions);
-    const result = getScopedLock(scopeId);
-    console.debug('Debug: chartStyle.isTextSizeLocked query', {
-      locked: result,
+    const result = getScopedProportionalFontResize(scopeId);
+    console.debug('Debug: chartStyle.isProportionalFontResizeEnabled query', {
+      enabled: result,
       scope: scopeId || 'global'
-    }); // Debug: text lock query trace
+    });
     return result;
   };
 
-  chartStyle.registerTextSizeLockControl = function registerTextSizeLockControl(input, options){
+  chartStyle.registerProportionalFontResizeControl = function registerProportionalFontResizeControl(input, options){
     const el = input;
     const opts = options || {};
-    const origin = opts.origin || el?.id || 'text-lock-control';
+    const origin = opts.origin || el?.id || 'proportional-font-resize-control';
     if(!el || typeof el.addEventListener !== 'function'){
-      console.debug('Debug: chartStyle.registerTextSizeLockControl skipped', { origin, reason: 'invalid element' }); // Debug: invalid control
+      console.debug('Debug: chartStyle.registerProportionalFontResizeControl skipped', { origin, reason: 'invalid element' });
       return function noopUnregister(){
-        console.debug('Debug: chartStyle.unregisterTextSizeLockControl noop', { origin });
+        console.debug('Debug: chartStyle.unregisterProportionalFontResizeControl noop', { origin });
       };
     }
     const scopeId = resolveScopeKey({ ...opts, input: el });
@@ -846,55 +991,55 @@
     const svgBox = opts.svgBox || null;
     if(svgBox && svgBox.dataset){
       if(scopeId){
-        svgBox.dataset.resizerTextLockScope = scopeId;
+        svgBox.dataset.resizerProportionalFontResizeScope = scopeId;
       }
-      if(typeof svgBox.dataset.resizerTextLock !== 'string'){
-        svgBox.dataset.resizerTextLock = getScopedLock(scopeId) ? 'true' : 'false';
+      if(typeof svgBox.dataset.resizerProportionalFontResize !== 'string'){
+        svgBox.dataset.resizerProportionalFontResize = getScopedProportionalFontResize(scopeId) ? 'true' : 'false';
       }
     }
     if(el.dataset){
-      el.dataset.textLockScope = scopeId || '';
+      el.dataset.proportionalFontResizeScope = scopeId || '';
     }
-    if(el.__chartStyleTextLockHandler){
-      el.removeEventListener('change', el.__chartStyleTextLockHandler);
-      delete el.__chartStyleTextLockHandler;
-      console.debug('Debug: chartStyle.registerTextSizeLockControl removed existing handler', { origin });
+    if(el.__chartStyleProportionalFontResizeHandler){
+      el.removeEventListener('change', el.__chartStyleProportionalFontResizeHandler);
+      delete el.__chartStyleProportionalFontResizeHandler;
+      console.debug('Debug: chartStyle.registerProportionalFontResizeControl removed existing handler', { origin });
     }
     if('checked' in el){
       try {
-        el.checked = getScopedLock(scopeId);
+        el.checked = getScopedProportionalFontResize(scopeId);
       } catch(assignErr){
-        console.error('chartStyle.registerTextSizeLockControl assign error', assignErr);
+        console.error('chartStyle.registerProportionalFontResizeControl assign error', assignErr);
       }
     }
     const handler = () => {
-      const desired = !!el.checked;
+      const enabled = !!el.checked;
       if(svgBox && svgBox.dataset){
-        svgBox.dataset.resizerTextLock = desired ? 'true' : 'false';
+        svgBox.dataset.resizerProportionalFontResize = enabled ? 'true' : 'false';
       }
-      console.debug('Debug: chartStyle.textLockControl change', { origin, desired, scope: effectiveScope }); // Debug: control change event
-      chartStyle.setTextSizeLock(desired, { origin: `control-${origin}`, scopeId, svgBox });
+      console.debug('Debug: chartStyle.proportionalFontResizeControl change', { origin, enabled, scope: effectiveScope });
+      chartStyle.setProportionalFontResize(enabled, { origin: `control-${origin}`, scopeId, svgBox });
     };
     el.addEventListener('change', handler);
-    el.__chartStyleTextLockHandler = handler;
-    textLockInputs.set(el, scopeId);
-    console.debug('Debug: chartStyle.registerTextSizeLockControl', {
+    el.__chartStyleProportionalFontResizeHandler = handler;
+    proportionalFontResizeInputs.set(el, scopeId);
+    console.debug('Debug: chartStyle.registerProportionalFontResizeControl', {
       origin,
-      locked: getScopedLock(scopeId),
-      controlCount: textLockInputs.size,
+      enabled: getScopedProportionalFontResize(scopeId),
+      controlCount: proportionalFontResizeInputs.size,
       scope: effectiveScope
-    }); // Debug: control registration summary
+    });
     const cleanup = () => {
-      if(el.__chartStyleTextLockHandler){
-        el.removeEventListener('change', el.__chartStyleTextLockHandler);
-        delete el.__chartStyleTextLockHandler;
+      if(el.__chartStyleProportionalFontResizeHandler){
+        el.removeEventListener('change', el.__chartStyleProportionalFontResizeHandler);
+        delete el.__chartStyleProportionalFontResizeHandler;
       }
-      textLockInputs.delete(el);
-      console.debug('Debug: chartStyle.unregisterTextSizeLockControl', {
+      proportionalFontResizeInputs.delete(el);
+      console.debug('Debug: chartStyle.unregisterProportionalFontResizeControl', {
         origin,
-        remaining: textLockInputs.size,
+        remaining: proportionalFontResizeInputs.size,
         scope: effectiveScope
-      }); // Debug: control cleanup
+      });
     };
     if(opts.signal && typeof opts.signal.addEventListener === 'function'){
       opts.signal.addEventListener('abort', cleanup, { once: true });
@@ -902,38 +1047,38 @@
     return cleanup;
   };
 
-  chartStyle.onTextSizeLockChange = function onTextSizeLockChange(callback, options){
+  chartStyle.onProportionalFontResizeChange = function onProportionalFontResizeChange(callback, options){
     if(typeof callback !== 'function'){
-      console.debug('Debug: chartStyle.onTextSizeLockChange skipped', { reason: 'invalid callback' }); // Debug: invalid listener guard
+      console.debug('Debug: chartStyle.onProportionalFontResizeChange skipped', { reason: 'invalid callback' });
       return function noopRemove(){
-        console.debug('Debug: chartStyle.onTextSizeLockChange noop remove');
+        console.debug('Debug: chartStyle.onProportionalFontResizeChange noop remove');
       };
     }
     const opts = options || {};
     const origin = opts.origin || callback.name || 'anonymous';
     const scopeId = resolveScopeKey(opts);
     const effectiveScope = scopeId || null;
-    textLockListeners.set(callback, { origin, scope: effectiveScope ? effectiveScope : null });
-    console.debug('Debug: chartStyle.onTextSizeLockChange registered', {
+    proportionalFontResizeListeners.set(callback, { origin, scope: effectiveScope ? effectiveScope : null });
+    console.debug('Debug: chartStyle.onProportionalFontResizeChange registered', {
       origin,
-      listenerCount: textLockListeners.size,
+      listenerCount: proportionalFontResizeListeners.size,
       scope: effectiveScope || 'all'
-    }); // Debug: listener registration
+    });
     if(opts.immediate){
       try {
-        const initial = getScopedLock(scopeId);
-        callback(initial, 'immediate', { scopeId: scopeId || null, locked: initial });
+        const initial = getScopedProportionalFontResize(scopeId);
+        callback(initial, 'immediate', { scopeId: scopeId || null, enabled: initial });
       } catch(err){
-        console.error('chartStyle text lock immediate callback error', err);
+        console.error('chartStyle proportional font resize immediate callback error', err);
       }
     }
     const cleanup = () => {
-      textLockListeners.delete(callback);
-      console.debug('Debug: chartStyle.onTextSizeLockChange removed', {
+      proportionalFontResizeListeners.delete(callback);
+      console.debug('Debug: chartStyle.onProportionalFontResizeChange removed', {
         origin,
-        remaining: textLockListeners.size,
+        remaining: proportionalFontResizeListeners.size,
         scope: effectiveScope || 'all'
-      }); // Debug: listener cleanup
+      });
     };
     if(opts.signal && typeof opts.signal.addEventListener === 'function'){
       opts.signal.addEventListener('abort', cleanup, { once: true });
@@ -2240,9 +2385,11 @@
         if(Number.isFinite(displayPt)){
           dataset.fontBasePt = String(displayPt);
           dataset.fontDisplayPt = String(displayPt);
+          dataset.fontResizeBaselinePending = 'true';
         }else if(Number.isFinite(basePt)){
           dataset.fontBasePt = String(basePt);
           dataset.fontDisplayPt = String(basePt);
+          dataset.fontResizeBaselinePending = 'true';
         }
         console.debug('Debug: chartStyle.renderFontSizeLabel manual control sync', {
           inputId: inputEl?.id || null,

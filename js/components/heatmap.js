@@ -6532,9 +6532,9 @@
         });
       }
     }
-    const scaledFontSize = Number.isFinite(fontInfo?.px)
-      ? fontInfo.px
-      : (Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : fontSize);
+    const scaledFontSize = Number.isFinite(fontInfo?.scaledPx)
+      ? fontInfo.scaledPx
+      : (Number.isFinite(fontInfo?.px) ? fontInfo.px : fontSize);
     const heatmapWidth = columnCount * cellSize;
     const heatmapHeight = rowCount * cellSize;
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;

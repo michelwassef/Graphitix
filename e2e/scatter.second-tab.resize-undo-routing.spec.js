@@ -100,12 +100,12 @@ test('scatter second-tab resize undo routes to active tab even with stale datase
     return {
       workspaceTabId: svgBox.dataset.workspaceTabId || null,
       tabId: svgBox.dataset.tabId || null,
-      resizerTextLockScope: svgBox.dataset.resizerTextLockScope || null
+      resizerProportionalFontResizeScope: svgBox.dataset.resizerProportionalFontResizeScope || null
     };
   }, { firstId });
 
   expect(scopeBefore?.workspaceTabId).toBe(firstId);
-  expect(String(scopeBefore?.resizerTextLockScope || '')).toContain(`::@tab:${secondId}`);
+  expect(String(scopeBefore?.resizerProportionalFontResizeScope || '')).toContain(`::@tab:${secondId}`);
 
   await dragScatterResize(page);
 

@@ -227,31 +227,31 @@
   }
 
   // Workspace layout state and configuration
-  if (typeof chartStyle.onTextSizeLockChange === 'function') {
-    chartStyle.onTextSizeLockChange((locked, origin, details) => {
+  if (typeof chartStyle.onProportionalFontResizeChange === 'function') {
+    chartStyle.onProportionalFontResizeChange((enabled, origin, details) => {
       const scopeId = details?.scopeId || null;
       const normalizedScope = scopeId && scopeId.endsWith('-scope') ? scopeId.replace(/-scope$/, '') : scopeId;
-      debug('Debug: main text size lock broadcast', {
-        locked,
+      debug('Debug: main proportional font resize broadcast', {
+        enabled,
         origin,
         scope: normalizedScope || 'global'
       });
       const scopeHandlers = {
-        vennGraphPanel: () => { try { window.Components?.venn?.draw?.(); } catch (err) { console.error('main text lock venn redraw error', err); } },
-        boxGraphPanel: () => { try { scheduleDrawBoxplot(); } catch (err) { console.error('main text lock box redraw error', err); } },
-        scatterGraphPanel: () => { try { scheduleDrawScatter(); } catch (err) { console.error('main text lock scatter redraw error', err); } },
-        pcaGraphPanel: () => { try { scheduleDrawPca(); } catch (err) { console.error('main text lock pca redraw error', err); } },
-        lineGraphPanel: () => { try { scheduleDrawLine(); } catch (err) { console.error('main text lock line redraw error', err); } },
-        heatmapGraphPanel: () => { try { scheduleDrawHeatmap(); } catch (err) { console.error('main text lock heatmap redraw error', err); } },
-        histGraphPanel: () => { try { scheduleDrawHist(); } catch (err) { console.error('main text lock hist redraw error', err); } },
-        pieGraphPanel: () => { try { scheduleDrawPie(); } catch (err) { console.error('main text lock pie redraw error', err); } },
-        survivalGraphPanel: () => { try { scheduleDrawSurvival(); } catch (err) { console.error('main text lock survival redraw error', err); } },
+        vennGraphPanel: () => { try { window.Components?.venn?.draw?.(); } catch (err) { console.error('main proportional font resize venn redraw error', err); } },
+        boxGraphPanel: () => { try { scheduleDrawBoxplot(); } catch (err) { console.error('main proportional font resize box redraw error', err); } },
+        scatterGraphPanel: () => { try { scheduleDrawScatter(); } catch (err) { console.error('main proportional font resize scatter redraw error', err); } },
+        pcaGraphPanel: () => { try { scheduleDrawPca(); } catch (err) { console.error('main proportional font resize pca redraw error', err); } },
+        lineGraphPanel: () => { try { scheduleDrawLine(); } catch (err) { console.error('main proportional font resize line redraw error', err); } },
+        heatmapGraphPanel: () => { try { scheduleDrawHeatmap(); } catch (err) { console.error('main proportional font resize heatmap redraw error', err); } },
+        histGraphPanel: () => { try { scheduleDrawHist(); } catch (err) { console.error('main proportional font resize hist redraw error', err); } },
+        pieGraphPanel: () => { try { scheduleDrawPie(); } catch (err) { console.error('main proportional font resize pie redraw error', err); } },
+        survivalGraphPanel: () => { try { scheduleDrawSurvival(); } catch (err) { console.error('main proportional font resize survival redraw error', err); } },
         rocGraphPanel: () => {
           try {
             if (window.Components?.roc?.draw) {
               window.Components.roc.draw();
             }
-          } catch (err) { console.error('main text lock roc redraw error', err); }
+          } catch (err) { console.error('main proportional font resize roc redraw error', err); }
         }
       };
       if (normalizedScope && scopeHandlers[normalizedScope]) {
@@ -261,15 +261,15 @@
           try {
             scopeHandlers[key]();
           } catch (err) {
-            console.error('main text lock handler error', err);
+            console.error('main proportional font resize handler error', err);
           }
         });
       }
-    }, { origin: 'main-text-lock-listener' });
+    }, { origin: 'main-font-resize-listener' });
   } else {
-    debug('Debug: main text size lock setup skipped', {
-      hasOnChange: typeof chartStyle.onTextSizeLockChange === 'function',
-      hasSetter: typeof chartStyle.setTextSizeLock === 'function'
+    debug('Debug: main proportional font resize setup skipped', {
+      hasOnChange: typeof chartStyle.onProportionalFontResizeChange === 'function',
+      hasSetter: typeof chartStyle.setProportionalFontResize === 'function'
     });
   }
 

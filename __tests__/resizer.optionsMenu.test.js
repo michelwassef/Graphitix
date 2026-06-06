@@ -50,9 +50,9 @@ describe('Shared resizer graph options menu', () => {
     expect(zoom.previousElementSibling).toBe(options);
     expect(options?.querySelector('svg.resizer-options-icon path')).toBeTruthy();
     expect(menu?.querySelector('.resizer-aspect-control')).toBeTruthy();
-    expect(menu?.querySelector('.resizer-textlock-control')).toBeTruthy();
+    expect(menu?.querySelector('.resizer-fontresize-control')).toBeTruthy();
     expect(tray.querySelector(':scope > .resizer-aspect-control')).toBeNull();
-    expect(tray.querySelector(':scope > .resizer-textlock-control')).toBeNull();
+    expect(tray.querySelector(':scope > .resizer-fontresize-control')).toBeNull();
   });
 
   test('lock ratio toggle is geometry-neutral and only emits aspect-toggle resize reason', () => {

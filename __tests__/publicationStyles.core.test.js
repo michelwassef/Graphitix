@@ -115,7 +115,7 @@ function buildMain(type, payloadOverrides = {}) {
         input.dataset.fontDisplayPt = String(pt);
       }
     }),
-    setTextSizeLock: jest.fn()
+    setProportionalFontResize: jest.fn()
   };
   window.Shared.workspaceTabs = {
     resolveTabScopedRoot: jest.fn((t) => document.getElementById(`${t}Page`) || null)

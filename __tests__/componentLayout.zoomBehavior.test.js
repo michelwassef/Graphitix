@@ -35,8 +35,8 @@ describe('componentLayout zoom behavior contract', () => {
         RESIZE_MAX_SCALE: 3,
         DEFAULT_ASPECT_RATIO: 1,
         DEFAULT_ASPECT_LOCKED: true,
-        isTextSizeLocked: () => false,
-        registerTextSizeLockControl: () => {}
+        isProportionalFontResizeEnabled: () => false,
+        registerProportionalFontResizeControl: () => {}
       },
       graphSizing: {
         ensureCssVariables: () => {},

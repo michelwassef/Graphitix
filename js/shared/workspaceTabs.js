@@ -309,8 +309,8 @@
       if(Object.prototype.hasOwnProperty.call(element.dataset, 'tabToken')){
         element.dataset.tabToken = target;
       }
-      if(typeof element.dataset.resizerTextLockScope === 'string'){
-        element.dataset.resizerTextLockScope = element.dataset.resizerTextLockScope.replace(/workspace-\d+/g, target);
+      if(typeof element.dataset.resizerProportionalFontResizeScope === 'string'){
+        element.dataset.resizerProportionalFontResizeScope = element.dataset.resizerProportionalFontResizeScope.replace(/workspace-\d+/g, target);
       }
     }else{
       delete element.dataset.workspaceTabId;
@@ -323,7 +323,7 @@
     if(!element || typeof element.querySelectorAll !== 'function'){
       return;
     }
-    const scopedNodes = element.querySelectorAll('[data-font-scope], [data-workspace-tab-id], [data-tab-id], [data-tab-token], [data-resizer-text-lock-scope], .svgbox, svg');
+    const scopedNodes = element.querySelectorAll('[data-font-scope], [data-workspace-tab-id], [data-tab-id], [data-tab-token], [data-resizer-proportional-font-resize-scope], .svgbox, svg');
     for(let i = 0; i < scopedNodes.length; i += 1){
       stampWorkspaceScope(scopedNodes[i], tabId);
     }

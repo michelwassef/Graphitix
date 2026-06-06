@@ -44,8 +44,8 @@
     if(Object.prototype.hasOwnProperty.call(next, 'tabToken')){
       next.tabToken = target;
     }
-    if(typeof next.resizerTextLockScope === 'string'){
-      next.resizerTextLockScope = remapRuntimeWorkspaceString(next.resizerTextLockScope, target);
+    if(typeof next.resizerProportionalFontResizeScope === 'string'){
+      next.resizerProportionalFontResizeScope = remapRuntimeWorkspaceString(next.resizerProportionalFontResizeScope, target);
     }
     return next;
   }
@@ -669,7 +669,7 @@
     return result;
   }
 
-  function applyTabScopedResizerTextLockScope(svgBox, componentName, tabId){
+  function applyTabScopedResizerFontResizeScope(svgBox, componentName, tabId){
     if(!svgBox?.dataset){
       return false;
     }
@@ -680,7 +680,7 @@
     }
     const panelId = normalizeTabId(svgBox.closest?.('[id$="GraphPanel"]')?.id) || `${normalizedComponent}GraphPanel`;
     const scope = `${panelId}::@tab:${normalizedTabId}`;
-    svgBox.dataset.resizerTextLockScope = scope;
+    svgBox.dataset.resizerProportionalFontResizeScope = scope;
     return true;
   }
 
@@ -1437,7 +1437,7 @@
         }
       };
 
-      applyTabScopedResizerTextLockScope(elements.resizeTarget, componentName, layoutTabId || null);
+      applyTabScopedResizerFontResizeScope(elements.resizeTarget, componentName, layoutTabId || null);
       Shared.attachResizableBox(elements.resizeTarget, {
         defaultWidth: sizing.width,
         defaultHeight: sizing.height,
@@ -2001,7 +2001,7 @@
     if(!entry?.elements?.svgBox || typeof aspectLocked !== 'boolean'){
       return false;
     }
-    applyTabScopedResizerTextLockScope(entry.elements.svgBox, componentName, tab?.id || tabId);
+    applyTabScopedResizerFontResizeScope(entry.elements.svgBox, componentName, tab?.id || tabId);
     const synced = applyAspectLockToSvgBox(entry.elements.svgBox, aspectLocked);
     console.debug('Debug: componentLayout tab controls synced', {
       component: componentName || null,

@@ -118,20 +118,20 @@
     if(!node || typeof node !== 'object'){
       return '';
     }
-    const directScopeTabId = extractTabIdFromScope(node?.dataset?.resizerTextLockScope || node?.dataset?.textLockScope || '');
+    const directScopeTabId = extractTabIdFromScope(node?.dataset?.resizerProportionalFontResizeScope || '');
     if(directScopeTabId){
       return directScopeTabId;
     }
     if(typeof node.closest === 'function'){
       const closestSvgBox = node.closest('.svgbox');
-      const closestScopeTabId = extractTabIdFromScope(closestSvgBox?.dataset?.resizerTextLockScope || closestSvgBox?.dataset?.textLockScope || '');
+      const closestScopeTabId = extractTabIdFromScope(closestSvgBox?.dataset?.resizerProportionalFontResizeScope || '');
       if(closestScopeTabId){
         return closestScopeTabId;
       }
     }
     if(typeof node.querySelector === 'function'){
       const nestedSvgBox = node.querySelector('.svgbox');
-      const nestedScopeTabId = extractTabIdFromScope(nestedSvgBox?.dataset?.resizerTextLockScope || nestedSvgBox?.dataset?.textLockScope || '');
+      const nestedScopeTabId = extractTabIdFromScope(nestedSvgBox?.dataset?.resizerProportionalFontResizeScope || '');
       if(nestedScopeTabId){
         return nestedScopeTabId;
       }
@@ -144,7 +144,7 @@
     if(scopedTabFromScope){
       return Shared.workspaceTabs?.resolveTab?.(scopedTabFromScope) || { id: scopedTabFromScope, type: opts.componentName || null };
     }
-    const optionScopeTabId = extractTabIdFromScope(opts.scopeId || opts.textLockScope || '');
+    const optionScopeTabId = extractTabIdFromScope(opts.scopeId || opts.proportionalFontResizeScope || '');
     if(optionScopeTabId){
       return Shared.workspaceTabs?.resolveTab?.(optionScopeTabId) || { id: optionScopeTabId, type: opts.componentName || null };
     }
@@ -781,7 +781,7 @@
     }
     [
       '.resizer-aspect-control',
-      '.resizer-textlock-control',
+      '.resizer-fontresize-control',
       '.resizer-axeslength-control',
       '.resizer-legend-control'
     ].forEach(selector => {
@@ -1278,36 +1278,36 @@
 
     const activeResizerTab = resolveResizerTab(container, opts);
     const activeResizerTabId = normalizeTabId(activeResizerTab?.id);
-    const existingScope = data.resizerTextLockScope || null;
+    const existingScope = data.resizerProportionalFontResizeScope || null;
     const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
-      : (typeof opts.textLockScope === 'string' && opts.textLockScope.trim() ? opts.textLockScope.trim() : null);
+      : (typeof opts.proportionalFontResizeScope === 'string' && opts.proportionalFontResizeScope.trim() ? opts.proportionalFontResizeScope.trim() : null);
     const baseScope = optionScope || panelId || container.id || (labelFromOpts ? `${labelFromOpts}-scope` : null);
     const canonicalTabScope = activeResizerTabId && baseScope
       ? `${baseScope}::@tab:${activeResizerTabId}`
       : null;
-    let textLockScope = existingScope || canonicalTabScope || baseScope;
-    if(canonicalTabScope && textLockScope !== canonicalTabScope){
-      textLockScope = canonicalTabScope;
+    let fontResizeScope = existingScope || canonicalTabScope || baseScope;
+    if(canonicalTabScope && fontResizeScope !== canonicalTabScope){
+      fontResizeScope = canonicalTabScope;
     }
-    if(!textLockScope){
+    if(!fontResizeScope){
       resizerScopeCounter += 1;
-      textLockScope = `svgbox-scope-${resizerScopeCounter}`;
+      fontResizeScope = `svgbox-scope-${resizerScopeCounter}`;
     }
-    data.resizerTextLockScope = textLockScope;
-    if(typeof data.resizerTextLock !== 'string'){
-      let initialLock = false;
-      if(chartStyle && typeof chartStyle.isTextSizeLocked === 'function'){
+    data.resizerProportionalFontResizeScope = fontResizeScope;
+    if(typeof data.resizerProportionalFontResize !== 'string'){
+      let initialProportionalResize = false;
+      if(chartStyle && typeof chartStyle.isProportionalFontResizeEnabled === 'function'){
         try {
-          initialLock = !!chartStyle.isTextSizeLocked({ scopeId: textLockScope, svgBox: container });
+          initialProportionalResize = !!chartStyle.isProportionalFontResizeEnabled({ scopeId: fontResizeScope, svgBox: container });
         } catch(scopeErr){
-          console.error('resizer text lock initial state error', scopeErr);
+          console.error('resizer proportional font resize initial state error', scopeErr);
         }
       }
-      data.resizerTextLock = initialLock ? 'true' : 'false';
+      data.resizerProportionalFontResize = initialProportionalResize ? 'true' : 'false';
     }
-    console.debug('Debug: resizer text lock scope resolved', {
+    console.debug('Debug: resizer proportional font resize scope resolved', {
       container: containerLabel,
-      scope: textLockScope,
+      scope: fontResizeScope,
       existingScope,
       canonicalTabScope,
       tabId: activeResizerTabId || null,
@@ -2104,75 +2104,86 @@
         aspectCheckbox.__resizerAspectHandler = onAspectChange;
       }
 
-      let textLockControl = controlTray.querySelector('.resizer-textlock-control');
-      let textLockCheckbox = textLockControl ? textLockControl.querySelector('input[type="checkbox"]') : null;
-      if(!textLockControl){
-        textLockControl = doc.createElement('label');
-        textLockControl.className = 'resizer-textlock-control';
-        textLockControl.title = 'Lock text size while resizing';
+      let fontResizeControl = controlTray.querySelector('.resizer-fontresize-control');
+      let fontResizeCheckbox = fontResizeControl ? fontResizeControl.querySelector('input[type="checkbox"]') : null;
+      if(!fontResizeControl){
+        fontResizeControl = doc.createElement('label');
         const fontCheckbox = doc.createElement('input');
         fontCheckbox.type = 'checkbox';
-        fontCheckbox.className = 'resizer-textlock-checkbox';
-        fontCheckbox.setAttribute('aria-label', 'Lock text size while resizing');
         const textSpan = doc.createElement('span');
-        textSpan.className = 'resizer-textlock-text';
-        textSpan.textContent = 'Lock text size';
-        textLockControl.appendChild(fontCheckbox);
-        textLockControl.appendChild(textSpan);
-        controlTray.appendChild(textLockControl);
-        textLockCheckbox = fontCheckbox;
-        console.debug('Debug: resizer text lock control created', { container: containerLabel }); // Debug: text lock control creation
+        fontResizeControl.appendChild(fontCheckbox);
+        fontResizeControl.appendChild(textSpan);
+        controlTray.appendChild(fontResizeControl);
+        fontResizeCheckbox = fontCheckbox;
+        console.debug('Debug: resizer proportional font resize control created', { container: containerLabel }); // Debug: proportional font resize control creation
       }else{
-        if(textLockControl.parentNode !== controlTray){
-          controlTray.appendChild(textLockControl);
+        if(fontResizeControl.parentNode !== controlTray){
+          controlTray.appendChild(fontResizeControl);
         }
-        textLockCheckbox = textLockControl.querySelector('input[type="checkbox"]');
+        fontResizeCheckbox = fontResizeControl.querySelector('input[type="checkbox"]');
       }
-      if(textLockCheckbox){
-        if(textLockCheckbox.dataset){
-          textLockCheckbox.dataset.textLockScope = textLockScope;
+      if(fontResizeControl){
+        fontResizeControl.classList.add('resizer-fontresize-control');
+        fontResizeControl.title = 'Resize fonts proportionally with graph resizing';
+      }
+      if(fontResizeCheckbox){
+        fontResizeCheckbox.classList.add('resizer-fontresize-checkbox');
+        fontResizeCheckbox.setAttribute('aria-label', 'Proportional font resize');
+      }
+      let fontResizeText = fontResizeControl ? fontResizeControl.querySelector('.resizer-fontresize-text') : null;
+      if(!fontResizeText && fontResizeControl){
+        fontResizeText = doc.createElement('span');
+        fontResizeControl.appendChild(fontResizeText);
+      }
+      if(fontResizeText){
+        fontResizeText.classList.add('resizer-fontresize-text');
+        fontResizeText.textContent = 'Proportional font resize';
+      }
+      if(fontResizeCheckbox){
+        if(fontResizeCheckbox.dataset){
+          fontResizeCheckbox.dataset.proportionalFontResizeScope = fontResizeScope;
         }
-        if(typeof chartStyle.registerTextSizeLockControl === 'function'){
-          chartStyle.registerTextSizeLockControl(textLockCheckbox, {
+        if(typeof chartStyle.registerProportionalFontResizeControl === 'function'){
+          chartStyle.registerProportionalFontResizeControl(fontResizeCheckbox, {
             origin: `${containerLabel}-resizer`,
-            scopeId: textLockScope,
+            scopeId: fontResizeScope,
             svgBox: container
           });
-          console.debug('Debug: resizer text lock registered', { container: containerLabel, scope: textLockScope }); // Debug: text lock registration
+          console.debug('Debug: resizer proportional font resize registered', { container: containerLabel, scope: fontResizeScope }); // Debug: proportional font resize registration
         }else{
-          if(typeof chartStyle.isTextSizeLocked === 'function'){
+          if(typeof chartStyle.isProportionalFontResizeEnabled === 'function'){
             try {
-              textLockCheckbox.checked = !!chartStyle.isTextSizeLocked({ scopeId: textLockScope, svgBox: container });
+              fontResizeCheckbox.checked = !!chartStyle.isProportionalFontResizeEnabled({ scopeId: fontResizeScope, svgBox: container });
             } catch(stateErr){
-              console.error('resizer text lock state sync error', stateErr);
+              console.error('resizer proportional font resize state sync error', stateErr);
             }
           }
-          if(textLockCheckbox.__resizerTextLockHandler){
-            textLockCheckbox.removeEventListener('change', textLockCheckbox.__resizerTextLockHandler);
+          if(fontResizeCheckbox.__resizerProportionalFontResizeHandler){
+            fontResizeCheckbox.removeEventListener('change', fontResizeCheckbox.__resizerProportionalFontResizeHandler);
           }
-          const onTextLockChange = () => {
-            const locked = !!textLockCheckbox.checked;
-            container.dataset.resizerTextLock = locked ? 'true' : 'false';
-            console.debug('Debug: resizer text lock fallback change', { container: containerLabel, locked, scope: textLockScope }); // Debug: fallback handler
-            if(typeof chartStyle.setTextSizeLock === 'function'){
-              chartStyle.setTextSizeLock(locked, { origin: `${containerLabel}-fallback`, scopeId: textLockScope, svgBox: container });
+          const onProportionalFontResizeChange = () => {
+            const enabled = !!fontResizeCheckbox.checked;
+            container.dataset.resizerProportionalFontResize = enabled ? 'true' : 'false';
+            console.debug('Debug: resizer proportional font resize fallback change', { container: containerLabel, enabled, scope: fontResizeScope }); // Debug: fallback handler
+            if(typeof chartStyle.setProportionalFontResize === 'function'){
+              chartStyle.setProportionalFontResize(enabled, { origin: `${containerLabel}-fallback`, scopeId: fontResizeScope, svgBox: container });
             }
           };
-          textLockCheckbox.addEventListener('change', onTextLockChange);
-          textLockCheckbox.__resizerTextLockHandler = onTextLockChange;
-          if(typeof chartStyle.onTextSizeLockChange === 'function'){
-            chartStyle.onTextSizeLockChange((lockedValue, eventOrigin) => {
+          fontResizeCheckbox.addEventListener('change', onProportionalFontResizeChange);
+          fontResizeCheckbox.__resizerProportionalFontResizeHandler = onProportionalFontResizeChange;
+          if(typeof chartStyle.onProportionalFontResizeChange === 'function'){
+            chartStyle.onProportionalFontResizeChange((enabledValue, eventOrigin) => {
               if(eventOrigin === `${containerLabel}-fallback`) return;
-              const scoped = !!lockedValue;
-              textLockCheckbox.checked = scoped;
-              container.dataset.resizerTextLock = scoped ? 'true' : 'false';
-              console.debug('Debug: resizer text lock fallback sync', {
+              const scoped = !!enabledValue;
+              fontResizeCheckbox.checked = scoped;
+              container.dataset.resizerProportionalFontResize = scoped ? 'true' : 'false';
+              console.debug('Debug: resizer proportional font resize fallback sync', {
                 container: containerLabel,
                 origin: eventOrigin,
-                scope: textLockScope,
-                locked: scoped
+                scope: fontResizeScope,
+                enabled: scoped
               }); // Debug: fallback sync listener
-            }, { origin: `${containerLabel}-fallback-listener`, scopeId: textLockScope });
+            }, { origin: `${containerLabel}-fallback-listener`, scopeId: fontResizeScope });
           }
         }
       }
@@ -2184,8 +2195,8 @@
       if(aspectControl){
         moveGraphOptionIntoMenu(container, aspectControl, { debugLabel: `${containerLabel}-aspect-option` });
       }
-      if(textLockControl){
-        moveGraphOptionIntoMenu(container, textLockControl, { debugLabel: `${containerLabel}-text-lock-option` });
+      if(fontResizeControl){
+        moveGraphOptionIntoMenu(container, fontResizeControl, { debugLabel: `${containerLabel}-font-resize-option` });
       }
 
       const zoomSetup = ensureZoomElements();
@@ -2364,6 +2375,12 @@
       'resizerAspectRatio',
       'resizerLastAxis',
       'resizerResized',
+      'resizerProportionalFontResize',
+      'resizerProportionalFontResizeScope',
+      'resizerFontResizeBaseWidth',
+      'resizerFontResizeBaseHeight',
+      'fontBasePt',
+      'fontDisplayPt',
       'resizerUnlockedStyleScaleBase',
       'resizerZoom',
       'resizerZoomLevel',

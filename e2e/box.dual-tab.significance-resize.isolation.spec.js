@@ -90,7 +90,7 @@ async function readBoxMetrics(page) {
     const svgHeight = Number(svgRect?.height || NaN);
     return {
       activeTabId,
-      scope: svgBox?.dataset?.resizerTextLockScope || null,
+      scope: svgBox?.dataset?.resizerProportionalFontResizeScope || null,
       sigCount: document.querySelectorAll('#boxPage:not([hidden]) #boxPlot .box-significance-annotation').length,
       plotH: Number.isFinite(plotH) ? plotH : null,
       svgHeight: Number.isFinite(svgHeight) ? svgHeight : null,
