@@ -1366,6 +1366,9 @@ let state = {
 
   let pieLegendControl = null;
   let pieShowLegendInput = null;
+  let pieLockRatioInput = null;
+  let pieLockRatioEnforcePrevious = null;
+  let pieLockRatioEnforcing = false;
 
   function refreshPieLegendControlBinding(){
     const legendInput = getPieNodeById('pieShowLegend');
@@ -1395,6 +1398,67 @@ let state = {
         control: pieLegendControl,
         debugLabel: 'pie-legend'
       });
+    }
+  }
+
+  function getPieLockRatioCheckbox(){
+    if(pieLockRatioInput && pieLockRatioInput.isConnected){
+      return pieLockRatioInput;
+    }
+    if(!state.svgBox){
+      return null;
+    }
+    const checkbox = state.svgBox.querySelector('.resizer-aspect-checkbox');
+    if(checkbox){
+      pieLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncPieAspectControls(reason){
+    if(pieLockRatioEnforcing){
+      return;
+    }
+    pieLockRatioEnforcing = true;
+    try{
+      const chartTypeValue = $('#pieChartType')?.value || 'pie';
+      const shouldEnforceLockRatio = chartTypeValue === 'pie' || chartTypeValue === 'donut';
+      const lockRatioCheckbox = getPieLockRatioCheckbox();
+      if(lockRatioCheckbox){
+        const lockLabel = lockRatioCheckbox.closest('label');
+        if(shouldEnforceLockRatio){
+          if(pieLockRatioEnforcePrevious === null){
+            pieLockRatioEnforcePrevious = !!lockRatioCheckbox.checked;
+          }
+          if(!lockRatioCheckbox.checked){
+            lockRatioCheckbox.checked = true;
+            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          lockRatioCheckbox.disabled = true;
+          if(lockLabel){
+            if(!lockLabel.__pieOriginalTitle){
+              lockLabel.__pieOriginalTitle = lockLabel.title || '';
+            }
+            lockLabel.title = 'Locked for Pie and Donut charts';
+          }
+        }else{
+          lockRatioCheckbox.disabled = false;
+          if(lockLabel && lockLabel.__pieOriginalTitle !== undefined){
+            lockLabel.title = lockLabel.__pieOriginalTitle;
+            delete lockLabel.__pieOriginalTitle;
+          }
+          if(pieLockRatioEnforcePrevious !== null){
+            const restoreValue = pieLockRatioEnforcePrevious;
+            pieLockRatioEnforcePrevious = null;
+            if(lockRatioCheckbox.checked !== restoreValue){
+              lockRatioCheckbox.checked = restoreValue;
+              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+        }
+      }
+    }finally{
+      pieLockRatioEnforcing = false;
     }
   }
 
@@ -3702,6 +3766,7 @@ let state = {
     pieShowLegendInput = getPieNodeById('pieShowLegend');
     const pieBorderColor=getPieNodeById('pieBorderColor');
     const pieBorderWidth=getPieNodeById('pieBorderWidth');
+    const pieShowFrame = getPieNodeById('pieShowFrame');
     const pieAutoSizeTargets=[pieChartType];
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
@@ -3721,6 +3786,9 @@ let state = {
         }
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
       }
+      if(el === pieChartType){
+        syncPieAspectControls('chart-type-change');
+      }
       schedulePieViewRefresh(el?.id ? `${el.id}-change` : 'pie-config-change'); }));
     if(pieShowLegendInput){
       const legendHost=pieShowLegendInput.closest('label');
@@ -3734,7 +3802,9 @@ let state = {
         schedulePieViewRefresh('legend-toggle');
       });
     }
-    pieShowFrame.addEventListener('change',()=>{pieDebug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); schedulePieViewRefresh('frame-toggle');});
+    if(pieShowFrame){
+      pieShowFrame.addEventListener('change',()=>{pieDebug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); schedulePieViewRefresh('frame-toggle');});
+    }
     if(pieBorderColor){
       pieBorderColor.addEventListener('input',()=>{ pieDebug('Debug: pie border color change',{value: pieBorderColor.value}); schedulePieViewRefresh('border-color-change'); });
     }
@@ -4475,6 +4545,7 @@ let state = {
   function draw(drawOptions = {}){
     const plotEl=getPieNodeById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
+    syncPieAspectControls('draw');
     const drawableFrame = resolvePieDrawableFrame(plotEl);
     const isResizePreview = isPieResizePreviewActive(drawOptions);
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
