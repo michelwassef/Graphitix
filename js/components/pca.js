@@ -9680,6 +9680,24 @@
         const frontFrameLayer = document.createElementNS(NS, 'g');
         frontFrameLayer.setAttribute('data-layer', 'frame-front');
         svg3.appendChild(frontFrameLayer);
+        const pca3dFontStyles = exportFontStyles('pca');
+        const pca3dTickFontSize = (() => {
+          if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+            return fs;
+          }
+          const roles = ['xTick', 'yTick', 'zTick'];
+          const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
+            styles: pca3dFontStyles,
+            role,
+            fallbackPx: fs
+          }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
+          return sizes.length ? Math.max(...sizes) : fs;
+        })();
+        const markPca3dAxisTickLabel = (node, axisKey) => {
+          if(!node){ return; }
+          const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
+          markFontEditable(node, role, role);
+        };
         plot3d.renderAxesAndGrid({
           svg: svg3,
           project: (pt) => project3(pt),
@@ -9688,6 +9706,7 @@
           axisTicks,
           axisLabels: { x: pcaXLabelText, y: pcaYLabelText, z: pcaZLabelText },
           fontSize: fs,
+          tickFontSize: pca3dTickFontSize,
           axisStrokeWidth,
           chartStyle,
           showGrid,
@@ -9707,6 +9726,7 @@
           axisLabelColor: pcaThemeTextColor,
           frontFrameTarget: frontFrameLayer,
           debugLabel: 'pca-3d',
+          onAxisTickLabel: markPca3dAxisTickLabel,
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });

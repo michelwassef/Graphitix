@@ -179,4 +179,43 @@ describe('Shared.plot3d helper', () => {
       expect(line.getAttribute('stroke-dasharray')).toBeNull();
     });
   });
+
+  it('exposes 3D axis tick labels before final collision layout so components can bind graph font controls', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const axisRanges = {
+      x: { min: -1, max: 1 },
+      y: { min: -1, max: 1 },
+      z: { min: -1, max: 1 }
+    };
+    const markedTicks = [];
+
+    plot3d.renderAxesAndGrid({
+      svg,
+      rotatePoint: point => point,
+      project: point => ({ x: 100 + point.x * 25, y: 100 - point.y * 25, depth: point.z }),
+      axisRanges,
+      axisTicks: { x: [-1, 0, 1], y: [-1, 0, 1], z: [-1, 0, 1] },
+      axisLabels: { x: 'X', y: 'Y', z: 'Z' },
+      fontSize: 12,
+      tickFontSize: 10,
+      showGrid: false,
+      showFrame: false,
+      showPanes: false,
+      onAxisTickLabel: (node, axisKey, labelText, tickValue) => {
+        node.dataset.boundTickRole = `${axisKey}Tick`;
+        node.setAttribute('font-size', '21px');
+        markedTicks.push({ node, axisKey, labelText, tickValue });
+      }
+    });
+
+    const tickLabels = Array.from(svg.querySelectorAll('[data-axis-tick-label]'));
+    expect(tickLabels.length).toBe(markedTicks.length);
+    expect(tickLabels.length).toBeGreaterThan(0);
+    tickLabels.forEach(node => {
+      expect(node.dataset.boundTickRole).toMatch(/^[xyz]Tick$/);
+      expect(node.getAttribute('font-size')).toBe('21px');
+    });
+  });
+
 });

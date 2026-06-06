@@ -19415,6 +19415,24 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const frontFrameLayer = document.createElementNS(NS, 'g');
           frontFrameLayer.setAttribute('data-layer', 'frame-front');
           svg3.appendChild(frontFrameLayer);
+          const scatter3dFontStyles = exportFontStyles('scatter');
+          const scatter3dTickFontSize = (() => {
+            if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+              return fs;
+            }
+            const roles = ['xTick', 'yTick', 'zTick'];
+            const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
+              styles: scatter3dFontStyles,
+              role,
+              fallbackPx: fs
+            }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
+            return sizes.length ? Math.max(...sizes) : fs;
+          })();
+          const markScatter3dAxisTickLabel = (node, axisKey) => {
+            if(!node){ return; }
+            const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
+            markFontEditable(node, role, role);
+          };
           plot3d.renderAxesAndGrid({
             svg: svg3,
             project: projector.project,
@@ -19427,6 +19445,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
               z: scatterState.zLabelText || 'Z'
             },
             fontSize: fs,
+            tickFontSize: scatter3dTickFontSize,
             axisStrokeWidth,
             axisColor: axisStroke,
             frameColor: axisStroke,
@@ -19446,6 +19465,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             axisTickFormatters: axisTickFormatters3d || undefined,
             frontFrameTarget: frontFrameLayer,
             debugLabel: 'scatter-3d',
+            onAxisTickLabel: markScatter3dAxisTickLabel,
             onAxisLabel: (node, axisKey) => {
               if(!node){ return; }
               const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');

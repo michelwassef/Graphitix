@@ -1827,7 +1827,9 @@
     const marginBottom = Number.isFinite(Number(margin.bottom)) ? Number(margin.bottom) : 0;
     const availableHeight = Math.max(1, height - marginTop - marginBottom);
     const fontSize = Math.max(4, Number(opts.fontSize) || 12);
-    const legendFontSize = Math.max(4, fontSize * 0.75);
+    const legendFontSize = Math.max(4, Number.isFinite(Number(opts.legendFontSize)) && Number(opts.legendFontSize) > 0
+      ? Number(opts.legendFontSize)
+      : fontSize * 0.75);
     const barWidthScale = Math.sqrt(Math.max(1, width) / SURFACE_LEGEND_BAR_REFERENCE_WIDTH);
     const preferredBarWidth = fontSize * barWidthScale;
     const barWidth = Math.max(
@@ -2345,6 +2347,31 @@
       chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, fontInfo, input: state.controls.fontSize });
     }
     const fs = fontInfo.scaledPx || state.settings.fontSize;
+    const surfaceFontStyles = exportFontStyles('surface');
+    const resolveSurfaceScopedFontSize = (role, fallbackPx) => {
+      const fallback = Number.isFinite(Number(fallbackPx)) && Number(fallbackPx) > 0 ? Number(fallbackPx) : fs;
+      if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+        return fallback;
+      }
+      const profile = chartStyle.resolveScopedLabelMeasureFont({
+        styles: surfaceFontStyles,
+        role,
+        fallbackPx: fallback
+      });
+      const size = Number(profile?.fontSizePx);
+      return Number.isFinite(size) && size > 0 ? size : fallback;
+    };
+    const surface3dTickFontSize = Math.max(
+      resolveSurfaceScopedFontSize('xTick', fs),
+      resolveSurfaceScopedFontSize('yTick', fs),
+      resolveSurfaceScopedFontSize('zTick', fs)
+    );
+    const surfaceLegendTickFontSize = resolveSurfaceScopedFontSize('legendTick', fs * 0.75);
+    const markSurface3dAxisTickLabel = (node, axisKey) => {
+      if(!node){ return; }
+      const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
+      markFontEditable(node, role, role);
+    };
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = typeof chartStyle.scaleStrokeWidth === 'function'
       ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, fontInfo.scaleInfo, { context: 'surface-axis', min: 0, exact: true })
@@ -2490,6 +2517,7 @@
         axisTicks,
         axisLabels: { x: state.labels.x, y: state.labels.y, z: state.labels.z },
         fontSize: fs,
+        tickFontSize: surface3dTickFontSize,
         axisStrokeWidth,
         chartStyle,
         showGrid: state.settings.showGrid,
@@ -2514,6 +2542,7 @@
         frontFrameTarget: frontLayer,
         axisTarget: axisLayer,
         labelTarget: axisLayer,
+        onAxisTickLabel: markSurface3dAxisTickLabel,
         onAxisLabel: (el, axisKey) => {
           if(!el){ return; }
           const role = axisKey ? `${axisKey}Title` : 'axisTitle';
@@ -2815,6 +2844,7 @@
         height,
         margin,
         fontSize: fs,
+        legendFontSize: surfaceLegendTickFontSize,
         layer: axisLayer,
         textColor: surfaceTextColor,
         axisColor: state.settings.axisColor,

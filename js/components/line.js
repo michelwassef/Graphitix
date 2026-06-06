@@ -9592,6 +9592,25 @@
       frontFrameLayer.setAttribute('data-layer', 'frame-front');
       svg3.appendChild(frontFrameLayer);
 
+      const line3dFontStyles = exportFontStyles('line');
+      const line3dTickFontSize = (() => {
+        if(!chartStyle || typeof chartStyle.resolveScopedLabelMeasureFont !== 'function'){
+          return fs;
+        }
+        const roles = ['xTick', 'yTick', 'zTick'];
+        const sizes = roles.map(role => Number(chartStyle.resolveScopedLabelMeasureFont({
+          styles: line3dFontStyles,
+          role,
+          fallbackPx: fs
+        }).fontSizePx)).filter(size => Number.isFinite(size) && size > 0);
+        return sizes.length ? Math.max(...sizes) : fs;
+      })();
+      const markLine3dAxisTickLabel = (node, axisKey) => {
+        if(!node){ return; }
+        const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
+        markFontEditable(node, role, role);
+      };
+
       plot3d.renderAxesAndGrid({
         svg: svg3,
         project: projector.project,
@@ -9600,6 +9619,7 @@
         axisTicks: axisTicks3d,
         axisLabels: { x: lineXLabelText, y: lineYLabelText, z: lineZLabelText },
         fontSize: fs,
+        tickFontSize: line3dTickFontSize,
         axisStrokeWidth,
         axisColor: axisStroke,
         frameColor: axisStroke,
@@ -9619,6 +9639,7 @@
         axisTickFormatters: axisTickFormatters3d || undefined,
         frontFrameTarget: frontFrameLayer,
         debugLabel: 'line-3d',
+        onAxisTickLabel: markLine3dAxisTickLabel,
         onAxisLabel: (node, axisKey) => {
           if(!node){
             return;

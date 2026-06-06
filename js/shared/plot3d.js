@@ -584,6 +584,7 @@
     const gridOutlineColors = cfg.gridOutlineColors || { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' };
     const frameColor = cfg.frameColor || '#000000';
     const onAxisLabel = typeof cfg.onAxisLabel === 'function' ? cfg.onAxisLabel : null;
+    const onAxisTickLabel = typeof cfg.onAxisTickLabel === 'function' ? cfg.onAxisTickLabel : null;
     const debugLabel = cfg.debugLabel || 'plot3d';
     const paneTarget = cfg.paneTarget || svg;
     const gridTarget = cfg.gridTarget || svg;
@@ -614,9 +615,21 @@
     const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
     const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
     const axisLabelColor = cfg.axisLabelColor || tickTextColor || chartStyle.TEXT_COLOR || '#333';
-    const tickFont = typeof chartStyle.makeFont === 'function'
-      ? chartStyle.makeFont(tickFontSize)
-      : `${tickFontSize}px Arial, Helvetica, sans-serif`;
+    const makeTickFont = size => (typeof chartStyle.makeFont === 'function'
+      ? chartStyle.makeFont(size)
+      : `${size}px Arial, Helvetica, sans-serif`);
+    const tickFont = makeTickFont(tickFontSize);
+    const readTextFontSize = (node, fallback) => {
+      if(!node){ return fallback; }
+      let raw = null;
+      try{ raw = node.getAttribute && node.getAttribute('font-size'); }catch(_err){ raw = null; }
+      if((raw === null || raw === undefined || raw === '') && node.style){
+        raw = node.style.fontSize;
+      }
+      const match = String(raw || '').match(/(-?\d*\.?\d+)/);
+      const numeric = match ? Number(match[1]) : NaN;
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+    };
     const axisTickLabelRegistry = {
       x: { entries: [], angle: 0, unitAxis2d: null },
       y: { entries: [], angle: 0, unitAxis2d: null },
@@ -1230,10 +1243,18 @@
               labelAttrs['fill-opacity'] = backOpacity;
             }
             const tickLabelEl = createElement('text', labelAttrs, labelText, labelTarget);
+            if(onAxisTickLabel && tickLabelEl){
+              try {
+                onAxisTickLabel(tickLabelEl, def.key, labelText, tickValue);
+              } catch(err){
+                debugLog('Debug: plot3d axis tick label callback error', { label: debugLabel, axis: def.key, message: err && err.message });
+              }
+            }
             if(axisTickMeta && tickLabelEl){
               axisTickMeta.entries.push({
                 el: tickLabelEl,
-                text: labelText,
+                text: tickLabelEl.textContent || labelText,
+                fontSize: readTextFontSize(tickLabelEl, tickFontSize),
                 axisCoord: (tickPos.x * unitAxis2d.x) + (tickPos.y * unitAxis2d.y),
                 tickPos: { x: tickPos.x, y: tickPos.y },
                 x: labelX,
@@ -1291,11 +1312,16 @@
         }
       }
     }
-    const measureTickLabel = (text) => {
+    const measureTickLabel = (entryOrText) => {
+      const isEntry = entryOrText && typeof entryOrText === 'object';
+      const text = isEntry ? entryOrText.text : entryOrText;
+      const size = isEntry && Number.isFinite(Number(entryOrText.fontSize)) && Number(entryOrText.fontSize) > 0
+        ? Number(entryOrText.fontSize)
+        : tickFontSize;
       if(typeof chartStyle.measureText === 'function'){
-        return chartStyle.measureText(text || '', tickFont);
+        return chartStyle.measureText(text || '', makeTickFont(size));
       }
-      return (String(text || '').length || 0) * tickFontSize * 0.6;
+      return (String(text || '').length || 0) * size * 0.6;
     };
     const normalizeDeg = (deg) => {
       let value = Number.isFinite(deg) ? deg : 0;
@@ -1327,10 +1353,10 @@
         const curr = sorted[j];
         if(!prev || !curr){ continue; }
         if(!Number.isFinite(prev.width)){
-          prev.width = measureTickLabel(prev.text);
+          prev.width = measureTickLabel(prev);
         }
         if(!Number.isFinite(curr.width)){
-          curr.width = measureTickLabel(curr.text);
+          curr.width = measureTickLabel(curr);
         }
         const spacing = (curr.axisCoord || 0) - (prev.axisCoord || 0);
         const denom = prev.width + curr.width;
