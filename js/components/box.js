@@ -10671,6 +10671,7 @@
   let boxFontEventBound = false;
   let emptyPayloadTemplate = null;
   let boxRoot = null;
+  let boxLegendControl = null;
 
   function cloneSimple(value){
     if(!value) return null;
@@ -11057,6 +11058,19 @@
       });
     }
     return true;
+  }
+
+  function ensureBoxLegendControlPlacement(){
+    if(!boxLegendControl || !els.svgBox){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: els.svgBox,
+        control: boxLegendControl,
+        debugLabel: 'box-legend'
+      });
+    }
   }
 
   function applyBoxOwnedRuntimeControls(record){
@@ -14886,6 +14900,7 @@
     els.boxShowGrid=byId('boxShowGrid');
     els.boxShowFrame=byId('boxShowFrame');
     els.boxShowLegend=byId('boxShowLegend');
+    boxLegendControl = els.boxShowLegend?.closest('label') || null;
     els.boxLogScale=byId('boxLogScale');
     els.boxLogScaleLabel=byId('boxLogScaleLabel');
     clearBoxLogWarning();
@@ -36804,6 +36819,7 @@ Technical analysis record (advanced)
     if(state.layout?.elements?.svgBox){
       els.svgBox = state.layout.elements.svgBox;
     }
+    ensureBoxLegendControlPlacement();
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
     ensureSignificanceLabelFontEventListener();

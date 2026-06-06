@@ -606,6 +606,8 @@ describe('UI events and example loaders', () => {
     expect(legendToggle).toBeTruthy();
     expect(formatSelect).toBeTruthy();
     expect(graphTypeSelect).toBeTruthy();
+    expect(legendToggle.closest('.resizer-options-menu')).toBeTruthy();
+    expect(legendToggle.closest('.resizer-legend-control')).toBeTruthy();
     expect(legendToggle.checked).toBe(false);
 
     formatSelect.value = 'grouped';
@@ -651,6 +653,7 @@ describe('UI events and example loaders', () => {
     legendToggle.checked = false;
     legendToggle.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(40);
+    expect(document.querySelector('#boxPlot svg g[data-box-legend="1"]')).toBeNull();
     payload = boxComponent.getPayload?.();
     expect(payload?.config?.showLegend).toBe(false);
     boxComponent.loadFromPayload(payload);
