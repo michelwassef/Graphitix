@@ -1200,7 +1200,7 @@ describe('UI events and example loaders', () => {
     const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'survivalHot');
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow[0] === 'Control');
-    expect(populated?.firstRow).toEqual(['Control', 1.2, 1]);
+    expect(populated?.firstRow).toEqual(['Control', 2.1, 0]);
     await flushAsyncWork();
   });
 

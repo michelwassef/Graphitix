@@ -209,6 +209,7 @@ describe('UI statistical presentation branches', () => {
     await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(
       `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
     ));
+    await waitFor(() => (document.getElementById('boxStatsReportHost')?.textContent || '').includes('Reporting and reproducibility'));
     expect(document.getElementById('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
     expectReportHostAtBottom('boxStatsReportHost');
     expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`).toMatch(/Pairwise comparisons|Comparisons vs reference/i);

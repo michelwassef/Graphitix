@@ -90,6 +90,15 @@
     return parseViewBoxAttribute(svg.getAttribute?.('viewBox'));
   };
 
+  const resolveAutoResizeBaseViewport = baseViewport => {
+    const explicitWidth = parseFiniteNumber(baseViewport?.width);
+    const explicitHeight = parseFiniteNumber(baseViewport?.height);
+    return {
+      width: Number.isFinite(explicitWidth) && explicitWidth > 0 ? explicitWidth : NaN,
+      height: Number.isFinite(explicitHeight) && explicitHeight > 0 ? explicitHeight : NaN
+    };
+  };
+
   const resolveSvgBox = target => {
     if(!target){
       return null;
@@ -2307,10 +2316,21 @@
           };
         }
         const effectivePadding = Number.isFinite(padding) ? padding : 0;
+        const resolvedBaseViewport = resolveAutoResizeBaseViewport(baseViewport);
+        const baseW = resolvedBaseViewport.width;
+        const baseH = resolvedBaseViewport.height;
         let minX = Math.min(0, bbox.x - effectivePadding);
         let minY = Math.min(0, bbox.y - effectivePadding);
-        let viewW = Math.max(minWidth, bbox.x + bbox.width + effectivePadding - minX);
-        let viewH = Math.max(minHeight, bbox.y + bbox.height + effectivePadding - minY);
+        let maxX = Math.max(minWidth, bbox.x + bbox.width + effectivePadding);
+        let maxY = Math.max(minHeight, bbox.y + bbox.height + effectivePadding);
+        if(Number.isFinite(baseW) && baseW > 0){
+          maxX = Math.max(maxX, baseW);
+        }
+        if(Number.isFinite(baseH) && baseH > 0){
+          maxY = Math.max(maxY, baseH);
+        }
+        let viewW = Math.max(1, maxX - minX);
+        let viewH = Math.max(1, maxY - minY);
         const box = svg.closest?.('.svgbox');
         const dataset = box?.dataset || null;
         const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
@@ -2349,15 +2369,9 @@
           frozenAxes.y = true;
           orthogonalExpansion.y = minY !== stableMinY || mergedMaxY !== stableMaxY;
         }
-        // Homogenize with box.js (drawBox viewport): when the caller supplies the
-        // rendered base viewport, expand the computed viewBox symmetrically so its
-        // aspect ratio matches the frame the content was laid out for. Combined with
-        // preserveAspectRatio="xMidYMid meet" this keeps round symbols perfectly
-        // circular on screen (matching the exported SVG) instead of stretching the
-        // whole graph to fill a container of a different aspect ratio. Skipped while an
-        // orthogonal resize axis is frozen so the single-axis resize stability holds.
-        const baseW = Number(baseViewport?.width);
-        const baseH = Number(baseViewport?.height);
+        // Homogenize with box.js: keep the original rendered frame inside the
+        // viewBox, then pad only if needed to preserve that frame's aspect ratio.
+        // This preserves legend-side reserves even after the legend is dragged.
         const preserveBaseAspect = !frozenAxes.x && !frozenAxes.y
           && Number.isFinite(baseW) && baseW > 0
           && Number.isFinite(baseH) && baseH > 0

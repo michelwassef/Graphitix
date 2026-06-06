@@ -3294,7 +3294,11 @@
     }
     appendRocReportPanel(stats, graphType, diffResult);
     registerRocGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-    ensureGraphViewport(svg, { padding: Math.max(fontSize, 16), debugLabel: 'roc-graph' });
+    ensureGraphViewport(svg, {
+      padding: Math.max(fontSize, 16),
+      debugLabel: 'roc-graph',
+      baseViewport: { width, height }
+    });
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncRocAutoDrawNoticeWidth('draw');
   }

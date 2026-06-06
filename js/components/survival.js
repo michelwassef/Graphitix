@@ -3572,7 +3572,13 @@
       logDebug('autoResizeSvgHelper skipped', { hasSvg: false });
       return;
     }
-    ensureGraphViewport(svg, { padding: 18, debugLabel: 'survival-graph', component: 'survival' });
+    const width = Number(svg.getAttribute?.('width'));
+    const height = Number(svg.getAttribute?.('height'));
+    const options = { padding: 18, debugLabel: 'survival-graph', component: 'survival' };
+    if(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0){
+      options.baseViewport = { width, height };
+    }
+    ensureGraphViewport(svg, options);
   }
 
   function drawSurvival(){
@@ -5303,19 +5309,44 @@
 
   function initExampleAndImport(){
     const example = [
-      ['Control', 1.2, 1],
-      ['Control', 2.5, 1],
-      ['Control', 3.4, 0],
+      // Control group - better survival (later events, more censoring)
+      ['Control', 2.1, 0],
+      ['Control', 3.5, 0],
       ['Control', 4.8, 1],
-      ['Control', 6.1, 0],
-      ['Control', 7.9, 1],
-      ['Treatment', 0.8, 1],
-      ['Treatment', 1.6, 0],
-      ['Treatment', 2.9, 1],
-      ['Treatment', 4.2, 1],
-      ['Treatment', 5.5, 0],
-      ['Treatment', 6.7, 1],
-      ['Treatment', 8.4, 0]
+      ['Control', 6.2, 0],
+      ['Control', 7.1, 1],
+      ['Control', 8.3, 0],
+      ['Control', 9.4, 0],
+      ['Control', 10.2, 1],
+      ['Control', 11.5, 0],
+      ['Control', 12.8, 0],
+      ['Control', 13.9, 1],
+      ['Control', 14.5, 0],
+      ['Control', 15.2, 0],
+      ['Control', 16.1, 1],
+      ['Control', 17.3, 0],
+      ['Control', 18.6, 1],
+      ['Control', 19.4, 0],
+      ['Control', 20.1, 0],
+      // Treatment group - poor survival (earlier events, fewer censored)
+      ['Treatment', 0.9, 1],
+      ['Treatment', 1.5, 1],
+      ['Treatment', 2.3, 1],
+      ['Treatment', 3.1, 1],
+      ['Treatment', 3.8, 0],
+      ['Treatment', 4.5, 1],
+      ['Treatment', 5.2, 1],
+      ['Treatment', 5.9, 1],
+      ['Treatment', 6.6, 0],
+      ['Treatment', 7.3, 1],
+      ['Treatment', 8.0, 1],
+      ['Treatment', 8.7, 1],
+      ['Treatment', 9.4, 0],
+      ['Treatment', 10.1, 1],
+      ['Treatment', 10.8, 1],
+      ['Treatment', 11.5, 1],
+      ['Treatment', 12.2, 0],
+      ['Treatment', 12.9, 1]
     ];
     refs.loadExampleBtn?.addEventListener('click', () => {
       if(state.hot){
