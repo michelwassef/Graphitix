@@ -801,6 +801,40 @@
     return names;
   }
 
+  function inferPcaSampleLabelKeys(matrix, config){
+    const rows = ensureArray(matrix);
+    if(!rows.length){
+      return [];
+    }
+    const cfg = ensureObject(config);
+    const grouped = String(cfg.tableFormat || '').trim().toLowerCase() === 'grouped';
+    if(grouped){
+      return [];
+    }
+    const headerNames = ['variable', 'sample'];
+    let header = null;
+    const searchLimit = Math.min(rows.length, 3);
+    for(let rowIndex = 0; rowIndex < searchLimit; rowIndex += 1){
+      const row = rows[rowIndex];
+      if(!Array.isArray(row)){
+        continue;
+      }
+      const firstCell = String(row[0] == null ? '' : row[0]).trim().toLowerCase();
+      if(headerNames.includes(firstCell)){
+        header = row;
+        break;
+      }
+    }
+    if(!header){
+      const fallbackIndex = rows[0]?.[0] && String(rows[0][0]).trim().toLowerCase() === 'label point' ? 1 : 0;
+      header = Array.isArray(rows[fallbackIndex]) ? rows[fallbackIndex] : null;
+    }
+    if(!header){
+      return [];
+    }
+    return uniqueStrings(header.slice(1));
+  }
+
   function inferHistogramSeriesKeys(matrix){
     const rows = ensureArray(matrix);
     if(!rows.length){
@@ -1494,13 +1528,11 @@
     if(type === 'pca'){
       cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
       cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
-      const pcaLabelKeys = uniqueStrings(
-        Object.keys(ensureMap(cfg.labelColors)).concat(collectUniqueColumnValues(next.data, 0, { startRow: 1 }))
-      );
+      const pcaLabelKeys = inferPcaSampleLabelKeys(next.data, cfg);
       cfg.labelColors = buildColorMap(pcaLabelKeys, categorical);
       cfg.labelPointStyles = recolorStyleMap(
         cfg.labelPointStyles,
-        pcaLabelKeys.concat(Object.keys(ensureObject(cfg.labelPointStyles))),
+        pcaLabelKeys,
         categorical,
         {
           force: true,

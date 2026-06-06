@@ -126,6 +126,11 @@ async function waitForStatsReady(page, componentCase) {
     return;
   }
   if (key === 'line') {
+    await page.waitForFunction(() => {
+      const payload = window.Components?.line?.getPayload?.();
+      const rows = Array.isArray(payload?.data) ? payload.data : [];
+      return rows.length > 2 && rows.some((row, index) => index > 0 && Array.isArray(row) && row.some(cell => cell !== '' && cell != null));
+    }, null, { timeout: 35_000 });
     await expect(page.locator('#lineComputeStats')).toBeEnabled({ timeout: 25_000 });
     await page.locator('#lineComputeStats').click();
     await expect(page.locator('#lineStatsStatus')).toContainText('Statistics up to date.', { timeout: 40_000 });

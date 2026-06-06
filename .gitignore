@@ -1,11 +1,32 @@
+# Dependencies
 node_modules/
 desktop/node_modules/
-desktop/dist/
+
+# Build output
 desktop/app/
+desktop/dist/
+
+# Test and coverage output
+coverage/
 test-results/
 playwright-report/
 e2e/.tmp/
 artifacts/
 benchmarks/
+
+# Temporary files and local scratch work
+tmp/
+*.log
+*.tmp
+workspace-*.graph
+workspace-alone.graph
+
+# Python cache
+__pycache__/
 scripts/__pycache__/
 *.pyc
+
+# Local editor / assistant settings
+.vscode/
+.claude/
+_site/

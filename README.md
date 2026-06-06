@@ -8,7 +8,7 @@ Graphitix is a browser-based data visualization and statistical analysis studio 
 - Spreadsheet-style AG Grid input with column sorting, drag-to-reorder columns, undo/redo, clipboard import, transpose paste, and CSV/TSV/TXT/XLS/XLSX/ODS ingestion
 - Excel-like AG Grid operations (for formula-enabled workspaces), including formulas with raw/formula input preservation, computed-value rendering, and fill-handle auto-fill
 - Publication-ready SVG and PNG export across all graph workspaces
-- Client-side architecture with optional network access only for external enrichment/integration features
+- Client-side architecture designed for static hosting; external requests are limited to pinned CDN runtime libraries and optional enrichment/integration features
 - Statistical tooling built into the relevant workspaces instead of split across separate utilities
 - Optional Electron desktop wrapper under [`desktop/`](./desktop)
 
@@ -61,6 +61,18 @@ For implementation-level detail, see [`docs/statistical-validation-framework.md`
 - [`docs/`](./docs): architecture and development references
 - [`desktop/`](./desktop): Electron wrapper
 
+## GitHub Pages Deployment
+
+The repository is ready for GitHub Pages deployment from GitHub Actions. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. The `Deploy GitHub Pages` workflow validates the source tree, builds a minimal `_site/` directory containing only the runtime web app, and deploys that artifact.
+
+Useful commands:
+
+```bash
+npm run pages:check
+```
+
+This runs the publication checks and builds the static `_site/` folder used by the Pages workflow.
+
 ## Development
 
 ### Requirements
@@ -109,6 +121,7 @@ The Electron wrapper is optional and lives in [`desktop/`](./desktop).
 
 Before publishing the repository or packaging a release:
 
+- Run `npm run pages:check`
 - Run `npm test`
 - Run `npm run test:stats` if Python-based differential validation is part of the release bar
 - Run the relevant Playwright suite for the target release

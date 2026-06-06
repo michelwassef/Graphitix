@@ -191,6 +191,38 @@ describe('colorSchemes — applyToPayload()', () => {
     const result = cs.applyToPayload('venn', { style: {} }, 'colorblind');
     expect(result.style.colorScheme).toBe('colorblind');
   });
+
+  test('pca label colors are scoped to sample labels and remain idempotent', () => {
+    const payload = {
+      type: 'pca',
+      data: [
+        ['Label point', true, false, false, true],
+        ['Variable', 'Sample A', 'Sample B', 'Sample C', 'Sample D'],
+        ['Var1', 1, 2, 3, 4],
+        ['Var2', 4, 3, 2, 1]
+      ],
+      config: {
+        labelColors: {
+          'Sample A': '#111111',
+          Variable: '#222222',
+          Var1: '#333333',
+          Var2: '#444444'
+        },
+        labelPointStyles: {
+          'Sample A': { color: '#111111' },
+          Var1: { color: '#333333' }
+        }
+      }
+    };
+
+    const once = cs.applyToPayload('pca', payload, 'grayscale');
+    const twice = cs.applyToPayload('pca', once, 'grayscale');
+
+    expect(Object.keys(once.config.labelColors).sort()).toEqual(['Sample A', 'Sample B', 'Sample C', 'Sample D']);
+    expect(Object.keys(once.config.labelPointStyles).sort()).toEqual(['Sample A', 'Sample B', 'Sample C', 'Sample D']);
+    expect(JSON.stringify(twice.config.labelColors)).toBe(JSON.stringify(once.config.labelColors));
+    expect(JSON.stringify(twice.config.labelPointStyles)).toBe(JSON.stringify(once.config.labelPointStyles));
+  });
 });
 
 describe('colorSchemes — applyDefaultToPayload()', () => {

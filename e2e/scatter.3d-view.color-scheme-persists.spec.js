@@ -29,19 +29,35 @@ test('scatter 3D view survives a color scheme change', async ({ page }) => {
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
 
-  // Select 3D view, then load example data.
-  const viewSel = page.locator('#scatterViewMode');
+  // Load data first, then enter 3D and reload the example so the example loader
+  // selects its 3D dataset. Selecting 3D against an empty table can be normalized
+  // back to 2D before the test reaches the color-scheme assertion.
+  const activeRoot = '#scatterPage:not([hidden])';
+  const viewSel = page.locator(`${activeRoot} #scatterViewMode`);
   await expect(viewSel).toBeVisible({ timeout: 10_000 });
-  await viewSel.selectOption('3d');
-  await page.waitForTimeout(300);
 
-  await page.locator('#scatterLoadExample').click();
+  await page.locator(`${activeRoot} #scatterLoadExample`).click();
   await page.waitForFunction(() => {
     const hot = window.Components?.scatter?.__getActiveHot?.();
     const data = hot?.getData?.() || [];
     return Array.isArray(data) && data.length > 2;
   }, null, { timeout: 20_000 });
-  await page.waitForTimeout(800);
+
+  await viewSel.selectOption('3d');
+  await page.locator(`${activeRoot} #scatterLoadExample`).click();
+  await page.waitForFunction(() => {
+    const hot = window.Components?.scatter?.__getActiveHot?.();
+    const data = hot?.getData?.() || [];
+    return Array.isArray(data)
+      && data.length > 2
+      && data.some((row, index) => index > 0 && Array.isArray(row) && row[3] !== '' && row[3] != null);
+  }, null, { timeout: 20_000 });
+  await page.waitForFunction(() => {
+    const svg = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg');
+    const viewSelect = document.querySelector('#scatterPage:not([hidden]) #scatterViewMode');
+    return (svg?.dataset?.viewMode || svg?.getAttribute('data-view-mode')) === '3d'
+      && viewSelect?.value === '3d';
+  }, null, { timeout: 20_000 });
 
   const before = await readViewState(page);
   expect(before.svgViewMode, 'scatter should render in 3D before the scheme change').toBe('3d');

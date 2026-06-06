@@ -2,7 +2,6 @@
   "name": "graphitix",
   "version": "1.0.0",
   "description": "Graphitix is a browser-based data visualization and statistical analysis studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, heatmaps, PCA/MDS/t-SNE/UMAP, line charts, ROC/PR curves, survival analysis, histograms, and proportion charts. It includes multi-tab workspaces, publication-ready exports, and .graph session archives.",
-  "main": "./index.js",
   "scripts": {
     "preinstall": "node -e \"const pkg=require('./package.json'); const deps=['dependencies','devDependencies','peerDependencies','optionalDependencies']; const illegal = deps.flatMap(k=>Object.keys(pkg[k]||{})).find(name=>name==='ag-grid-enterprise'); if(illegal){ console.error('AG Grid enterprise is not allowed. Remove ag-grid-enterprise from package.json.'); process.exit(1); }\"",
     "test": "jest",
@@ -30,7 +29,9 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "debug:browser:chromium": "playwright open --browser=chromium http://127.0.0.1:4173/index.html",
-    "debug:browser:firefox": "playwright open --browser=firefox http://127.0.0.1:4173/index.html"
+    "debug:browser:firefox": "playwright open --browser=firefox http://127.0.0.1:4173/index.html",
+    "pages:check": "node scripts/verify-pages-ready.cjs && npm run pages:build",
+    "pages:build": "node scripts/build-pages-site.cjs"
   },
   "keywords": [
     "graphitix",
@@ -59,6 +60,7 @@
     "jest-environment-jsdom": "^30.1.2",
     "jstat": "^1.9.5",
     "jszip": "^3.10.1",
+    "pako": "^1.0.11",
     "svd-js": "^1.1.1"
   }
 }

@@ -30,6 +30,6 @@ npm run test:e2e
 
 ## Coding Guidelines
 
-- Follow `AGENTS.md` and architecture docs under `docs/development/`.
+- Follow the architecture docs under `docs/development/`.
 - Keep changes in `css/style.css` and component/shared modules instead of inline patches.
 - Prefer `Shared` and `Components` contracts over new global side channels.

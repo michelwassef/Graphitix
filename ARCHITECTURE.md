@@ -1,6 +1,6 @@
 # Architecture Guide
 
-This file is the fast-orientation entrypoint for the Graphitix codebase. It complements [README.md](./README.md), [AGENTS.md](./AGENTS.md), [docs/development/main-bootstrap.md](./docs/development/main-bootstrap.md), and the generated [docs/development/module-call-map.md](./docs/development/module-call-map.md).
+This file is the fast-orientation entrypoint for the Graphitix codebase. It complements [README.md](./README.md), [docs/development/main-bootstrap.md](./docs/development/main-bootstrap.md), and the generated [docs/development/module-call-map.md](./docs/development/module-call-map.md).
 
 For component-level contracts, see the generated [docs/development/component-contracts.md](./docs/development/component-contracts.md).
 
