@@ -5534,16 +5534,46 @@
       closeAllMenus(state);
       state.wrapper.classList.add('is-open');
       state.menu.hidden = false;
+      promoteMenuToTopLayer(state);
       updateMenuDirection(state);
       state.trigger.setAttribute('aria-expanded', 'true');
       openStates.add(state);
     } else {
       state.wrapper.classList.remove('is-open');
+      restoreMenuFromTopLayer(state);
       state.menu.hidden = true;
       state.trigger.setAttribute('aria-expanded', 'false');
       openStates.delete(state);
     }
     logDebug('menuToggle', { contextLabel: state.contextLabel, actionKey: state.actionKey, open });
+  }
+
+  function promoteMenuToTopLayer(state) {
+    if (!state?.menu || !state.wrapper || !doc?.body) return;
+    if (!state.menuPlaceholder) {
+      state.menuPlaceholder = doc.createComment('export-menu-anchor');
+    }
+    if (!state.menuPlaceholder.parentNode) {
+      state.wrapper.insertBefore(state.menuPlaceholder, state.menu);
+    }
+    if (state.menu.parentNode !== doc.body) {
+      doc.body.appendChild(state.menu);
+    }
+    state.menu.classList.add('export-dropdown-layer');
+  }
+
+  function restoreMenuFromTopLayer(state) {
+    if (!state?.menu || !state.wrapper) return;
+    state.menu.classList.remove('export-dropdown-layer');
+    state.menu.style.left = '';
+    state.menu.style.top = '';
+    state.menu.style.right = '';
+    state.menu.style.bottom = '';
+    if (state.menuPlaceholder?.parentNode) {
+      state.menuPlaceholder.parentNode.replaceChild(state.menu, state.menuPlaceholder);
+    } else if (state.menu.parentNode !== state.wrapper) {
+      state.wrapper.appendChild(state.menu);
+    }
   }
 
   function updateMenuDirection(state) {
@@ -5575,8 +5605,17 @@
     const menuRect = menu.getBoundingClientRect();
     const spaceBelow = bottomBoundary - triggerRect.bottom;
     menu.classList.remove('open-up');
-    menu.style.top = 'calc(100% + 6px)';
-    menu.style.bottom = 'auto';
+    if (menu.classList.contains('export-dropdown-layer')) {
+      const left = Math.max(0, Math.round(triggerRect.right - menuRect.width));
+      const top = Math.max(0, Math.round(triggerRect.bottom + 6));
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+      menu.style.right = 'auto';
+      menu.style.bottom = 'auto';
+    } else {
+      menu.style.top = 'calc(100% + 6px)';
+      menu.style.bottom = 'auto';
+    }
     if (menuRect.height > spaceBelow) {
       const maxHeight = Math.max(120, spaceBelow - 10);
       menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
@@ -5588,7 +5627,7 @@
     if (listenersBound || !doc?.addEventListener) return;
     doc.addEventListener('click', event => {
       for (const state of Array.from(openStates)) {
-        if (state.wrapper.contains(event.target)) {
+        if (state.wrapper.contains(event.target) || state.menu?.contains?.(event.target)) {
           continue;
         }
         setMenuOpen(state, false);
@@ -5662,6 +5701,11 @@
       return;
     }
     ensureDocumentListeners();
+    Array.from(openStates).forEach(state => {
+      if (host.contains(state.wrapper)) {
+        setMenuOpen(state, false);
+      }
+    });
     host.innerHTML = '';
     host.classList.add('export-control-host');
     const states = [];

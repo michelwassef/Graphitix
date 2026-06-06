@@ -4365,16 +4365,23 @@ input[type=number]::-webkit-inner-spin-button{
 .export-dropdown{position:relative}
 .export-dropdown .export-trigger{display:flex;align-items:center;gap:4px}
 .export-dropdown.is-open{z-index:12050}
-.export-dropdown .export-menu{position:absolute;top:100%;right:0;margin-top:4px;background:var(--ui-menu-bg);border:var(--ui-menu-border);border-radius:var(--ui-menu-radius);box-shadow:var(--ui-menu-shadow);padding:4px 0;min-width:140px;z-index:12050;display:flex;flex-direction:column}
+.export-dropdown .export-menu,
+.export-menu.export-dropdown-layer{position:absolute;top:100%;right:0;margin-top:4px;background:var(--ui-menu-bg);border:var(--ui-menu-border);border-radius:var(--ui-menu-radius);box-shadow:var(--ui-menu-shadow);padding:4px 0;min-width:140px;z-index:12050;display:flex;flex-direction:column}
+.export-menu.export-dropdown-layer{position:fixed;right:auto;margin-top:0;z-index:13050}
 .export-dropdown[data-menu-direction="up"] .export-menu{top:auto;bottom:100%;margin-top:0;margin-bottom:4px}
-.export-dropdown .export-menu[hidden]{display:none}
-.export-dropdown .export-option{background:none;border:none;width:100%;text-align:left;border-radius:0;padding:6px 12px;font-size:14px;cursor:pointer}
-.export-dropdown .export-option.btn{border:0;box-shadow:none}
-.export-dropdown .export-option:hover{background:var(--ui-menu-item-hover-bg)}
+.export-dropdown .export-menu[hidden],
+.export-menu.export-dropdown-layer[hidden]{display:none}
+.export-dropdown .export-option,
+.export-dropdown-layer .export-option{background:none;border:none;width:100%;text-align:left;border-radius:0;padding:6px 12px;font-size:14px;cursor:pointer}
+.export-dropdown .export-option.btn,
+.export-dropdown-layer .export-option.btn{border:0;box-shadow:none}
+.export-dropdown .export-option:hover,
+.export-dropdown-layer .export-option:hover{background:var(--ui-menu-item-hover-bg)}
 .export-dropdown.is-open .export-trigger{background:#e0e0e0}
 /* Shared dropdown item look across custom menus. */
 .workspace-toolbar__menu-item,
 .export-dropdown .export-option,
+.export-dropdown-layer .export-option,
 .font-controls-panel__combo-option,
 .font-controls-panel__select-option,
 .tab-context-menu__item,
