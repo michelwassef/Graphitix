@@ -79,6 +79,57 @@
     && matrix.every(row => Array.isArray(row) && row.length > 0 && row.every(value => Number.isFinite(value)))
   );
 
+
+  const resolvePValue = (value) => {
+    const resolver = Shared.stats?.finiteProbabilityOrFallback;
+    if(typeof resolver === 'function'){
+      return resolver(value, NaN);
+    }
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : NaN;
+  };
+
+  const chiSquareUpperTailPValue = (statistic, df) => {
+    const helper = Shared.stats?.chiSquareUpperTail;
+    if(typeof helper === 'function'){
+      return resolvePValue(helper(statistic, df));
+    }
+    return jStatLib?.chisquare && typeof jStatLib.chisquare.cdf === 'function'
+      ? resolvePValue(1 - jStatLib.chisquare.cdf(statistic, df))
+      : NaN;
+  };
+
+  const normalTwoSidedPValue = (z) => {
+    const helper = Shared.stats?.normalTwoSidedPValue;
+    if(typeof helper === 'function'){
+      return resolvePValue(helper(z));
+    }
+    return jStatLib?.normal && typeof jStatLib.normal.cdf === 'function'
+      ? resolvePValue(2 * (1 - jStatLib.normal.cdf(Math.abs(z), 0, 1)))
+      : NaN;
+  };
+
+  const fUpperTailPValue = (statistic, df1, df2) => {
+    const helper = Shared.stats?.fUpperTail;
+    if(typeof helper === 'function'){
+      return resolvePValue(helper(statistic, df1, df2));
+    }
+    return jStatLib?.centralF && typeof jStatLib.centralF.cdf === 'function'
+      ? resolvePValue(1 - jStatLib.centralF.cdf(statistic, df1, df2))
+      : NaN;
+  };
+
+
+  const studentTTwoSidedPValue = (statistic, df) => {
+    const helper = Shared.stats?.studentTTwoSidedPValue;
+    if(typeof helper === 'function'){
+      return resolvePValue(helper(statistic, df));
+    }
+    return jStatLib?.studentt && typeof jStatLib.studentt.cdf === 'function'
+      ? resolvePValue(2 * (1 - jStatLib.studentt.cdf(Math.abs(statistic), df)))
+      : NaN;
+  };
+
   const summarizeResiduals = (residuals) => {
     if(!Array.isArray(residuals) || residuals.length === 0){
       return { mean: NaN, sd: NaN, min: NaN, max: NaN };
@@ -120,9 +171,7 @@
     const skewness = centered.reduce((sum,val)=>sum+Math.pow(val/sd,3),0)/n;
     const kurtosis = centered.reduce((sum,val)=>sum+Math.pow(val/sd,4),0)/n;
     const jarqueBera = (n/6) * (Math.pow(skewness,2) + Math.pow(kurtosis-3,2)/4);
-    const jbP = jStatLib?.chisquare && typeof jStatLib.chisquare.cdf === 'function'
-      ? 1 - jStatLib.chisquare.cdf(jarqueBera,2)
-      : NaN;
+    const jbP = chiSquareUpperTailPValue(jarqueBera, 2);
     const diagnostics = { skewness, kurtosis, jarqueBera, jarqueBeraP: jbP };
     console.debug('Debug:', debugNs, 'residual diagnostics', diagnostics);
     return diagnostics;
@@ -187,9 +236,7 @@
     const z = Number.isFinite(variance) && variance > 0
       ? (runs - expectedRuns) / Math.sqrt(variance)
       : NaN;
-    const pValue = Number.isFinite(z) && jStatLib?.normal && typeof jStatLib.normal.cdf === 'function'
-      ? 2 * (1 - jStatLib.normal.cdf(Math.abs(z), 0, 1))
-      : NaN;
+    const pValue = Number.isFinite(z) ? normalTwoSidedPValue(z) : NaN;
     return {
       available: Number.isFinite(z) && Number.isFinite(pValue),
       runs,
@@ -302,9 +349,7 @@
     const msPure = ssPureError / dfPureError;
     const msLack = ssLackOfFit / dfLackOfFit;
     const fStatistic = msPure > 0 ? (msLack / msPure) : (msLack > 0 ? Infinity : 0);
-    const pValue = Number.isFinite(fStatistic) && jStatLib?.centralF && typeof jStatLib.centralF.cdf === 'function'
-      ? 1 - jStatLib.centralF.cdf(fStatistic, dfLackOfFit, dfPureError)
-      : NaN;
+    const pValue = Number.isFinite(fStatistic) ? fUpperTailPValue(fStatistic, dfLackOfFit, dfPureError) : NaN;
     return {
       available: Number.isFinite(fStatistic) && Number.isFinite(pValue),
       hasReplicates,
@@ -517,7 +562,7 @@
         ? estimate / standardError
         : NaN;
       const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
-        ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), degreesOfFreedom))
+        ? studentTTwoSidedPValue(tStatistic, degreesOfFreedom)
         : NaN;
       const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
         ? tCritical * standardError
@@ -1344,7 +1389,7 @@
         ? estimate / standardError
         : NaN;
       const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
-        ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), degreesOfFreedom))
+        ? studentTTwoSidedPValue(tStatistic, degreesOfFreedom)
         : NaN;
       const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
         ? tCritical * standardError
@@ -2844,7 +2889,7 @@
       const standardError = standardErrors[idx];
       const tStatistic = Number.isFinite(standardError) && standardError !== 0 ? estimate / standardError : NaN;
       const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && dof > 0)
-        ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), dof))
+        ? studentTTwoSidedPValue(tStatistic, dof)
         : NaN;
       const ciHalf = Number.isFinite(tCritical) && Number.isFinite(standardError)
         ? tCritical * standardError
@@ -4265,9 +4310,7 @@
       return null;
     }
     const fStatistic = numerator / denominator;
-    const pValue = (jStatLib?.centralF && Number.isFinite(fStatistic))
-      ? (1 - jStatLib.centralF.cdf(fStatistic, df1, df2))
-      : NaN;
+    const pValue = Number.isFinite(fStatistic) ? fUpperTailPValue(fStatistic, df1, df2) : NaN;
     return { fStatistic, pValue, df1, df2 };
   };
 

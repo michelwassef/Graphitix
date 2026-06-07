@@ -277,10 +277,83 @@
     if(typeof formatter === 'function'){
       return formatter(value, options);
     }
-    if(!Number.isFinite(value)){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
       return String(value);
     }
-    return Number(value).toExponential(5);
+    const scientific = options?.forceScientific === true || options?.scientific === true;
+    if(scientific){
+      return numeric.toExponential(5);
+    }
+    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function resolvePValue(value){
+    try{
+      const resolver = ensureStats()?.finiteProbabilityOrFallback;
+      if(typeof resolver === 'function'){
+        return resolver(value, NaN);
+      }
+    }catch(err){
+      logDebug('Debug: box worker resolvePValue stats unavailable', { message: err?.message || String(err) });
+    }
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : NaN;
+  }
+
+  function normalTwoSidedPValue(z){
+    try{
+      const helper = ensureStats()?.normalTwoSidedPValue;
+      if(typeof helper === 'function'){
+        return resolvePValue(helper(z));
+      }
+    }catch(err){}
+    const cdf = ctx.jStat?.normal?.cdf;
+    return typeof cdf === 'function' ? resolvePValue(2 * (1 - cdf(Math.abs(z), 0, 1))) : NaN;
+  }
+
+  function normalUpperTailPValue(z){
+    try{
+      const helper = ensureStats()?.normalUpperTail;
+      if(typeof helper === 'function'){
+        return resolvePValue(helper(z));
+      }
+    }catch(err){}
+    const cdf = ctx.jStat?.normal?.cdf;
+    return typeof cdf === 'function' ? resolvePValue(1 - cdf(z, 0, 1)) : NaN;
+  }
+
+  function studentTTwoSidedPValue(t, df){
+    try{
+      const helper = ensureStats()?.studentTTwoSidedPValue;
+      if(typeof helper === 'function'){
+        return resolvePValue(helper(t, df));
+      }
+    }catch(err){}
+    const cdf = ctx.jStat?.studentt?.cdf;
+    return typeof cdf === 'function' ? resolvePValue(2 * (1 - cdf(Math.abs(t), df))) : NaN;
+  }
+
+  function fUpperTailPValue(F, df1, df2){
+    try{
+      const helper = ensureStats()?.fUpperTail;
+      if(typeof helper === 'function'){
+        return resolvePValue(helper(F, df1, df2));
+      }
+    }catch(err){}
+    const cdf = ctx.jStat?.centralF?.cdf;
+    return typeof cdf === 'function' ? resolvePValue(1 - cdf(F, df1, df2)) : NaN;
+  }
+
+  function chiSquareUpperTailPValue(statistic, df){
+    try{
+      const helper = ensureStats()?.chiSquareUpperTail;
+      if(typeof helper === 'function'){
+        return resolvePValue(helper(statistic, df));
+      }
+    }catch(err){}
+    const cdf = ctx.jStat?.chisquare?.cdf;
+    return typeof cdf === 'function' ? resolvePValue(1 - cdf(statistic, df)) : NaN;
   }
 
   function formatStatNumber(value, digits){
@@ -678,73 +751,6 @@
       ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4] + 1);
   }
 
-  function logGamma(z){
-    const coeffs = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
-    if(z < 0.5){
-      return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * z)) - logGamma(1 - z);
-    }
-    z -= 1;
-    let x = coeffs[0];
-    for(let i = 1; i < coeffs.length; i++){
-      x += coeffs[i] / (z + i);
-    }
-    const t = z + 7.5;
-    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
-  }
-
-  function betacf(x, a, b){
-    const MAX_ITER = 100;
-    const EPS = 1e-12;
-    const FPMIN = Number.MIN_VALUE / EPS;
-    let qab = a + b;
-    let qap = a + 1;
-    let qam = a - 1;
-    let c = 1;
-    let d = 1 - qab * x / qap;
-    if(Math.abs(d) < FPMIN) d = FPMIN;
-    d = 1 / d;
-    let h = d;
-    for(let m = 1; m <= MAX_ITER; m++){
-      const m2 = 2 * m;
-      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
-      d = 1 + aa * d;
-      if(Math.abs(d) < FPMIN) d = FPMIN;
-      c = 1 + aa / c;
-      if(Math.abs(c) < FPMIN) c = FPMIN;
-      d = 1 / d;
-      h *= d * c;
-      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
-      d = 1 + aa * d;
-      if(Math.abs(d) < FPMIN) d = FPMIN;
-      c = 1 + aa / c;
-      if(Math.abs(c) < FPMIN) c = FPMIN;
-      d = 1 / d;
-      const del = d * c;
-      h *= del;
-      if(Math.abs(del - 1) < EPS) break;
-    }
-    return h;
-  }
-
-  function regularizedIncompleteBeta(x, a, b){
-    if(x <= 0) return 0;
-    if(x >= 1) return 1;
-    const bt = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
-    if(x < (a + 1) / (a + b + 2)){
-      return bt * betacf(x, a, b) / a;
-    }
-    return 1 - bt * betacf(1 - x, b, a) / b;
-  }
-
-  function fcdf(x, d1, d2){
-    if(!Number.isFinite(x) || x < 0){
-      return 0;
-    }
-    const transformed = (d1 * x) / (d1 * x + d2);
-    const result = regularizedIncompleteBeta(transformed, d1 / 2, d2 / 2);
-    return Number.isFinite(result) ? result : 0;
-  }
-
   function sampleArrayEvenly(values, limit){
     if(!Array.isArray(values) || !values.length){
       return [];
@@ -952,7 +958,7 @@
     const msBetween = ssBetween / (df1 || 1);
     const msWithin = ssWithin / (df2 || 1);
     const F = msWithin === 0 ? Infinity : msBetween / msWithin;
-    const pValue = Number.isFinite(F) ? 1 - fcdf(F, df1, df2) : 0;
+    const pValue = Number.isFinite(F) ? fUpperTailPValue(F, df1, df2) : 0;
     const passed = Number.isFinite(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
     return { method: 'brown-forsythe', statistic: F, pValue, passed, df1, df2, sparkline: sparklineValues };
   }
@@ -1077,7 +1083,7 @@
     const se = Math.sqrt(va / na + vb / nb);
     const t = (ma - mb) / se;
     const df = Math.pow(va / na + vb / nb, 2) / (Math.pow(va / na, 2) / (na - 1 || 1) + Math.pow(vb / nb, 2) / (nb - 1 || 1));
-    const p = 2 * (1 - cdf(Math.abs(t), df));
+    const p = studentTTwoSidedPValue(t, df);
     const diff = ma - mb;
     const tCritical = resolveTCritical(df, 0.05);
     const ciHalf = Number.isFinite(tCritical) && Number.isFinite(se) ? tCritical * se : NaN;
@@ -1108,7 +1114,7 @@
     const md = mean(diffs);
     const sd = Math.sqrt(diffs.reduce((s, v) => s + Math.pow(v - md, 2), 0) / (n - 1 || 1));
     const t = md / (sd / Math.sqrt(n));
-    const p = 2 * (1 - cdf(Math.abs(t), n - 1));
+    const p = studentTTwoSidedPValue(t, n - 1);
     const se = sd / Math.sqrt(n);
     const tCritical = resolveTCritical(n - 1, 0.05);
     const ciHalf = Number.isFinite(tCritical) && Number.isFinite(se) ? tCritical * se : NaN;
@@ -1158,7 +1164,7 @@
     }else{
       const se = sd / Math.sqrt(n);
       t = (meanVal - target) / se;
-      p = 2 * (1 - cdf(Math.abs(t), n - 1));
+      p = studentTTwoSidedPValue(t, n - 1);
     }
     return { t, df: n - 1, p, n, mean: meanVal, sd };
   }
@@ -1202,7 +1208,7 @@
     const mu = effectiveN * (effectiveN + 1) / 4;
     const sigma = Math.sqrt(effectiveN * (effectiveN + 1) * (2 * effectiveN + 1) / 24);
     const z = sigma === 0 ? 0 : (W - mu) / sigma;
-    const p = 2 * (1 - cdf(Math.abs(z), 0, 1));
+    const p = normalTwoSidedPValue(z);
     return { W, z, p, n, effectiveN, median: medianDiff };
   }
 
@@ -1249,7 +1255,7 @@
     const mu = na * nb / 2;
     const sigma = Math.sqrt(na * nb * (na + nb + 1) / 12);
     const z = (U - mu) / sigma;
-    const p = 2 * (1 - cdf(Math.abs(z), 0, 1));
+    const p = normalTwoSidedPValue(z);
     return { U, z, p };
   }
 
@@ -1273,7 +1279,7 @@
     const mu = nEff * (nEff + 1) / 4;
     const sigma = Math.sqrt(nEff * (nEff + 1) * (2 * nEff + 1) / 24);
     const z = (W - mu) / sigma;
-    const p = 2 * (1 - cdf(Math.abs(z), 0, 1));
+    const p = normalTwoSidedPValue(z);
     return { W, z, p };
   }
 
@@ -1301,7 +1307,7 @@
     const msBetween = ssBetween / dfBetween;
     const msWithin = ssWithin / dfWithin;
     const F = msBetween / msWithin;
-    const p = 1 - cdf(F, dfBetween, dfWithin);
+    const p = fUpperTailPValue(F, dfBetween, dfWithin);
     return { F, p, dfBetween, dfWithin };
   }
 
@@ -1325,7 +1331,7 @@
     });
     const H = (12 / (n * (n + 1))) * R.reduce((sum, ri, i) => sum + Math.pow(ri, 2) / groups[i].length, 0) - 3 * (n + 1);
     const df = groups.length - 1;
-    const p = 1 - cdf(H, df);
+    const p = chiSquareUpperTailPValue(H, df);
     return { H, p };
   }
 
@@ -1412,7 +1418,7 @@
       p = msCondition > 0 ? 0 : 1;
     }else{
       F = msCondition / msError;
-      p = 1 - cdf(F, df1, df2);
+      p = fUpperTailPValue(F, df1, df2);
     }
     let ggEpsilon = NaN;
     let hfEpsilon = NaN;
@@ -1468,14 +1474,14 @@
         const ggDf1 = ggEpsilon * df1;
         const ggDf2 = ggEpsilon * df2;
         if(ggDf1 > 0 && ggDf2 > 0){
-          ggP = 1 - cdf(F, ggDf1, ggDf2);
+          ggP = fUpperTailPValue(F, ggDf1, ggDf2);
         }
       }
       if(Number.isFinite(hfEpsilon) && hfEpsilon > 0){
         const hfDf1 = hfEpsilon * df1;
         const hfDf2 = hfEpsilon * df2;
         if(hfDf1 > 0 && hfDf2 > 0){
-          hfP = 1 - cdf(F, hfDf1, hfDf2);
+          hfP = fUpperTailPValue(F, hfDf1, hfDf2);
         }
       }
     }
@@ -1545,7 +1551,7 @@
       }
     }
     const df = k - 1;
-    const p = 1 - cdf(Q, df);
+    const p = chiSquareUpperTailPValue(Q, df);
     return {
       ok: true,
       Q,
@@ -1597,7 +1603,7 @@
     const F = correction > 0 ? numerator / correction : NaN;
     const df2Den = 3 * sumTerm;
     const df2 = df2Den > 0 ? (Math.pow(k, 2) - 1) / df2Den : Number.POSITIVE_INFINITY;
-    const p = Number.isFinite(F) ? 1 - fcdf(F, df1, df2) : 1;
+    const p = Number.isFinite(F) ? fUpperTailPValue(F, df1, df2) : 1;
     return {
       ok: Number.isFinite(F) && Number.isFinite(df2) && df2 > 0,
       F,
@@ -1896,7 +1902,7 @@
       }
       const diff = means[i] - means[refIdx];
       const t = diff / se;
-      const rawP = 2 * (1 - cdf(Math.abs(t), df));
+      const rawP = studentTTwoSidedPValue(t, df);
       const pAdj = 1 - Math.pow(Math.max(0, 1 - rawP), comparisonCount);
       const tCritical = resolveTCritical(df, sidakAlpha);
       const ciHalf = Number.isFinite(tCritical) ? tCritical * se : NaN;
@@ -1983,7 +1989,7 @@
         const cdf = jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf === 'function'
           ? jStatLib.normal.cdf(absZ, 0, 1)
           : 0.5 * (1 + Math.erf(absZ / Math.SQRT2));
-        const p = Math.max(0, Math.min(1, 2 * (1 - cdf)));
+        const p = normalTwoSidedPValue(absZ);
         pairs.push({
           i,
           j,
@@ -3037,9 +3043,9 @@
     const fA = mse > 0 ? msa / mse : NaN;
     const fB = mse > 0 ? msb / mse : NaN;
     const fAB = mse > 0 ? msab / mse : NaN;
-    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfError) : NaN;
-    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfError) : NaN;
-    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfError) : NaN;
+    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfError) : NaN;
+    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfError) : NaN;
+    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfError) : NaN;
     return {
       ok: true,
       caption: 'Two-way ANOVA',
@@ -3132,9 +3138,9 @@
     const fA = msas > 0 ? msa / msas : NaN;
     const fB = msbs > 0 ? msb / msbs : NaN;
     const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
+    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfAS) : NaN;
+    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfBS) : NaN;
+    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABS) : NaN;
     return {
       ok: true,
       caption: 'Two-way Mixed Model',
@@ -3231,12 +3237,12 @@
     const fAB = msabc > 0 ? msab / msabc : NaN;
     const fAC = msabc > 0 ? msac / msabc : NaN;
     const fBC = msabc > 0 ? msbc / msabc : NaN;
-    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfABC) : NaN;
-    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfABC) : NaN;
-    const pC = Number.isFinite(fC) ? 1 - jStatLib.centralF.cdf(fC, dfC, dfABC) : NaN;
-    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABC) : NaN;
-    const pAC = Number.isFinite(fAC) ? 1 - jStatLib.centralF.cdf(fAC, dfAC, dfABC) : NaN;
-    const pBC = Number.isFinite(fBC) ? 1 - jStatLib.centralF.cdf(fBC, dfBC, dfABC) : NaN;
+    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfABC) : NaN;
+    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfABC) : NaN;
+    const pC = Number.isFinite(fC) ? fUpperTailPValue(fC, dfC, dfABC) : NaN;
+    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABC) : NaN;
+    const pAC = Number.isFinite(fAC) ? fUpperTailPValue(fAC, dfAC, dfABC) : NaN;
+    const pBC = Number.isFinite(fBC) ? fUpperTailPValue(fBC, dfBC, dfABC) : NaN;
     return {
       ok: true,
       caption: 'Three-way ANOVA',
@@ -3333,9 +3339,9 @@
     const fA = msas > 0 ? msa / msas : NaN;
     const fB = msbs > 0 ? msb / msbs : NaN;
     const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
+    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfAS) : NaN;
+    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfBS) : NaN;
+    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABS) : NaN;
     return {
       ok: true,
       caption: 'Three-way Mixed Model',

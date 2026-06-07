@@ -4,6 +4,7 @@
 
   const ctx = typeof self !== 'undefined' ? self : this;
   const JSTAT_URL = 'https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js';
+  const STATS_URL = '../shared/stats.js';
   const REGRESSION_URL = '../shared/regression.js';
   const debugState = { enabled: false };
 
@@ -29,6 +30,28 @@
       return ctx.jStat;
     }
     throw new Error('jStat unavailable in worker');
+  }
+
+  function ensureStats(){
+    if(ctx.Shared?.stats?.studentTTwoSidedPValue){
+      return ctx.Shared.stats;
+    }
+    if(typeof ctx.importScripts === 'function'){
+      ctx.importScripts(STATS_URL);
+    }
+    return ctx.Shared?.stats || null;
+  }
+
+  function workerStudentTTwoSidedPValue(t, df){
+    const stats = ensureStats();
+    if(typeof stats?.studentTTwoSidedPValue === 'function'){
+      const value = stats.studentTTwoSidedPValue(t, df);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const jStat = ensureJStat();
+    return jStat.studentt && typeof jStat.studentt.cdf === 'function' && Number.isFinite(t)
+      ? Math.max(0, Math.min(1, 2 * (1 - jStat.studentt.cdf(Math.abs(t), df))))
+      : NaN;
   }
 
   function ensureRegressionTools(){
@@ -191,13 +214,12 @@
       return { method: label, r: NaN, p: NaN, r2: NaN, m: NaN, b: NaN, regression: null, curveSamples: [], pointCount: n };
     }
     const jStat = ensureJStat();
+    ensureStats();
     const pearson = jStat.corrcoeff(x, y);
     const r = method === 'pearson' ? pearson : jStat.spearmancoeff(x, y);
     const tDen = 1 - r * r;
     const t = tDen <= 0 ? (r >= 0 ? Infinity : -Infinity) : r * Math.sqrt((n - 2) / tDen);
-    const p = jStat.studentt && typeof jStat.studentt.cdf === 'function' && Number.isFinite(t)
-      ? 2 * (1 - jStat.studentt.cdf(Math.abs(t), n - 2))
-      : NaN;
+    const p = Number.isFinite(t) ? workerStudentTTwoSidedPValue(t, n - 2) : NaN;
     const pMethod = method === 'spearman' ? 't approximation' : 'Student t approximation';
     const xMean = jStat.mean(x);
     const yMean = jStat.mean(y);

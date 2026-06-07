@@ -126,6 +126,11 @@
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
   const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
+  const SURFACE_LEGEND_TEXT_ROLE = 'scaleTick';
+  const SURFACE_LEGEND_LABELS = Object.freeze([
+    { id: 'max', key: 'surfaceLegendScaleMax', anchor: 'max' },
+    { id: 'min', key: 'surfaceLegendScaleMin', anchor: 'min' }
+  ]);
   const SURFACE_LEGEND_BAR_REFERENCE_WIDTH = 360;
   const SURFACE_LEGEND_BAR_MIN_WIDTH = 4;
   const SURFACE_LEGEND_BAR_MAX_WIDTH_RATIO = 0.07;
@@ -1216,6 +1221,52 @@
     return fontControls.applySavedStyle(node);
   };
 
+  function markSurfaceLegendTextLabel(node, labelSpec){
+    if(!node){ return; }
+    const key = labelSpec?.key || null;
+    markFontEditable(node, SURFACE_LEGEND_TEXT_ROLE, key);
+    // Legend scale labels are generated numeric ticks, not user-authored text.
+    // Keep them registered with fontControls so Graph-scope font styles apply,
+    // but do not let a selection-specific legend override shadow future
+    // Graph-wide font changes. This matches the heatmap color-scale pattern.
+    if(node.dataset){
+      node.dataset.fontEditable = '0';
+      node.dataset.surfaceLegendLabel = labelSpec?.id || 'scale';
+    }
+    applySavedFontStyle(node);
+  }
+
+  function appendSurfaceLegendTextLabel(parent, labelSpec, context){
+    const doc = parent?.ownerDocument || global.document;
+    if(!doc || !parent || !labelSpec || !context){ return null; }
+    const text = doc.createElementNS(NS, 'text');
+    const y = labelSpec.anchor === 'min'
+      ? context.barHeight + context.labelOffset
+      : -context.topLabelGap;
+    text.setAttribute('x', String(context.barWidth / 2));
+    text.setAttribute('y', String(y));
+    text.setAttribute('font-size', String(context.fontSize));
+    text.setAttribute('fill', context.textColor);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('data-legend-key', 'surface-scale');
+    if(labelSpec.anchor !== 'min'){
+      text.setAttribute('dominant-baseline', 'baseline');
+    }
+    text.textContent = context.formatValue(labelSpec.anchor);
+    parent.appendChild(text);
+    markSurfaceLegendTextLabel(text, labelSpec);
+    return text;
+  }
+
+  function appendSurfaceLegendTextLabels(parent, context){
+    const labels = [];
+    SURFACE_LEGEND_LABELS.forEach(labelSpec => {
+      const node = appendSurfaceLegendTextLabel(parent, labelSpec, context);
+      if(node){ labels.push(node); }
+    });
+    return labels;
+  }
+
   function debugLog(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
       return;
@@ -2009,28 +2060,15 @@
     rect.setAttribute('stroke-width', Math.max(0.4, fontSize * 0.04));
     rect.setAttribute('data-legend-key', 'surface-scale');
     legend.appendChild(rect);
-    const minText = doc.createElementNS(NS, 'text');
-    minText.setAttribute('x', barWidth / 2);
-    minText.setAttribute('y', finalLegendHeight + labelOffset);
-    minText.setAttribute('font-size', legendFontSize);
-    minText.setAttribute('fill', legendTextColor);
-    minText.setAttribute('text-anchor', 'middle');
-    minText.setAttribute('data-legend-key', 'surface-scale');
-    minText.textContent = formatNumber(options.min);
-    legend.appendChild(minText);
-    markFontEditable(minText, 'legendTick', 'legendMin');
-
-    const maxText = doc.createElementNS(NS, 'text');
-    maxText.setAttribute('x', barWidth / 2);
-    maxText.setAttribute('y', -topLabelGap);
-    maxText.setAttribute('font-size', legendFontSize);
-    maxText.setAttribute('fill', legendTextColor);
-    maxText.setAttribute('text-anchor', 'middle');
-    maxText.setAttribute('dominant-baseline', 'baseline');
-    maxText.setAttribute('data-legend-key', 'surface-scale');
-    maxText.textContent = formatNumber(options.max);
-    legend.appendChild(maxText);
-    markFontEditable(maxText, 'legendTick', 'legendMax');
+    appendSurfaceLegendTextLabels(legend, {
+      barWidth,
+      barHeight: finalLegendHeight,
+      labelOffset,
+      topLabelGap,
+      fontSize: legendFontSize,
+      textColor: legendTextColor,
+      formatValue: anchor => formatNumber(anchor === 'min' ? options.min : options.max)
+    });
 
     if(typeof plot3d.applyLegendPointerGuards === 'function' && legend.dataset?.pointerGuardBound !== '1'){
       plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
@@ -2366,7 +2404,7 @@
       resolveSurfaceScopedFontSize('yTick', fs),
       resolveSurfaceScopedFontSize('zTick', fs)
     );
-    const surfaceLegendTickFontSize = resolveSurfaceScopedFontSize('legendTick', fs * 0.75);
+    const surfaceLegendTickFontSize = resolveSurfaceScopedFontSize(null, fs * 0.75);
     const markSurface3dAxisTickLabel = (node, axisKey) => {
       if(!node){ return; }
       const role = axisKey === 'z' ? 'zTick' : (axisKey === 'y' ? 'yTick' : 'xTick');
@@ -3914,6 +3952,7 @@
     resolve3dFrame: drawableFrame => resolveSurface3dFrame(drawableFrame),
     resolveLegendMetrics: options => resolveSurfaceLegendMetrics(options),
     resolvePlotMargins: options => resolveSurfacePlotMargins(options),
+    renderLegend: (svg, options) => renderLegend(svg, options),
     applySavedFontStyle: node => applySavedFontStyle(node)
   });
 

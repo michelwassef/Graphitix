@@ -66,7 +66,7 @@
   const DEFAULT_PVALUE_SCI_THRESHOLD = 1;
   const DEFAULT_REPORT_PVALUE_DECIMALS = 4;
   const DEFAULT_REPORT_PVALUE_MIN = 0.0001;
-  const PVALUE_FORMAT_STORAGE_KEY = 'venn.stats.pvalueScientific';
+  const DEFAULT_PVALUE_FORMAT_SCIENTIFIC = false;
 
   function statsDebugEnabled(){
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -118,6 +118,272 @@
     return normalizeExponentText(result);
   }
 
+  const NUMERICAL_MAX_ITER = 10000;
+  const NUMERICAL_EPSILON = 3e-14;
+  const NUMERICAL_FPMIN = 1e-300;
+  const LANCZOS_COEFFS = [
+    676.5203681218851,
+    -1259.1392167224028,
+    771.32342877765313,
+    -176.61502916214059,
+    12.507343278686905,
+    -0.13857109526572012,
+    9.9843695780195716e-6,
+    1.5056327351493116e-7
+  ];
+
+  function clampProbability(value){
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return NaN;
+    }
+    if(num <= 0){
+      return 0;
+    }
+    if(num >= 1){
+      return 1;
+    }
+    return num;
+  }
+
+  function logGamma(value){
+    const z = Number(value);
+    if(!Number.isFinite(z) || z <= 0){
+      return NaN;
+    }
+    if(z < 0.5){
+      return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * z)) - logGamma(1 - z);
+    }
+    const shifted = z - 1;
+    let x = 0.99999999999980993;
+    for(let i = 0; i < LANCZOS_COEFFS.length; i += 1){
+      x += LANCZOS_COEFFS[i] / (shifted + i + 1);
+    }
+    const t = shifted + LANCZOS_COEFFS.length - 0.5;
+    return 0.5 * Math.log(2 * Math.PI) + (shifted + 0.5) * Math.log(t) - t + Math.log(x);
+  }
+
+  function regularizedGammaSeries(a, x){
+    const gln = logGamma(a);
+    if(!Number.isFinite(gln)){
+      return NaN;
+    }
+    if(x <= 0){
+      return 0;
+    }
+    let sum = 1 / a;
+    let del = sum;
+    let ap = a;
+    for(let n = 1; n <= NUMERICAL_MAX_ITER; n += 1){
+      ap += 1;
+      del *= x / ap;
+      sum += del;
+      if(Math.abs(del) < Math.abs(sum) * NUMERICAL_EPSILON){
+        break;
+      }
+    }
+    return sum * Math.exp(-x + a * Math.log(x) - gln);
+  }
+
+  function regularizedGammaContinuedFraction(a, x){
+    const gln = logGamma(a);
+    if(!Number.isFinite(gln)){
+      return NaN;
+    }
+    let b = x + 1 - a;
+    let c = 1 / NUMERICAL_FPMIN;
+    let d = 1 / Math.max(Math.abs(b), NUMERICAL_FPMIN);
+    if(b < 0 && Math.abs(b) < NUMERICAL_FPMIN){
+      d = -d;
+    }
+    let h = d;
+    for(let i = 1; i <= NUMERICAL_MAX_ITER; i += 1){
+      const an = -i * (i - a);
+      b += 2;
+      d = an * d + b;
+      if(Math.abs(d) < NUMERICAL_FPMIN){
+        d = NUMERICAL_FPMIN;
+      }
+      c = b + an / c;
+      if(Math.abs(c) < NUMERICAL_FPMIN){
+        c = NUMERICAL_FPMIN;
+      }
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if(Math.abs(del - 1) < NUMERICAL_EPSILON){
+        break;
+      }
+    }
+    return Math.exp(-x + a * Math.log(x) - gln) * h;
+  }
+
+  function regularizedGammaQ(a, x){
+    const aa = Number(a);
+    const xx = Number(x);
+    if(!Number.isFinite(aa) || !Number.isFinite(xx) || aa <= 0){
+      return NaN;
+    }
+    if(xx <= 0){
+      return 1;
+    }
+    if(xx < aa + 1){
+      return clampProbability(1 - regularizedGammaSeries(aa, xx));
+    }
+    return clampProbability(regularizedGammaContinuedFraction(aa, xx));
+  }
+
+  function betaContinuedFraction(a, b, x){
+    const qab = a + b;
+    const qap = a + 1;
+    const qam = a - 1;
+    let c = 1;
+    let d = 1 - qab * x / qap;
+    if(Math.abs(d) < NUMERICAL_FPMIN){
+      d = NUMERICAL_FPMIN;
+    }
+    d = 1 / d;
+    let h = d;
+    for(let m = 1; m <= NUMERICAL_MAX_ITER; m += 1){
+      const m2 = 2 * m;
+      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d;
+      if(Math.abs(d) < NUMERICAL_FPMIN){
+        d = NUMERICAL_FPMIN;
+      }
+      c = 1 + aa / c;
+      if(Math.abs(c) < NUMERICAL_FPMIN){
+        c = NUMERICAL_FPMIN;
+      }
+      d = 1 / d;
+      h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d;
+      if(Math.abs(d) < NUMERICAL_FPMIN){
+        d = NUMERICAL_FPMIN;
+      }
+      c = 1 + aa / c;
+      if(Math.abs(c) < NUMERICAL_FPMIN){
+        c = NUMERICAL_FPMIN;
+      }
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if(Math.abs(del - 1) < NUMERICAL_EPSILON){
+        break;
+      }
+    }
+    return h;
+  }
+
+  function regularizedBeta(x, a, b){
+    const xx = Number(x);
+    const aa = Number(a);
+    const bb = Number(b);
+    if(!Number.isFinite(xx) || !Number.isFinite(aa) || !Number.isFinite(bb) || aa <= 0 || bb <= 0){
+      return NaN;
+    }
+    if(xx <= 0){
+      return 0;
+    }
+    if(xx >= 1){
+      return 1;
+    }
+    const logBt = logGamma(aa + bb) - logGamma(aa) - logGamma(bb) + aa * Math.log(xx) + bb * Math.log1p(-xx);
+    const bt = Math.exp(logBt);
+    if(!Number.isFinite(bt)){
+      return logBt < Math.log(Number.MIN_VALUE || 5e-324) ? 0 : NaN;
+    }
+    if(xx < (aa + 1) / (aa + bb + 2)){
+      return clampProbability((bt * betaContinuedFraction(aa, bb, xx)) / aa);
+    }
+    return clampProbability(1 - (bt * betaContinuedFraction(bb, aa, 1 - xx)) / bb);
+  }
+
+  function chiSquareUpperTail(statistic, df){
+    const x = Number(statistic);
+    const degrees = Number(df);
+    if(!Number.isFinite(x) || !Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(x <= 0){
+      return 1;
+    }
+    return regularizedGammaQ(degrees / 2, x / 2);
+  }
+
+  function fUpperTail(statistic, df1, df2){
+    const f = Number(statistic);
+    const d1 = Number(df1);
+    const d2 = Number(df2);
+    if(!Number.isFinite(f) || !Number.isFinite(d1) || !Number.isFinite(d2) || d1 <= 0 || d2 <= 0){
+      return NaN;
+    }
+    if(f <= 0){
+      return 1;
+    }
+    const x = d2 / (d2 + d1 * f);
+    return regularizedBeta(x, d2 / 2, d1 / 2);
+  }
+
+  function studentTTwoSidedPValue(statistic, df){
+    const t = Number(statistic);
+    const degrees = Number(df);
+    if(!Number.isFinite(t) || !Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    const x = degrees / (degrees + t * t);
+    return regularizedBeta(x, degrees / 2, 0.5);
+  }
+
+  function studentTUpperTail(statistic, df){
+    const t = Number(statistic);
+    const degrees = Number(df);
+    if(!Number.isFinite(t) || !Number.isFinite(degrees) || degrees <= 0){
+      return NaN;
+    }
+    if(t === 0){
+      return 0.5;
+    }
+    const twoSided = studentTTwoSidedPValue(Math.abs(t), degrees);
+    if(!Number.isFinite(twoSided)){
+      return NaN;
+    }
+    return t > 0 ? twoSided / 2 : 1 - (twoSided / 2);
+  }
+
+  function normalTwoSidedPValue(z){
+    const value = Number(z);
+    if(!Number.isFinite(value)){
+      return NaN;
+    }
+    return regularizedGammaQ(0.5, (value * value) / 2);
+  }
+
+  function normalUpperTail(z){
+    const value = Number(z);
+    if(!Number.isFinite(value)){
+      return NaN;
+    }
+    if(value === 0){
+      return 0.5;
+    }
+    const halfTwoSided = normalTwoSidedPValue(Math.abs(value)) / 2;
+    if(!Number.isFinite(halfTwoSided)){
+      return NaN;
+    }
+    return value > 0 ? halfTwoSided : 1 - halfTwoSided;
+  }
+
+  function finiteProbabilityOrFallback(value, fallback){
+    const p = clampProbability(value);
+    if(Number.isFinite(p)){
+      return p;
+    }
+    const candidate = clampProbability(fallback);
+    return Number.isFinite(candidate) ? candidate : NaN;
+  }
+
   function formatFixedTrimmed(value, decimals){
     const num = Number(value);
     if(!Number.isFinite(num)){
@@ -133,6 +399,18 @@
       .replace(/^-0$/, '0');
   }
 
+  function createPValueDisplayString(text, rawValue, metadata = {}){
+    const label = new String(String(text == null ? '' : text));
+    const numeric = Number(rawValue);
+    Object.defineProperties(label, {
+      __statsPValueRaw: { value: Number.isFinite(numeric) ? numeric : NaN, enumerable: false },
+      __statsPValueOperator: { value: typeof metadata.operator === 'string' && metadata.operator ? metadata.operator : '=', enumerable: false },
+      __statsPValueScientific: { value: metadata.scientific === true, enumerable: false },
+      __statsPValueThresholded: { value: metadata.thresholded === true, enumerable: false }
+    });
+    return label;
+  }
+
   function sanitizePValueScientific(value, fallback){
     if(value === true || value === 'true' || value === 1 || value === '1'){
       return true;
@@ -143,31 +421,136 @@
     return fallback === true;
   }
 
-  function getStoredPValueScientific(){
-    try{
-      if(global.localStorage){
-        const stored = global.localStorage.getItem(PVALUE_FORMAT_STORAGE_KEY);
-        if(stored != null && stored !== ''){
-          return sanitizePValueScientific(stored, false);
-        }
-      }
-    }catch(err){
-      statsReportingDebug('readPValueFormatStorageError', { message: err?.message || String(err) });
-    }
-    return false;
+  const panelPValueScientificState = new WeakMap();
+  const tabPValueScientificState = new Map();
+
+  function normalizeStatsTabId(value){
+    const text = typeof value === 'string' ? value.trim() : String(value || '').trim();
+    return text || '';
   }
 
-  function persistPValueScientific(value){
+  function resolveActiveStatsTabId(){
     try{
-      if(global.localStorage){
-        global.localStorage.setItem(PVALUE_FORMAT_STORAGE_KEY, value ? '1' : '0');
-      }
+      return normalizeStatsTabId(global.Main?.session?.getActiveTab?.()?.id);
     }catch(err){
-      statsReportingDebug('writePValueFormatStorageError', { message: err?.message || String(err) });
+      statsReportingDebug('resolveActiveTabError', { message: err?.message || String(err) });
+      return '';
     }
   }
 
-  let sharedPValueScientific = getStoredPValueScientific();
+  function resolveComponentStatsTabId(target){
+    const targetId = typeof target?.id === 'string' ? target.id : '';
+    if(!targetId){
+      return '';
+    }
+    const componentKeyByPanelId = {
+      statsResults: 'box',
+      scatterStatsResults: 'scatter',
+      lineStatsResults: 'line',
+      heatmapStatsContent: 'heatmap',
+      heatmapStats: 'heatmap',
+      rocStatsResults: 'roc',
+      histStatsResults: 'hist',
+      pieStatsResults: 'pie',
+      pcaStatsResults: 'pca',
+      surfaceStatsSummary: 'surface',
+      survivalStatsSummary: 'survival',
+      survivalStatsLogRank: 'survival',
+      survivalStatsHazardRatios: 'survival',
+      survivalStatsCox: 'survival',
+      significanceResults: 'venn'
+    };
+    const key = componentKeyByPanelId[targetId] || '';
+    return key ? normalizeStatsTabId(global.Components?.[key]?.__boundTabId) : '';
+  }
+
+  function resolveTargetStatsTabId(target, options = {}){
+    const explicit = normalizeStatsTabId(options?.tabId || options?.tab?.id);
+    if(explicit){
+      return explicit;
+    }
+    const stored = normalizeStatsTabId(target?.dataset?.statsPvalueTabId || target?.__statsPValueTabId);
+    if(stored){
+      return stored;
+    }
+    const closest = target?.closest?.('[data-tab-id], [data-workspace-tab-id], [data-graphitix-tab-id]');
+    const closestId = normalizeStatsTabId(
+      closest?.dataset?.tabId
+      || closest?.dataset?.workspaceTabId
+      || closest?.dataset?.graphitixTabId
+    );
+    if(closestId){
+      return closestId;
+    }
+    const componentTabId = resolveComponentStatsTabId(target);
+    if(componentTabId){
+      return componentTabId;
+    }
+    return resolveActiveStatsTabId();
+  }
+
+  function ensurePanelPValueTabId(target, options = {}){
+    if(!target || target.nodeType !== 1){
+      return '';
+    }
+    const tabId = resolveTargetStatsTabId(target, options);
+    if(tabId){
+      target.__statsPValueTabId = tabId;
+      if(target.dataset){
+        target.dataset.statsPvalueTabId = tabId;
+      }
+    }
+    return tabId;
+  }
+
+  function readStoredPValueScientificForTab(tabId){
+    const key = normalizeStatsTabId(tabId);
+    if(key && tabPValueScientificState.has(key)){
+      return tabPValueScientificState.get(key) === true;
+    }
+    return DEFAULT_PVALUE_FORMAT_SCIENTIFIC;
+  }
+
+  function getPanelPValueScientific(target, options = {}){
+    if(target && target.nodeType === 1){
+      if(panelPValueScientificState.has(target)){
+        return panelPValueScientificState.get(target) === true;
+      }
+      if(Object.prototype.hasOwnProperty.call(target, '__statsPValueScientific')){
+        return sanitizePValueScientific(target.__statsPValueScientific, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+      }
+      if(target.dataset && Object.prototype.hasOwnProperty.call(target.dataset, 'statsPvalueScientific')){
+        return sanitizePValueScientific(target.dataset.statsPvalueScientific, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+      }
+    }
+    const tabId = resolveTargetStatsTabId(target, options);
+    return readStoredPValueScientificForTab(tabId);
+  }
+
+  function setPanelPValueScientific(target, value, options = {}){
+    const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    const tabId = ensurePanelPValueTabId(target, options);
+    if(tabId){
+      tabPValueScientificState.set(tabId, next);
+    }
+    if(target && target.nodeType === 1){
+      panelPValueScientificState.set(target, next);
+      target.__statsPValueScientific = next;
+      if(target.dataset){
+        target.dataset.statsPvalueScientific = next ? '1' : '0';
+      }
+    }
+    return next;
+  }
+
+  function setActiveTabPValueScientific(value, options = {}){
+    const next = sanitizePValueScientific(value, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    const tabId = normalizeStatsTabId(options?.tabId || options?.tab?.id) || resolveActiveStatsTabId();
+    if(tabId){
+      tabPValueScientificState.set(tabId, next);
+    }
+    return next;
+  }
 
   function sharedFormatPValue(value, options){
     const num = Number(value);
@@ -184,28 +567,29 @@
       : DEFAULT_REPORT_PVALUE_MIN;
     const scientific = options?.forceScientific === true
       ? true
-      : (options?.scientific === false
-        ? false
-        : (options?.scientific === true
-          ? true
-          : sharedPValueScientific));
+      : (options?.scientific === true
+        ? true
+        : (options?.scientific === false
+          ? false
+          : DEFAULT_PVALUE_FORMAT_SCIENTIFIC));
+    const bounded = Math.max(0, Math.min(1, num));
     let formatted;
+    let thresholded = false;
     if(scientific){
-      formatted = num.toExponential(fractionalDigits);
+      formatted = bounded.toExponential(fractionalDigits);
     }else{
-      if(num === 0){
-        formatted = '0';
-      }else if(num > 0 && num < decimalThreshold){
+      if(bounded >= 0 && bounded < decimalThreshold){
         formatted = `<${formatFixedTrimmed(decimalThreshold, decimals)}`;
+        thresholded = true;
       }else{
-        formatted = formatFixedTrimmed(num, decimals);
+        formatted = formatFixedTrimmed(bounded, decimals);
       }
     }
-    const result = scientific ? finalizeNumberString(formatted) : formatted;
+    const result = finalizeNumberString(formatted);
     if(statsDebugEnabled()){
-      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, options });
+      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, scientific, thresholded, options });
     }
-    return result;
+    return createPValueDisplayString(result, bounded, { scientific, thresholded });
   }
 
   Shared.formatPValue = sharedFormatPValue;
@@ -249,9 +633,7 @@
   if(typeof formatters.formatFixedNumber !== 'function'){
     formatters.formatFixedNumber = formatFixedNumber;
   }
-  if(typeof formatters.formatPValue !== 'function'){
-    formatters.formatPValue = sharedFormatPValue;
-  }
+  formatters.formatPValue = sharedFormatPValue;
 
   function sanitizeP(value){
     const num = Number(value);
@@ -908,6 +1290,18 @@
     return p;
   }
 
+  stats.clampProbability = clampProbability;
+  stats.logGamma = logGamma;
+  stats.regularizedGammaQ = regularizedGammaQ;
+  stats.regularizedBeta = regularizedBeta;
+  stats.chiSquareUpperTail = chiSquareUpperTail;
+  stats.fUpperTail = fUpperTail;
+  stats.studentTUpperTail = studentTUpperTail;
+  stats.studentTTwoSidedPValue = studentTTwoSidedPValue;
+  stats.normalUpperTail = normalUpperTail;
+  stats.normalTwoSidedPValue = normalTwoSidedPValue;
+  stats.finiteProbabilityOrFallback = finiteProbabilityOrFallback;
+
   stats.createLogFactorialCache = createLogFactorialCache;
   stats.ensureLogFactorialCache = ensureLogFactorialCache;
   stats.trimLogFactorialCache = trimLogFactorialCache;
@@ -1127,11 +1521,12 @@
     button.type = 'button';
     button.className = 'stats-report-panel__copy-btn';
     button.textContent = 'Copy';
+    button.__statsReportCopyText = String(copyText || '');
     button.setAttribute('aria-label', `${labelText}: copy to clipboard`);
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      copyReportTextToClipboard(copyText, button);
+      copyReportTextToClipboard(button.__statsReportCopyText || '', button);
     });
     row.appendChild(button);
     return row;
@@ -1223,13 +1618,119 @@
     catch(_err){ return value; }
   }
 
+  function isStatsReportPValueObject(value){
+    if(!value || typeof value !== 'object'){
+      return false;
+    }
+    if(Object.prototype.hasOwnProperty.call(value, '__statsPValueRaw')){
+      return true;
+    }
+    const type = typeof value.type === 'string' ? value.type.toLowerCase() : '';
+    return type === 'pvalue' || type === 'p-value' || type === 'p_value';
+  }
+
+  function normalizeStatsReportPValueToken(value){
+    if(!isStatsReportPValueObject(value)){
+      return null;
+    }
+    const rawSource = Object.prototype.hasOwnProperty.call(value, '__statsPValueRaw')
+      ? value.__statsPValueRaw
+      : value.value;
+    const raw = rawSource == null || rawSource === '' ? NaN : Number(rawSource);
+    const operator = typeof value.operator === 'string' && value.operator.trim()
+      ? value.operator.trim()
+      : (typeof value.__statsPValueOperator === 'string' && value.__statsPValueOperator.trim() ? value.__statsPValueOperator.trim() : '=');
+    const fallback = typeof value.fallback === 'string'
+      ? value.fallback
+      : (typeof value.text === 'string' ? value.text : '—');
+    return {
+      type: 'pValue',
+      value: raw,
+      operator,
+      fallback
+    };
+  }
+
+  function normalizeStatsReportTextParts(value){
+    const parts = [];
+    const push = item => {
+      if(item == null || item === false){
+        return;
+      }
+      if(Array.isArray(item)){
+        item.forEach(push);
+        return;
+      }
+      const pValueToken = normalizeStatsReportPValueToken(item);
+      if(pValueToken){
+        parts.push(pValueToken);
+        return;
+      }
+      if(item && typeof item === 'object' && typeof item.text === 'string'){
+        parts.push({ type: 'text', text: item.text });
+        return;
+      }
+      parts.push({ type: 'text', text: String(item) });
+    };
+    push(value);
+    const merged = [];
+    parts.forEach(part => {
+      if(!part){
+        return;
+      }
+      if(part.type === 'text'){
+        if(!part.text){
+          return;
+        }
+        const previous = merged[merged.length - 1];
+        if(previous && previous.type === 'text'){
+          previous.text += part.text;
+        }else{
+          merged.push({ type: 'text', text: part.text });
+        }
+        return;
+      }
+      merged.push(part);
+    });
+    return merged;
+  }
+
+  function renderStatsReportTextParts(parts, options = {}){
+    const scientific = options.scientific === true;
+    return normalizeStatsReportTextParts(parts).map(part => {
+      if(part.type === 'pValue'){
+        const formatted = formatPValueFromParsedInfo({ value: part.value, operator: part.operator || '=' }, { scientific });
+        return formatted == null ? (part.fallback || '—') : String(formatted);
+      }
+      return String(part.text || '');
+    }).join('');
+  }
+
+  function getReportSourceParts(source, baseName){
+    const candidates = [
+      `${baseName}Parts`,
+      `${baseName}Segments`,
+      `${baseName}Fragments`
+    ];
+    for(let index = 0; index < candidates.length; index += 1){
+      const key = candidates[index];
+      if(Object.prototype.hasOwnProperty.call(source, key)){
+        return source[key];
+      }
+    }
+    const textKey = `${baseName}Text`;
+    return Object.prototype.hasOwnProperty.call(source, textKey) ? source[textKey] : '';
+  }
+
   function normalizeReportModel(report, options = {}){
     const source = report && typeof report === 'object' ? report : {};
     const title = typeof options?.title === 'string' && options.title.trim()
       ? options.title.trim()
       : (typeof source.title === 'string' && source.title.trim() ? source.title.trim() : 'Reporting and reproducibility');
+    const methodsParts = normalizeStatsReportTextParts(getReportSourceParts(source, 'methods'));
+    const resultsParts = normalizeStatsReportTextParts(getReportSourceParts(source, 'results'));
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'stats-report',
       title,
       methodsLabel: typeof options?.methodsLabel === 'string' && options.methodsLabel.trim()
@@ -1241,8 +1742,10 @@
       specLabel: typeof options?.specLabel === 'string' && options.specLabel.trim()
         ? options.specLabel.trim()
         : (typeof source.specLabel === 'string' && source.specLabel.trim() ? source.specLabel.trim() : 'Technical analysis record (advanced)'),
-      methodsText: typeof source.methodsText === 'string' ? source.methodsText : '',
-      resultsText: typeof source.resultsText === 'string' ? source.resultsText : '',
+      methodsText: renderStatsReportTextParts(methodsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
+      resultsText: renderStatsReportTextParts(resultsParts, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC }),
+      methodsParts,
+      resultsParts,
       analysisSpec: cloneStatsReportingValue(source.analysisSpec || options?.analysisSpecFallback || null)
     };
   }
@@ -1277,16 +1780,21 @@
     summary.textContent = reportModel.title;
     panel.appendChild(summary);
 
-    const addBlock = (labelText, valueText) => {
-      const normalizedText = valueText || '';
-      panel.appendChild(createReportBlockHeader(documentRef, labelText, normalizedText));
+    const scientific = getPanelPValueScientific(target);
+    const addBlock = (blockName, labelText, parts) => {
+      const normalizedText = renderStatsReportTextParts(parts, { scientific });
+      const header = createReportBlockHeader(documentRef, labelText, normalizedText);
+      header.dataset.statsReportBlockHeader = blockName;
+      panel.appendChild(header);
       const pre = documentRef.createElement('pre');
+      pre.dataset.statsReportBlock = blockName;
+      pre.dataset.statsReportStructured = '1';
       pre.textContent = normalizedText;
       panel.appendChild(pre);
     };
 
-    addBlock(reportModel.methodsLabel, reportModel.methodsText || '');
-    addBlock(reportModel.resultsLabel, reportModel.resultsText || '');
+    addBlock('methods', reportModel.methodsLabel, reportModel.methodsParts || reportModel.methodsText || '');
+    addBlock('results', reportModel.resultsLabel, reportModel.resultsParts || reportModel.resultsText || '');
 
     const spec = reportModel.analysisSpec || null;
     const displaySpec = sanitizeAnalysisSpecForDisplay(spec);
@@ -1441,9 +1949,48 @@
     if(!pInfo || !Number.isFinite(Number(pInfo.value))){
       return null;
     }
-    return sharedFormatPValue(Number(pInfo.value), {
-      scientific: options?.scientific === true
-    });
+    const numeric = Number(pInfo.value);
+    const operator = typeof pInfo.operator === 'string' ? pInfo.operator.trim() : '=';
+    const scientific = options?.scientific === true;
+    const formatted = sharedFormatPValue(numeric, { scientific, forceScientific: scientific });
+    const formattedText = String(formatted);
+    if(scientific){
+      return formatted;
+    }
+    if(operator === '<' || operator === '<='){
+      return formattedText.startsWith('<')
+        ? formatted
+        : `<${formattedText.replace(/^[<>=\s]+/, '')}`;
+    }
+    if(operator === '>' || operator === '>='){
+      return formattedText.startsWith('>')
+        ? formatted
+        : `>${formattedText.replace(/^[<>=\s]+/, '')}`;
+    }
+    return formatted;
+  }
+
+  function formatInlinePValueReplacement(label, operator, numericText, options){
+    const numeric = Number(numericText);
+    if(!Number.isFinite(numeric)){
+      return null;
+    }
+    const display = formatPValueFromParsedInfo({ value: numeric, operator: operator || '=' }, options);
+    if(display == null){
+      return null;
+    }
+    const normalizedOperator = typeof operator === 'string' ? operator.trim() : '=';
+    const displayText = String(display);
+    if(normalizedOperator === '<' || normalizedOperator === '<=' || normalizedOperator === '>' || normalizedOperator === '>='){
+      if(options?.scientific === true){
+        return `${label}= ${displayText}`;
+      }
+      const symbolLength = (displayText.startsWith('<=') || displayText.startsWith('>=')) ? 2 : 1;
+      const symbol = displayText.slice(0, symbolLength);
+      const valueText = displayText.slice(symbolLength).trim();
+      return `${label}${symbol} ${valueText}`;
+    }
+    return `${label}${normalizedOperator || '='} ${displayText}`;
   }
 
   function replaceInlinePValueText(text, options){
@@ -1455,12 +2002,7 @@
     return source.replace(
       /(\b(?:p(?:\s*[-]?\s*value)?|padj|p\s*\([^)]+\))\b(?:\s*\([^)]+\))?\s*)([<>]=?|=)\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/gi,
       (match, label, operator, numericText) => {
-        const numeric = Number(numericText);
-        if(!Number.isFinite(numeric)){
-          return match;
-        }
-        const formatted = sharedFormatPValue(numeric, { scientific });
-        return `${label}${operator} ${formatted}`;
+        return formatInlinePValueReplacement(label, operator, numericText, { scientific }) || match;
       }
     );
   }
@@ -1469,7 +2011,7 @@
     if(!documentRef || !documentRef.createElement){
       return null;
     }
-    const scientific = sharedPValueScientific;
+    const scientific = getPanelPValueScientific(target);
     const wrap = documentRef.createElement('span');
     wrap.className = 'stats-pvalue-format-inline';
     const label = documentRef.createElement('span');
@@ -1484,22 +2026,86 @@
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      reporting.setPValueFormatScientific(!sharedPValueScientific, { source: target?.id || null });
+      reporting.setPValueFormatScientific(!getPanelPValueScientific(target), { target, source: target?.id || null });
     });
     wrap.appendChild(button);
     return wrap;
+  }
+
+  function setReportBlockCopyText(panel, blockName, text){
+    if(!panel || typeof panel.querySelector !== 'function'){
+      return;
+    }
+    const header = panel.querySelector(`:scope > .stats-report-panel__header[data-stats-report-block-header="${blockName}"]`);
+    const button = header?.querySelector?.('.stats-report-panel__copy-btn') || null;
+    if(button){
+      button.__statsReportCopyText = String(text || '');
+    }
+  }
+
+  function rerenderStructuredReportPanel(panel, target){
+    if(!panel || panel.nodeType !== 1){
+      return false;
+    }
+    const storedModel = panel.__statsReportModel;
+    if(!storedModel || typeof storedModel !== 'object'){
+      return false;
+    }
+    const model = normalizeReportModel(storedModel, storedModel);
+    const scientific = getPanelPValueScientific(target || panel);
+    const methodsText = renderStatsReportTextParts(model.methodsParts || model.methodsText || '', { scientific });
+    const resultsText = renderStatsReportTextParts(model.resultsParts || model.resultsText || '', { scientific });
+    const methodsBlock = panel.querySelector(':scope > pre[data-stats-report-block="methods"]')
+      || Array.from(panel.querySelectorAll(':scope > pre'))[0];
+    const resultsBlock = panel.querySelector(':scope > pre[data-stats-report-block="results"]')
+      || Array.from(panel.querySelectorAll(':scope > pre'))[1];
+    if(methodsBlock){
+      methodsBlock.dataset.statsReportStructured = '1';
+      methodsBlock.textContent = methodsText;
+      setReportBlockCopyText(panel, 'methods', methodsText);
+    }
+    if(resultsBlock){
+      resultsBlock.dataset.statsReportStructured = '1';
+      resultsBlock.textContent = resultsText;
+      setReportBlockCopyText(panel, 'results', resultsText);
+    }
+    panel.__statsReportModel = cloneStatsReportingValue(model);
+    return true;
+  }
+
+  function rerenderStructuredReportPanels(target){
+    if(!target || typeof target.querySelectorAll !== 'function'){
+      return;
+    }
+    const panels = target.classList?.contains('stats-report-panel')
+      ? [target]
+      : Array.from(target.querySelectorAll('.stats-report-panel'));
+    panels.forEach(panel => rerenderStructuredReportPanel(panel, target));
   }
 
   function rewriteInlinePValueElements(target){
     if(!target || typeof target.querySelectorAll !== 'function'){
       return;
     }
-    const scientific = sharedPValueScientific;
+    const scientific = getPanelPValueScientific(target);
+    rerenderStructuredReportPanels(target);
     const elements = target.querySelectorAll(
       '.stats-report-panel pre, .stats-report-panel__summary-item, .stats-table-footnote, .stats-table-lead, .stats-assumption-section .assumption-detail'
     );
     elements.forEach(element => {
       if(!element || element.closest('.stats-significance-controls')){
+        return;
+      }
+      const reportPanel = element.closest?.('.stats-report-panel') || null;
+      if(reportPanel?.__statsReportModel && element.dataset?.statsReportStructured === '1'){
+        return;
+      }
+      const structuredParts = Array.isArray(element.__statsTextParts) ? element.__statsTextParts : null;
+      if(structuredParts){
+        const rendered = renderStatsReportTextParts(structuredParts, { scientific });
+        if(rendered !== element.textContent){
+          element.textContent = rendered;
+        }
         return;
       }
       const source = element.dataset.statsPvalueSourceText || element.textContent || '';
@@ -1513,11 +2119,33 @@
     });
   }
 
-  function rewriteTablePValueCells(table){
+  function getElementStoredPValueInfo(element){
+    if(!element || element.nodeType !== 1){
+      return null;
+    }
+    const rawValue = element.dataset?.statsPvalueRaw;
+    if(rawValue == null || rawValue === ''){
+      return null;
+    }
+    const numeric = Number(rawValue);
+    if(!Number.isFinite(numeric)){
+      return null;
+    }
+    const operator = typeof element.dataset?.statsPvalueOperator === 'string' && element.dataset.statsPvalueOperator
+      ? element.dataset.statsPvalueOperator
+      : '=';
+    return { value: numeric, operator };
+  }
+
+  function parseElementPValue(element, options){
+    return getElementStoredPValueInfo(element) || parsePValue(element?.textContent, options);
+  }
+
+  function rewriteTablePValueCells(table, target){
     if(!table || typeof table.querySelectorAll !== 'function'){
       return;
     }
-    const scientific = sharedPValueScientific;
+    const scientific = getPanelPValueScientific(target || table.closest?.('.stats-results-main, .stats-results-advanced-panel') || table.parentElement);
     let headerCells = Array.from(table.querySelectorAll('thead tr th'));
     if(!headerCells.length){
       const firstRow = table.querySelector('tr');
@@ -1544,14 +2172,18 @@
       if(!cell){
         return;
       }
-      const source = cell.dataset.statsPvalueSourceText || cell.textContent || '';
-      if(!cell.dataset.statsPvalueSourceText){
-        cell.dataset.statsPvalueSourceText = source;
+      const stored = getElementStoredPValueInfo(cell);
+      let parsed = stored;
+      if(!parsed){
+        const source = cell.dataset.statsPvalueSourceText || cell.textContent || '';
+        if(!cell.dataset.statsPvalueSourceText){
+          cell.dataset.statsPvalueSourceText = source;
+        }
+        parsed = parsePValue(source, { allowBare: true });
       }
-      const parsed = parsePValue(source, { allowBare: true });
       const formatted = formatPValueFromParsedInfo(parsed, { scientific });
       if(formatted != null){
-        cell.textContent = formatted;
+        cell.textContent = String(formatted);
       }
     };
     bodyRows.forEach(row => {
@@ -1690,7 +2322,7 @@
         if(!candidate){
           return;
         }
-        const parsed = parsePValue(candidate.textContent, { allowBare: true });
+        const parsed = parseElementPValue(candidate, { allowBare: true });
         if(renderSignificanceBadge(candidate, parsed, threshold)){
           badgeCount += 1;
           taggedCells.add(candidate);
@@ -1699,7 +2331,7 @@
       if(cells.length >= 2 && isPLabel(cells[0]?.textContent || '')){
         const candidate = cells[cells.length - 1];
         if(candidate && !taggedCells.has(candidate)){
-          const parsed = parsePValue(candidate.textContent, { allowBare: true });
+          const parsed = parseElementPValue(candidate, { allowBare: true });
           if(renderSignificanceBadge(candidate, parsed, threshold)){
             badgeCount += 1;
             taggedCells.add(candidate);
@@ -1710,7 +2342,7 @@
         if(taggedCells.has(cell)){
           return;
         }
-        const parsed = parsePValue(cell.textContent, { allowBare: false });
+        const parsed = parseElementPValue(cell, { allowBare: false });
         if(renderSignificanceBadge(cell, parsed, threshold)){
           badgeCount += 1;
           taggedCells.add(cell);
@@ -1956,6 +2588,15 @@
     if(className){
       model.className = className;
     }
+    const statsAttrs = {};
+    ['statsPvalueRaw', 'statsPvalueOperator', 'statsPvalueSourceText'].forEach(key => {
+      if(node.dataset && Object.prototype.hasOwnProperty.call(node.dataset, key)){
+        statsAttrs[key] = String(node.dataset[key]);
+      }
+    });
+    if(Object.keys(statsAttrs).length){
+      model.statsAttrs = statsAttrs;
+    }
     if(tag === 'details' && node.open === true){
       model.open = true;
     }
@@ -1987,7 +2628,12 @@
       .map(captureStatsNodeModel)
       .filter(Boolean);
     return children.length
-      ? { schemaVersion: 1, kind: 'stats-panel', children }
+      ? {
+          schemaVersion: 1,
+          kind: 'stats-panel',
+          children,
+          pValueScientific: getPanelPValueScientific(target)
+        }
       : null;
   }
 
@@ -2001,11 +2647,15 @@
     if(!children){
       return null;
     }
-    return {
+    const normalized = {
       schemaVersion: 1,
       kind: 'stats-panel',
       children: cloneStatsReportingValue(children)
     };
+    if(Object.prototype.hasOwnProperty.call(model, 'pValueScientific')){
+      normalized.pValueScientific = sanitizePValueScientific(model.pValueScientific, DEFAULT_PVALUE_FORMAT_SCIENTIFIC);
+    }
+    return normalized;
   }
 
   function renderStatsNodeModel(documentRef, model){
@@ -2046,6 +2696,13 @@
     if(className){
       node.className = className;
     }
+    if(model.statsAttrs && typeof model.statsAttrs === 'object' && node.dataset){
+      ['statsPvalueRaw', 'statsPvalueOperator', 'statsPvalueSourceText'].forEach(key => {
+        if(Object.prototype.hasOwnProperty.call(model.statsAttrs, key)){
+          node.dataset[key] = String(model.statsAttrs[key]);
+        }
+      });
+    }
     if(tag === 'details' && model.open === true){
       node.open = true;
     }
@@ -2065,6 +2722,11 @@
       return false;
     }
     target.textContent = '';
+    if(Object.prototype.hasOwnProperty.call(normalized, 'pValueScientific')){
+      setPanelPValueScientific(target, normalized.pValueScientific);
+    }else{
+      ensurePanelPValueTabId(target);
+    }
     normalized.children.forEach(childModel => {
       const child = renderStatsNodeModel(documentRef, childModel);
       if(child){
@@ -2245,6 +2907,7 @@
       return null;
     }
     const documentRef = target.ownerDocument;
+    ensurePanelPValueTabId(target);
     const suppressThresholdControls = suppressThresholdControlsForPanel(target);
     let controls = findDirectChildByClass(target, 'stats-significance-controls');
     if(suppressThresholdControls){
@@ -2398,12 +3061,15 @@
       if(typeof reporting.pinReportHostLast === 'function'){
         reporting.pinReportHostLast(target);
       }
+      if(global.Shared?.statsTable && typeof global.Shared.statsTable.refreshPValueFormatting === 'function'){
+        global.Shared.statsTable.refreshPValueFormatting(target);
+      }
       rewriteInlinePValueElements(target);
       const threshold = reporting.getSignificanceThreshold();
       let badgeCount = 0;
       const tables = target.querySelectorAll('table');
       tables.forEach(table => {
-        rewriteTablePValueCells(table);
+        rewriteTablePValueCells(table, target);
         badgeCount += annotateTablePValues(table, threshold);
       });
       if(scaffold.hint){
@@ -2600,30 +3266,65 @@
     statsReportingDebug('installRescanObserverReady', { trackedPanels: TRACKED_STATS_PANEL_IDS.length });
   }
 
+  reporting.pValue = function createStatsReportPValue(value, options = {}){
+    const numeric = Number(value);
+    const fallback = typeof options.fallback === 'string'
+      ? options.fallback
+      : (Number.isFinite(numeric) ? String(sharedFormatPValue(numeric, { scientific: DEFAULT_PVALUE_FORMAT_SCIENTIFIC })) : '—');
+    return {
+      type: 'pValue',
+      value: numeric,
+      operator: typeof options.operator === 'string' && options.operator.trim() ? options.operator.trim() : '=',
+      fallback
+    };
+  };
+
+  reporting.renderTextParts = function renderStatsReportText(parts, options = {}){
+    return renderStatsReportTextParts(parts, { scientific: options.scientific === true });
+  };
+
   reporting.getSignificanceThreshold = function getSignificanceThreshold(){
     return sharedSignificanceThreshold;
   };
 
-  reporting.getPValueFormatScientific = function getPValueFormatScientific(){
-    return sharedPValueScientific;
+  reporting.getPValueFormatScientific = function getPValueFormatScientific(options = {}){
+    return getPanelPValueScientific(options?.target || null, options || {});
   };
 
-  reporting.setPValueFormatScientific = function setPValueFormatScientific(value, options){
-    const previous = sharedPValueScientific;
-    const next = sanitizePValueScientific(value, previous);
-    sharedPValueScientific = next;
-    persistPValueScientific(next);
-    statsReportingDebug('setPValueFormatScientific', { previous, next, source: options?.source || null });
+  reporting.setPanelPValueFormatScientific = function setPanelPValueFormatScientific(target, value, options = {}){
+    return setPanelPValueScientific(target, value, options);
+  };
+
+  reporting.setPValueFormatScientific = function setPValueFormatScientific(value, options = {}){
+    const target = options?.target && options.target.nodeType === 1 ? options.target : null;
+    const previous = target
+      ? getPanelPValueScientific(target, options)
+      : readStoredPValueScientificForTab(options?.tabId || resolveActiveStatsTabId());
+    const next = target
+      ? setPanelPValueScientific(target, value, options)
+      : setActiveTabPValueScientific(value, options);
+    const tabId = resolveTargetStatsTabId(target, options) || null;
+    statsReportingDebug('setPValueFormatScientific', {
+      previous,
+      next,
+      source: options?.source || null,
+      targetId: target?.id || null,
+      tabId
+    });
     try{
       if(typeof global.dispatchEvent === 'function' && typeof global.CustomEvent === 'function'){
         global.dispatchEvent(new global.CustomEvent('venn:stats-pvalue-format-change', {
-          detail: { scientific: next, source: options?.source || null }
+          detail: { scientific: next, source: options?.source || null, targetId: target?.id || null, tabId }
         }));
       }
     }catch(err){
       statsReportingDebug('dispatchPValueFormatEventError', { message: err?.message || String(err) });
     }
-    refreshAllEnhancedPanels(previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+    if(target){
+      schedulePanelEnhancement(target, previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+    }else{
+      refreshAllEnhancedPanels(previous === next ? 'pvalue-format-sync' : 'pvalue-format-change');
+    }
     return next;
   };
 

@@ -3827,10 +3827,15 @@
       return '\u2014';
     }
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: getHistNodeById('histStatsResults'),
+      tabId: hist.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(num);
+      return formatter(num, { scientific, forceScientific: scientific });
     }
-    return num <= 0 ? '0' : num.toExponential(5);
+    if(scientific) return num.toExponential(5);
+    return num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   }
 
   function computeHistPercentile(sorted, p){
@@ -4283,12 +4288,15 @@
         methods.push('A two-sample Kolmogorov-Smirnov test compared the two visible series.');
       }
       const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
+      const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
       if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
         resultFragments.push(`KS D = ${formatNumber(ksResult.D, 4)}, p = ${formatPValue(ksResult.p)}.`);
+        resultParts.push(' ', `KS D = ${formatNumber(ksResult.D, 4)}, p = `, { type:'pValue', value:ksResult.p, fallback:String(formatPValue(ksResult.p)) }, '.');
       }
       Shared.statsReporting.appendReportPanel(target, {
         methodsText: methods.join(' '),
         resultsText: resultFragments.join(' '),
+        resultsParts: resultParts,
         analysisSpec: {
           component: 'hist',
           n: totalObservations,

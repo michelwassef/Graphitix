@@ -2570,14 +2570,19 @@
 
   function formatHeatmapPValue(value){
     const formatter = getHeatmapPValueFormatter();
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: state.statsEl || $('heatmapStatsContent'),
+      tabId: heatmap.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(value);
+      return formatter(value, { scientific, forceScientific: scientific });
     }
     const num = Number(value);
     if(!Number.isFinite(num)){
       return 'n/a';
     }
-    if(num > 0 && num < 0.0001){
+    if(scientific) return num.toExponential(5);
+    if(num >= 0 && num <= 0.0001){
       return '<0.0001';
     }
     return num.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
@@ -3209,7 +3214,15 @@
     statsPanel?.addEventListener('input', handleStatsThresholdInteraction, true);
     statsPanel?.addEventListener('change', handleStatsThresholdInteraction, true);
     if(typeof global.addEventListener === 'function'){
-      global.addEventListener('venn:stats-pvalue-format-change', () => {
+      global.addEventListener('venn:stats-pvalue-format-change', event => {
+        const targetId = event?.detail?.targetId || null;
+        const eventTabId = event?.detail?.tabId || null;
+        if(targetId && targetId !== 'heatmapStatsContent' && targetId !== 'heatmapStats'){
+          return;
+        }
+        if(eventTabId && heatmap.__boundTabId && String(eventTabId) !== String(heatmap.__boundTabId)){
+          return;
+        }
         scheduleViewOnly('stats-pvalue-format');
       });
     }
@@ -3825,9 +3838,6 @@
       return NaN;
     }
     const statsApi = global.jStat || null;
-    const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
-      ? statsApi.studentt.cdf.bind(statsApi.studentt)
-      : null;
     if(method === 'spearman'){
       const hasTies = hasHeatmapDuplicateValues(xs) || hasHeatmapDuplicateValues(ys);
       if(!hasTies && count <= 9){
@@ -3837,11 +3847,16 @@
         }
       }
     }
-    if(!studentTCdf){
-      return NaN;
-    }
     const tStatistic = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-    return 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2));
+    const helper = Shared.stats?.studentTTwoSidedPValue;
+    if(typeof helper === 'function'){
+      const value = helper(tStatistic, count - 2);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const studentTCdf = (statsApi?.studentt && typeof statsApi.studentt.cdf === 'function')
+      ? statsApi.studentt.cdf.bind(statsApi.studentt)
+      : null;
+    return studentTCdf ? Math.max(0, Math.min(1, 2 * (1 - studentTCdf(Math.abs(tStatistic), count - 2)))) : NaN;
   }
 
   function computeUncenteredCorrelation(xs, ys){

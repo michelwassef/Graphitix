@@ -253,6 +253,154 @@
     return row ? row[column.key] : undefined;
   };
 
+  const isPValueLabel = value => {
+    const text = String(value ?? '').trim().toLowerCase();
+    return /^(?:p|p[-\s]?value|p[-\s]?val|adjusted p|adj\.? p|padj|fdr|q[-\s]?value)(?:\s*\([^)]*\))?$/.test(text)
+      || /(?:^|\b)(?:p[-\s]?value|adjusted p|padj|fdr|q[-\s]?value)(?:\b|$)/.test(text);
+  };
+
+  const extractNumericValue = value => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (value instanceof Number && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+    const text = String(value ?? '').replace(/,/g, '').trim();
+    if (!text) {
+      return NaN;
+    }
+    const match = text.match(/^[<>=\s]*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)$/i);
+    if (!match) {
+      return NaN;
+    }
+    const numeric = Number(match[1]);
+    return Number.isFinite(numeric) ? numeric : NaN;
+  };
+
+  const isStructuredPValueObject = value => {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(value, '__statsPValueRaw')) {
+      return true;
+    }
+    const type = typeof value.type === 'string' ? value.type.toLowerCase() : '';
+    return type === 'pvalue' || type === 'p-value' || type === 'p_value';
+  };
+
+  const extractPValueMetadata = value => {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    const raw = value.__statsPValueRaw
+      ?? value.statsPValueRaw
+      ?? value.rawPValue
+      ?? value.pValueRaw
+      ?? value.pValue
+      ?? (isStructuredPValueObject(value) ? value.value : undefined);
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    const operator = typeof value.__statsPValueOperator === 'string' && value.__statsPValueOperator
+      ? value.__statsPValueOperator
+      : (typeof value.pValueOperator === 'string' && value.pValueOperator
+        ? value.pValueOperator
+        : (typeof value.operator === 'string' && value.operator ? value.operator : '='));
+    return { pValueRaw: numeric, pValueOperator: operator };
+  };
+
+  const getPValueScientificForTarget = target => {
+    if (Shared.statsReporting && typeof Shared.statsReporting.getPValueFormatScientific === 'function') {
+      return Shared.statsReporting.getPValueFormatScientific({ target }) === true;
+    }
+    return false;
+  };
+
+  const resolvePValueScientific = config => {
+    if (typeof config?.pValueScientific === 'boolean') {
+      return config.pValueScientific;
+    }
+    if (config?.options && typeof config.options.pValueScientific === 'boolean') {
+      return config.options.pValueScientific;
+    }
+    return getPValueScientificForTarget(config?.target || null);
+  };
+
+  const formatPValueMetadata = (metadata, scientific) => {
+    if (!metadata || !Number.isFinite(Number(metadata.pValueRaw))) {
+      return '';
+    }
+    const token = {
+      type: 'pValue',
+      value: Number(metadata.pValueRaw),
+      operator: typeof metadata.pValueOperator === 'string' && metadata.pValueOperator ? metadata.pValueOperator : '='
+    };
+    if (Shared.statsReporting && typeof Shared.statsReporting.renderTextParts === 'function') {
+      return Shared.statsReporting.renderTextParts([token], { scientific: scientific === true });
+    }
+    const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    if (typeof formatter === 'function') {
+      const formatted = String(formatter(token.value, { scientific: scientific === true, forceScientific: scientific === true }));
+      if (scientific === true || token.operator === '=') {
+        return formatted;
+      }
+      return `${token.operator}${formatted.replace(/^[<>=\s]+/, '')}`;
+    }
+    return String(token.value);
+  };
+
+  const resolveTextParts = value => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (isStructuredPValueObject(value)) {
+      return [value];
+    }
+    if (value && typeof value === 'object') {
+      if (Array.isArray(value.parts)) return value.parts;
+      if (Array.isArray(value.textParts)) return value.textParts;
+      if (Array.isArray(value.fragments)) return value.fragments;
+    }
+    return null;
+  };
+
+  const renderTextParts = (parts, scientific) => {
+    if (Shared.statsReporting && typeof Shared.statsReporting.renderTextParts === 'function') {
+      return Shared.statsReporting.renderTextParts(parts, { scientific: scientific === true });
+    }
+    return (Array.isArray(parts) ? parts : [parts]).map(part => {
+      const metadata = extractPValueMetadata(part);
+      if (metadata) {
+        return formatPValueMetadata(metadata, scientific);
+      }
+      if (part && typeof part === 'object' && typeof part.text === 'string') {
+        return part.text;
+      }
+      return String(part ?? '');
+    }).join('');
+  };
+
+  const normalizeFootnotes = (items, scientific) => {
+    const source = Array.isArray(items) ? items : [];
+    const footnotes = [];
+    const footnoteParts = [];
+    source.forEach((item, index) => {
+      const parts = resolveTextParts(item);
+      if (parts) {
+        footnotes[index] = renderTextParts(parts, scientific);
+        footnoteParts[index] = parts;
+        return;
+      }
+      const text = item && typeof item === 'object' && typeof item.text === 'string'
+        ? item.text
+        : String(item);
+      footnotes[index] = text;
+    });
+    return { footnotes, footnoteParts };
+  };
+
   const measureText = (text, fontSize, fontFamily) => {
     const value = String(text ?? '');
     const font = `${fontSize}px ${fontFamily}`;
@@ -270,17 +418,40 @@
     return approx;
   };
 
-  const normalizeRows = (rows, columns) => {
+  const normalizeRows = (rows, columns, options = {}) => {
     const normalizedRows = [];
+    const cellMetaRows = [];
+    const scientific = options.pValueScientific === true;
     (Array.isArray(rows) ? rows : []).forEach((row, rowIndex) => {
+      const rowMeta = [];
+      const firstRawCell = columns.length ? getCellValue(row, columns[0], 0) : '';
+      const metricLikePRow = isPValueLabel(firstRawCell);
       const normalized = columns.map((col, colIndex) => {
         const raw = getCellValue(row, col, colIndex);
         const formatted = col.formatter ? col.formatter(raw, row, rowIndex) : raw;
+        let pValueMetadata = extractPValueMetadata(formatted) || extractPValueMetadata(raw);
+        const pValueContext = isStructuredPValueObject(formatted)
+          || isStructuredPValueObject(raw)
+          || isPValueLabel(col.label)
+          || (colIndex > 0 && metricLikePRow);
+        if(!pValueMetadata && pValueContext){
+          const numeric = extractNumericValue(raw);
+          if(Number.isFinite(numeric)){
+            pValueMetadata = { pValueRaw: numeric, pValueOperator: '=' };
+          }
+        }
+        if(pValueMetadata){
+          rowMeta[colIndex] = pValueMetadata;
+          if(pValueContext){
+            return formatPValueMetadata(pValueMetadata, scientific);
+          }
+        }
         return formatted == null ? '' : String(formatted);
       });
       normalizedRows.push(normalized);
+      cellMetaRows.push(rowMeta);
     });
-    return normalizedRows;
+    return { rows: normalizedRows, cellMetaRows };
   };
 
   const mergeOptions = options => {
@@ -293,12 +464,21 @@
   };
 
   const buildModel = config => {
+    const pValueScientific = resolvePValueScientific(config || {});
     const columns = normalizeColumns(config.columns);
-    const rows = normalizeRows(config.rows, columns);
+    const normalized = normalizeRows(config.rows, columns, { pValueScientific });
+    const rows = normalized.rows;
     const options = mergeOptions(config.options);
-    const footnotes = Array.isArray(config.footnotes) ? config.footnotes.map(item => String(item)) : [];
+    const normalizedFootnotes = normalizeFootnotes(config.footnotes, pValueScientific);
+    const footnotes = normalizedFootnotes.footnotes;
     const caption = config.caption != null ? String(config.caption) : '';
-    const model = { columns, rows, caption, footnotes, options };
+    const model = { columns, rows, caption, footnotes, options, pValueScientific };
+    if(normalized.cellMetaRows.some(row => Array.isArray(row) && row.some(Boolean))){
+      model.cellMetaRows = normalized.cellMetaRows;
+    }
+    if(normalizedFootnotes.footnoteParts.some(Boolean)){
+      model.footnoteParts = normalizedFootnotes.footnoteParts;
+    }
     logDebug('buildModel', { columnCount: columns.length, rowCount: rows.length, caption: caption || null });
     return model;
   };
@@ -541,13 +721,20 @@
     thead.appendChild(headRow);
     table.appendChild(thead);
     const tbody = doc.createElement('tbody');
-    model.rows.forEach(row => {
+    model.rows.forEach((row, rowIndex) => {
       const tr = doc.createElement('tr');
       row.forEach((value, index) => {
         const col = model.columns[index];
         const td = doc.createElement('td');
         td.className = `stats-table__cell stats-table__cell--${col.align}`;
         td.textContent = value;
+        const metadata = model.cellMetaRows?.[rowIndex]?.[index];
+        if(metadata && Number.isFinite(Number(metadata.pValueRaw))){
+          td.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
+          td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
+            ? metadata.pValueOperator
+            : '=';
+        }
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -561,6 +748,11 @@
       model.footnotes.forEach((note, index) => {
         const item = doc.createElement('div');
         item.className = 'stats-table-footnote';
+        const parts = Array.isArray(model.footnoteParts?.[index]) ? model.footnoteParts[index] : null;
+        if(parts){
+          item.__statsTextParts = parts;
+          item.dataset.statsReportStructured = '1';
+        }
         item.textContent = note;
         footnoteList.appendChild(item);
       });
@@ -616,25 +808,154 @@
     if (!rawColumns.length) {
       return null;
     }
-    const rawRows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
-      Array.from(tr.querySelectorAll('td')).map(td => (td.textContent != null ? td.textContent : ''))
-    );
+    const cellMetaRows = [];
+    const rawRows = Array.from(table.querySelectorAll('tbody tr')).map((tr, rowIndex) => {
+      const metaRow = [];
+      const values = Array.from(tr.querySelectorAll('td')).map((td, colIndex) => {
+        const raw = Number(td.dataset?.statsPvalueRaw);
+        if(Number.isFinite(raw)){
+          metaRow[colIndex] = {
+            pValueRaw: raw,
+            pValueOperator: td.dataset.statsPvalueOperator || '='
+          };
+        }
+        return td.textContent != null ? td.textContent : '';
+      });
+      cellMetaRows[rowIndex] = metaRow;
+      return values;
+    });
     const caption = card.getAttribute('data-stats-caption')
       || (card.querySelector('.stats-table-caption')?.textContent || '').trim();
     const footnotes = Array.from(card.querySelectorAll('.stats-table-footnote'))
       .map(node => (node.textContent || '').trim())
       .filter(Boolean);
     const columns = normalizeColumns(rawColumns);
-    return {
+    const pValueScientific = getPValueScientificForTarget(card);
+    const normalized = normalizeRows(rawRows, columns, { pValueScientific });
+    const model = {
       columns,
-      rows: normalizeRows(rawRows, columns),
+      rows: normalized.rows,
       caption,
       footnotes,
+      pValueScientific,
       options: mergeOptions({
         fileName: card.getAttribute('data-stats-export-filename') || undefined,
         contextLabel: card.getAttribute('data-stats-export-context') || undefined
       })
     };
+    const mergedMetaRows = cellMetaRows.map((row, rowIndex) => {
+      const fallback = normalized.cellMetaRows[rowIndex] || [];
+      return row && row.some(Boolean) ? row : fallback;
+    });
+    if(mergedMetaRows.some(row => Array.isArray(row) && row.some(Boolean))){
+      model.cellMetaRows = mergedMetaRows;
+    }
+    return model;
+  };
+
+
+  const refreshModelPValueFormatting = (model, scientific) => {
+    if(!model || typeof model !== 'object'){
+      return false;
+    }
+    let changed = false;
+    const pColumnIndexes = [];
+    (Array.isArray(model.columns) ? model.columns : []).forEach((column, index) => {
+      if(isPValueLabel(column?.label)){
+        pColumnIndexes.push(index);
+      }
+    });
+    if(Array.isArray(model.rows) && Array.isArray(model.cellMetaRows)){
+      model.rows.forEach((row, rowIndex) => {
+        if(!Array.isArray(row)){
+          return;
+        }
+        const metaRow = model.cellMetaRows[rowIndex] || [];
+        const metricLikePRow = isPValueLabel(row[0]);
+        row.forEach((value, colIndex) => {
+          const metadata = metaRow[colIndex];
+          if(!metadata || !Number.isFinite(Number(metadata.pValueRaw))){
+            return;
+          }
+          const pValueContext = pColumnIndexes.includes(colIndex) || (colIndex > 0 && metricLikePRow);
+          if(!pValueContext){
+            return;
+          }
+          const next = formatPValueMetadata(metadata, scientific);
+          if(row[colIndex] !== next){
+            row[colIndex] = next;
+            changed = true;
+          }
+        });
+      });
+    }
+    if(Array.isArray(model.footnoteParts) && model.footnoteParts.length){
+      model.footnoteParts.forEach((parts, index) => {
+        if(!Array.isArray(parts)){
+          return;
+        }
+        const next = renderTextParts(parts, scientific);
+        if(!Array.isArray(model.footnotes)){
+          model.footnotes = [];
+        }
+        if(model.footnotes[index] !== next){
+          model.footnotes[index] = next;
+          changed = true;
+        }
+      });
+    }
+    model.pValueScientific = scientific === true;
+    return changed;
+  };
+
+  statsTable.refreshPValueFormatting = function refreshPValueFormatting(root) {
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    const cards = root.classList?.contains('stats-table-card')
+      ? [root]
+      : Array.from(root.querySelectorAll('.stats-table-card'));
+    let refreshed = 0;
+    cards.forEach(card => {
+      const model = card.__statsTableModel && typeof card.__statsTableModel === 'object'
+        ? card.__statsTableModel
+        : null;
+      if(!model){
+        return;
+      }
+      const scientific = getPValueScientificForTarget(card.closest?.('[data-stats-pvalue-scientific]') || root);
+      refreshModelPValueFormatting(model, scientific);
+      const rows = Array.from(card.querySelectorAll('tbody tr'));
+      rows.forEach((tr, rowIndex) => {
+        const cells = Array.from(tr.cells || []);
+        cells.forEach((td, colIndex) => {
+          const metadata = model.cellMetaRows?.[rowIndex]?.[colIndex];
+          if(metadata && Number.isFinite(Number(metadata.pValueRaw))){
+            td.dataset.statsPvalueRaw = String(Number(metadata.pValueRaw));
+            td.dataset.statsPvalueOperator = typeof metadata.pValueOperator === 'string' && metadata.pValueOperator
+              ? metadata.pValueOperator
+              : '=';
+          }
+          if(model.rows?.[rowIndex]?.[colIndex] != null){
+            td.textContent = String(model.rows[rowIndex][colIndex]);
+          }
+        });
+      });
+      const footnotes = Array.from(card.querySelectorAll('.stats-table-footnote'));
+      footnotes.forEach((node, index) => {
+        const parts = Array.isArray(model.footnoteParts?.[index]) ? model.footnoteParts[index] : null;
+        if(parts){
+          node.__statsTextParts = parts;
+          node.dataset.statsReportStructured = '1';
+        }
+        if(model.footnotes?.[index] != null){
+          node.textContent = String(model.footnotes[index]);
+        }
+      });
+      refreshed += 1;
+    });
+    logDebug('refresh p-value formatting', { cards: cards.length, refreshed });
+    return refreshed;
   };
 
   // Re-mount the Download/Copy export controls for every stats-table card under `root`.

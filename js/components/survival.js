@@ -612,6 +612,7 @@
     lastSummary: null,
     lastStats: null,
     pairwiseCorrection: 'holm-sidak',
+    statsReportPScientific: false,
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
@@ -1046,6 +1047,7 @@
     refs.statsHazardRatios = $('#survivalStatsHazardRatios');
     refs.statsCox = $('#survivalStatsCox');
     ensureSurvivalCoxReportHost();
+    attachSurvivalStatsPValueControlFactory();
     refs.labelColorsDiv = $('#survivalLabelColors');
     refs.labelColorsFieldset = $('#survivalLabelColorsFieldset');
     refs.showCI = $('#survivalShowCI');
@@ -2205,10 +2207,7 @@
       const invTimesDiff = multiplyMatrixVector(inverse, diffVec);
       chi2 = dotProduct(diffVec, invTimesDiff);
     }
-    let pValue = null;
-    if(global.jStat?.chisquare && typeof global.jStat.chisquare.cdf === 'function' && Number.isFinite(chi2)){
-      pValue = 1 - global.jStat.chisquare.cdf(chi2, df);
-    }
+    const pValue = Number.isFinite(chi2) ? survivalChiSquareUpperTailPValue(chi2, df) : null;
     return {
       available: Number.isFinite(chi2),
       chi2,
@@ -2532,23 +2531,16 @@
     if(!Number.isFinite(z)){
       return null;
     }
-    const absZ = Math.abs(z);
-    const tail = 1 - normalCDF(absZ);
-    if(!Number.isFinite(tail)){
-      return null;
-    }
-    return 2 * tail;
+    const pValue = survivalNormalTwoSidedPValue(z);
+    return Number.isFinite(pValue) ? pValue : null;
   }
 
   function pValueFromChiSquare(statistic, df){
     if(!Number.isFinite(statistic) || !Number.isFinite(df) || df <= 0){
       return null;
     }
-    if(global.jStat?.chisquare?.cdf){
-      const cdf = global.jStat.chisquare.cdf(statistic, df);
-      return Number.isFinite(cdf) ? 1 - cdf : null;
-    }
-    return null;
+    const pValue = survivalChiSquareUpperTailPValue(statistic, df);
+    return Number.isFinite(pValue) ? pValue : null;
   }
 
   function createZeroMatrix(size){
@@ -3467,15 +3459,142 @@
     return chartStyle.formatScientific(value, { maxDecimals: precision });
   }
 
+  function sanitizeSurvivalStatsReportPScientific(value){
+    return value === true || value === 'true' || value === 1 || value === '1';
+  }
+
+  function getSurvivalStatsPValueScientificPreference(){
+    return sanitizeSurvivalStatsReportPScientific(state.statsReportPScientific);
+  }
+
+  function syncSurvivalStatsPValuePanelState(){
+    if(!Shared.statsReporting || typeof Shared.statsReporting.setPanelPValueFormatScientific !== 'function'){
+      return;
+    }
+    [refs.statsSummary, refs.statsLogRank, refs.statsHazardRatios, refs.statsCox].forEach(panel => {
+      if(panel){
+        Shared.statsReporting.setPanelPValueFormatScientific(panel, getSurvivalStatsPValueScientificPreference(), {
+          source: 'survival',
+          tabId: survival.__boundTabId || null
+        });
+      }
+    });
+  }
+
+  function setSurvivalStatsPValueScientific(value, options = {}){
+    const next = sanitizeSurvivalStatsReportPScientific(value);
+    if(state.statsReportPScientific === next && options.force !== true){
+      return next;
+    }
+    state.statsReportPScientific = next;
+    syncSurvivalStatsPValuePanelState();
+    if(state.lastSummary && Array.isArray(state.lastSummary.series)){
+      updateStats(state.lastSummary);
+    }else if(Shared.statsReporting && typeof Shared.statsReporting.refreshEnhancedPanels === 'function'){
+      Shared.statsReporting.refreshEnhancedPanels('survival-pvalue-format');
+    }
+    return next;
+  }
+
+  function attachSurvivalStatsPValueControlFactory(){
+    if(!refs.statsSummary){
+      return;
+    }
+    syncSurvivalStatsPValuePanelState();
+    refs.statsSummary.__statsExtraControlFactory = context => {
+      const documentRef = context?.document || document;
+      const scientific = getSurvivalStatsPValueScientificPreference();
+      const wrap = documentRef.createElement('span');
+      wrap.className = 'stats-pvalue-format-inline';
+      const label = documentRef.createElement('span');
+      label.className = 'stats-pvalue-format-inline__label';
+      label.textContent = `P-value format: ${scientific ? 'Scientific' : 'Decimal'}`;
+      wrap.appendChild(label);
+      const button = documentRef.createElement('button');
+      button.type = 'button';
+      button.className = 'stats-pvalue-format-toggle';
+      button.textContent = scientific ? 'Decimal' : 'Scientific';
+      button.setAttribute('data-undo-ignore', '1');
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        setSurvivalStatsPValueScientific(!getSurvivalStatsPValueScientificPreference(), { source: 'survival-control' });
+      });
+      wrap.appendChild(button);
+      return wrap;
+    };
+  }
+
   function formatP(value){
     if(!Number.isFinite(value)){
       return 'n/a';
     }
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = getSurvivalStatsPValueScientificPreference();
     if(typeof formatter === 'function'){
-      return formatter(value);
+      return formatter(value, { scientific, forceScientific: scientific });
     }
-    return value.toExponential(5);
+    if(scientific){
+      return Number(value).toExponential(5);
+    }
+    return value >= 0 && value <= 0.0001
+      ? '<0.0001'
+      : Number(value).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function pValueToken(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 'n/a';
+    }
+    if(Shared.statsReporting && typeof Shared.statsReporting.pValue === 'function'){
+      return Shared.statsReporting.pValue(numeric, { fallback: String(formatP(numeric)) });
+    }
+    return formatP(numeric);
+  }
+
+  function renderStatsValue(value){
+    const isPValueObject = value && typeof value === 'object' && String(value.type || '').toLowerCase().replace(/[-_]/g, '') === 'pvalue';
+    if((Array.isArray(value) || isPValueObject) && Shared.statsReporting && typeof Shared.statsReporting.renderTextParts === 'function'){
+      return Shared.statsReporting.renderTextParts(Array.isArray(value) ? value : [value], {
+        scientific: getSurvivalStatsPValueScientificPreference()
+      });
+    }
+    return value != null ? String(value) : '';
+  }
+
+  function resolveSurvivalPValue(value){
+    const resolver = Shared.stats?.finiteProbabilityOrFallback;
+    if(typeof resolver === 'function'){
+      return resolver(value, NaN);
+    }
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return NaN;
+    }
+    return Math.max(0, Math.min(1, num));
+  }
+
+  function survivalNormalTwoSidedPValue(z){
+    const helper = Shared.stats?.normalTwoSidedPValue;
+    if(typeof helper === 'function'){
+      return resolveSurvivalPValue(helper(z));
+    }
+    const absZ = Math.abs(Number(z));
+    const tail = 1 - normalCDF(absZ);
+    return resolveSurvivalPValue(2 * tail);
+  }
+
+  function survivalChiSquareUpperTailPValue(statistic, df){
+    const helper = Shared.stats?.chiSquareUpperTail;
+    if(typeof helper === 'function'){
+      return resolveSurvivalPValue(helper(statistic, df));
+    }
+    if(global.jStat?.chisquare?.cdf){
+      const cdf = global.jStat.chisquare.cdf(statistic, df);
+      return resolveSurvivalPValue(Number.isFinite(cdf) ? 1 - cdf : NaN);
+    }
+    return NaN;
   }
 
   function formatInterval(low, high){
@@ -3545,7 +3664,7 @@
           const td = document.createElement('td');
           td.style.textAlign = col.align === 'right' ? 'right' : (col.align === 'center' ? 'center' : 'left');
           const value = row?.[col.key];
-          td.textContent = value != null ? String(value) : '';
+          td.textContent = renderStatsValue(value);
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -3559,7 +3678,7 @@
       model.footnotes.forEach(note => {
         const entry = document.createElement('div');
         entry.className = 'stats-table-footnote';
-        entry.textContent = note;
+        entry.textContent = renderStatsValue(note);
         footnoteList.appendChild(entry);
       });
       target.appendChild(footnoteList);
@@ -4283,8 +4402,14 @@
       const logRankText = summary.logRank?.available
         ? `Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = ${formatP(summary.logRank.p)}.`
         : (summary.logRank?.message || 'Log-rank test unavailable.');
+      const logRankParts = summary.logRank?.available
+        ? [`Log-rank χ²(${summary.logRank.df ?? 'n/a'}) = ${formatNumber(summary.logRank.chi2, 3)}, p = `, { type:'pValue', value:summary.logRank.p, fallback:String(formatP(summary.logRank.p)) }, '.']
+        : [summary.logRank?.message || 'Log-rank test unavailable.'];
       const wilcoxonText = summary.logRankWilcoxon?.available
         ? `Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = ${formatP(summary.logRankWilcoxon.p)}.`
+        : null;
+      const wilcoxonParts = summary.logRankWilcoxon?.available
+        ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, { type:'pValue', value:summary.logRankWilcoxon.p, fallback:String(formatP(summary.logRankWilcoxon.p)) }, '.']
         : null;
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
         ? `${summary.hazardRatios.rows.length} hazard-ratio comparison(s) were available.`
@@ -4305,6 +4430,14 @@
           hazardText,
           coxText
         ].filter(Boolean).join(' '),
+        resultsParts: [
+          `${summary.series.length} group(s) contributed survival data. `,
+          logRankParts,
+          wilcoxonParts ? [' ', wilcoxonParts] : null,
+          pairwiseText ? ` ${pairwiseText}` : null,
+          hazardText ? ` ${hazardText}` : null,
+          coxText ? ` ${coxText}` : null
+        ].filter(Boolean),
         analysisSpec: {
           component: 'survival',
           groupCount: summary.series.length,
@@ -4383,7 +4516,7 @@
         test: 'Log-rank',
         statistic: formatNumber(summary.logRank.chi2, 3),
         df: Number.isFinite(summary.logRank.df) ? String(summary.logRank.df) : 'n/a',
-        p: formatP(summary.logRank.p)
+        p: pValueToken(summary.logRank.p)
       });
     }
     if(summary.logRankWilcoxon?.available){
@@ -4391,7 +4524,7 @@
         test: 'Gehan-Breslow-Wilcoxon',
         statistic: formatNumber(summary.logRankWilcoxon.chi2, 3),
         df: Number.isFinite(summary.logRankWilcoxon.df) ? String(summary.logRankWilcoxon.df) : 'n/a',
-        p: formatP(summary.logRankWilcoxon.p)
+        p: pValueToken(summary.logRankWilcoxon.p)
       });
     }
     if(summary.logRankTrend?.available){
@@ -4399,7 +4532,7 @@
         test: 'Log-rank trend',
         statistic: formatNumber(summary.logRankTrend.chi2, 3),
         df: Number.isFinite(summary.logRankTrend.df) ? String(summary.logRankTrend.df) : 'n/a',
-        p: formatP(summary.logRankTrend.p)
+        p: pValueToken(summary.logRankTrend.p)
       });
     }
     if(rows.length){
@@ -4435,8 +4568,8 @@
           rows: summary.pairwiseComparisons.rows.map(row => ({
             comparison: `${row.groupB} vs ${row.groupA}`,
             chi2: formatNumber(row.chi2, 3),
-            p: formatP(row.p),
-            adjustedP: formatP(row.adjustedP)
+            p: pValueToken(row.p),
+            adjustedP: pValueToken(row.adjustedP)
           })),
           footnotes: [
             summary.pairwiseComparisons.correction?.footnote
@@ -4472,7 +4605,7 @@
       hazardRatio: formatNumber(row.hazardRatio, 3),
       ci: formatInterval(row.ciLow, row.ciHigh),
       z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
-      p: formatP(row.p)
+      p: pValueToken(row.p)
     }));
     renderStatsTableCard(refs.statsHazardRatios, {
       caption: 'Hazard ratios',
@@ -4538,14 +4671,14 @@
       hazardRatio: formatNumber(coef.hazardRatio, 3),
       ci: formatInterval(coef.ciLow, coef.ciHigh),
       z: Number.isFinite(coef.z) ? formatNumber(coef.z, 3) : 'n/a',
-      p: formatP(coef.p)
+      p: pValueToken(coef.p)
     }));
     const diag = summary.coxModel.diagnostics || {};
     const lr = diag.likelihoodRatio || {};
     const footnotes = [
       `Baseline group: ${summary.coxModel.baselineGroup || 'Reference'}`,
       `Log-likelihood = ${formatNumber(diag.logLikelihood, 3)} | Null = ${formatNumber(diag.logLikelihoodNull, 3)}`,
-      `Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = ${formatP(lr.p)}`,
+      [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p)],
       `AIC = ${formatNumber(diag.aic, 3)} | BIC = ${formatNumber(diag.bic, 3)}`,
       `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
     ].filter(Boolean);
@@ -4690,6 +4823,7 @@
         showHazardRatios: !!refs.showHazardRatios?.checked,
         fitCoxModel: !!refs.fitCoxModel?.checked,
         pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
+        statsReportPScientific: getSurvivalStatsPValueScientificPreference(),
         showGrid: !!refs.showGrid?.checked,
         gridStyle: getGridStyle(axisSettings.strokeWidth),
         showFrame: !!refs.showFrame?.checked,
@@ -4761,6 +4895,7 @@
         lastSummary: cloneSimple(state.lastSummary) || null,
         lastStats: cloneSimple(state.lastStats) || null,
         pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
+        statsReportPScientific: getSurvivalStatsPValueScientificPreference(),
         covariateSettings: cloneSimple(state.covariateSettings) || {},
         covariateColumns: cloneSimple(state.covariateColumns) || [],
         axisSettings: cloneSimple(state.axisSettings) || null,
@@ -4808,6 +4943,12 @@
       if(Object.prototype.hasOwnProperty.call(nextState, 'lastSummary')){ state.lastSummary = cloneSimple(nextState.lastSummary); }
       if(Object.prototype.hasOwnProperty.call(nextState, 'lastStats')){ state.lastStats = cloneSimple(nextState.lastStats); }
       state.pairwiseCorrection = typeof nextState.pairwiseCorrection === 'string' ? nextState.pairwiseCorrection : state.pairwiseCorrection;
+      if(Object.prototype.hasOwnProperty.call(nextState, 'statsReportPScientific')){
+        state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(nextState.statsReportPScientific);
+      }else{
+        state.statsReportPScientific = false;
+      }
+      syncSurvivalStatsPValuePanelState();
       state.covariateSettings = cloneSimple(nextState.covariateSettings) || state.covariateSettings || {};
       state.covariateColumns = cloneSimple(nextState.covariateColumns) || state.covariateColumns || [];
       state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
@@ -5001,6 +5142,12 @@
     if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
     if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
     state.pairwiseCorrection = typeof config.pairwiseCorrection === 'string' ? config.pairwiseCorrection : (state.pairwiseCorrection || 'holm-sidak');
+    if(Object.prototype.hasOwnProperty.call(config, 'statsReportPScientific')){
+      state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(config.statsReportPScientific);
+    }else{
+      state.statsReportPScientific = false;
+    }
+    syncSurvivalStatsPValuePanelState();
     const pairwiseCorrectionSelect = getSurvivalNodeById('survivalPairwiseCorrection');
     if(pairwiseCorrectionSelect){
       pairwiseCorrectionSelect.value = state.pairwiseCorrection;

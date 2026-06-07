@@ -156,13 +156,19 @@
 
   const formatSharedPValue = value => {
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: state.ui.significanceResults || global.document?.getElementById?.('significanceResults') || null,
+      tabId: venn.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(value);
+      return formatter(value, { scientific, forceScientific: scientific });
     }
     if(!Number.isFinite(value)){
       return 'n/a';
     }
-    return Number(value).toExponential(5);
+    const numeric = Number(value);
+    if(scientific) return numeric.toExponential(5);
+    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
   };
 
   function attachVennSelectAutoSize(select, label){

@@ -7888,11 +7888,59 @@
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p > 0 ? 'Infinity' : '-Infinity';
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: getScatterNodeById('scatterStatsResults'),
+      tabId: scatter.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(p);
+      return formatter(p, { scientific, forceScientific: scientific });
     }
-    if(p === 0) return '0';
-    return Number(p).toExponential(5);
+    if(scientific) return Number(p).toExponential(5);
+    if(p >= 0 && p <= 0.0001) return '<0.0001';
+    return Number(p).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+  function resolveScatterPValue(value){
+    const resolver = Shared.stats?.finiteProbabilityOrFallback;
+    if(typeof resolver === 'function'){
+      return resolver(value, NaN);
+    }
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return NaN;
+    }
+    return Math.max(0, Math.min(1, num));
+  }
+  function scatterNormalTwoSidedPValue(z){
+    const helper = Shared.stats?.normalTwoSidedPValue;
+    if(typeof helper === 'function'){
+      return resolveScatterPValue(helper(z));
+    }
+    const cdf = getScatterJStat()?.normal?.cdf;
+    return typeof cdf === 'function' ? resolveScatterPValue(2 * (1 - cdf(Math.abs(z), 0, 1))) : NaN;
+  }
+  function scatterStudentTTwoSidedPValue(t, df){
+    const helper = Shared.stats?.studentTTwoSidedPValue;
+    if(typeof helper === 'function'){
+      return resolveScatterPValue(helper(t, df));
+    }
+    const cdf = getScatterJStat()?.studentt?.cdf;
+    return typeof cdf === 'function' ? resolveScatterPValue(2 * (1 - cdf(Math.abs(t), df))) : NaN;
+  }
+  function scatterChiSquareUpperTailPValue(statistic, df){
+    const helper = Shared.stats?.chiSquareUpperTail;
+    if(typeof helper === 'function'){
+      return resolveScatterPValue(helper(statistic, df));
+    }
+    const cdf = getScatterJStat()?.chisquare?.cdf;
+    return typeof cdf === 'function' ? resolveScatterPValue(1 - cdf(statistic, df)) : NaN;
+  }
+  function scatterFUpperTailPValue(statistic, df1, df2){
+    const helper = Shared.stats?.fUpperTail;
+    if(typeof helper === 'function'){
+      return resolveScatterPValue(helper(statistic, df1, df2));
+    }
+    const cdf = getScatterJStat()?.centralF?.cdf;
+    return typeof cdf === 'function' ? resolveScatterPValue(1 - cdf(statistic, df1, df2)) : NaN;
   }
   function getScatterStatsAlpha(){
     const reporting = Shared.statsReporting;
@@ -8543,7 +8591,7 @@
       );
       const z = variance > 0 ? (runs - mean) / Math.sqrt(variance) : NaN;
       const pValue = (jStatApi?.normal && Number.isFinite(z))
-        ? (2 * (1 - jStatApi.normal.cdf(Math.abs(z), 0, 1)))
+        ? scatterNormalTwoSidedPValue(z)
         : NaN;
       return { runs, z, pValue };
     };
@@ -8587,7 +8635,7 @@
       const r2 = 1 - (sse / sst);
       const statistic = Math.max(0, n * Math.max(0, r2));
       const pValue = (jStatApi?.chisquare && Number.isFinite(statistic))
-        ? (1 - jStatApi.chisquare.cdf(statistic, 1))
+        ? scatterChiSquareUpperTailPValue(statistic, 1)
         : NaN;
       return { statistic, pValue, df: 1 };
     };
@@ -8704,7 +8752,7 @@
       }
       const fStatistic = ((base.sse - fullSse) / df1) / (fullSse / df2);
       const pValue = (jStatApi?.centralF && Number.isFinite(fStatistic))
-        ? (1 - jStatApi.centralF.cdf(fStatistic, df1, df2))
+        ? scatterFUpperTailPValue(fStatistic, df1, df2)
         : NaN;
       return { fStatistic, pValue, df1, df2 };
     };
@@ -8845,7 +8893,7 @@
         : NaN;
       const jStatApi = getScatterJStat();
       const jarqueBeraP = (jStatApi?.chisquare && Number.isFinite(jb))
-        ? (1 - jStatApi.chisquare.cdf(jb, 2))
+        ? scatterChiSquareUpperTailPValue(jb, 2)
         : NaN;
       const runsResiduals = pointsSortedByX
         .map(pt => Number(pt.y) - Number(predictScatterRegressionValue(regressionModel, Number(pt.x))))
@@ -8995,7 +9043,7 @@
           ? (estimate / standardError)
           : NaN;
         const pValue = (jStatApi?.studentt && Number.isFinite(tStatistic) && Number.isFinite(df) && df > 0)
-          ? (2 * (1 - jStatApi.studentt.cdf(Math.abs(tStatistic), df)))
+          ? scatterStudentTTwoSidedPValue(tStatistic, df)
           : NaN;
         return {
           term: label,
@@ -9325,7 +9373,7 @@
           standardError: interceptSe,
           tStatistic: (Number.isFinite(interceptSe) && interceptSe > 0) ? (intercept / interceptSe) : NaN,
           pValue: (jStatApi?.studentt && Number.isFinite(interceptSe) && interceptSe > 0)
-            ? (2 * (1 - jStatApi.studentt.cdf(Math.abs(intercept / interceptSe), Math.max(1, n - 2))))
+            ? scatterStudentTTwoSidedPValue(intercept / interceptSe, Math.max(1, n - 2))
             : NaN,
           ciLow: bootIntercept.length ? quantile(bootIntercept, alpha / 2) : NaN,
           ciHigh: bootIntercept.length ? quantile(bootIntercept, 1 - (alpha / 2)) : NaN
@@ -9336,7 +9384,7 @@
           standardError: slopeSe,
           tStatistic: (Number.isFinite(slopeSe) && slopeSe > 0) ? (slope / slopeSe) : NaN,
           pValue: (jStatApi?.studentt && Number.isFinite(slopeSe) && slopeSe > 0)
-            ? (2 * (1 - jStatApi.studentt.cdf(Math.abs(slope / slopeSe), Math.max(1, n - 2))))
+            ? scatterStudentTTwoSidedPValue(slope / slopeSe, Math.max(1, n - 2))
             : NaN,
           ciLow: bootSlope.length ? quantile(bootSlope, alpha / 2) : NaN,
           ciHigh: bootSlope.length ? quantile(bootSlope, 1 - (alpha / 2)) : NaN
@@ -9526,7 +9574,7 @@
       }
       const fStatistic = numerator / denominator;
       const pValue = (jStatApi?.centralF && Number.isFinite(fStatistic))
-        ? (1 - jStatApi.centralF.cdf(fStatistic, df1, df2))
+        ? scatterFUpperTailPValue(fStatistic, df1, df2)
         : NaN;
       return { fStatistic, pValue, df1, df2 };
     };
@@ -9640,13 +9688,15 @@
       if(Number.isFinite(slopesP) && slopesP < threshold){
         return {
           code: 'different-slopes',
-          text: `Slopes differ (P = ${formatP(slopesP)}).`
+          text: `Slopes differ (P = ${formatP(slopesP)}).`,
+          textParts: ['Slopes differ (P = ', { type:'pValue', value:slopesP, fallback:String(formatP(slopesP)) }, ').']
         };
       }
       if(Number.isFinite(interceptP) && interceptP < threshold){
         return {
           code: 'different-intercepts',
-          text: `Slopes are not detectably different; intercepts differ (P = ${formatP(interceptP)}).`
+          text: `Slopes are not detectably different; intercepts differ (P = ${formatP(interceptP)}).`,
+          textParts: ['Slopes are not detectably different; intercepts differ (P = ', { type:'pValue', value:interceptP, fallback:String(formatP(interceptP)) }, ').']
         };
       }
       return {
@@ -14260,6 +14310,26 @@
 
         const methodsParts = [];
         const resultsParts = [];
+        const reportPValue = value => ({ type:'pValue', value, fallback:String(formatP(value)) });
+        const renderReportFragmentFallback = fragment => {
+          if(Array.isArray(fragment)){
+            return fragment.map(renderReportFragmentFallback).join('');
+          }
+          if(fragment && typeof fragment === 'object' && fragment.type === 'pValue'){
+            return fragment.fallback || '—';
+          }
+          return String(fragment == null ? '' : fragment);
+        };
+        const joinReportFragments = fragments => fragments.filter(Boolean).map(renderReportFragmentFallback).join(' ');
+        const intersperseReportFragments = fragments => {
+          const filtered = fragments.filter(Boolean);
+          const output = [];
+          filtered.forEach((fragment, index) => {
+            if(index > 0){ output.push(' '); }
+            output.push(fragment);
+          });
+          return output;
+        };
 
         if(stats?.grouped){
           const groupCount = Array.isArray(stats?.groupedSeriesStats) ? stats.groupedSeriesStats.length : 0;
@@ -14308,7 +14378,7 @@
             const ciText = ci && Number.isFinite(ci.low) && Number.isFinite(ci.high)
               ? `, ${formatMetricValue(ci.low, 4)} to ${formatMetricValue(ci.high, 4)}`
               : '';
-            resultsParts.push(`${associationLabel} association: r = ${formatMetricValue(stats.r, 4)}${ciText}, P = ${formatP(stats.p)}.`);
+            resultsParts.push([`${associationLabel} association: r = ${formatMetricValue(stats.r, 4)}${ciText}, P = `, reportPValue(stats.p), '.']);
           }
           const model = stats?.regression || stats?.regressionModel || null;
           const slope = model?.summary?.slope;
@@ -14338,15 +14408,17 @@
             }
             const sharedTest = gf.sharedFit?.versusSeparate;
             if(sharedTest && Number.isFinite(sharedTest.pValue)){
-              resultsParts.push(`Shared-parameter versus separate curves: F = ${formatMetricValue(sharedTest.fStatistic, 4)}, P = ${formatP(sharedTest.pValue)}.`);
+              resultsParts.push([`Shared-parameter versus separate curves: F = ${formatMetricValue(sharedTest.fStatistic, 4)}, P = `, reportPValue(sharedTest.pValue), '.']);
             }
             const commonTest = gf.commonCurve?.versusSeparate;
             if(commonTest && Number.isFinite(commonTest.pValue)){
-              resultsParts.push(`Common versus separate curves: F = ${formatMetricValue(commonTest.fStatistic, 4)}, P = ${formatP(commonTest.pValue)}.`);
+              resultsParts.push([`Common versus separate curves: F = ${formatMetricValue(commonTest.fStatistic, 4)}, P = `, reportPValue(commonTest.pValue), '.']);
             }
           }
           const groupedLinearComparison = stats?.groupedLinearComparison || null;
-          if(groupedLinearComparison?.overallDecision?.text){
+          if(groupedLinearComparison?.overallDecision?.textParts){
+            resultsParts.push(['GraphPad-style grouped linear comparison: ', groupedLinearComparison.overallDecision.textParts]);
+          }else if(groupedLinearComparison?.overallDecision?.text){
             resultsParts.push(`GraphPad-style grouped linear comparison: ${groupedLinearComparison.overallDecision.text}`);
           }
           const significantPairs = Array.isArray(groupedLinearComparison?.pairwiseRows)
@@ -14360,9 +14432,11 @@
           }
         }
 
+        const filteredResultsParts = resultsParts.filter(Boolean);
         return {
           methodsText: methodsParts.filter(Boolean).join(' '),
-          resultsText: resultsParts.filter(Boolean).join(' ')
+          resultsText: joinReportFragments(filteredResultsParts),
+          resultsParts: intersperseReportFragments(filteredResultsParts)
         };
       }
 
@@ -14372,6 +14446,8 @@
           reporting.appendReportPanel(target, {
             methodsText: report?.methodsText || '',
             resultsText: report?.resultsText || '',
+            methodsParts: report?.methodsParts || null,
+            resultsParts: report?.resultsParts || null,
             analysisSpec: analysisSpec || null
           }, {
             title: 'Reporting and reproducibility'
@@ -25152,7 +25228,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, r));
         const t = bounded * Math.sqrt((count - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-        return 2 * (1 - cdf(Math.abs(t), count - 2));
+        return scatterStudentTTwoSidedPValue(t, count - 2);
       };
       const toRanks = values => {
         const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);

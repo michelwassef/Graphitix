@@ -4887,11 +4887,36 @@
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p>0?'Infinity':'-Infinity';
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: refs.statsResults || null,
+      tabId: line.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(p);
+      return formatter(p, { scientific, forceScientific: scientific });
     }
-    if(p === 0) return '0';
-    return Number(p).toExponential(5);
+    if(scientific) return Number(p).toExponential(5);
+    if(p >= 0 && p <= 0.0001) return '<0.0001';
+    return Number(p).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function lineStudentTTwoSidedPValue(t, df){
+    const helper = Shared.stats?.studentTTwoSidedPValue;
+    if(typeof helper === 'function'){
+      const value = helper(t, df);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const cdf = global.jStat?.studentt?.cdf;
+    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(t), df)))) : NaN;
+  }
+
+  function lineFUpperTailPValue(f, df1, df2){
+    const helper = Shared.stats?.fUpperTail;
+    if(typeof helper === 'function'){
+      const value = helper(f, df1, df2);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const cdf = global.jStat?.centralF?.cdf;
+    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 1 - cdf(f, df1, df2))) : NaN;
   }
 
   const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
@@ -7633,7 +7658,7 @@
     if(method === 'pearson'){
       const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, pearson));
       const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-      const p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+      const p = lineStudentTTwoSidedPValue(t, n - 2);
       return {
         label: 'Pearson',
         r: pearson,
@@ -7657,7 +7682,7 @@
     if(!Number.isFinite(p)){
       const bounded = Math.max(-0.999999999999, Math.min(0.999999999999, spearman));
       const t = bounded * Math.sqrt((n - 2) / Math.max(1e-12, 1 - (bounded * bounded)));
-      p = 2 * (1 - jStatLib.studentt.cdf(Math.abs(t), n - 2));
+      p = lineStudentTTwoSidedPValue(t, n - 2);
     }
     return {
       label: 'Spearman',
@@ -7826,7 +7851,7 @@
             : NaN;
           const modelFP = Number.isFinite(modelF) && Number.isFinite(predictorCount) && Number.isFinite(sampleSizeValue)
             && global.jStat?.centralF && typeof global.jStat.centralF.cdf === 'function'
-            ? 1 - global.jStat.centralF.cdf(modelF, predictorCount, sampleSizeValue - predictorCount - 1)
+            ? lineFUpperTailPValue(modelF, predictorCount, sampleSizeValue - predictorCount - 1)
             : NaN;
           const corrCi = stats.correlationCI && Number.isFinite(stats.correlationCI.low) && Number.isFinite(stats.correlationCI.high)
             ? `${formatMetricValue(stats.correlationCI.low)} to ${formatMetricValue(stats.correlationCI.high)}`
@@ -7841,6 +7866,7 @@
             r:formatMetricValue(stats.r),
             rCi:corrCi,
             p:formatP(stats.p),
+            pRaw:Number.isFinite(stats.p) ? stats.p : null,
             pMethod:stats.pMethod || '—',
             slope:formatMetricValue(stats.slope),
             r2:formatMetricValue(r2Value),
@@ -8171,9 +8197,16 @@
         forecastRows.length ? `${forecastRows.length} series produced forecast accuracy statistics.` : null,
         coefficientRows.length ? `${coefficientRows.length} coefficient estimates were tabulated.` : null
       ].filter(Boolean);
+      const structuredResultsParts = [
+        `${tableRows.length} series were analysable.`,
+        bestSeries ? [' ', `${bestSeries.series} returned r = ${bestSeries.r}, p = `, { type:'pValue', value:bestSeries.pRaw, fallback:String(bestSeries.p) }, `, and R² = ${bestSeries.r2}.`] : null,
+        forecastRows.length ? ` ${forecastRows.length} series produced forecast accuracy statistics.` : null,
+        coefficientRows.length ? ` ${coefficientRows.length} coefficient estimates were tabulated.` : null
+      ].filter(Boolean);
       Shared.statsReporting.appendReportPanel(refs.statsResults, {
         methodsText: methodsParts.join(' '),
         resultsText: resultsParts.join(' '),
+        resultsParts: structuredResultsParts,
         analysisSpec: {
           component: 'line',
           method,

@@ -2151,7 +2151,7 @@
     const varDiff = var1 + var2 - 2 * covar;
     const sd = Math.sqrt(varDiff);
     const z = diff / sd;
-    const p = 2 * (1 - global.jStat.normal.cdf(Math.abs(z), 0, 1));
+    const p = rocNormalTwoSidedPValue(z);
     const ci = [diff - 1.96 * sd, diff + 1.96 * sd];
     if(global.DEBUG_ROC){
       console.debug('Debug: ROC delong diff', {diff, p, ci});
@@ -2161,8 +2161,12 @@
 
   function formatPValue(value){
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: refs.statsResults || null,
+      tabId: roc.__boundTabId || null
+    }) === true;
     if(typeof formatter === 'function'){
-      return formatter(value);
+      return formatter(value, { scientific, forceScientific: scientific });
     }
     if(typeof global.formatP === 'function'){
       return global.formatP(value);
@@ -2173,13 +2177,20 @@
     if(!Number.isFinite(value)){
       return value > 0 ? 'Infinity' : '-Infinity';
     }
-    if(value === 0){
-      return '0';
-    }
     const num = Number(value);
-    const formatted = num.toExponential(5);
+    const formatted = scientific ? num.toExponential(5) : (num >= 0 && num <= 0.0001 ? '<0.0001' : num.toFixed(4).replace(/0+$/, '').replace(/\.$/, ''));
     console.debug('Debug: ROC formatPValue fallback',{ input: value, formatted });
     return formatted;
+  }
+
+  function rocNormalTwoSidedPValue(z){
+    const helper = Shared.stats?.normalTwoSidedPValue;
+    if(typeof helper === 'function'){
+      const value = helper(z);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const cdf = global.jStat?.normal?.cdf;
+    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(z), 0, 1)))) : NaN;
   }
 
   // PART: DRAW
@@ -2411,14 +2422,28 @@
     }
     const primary = stats[0] || null;
     const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
+    const primaryTextPrefix = primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)})` : ''} and p = ` : '';
+    const compareParts = compareText && diffResult && Number.isFinite(diffResult.p)
+      ? [
+          `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)}, p = `,
+          { type:'pValue', value:diffResult.p, fallback:String(formatPValue(diffResult.p)) },
+          Array.isArray(diffResult.ci) ? `, CI = [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : ''
+        ]
+      : (compareText || null);
     Shared.statsReporting.appendReportPanel(refs.statsResults, {
       methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series. ${graphType === 'roc' ? 'AUC uncertainty used a DeLong-style nonparametric variance estimate, and cutoff tables reported Wilson confidence intervals for diagnostic rates.' : 'Curve comparison used the selected resampling method when requested.'}`,
       resultsText: [
         `${stats.length} series were analysed.`,
-        primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)})` : ''} and p = ${formatPValue(primary.pVal)}.` : null,
+        primary ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? `${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         compareText || null
       ].filter(Boolean).join(' '),
+      resultsParts: [
+        `${stats.length} series were analysed.`,
+        primary ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal)) }, '.'] : null,
+        graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? ` ${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
+        compareParts ? [' ', compareParts] : null
+      ].filter(Boolean),
       analysisSpec: {
         component: 'roc',
         graphType,

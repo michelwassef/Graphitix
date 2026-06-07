@@ -1581,10 +1581,25 @@ let state = {
     if(!Number.isFinite(numeric)){
       return 'N/A';
     }
+    const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+      target: getPieNodeById('pieStatsResults'),
+      tabId: pie.__boundTabId || null
+    }) === true;
     if(typeof Shared.formatPValue === 'function'){
-      return Shared.formatPValue(numeric);
+      return Shared.formatPValue(numeric, { scientific, forceScientific: scientific });
     }
-    return numeric.toExponential(5);
+    if(scientific) return numeric.toExponential(5);
+    return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function pieChiSquareUpperTailPValue(statistic, df){
+    const helper = Shared.stats?.chiSquareUpperTail;
+    if(typeof helper === 'function'){
+      const value = helper(statistic, df);
+      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+    }
+    const cdf = global.jStat?.chisquare?.cdf;
+    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 1 - cdf(statistic, df))) : NaN;
   }
 
   function setPieStatsStatus(message){
@@ -2588,10 +2603,7 @@ let state = {
       }
     }
     const df = Math.max(1, (rowCount - 1) * (colCount - 1));
-    let pValue = NaN;
-    if(global.jStat?.chisquare?.cdf){
-      pValue = 1 - global.jStat.chisquare.cdf(statistic, df);
-    }
+    const pValue = pieChiSquareUpperTailPValue(statistic, df);
     const minDim = Math.min(rowCount - 1, colCount - 1);
     const cramersV = minDim > 0 && total > 0 ? Math.sqrt(statistic / (total * minDim)) : NaN;
     return {
@@ -2641,10 +2653,7 @@ let state = {
       }, 0);
     }
     const df = Math.max(1, obs.length - 1);
-    let pValue = NaN;
-    if(global.jStat?.chisquare?.cdf){
-      pValue = 1 - global.jStat.chisquare.cdf(statistic, df);
-    }
+    const pValue = pieChiSquareUpperTailPValue(statistic, df);
     const total = obs.reduce((sum, value) => sum + value, 0);
     const cramersV = total > 0 && df > 0 ? Math.sqrt(statistic / (total * df)) : NaN;
     return {
@@ -2924,6 +2933,7 @@ let state = {
         Shared.statsReporting.appendReportPanel(getPieNodeById('pieStatsResults'), {
           methodsText: renderedModel.summary.testLabel,
           resultsText: `${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = ${renderedModel.summary.pValue}.`,
+          resultsParts: [`${renderedModel.summary.caption}: statistic = ${renderedModel.summary.statistic}, df = ${renderedModel.summary.df}, p = `, { type:'pValue', value:overall.pValue, fallback:String(renderedModel.summary.pValue) }, '.'],
           analysisSpec: {
             component: 'pie',
             scope: stats.scope,
@@ -4435,10 +4445,7 @@ let state = {
     }
     const chi2 = values.reduce((sum, obs, idx) => sum + Math.pow(obs - expectedValues[idx], 2) / expectedValues[idx], 0);
     const df = Math.max(1, values.length - 1);
-    let p = NaN;
-    if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
-      p = 1 - global.jStat.chisquare.cdf(chi2, df);
-    }
+    const p = pieChiSquareUpperTailPValue(chi2, df);
     return { available: true, chi2, df, p };
   }
 
@@ -4460,10 +4467,16 @@ let state = {
       const { chi2, df, p } = result;
       const formatP=(val)=>{
         if(!isFinite(val)) return String(val);
+        const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
+          target: out,
+          tabId: pie.__boundTabId || null
+        }) === true;
         if(typeof Shared?.formatPValue === 'function'){
-          return Shared.formatPValue(val);
+          return Shared.formatPValue(val, { scientific, forceScientific: scientific });
         }
-        return Number(val).toExponential(5);
+        const numeric = Number(val);
+        if(scientific) return numeric.toExponential(5);
+        return numeric >= 0 && numeric <= 0.0001 ? '<0.0001' : numeric.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
       };
       const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
       const rows=[
@@ -4492,6 +4505,7 @@ let state = {
         Shared.statsReporting.appendReportPanel(out, {
           methodsText: `A chi-square goodness-of-fit test compared observed counts across ${observed.length} categories against the supplied expected counts.`,
           resultsText: `Chi-square = ${chi2.toFixed(4)}, df = ${df}, p = ${isFinite(p)?formatP(p):'N/A'}.`,
+          resultsParts: [`Chi-square = ${chi2.toFixed(4)}, df = ${df}, p = `, { type:'pValue', value:p, fallback:isFinite(p)?String(formatP(p)):'N/A' }, '.'],
           analysisSpec: {
             component: 'pie',
             categoryCount: observed.length,
