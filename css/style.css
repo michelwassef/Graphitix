@@ -1,4 +1,5 @@
-/* Minimal central stylesheet to be expanded. Move inline styles here for maintainability. */
+/* Graphitix shared application stylesheet.
+   Keep generated class hooks and runtime custom-property hooks intact unless their producers are also refactored. */
 :root {
     --bg-color: #fff;
     --fg-color: #222;
@@ -4361,11 +4362,46 @@ input[type=number]::-webkit-inner-spin-button{
 .btn:hover{background:var(--ui-btn-bg-hover);border-color:#6c7bb1}
 .btn:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 .btn.active{background:#d5d5d5}
-.export-control-host{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
-.export-select-wrapper{display:flex;align-items:center;min-width:0}
-.export-select{height:26px;padding:2px 24px 2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);appearance:none;-webkit-appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;width:auto;max-width:100%;flex:0 1 auto;cursor:pointer}
-.export-select:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
-.export-select:disabled{opacity:.55;cursor:default}
+.export-control-host{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    flex-wrap:wrap;
+    gap:8px;
+}
+.export-select-wrapper{
+    display:flex;
+    align-items:center;
+    min-width:0;
+}
+.export-select{
+    appearance:none;
+    -webkit-appearance:none;
+    height:var(--ui-control-height);
+    padding:2px 24px 2px 8px;
+    border:var(--ui-control-border);
+    border-radius:0;
+    background:var(--ui-control-bg);
+    color:var(--ui-control-fg);
+    font-size:12px;
+    line-height:20px;
+    box-shadow:var(--ui-control-shadow);
+    background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));
+    background-repeat:no-repeat;
+    background-position:right 8px center;
+    width:auto;
+    max-width:100%;
+    flex:0 1 auto;
+    cursor:pointer;
+}
+.export-select:focus{
+    outline:var(--ui-focus-outline);
+    outline-offset:var(--ui-focus-offset);
+}
+.export-select:disabled{
+    opacity:.55;
+    cursor:default;
+}
 /* Shared dropdown item look across custom menus. */
 .workspace-toolbar__menu-item,
 .font-controls-panel__combo-option,
@@ -4388,7 +4424,6 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-table__cell--left{text-align:left}
 .stats-table__cell--center{text-align:center}
 .stats-table__cell--right{text-align:left}
-.stats-table__cell--left{text-align:left}
 .stats-table tbody tr:nth-child(even){background:#f9fbff}
 .stats-table tbody tr:last-child .stats-table__cell{border-bottom:0}
 .stats-table-footnotes{padding:12px 20px;border-top:1px solid #d7e0ef;background:#f6f8fb;color:#3b4758;font-size:12px;line-height:1.4}
@@ -4411,8 +4446,7 @@ input[type=number]::-webkit-inner-spin-button{
 .stats-assumption-section .assumption-message{font-size:12px;color:#6b7280}
 .stats-assumption-table{table-layout:fixed;display:inline-table;width:fit-content;max-width:100%}
 .stats-assumption-table .stats-table__cell{padding:7px 10px}
-.stats-assumption__group{font-weight:600}
-.stats-assumption__group{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stats-assumption__group{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stats-assumption__qq{padding-inline:4px}
 
 .assumption-badge{display:inline-flex;align-items:center;justify-content:center;min-width:40px;padding:2px 8px;border-radius:0;font-size:11px;font-weight:700;letter-spacing:0.02em;border:1px solid rgba(15,23,42,0.12)}
@@ -4654,7 +4688,6 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-rad
 input[type=color]::-webkit-color-swatch{border:none;border-radius:0}
 input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .diagram-area{display:flex;gap:12px;align-items:flex-start;flex-wrap:nowrap}
-.config-panel,
 .config-panel{background:#fbfcff;border:1.5px solid #dfe4ec;border-radius:var(--ui-rounded-radius);padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:var(--config-panel-min-width,140px);font-family:var(--ui-font-family);color:#1d2532;box-shadow:none;--config-panel-number-width:48px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
 .config-panel [hidden]{display:none !important}
 .config-panel__fieldset,
@@ -4665,14 +4698,12 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
 .config-panel__line,
 .config-panel .control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
-.config-panel__line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
 .config-panel__line:first-of-type,
 .config-panel .control:first-of-type{margin-top:0}
 .config-panel .control-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .config-panel .control-row>.control{margin-top:0;flex:0 1 auto}
 .config-panel__line--split{column-gap:12px;row-gap:6px}
 .config-panel__line--checkboxes{gap:6px 10px}
-.config-panel,
 .config-panel,
 .workspace-toolbar,
 .axis-controls-panel,
@@ -5341,9 +5372,6 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 .config-panel__fieldset input[type=number],
 .config-panel__fieldset select,
 .config-panel__fieldset input[type=text],
-.config-panel input[type=number],
-.config-panel select,
-.config-panel input[type=text],
 .config-panel fieldset input[type=number],
 .config-panel fieldset select,
 .config-panel fieldset input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
@@ -5369,39 +5397,31 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 }
 .config-panel input[type=number],
 .config-panel__fieldset input[type=number],
-.config-panel input[type=number],
 .config-panel fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
 #heatmapPage .heatmap-filter-row input[type=number]{width:54px;max-width:54px;flex:0 0 54px;height:24px;padding:1px 4px 1px 6px;font-size:11px;line-height:18px}
 #heatmapPage .heatmap-filter-row .heatmap-count-field{width:38px;max-width:38px;flex:0 0 38px}
 .config-panel select,
 .config-panel__fieldset select,
-.config-panel select,
 .config-panel fieldset select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
 .config-panel__item--select-auto select{min-width:fit-content;width:auto}
 .config-panel__warning{margin-top:8px;padding:6px 8px;border-radius:4px;border:1px solid #f3c1c1;background:#fff4f4;color:#7a1f1f;font-size:11px;line-height:1.4}
 .config-panel input[type=color],
 .config-panel__fieldset input[type=color],
-.config-panel input[type=color],
 .config-panel fieldset input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
 .config-panel input[type=range],
 .config-panel__fieldset input[type=range],
-.config-panel input[type=range],
 .config-panel fieldset input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px);border:none;outline:none}
 .config-panel output,
 .config-panel__fieldset output,
-.config-panel output,
 .config-panel fieldset output{width:auto}
 .config-panel input:not([type=range]):focus,
 .config-panel select:focus,
 .config-panel__fieldset input:not([type=range]):focus,
 .config-panel__fieldset select:focus,
-.config-panel input:not([type=range]):focus,
-.config-panel select:focus,
 .config-panel fieldset input:not([type=range]):focus,
 .config-panel fieldset select:focus{outline:var(--ui-focus-outline);outline-offset:var(--ui-focus-offset)}
 .config-panel input[type=range]:focus,
 .config-panel__fieldset input[type=range]:focus,
-.config-panel input[type=range]:focus,
 .config-panel fieldset input[type=range]:focus{outline:none;box-shadow:none}
 #scatterStats .config-panel__fieldset{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532}
 #scatterStats .config-panel__line{gap:8px 12px;margin-top:6px}
@@ -6607,7 +6627,6 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     .style-sync-targets,
     .style-sync-options,
     .config-panel,
-    .config-panel,
     .config-panel__warning,
     .stats-advisor,
     .stats-advisor__question,
@@ -6649,7 +6668,6 @@ select,
 .style-sync-field select,
 .config-panel select,
 .config-panel__fieldset select,
-.config-panel select,
 .config-panel fieldset select,
 .workspace-toolbar__input select,
 .font-controls-panel__select,
@@ -6690,8 +6708,6 @@ input[type="number"],
 .config-panel input[type="number"],
 .config-panel__fieldset input[type="text"],
 .config-panel__fieldset input[type="number"],
-.config-panel input[type="text"],
-.config-panel input[type="number"],
 .config-panel fieldset input[type="text"],
 .config-panel fieldset input[type="number"],
 .workspace-toolbar__input input[type="text"],
@@ -6703,6 +6719,8 @@ input[type="number"],
     border-radius: 0 !important;
 }
 
+/* Generated-class hooks migrated from former inline styles.
+   These names are referenced from index.html and some runtime-built controls; do not prune by static CSS usage alone. */
 /* BEGIN index.html inline-style migration */
 .idx-inline-001 { display: none; }
 .idx-inline-002 { margin-top: 6px; }
@@ -6790,7 +6808,6 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-panel input[type=color],
     .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
@@ -6821,7 +6838,6 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-panel input[type=color],
     .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
@@ -6841,7 +6857,6 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-panel input[type=color],
     .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
@@ -6856,7 +6871,6 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-panel input[type=color],
     .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
@@ -6875,7 +6889,6 @@ input[type="number"],
 :is(
     .config-panel input[type=color],
     .config-panel__fieldset input[type=color],
-    .config-panel input[type=color],
     .config-panel fieldset input[type=color],
     .color-picker input[type=color],
     .workspace-toolbar__form input[type=color],
@@ -6920,19 +6933,11 @@ input[type="reset"],
 .axis-controls-panel__checkbox-chip,
 .significance-controls-panel__checkbox-chip {
     border-radius: 0 !important;
-    border-top-left-radius: 0 !important;
-    border-top-right-radius: 0 !important;
-    border-bottom-left-radius: 0 !important;
-    border-bottom-right-radius: 0 !important;
 }
 
 /* Exception: keep transform-toolbar buttons slightly rounded for better affordance. */
 .workspace-toolbar__section[data-transform-section="1"] .workspace-toolbar__button{
     border-radius:4px !important;
-    border-top-left-radius:4px !important;
-    border-top-right-radius:4px !important;
-    border-bottom-left-radius:4px !important;
-    border-bottom-right-radius:4px !important;
 }
 
 /* Welcome page section tiles: keep a slight rounding for card affordance. */
@@ -6940,10 +6945,6 @@ input[type="reset"],
 .welcome-screen .graph-card,
 #graphSelectionGrid .graph-card {
     border-radius: 4px !important;
-    border-top-left-radius: 4px !important;
-    border-top-right-radius: 4px !important;
-    border-bottom-left-radius: 4px !important;
-    border-bottom-right-radius: 4px !important;
 }
 
 /* Welcome quick launcher: apply slight rounding to the container and primary controls. */
@@ -6957,10 +6958,6 @@ input[type="reset"],
 #welcomeScreen .welcome-picker__launch,
 .welcome-screen .welcome-picker__launch {
     border-radius: 4px !important;
-    border-top-left-radius: 4px !important;
-    border-top-right-radius: 4px !important;
-    border-bottom-left-radius: 4px !important;
-    border-bottom-right-radius: 4px !important;
 }
 .fit-spec-badge{
   display:inline-block;
