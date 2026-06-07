@@ -3,8 +3,6 @@
   const Shared = global.Shared = global.Shared || {};
   const exporter = Shared.exporter = Shared.exporter || {};
   const doc = global.document;
-  const openStates = new Set();
-  let listenersBound = false;
 
   const logDebug = (label, payload) => {
     try {
@@ -5520,178 +5518,76 @@
     return success;
   }
 
-  function closeAllMenus(exceptState) {
-    Array.from(openStates).forEach(state => {
-      if (state !== exceptState) {
-        setMenuOpen(state, false);
-      }
-    });
+  function createPlaceholderOption(action) {
+    const option = doc.createElement('option');
+    option.value = '';
+    option.textContent = action?.label || 'Export';
+    option.selected = true;
+    option.disabled = true;
+    option.hidden = true;
+    return option;
   }
 
-  function setMenuOpen(state, open) {
-    if (!state) return;
-    if (open) {
-      closeAllMenus(state);
-      state.wrapper.classList.add('is-open');
-      state.menu.hidden = false;
-      promoteMenuToTopLayer(state);
-      updateMenuDirection(state);
-      state.trigger.setAttribute('aria-expanded', 'true');
-      openStates.add(state);
-    } else {
-      state.wrapper.classList.remove('is-open');
-      restoreMenuFromTopLayer(state);
-      state.menu.hidden = true;
-      state.trigger.setAttribute('aria-expanded', 'false');
-      openStates.delete(state);
-    }
-    logDebug('menuToggle', { contextLabel: state.contextLabel, actionKey: state.actionKey, open });
+  function createFormatOption(format) {
+    const option = doc.createElement('option');
+    option.value = format.key;
+    option.textContent = format.label;
+    return option;
   }
 
-  function promoteMenuToTopLayer(state) {
-    if (!state?.menu || !state.wrapper || !doc?.body) return;
-    if (!state.menuPlaceholder) {
-      state.menuPlaceholder = doc.createComment('export-menu-anchor');
-    }
-    if (!state.menuPlaceholder.parentNode) {
-      state.wrapper.insertBefore(state.menuPlaceholder, state.menu);
-    }
-    if (state.menu.parentNode !== doc.body) {
-      doc.body.appendChild(state.menu);
-    }
-    state.menu.classList.add('export-dropdown-layer');
-  }
-
-  function restoreMenuFromTopLayer(state) {
-    if (!state?.menu || !state.wrapper) return;
-    state.menu.classList.remove('export-dropdown-layer');
-    state.menu.style.left = '';
-    state.menu.style.top = '';
-    state.menu.style.right = '';
-    state.menu.style.bottom = '';
-    if (state.menuPlaceholder?.parentNode) {
-      state.menuPlaceholder.parentNode.replaceChild(state.menu, state.menuPlaceholder);
-    } else if (state.menu.parentNode !== state.wrapper) {
-      state.wrapper.appendChild(state.menu);
+  function resetExportSelect(select) {
+    if (!select) return;
+    select.value = '';
+    const controls = global.Shared?.formControls;
+    if (controls && typeof controls.autoSizeSelect === 'function') {
+      controls.autoSizeSelect(select);
     }
   }
 
-  function updateMenuDirection(state) {
-    if (!state?.menu || !state?.trigger) return;
-    const menu = state.menu;
-    const trigger = state.trigger;
-    const resolveBottomBoundary = () => {
-      const viewportHeight = global.innerHeight || doc?.documentElement?.clientHeight || 0;
-      if (!doc?.getElementById) {
-        return viewportHeight;
-      }
-      const dock = doc.getElementById('workspaceTabsDock') || doc.querySelector?.('.workspace-tabs-dock');
-      if (!dock || !dock.getBoundingClientRect) {
-        return viewportHeight;
-      }
-      const rect = dock.getBoundingClientRect();
-      if (!Number.isFinite(rect.top)) {
-        return viewportHeight;
-      }
-      return Math.min(viewportHeight, Math.max(0, rect.top - 8));
-    };
-    const bottomBoundary = resolveBottomBoundary();
-    menu.style.maxHeight = '';
-    menu.style.overflowY = '';
-    menu.style.top = '';
-    menu.style.bottom = '';
-    menu.classList.remove('open-up');
-    const triggerRect = trigger.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const spaceBelow = bottomBoundary - triggerRect.bottom;
-    menu.classList.remove('open-up');
-    if (menu.classList.contains('export-dropdown-layer')) {
-      const left = Math.max(0, Math.round(triggerRect.right - menuRect.width));
-      const top = Math.max(0, Math.round(triggerRect.bottom + 6));
-      menu.style.left = `${left}px`;
-      menu.style.top = `${top}px`;
-      menu.style.right = 'auto';
-      menu.style.bottom = 'auto';
-    } else {
-      menu.style.top = 'calc(100% + 6px)';
-      menu.style.bottom = 'auto';
-    }
-    if (menuRect.height > spaceBelow) {
-      const maxHeight = Math.max(120, spaceBelow - 10);
-      menu.style.maxHeight = `${Math.floor(maxHeight)}px`;
-      menu.style.overflowY = 'auto';
-    }
-  }
+  function createExportSelect(container, action, contextLabel) {
+    if (!doc?.createElement || !action || !Array.isArray(action.formats)) return null;
 
-  function ensureDocumentListeners() {
-    if (listenersBound || !doc?.addEventListener) return;
-    doc.addEventListener('click', event => {
-      for (const state of Array.from(openStates)) {
-        if (state.wrapper.contains(event.target) || state.menu?.contains?.(event.target)) {
-          continue;
-        }
-        setMenuOpen(state, false);
-      }
-    });
-    doc.addEventListener('keydown', event => {
-      if (event.key === 'Escape') {
-        closeAllMenus();
-      }
-    });
-    listenersBound = true;
-    logDebug('documentListeners bound', {});
-  }
-
-  function createDropdown(container, action, contextLabel) {
-    if (!doc?.createElement) return null;
     const wrapper = doc.createElement('div');
-    wrapper.className = 'export-dropdown';
-    wrapper.dataset.actionKey = action.key;
-    wrapper.dataset.contextLabel = contextLabel;
+    wrapper.className = 'export-select-wrapper';
+    wrapper.dataset.actionKey = action.key || '';
+    wrapper.dataset.contextLabel = contextLabel || '';
 
-    const trigger = doc.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'btn export-trigger';
-    trigger.textContent = `${action.label} \u25BE`;
-    trigger.setAttribute('aria-haspopup', 'menu');
-    trigger.setAttribute('aria-expanded', 'false');
+    const select = doc.createElement('select');
+    select.className = 'export-select';
+    select.setAttribute('aria-label', action.label || 'Export');
+    select.dataset.minSelectWidth = action.minWidth ? String(action.minWidth) : '96';
+    select.appendChild(createPlaceholderOption(action));
 
-    const menu = doc.createElement('div');
-    menu.className = 'export-menu';
-    menu.setAttribute('role', 'menu');
-    menu.hidden = true;
-
-    action.formats.forEach(format => {
-      const optionBtn = doc.createElement('button');
-      optionBtn.type = 'button';
-      optionBtn.className = 'btn export-option';
-      optionBtn.textContent = format.label;
-      optionBtn.setAttribute('role', 'menuitem');
-      optionBtn.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        closeAllMenus();
-        logDebug('optionSelected', { contextLabel, action: action.key, format: format.key });
-        Promise.resolve()
-          .then(() => format.handler())
-          .catch(err => console.error('exporter option handler error', err));
-      });
-      menu.appendChild(optionBtn);
+    const formats = action.formats.filter(format => format && format.key && typeof format.handler === 'function');
+    formats.forEach(format => {
+      select.appendChild(createFormatOption(format));
     });
 
-    wrapper.appendChild(trigger);
-    wrapper.appendChild(menu);
-
-    const state = { wrapper, trigger, menu, contextLabel, actionKey: action.key };
-    trigger.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      const nextOpen = !wrapper.classList.contains('is-open');
-      setMenuOpen(state, nextOpen);
+    select.disabled = formats.length === 0;
+    select.addEventListener('change', () => {
+      const selectedKey = select.value;
+      const format = formats.find(entry => entry.key === selectedKey);
+      resetExportSelect(select);
+      if (!format) {
+        return;
+      }
+      logDebug('optionSelected', { contextLabel, action: action.key, format: format.key });
+      Promise.resolve()
+        .then(() => format.handler())
+        .catch(err => console.error('exporter option handler error', err));
     });
 
+    wrapper.appendChild(select);
     container.appendChild(wrapper);
-    return state;
+
+    const controls = global.Shared?.formControls;
+    if (controls && typeof controls.attachSelectAutoSize === 'function') {
+      controls.attachSelectAutoSize(select, { label: `export-${action.key || 'action'}` });
+    } else if (controls && typeof controls.autoSizeSelect === 'function') {
+      controls.autoSizeSelect(select);
+    }
+
+    return { wrapper, select, contextLabel, actionKey: action.key };
   }
 
   function mountControls({ container, actions, contextLabel }) {
@@ -5700,20 +5596,14 @@
       logDebug('mountControls skipped', { contextLabel, reason: 'no host' });
       return;
     }
-    ensureDocumentListeners();
-    Array.from(openStates).forEach(state => {
-      if (host.contains(state.wrapper)) {
-        setMenuOpen(state, false);
-      }
-    });
     host.innerHTML = '';
     host.classList.add('export-control-host');
-    const states = [];
+    const controls = [];
     actions.forEach(action => {
-      const state = createDropdown(host, action, contextLabel);
-      if (state) states.push(state);
+      const control = createExportSelect(host, action, contextLabel);
+      if (control) controls.push(control);
     });
-    logDebug('mountControls complete', { contextLabel, dropdowns: states.length });
+    logDebug('mountControls complete', { contextLabel, controls: controls.length });
   }
 
   function createSvgActions(config) {

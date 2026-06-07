@@ -492,7 +492,7 @@
     }
     // Accept a pre-built model so a restored stats panel can re-render the card (and
     // re-mount live export controls) from the persisted data model instead of replaying
-    // serialized DOM, which cannot carry the interactive Download/Copy dropdowns.
+    // serialized DOM, which cannot carry the live Download/Copy export controls.
     const model = (config && config.model && typeof config.model === 'object')
       ? config.model
       : buildModel(config);

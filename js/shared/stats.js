@@ -1934,7 +1934,7 @@
     if(node.nodeType !== 1){
       return null;
     }
-    // Stats-table cards carry interactive Download/Copy export controls (buttons/menus)
+    // Stats-table cards carry interactive Download/Copy export controls
     // that the tag whitelist below would mangle into raw text and that cannot be re-wired
     // from markup. Capture the card's plain data model instead and re-render it (with live
     // controls) on restore — see renderStatsNodeModel.
