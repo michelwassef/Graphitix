@@ -40,6 +40,7 @@
     });
     const WELCOME_EXAMPLE_MAX_ATTEMPTS = 10;
     const WELCOME_EXAMPLE_RETRY_DELAY_MS = 60;
+    const DEFAULT_GRAPH_CARD_ICON = '<svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true"><path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" /><path class="welcome-icon__primary" d="M14 32L21 25L28 29L36 17" /></svg>';
     let lastWelcomeVariantLaunch = null;
     normalizedGraphVariants.sort((a, b) => {
       const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
@@ -837,7 +838,7 @@
       const icon = document.createElement('div');
       icon.className = 'graph-card__icon';
       icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = info.icon || '📊';
+      icon.innerHTML = info.icon || DEFAULT_GRAPH_CARD_ICON;
       main.appendChild(icon);
 
       const content = document.createElement('div');

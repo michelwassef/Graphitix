@@ -2195,20 +2195,218 @@ select {
 }
 
 .graph-card__icon {
-    width: 46px;
-    height: 46px;
-    flex: 0 0 46px;
-    background: #f1f5f9;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    background: #f8fafc;
     border: 1px solid #e2e8f0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 0;
+    color: #6d28d9;
+    --welcome-icon-axis: #97a1b2;
+    --welcome-icon-axis-strong: #6b7280;
+    --welcome-icon-primary: #6d28d9;
+    --welcome-icon-secondary: #d9465f;
+    --welcome-icon-soft: #ede9fe;
+    --welcome-icon-soft-secondary: #ffe4e6;
+    --welcome-icon-heat-1: #fee2e2;
+    --welcome-icon-heat-2: #fdba74;
+    --welcome-icon-heat-3: #fde68a;
+    --welcome-icon-heat-4: #a7f3d0;
+    --welcome-icon-heat-5: #60a5fa;
+    --welcome-icon-heat-6: #4338ca;
 }
 
-.graph-card__icon svg {
+.graph-card__icon .welcome-graph-icon {
     width: 30px;
     height: 30px;
+    display: block;
+    overflow: visible;
+}
+
+.graph-card__icon .welcome-graph-icon * {
+    vector-effect: non-scaling-stroke;
+}
+
+.graph-card__icon .welcome-icon__axis,
+.graph-card__icon .welcome-icon__dendrogram,
+.graph-card__icon .welcome-icon__surface-grid {
+    fill: none;
+    stroke: var(--welcome-icon-axis);
+    stroke-width: 1.35;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.graph-card__icon .welcome-icon__primary,
+.graph-card__icon .welcome-icon__secondary,
+.graph-card__icon .welcome-icon__guide,
+.graph-card__icon .welcome-icon__density,
+.graph-card__icon .welcome-icon__diagonal,
+.graph-card__icon .welcome-icon__upset-line,
+.graph-card__icon .welcome-icon__surface-back,
+.graph-card__icon .welcome-icon__surface-ridge,
+.graph-card__icon .welcome-icon__survival-a,
+.graph-card__icon .welcome-icon__survival-b {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.graph-card__icon .welcome-icon__primary {
+    stroke: var(--welcome-icon-primary);
+    stroke-width: 1.7;
+}
+
+.graph-card__icon .welcome-icon__secondary {
+    stroke: var(--welcome-icon-secondary);
+    stroke-width: 1.55;
+}
+
+.graph-card__icon .welcome-icon__guide {
+    stroke: var(--welcome-icon-axis-strong);
+    stroke-width: 0.95;
+}
+
+.graph-card__icon .welcome-icon__density {
+    stroke: var(--welcome-icon-secondary);
+    stroke-width: 1.4;
+}
+
+.graph-card__icon .welcome-icon__diagonal {
+    stroke: var(--welcome-icon-axis);
+    stroke-width: 1;
+    stroke-dasharray: 2.2 2.2;
+}
+
+.graph-card__icon .welcome-icon__surface-back {
+    stroke: var(--welcome-icon-axis);
+    stroke-width: 1.2;
+}
+
+.graph-card__icon .welcome-icon__surface-ridge {
+    stroke: var(--welcome-icon-primary);
+    stroke-width: 1.8;
+}
+
+.graph-card__icon .welcome-icon__survival-a {
+    stroke: var(--welcome-icon-primary);
+    stroke-width: 1.7;
+}
+
+.graph-card__icon .welcome-icon__survival-b {
+    stroke: var(--welcome-icon-secondary);
+    stroke-width: 1.7;
+}
+
+.graph-card__icon .welcome-icon__surface-grid,
+.graph-card__icon .welcome-icon__upset-line {
+    stroke-width: 1.1;
+}
+
+.graph-card__icon .welcome-icon__box {
+    fill: var(--welcome-icon-primary);
+    stroke: var(--welcome-icon-primary);
+    stroke-width: 0.85;
+}
+
+.graph-card__icon .welcome-icon__points circle,
+.graph-card__icon .welcome-icon__upset-dots circle {
+    fill: var(--welcome-icon-primary);
+    stroke: none;
+}
+
+.graph-card__icon .welcome-icon__bars rect {
+    fill: var(--welcome-icon-primary);
+    opacity: 0.78;
+}
+
+.graph-card__icon .welcome-icon__area {
+    fill: var(--welcome-icon-soft);
+    opacity: 0.72;
+    stroke: none;
+}
+
+.graph-card__icon .welcome-icon__cluster-a,
+.graph-card__icon .welcome-icon__cluster-b {
+    fill: transparent;
+    stroke-width: 1.05;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.7;
+}
+
+.graph-card__icon .welcome-icon__cluster-a {
+    stroke: var(--welcome-icon-primary);
+}
+
+.graph-card__icon .welcome-icon__cluster-b {
+    stroke: var(--welcome-icon-secondary);
+}
+
+.graph-card__icon .welcome-icon__heatmap-grid rect {
+    stroke: #f8fafc;
+    stroke-width: 0.75;
+}
+
+.graph-card__icon .welcome-icon__heat-1 { fill: var(--welcome-icon-heat-1); }
+.graph-card__icon .welcome-icon__heat-2 { fill: var(--welcome-icon-heat-2); }
+.graph-card__icon .welcome-icon__heat-3 { fill: var(--welcome-icon-heat-3); }
+.graph-card__icon .welcome-icon__heat-4 { fill: var(--welcome-icon-heat-4); }
+.graph-card__icon .welcome-icon__heat-5 { fill: var(--welcome-icon-heat-5); }
+.graph-card__icon .welcome-icon__heat-6 { fill: var(--welcome-icon-heat-6); }
+
+.graph-card__icon .welcome-icon__donut-track,
+.graph-card__icon .welcome-icon__donut-a,
+.graph-card__icon .welcome-icon__donut-b,
+.graph-card__icon .welcome-icon__donut-c {
+    fill: none;
+    stroke-width: 7;
+    transform: rotate(-90deg);
+    transform-origin: 24px 24px;
+}
+
+.graph-card__icon .welcome-icon__donut-track {
+    stroke: #e5e7eb;
+}
+
+.graph-card__icon .welcome-icon__donut-a {
+    stroke: var(--welcome-icon-primary);
+    stroke-dasharray: 36 64;
+    stroke-dashoffset: 0;
+}
+
+.graph-card__icon .welcome-icon__donut-b {
+    stroke: var(--welcome-icon-secondary);
+    stroke-dasharray: 28 72;
+    stroke-dashoffset: -36;
+}
+
+.graph-card__icon .welcome-icon__donut-c {
+    stroke: #14b8a6;
+    stroke-dasharray: 18 82;
+    stroke-dashoffset: -64;
+}
+
+.graph-card__icon .welcome-icon__donut-hole {
+    fill: #f8fafc;
+    stroke: none;
+}
+
+.graph-card__icon .welcome-icon__venn-a,
+.graph-card__icon .welcome-icon__venn-b {
+    fill: transparent;
+    stroke-width: 1.55;
+}
+
+.graph-card__icon .welcome-icon__venn-a {
+    stroke: var(--welcome-icon-primary);
+}
+
+.graph-card__icon .welcome-icon__venn-b {
+    stroke: var(--welcome-icon-secondary);
 }
 
 .graph-card__content {

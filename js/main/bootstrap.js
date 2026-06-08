@@ -18,18 +18,129 @@
   };
   debug('Debug: Main.bootstrap namespace initialized', { module: 'js/main/bootstrap.js' });
 
+  function welcomeGraphIcon(markup) {
+    return `<svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">${markup}</svg>`;
+  }
+
+  const WELCOME_GRAPH_ICONS = Object.freeze({
+    box: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <g class="welcome-icon__primary" style="stroke-width:0.85; stroke-linecap:butt; stroke-linejoin:miter; shape-rendering:crispEdges;">
+        <path d="M16 16V34 M13.5 16H18.5 M13.5 34H18.5" />
+        <rect class="welcome-icon__box" x="13.5" y="22" width="5" height="8" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M13.5 26H18.5" stroke="#ffffff" />
+
+        <path d="M25 13V34 M22.5 13H27.5 M22.5 34H27.5" />
+        <rect class="welcome-icon__box" x="22.5" y="19" width="5" height="10" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M22.5 24H27.5" stroke="#ffffff" />
+
+        <path d="M34 19V34 M31.5 19H36.5 M31.5 34H36.5" />
+        <rect class="welcome-icon__box" x="31.5" y="24" width="5" height="7" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M31.5 27.5H36.5" stroke="#ffffff" />
+      </g>
+    `),
+    scatter: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__guide" d="M14.5 32L37.5 15" />
+      <g class="welcome-icon__points">
+        <circle cx="16.8" cy="30.9" r="1.55" />
+        <circle cx="20.2" cy="28.0" r="1.55" />
+        <circle cx="23.8" cy="24.0" r="1.55" />
+        <circle cx="27.8" cy="20.4" r="1.55" />
+        <circle cx="32.4" cy="16.6" r="1.55" />
+        <circle cx="19.0" cy="31.8" r="1.55" />
+        <circle cx="24.8" cy="27.8" r="1.55" />
+        <circle cx="29.8" cy="24.6" r="1.55" />
+        <circle cx="34.8" cy="22.1" r="1.55" />
+      </g>
+    `),
+    line: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__area" d="M11 35L17 30L23 27L29 20L35 17L40 12V38H11Z" />
+      <path class="welcome-icon__primary" d="M11 35L17 30L23 27L29 20L35 17L40 12" />
+    `),
+    hist: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <g class="welcome-icon__bars">
+        <rect x="14" y="28.5" width="4" height="9.5" />
+        <rect x="19" y="22.5" width="4" height="15.5" />
+        <rect x="24" y="17" width="4" height="21" />
+        <rect x="29" y="20" width="4" height="18" />
+        <rect x="34" y="26.5" width="4" height="11.5" />
+      </g>
+      <path class="welcome-icon__density" d="M13.5 31.5C17.2 24.5 21.2 18 26 18C30.8 18 34.2 24 38.5 31.5" />
+    `),
+    heatmap: welcomeGraphIcon(`
+      <path class="welcome-icon__dendrogram" d="M10 23.5H13 M13 17V30 M13 17H18 M13 30H18 M18 14V20 M18 27V33 M18 14H23 M18 20H23 M18 27H23 M18 33H23" />
+      <g class="welcome-icon__heatmap-grid">
+        <rect class="welcome-icon__heat-1" x="25" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-2" x="31" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="37" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-2" x="25" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="31" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="37" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="25" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="31" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-5" x="37" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="25" y="29.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-5" x="31" y="29.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-6" x="37" y="29.5" width="4.5" height="4.5" />
+      </g>
+    `),
+    pca: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <ellipse class="welcome-icon__cluster-a" cx="20.5" cy="29" rx="7.2" ry="4.7" transform="rotate(-22 20.5 29)" />
+      <ellipse class="welcome-icon__cluster-b" cx="33.2" cy="19" rx="6.3" ry="4.3" transform="rotate(18 33.2 19)" />
+      <g class="welcome-icon__points">
+        <circle cx="16.8" cy="31.2" r="1.4" />
+        <circle cx="20.6" cy="27.6" r="1.4" />
+        <circle cx="24.1" cy="30.1" r="1.4" />
+        <circle cx="30.3" cy="18.8" r="1.4" />
+        <circle cx="34.4" cy="17.2" r="1.4" />
+        <circle cx="35.8" cy="22.2" r="1.4" />
+      </g>
+    `),
+    pie: welcomeGraphIcon(`
+      <circle class="welcome-icon__donut-track" cx="24" cy="24" r="13" />
+      <circle class="welcome-icon__donut-a" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-b" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-c" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-hole" cx="24" cy="24" r="6" />
+    `),
+    roc: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__diagonal" d="M10 38.5L40 10" />
+      <path class="welcome-icon__primary" d="M10 38.5C12 31 16 23 23 18C29 13.5 35 12 40 11" />
+    `),
+    survival: welcomeGraphIcon(`
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__survival-a" d="M12 13H22V17H29V22H35V31H39" />
+      <path class="welcome-icon__survival-b" d="M12 15H16V20H19V24H23V29H26V34H30V38H33" />
+    `),
+    venn: welcomeGraphIcon(`
+      <circle class="welcome-icon__venn-a" cx="21" cy="24" r="10" />
+      <circle class="welcome-icon__venn-b" cx="29" cy="24" r="10" />
+    `),
+    surface: welcomeGraphIcon(`
+      <path class="welcome-icon__surface-back" d="M10.5 29.5L20 21L35 24.5L40.5 17" />
+      <path class="welcome-icon__surface-grid" d="M10.5 29.5L18 37L33 33.5L40.5 25.5 M20 21L18 37 M27.5 22.8L25.5 35.2 M35 24.5L33 33.5 M40.5 17L40.5 25.5" />
+      <path class="welcome-icon__surface-grid" d="M14.2 26.3L22.2 32.4L37 29 M17.2 23.7L25.4 29.1L40 24.8" />
+      <path class="welcome-icon__surface-ridge" d="M10.5 29.5C15.4 24.1 20 21.6 25.8 23.6C31.2 25.5 35.8 22.9 40.5 17" />
+    `)
+  });
+
   const GRAPH_TYPES = [
-    { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><g id="bp1"><line x1="14" y1="20" x2="14" y2="48" stroke="#3b82f6" stroke-width="1.5"/><line x1="12" y1="20" x2="16" y2="20" stroke="#3b82f6" stroke-width="1.5"/><line x1="12" y1="48" x2="16" y2="48" stroke="#3b82f6" stroke-width="1.5"/><rect x="10" y="32" width="8" height="10" fill="#3b82f6" stroke="#3b82f6" stroke-width="1.5"/><line x1="10" y1="37" x2="18" y2="37" stroke="#cbd5f5" stroke-width="1.5"/></g><g id="bp2"><line x1="28" y1="16" x2="28" y2="50" stroke="#3b82f6" stroke-width="1.5"/><line x1="26" y1="16" x2="30" y2="16" stroke="#3b82f6" stroke-width="1.5"/><line x1="26" y1="50" x2="30" y2="50" stroke="#3b82f6" stroke-width="1.5"/><rect x="24" y="28" width="8" height="14" fill="#3b82f6" stroke="#3b82f6" stroke-width="1.5"/><line x1="24" y1="35" x2="32" y2="35" stroke="#cbd5f5" stroke-width="1.5"/></g><g id="bp3"><line x1="42" y1="24" x2="42" y2="46" stroke="#3b82f6" stroke-width="1.5"/><line x1="40" y1="24" x2="44" y2="24" stroke="#3b82f6" stroke-width="1.5"/><line x1="40" y1="46" x2="44" y2="46" stroke="#3b82f6" stroke-width="1.5"/><rect x="38" y="32" width="8" height="10" fill="#3b82f6" stroke="#3b82f6" stroke-width="1.5"/><line x1="38" y1="37" x2="46" y2="37" stroke="#cbd5f5" stroke-width="1.5"/></g></svg>' },
-    { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><circle cx="20" cy="40" r="2.5" fill="#3b82f6"/><circle cx="28" cy="32" r="2.5" fill="#3b82f6"/><circle cx="36" cy="28" r="2.5" fill="#3b82f6"/><circle cx="44" cy="18" r="2.5" fill="#3b82f6"/><circle cx="50" cy="12" r="2.5" fill="#3b82f6"/></svg>' },
-    { type: 'line', label: 'Line & Area Charts', hint: 'Trends & forecasting', description: 'Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><polyline points="8,44 16,36 24,32 32,24 40,16 52,10" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>' },
-    { type: 'hist', label: 'Histogram / Density Plot', hint: 'Frequency distribution', description: 'Summarize univariate distributions with adjustable binning, density plots, PDF/CDF overlays, and distribution fits.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><rect x="12" y="34" width="6" height="22" fill="#3b82f6"/><rect x="20" y="24" width="6" height="32" fill="#3b82f6"/><rect x="28" y="18" width="6" height="38" fill="#3b82f6"/><rect x="36" y="20" width="6" height="36" fill="#3b82f6"/><rect x="44" y="26" width="6" height="30" fill="#3b82f6"/><rect x="52" y="38" width="6" height="18" fill="#3b82f6"/></svg>' },
-    { type: 'heatmap', label: 'Heatmap & Clustering', hint: 'Matrix view', description: 'Visualize data values or correlation matrices with hierarchical clustering and dendrograms.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="12" width="6" height="6" fill="#fca5a5"/><rect x="20" y="12" width="6" height="6" fill="#fca5a5"/><rect x="28" y="12" width="6" height="6" fill="#fbbf24"/><rect x="36" y="12" width="6" height="6" fill="#86efac"/><rect x="12" y="20" width="6" height="6" fill="#fca5a5"/><rect x="20" y="20" width="6" height="6" fill="#fbbf24"/><rect x="28" y="20" width="6" height="6" fill="#86efac"/><rect x="36" y="20" width="6" height="6" fill="#3b82f6"/><rect x="12" y="28" width="6" height="6" fill="#fbbf24"/><rect x="20" y="28" width="6" height="6" fill="#86efac"/><rect x="28" y="28" width="6" height="6" fill="#3b82f6"/><rect x="36" y="28" width="6" height="6" fill="#1e40af"/><rect x="12" y="36" width="6" height="6" fill="#86efac"/><rect x="20" y="36" width="6" height="6" fill="#3b82f6"/><rect x="28" y="36" width="6" height="6" fill="#1e40af"/><rect x="36" y="36" width="6" height="6" fill="#0c2340"/></svg>' },
-    { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS / t-SNE / UMAP', description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><circle cx="20" cy="38" r="2" fill="#3b82f6"/><circle cx="28" cy="28" r="2" fill="#3b82f6"/><circle cx="36" cy="22" r="2" fill="#3b82f6"/><circle cx="44" cy="32" r="2" fill="#3b82f6"/><circle cx="48" cy="18" r="2" fill="#3b82f6"/></svg>' },
-    { type: 'pie', label: 'Pie, Donut & Stacked Bar', hint: 'Category proportions', description: 'Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M 32 12 A 20 20 0 0 1 52 32 L 32 32 Z" fill="#3b82f6"/><path d="M 52 32 A 20 20 0 0 1 32 52 L 32 32 Z" fill="#60a5fa"/><path d="M 32 52 A 20 20 0 0 1 12 32 L 32 32 Z" fill="#93c5fd"/><path d="M 12 32 A 20 20 0 0 1 32 12 L 32 32 Z" fill="#dbeafe"/></svg>' },
-    { type: 'roc', label: 'Classification Curves', hint: 'ROC & precision-recall', description: 'Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="56" y2="8" stroke="#cbd5f5" stroke-width="1" stroke-dasharray="2,2"/><path d="M 8 56 C 10 52 14 44 20 36 C 26 28 32 18 40 12 C 48 10 52 12 56 8" stroke="#3b82f6" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>' },
-    { type: 'survival', label: 'Survival Analysis', hint: 'Time-to-event analysis', description: 'Build Kaplan-Meier curves with confidence intervals, log-rank tests, and Cox regression.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="48" height="48" fill="none" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="56" y2="56" stroke="#cbd5f5" stroke-width="1.5"/><line x1="8" y1="56" x2="8" y2="8" stroke="#cbd5f5" stroke-width="1.5"/><polyline points="10,18 18,18 18,26 28,26 28,36 40,36 40,48 52,48" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><polyline points="10,12 18,12 18,22 28,22 28,32 40,32 40,44 52,44" stroke="#8b5cf6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
-    { type: 'venn', label: 'Venn Diagram / UpSet Plot', hint: 'Set comparisons', description: 'Visualize set overlaps as Venn diagrams or UpSet plots with region statistics, GO enrichment, and STRING network analysis.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="24" cy="32" r="14" fill="none" stroke="#3b82f6" stroke-width="2"/><circle cx="40" cy="32" r="14" fill="none" stroke="#8b5cf6" stroke-width="2"/></svg>' },
-    { type: 'surface', label: '3D Surface Plot', hint: '3D visualization', description: 'Render 3D surfaces from X/Y/Z data with rotation, grid interpolation, and color ramps.', icon: '<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M 10 50 Q 20 32 32 24 Q 44 18 56 30" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M 12 46 Q 22 28 34 20 Q 46 14 56 26" stroke="#60a5fa" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M 14 42 Q 24 24 36 16 Q 48 10 56 22" stroke="#93c5fd" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M 16 38 Q 26 20 38 12 Q 50 8 56 18" stroke="#dbeafe" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="10" y1="50" x2="16" y2="38" stroke="#dbeafe" stroke-width="1"/><line x1="32" y1="24" x2="38" y2="12" stroke="#dbeafe" stroke-width="1"/><line x1="56" y1="30" x2="56" y2="18" stroke="#dbeafe" stroke-width="1"/></svg>' },
+    { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.', icon: WELCOME_GRAPH_ICONS.box },
+    { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.', icon: WELCOME_GRAPH_ICONS.scatter },
+    { type: 'line', label: 'Line & Area Charts', hint: 'Trends & forecasting', description: 'Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.', icon: WELCOME_GRAPH_ICONS.line },
+    { type: 'hist', label: 'Histogram / Density Plot', hint: 'Frequency distribution', description: 'Summarize univariate distributions with adjustable binning, density plots, PDF/CDF overlays, and distribution fits.', icon: WELCOME_GRAPH_ICONS.hist },
+    { type: 'heatmap', label: 'Heatmap & Clustering', hint: 'Matrix view', description: 'Visualize data values or correlation matrices with hierarchical clustering and dendrograms.', icon: WELCOME_GRAPH_ICONS.heatmap },
+    { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS / t-SNE / UMAP', description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.', icon: WELCOME_GRAPH_ICONS.pca },
+    { type: 'pie', label: 'Pie, Donut & Stacked Bar', hint: 'Category proportions', description: 'Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.', icon: WELCOME_GRAPH_ICONS.pie },
+    { type: 'roc', label: 'Classification Curves', hint: 'ROC & precision-recall', description: 'Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.', icon: WELCOME_GRAPH_ICONS.roc },
+    { type: 'survival', label: 'Survival Analysis', hint: 'Time-to-event analysis', description: 'Build Kaplan-Meier curves with confidence intervals, log-rank tests, and Cox regression.', icon: WELCOME_GRAPH_ICONS.survival },
+    { type: 'venn', label: 'Venn Diagram / UpSet Plot', hint: 'Set comparisons', description: 'Visualize set overlaps as Venn diagrams or UpSet plots with region statistics, GO enrichment, and STRING network analysis.', icon: WELCOME_GRAPH_ICONS.venn },
+    { type: 'surface', label: '3D Surface Plot', hint: '3D visualization', description: 'Render 3D surfaces from X/Y/Z data with rotation, grid interpolation, and color ramps.', icon: WELCOME_GRAPH_ICONS.surface },
   ];
 
   const SESSION_FILE_TYPES = [

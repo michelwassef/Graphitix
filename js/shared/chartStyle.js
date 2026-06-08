@@ -65,6 +65,33 @@
   chartStyle.normalizeColorInput = normalizeColorInput;
   chartStyle.COLOR_SWATCH_SIZE = COLOR_SWATCH_SIZE;
 
+  function buildOpenRectPath(rect, openSide){
+    const left = Number(rect?.left ?? rect?.x);
+    const top = Number(rect?.top ?? rect?.y);
+    const right = Number(rect?.right ?? (left + Number(rect?.width)));
+    const bottom = Number(rect?.bottom ?? (top + Number(rect?.height)));
+    if(!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)){
+      return '';
+    }
+    const safeLeft = Math.min(left, right);
+    const safeRight = Math.max(left, right);
+    const safeTop = Math.min(top, bottom);
+    const safeBottom = Math.max(top, bottom);
+    const side = String(openSide || 'bottom').toLowerCase();
+    switch(side){
+      case 'top':
+        return `M ${safeLeft} ${safeTop} L ${safeLeft} ${safeBottom} L ${safeRight} ${safeBottom} L ${safeRight} ${safeTop}`;
+      case 'right':
+        return `M ${safeRight} ${safeTop} L ${safeLeft} ${safeTop} L ${safeLeft} ${safeBottom} L ${safeRight} ${safeBottom}`;
+      case 'left':
+        return `M ${safeLeft} ${safeTop} L ${safeRight} ${safeTop} L ${safeRight} ${safeBottom} L ${safeLeft} ${safeBottom}`;
+      case 'bottom':
+      default:
+        return `M ${safeLeft} ${safeBottom} L ${safeLeft} ${safeTop} L ${safeRight} ${safeTop} L ${safeRight} ${safeBottom}`;
+    }
+  }
+  chartStyle.buildOpenRectPath = buildOpenRectPath;
+
   function computeDefaultGraphSize(reason){
     const doc = global.document || null;
     const winWidth = Number(global.innerWidth) || 0;
