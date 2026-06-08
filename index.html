@@ -16,24 +16,31 @@
         <div class="welcome-container">
           <div class="welcome-hero">
             <h2 class="welcome-hero__title">Graphitix — Create publication-ready visualizations and statistical analyses</h2>
-            <p class="welcome-hero__subtitle">Select a plot type, open your data, or run analysis workflows to get started. Supports comparative statistics, dimensionality reduction, survival analysis, and more.</p>
+            <p class="welcome-hero__subtitle">Start with a blank graph, load an example instantly, or open a saved workspace.</p>
             <div class="welcome-hero__actions">
-              <button type="button" class="welcome-hero__action welcome-hero__action--primary" id="welcomeOpenButton" aria-label="Open file">
+              <button type="button" class="welcome-hero__action welcome-hero__action--primary" id="welcomeOpenButton" aria-label="Open saved workspace">
                 <svg class="welcome-hero__action-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
                 </svg>
-                <span>Open File</span>
+                <span>Open saved workspace</span>
               </button>
               <input type="file" id="welcomeGraphFileInput" accept=".graph,.json,.session" class="idx-inline-001" />
+            </div>
+            <div class="welcome-graph-finder welcome-picker" aria-labelledby="welcomeGraphFinderTitle">
+              <div class="welcome-graph-finder__copy">
+                <h3 id="welcomeGraphFinderTitle" class="welcome-graph-finder__title">Find a graph type</h3>
+                <p id="welcomeGraphFinderHint" class="welcome-graph-finder__hint">Search graph types or analyses, then click a result or press Enter to open it.</p>
+              </div>
               <div class="welcome-hero__search-container">
                 <input
                   type="text"
                   id="welcomeGraphSearch"
                   class="welcome-hero__search-input"
-                  placeholder="Search by name (e.g., scatter, heatmap, ROC)..."
+                  placeholder="Search graph types: scatter, heatmap, ROC..."
                   autocomplete="off"
                   aria-haspopup="listbox"
                   aria-expanded="false"
+                  aria-describedby="welcomeGraphFinderHint"
                 />
                 <div id="welcomeGraphResults" class="welcome-hero__search-results" role="listbox" aria-label="Available graph types"></div>
               </div>

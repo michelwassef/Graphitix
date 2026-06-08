@@ -81,9 +81,6 @@
       welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
-      welcomeGraphLaunch: document.getElementById('welcomeGraphLaunch'),
-      welcomeGraphSelectionLabel: document.getElementById('welcomeGraphSelectionLabel'),
-      welcomeGraphSearchClear: document.getElementById('welcomeGraphSearchClear'),
       duplicatePrompt: document.getElementById('duplicatePrompt'),
       duplicateTitle: document.getElementById('duplicatePromptTitle'),
       duplicateMessage: document.getElementById('duplicatePromptMessage'),
@@ -1863,77 +1860,9 @@
     console.debug('Debug: welcome screen shown', { reason: reason || 'unspecified' });
   };
 
-  namespace.createSelectionCards = function createSelectionCards(params) {
-    const { dom, graphTypes, handleGraphSelection } = params || {};
-    if (!dom?.selectionGrid || !Array.isArray(graphTypes)) {
-      console.debug('Debug: selection cards skipped', {
-        hasGrid: !!dom?.selectionGrid,
-        graphCount: Array.isArray(graphTypes) ? graphTypes.length : 0
-      });
-      return;
-    }
-    const existingCards = Array.from(dom.selectionGrid.querySelectorAll('[data-graph-type]'));
-    if (existingCards.length) {
-      const infoByType = new Map(graphTypes.map(info => [info.type, info]));
-      
-      // Always regenerate - ensures we have the correct structure
-      const fragment = document.createDocumentFragment();
-      graphTypes.forEach(info => {
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'graph-card';
-        card.setAttribute('role', 'listitem');
-        card.dataset.graphType = info.type;
-        card.innerHTML = `
-          <div class="graph-card__icon">${info.icon || '📊'}</div>
-          <div class="graph-card__content">
-            <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
-            <h3 class="graph-card__title">${info.label}</h3>
-            <p class="graph-card__description">${info.description}</p>
-          </div>
-        `;
-        card.dataset.boundClick = 'true';
-        if (typeof handleGraphSelection === 'function') {
-          card.addEventListener('click', () => {
-            console.debug('Debug: graph card selected', { type: info.type });
-            handleGraphSelection(info.type);
-          });
-        }
-        fragment.appendChild(card);
-      });
-      dom.selectionGrid.innerHTML = '';
-      dom.selectionGrid.appendChild(fragment);
-      console.debug('Debug: selection cards regenerated', { count: graphTypes.length });
-      return;
-    }
-    const fragment = document.createDocumentFragment();
-    graphTypes.forEach(info => {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'graph-card';
-      card.setAttribute('role', 'listitem');
-      card.dataset.graphType = info.type;
-      card.innerHTML = `
-        <div class="graph-card__icon">${info.icon || '📊'}</div>
-        <div class="graph-card__content">
-          <span class="graph-card__hint">${info.hint || 'Workspace'}</span>
-          <h3 class="graph-card__title">${info.label}</h3>
-          <p class="graph-card__description">${info.description}</p>
-        </div>
-      `;
-      card.dataset.boundClick = 'true';
-      if (typeof handleGraphSelection === 'function') {
-        card.addEventListener('click', () => {
-          console.debug('Debug: graph card selected', { type: info.type });
-          handleGraphSelection(info.type);
-        });
-      }
-      fragment.appendChild(card);
-    });
-    dom.selectionGrid.innerHTML = '';
-    dom.selectionGrid.appendChild(fragment);
-    console.debug('Debug: selection cards generated', { count: graphTypes.length });
-  };
+  // Selection-card rendering now lives in Main.tabs so card actions can launch graph tabs
+  // and component examples through the tab lifecycle without a second legacy renderer.
+
 
   console.debug('Debug: domControls.js wiring complete', { exports: Object.keys(namespace) });
 })();

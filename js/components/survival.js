@@ -1429,9 +1429,16 @@
             recommendation.warnings.push('Enable at least one baseline covariate in the selection panel to include it in the Cox model.');
           }
         } else {
-          recommendation.summary = 'Fit a Cox model using group indicators only; omit additional covariates.';
-          recommendation.rationale.push('A group-only Cox model yields adjusted hazard ratios when no covariates are selected.');
-          recommendation.showHazardRatios = context.groupCount >= 2;
+          if(context.groupCount === 2){
+            recommendation.fitCoxModel = false;
+            recommendation.showHazardRatios = true;
+            recommendation.summary = 'Report the Cox-derived hazard ratio for the two-group comparison without a duplicate coefficient table.';
+            recommendation.rationale.push('With exactly two groups and no covariates, the single Cox coefficient is log(HR), so the hazard-ratio table carries the reportable estimate directly.');
+          }else{
+            recommendation.summary = 'Fit a Cox model using group indicators only and report baseline-referenced group effects.';
+            recommendation.rationale.push('With more than two groups, Cox coefficients and pairwise hazard ratios answer different reporting questions.');
+            recommendation.showHazardRatios = context.groupCount >= 2;
+          }
         }
         if(context.enabledCovariateCount === 0 && context.covariateCount === 0){
           recommendation.warnings.push('Add extra columns for covariates if you plan to adjust beyond group membership.');
@@ -3720,8 +3727,14 @@
       if(shouldFitCox){
         coxModelSummary = fitCoxModel(summary, { enabled: shouldFitCox });
       }
-      if(hazardRatiosEnabled){
-        hazardSummary = computeHazardRatios(summary.series, coxModelSummary, { enabled: hazardRatiosEnabled });
+      const selectedCovariateCount = Array.isArray(coxModelSummary?.design?.covariateSelections)
+        ? coxModelSummary.design.covariateSelections.length
+        : getSelectedCovariates(summary.covariateColumns).length;
+      const needsSimpleCoxHazardRatio = coxEnabled && summary.series.length === 2 && selectedCovariateCount === 0;
+      if(hazardRatiosEnabled || needsSimpleCoxHazardRatio){
+        hazardSummary = computeHazardRatios(summary.series, coxModelSummary, {
+          enabled: hazardRatiosEnabled || needsSimpleCoxHazardRatio
+        });
       }
     }
     summary.logRankWilcoxon = summary.series.length ? computeGehanBreslowWilcoxon(summary.series) : { available: false };
@@ -4412,13 +4425,17 @@
         ? [`Gehan-Breslow-Wilcoxon χ²(${summary.logRankWilcoxon.df ?? 'n/a'}) = ${formatNumber(summary.logRankWilcoxon.chi2, 3)}, p = `, { type:'pValue', value:summary.logRankWilcoxon.p, fallback:String(formatP(summary.logRankWilcoxon.p)) }, '.']
         : null;
       const hazardText = summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows)
-        ? `${summary.hazardRatios.rows.length} hazard-ratio comparison(s) were available.`
+        ? (isTwoGroupUnadjustedCoxSummary(summary)
+          ? 'One Cox-derived hazard ratio was reported for the two-group comparison.'
+          : `${summary.hazardRatios.rows.length} ${hasSelectedCoxCovariates(summary) ? 'adjusted ' : ''}pairwise hazard-ratio comparison(s) were available.`)
         : null;
       const pairwiseText = summary.pairwiseComparisons?.available && Array.isArray(summary.pairwiseComparisons.rows)
         ? `${summary.pairwiseComparisons.rows.length} pairwise log-rank comparison(s) were adjusted with ${summary.pairwiseComparisons.correction?.label || state.pairwiseCorrection || 'the selected correction'}.`
         : null;
       const coxText = summary.coxModel?.available && Array.isArray(summary.coxModel.coefficients)
-        ? `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`
+        ? (shouldOmitDuplicateCoxCoefficientTable(summary)
+          ? 'The duplicate Cox coefficient table was omitted because the single coefficient equals log(HR).'
+          : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
         methodsText: `Kaplan–Meier group summaries were generated for ${summary.series.length} group(s). ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were requested.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? 'A Cox proportional-hazards model was fit when estimable.' : 'Cox modelling was disabled.'}`,
@@ -4446,6 +4463,7 @@
           hazardRatioRows: Array.isArray(summary.hazardRatios?.rows) ? summary.hazardRatios.rows.length : 0,
           pairwiseRows: Array.isArray(summary.pairwiseComparisons?.rows) ? summary.pairwiseComparisons.rows.length : 0,
           coxCoefficientCount: Array.isArray(summary.coxModel?.coefficients) ? summary.coxModel.coefficients.length : 0,
+          duplicateCoxCoefficientTableOmitted: shouldOmitDuplicateCoxCoefficientTable(summary),
           logRankAvailable: !!summary.logRank?.available,
           gehanBreslowAvailable: !!summary.logRankWilcoxon?.available,
           trendAvailable: !!summary.logRankTrend?.available,
@@ -4588,6 +4606,119 @@
     renderStatsLead(refs.statsLogRank, summary.logRank?.message || 'Log-rank test unavailable.');
   }
 
+  function getCoxSelectedCovariates(summary){
+    const modelSelections = summary?.coxModel?.design?.covariateSelections;
+    if(Array.isArray(modelSelections)){
+      return modelSelections;
+    }
+    return getSelectedCovariates(summary?.covariateColumns);
+  }
+
+  function hasSelectedCoxCovariates(summary){
+    return getCoxSelectedCovariates(summary).length > 0;
+  }
+
+  function isTwoGroupUnadjustedCoxSummary(summary){
+    return Array.isArray(summary?.series)
+      && summary.series.length === 2
+      && !hasSelectedCoxCovariates(summary);
+  }
+
+  function shouldOmitDuplicateCoxCoefficientTable(summary){
+    return isTwoGroupUnadjustedCoxSummary(summary)
+      && !!summary?.coxModel?.available
+      && Array.isArray(summary?.coxModel?.coefficients)
+      && summary.coxModel.coefficients.length === 1
+      && summary.coxModel.coefficients[0]?.type === 'group';
+  }
+
+  function getCoxGroupCoefficientCount(summary){
+    return Array.isArray(summary?.coxModel?.coefficients)
+      ? summary.coxModel.coefficients.filter(coef => coef?.type === 'group').length
+      : 0;
+  }
+
+  function getHazardRatioTableCaption(summary){
+    if(hasSelectedCoxCovariates(summary)){
+      return 'Adjusted pairwise hazard ratios';
+    }
+    return isTwoGroupUnadjustedCoxSummary(summary) ? 'Hazard ratio' : 'Pairwise hazard ratios';
+  }
+
+  function buildHazardRatioRows(summary){
+    const hazardRows = Array.isArray(summary?.hazardRatios?.rows) ? summary.hazardRatios.rows : [];
+    return hazardRows.map(row => ({
+      comparison: `${row.groupB} vs ${row.groupA}`,
+      hazardRatio: formatNumber(row.hazardRatio, 3),
+      ci: formatInterval(row.ciLow, row.ciHigh),
+      z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
+      p: pValueToken(row.p)
+    }));
+  }
+
+  function buildHazardRatioFootnotes(summary){
+    const notes = ['Ratios > 1 indicate increased hazard for the numerator group.'];
+    if(hasSelectedCoxCovariates(summary)){
+      notes.push('Adjusted pairwise hazard ratios are Cox model contrasts that include the selected covariates.');
+    }else if(isTwoGroupUnadjustedCoxSummary(summary)){
+      notes.push('For two groups with no covariates, the hazard ratio is exp(β) from the single Cox group coefficient.');
+    }else{
+      notes.push('Pairwise hazard ratios are Cox model contrasts between groups.');
+    }
+    notes.push('Confidence intervals derive from the Cox variance–covariance matrix.');
+    return notes;
+  }
+
+  function renderSurvivalHazardRatioTable(target, summary, options = {}){
+    const rows = buildHazardRatioRows(summary);
+    renderStatsTableCard(target, {
+      caption: options.caption || getHazardRatioTableCaption(summary),
+      advanced: !!options.advanced,
+      columns: [
+        { key: 'comparison', label: 'Comparison', align: 'left' },
+        { key: 'hazardRatio', label: 'Hazard ratio', align: 'right' },
+        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'z', label: 'z', align: 'right' },
+        { key: 'p', label: 'p value', align: 'right' }
+      ],
+      rows,
+      footnotes: Array.isArray(options.footnotes) ? options.footnotes : buildHazardRatioFootnotes(summary),
+      options: {
+        fileName: options.fileName || 'survival-hazard-ratios',
+        contextLabel: options.contextLabel || 'survival-hazard-ratios'
+      },
+      append: !!options.append
+    });
+    return rows.length;
+  }
+
+  function renderSurvivalMedianRatioTable(target, summary, options = {}){
+    if(!(summary.medianRatios?.available) || !Array.isArray(summary.medianRatios.rows) || !summary.medianRatios.rows.length){
+      return false;
+    }
+    renderStatsTableCard(target, {
+      caption: 'Median Survival Ratios',
+      advanced: true,
+      columns: [
+        { key: 'comparison', label: 'Comparison', align: 'left' },
+        { key: 'ratio', label: 'Median ratio', align: 'right' },
+        { key: 'ci', label: '95% CI', align: 'right' }
+      ],
+      rows: summary.medianRatios.rows.map(row => ({
+        comparison: `${row.groupB} / ${row.groupA}`,
+        ratio: formatNumber(row.ratio, 3),
+        ci: formatInterval(row.ciLow, row.ciHigh)
+      })),
+      footnotes: ['Ratios greater than 1 indicate longer median survival in the numerator group.'],
+      options: {
+        fileName: options.fileName || 'survival-median-ratios',
+        contextLabel: options.contextLabel || 'survival-median-ratios'
+      },
+      append: options.append !== false
+    });
+    return true;
+  }
+
   function renderSurvivalHazardRatios(summary){
     if(!refs.statsHazardRatios){
       return;
@@ -4600,56 +4731,17 @@
       renderStatsLead(refs.statsHazardRatios, summary.hazardRatios?.message || 'Hazard ratios unavailable.');
       return;
     }
-    const rows = summary.hazardRatios.rows.map(row => ({
-      comparison: `${row.groupB} vs ${row.groupA}`,
-      hazardRatio: formatNumber(row.hazardRatio, 3),
-      ci: formatInterval(row.ciLow, row.ciHigh),
-      z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
-      p: pValueToken(row.p)
-    }));
-    renderStatsTableCard(refs.statsHazardRatios, {
-      caption: 'Hazard ratios',
-      advanced: false,
-      columns: [
-        { key: 'comparison', label: 'Comparison', align: 'left' },
-        { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
-        { key: 'ci', label: '95% CI', align: 'right' },
-        { key: 'z', label: 'z', align: 'right' },
-        { key: 'p', label: 'p value', align: 'right' }
-      ],
-      rows,
-      footnotes: [
-        'Ratios > 1 indicate increased hazard for the numerator group.',
-        'Confidence intervals derive from the Cox variance–covariance matrix.'
-      ],
-      options: {
-        fileName: 'survival-hazard-ratios',
-        contextLabel: 'survival-hazard-ratios'
-      }
+    const rowCount = renderSurvivalHazardRatioTable(refs.statsHazardRatios, summary, {
+      caption: getHazardRatioTableCaption(summary),
+      fileName: 'survival-hazard-ratios',
+      contextLabel: 'survival-hazard-ratios'
     });
-    if(summary.medianRatios?.available && Array.isArray(summary.medianRatios.rows) && summary.medianRatios.rows.length){
-      renderStatsTableCard(refs.statsHazardRatios, {
-        caption: 'Median Survival Ratios',
-        advanced: true,
-        columns: [
-          { key: 'comparison', label: 'Comparison', align: 'left' },
-          { key: 'ratio', label: 'Median ratio', align: 'right' },
-          { key: 'ci', label: '95% CI', align: 'right' }
-        ],
-        rows: summary.medianRatios.rows.map(row => ({
-          comparison: `${row.groupB} / ${row.groupA}`,
-          ratio: formatNumber(row.ratio, 3),
-          ci: formatInterval(row.ciLow, row.ciHigh)
-        })),
-        footnotes: ['Ratios greater than 1 indicate longer median survival in the numerator group.'],
-        options: {
-          fileName: 'survival-median-ratios',
-          contextLabel: 'survival-median-ratios'
-        },
-        append: true
-      });
-    }
-    logDebug('hazard ratio stats rendered', { rowCount: rows.length });
+    renderSurvivalMedianRatioTable(refs.statsHazardRatios, summary, { append: true });
+    logDebug('hazard ratio stats rendered', {
+      rowCount,
+      adjusted: hasSelectedCoxCovariates(summary),
+      simpleTwoGroup: isTwoGroupUnadjustedCoxSummary(summary)
+    });
   }
 
   function renderSurvivalCoxModel(summary){
@@ -4664,6 +4756,25 @@
       renderStatsLead(refs.statsCox, summary.coxModel?.message || 'Cox model unavailable.');
       return;
     }
+    if(shouldOmitDuplicateCoxCoefficientTable(summary)){
+      if(summary.flags?.hazardRatiosEnabled && summary.hazardRatios?.available){
+        renderStatsLead(refs.statsCox, 'Cox model coefficients are omitted because, with exactly two groups and no covariates, they duplicate the hazard ratio table (HR = exp(β)).');
+      }else if(summary.hazardRatios?.available){
+        renderSurvivalHazardRatioTable(refs.statsCox, summary, {
+          caption: 'Hazard ratio (Cox model)',
+          fileName: 'survival-cox-hazard-ratio',
+          contextLabel: 'survival-cox-hazard-ratio'
+        });
+      }else{
+        renderStatsLead(refs.statsCox, summary.hazardRatios?.message || 'Cox model hazard ratio unavailable.');
+      }
+      logDebug('cox coefficient table omitted as duplicate', {
+        groupCount: summary.series.length,
+        covariateCount: getCoxSelectedCovariates(summary).length,
+        hazardPanelRendered: !!summary.flags?.hazardRatiosEnabled
+      });
+      return;
+    }
     const rows = summary.coxModel.coefficients.map(coef => ({
       predictor: coef.label || coef.group || '',
       type: coef.type === 'group' ? 'Group' : (coef.type === 'time' ? 'Time-dependent' : 'Baseline'),
@@ -4675,15 +4786,22 @@
     }));
     const diag = summary.coxModel.diagnostics || {};
     const lr = diag.likelihoodRatio || {};
+    const adjustedModel = hasSelectedCoxCovariates(summary);
+    const groupCoefficientCount = getCoxGroupCoefficientCount(summary);
+    const coxCaption = adjustedModel
+      ? 'Cox Model Coefficients'
+      : (groupCoefficientCount > 0 ? 'Cox Model Group Effects' : 'Cox Model Coefficients');
     const footnotes = [
       `Baseline group: ${summary.coxModel.baselineGroup || 'Reference'}`,
+      adjustedModel && groupCoefficientCount > 0 ? 'Group hazard ratios are adjusted for the selected Cox covariates.' : null,
+      !adjustedModel && groupCoefficientCount > 0 ? 'Group effects are baseline-referenced Cox coefficients; hazard ratio = exp(β).' : null,
       `Log-likelihood = ${formatNumber(diag.logLikelihood, 3)} | Null = ${formatNumber(diag.logLikelihoodNull, 3)}`,
       [`Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = `, pValueToken(lr.p)],
       `AIC = ${formatNumber(diag.aic, 3)} | BIC = ${formatNumber(diag.bic, 3)}`,
       `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
     ].filter(Boolean);
     renderStatsTableCard(refs.statsCox, {
-      caption: 'Cox Model Coefficients',
+      caption: coxCaption,
       advanced: false,
       columns: [
         { key: 'predictor', label: 'Predictor', align: 'left' },
