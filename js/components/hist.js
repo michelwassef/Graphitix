@@ -5389,12 +5389,14 @@
           const barW=Math.max(0,xEnd-xStart);
           const val=logY?Math.log10(Math.max(count,yMin)):count;
           const y=y2px(val);
-          const h=margin.top+plotH-y;
-          const rect=add('rect',{
-            x:xStart,
-            y,
-            width:barW,
-            height:h,
+          const baselineY=margin.top+plotH;
+          const strokeInset=borderWidthPx>0?borderWidthPx/2:0;
+          const topY=Math.min(baselineY, y + strokeInset);
+          const barPath=chartStyle.buildOpenRectPath
+            ? chartStyle.buildOpenRectPath({ left:xStart, top:topY, right:xStart+barW, bottom:baselineY }, 'bottom')
+            : `M ${xStart} ${baselineY} L ${xStart} ${topY} L ${xStart+barW} ${topY} L ${xStart+barW} ${baselineY}`;
+          const barShape=add('path',{
+            d:barPath,
             fill,
             'fill-opacity': seriesEntries.length > 1 ? HIST_DEFAULT_SERIES_FILL_OPACITY : 0.72,
             'class':'hist-bar',
@@ -5403,8 +5405,8 @@
             'data-series': entry.label,
             'data-series-role': 'hist-bar'
           });
-          if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);}
-          try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){}
+          if(borderWidthPx>0){barShape.setAttribute('stroke',borderColor); barShape.setAttribute('stroke-width',borderWidthPx);}
+          try{ barShape.style.cursor='pointer'; barShape.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){}
         });
       });
     }

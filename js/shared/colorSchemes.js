@@ -41,6 +41,10 @@
   const DEFAULT_BOX_CLASSIC_CATEGORICAL = Object.freeze([
     '#0000ff', '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6', '#8b4513', '#ff1493'
   ]);
+  const DEFAULT_BOX_GRAYSCALE_FILL = '#7A7A7A';
+  const DEFAULT_BOX_GRAYSCALE_CATEGORICAL = Object.freeze([
+    DEFAULT_BOX_GRAYSCALE_FILL, '#4d4d4d', '#a6a6a6', '#000000', '#c9c9c9', '#e0e0e0'
+  ]);
   const DEFAULT_HIST_DISTRIBUTION_COLORS = Object.freeze([
     '#ff0000', '#00aa00', '#ff8c00', '#800080', '#00a6d6'
   ]);
@@ -1583,12 +1587,16 @@
       const darkMode = scheme.id === 'dark';
       const darkContrastColor = '#ffffff';
       const boxScientificPalette = scientificDefaults ? ensureArray(scientificDefaults.categorical).slice() : [];
-      const boxPalette = boxScientificPalette.length
-        ? boxScientificPalette
-        : buildBoxPalette(scheme, categorical, cfg.fill);
+      const boxPalette = grayscaleMode
+        ? DEFAULT_BOX_GRAYSCALE_CATEGORICAL.slice()
+        : (boxScientificPalette.length
+          ? boxScientificPalette
+          : buildBoxPalette(scheme, categorical, cfg.fill));
       const primaryFill = darkMode
         ? darkContrastColor
-        : ((scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill);
+        : (grayscaleMode
+          ? DEFAULT_BOX_GRAYSCALE_FILL
+          : ((scientificDefaults && scientificDefaults.fill) || boxPalette[0] || categorical[0] || cfg.fill));
       const resolvedBoxPaletteBase = boxPalette.length
         ? boxPalette
         : (categorical.length ? categorical : [primaryFill || '#666666']);

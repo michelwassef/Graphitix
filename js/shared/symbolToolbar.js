@@ -956,7 +956,6 @@
       const widthText = Number.isFinite(currentBorderWidth) ? (Math.round(currentBorderWidth * 10) / 10).toString() : '0';
       borderValue.textContent = `${widthText}px`;
       borderPreview.style.background = currentBorderColor || '#000000';
-      borderChip.dataset.noBorder = currentBorderWidth <= 0 ? '1' : '0';
     };
     syncBorderChipUi();
 

@@ -184,7 +184,6 @@
     const thicknessValue = sanitizeThickness(thicknessInput.value, DEFAULTS.thickness);
     styleChipPreviewEl.style.background = color;
     styleChipValueEl.textContent = formatThicknessChipValue(thicknessValue);
-    styleChipEl.dataset.noBorder = thicknessValue <= 0 ? '1' : '0';
   }
 
   function clearStylePickerSection(overlayEl){

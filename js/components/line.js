@@ -4666,7 +4666,6 @@
             const thickness = Math.max(0, Number(thicknessInput.value) || 0);
             styleChipPreview.style.background = color;
             styleChipValue.textContent = `${Math.round(thickness * 10) / 10}px`;
-            styleChip.dataset.noBorder = thickness <= 0 ? '1' : '0';
           };
           const syncOverlayInputs = () => {
             const normalizedScope = normalizeLineOverlayToolbarScope(scopeSelect.value || lineOverlayToolbarScope);

@@ -85,8 +85,11 @@
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_BOX_COLORS=['#0072B2','#D55E00','#009E73','#CC79A7','#E69F00','#56B4E9','#F0E442','#000000'];
-  const DEFAULT_BOX_GRAYSCALE_COLORS=['#000000','#4d4d4d','#7a7a7a','#a6a6a6','#c9c9c9','#e0e0e0'];
-  const DEFAULT_GRAYSCALE_UNIFIED_FILL = '#7a7a7a';
+  const DEFAULT_BOX_COLOR_SCHEME_ID = 'grayscale';
+  const DEFAULT_BOX_BORDER_COLOR = '#000000';
+  const DEFAULT_GRAYSCALE_UNIFIED_FILL = '#7A7A7A';
+  const DEFAULT_BOX_GRAYSCALE_BORDER = DEFAULT_BOX_BORDER_COLOR;
+  const DEFAULT_BOX_GRAYSCALE_COLORS=[DEFAULT_GRAYSCALE_UNIFIED_FILL,'#4d4d4d','#a6a6a6','#000000','#c9c9c9','#e0e0e0'];
   const DEFAULT_UNIFIED_SYMBOL_FILL = '#000000';
   const DEFAULT_UNIFIED_SYMBOL_BORDER = 'none';
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
@@ -231,8 +234,8 @@
     return value === 'grouped' ? 'grouped' : 'single';
   }
 
-  function getBoxDefaultColorSchemeId(tableFormat){
-    return normalizeBoxTableFormat(tableFormat) === 'grouped' ? 'scientific' : 'grayscale';
+  function getBoxDefaultColorSchemeId(_tableFormat){
+    return DEFAULT_BOX_COLOR_SCHEME_ID;
   }
 
   function getBoxDefaultPalette(tableFormat){
@@ -241,9 +244,21 @@
       : DEFAULT_BOX_GRAYSCALE_COLORS;
   }
 
-  function getBoxDefaultFillColor(tableFormat){
-    const palette = getBoxDefaultPalette(tableFormat);
-    return palette[0] || '#000000';
+  function getBoxDefaultFillColor(_tableFormat){
+    return DEFAULT_GRAYSCALE_UNIFIED_FILL;
+  }
+
+  function getBoxDefaultBorderColor(_tableFormat, options = {}){
+    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
+      ? options.schemeId.trim().toLowerCase()
+      : getBoxDefaultColorSchemeId(_tableFormat);
+    if(isBoxGrayscaleScheme(schemeId)){
+      return DEFAULT_BOX_GRAYSCALE_BORDER;
+    }
+    if(schemeId === 'dark'){
+      return '#ffffff';
+    }
+    return DEFAULT_BOX_BORDER_COLOR;
   }
 
 
@@ -635,6 +650,9 @@
     const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
       ? options.schemeId.trim().toLowerCase()
       : getBoxSelectedColorSchemeId();
+    if(isBoxGrayscaleScheme(schemeId)){
+      return DEFAULT_BOX_GRAYSCALE_COLORS;
+    }
     if(schemeId === 'dark'){
       return DEFAULT_BOX_COLORS;
     }
@@ -661,8 +679,8 @@
     const grayscaleUnifiedFill = getGrayscaleUnifiedFillColor();
 
     if(schemeId === 'dark'){
-      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill) || rawFill.toLowerCase() === '#ffffff' || rawFill.toLowerCase() === 'white';
-      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder) || rawBorder.toLowerCase() === '#ffffff' || rawBorder.toLowerCase() === 'white';
+      const fillNeedsThemeDefault = !rawFill;
+      const borderNeedsThemeDefault = !rawBorder;
       const fillColor = fillNeedsThemeDefault ? darkPaletteFallback : rawFill;
       const borderSeed = fillColor || darkPaletteFallback;
       const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
@@ -671,16 +689,12 @@
 
     if(isBoxGrayscaleScheme(schemeId)){
       const fallbackFill = preferUnifiedDefault ? grayscaleUnifiedFill : paletteColor;
-      // White is never a grayscale default (palette runs #000000→light gray, unified fill is #7a7a7a),
-      // so an explicit white can only be a deliberate user choice and must be honored. Black stays
-      // neutral because #000000 is palette[0] and gets materialized back into stored colors, leaving
-      // explicit-black indistinguishable from the seeded default.
-      const fillNeedsThemeDefault = !rawFill || isColorTokenBlack(rawFill);
-      const borderNeedsThemeDefault = !rawBorder || isColorTokenBlack(rawBorder);
+      const fillNeedsThemeDefault = !rawFill;
+      const borderNeedsThemeDefault = !rawBorder;
       const fillColor = fillNeedsThemeDefault ? fallbackFill : rawFill;
-      const borderSeed = fillColor || fallbackFill;
-      const borderColor = borderNeedsThemeDefault ? shadeColor(borderSeed, -30) : rawBorder;
-      return { fillColor: fillColor || fallbackFill, borderColor: borderColor || shadeColor(borderSeed, -30) };
+      const fallbackBorder = getBoxDefaultBorderColor(tableFormat, { schemeId });
+      const borderColor = borderNeedsThemeDefault ? fallbackBorder : rawBorder;
+      return { fillColor: fillColor || fallbackFill, borderColor: borderColor || fallbackBorder };
     }
 
     const fillColor = rawFill || paletteColor;
@@ -899,6 +913,21 @@
     return true;
   }
 
+  function applyBoxDefaultColorSchemeToActiveTab(reason){
+    const colorSchemes = Shared.colorSchemes;
+    if(!colorSchemes || typeof colorSchemes.applyToActiveTab !== 'function'){
+      return false;
+    }
+    const applied = colorSchemes.applyToActiveTab('box', DEFAULT_BOX_COLOR_SCHEME_ID);
+    if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box default color scheme applied', {
+        reason: reason || 'default-theme',
+        schemeId: DEFAULT_BOX_COLOR_SCHEME_ID
+      });
+    }
+    return applied;
+  }
+
   function syncBoxDefaultColorSchemeForFormat(tableFormat, options = {}){
     const nextFormat = normalizeBoxTableFormat(tableFormat);
     const desiredScheme = getBoxDefaultColorSchemeId(nextFormat);
@@ -967,31 +996,9 @@
       || token === 'rgba(0,0,0,1)';
   }
 
-  function isColorTokenWhite(value){
-    const token = normalizeColorToken(value);
-    return token === '#fff'
-      || token === '#ffffff'
-      || token === 'rgb(255,255,255)'
-      || token === 'rgba(255,255,255,1)'
-      || token === 'white';
-  }
-
   function isBoxThemeNeutralColorToken(value, options = {}){
     const raw = typeof value === 'string' ? value.trim() : '';
-    if(!raw || raw === 'none' || raw === 'transparent'){
-      return true;
-    }
-    const schemeId = typeof options.schemeId === 'string' && options.schemeId.trim()
-      ? options.schemeId.trim().toLowerCase()
-      : getBoxSelectedColorSchemeId();
-    if(schemeId === 'dark'){
-      return isColorTokenBlack(raw) || isColorTokenWhite(raw);
-    }
-    if(isBoxGrayscaleScheme(schemeId)){
-      // White is never a grayscale default, so treat only black as neutral (see resolveThemeAwareDefaultTraceColors).
-      return isColorTokenBlack(raw);
-    }
-    return false;
+    return !raw || raw === 'none' || raw === 'transparent';
   }
 
   function resolveBoxThemeAwareStyleColor(styleValue, fallbackColor, options = {}){
@@ -1294,6 +1301,38 @@
       return 'none';
     }
     return INDIVIDUAL_SUMMARY_DEFAULT;
+  }
+
+
+  function getBoxSummaryStateKeyForGraphType(graphType){
+    return normalizeBoxGraphType(graphType) === 'bar' ? 'barSummary' : 'individualSummary';
+  }
+
+  function getBoxSummaryDefaultForGraphType(graphType){
+    return normalizeBoxGraphType(graphType) === 'bar' ? BAR_SUMMARY_DEFAULT : INDIVIDUAL_SUMMARY_DEFAULT;
+  }
+
+  function getBoxSummaryForGraphType(graphType){
+    const key = getBoxSummaryStateKeyForGraphType(graphType);
+    const fallback = getBoxSummaryDefaultForGraphType(graphType);
+    const summaryValue = normalizeIndividualSummaryValue(state[key] || fallback);
+    state[key] = summaryValue;
+    return summaryValue;
+  }
+
+  function setBoxSummaryForGraphType(graphType, rawValue){
+    const key = getBoxSummaryStateKeyForGraphType(graphType);
+    const summaryValue = normalizeIndividualSummaryValue(rawValue || getBoxSummaryDefaultForGraphType(graphType));
+    state[key] = summaryValue;
+    return summaryValue;
+  }
+
+  function syncBoxSummaryControlForGraphType(graphType, options = {}){
+    const summaryValue = getBoxSummaryForGraphType(graphType);
+    if(options.updateControl !== false && els?.boxIndividualSummary && els.boxIndividualSummary.value !== summaryValue){
+      els.boxIndividualSummary.value = summaryValue;
+    }
+    return summaryValue;
   }
 
   function resolveWhiskerMeta(rule){
@@ -2010,6 +2049,48 @@
       return null;
     }
     return isEmptyStyleObject(value) ? null : value;
+  }
+
+  function normalizeBoxPaintColorValue(value){
+    if(typeof value !== 'string'){
+      return '';
+    }
+    const raw = value.trim();
+    const normalized = raw.toLowerCase();
+    return raw && normalized !== 'none' && normalized !== 'transparent' ? raw : '';
+  }
+
+  function readBoxSvgPaintAttr(node, attrName){
+    if(!node || typeof node.getAttribute !== 'function'){
+      return '';
+    }
+    return normalizeBoxPaintColorValue(node.getAttribute(attrName));
+  }
+
+  function readBoxStylePaintColor(style, keys){
+    const source = normalizeStyleObject(style);
+    if(!source || !Array.isArray(keys)){
+      return '';
+    }
+    for(let index = 0; index < keys.length; index += 1){
+      const value = normalizeBoxPaintColorValue(source[keys[index]]);
+      if(value){
+        return value;
+      }
+    }
+    return '';
+  }
+
+  function resolveTraceShapeFillStyleColor(style){
+    return readBoxStylePaintColor(style, ['fill', 'color']);
+  }
+
+  function resolveTraceShapeBorderStyleColor(style){
+    return readBoxStylePaintColor(style, ['border', 'stroke', 'borderColor']);
+  }
+
+  function buildTraceShapeBorderStylePatch(color){
+    return { border: color, stroke: color, borderColor: color };
   }
 
   function mergePointStyles(localStyle){
@@ -3064,8 +3145,40 @@
           persistTraceShapeStyle(selectedTraceIndex, patch);
         }
       };
-      const fallbackFillColor = target.getAttribute('fill') || state.fillColors?.[selectedColorIndex] || state.lastDefaultFill || getBoxDefaultFillColor(state.tableFormat);
-      const fallbackBorderColor = target.getAttribute('stroke') || state.borderColors?.[selectedColorIndex] || shadeColor(fallbackFillColor, -30);
+      const resolveStoredColor = (list, index) => {
+        const numericIndex = Number(index);
+        if(!Array.isArray(list) || !Number.isInteger(numericIndex) || numericIndex < 0){
+          return '';
+        }
+        return normalizeBoxPaintColorValue(list[numericIndex]);
+      };
+      const resolveRepresentativeBodyTarget = scopeValue => {
+        if(scopeValue === 'global'){
+          return target || resolveBodyTargets(scopeValue)[0] || null;
+        }
+        return resolveBodyTargets(scopeValue)[0] || target || null;
+      };
+      const fallbackFillColor = readBoxSvgPaintAttr(target, 'fill')
+        || resolveStoredColor(state.fillColors, selectedColorIndex)
+        || state.lastDefaultFill
+        || getBoxDefaultFillColor(state.tableFormat);
+      const fallbackBorderColor = readBoxSvgPaintAttr(target, 'stroke')
+        || resolveStoredColor(state.borderColors, selectedColorIndex)
+        || getBoxDefaultBorderColor(state.tableFormat, { schemeId: getBoxSelectedColorSchemeId() });
+      const resolveShapeFillColor = scopeValue => {
+        const node = resolveRepresentativeBodyTarget(scopeValue);
+        return readBoxSvgPaintAttr(node, 'fill')
+          || resolveTraceShapeFillStyleColor(resolveStyleByScope(scopeValue))
+          || fallbackFillColor
+          || '#000000';
+      };
+      const resolveShapeBorderColor = scopeValue => {
+        const node = resolveRepresentativeBodyTarget(scopeValue);
+        return readBoxSvgPaintAttr(node, 'stroke')
+          || resolveTraceShapeBorderStyleColor(resolveStyleByScope(scopeValue))
+          || fallbackBorderColor
+          || '#000000';
+      };
       const symbolToolbarState = Shared.symbolToolbar.show({
         document: doc,
         target,
@@ -3126,9 +3239,7 @@
           showShapePicker: false,
           shapeOptions: [{ value: 'square', label: 'Square' }],
           getColor(ctx){
-            const scopeValue = resolveScope(ctx);
-            const style = resolveStyleByScope(scopeValue);
-            return style?.fill || fallbackFillColor;
+            return resolveShapeFillColor(resolveScope(ctx));
           },
           getShape(){
             return 'square';
@@ -3160,9 +3271,7 @@
         border: {
           label: 'Border',
           getColor(ctx){
-            const scopeValue = resolveScope(ctx);
-            const style = resolveStyleByScope(scopeValue);
-            return style?.border || fallbackBorderColor;
+            return resolveShapeBorderColor(resolveScope(ctx));
           },
           onColorInput(value, ctx){
             const scopeValue = resolveScope(ctx);
@@ -3183,18 +3292,18 @@
             }else if(selectedColorIndex != null && selectedColorIndex >= 0){
               state.borderColors[selectedColorIndex] = value;
             }
-            applyScopePatch({ border: value }, scopeValue);
+            applyScopePatch(buildTraceShapeBorderStylePatch(value), scopeValue);
             if(typeof state.scheduleDraw === 'function'){ scheduleBoxViewRefresh('shape-border-color-change'); }
           },
           getWidth(ctx){
             const scopeValue = resolveScope(ctx);
+            const node = resolveRepresentativeBodyTarget(scopeValue);
+            const attrWidth = Number(node?.getAttribute ? node.getAttribute('stroke-width') : null);
+            if(Number.isFinite(attrWidth)){ return Math.max(0, attrWidth); }
             const style = resolveStyleByScope(scopeValue);
             const configured = Number(style?.thickness);
             if(Number.isFinite(configured)){ return Math.max(0, configured); }
-            const node = resolveBodyTargets(scopeValue)[0] || target;
-            const attrWidth = Number(node?.getAttribute ? node.getAttribute('stroke-width') : null);
-            if(Number.isFinite(attrWidth)){ return Math.max(0, attrWidth); }
-            return Number(els?.boxBorderWidth?.value) || 1;
+            return Number(els?.boxBorderWidth?.value) || 0;
           },
           onWidthChange(value, ctx){
             const numeric = Number(value);
@@ -6059,7 +6168,6 @@
     const amt=Math.round(2.55*percent);
     const R=(num>>16)+amt; const G=(num>>8&0x00FF)+amt; const B=(num&0x0000FF)+amt;
     const newColor='#'+(0x1000000+(R<255?(R<0?0:R):255)*0x10000+(G<255?(G<0?0:G):255)*0x100+(B<255?(B<0?0:B):255)).toString(16).slice(1);
-    console.debug('Debug: shadeColor',{color,percent,newColor}); // Debug
     return newColor;
   }
 
@@ -6126,8 +6234,8 @@
       preferUnifiedDefault: false
     });
 
-    const fillMissingOrNeutral = !fillColor || (schemeId === 'dark' && (isColorTokenBlack(fillColor) || fillColor.toLowerCase() === '#ffffff' || fillColor.toLowerCase() === 'white'));
-    const borderMissingOrNeutral = !borderColor || (schemeId === 'dark' && (isColorTokenBlack(borderColor) || borderColor.toLowerCase() === '#ffffff' || borderColor.toLowerCase() === 'white'));
+    const fillMissingOrNeutral = !fillColor;
+    const borderMissingOrNeutral = !borderColor;
 
     const resolvedFill = fillMissingOrNeutral ? themeDefaults.fillColor : fillColor;
     const resolvedStroke = borderMissingOrNeutral ? themeDefaults.borderColor : borderColor;
@@ -11082,7 +11190,13 @@
     applyBoxControlValue(els.boxGraphType, controls.graphType);
     applyBoxControlValue(els.boxPointMode, controls.pointMode);
     applyBoxControlValue(els.boxLayoutMode, controls.layoutMode || record.visual?.groupLayout);
-    applyBoxControlValue(els.boxIndividualSummary, controls.individualSummary || record.visual?.individualSummary);
+    if(controls.individualSummary || record.visual?.individualSummary){
+      state.individualSummary = normalizeIndividualSummaryValue(controls.individualSummary || record.visual?.individualSummary);
+    }
+    if(controls.barSummary || record.visual?.barSummary){
+      state.barSummary = normalizeIndividualSummaryValue(controls.barSummary || record.visual?.barSummary || BAR_SUMMARY_DEFAULT);
+    }
+    syncBoxSummaryControlForGraphType(controls.graphType || els.boxGraphType?.value || 'strip');
     applyBoxControlValue(els.boxErrorMode, controls.errorMode);
     applyBoxControlValue(els.boxWhiskerRule, controls.whiskerRule || record.visual?.whiskerRule);
     applyBoxControlValue(els.boxWhiskerCustom, controls.whiskerCustomMultiplier ?? record.visual?.whiskerCustomMultiplier);
@@ -14927,11 +15041,9 @@
     ensureBoxSignificanceControlPlacement();
     if(els.boxIndividualSummary){
       populateIndividualSummarySelect(els.boxIndividualSummary);
-      const fallbackSummary = normalizeIndividualSummaryValue(state.individualSummary);
-      const fallbackBarSummary = normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT);
-      state.individualSummary = fallbackSummary;
-      state.barSummary = fallbackBarSummary;
-      els.boxIndividualSummary.value = fallbackSummary;
+      state.individualSummary = normalizeIndividualSummaryValue(state.individualSummary || INDIVIDUAL_SUMMARY_DEFAULT);
+      state.barSummary = normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT);
+      syncBoxSummaryControlForGraphType(els.boxGraphType?.value || 'strip');
       console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value, barValue: state.barSummary });
     }
     ensureBoxBorderWidthState();
@@ -15124,7 +15236,7 @@
       borderColor: candidate,
       preferUnifiedDefault: isBoxGrayscaleScheme(schemeId)
     });
-    return themed.borderColor || candidate || shadeColor(getBoxFillColorValue(), -30);
+    return themed.borderColor || candidate || getBoxDefaultBorderColor(state.tableFormat, { schemeId });
   }
 
   function resolveStripPointStrokeWidthRaw(style, fallbackWidth){
@@ -17419,6 +17531,7 @@
         reason: 'example-load-stats-context',
         viewOnly: true
       });
+      applyBoxDefaultColorSchemeToActiveTab('example-load');
       console.debug('Debug: box axis settings reset from example load');
       state.scheduleDraw({ force: true, reason: 'example-load' });
     });
@@ -17792,18 +17905,8 @@
         const summaryVisible = graphTypeValue === 'strip' || graphTypeValue === 'bar';
         els.boxIndividualSummaryCtl.style.display = summaryVisible ? '' : 'none';
         if(summaryVisible && els.boxIndividualSummary){
-          const summaryValue = graphTypeValue === 'bar'
-            ? normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT)
-            : normalizeIndividualSummaryValue(state.individualSummary);
-          if(graphTypeValue === 'bar'){
-            state.barSummary = summaryValue;
-          }else{
-            state.individualSummary = summaryValue;
-          }
-          if(els.boxIndividualSummary.value !== summaryValue){
-            els.boxIndividualSummary.value = summaryValue;
-            console.debug('Debug: box individual summary sync',{ summaryValue, graphTypeValue });
-          }
+          const summaryValue = syncBoxSummaryControlForGraphType(graphTypeValue);
+          console.debug('Debug: box individual summary sync',{ summaryValue, graphTypeValue });
         }
         console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
       }
@@ -17903,12 +18006,10 @@
     }
     if(els.boxIndividualSummary){
       bindBoxControlHandler(els.boxIndividualSummary, 'change', 'individual-summary', ()=>{
-        const summaryValue = normalizeIndividualSummaryValue(els.boxIndividualSummary.value);
-        const activeGraphType = els.boxGraphType?.value;
-        if(activeGraphType === 'bar'){
-          state.barSummary = summaryValue;
-        }else{
-          state.individualSummary = summaryValue;
+        const activeGraphType = normalizeBoxGraphType(els.boxGraphType?.value || 'strip');
+        const summaryValue = setBoxSummaryForGraphType(activeGraphType, els.boxIndividualSummary.value);
+        if(els.boxIndividualSummary.value !== summaryValue){
+          els.boxIndividualSummary.value = summaryValue;
         }
         console.debug('Debug: box individual summary change',{ summaryValue, activeGraphType });
         scheduleBoxViewRefresh('individual-summary-change');
@@ -29406,25 +29507,7 @@ Technical analysis record (advanced)
     const usesSummarySelector = isIndividualValues || graphTypeRaw === 'bar';
     let individualSummaryMode = 'none';
     if(usesSummarySelector){
-      const domValue = els.boxIndividualSummary?.value;
-      const normalizedDom = domValue ? normalizeIndividualSummaryValue(domValue) : null;
-      const fallbackSummary = graphTypeRaw === 'bar'
-        ? normalizeIndividualSummaryValue(state.barSummary || BAR_SUMMARY_DEFAULT)
-        : normalizeIndividualSummaryValue(state.individualSummary);
-      const summaryValue = normalizedDom || fallbackSummary;
-      individualSummaryMode = summaryValue;
-      if(graphTypeRaw === 'bar'){
-        if(summaryValue !== state.barSummary){
-          state.barSummary = summaryValue;
-          console.debug('Debug: box summary selector state sync',{ summaryValue, graphTypeRaw });
-        }
-      }else if(summaryValue !== state.individualSummary){
-        state.individualSummary = summaryValue;
-        console.debug('Debug: box summary selector state sync',{ summaryValue, graphTypeRaw });
-      }
-      if(els.boxIndividualSummary && els.boxIndividualSummary.value !== summaryValue){
-        els.boxIndividualSummary.value = summaryValue;
-      }
+      individualSummaryMode = syncBoxSummaryControlForGraphType(graphTypeRaw);
     }
     console.debug('Debug: box summary selector mode',{ graphTypeRaw, individualSummaryMode });
     const pointMode = els.boxPointMode.value;
@@ -29498,8 +29581,8 @@ Technical analysis record (advanced)
         }
         const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
         const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
-        const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
-        const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
+        const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
+        const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
         if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
           groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
         }
@@ -29517,8 +29600,8 @@ Technical analysis record (advanced)
       const borderColor = themeUnifiedDefaults.borderColor;
       const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
       const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
-      const fillResolved = resolveBoxThemeAwareStyleColor(styleOverride && styleOverride.fill, fillColor, { schemeId: activeColorSchemeId });
-      const borderResolved = resolveBoxThemeAwareStyleColor(styleOverride && (styleOverride.border || styleOverride.stroke || styleOverride.borderColor), borderColor, { schemeId: activeColorSchemeId });
+      const fillResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeFillStyleColor(styleOverride), fillColor, { schemeId: activeColorSchemeId });
+      const borderResolved = resolveBoxThemeAwareStyleColor(resolveTraceShapeBorderStyleColor(styleOverride), borderColor, { schemeId: activeColorSchemeId });
       if(isGroupedMode && trace?.groupName && !groupColorAssignments.has(trace.groupName)){
         groupColorAssignments.set(trace.groupName, { fill: fillResolved, border: borderResolved, colorIndex });
       }
@@ -32785,8 +32868,12 @@ Technical analysis record (advanced)
       const rawStart = Math.min(startPx, endPx);
       const rawEnd = Math.max(startPx, endPx);
       const strokeInset = config.strokeWidthEffective > 0 ? config.strokeWidthEffective / 2 : 0;
-      let valueRectStart = rawStart + strokeInset;
-      let valueRectEnd = rawEnd - strokeInset;
+      const baselineIsLowerPixel = startPx >= endPx;
+      const baselineIsLeftPixel = startPx <= endPx;
+      const valueEdgeStart = baselineIsLowerPixel ? rawStart + strokeInset : rawStart;
+      const valueEdgeEnd = baselineIsLowerPixel ? rawEnd : rawEnd - strokeInset;
+      let valueRectStart = valueEdgeStart;
+      let valueRectEnd = valueEdgeEnd;
       if(valueRectEnd < valueRectStart){
         const mid = (rawStart + rawEnd) / 2;
         valueRectStart = mid;
@@ -32803,30 +32890,35 @@ Technical analysis record (advanced)
           categoryRectEnd = mid;
         }
       }
-      const barAttrs = isHorizontal
+      const barBounds = isHorizontal
         ? {
-            x: valueRectStart,
-            y: categoryRectStart,
-            width: Math.max(0, valueRectEnd - valueRectStart),
-            height: Math.max(0, categoryRectEnd - categoryRectStart)
+            left: baselineIsLeftPixel ? rawStart : valueRectStart,
+            top: categoryRectStart,
+            right: baselineIsLeftPixel ? valueRectEnd : rawEnd,
+            bottom: categoryRectEnd,
+            openSide: baselineIsLeftPixel ? 'left' : 'right'
           }
         : {
-            x: config.spanStart,
-            y: valueRectStart,
-            width: config.boxSpan,
-            height: Math.max(0, valueRectEnd - valueRectStart)
+            left: config.spanStart,
+            top: baselineIsLowerPixel ? valueRectStart : rawStart,
+            right: config.spanStart + config.boxSpan,
+            bottom: baselineIsLowerPixel ? rawEnd : valueRectEnd,
+            openSide: baselineIsLowerPixel ? 'bottom' : 'top'
           };
-      Object.assign(barAttrs, {
+      const barAttrs = {
+        d: chartStyle.buildOpenRectPath
+          ? chartStyle.buildOpenRectPath(barBounds, barBounds.openSide)
+          : `M ${barBounds.left} ${barBounds.bottom} L ${barBounds.left} ${barBounds.top} L ${barBounds.right} ${barBounds.top} L ${barBounds.right} ${barBounds.bottom}`,
         fill: config.fillColor,
         stroke: config.bodyStrokeColor,
         'stroke-width': config.strokeWidthEffective,
         'data-trace': traceIndex,
         'data-color-index': config.colorInfo?.colorIndex,
         'data-box-shape': 'body'
-      });
+      };
       applyShapeOpacityAttrs(barAttrs, config.opacityOverride, config.strokeWidthEffective);
-      const barRect = add('rect', barAttrs);
-      attachBoxShapeHandler(barRect);
+      const barShape = add('path', barAttrs);
+      attachBoxShapeHandler(barShape);
       if(isHorizontal){
         console.debug('Debug: box bar horizontal bounds adjusted',{
           index: traceIndex,
@@ -35713,13 +35805,14 @@ Technical analysis record (advanced)
     payload.config.tableFormat = tableFormat;
     if(typeof payload.config.colorScheme !== 'string' || !payload.config.colorScheme.trim()){
       payload.config.colorScheme = getBoxDefaultColorSchemeId(tableFormat);
-      payload.config.fill = getBoxDefaultFillColor(tableFormat);
-      payload.config.border = shadeColor(payload.config.fill, -30);
-      payload.config.colors = [];
-      payload.config.borderColors = [];
       if(typeof payload.config.colorMode !== 'string' || !payload.config.colorMode.trim()){
         payload.config.colorMode = tableFormat === 'grouped' ? 'individual' : 'unified';
       }
+      const usesGrayscaleDefault = payload.config.colorScheme === DEFAULT_BOX_COLOR_SCHEME_ID;
+      payload.config.fill = usesGrayscaleDefault ? DEFAULT_GRAYSCALE_UNIFIED_FILL : getBoxDefaultFillColor(tableFormat);
+      payload.config.border = getBoxDefaultBorderColor(tableFormat, { schemeId: payload.config.colorScheme });
+      payload.config.colors = [];
+      payload.config.borderColors = [];
     }
     payload.config.stats = payload.config.stats && typeof payload.config.stats === 'object'
       ? payload.config.stats
@@ -35951,7 +36044,10 @@ Technical analysis record (advanced)
       els.boxFill.value = state.lastDefaultFill;
     }
     if(els.boxBorder){
-      els.boxBorder.value = c.border || els.boxBorder.value;
+      const restoredBorder = typeof c.border === 'string' && c.border.trim()
+        ? c.border.trim()
+        : getBoxDefaultBorderColor(incomingTableFormat, { schemeId: c.colorScheme });
+      els.boxBorder.value = restoredBorder;
     }
     state.graphTypeBorderWidths = normalizeBoxBorderWidthByGraphTypeMap(c.borderWidths);
     if(c.borderWidth != null){
@@ -36043,7 +36139,7 @@ Technical analysis record (advanced)
       if(!els.boxIndividualSummary.options?.length){
         populateIndividualSummarySelect(els.boxIndividualSummary);
       }
-      els.boxIndividualSummary.value = (els.boxGraphType.value === 'bar') ? restoredBarSummary : restoredSummary;
+      syncBoxSummaryControlForGraphType(els.boxGraphType?.value || 'strip');
     }
     if(Object.prototype.hasOwnProperty.call(c, 'connectPointsAcrossDatasets')){
       state.connectPointsAcrossDatasets = !!c.connectPointsAcrossDatasets;
