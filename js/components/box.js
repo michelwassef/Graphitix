@@ -12623,7 +12623,7 @@
 
   function captureBoxFlipOrientationSnapshot(orientation){
     const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
-    const snapshot = cloneBoxFlipTransitionSnapshot(captureBoxFlipFrameSnapshot());
+    const snapshot = cloneBoxFlipTransitionSnapshot(captureBoxFlipFrameSnapshot(normalizedOrientation));
     if(!snapshot){
       return null;
     }
@@ -12970,9 +12970,11 @@
     };
   }
 
-  function captureBoxFlipFrameSnapshot(){
+  function captureBoxFlipFrameSnapshot(orientation = null){
     const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
     const plot = els.plotDiv || getBoxNodeById('boxPlot') || null;
+    const normalizedOrientation = normalizeBoxFlipOrientation(orientation || resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
+    const capturesVerticalContentReserves = normalizedOrientation === 'vertical';
     const size = resolveBoxSvgBoxBaseSize(svgBox);
     const width = Number(size.width);
     const height = Number(size.height);
@@ -12982,8 +12984,8 @@
       height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
       plotClientWidthPx: Number.isFinite(Number(plot?.clientWidth)) && Number(plot.clientWidth) > 0 ? Math.round(Number(plot.clientWidth)) : null,
       plotClientHeightPx: Number.isFinite(Number(plot?.clientHeight)) && Number(plot.clientHeight) > 0 ? Math.round(Number(plot.clientHeight)) : null,
-      bottomViewportExtensionPx: Number.isFinite(Number(state.bottomViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.bottomViewportExtensionPx))) : 0,
-      significanceViewportExtensionPx: Number.isFinite(Number(state.significanceViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.significanceViewportExtensionPx))) : 0,
+      bottomViewportExtensionPx: capturesVerticalContentReserves && Number.isFinite(Number(state.bottomViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.bottomViewportExtensionPx))) : 0,
+      significanceViewportExtensionPx: capturesVerticalContentReserves && Number.isFinite(Number(state.significanceViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.significanceViewportExtensionPx))) : 0,
       leftViewportExtensionPx: Number.isFinite(Number(state.leftViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.leftViewportExtensionPx))) : 0,
       rightViewportExtensionPx: Number.isFinite(Number(state.rightViewportExtensionPx)) ? Math.max(0, Math.round(Number(state.rightViewportExtensionPx))) : 0,
       xAxisSpanPx: axisSpans.xAxisSpanPx,
@@ -13691,6 +13693,36 @@
       }catch(_err){}
     }
     return Math.max(0, height + margin);
+  }
+
+  function resolveBoxExportControlsClearancePx(options = {}){
+    const controls = els.boxExportControls || getBoxNodeById('boxExportControls') || null;
+    if(!controls){
+      return 0;
+    }
+    if(controls.hidden || controls.getAttribute?.('aria-hidden') === 'true'){
+      return 0;
+    }
+    const hasVisibleControlContent = (controls.children && controls.children.length > 0)
+      || String(controls.textContent || '').trim().length > 0;
+    if(!hasVisibleControlContent){
+      return 0;
+    }
+    if(typeof global.getComputedStyle === 'function'){
+      try{
+        const style = global.getComputedStyle(controls);
+        if(style && style.display === 'none'){
+          return 0;
+        }
+      }catch(_err){}
+    }
+    const measured = resolveBoxElementOuterHeight(controls);
+    const fallback = Number(options.fallbackPx);
+    const fallbackPx = Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
+    const padding = Number(options.paddingPx);
+    const paddingPx = Number.isFinite(padding) && padding >= 0 ? padding : 2;
+    const clearance = measured > 0 ? measured : fallbackPx;
+    return clearance > 0 ? Math.ceil(clearance + paddingPx) : 0;
   }
 
   function resolveBoxPlotDrawingZoneSize(){
@@ -33111,6 +33143,7 @@ Technical analysis record (advanced)
     async function renderVertical(){
       const tickFont = yTickMeasureProfile.fontSpec;
       const axisLabelFont = chartStyle.makeFont(fs);
+      const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
@@ -33154,7 +33187,10 @@ Technical analysis record (advanced)
       let annotationMinY = null;
       let titleBaselineY = null;
       const resolveBottomLayoutForVerticalShift = (plotWidth, baseBottom) => {
-        const safeBaseBottom = Number.isFinite(Number(baseBottom)) ? Number(baseBottom) : 0;
+        const compactLabelMargin = Math.max(3, Math.round(xTickFontSize * 0.25));
+        const compactBaseBottom = Math.ceil(tickLen + tickGap + xTickFontSize + compactLabelMargin);
+        const requestedBaseBottom = Number.isFinite(Number(baseBottom)) ? Number(baseBottom) : compactBaseBottom;
+        const safeBaseBottom = Math.min(Math.max(0, requestedBaseBottom), compactBaseBottom);
         const previousRotate = state.xTickRotateVertical === true;
         const nextBottomLayout = chartStyle.computeBottomLayout({
           labels: labelTexts,
@@ -33165,6 +33201,10 @@ Technical analysis record (advanced)
           baseBottom: safeBaseBottom,
           axisMetrics,
           reserveRotatedLabelSpace: true,
+          bottomReserveMode: 'projected-tick-label',
+          includeAxisTitleReserve: false,
+          labelRotationAngleDeg: 45,
+          labelReserveMarginPx: compactLabelMargin,
           rotationHysteresis: {
             previousRotate,
             enterRatio: 1.01,
@@ -34161,7 +34201,14 @@ Technical analysis record (advanced)
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
       const storedHorizontalViewportExtension = Math.max(0, (Number(storedLeftViewportExtension) || 0) + (Number(storedRightViewportExtension) || 0));
+      const storedHorizontalBottomViewportExtension = Math.max(0, Number(storedBottomViewportExtension) || 0);
       const baseCanvasWidth = Math.max(50, W - storedHorizontalViewportExtension);
+      const baseCanvasHeight = Math.max(40, H - storedHorizontalBottomViewportExtension);
+      const bottomChromeClearancePx = resolveBoxExportControlsClearancePx({
+        fallbackPx: Math.max(34, Math.round((fs || 12) * 2.2)),
+        paddingPx: Math.max(2, Math.round((fs || 12) * 0.15))
+      });
+      const canvasHeightLocal = Math.max(40, baseCanvasHeight + bottomChromeClearancePx);
       const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'horizontal', annotationStrokeWidth, {
         labelMode: state.significanceLabelMode,
         scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
@@ -34229,7 +34276,7 @@ Technical analysis record (advanced)
         : null;
       const canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
       let plotWLocal = Math.max(20, canvasWidthLocal - marginLocal.left - marginLocal.right);
-      let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+      let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
       if(Number.isFinite(targetVerticalAxisSpan) && plotHLocal > targetVerticalAxisSpan + 0.5){
         const reduction = plotHLocal - targetVerticalAxisSpan;
         marginLocal.top += reduction;
@@ -34326,7 +34373,10 @@ Technical analysis record (advanced)
           topReservePx,
           bottomReservePx,
           plotWLocal,
-          plotHLocal
+          plotHLocal,
+          baseCanvasHeight,
+          canvasHeightLocal,
+          bottomChromeClearancePx
         });
       }
       const runtime = await resolveOrientationRenderRuntime({
@@ -35062,11 +35112,13 @@ Technical analysis record (advanced)
         titleX: marginLocal.left + plotWLocal / 2,
         titleY: marginLocal.top / 2,
         significanceViewportExtension: 0,
-        bottomViewportExtension: 0,
+        bottomViewportExtension: bottomChromeClearancePx,
         leftViewportExtension: leftLabelReservePx,
         rightViewportExtension: rightSignificanceReservePx,
         baseCanvasWidth,
-        canvasWidth: canvasWidthLocal
+        baseCanvasHeight,
+        canvasWidth: canvasWidthLocal,
+        canvasHeight: canvasHeightLocal
       };
     }
 
