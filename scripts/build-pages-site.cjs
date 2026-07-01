@@ -16,6 +16,13 @@ function copyEntry(relativePath) {
 }
 
 function assertStaticReferencesExist() {
+  const missing = collectMissingStaticReferences();
+  if (missing.length) {
+    throw new Error(`Missing static reference(s) in Pages build: ${missing.join(', ')}`);
+  }
+}
+
+function collectStaticReferences() {
   const htmlPath = path.join(output, 'index.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
   const refs = [];
@@ -28,9 +35,27 @@ function assertStaticReferencesExist() {
     }
     refs.push(ref.split(/[?#]/)[0]);
   }
-  const missing = refs.filter(ref => !fs.existsSync(path.join(output, ref)));
-  if (missing.length) {
-    throw new Error(`Missing static reference(s) in Pages build: ${missing.join(', ')}`);
+  return refs;
+}
+
+function collectMissingStaticReferences() {
+  return collectStaticReferences().filter(ref => !fs.existsSync(path.join(output, ref)));
+}
+
+function copyStaticReferences() {
+  const missing = collectMissingStaticReferences();
+  missing.forEach(ref => {
+    const source = path.join(root, ref);
+    if (!fs.existsSync(source)) {
+      return;
+    }
+    const target = path.join(output, ref);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(source, target, { recursive: true });
+  });
+  const stillMissing = collectMissingStaticReferences();
+  if (stillMissing.length) {
+    throw new Error(`Missing static reference(s) in Pages build: ${stillMissing.join(', ')}`);
   }
 }
 
@@ -38,6 +63,7 @@ function main() {
   fs.rmSync(output, { recursive: true, force: true });
   fs.mkdirSync(output, { recursive: true });
   runtimeEntries.forEach(copyEntry);
+  copyStaticReferences();
   assertStaticReferencesExist();
   console.log(`Built GitHub Pages site in ${path.relative(root, output)}`);
 }
