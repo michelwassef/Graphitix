@@ -254,7 +254,8 @@ test('pie restores computed statistics results and calculated button state from 
   await waitForPieStatsResults(page);
 
   const payload = await page.evaluate(() => window.Components.pie.getPayload());
-  expect(payload?.config?.stats?.resultsHtml).toContain('stats-table-card');
+  expect(payload?.config?.stats?.resultsModel?.kind).toBe('stats-panel');
+  expect(payload?.config?.stats?.reportModel?.kind).toBe('stats-report');
   expect(payload?.config?.stats?.lastRunSignature).toBeTruthy();
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -337,7 +338,8 @@ test('line restores persisted statistics results and calculated button state fro
   const savedResultsText = await page.locator('#lineStatsResults').innerText();
   expect(savedResultsText).not.toContain('Statistics will appear after calculation.');
   const payload = await page.evaluate(() => window.Components.line.getPayload());
-  expect(payload?.config?.stats?.resultsHtml).toContain('stats-table-card');
+  expect(payload?.config?.stats?.resultsModel?.kind).toBe('stats-panel');
+  expect(payload?.config?.stats?.reportModel?.kind).toBe('stats-report');
   expect(payload?.config?.stats?.lastRunVersion).toBeGreaterThan(0);
 
   await page.reload({ waitUntil: 'domcontentloaded' });

@@ -21,6 +21,23 @@ const GENES = {
   C: ['BRCA1', 'PAXIP1', 'CSNK2A1', 'RING1B', 'KAT7']
 };
 
+async function getWorkspaceTabIds(page) {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('#workspaceTabsList .workspace-tab[data-tab-id]'))
+      .map(tab => String(tab.getAttribute('data-tab-id') || '').trim())
+      .filter(id => id && id !== 'welcome')
+  );
+}
+
+async function activateTabById(page, tabId) {
+  const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
+  await expect(tab).toBeVisible({ timeout: 20_000 });
+  await tab.click({ force: true });
+  await page.waitForFunction(id => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  await page.waitForSelector('#vennPage:not([hidden]) #stage', { timeout: 30_000 });
+  await page.waitForTimeout(300);
+}
+
 async function buildVenn(page) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
@@ -29,6 +46,18 @@ async function buildVenn(page) {
   await clickExampleButtonIfPresent(page, 'sample');
   await page.waitForFunction(() => !!document.getElementById('stage'), null, { timeout: 30_000 });
   await page.waitForTimeout(800);
+}
+
+async function openAdditionalVenn(page) {
+  const before = new Set(await getWorkspaceTabIds(page));
+  await openComponentFromWelcome(page, { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' });
+  await page.waitForFunction(() => !!window.Components?.venn?.ready, null, { timeout: 30_000 });
+  await clickExampleButtonIfPresent(page, 'sample');
+  await page.waitForTimeout(800);
+  const after = await getWorkspaceTabIds(page);
+  const tabId = after.find(id => !before.has(id));
+  expect(tabId).toBeTruthy();
+  return tabId;
 }
 
 // Inject GO + STRING analysis results into the payload (no external API needed) and reload.
@@ -52,6 +81,7 @@ async function injectAnalysis(page) {
     ];
     payload.analysis.stringPerformed = true;
     payload.analysis.stringSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><circle cx="60" cy="60" r="30" fill="#4daf4a"/></svg>';
+    payload.analysis.stringEnrichment = [{ termDescription: 'chromatin protein binding', fdr: 0.002 }];
     payload.analysis.activeResultsTab = 'string';
     venn.loadFromPayload(payload, { reason: 'e2e-inject-analysis' });
   }, GENES);
@@ -87,6 +117,147 @@ async function reopen(page, archivePath) {
   await page.waitForTimeout(1000);
 }
 
+async function installButtonRunAnalysisMocks(page) {
+  await page.evaluate(() => {
+    const pending = window.__vennButtonRunMocks = {
+      go: [],
+      network: [],
+      enrichment: []
+    };
+    const deferred = (kind, request) => {
+      let resolve;
+      let reject;
+      const promise = new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      pending[kind].push({ request, resolve, reject });
+      return promise;
+    };
+    window.Shared.goAnalysis = {
+      profile(options) {
+        return deferred('go', {
+          genes: options.genes || [],
+          organism: options.organism || ''
+        });
+      }
+    };
+    window.Shared.stringAnalysis = {
+      resolveSpeciesCode(org, fallback) {
+        return fallback || ({ hsapiens: '9606', mmusculus: '10090' }[org] || '9606');
+      },
+      fetchNetwork(options) {
+        return deferred('network', {
+          genes: options.genes || [],
+          species: options.species || ''
+        });
+      },
+      fetchEnrichment(options) {
+        return deferred('enrichment', {
+          genes: options.genes || [],
+          species: options.species || ''
+        });
+      }
+    };
+  });
+}
+
+async function runGoStringFromButtons(page, label = 'button-run') {
+  await installButtonRunAnalysisMocks(page);
+  await page.evaluate(value => {
+    window.__vennButtonRunLabel = value;
+  }, label);
+  await page.evaluate(() => {
+    const root = document.querySelector('#vennPage:not([hidden])');
+    if (!root) throw new Error('Active Venn root not found');
+    const species = root.querySelector('#speciesSelect');
+    species.value = 'hsapiens';
+    species.dispatchEvent(new Event('change', { bubbles: true }));
+    root.querySelector('#goBtn').click();
+    root.querySelector('#stringBtn').click();
+  });
+  await page.waitForFunction(() => {
+    const mocks = window.__vennButtonRunMocks;
+    return !!(mocks?.go?.length && mocks?.network?.length);
+  }, null, { timeout: 10_000 });
+  await page.evaluate(() => {
+    const mocks = window.__vennButtonRunMocks;
+    const label = window.__vennButtonRunLabel || 'button-run';
+    mocks.go[0].resolve({
+      result: [
+        { term_name: `${label} GO term`, name: `${label} GO term`, p_value: 0.0001, source: 'GO:BP' }
+      ]
+    });
+    mocks.network[0].resolve({
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><text x="8" y="28">${label} STRING network</text></svg>`
+    });
+  });
+  await page.waitForFunction(() => !!window.__vennButtonRunMocks?.enrichment?.length, null, { timeout: 10_000 });
+  await page.evaluate(() => {
+    const enrichment = window.__vennButtonRunMocks.enrichment[0];
+    const label = window.__vennButtonRunLabel || 'button-run';
+    enrichment.resolve({
+      items: [
+        { termDescription: `${label} STRING enrichment`, fdr: 0.002 }
+      ]
+    });
+  });
+  await expect.poll(async () => page.evaluate(() => {
+    const root = document.querySelector('#vennPage:not([hidden])');
+    return {
+      go: root?.querySelector('#goResults')?.textContent || '',
+      string: root?.querySelector('#stringResults')?.textContent || '',
+      network: root?.querySelector('#stringNetwork')?.textContent || ''
+    };
+  }), { timeout: 15_000 }).toMatchObject({
+    go: expect.stringContaining(`${label} GO term`),
+    string: expect.stringContaining(`${label} STRING enrichment`),
+    network: expect.stringContaining(`${label} STRING network`)
+  });
+}
+
+async function clickAndReadAnalysisTabs(page) {
+  return page.evaluate(async () => {
+    const root = document.querySelector('#vennPage:not([hidden])');
+    const click = async selector => {
+      root.querySelector(selector)?.click();
+      await new Promise(resolve => setTimeout(resolve, 250));
+    };
+    await click('#analysisTabGo');
+    const afterGo = {
+      go: root.querySelector('#goResults')?.textContent || '',
+      string: root.querySelector('#stringResults')?.textContent || '',
+      network: root.querySelector('#stringNetwork')?.textContent || ''
+    };
+    await click('#analysisTabString');
+    const afterString = {
+      go: root.querySelector('#goResults')?.textContent || '',
+      string: root.querySelector('#stringResults')?.textContent || '',
+      network: root.querySelector('#stringNetwork')?.textContent || ''
+    };
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    return {
+      afterGo,
+      afterString,
+      payloadGo: (tab?.payload?.analysis?.goResult || []).map(item => item.term_name || item.name || ''),
+      payloadString: (tab?.payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || ''),
+      payloadStringSvg: tab?.payload?.analysis?.stringSvg || ''
+    };
+  });
+}
+
+async function findRestoredVennTabByGoTerm(page, term) {
+  return page.evaluate(expected => {
+    const tabs = window.Main?.session?.workspaceState?.tabs || [];
+    const match = tabs.find(tab => {
+      if (!tab || tab.type !== 'venn') return false;
+      const terms = (tab.payload?.analysis?.goResult || []).map(item => item.term_name || item.name || '');
+      return terms.includes(expected);
+    });
+    return match?.id || null;
+  }, term);
+}
+
 test('venn GO chart renders on tab switch and survives reopen', async ({ page }) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
@@ -105,6 +276,286 @@ test('venn GO chart renders on tab switch and survives reopen', async ({ page })
   await expect.poll(async () => (await page.evaluate(goChartState)).width, { timeout: 10_000 }).toBeGreaterThan(0);
   const restored = await page.evaluate(goChartState);
   expect(restored.hidden, 'GO chart should be visible after reopen + GO tab').toBe(false);
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('venn button-run GO and STRING survive archive reopen and result-tab clicks', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+  await runGoStringFromButtons(page);
+  const archivePath = await captureArchive(page, 'venn-button-run-go-string-reopen');
+  await reopen(page, archivePath);
+
+  const restored = await clickAndReadAnalysisTabs(page);
+
+  expect(restored.afterGo.go).toContain('button-run GO term');
+  expect(restored.afterString.go).toContain('button-run GO term');
+  expect(restored.afterString.string).toContain('button-run STRING enrichment');
+  expect(restored.afterString.network).toContain('button-run STRING network');
+  expect(restored.payloadGo).toContain('button-run GO term');
+  expect(restored.payloadString).toContain('button-run STRING enrichment');
+  expect(restored.payloadStringSvg).toContain('button-run STRING network');
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('venn result-tab clicks heal stale analysis payload from session after restore', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+  await runGoStringFromButtons(page, 'DRIFT');
+  const archivePath = await captureArchive(page, 'venn-stale-analysis-payload-reopen');
+  await reopen(page, archivePath);
+
+  const restored = await page.evaluate(async () => {
+    const Main = window.Main;
+    const venn = window.Components?.venn;
+    const tab = Main?.tabs?.getActiveTab?.();
+    const stalePayload = Main.session.clonePayload(tab.payload);
+    stalePayload.analysis = venn.createEmptyPayload().analysis;
+    tab.payload = stalePayload;
+    tab.payloadSignature = Main.session.serializePayloadSignature(stalePayload);
+    const root = document.querySelector('#vennPage:not([hidden])');
+    root.querySelector('#analysisTabGo')?.click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    root.querySelector('#analysisTabString')?.click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const ownerSession = venn.__testHooks.getSession(tab.id);
+    return {
+      go: root.querySelector('#goResults')?.textContent || '',
+      string: root.querySelector('#stringResults')?.textContent || '',
+      network: root.querySelector('#stringNetwork')?.textContent || '',
+      payloadGo: (tab.payload?.analysis?.goResult || []).map(item => item.term_name || item.name || ''),
+      payloadString: (tab.payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || ''),
+      payloadSvg: tab.payload?.analysis?.stringSvg || '',
+      sessionGo: (ownerSession?.results?.lastGOResult || []).map(item => item.term_name || item.name || ''),
+      sessionString: (ownerSession?.results?.lastStringEnrichment || []).map(item => item.termDescription || item.description || '')
+    };
+  });
+
+  expect(restored.go).toContain('DRIFT GO term');
+  expect(restored.string).toContain('DRIFT STRING enrichment');
+  expect(restored.network).toContain('DRIFT STRING network');
+  expect(restored.payloadGo).toContain('DRIFT GO term');
+  expect(restored.payloadString).toContain('DRIFT STRING enrichment');
+  expect(restored.payloadSvg).toContain('DRIFT STRING network');
+  expect(restored.sessionGo).toContain('DRIFT GO term');
+  expect(restored.sessionString).toContain('DRIFT STRING enrichment');
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('venn restored GO and STRING survive first graph redraw before result-tab clicks', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+  await runGoStringFromButtons(page, 'REDRAW');
+  const archivePath = await captureArchive(page, 'venn-go-string-redraw-before-tabs');
+  await reopen(page, archivePath);
+
+  const restored = await page.evaluate(async () => {
+    const venn = window.Components?.venn;
+    const state = venn?.__getState?.();
+    state.analysis.lastRegionSignature = null;
+    state.analysis.lastRegionCode = null;
+    venn.refreshDiagram();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    const root = document.querySelector('#vennPage:not([hidden])');
+    root.querySelector('#analysisTabGo')?.click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const afterGo = {
+      go: root.querySelector('#goResults')?.textContent || '',
+      string: root.querySelector('#stringResults')?.textContent || '',
+      network: root.querySelector('#stringNetwork')?.textContent || ''
+    };
+    root.querySelector('#analysisTabString')?.click();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    return {
+      afterGo,
+      afterString: {
+        go: root.querySelector('#goResults')?.textContent || '',
+        string: root.querySelector('#stringResults')?.textContent || '',
+        network: root.querySelector('#stringNetwork')?.textContent || ''
+      },
+      payloadGo: (tab?.payload?.analysis?.goResult || []).map(item => item.term_name || item.name || ''),
+      payloadString: (tab?.payload?.analysis?.stringEnrichment || []).map(item => item.termDescription || item.description || ''),
+      payloadSvg: tab?.payload?.analysis?.stringSvg || ''
+    };
+  });
+
+  expect(restored.afterGo.go).toContain('REDRAW GO term');
+  expect(restored.afterString.go).toContain('REDRAW GO term');
+  expect(restored.afterString.string).toContain('REDRAW STRING enrichment');
+  expect(restored.afterString.network).toContain('REDRAW STRING network');
+  expect(restored.payloadGo).toContain('REDRAW GO term');
+  expect(restored.payloadString).toContain('REDRAW STRING enrichment');
+  expect(restored.payloadSvg).toContain('REDRAW STRING network');
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('two button-run venn tabs keep GO and STRING after archive reopen and result-tab clicks', async ({ page }) => {
+  test.setTimeout(240_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+  await runGoStringFromButtons(page, 'ALPHA');
+  await openAdditionalVenn(page);
+  await runGoStringFromButtons(page, 'BETA');
+  const archivePath = await captureArchive(page, 'venn-two-button-run-go-string-reopen');
+  await reopen(page, archivePath);
+
+  const alphaTabId = await findRestoredVennTabByGoTerm(page, 'ALPHA GO term');
+  const betaTabId = await findRestoredVennTabByGoTerm(page, 'BETA GO term');
+  expect(alphaTabId).toBeTruthy();
+  expect(betaTabId).toBeTruthy();
+  expect(alphaTabId).not.toBe(betaTabId);
+
+  await activateTabById(page, alphaTabId);
+  const alpha = await clickAndReadAnalysisTabs(page);
+  await activateTabById(page, betaTabId);
+  const beta = await clickAndReadAnalysisTabs(page);
+
+  expect(alpha.afterString.go).toContain('ALPHA GO term');
+  expect(alpha.afterString.string).toContain('ALPHA STRING enrichment');
+  expect(alpha.afterString.network).toContain('ALPHA STRING network');
+  expect(alpha.afterString.go).not.toContain('BETA GO term');
+  expect(alpha.payloadGo).toContain('ALPHA GO term');
+  expect(alpha.payloadString).toContain('ALPHA STRING enrichment');
+
+  expect(beta.afterString.go).toContain('BETA GO term');
+  expect(beta.afterString.string).toContain('BETA STRING enrichment');
+  expect(beta.afterString.network).toContain('BETA STRING network');
+  expect(beta.afterString.go).not.toContain('ALPHA GO term');
+  expect(beta.payloadGo).toContain('BETA GO term');
+  expect(beta.payloadString).toContain('BETA STRING enrichment');
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('venn restored GO and STRING survive recovery lifecycle capture', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+  await injectAnalysis(page);
+  const archivePath = await captureArchive(page, 'venn-go-string-lifecycle-reopen');
+  await reopen(page, archivePath);
+
+  const restored = await page.evaluate(async () => {
+    const venn = window.Components?.venn;
+    const state = venn?.__getState?.();
+    const tab = window.Main?.tabs?.getActiveTab?.();
+    state.analysis.lastGOResult = null;
+    state.analysis.lastGOFormatted = ['STALE_ONLY'];
+    state.analysis.lastGOOrganism = 'mmusculus';
+    state.analysis.lastStringSVG = '';
+    state.analysis.lastStringEnrichment = null;
+    state.analysis.goPerformed = false;
+    state.analysis.stringPerformed = false;
+    window.Main.session.persistActiveTabState(tab, {
+      reason: 'recovery-restored',
+      origin: 'lifecycle',
+      forcePreviewCapture: false,
+      snapshotIntent: {
+        lifecycleSnapshot: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false,
+        reasonSkippable: false,
+        snapshotCapture: true
+      }
+    });
+    state.ui.analysisTabGo.click();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    state.ui.analysisTabString.click();
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return {
+      goText: state.ui.goResults.textContent || '',
+      stringText: state.ui.stringResults.textContent || '',
+      networkHtml: state.ui.stringNetwork.innerHTML || '',
+      goResult: tab.payload?.analysis?.goResult || null,
+      stringEnrichment: tab.payload?.analysis?.stringEnrichment || null,
+      stringSvg: tab.payload?.analysis?.stringSvg || ''
+    };
+  });
+
+  expect(restored.goText).toContain('chromatin silencing complex');
+  expect(restored.stringText).toContain('chromatin protein binding');
+  expect(restored.networkHtml).toContain('svg');
+  expect(restored.goResult?.map(item => item.term_name)).toContain('chromatin silencing complex');
+  expect(restored.stringEnrichment?.map(item => item.termDescription)).toContain('chromatin protein binding');
+  expect(restored.stringSvg).toContain('svg');
+  expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
+});
+
+test('venn legacy restored payload is normalized before recovery persist', async ({ page }) => {
+  test.setTimeout(180_000);
+  const issues = registerIssueCollectors(page); await installLocalCdnOverrides(page);
+  await buildVenn(page);
+
+  const result = await page.evaluate(async () => {
+    const Main = window.Main;
+    const venn = window.Components?.venn;
+    const tab = Main?.tabs?.getActiveTab?.();
+    Main.session.persistActiveTabState(tab, {
+      reason: 'archive-save',
+      forcePreviewCapture: false
+    });
+    const restoredPayload = Main.session.clonePayload(tab.payload);
+    ['nA', 'nB', 'nC', 'nAB', 'nAC', 'nBC', 'nABC'].forEach(key => {
+      if (restoredPayload.data) delete restoredPayload.data[key];
+    });
+    if (restoredPayload.meta && typeof restoredPayload.meta === 'object') {
+      delete restoredPayload.meta.graphSizing;
+      if (!Object.keys(restoredPayload.meta).length) delete restoredPayload.meta;
+    }
+    const restoredLayout = Main.session.clonePayload(tab.layoutState);
+    tab.payload = restoredPayload;
+    tab.payloadSignature = Main.session.serializePayloadSignature(restoredPayload);
+    tab.layoutState = restoredLayout;
+    tab.layoutSignature = Main.session.serializePayloadSignature(restoredLayout);
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    Main.session.workspaceState.loadedWorkspaces[tab.id] = {
+      tabId: tab.id,
+      type: tab.type,
+      payloadSignature: tab.payloadSignature,
+      layoutSignature: tab.layoutSignature
+    };
+    const driftLogs = [];
+    const originalDebug = console.debug;
+    console.debug = function patchedDebug(...args) {
+      if (String(args[0] || '').includes('payload drift observed')) driftLogs.push(args);
+      return originalDebug.apply(this, args);
+    };
+    try {
+      venn.loadFromPayload(restoredPayload, {
+        tabId: tab.id,
+        skipDraw: true,
+        recordUndo: false,
+        source: 'e2e-legacy-schema'
+      });
+      Main.session.persistActiveTabState(tab, {
+        reason: 'recovery-restored',
+        origin: 'lifecycle',
+        forcePreviewCapture: false,
+        snapshotIntent: {
+          lifecycleSnapshot: true,
+          captureLivePayload: true,
+          allowSkipLivePayloadCapture: false,
+          reasonSkippable: false,
+          snapshotCapture: true
+        }
+      });
+    } finally {
+      console.debug = originalDebug;
+    }
+    return {
+      driftCount: driftLogs.length,
+      hasGraphSizing: !!tab.payload?.meta?.graphSizing,
+      hasCounts: !!tab.payload?.data?.nA
+    };
+  });
+
+  expect(result.driftCount).toBe(0);
+  expect(result.hasGraphSizing).toBe(true);
+  expect(result.hasCounts).toBe(true);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });
 

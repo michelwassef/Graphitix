@@ -86,6 +86,27 @@ function expectReportHostAtBottom(hostId){
   expect(host.parentElement?.lastElementChild).toBe(host);
 }
 
+function getActiveBoxNode(id){
+  return document.querySelector(`#boxPage:not([hidden]) #${id}`)
+    || document.querySelector(`[data-component-key="box"] #${id}`)
+    || document.getElementById(id);
+}
+
+function getBoxStatsText(){
+  return [
+    getActiveBoxNode('statsResults')?.textContent || '',
+    getActiveBoxNode('statsTable')?.textContent || '',
+    getActiveBoxNode('boxStatsReportHost')?.textContent || ''
+  ].join(' ');
+}
+
+function expectActiveBoxReportHostAtBottom(){
+  const host = getActiveBoxNode('boxStatsReportHost');
+  expect(host).toBeTruthy();
+  expect(host.querySelectorAll('.stats-report-panel').length).toBe(1);
+  expect(host.parentElement?.lastElementChild).toBe(host);
+}
+
 describe('UI statistical presentation branches', () => {
   let restoreJStat;
   let restoreSvd;
@@ -205,14 +226,12 @@ describe('UI statistical presentation branches', () => {
     await box.draw();
     await flushAsyncWork(20);
 
-    document.getElementById('boxComputeStats').click();
-    await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(
-      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
-    ));
-    await waitFor(() => (document.getElementById('boxStatsReportHost')?.textContent || '').includes('Reporting and reproducibility'));
-    expect(document.getElementById('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
-    expectReportHostAtBottom('boxStatsReportHost');
-    expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
+    await box.__testHooks.computeStatsForTest();
+    expect(await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(getBoxStatsText()))).toBe(true);
+    expect(await waitFor(() => (getActiveBoxNode('boxStatsReportHost')?.textContent || '').includes('Reporting and reproducibility'))).toBe(true);
+    expect(getActiveBoxNode('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
+    expectActiveBoxReportHostAtBottom();
+    expect(getBoxStatsText()).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
 
     state.hot.loadData([
       ['Control', 'Treatment A', 'Treatment B'],
@@ -230,11 +249,9 @@ describe('UI statistical presentation branches', () => {
     await box.draw();
     await flushAsyncWork(20);
 
-    document.getElementById('boxComputeStats').click();
-    await waitFor(() => /Friedman|Nemenyi/i.test(
-      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
-    ));
-    const repeatedText = `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`;
+    await box.__testHooks.computeStatsForTest();
+    expect(await waitFor(() => /Friedman|Nemenyi/i.test(getBoxStatsText()))).toBe(true);
+    const repeatedText = getBoxStatsText();
     expect(repeatedText).toMatch(/Friedman|Nemenyi/i);
 
     const formatSelect = document.getElementById('boxTableFormat');
@@ -253,11 +270,9 @@ describe('UI statistical presentation branches', () => {
     await box.draw();
     await flushAsyncWork(30);
 
-    document.getElementById('boxComputeStats').click();
-    await waitFor(() => /Grouped multiple comparisons|multiple comparison/i.test(
-      `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`
-    ));
-    const groupedText = `${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('statsTable')?.textContent || ''}`;
+    await box.__testHooks.computeStatsForTest();
+    expect(await waitFor(() => /Grouped multiple comparisons|multiple comparison/i.test(getBoxStatsText()))).toBe(true);
+    const groupedText = getBoxStatsText();
     expect(groupedText).toMatch(/Grouped multiple comparisons|multiple comparison/i);
   }, 30000);
 
@@ -274,6 +289,8 @@ describe('UI statistical presentation branches', () => {
     const defaultText = statsResults?.textContent || '';
     expect(defaultText).toMatch(/Overall test summary|Coefficient diagnostics/i);
     expect(defaultText).toMatch(/Reporting and reproducibility|Series|r \(95% CI\)/i);
+    const scatterReport = document.getElementById('scatterStatsReportHost')?.querySelector('.stats-report-panel');
+    expect(scatterReport?.querySelector('[data-stats-report-block="methods"]')?.textContent || '').toMatch(/Scatter data .*numeric X\/Y pairs/i);
     expectReportHostAtBottom('scatterStatsReportHost');
 
     const regressionSelect = document.getElementById('scatterRegressionMode');

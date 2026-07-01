@@ -11,6 +11,18 @@ function readInitialBottomReserveMetrics() {
   if (!svg || !state) {
     return null;
   }
+  const readEffectivePreserveAspectRatio = () => {
+    const explicit = svg.getAttribute('preserveAspectRatio');
+    if (explicit) {
+      return explicit;
+    }
+    const base = svg.preserveAspectRatio?.baseVal || null;
+    if (base?.align === SVGPreserveAspectRatio.SVG_PRESERVEASPECTRATIO_XMIDYMID
+      && base?.meetOrSlice === SVGPreserveAspectRatio.SVG_MEETORSLICE_MEET) {
+      return 'xMidYMid meet';
+    }
+    return null;
+  };
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
   const lines = Array.from(axisLayer.querySelectorAll('line'))
     .map(line => ({
@@ -29,7 +41,7 @@ function readInitialBottomReserveMetrics() {
   const baseHeight = Number(svg.getAttribute('data-box-base-height'));
   const axisY = xAxis ? xAxis.y1 : NaN;
   return {
-    preserveAspectRatio: svg.getAttribute('preserveAspectRatio') || null,
+    preserveAspectRatio: readEffectivePreserveAspectRatio(),
     graphType: String(document.getElementById('boxGraphType')?.value || ''),
     bottomExtensionPx: Number(state.bottomViewportExtensionPx) || 0,
     significanceExtensionPx: Number(state.significanceViewportExtensionPx) || 0,

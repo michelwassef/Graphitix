@@ -74,4 +74,64 @@ describe('chartStyle.computeBottomLayout reserve rotated space', () => {
     expect(fromRotated.shouldRotate).toBe(true);
     expect(fromHorizontal.shouldRotate).toBe(false);
   });
+
+  test('explicit band width triggers rotation when categorical spacing is compressed', () => {
+    const { chartStyle } = window.Shared;
+    const fontSize = 12;
+    const labels = ['A', 'Treatment A', 'Treatment B'];
+
+    const fullSpacing = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth: 360
+    });
+    const compressedSpacing = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth: 360,
+      bandWidth: 48
+    });
+
+    expect(fullSpacing.shouldRotate).toBe(false);
+    expect(compressedSpacing.shouldRotate).toBe(true);
+    expect(compressedSpacing.maxAdjacentOverlapRatio).toBeGreaterThan(fullSpacing.maxAdjacentOverlapRatio);
+  });
+
+  test('projected rotated tick-label reserve omits absent axis-title space', () => {
+    const { chartStyle } = window.Shared;
+    const labels = ['Control', 'Treatment A', 'Treatment B'];
+    const fontSize = 16;
+    const axisMetrics = {
+      tickLength: 6,
+      tickLabelGap: 6,
+      axisTitleGap: 12,
+      outerPadding: 10
+    };
+
+    const withTitleReserve = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth: 260,
+      axisMetrics,
+      reserveRotatedLabelSpace: true,
+      bottomReserveMode: 'projected-tick-label',
+      labelRotationAngleDeg: 45,
+      labelReserveMarginPx: 4
+    });
+    const withoutTitleReserve = chartStyle.computeBottomLayout({
+      labels,
+      fontSize,
+      plotWidth: 260,
+      axisMetrics,
+      reserveRotatedLabelSpace: true,
+      bottomReserveMode: 'projected-tick-label',
+      includeAxisTitleReserve: false,
+      labelRotationAngleDeg: 45,
+      labelReserveMarginPx: 4
+    });
+
+    expect(withoutTitleReserve.bottom).toBeLessThan(withTitleReserve.bottom);
+    expect(withTitleReserve.bottom - withoutTitleReserve.bottom).toBe(axisMetrics.axisTitleGap + fontSize);
+    expect(withoutTitleReserve.bottom).toBeLessThan(100);
+  });
 });

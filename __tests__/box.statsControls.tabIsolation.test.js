@@ -304,6 +304,55 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent.__getState().statsComputationPending).toBe(false);
   });
 
+  test('box tab switch with computed stats does not repaint stats tables repeatedly', async () => {
+    await activateWorkspace('box');
+
+    const boxComponent = window.Components?.box;
+    const main = window.Main;
+    expect(boxComponent).toBeTruthy();
+    expect(main?.tabs).toBeTruthy();
+
+    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-surface-a' });
+    await flushAsyncWork(25);
+    const tabA = main.session.getActiveTab();
+    expect(tabA?.type).toBe('box');
+
+    const statsButton = getBoxStatsButton();
+    expect(statsButton).toBeTruthy();
+    statsButton.click();
+    await flushAsyncWork(80);
+    expect(statsButton.textContent).toBe('Recalculate statistics');
+
+    main.tabs.handleAddTabClick();
+    await flushAsyncWork(10);
+    await activateWorkspace('box');
+
+    const duplicatePrompt = document.getElementById('duplicatePrompt');
+    if(duplicatePrompt && !duplicatePrompt.hasAttribute('hidden')){
+      const reuseButton = document.getElementById('duplicateReuse');
+      expect(reuseButton).toBeTruthy();
+      reuseButton.click();
+      await flushAsyncWork(35);
+    }
+
+    const tabB = main.session.getActiveTab();
+    expect(tabB?.type).toBe('box');
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    const renderSpy = jest.spyOn(window.Shared.statsTable, 'render');
+    try{
+      await activateTabById(tabA.id, 'test-stats-surface-fast-switch-a');
+      await flushAsyncWork(60);
+    }finally{
+      renderSpy.mockRestore();
+    }
+
+    expect(main.session.getActiveTab()?.id).toBe(tabA.id);
+    expect(renderSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(document.querySelector('#statsResults .stats-table-card, #statsTable .stats-table-card')).toBeTruthy();
+    expect(getBoxStatsButton()?.textContent).toBe('Recalculate statistics');
+  });
+
   test('delayed dark theme repaint cannot cross-contaminate another box tab cache', async () => {
     await activateWorkspace('box');
 

@@ -6,8 +6,8 @@
   <title>Graphitix</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2064%2064%22%3E%3Crect%20width=%2264%22%20height=%2264%22%20rx=%2212%22%20ry=%2212%22%20fill=%22%231e88e5%22/%3E%3Ctext%20x=%2250%25%22%20y=%2256%25%22%20font-family=%22Arial,%20sans-serif%22%20font-size=%2236%22%20text-anchor=%22middle%22%20fill=%22white%22%3EG%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css"  integrity="sha384-gIsz6JTVbF5eW0CcuAljKL2kOE400G4TjBH3CBtGXjf8BkjmC5x9jp4Y+bYa7HKA" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-balham.css"  integrity="sha384-GcZGKt5Z2p2KwGD/9tT5yGlGuL1yyezr4v3Xm9wBxDje1XTm3q1W/gRGpId8l2Xy" crossorigin="anonymous">
+  <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-grid.css">
+  <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-theme-balham.css">
 </head>
 <body>
   <div id="appShell">
@@ -16,15 +16,19 @@
         <div class="welcome-container">
           <div class="welcome-hero">
             <h2 class="welcome-hero__title">Graphitix — Create publication-ready visualizations and statistical analyses</h2>
-            <p class="welcome-hero__subtitle">Start with a blank graph, load an example instantly, or open a saved workspace.</p>
+            <p class="welcome-hero__subtitle">Start with a blank graph, load an example instantly, or open a file.</p>
             <div class="welcome-hero__actions">
-              <button type="button" class="welcome-hero__action welcome-hero__action--primary" id="welcomeOpenButton" aria-label="Open saved workspace">
+              <button type="button" class="welcome-hero__action welcome-hero__action--primary" id="welcomeOpenButton" aria-label="Open file">
                 <svg class="welcome-hero__action-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
                 </svg>
-                <span>Open saved workspace</span>
+                <span>Open file</span>
               </button>
-              <input type="file" id="welcomeGraphFileInput" accept=".graph,.json,.session" class="idx-inline-001" />
+              <div id="welcomeFileDropZone" class="welcome-drop-zone" role="button" tabindex="0" aria-label="Drop or choose a Graphitix, Prism, CSV, TSV, Excel, or ODS file">
+                <strong>Drop a file here</strong>
+                <span>.graph, .prism, .pzfx, .csv, .tsv, .xlsx, .ods</span>
+              </div>
+              <input type="file" id="welcomeGraphFileInput" accept=".graph,.json,.session,.prism,.pzfx,.csv,.tsv,.xlsx,.xls,.ods" class="idx-inline-001" />
             </div>
             <div class="welcome-graph-finder welcome-picker" aria-labelledby="welcomeGraphFinderTitle">
               <div class="welcome-graph-finder__copy">
@@ -284,22 +288,52 @@
           </div>
         </div>
         <div id="stringOptions" class="analysis-options idx-inline-012">
-          <div class="idx-inline-013">
-            <strong>Network Type:</strong>
-            <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING network</label>
-            <label><input type="radio" name="stringNetworkType" value="physical" /> Physical subnetwork</label>
-          </div>
-          <div class="idx-inline-013">
-            <strong>Meaning of Network Edges:</strong>
-            <label><input type="radio" name="stringEdgeMeaning" value="evidence" checked /> Evidence</label>
-            <label><input type="radio" name="stringEdgeMeaning" value="confidence" /> Confidence</label>
-          </div>
-          <div>
-            <strong>Active Interaction Sources:</strong>
-          
-            <label><input type="checkbox" class="stringSource" value="textmining" checked /> Textmining</label>
-            <label><input type="checkbox" class="stringSource" value="experiments" checked /> Experiments</label>
-            <label><input type="checkbox" class="stringSource" value="databases" checked /> Databases</label>
+          <div class="string-options-grid">
+            <div class="string-options-main">
+              <div class="idx-inline-013">
+                <strong>Network Type:</strong>
+                <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING network</label>
+                <label><input type="radio" name="stringNetworkType" value="physical" /> Physical subnetwork</label>
+              </div>
+              <div class="idx-inline-013">
+                <strong>Meaning of Network Edges:</strong>
+                <label><input type="radio" name="stringEdgeMeaning" value="evidence" checked /> Evidence</label>
+                <label><input type="radio" name="stringEdgeMeaning" value="confidence" /> Confidence</label>
+              </div>
+              <div>
+                <strong>Active Interaction Sources:</strong>
+                <label><input type="checkbox" class="stringSource" value="textmining" checked /> Textmining</label>
+                <label><input type="checkbox" class="stringSource" value="experiments" checked /> Experiments</label>
+                <label><input type="checkbox" class="stringSource" value="databases" checked /> Databases</label>
+              </div>
+            </div>
+            <div class="string-overlay-panel" aria-label="Custom edge overlay options">
+              <div class="string-overlay-header">
+                <strong>Custom edge overlay:</strong>
+                <label><input type="checkbox" id="stringOverlayEnabled" checked /> Show</label>
+              </div>
+              <div class="string-overlay-row string-overlay-data-row">
+                <span class="string-overlay-label">Data</span>
+                <button type="button" class="btn string-overlay-file-button" id="stringOverlayFileButton">Choose file</button>
+                <span id="stringOverlayFileName" class="string-overlay-file-name">No file selected</span>
+                <input type="file" id="stringOverlayFile" class="string-overlay-file-input" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods" />
+              </div>
+              <div class="string-overlay-row">
+                <label>Threshold <input type="number" id="stringOverlayThreshold" value="0.75" step="0.01" /></label>
+                <label>Mode
+                  <select id="stringOverlayMode">
+                    <option value="absolute" selected>Absolute value</option>
+                    <option value="positive">Positive only</option>
+                    <option value="negative">Negative only</option>
+                  </select>
+                </label>
+                <label>Color <input type="color" id="stringOverlayColor" value="#d62728" /></label>
+              </div>
+              <div class="string-overlay-row">
+                <label>Thickness <input type="number" id="stringOverlayThickness" value="3" min="0.5" step="0.5" /></label>
+              </div>
+              <span id="stringOverlayStatus" class="string-overlay-status">No custom edge data loaded</span>
+            </div>
           </div>
         </div>
         <div id="analysisResults">
@@ -339,7 +373,7 @@
     <div class="workspace-page__topbar" data-toolbar="box">
       <div data-toolbar-root></div>
       <input type="file" id="boxGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
@@ -524,7 +558,7 @@
     <div class="workspace-page__topbar" data-toolbar="scatter">
       <div data-toolbar-root></div>
       <input type="file" id="scatterGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
@@ -822,7 +856,7 @@
     <div class="workspace-page__topbar" data-toolbar="pca">
       <div data-toolbar-root></div>
       <input type="file" id="pcaGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
         <div class="panel" id="pcaTablePanel">
@@ -998,7 +1032,7 @@
     <div class="workspace-page__topbar" data-toolbar="surface">
       <div data-toolbar-root></div>
       <input type="file" id="surfaceGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="surfaceTablePanel">
@@ -1093,7 +1127,7 @@
     <div class="workspace-page__topbar" data-toolbar="line">
       <div data-toolbar-root></div>
       <input type="file" id="lineGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
 
     <div class="wrap">
@@ -1102,23 +1136,13 @@
             <select id="lineTableFormat">
               <option value="single" selected>Single replicates</option>
               <option value="grouped">Grouped replicates</option>
-              <option value="3d">3D datasets (Y+Z columns)</option>
+              <option value="3d">3D datasets (X+Y+Z columns)</option>
             </select>
             <div id="lineGroupedControls" class="grouped-controls grouped-controls--inline idx-inline-001" aria-hidden="true">
             <label for="lineReplicates" class="grouped-config-inline">
               <span>n =</span>
               <input type="number" id="lineReplicates" min="1" max="10" step="1" value="1" />
             </label>
-          </div>
-        </div>
-        <div id="line3dControls" class="grouped-controls idx-inline-001" aria-hidden="true">
-          <div class="grouped-config-row">
-            <p class="idx-inline-044">3D datasets use paired columns per dataset: Y values then Z values.</p>
-          </div>
-          <div id="line3dList" class="grouped-list"></div>
-          <div class="grouped-actions">
-            <button type="button" class="btn" id="line3dAdd">Add dataset</button>
-            <button type="button" class="btn" id="line3dRemove">Remove dataset</button>
           </div>
         </div>
         <div id="lineHotWrapper" class="idx-inline-020">
@@ -1295,7 +1319,7 @@
     <div class="workspace-page__topbar" data-toolbar="heatmap">
       <div data-toolbar-root></div>
       <input type="file" id="heatmapGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="heatmapTablePanel">
@@ -1519,7 +1543,7 @@
     <div class="workspace-page__topbar" data-toolbar="roc">
       <div data-toolbar-root></div>
       <input type="file" id="rocGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="rocTablePanel">
@@ -1591,7 +1615,7 @@
     <div class="workspace-page__topbar" data-toolbar="survival">
       <div data-toolbar-root></div>
       <input type="file" id="survivalGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="survivalTablePanel">
@@ -1633,17 +1657,6 @@
                 <label class="idx-inline-023">Time max <input type="number" id="survivalTimeMax" step="0.1" /></label>
               </div>
             </fieldset>
-            <fieldset>
-              <legend>Labels</legend>
-              <div class="control idx-inline-049">
-                <label class="idx-inline-010">Time Axis
-                  <input type="text" id="survivalXLabel" value="Time" />
-                </label>
-                <label class="idx-inline-010">Survival Axis
-                  <input type="text" id="survivalYLabel" value="Survival Probability" />
-                </label>
-              </div>
-            </fieldset>
             <fieldset data-font-controls="1" hidden>
               <legend>Font</legend>
               <div class="control">
@@ -1680,7 +1693,7 @@
     <div class="workspace-page__topbar" data-toolbar="hist">
       <div data-toolbar-root></div>
       <input type="file" id="histGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="histTablePanel">
@@ -1855,7 +1868,7 @@
     <div class="workspace-page__topbar" data-toolbar="pie">
       <div data-toolbar-root></div>
       <input type="file" id="pieGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="pieTablePanel">
@@ -1973,6 +1986,60 @@
         </div>
       </div>
     </div>
+
+    <div id="welcomeDataImportPrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeDataImportTitle" tabindex="-1">
+      <div class="workspace-modal__panel welcome-import-panel">
+        <h3 id="welcomeDataImportTitle" class="workspace-modal__title">Import data file</h3>
+        <p id="welcomeDataImportMessage" class="workspace-modal__message">Choose where this table should be imported.</p>
+        <div class="welcome-import-grid">
+          <label class="welcome-import-field">
+            <span>Graph type</span>
+            <select id="welcomeDataImportComponent"></select>
+          </label>
+          <label id="welcomeDataImportSheetField" class="welcome-import-field" hidden>
+            <span>Sheet</span>
+            <select id="welcomeDataImportSheet"></select>
+          </label>
+          <label id="welcomeDataImportDelimiterField" class="welcome-import-field">
+            <span>Separator</span>
+            <select id="welcomeDataImportDelimiter">
+              <option value="auto">Auto detect</option>
+              <option value="tab">Tab</option>
+              <option value="comma">Comma</option>
+              <option value="semicolon">Semicolon</option>
+              <option value="space">Space</option>
+            </select>
+          </label>
+          <label class="welcome-import-field">
+            <span>Start at row</span>
+            <input id="welcomeDataImportStartRow" type="number" min="1" step="1" value="1" />
+          </label>
+        </div>
+        <div class="welcome-import-options">
+          <label class="welcome-import-checkbox">
+            <input id="welcomeDataImportFirstRow" type="checkbox" checked />
+            <span>Use first row as column titles</span>
+          </label>
+          <label class="welcome-import-checkbox">
+            <input id="welcomeDataImportTrim" type="checkbox" checked />
+            <span>Trim spaces</span>
+          </label>
+        </div>
+        <div class="welcome-import-preview" aria-live="polite">
+          <div class="welcome-import-preview__bar">
+            <strong>Preview</strong>
+            <span id="welcomeDataImportPreviewStatus">First 20 rows</span>
+          </div>
+          <div class="welcome-import-preview__scroller">
+            <table id="welcomeDataImportPreview" class="welcome-import-preview__table"></table>
+          </div>
+        </div>
+        <div class="workspace-modal__actions">
+          <button id="welcomeDataImportOpen" type="button" class="btn">Import</button>
+          <button id="welcomeDataImportCancel" type="button" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
     <div id="welcomeReplaceUnsavedPrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeReplaceUnsavedTitle" tabindex="-1">
       <div class="workspace-modal__panel">
         <h3 id="welcomeReplaceUnsavedTitle" class="workspace-modal__title">Save before replacing?</h3>
@@ -2033,8 +2100,8 @@
   </div>
 
   <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.noStyle.js" integrity="sha384-etrB9TIL7zKiOhcZpa4qlQsXHG1KuuQK1DiRggK05MVgseANVPTFaEs1qUCcs7uG" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js" integrity="sha384-G0LNImWgCl2Dv94gWHL462179lItxVdMl0mIkiGu4HaUYuC4jZlAVdyqTZxTKRTs" crossorigin="anonymous"></script>
+  <script src="node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+  <script src="node_modules/jstat/dist/jstat.min.js"></script>
   <script src="js/vendor.js"></script>
   <script src="js/shared/loaders.js"></script>
   <script src="js/shared/palette.js"></script>
@@ -2068,6 +2135,7 @@
   <script src="js/shared/graphSizing.js"></script>
   <script src="js/shared/regression.js"></script>
   <script src="js/shared/stats.js"></script>
+  <script src="js/shared/boxStatsModel.js"></script>
   <script src="js/shared/stats-table.js"></script>
   <script src="js/shared/colorPicker.js"></script>
   <script src="js/shared/workspaceToolbarAccess.js"></script>

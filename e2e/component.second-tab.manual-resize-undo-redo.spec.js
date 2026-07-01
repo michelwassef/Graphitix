@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome } = require('./helpers/workspaceHarness');
 
 const COMPONENTS = [
   { type: 'box', pageId: 'boxPage' },
@@ -8,27 +8,7 @@ const COMPONENTS = [
 ];
 
 async function openComponentTab(page, component, { first = false } = {}) {
-  if (first) {
-    const card = page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).first();
-    await expect(card).toBeVisible();
-    await card.click({ force: true });
-    await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
-    return;
-  }
-  await page.evaluate(async (type) => {
-    const tabs = window.Main?.tabs;
-    const maybeAdd = tabs?.handleAddTabClick?.();
-    if (maybeAdd && typeof maybeAdd.then === 'function') await maybeAdd;
-    const maybeSelect = tabs?.handleGraphSelection?.(type, { reason: 'e2e-second-tab-manual-resize-undo' });
-    if (maybeSelect && typeof maybeSelect.then === 'function') await maybeSelect;
-    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
-    const duplicateEmpty = document.querySelector('#duplicateEmpty');
-    if (prompt && duplicateEmpty && !duplicateEmpty.disabled) {
-      duplicateEmpty.click();
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }, component.type);
-  await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
+  await openComponentFromWelcome(page, component, { first });
 }
 
 async function getWorkspaceTabIds(page) {

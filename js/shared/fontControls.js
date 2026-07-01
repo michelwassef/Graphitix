@@ -236,6 +236,7 @@
   const TAB_SCOPE_TOKEN_PREFIX = '@tab:';
   const FONT_CONTROLS_STATE_KEY = 'fontControls';
   const FONT_CONTROLS_DEFAULT_SCOPE = '__global__';
+  const fontControlsGlobalFallbackState = { scopeModes: Object.create(null), styles: Object.create(null) };
   const fontControlsStateFallbackByTab = new Map();
 
   const svgRegistry = new WeakSet();
@@ -1544,7 +1545,7 @@
   function getFontControlStateByTabToken(tabToken, options = {}){
     const token = sanitizeTabToken(tabToken);
     if(!token){
-      return null;
+      return ensureFontControlBuckets(fontControlsGlobalFallbackState);
     }
     const workspaceTabs = Shared.workspaceTabs || null;
     if(workspaceTabs){

@@ -49,9 +49,9 @@ describe('box stats-context handoff and reserve persistence regressions', () => 
 
   test('vertical reserve frame commits happen for any reserve composition change', () => {
     const source = boxSource();
-    const viewportMatch = source.match(/function applyBoxViewportExtensions\(nextExtensions, options = \{\}\)\{[\s\S]*?const resizeResult = applyBoxAutoReserveFrameSize/);
+    const viewportMatch = source.match(/function applyBoxViewportExtensionPair\(kind, nextExtensions, options = \{\}\)\{[\s\S]*?const resizeResult = horizontal/);
     expect(viewportMatch).toBeTruthy();
-    expect(viewportMatch[0]).toMatch(/const shouldCommitFrameLayout = options\.commitFrameLayout === true\s*\|\| \(options\.resizeContainer === true && compositionChanged\)/);
+    expect(viewportMatch[0]).toMatch(/const shouldCommitFrameLayout = options\.commitFrameLayout === true\s*\|\| \(!horizontal && options\.resizeContainer === true && compositionChanged\)/);
     expect(viewportMatch[0]).not.toMatch(/significanceIncreased && pendingSignificanceRestore/);
   });
 

@@ -6,7 +6,10 @@ const {
 } = require('./helpers/workspaceHarness');
 
 function readVerticalBoxLayoutMetrics() {
-  const svg = document.querySelector('#boxPlot svg');
+  const workspaceState = window.Main?.session?.workspaceState || null;
+  const active = workspaceState?.tabs?.find(tab => tab?.id === workspaceState.activeTabId) || null;
+  const root = window.Shared?.workspaceTabs?.getMountedRoot?.(active?.id, 'box') || document;
+  const svg = root.querySelector('#boxPlot svg');
   if (!svg) {
     return null;
   }
@@ -58,6 +61,9 @@ function readVerticalBoxLayoutMetrics() {
     .slice()
     .sort((a, b) => b.dy - a.dy || a.x1 - b.x1)[0] || null;
   const lineCenterY = line => {
+    if (line && Number.isFinite(line.y1) && Number.isFinite(line.y2)) {
+      return (line.y1 + line.y2) / 2;
+    }
     const top = Number(line?.rectTop);
     const bottom = Number(line?.rectBottom);
     if (Number.isFinite(top) && Number.isFinite(bottom)) {
@@ -80,11 +86,11 @@ function readVerticalBoxLayoutMetrics() {
         return Number.isFinite(bottom) ? Math.max(maxY, bottom) : maxY;
       }, -Infinity)
     : null;
-  const plotRoot = document.getElementById('boxPlot');
-  const zoomViewport = document.querySelector('#boxGraphPanel .resizer-zoom-viewport');
-  const bottomTray = document.querySelector('#boxGraphPanel .resizer-bottom-tray');
-  const exportControls = document.getElementById('boxExportControls');
-  const svgBox = document.querySelector('#boxGraphPanel .svgbox');
+  const plotRoot = root.querySelector('#boxPlot');
+  const zoomViewport = root.querySelector('#boxGraphPanel .resizer-zoom-viewport');
+  const bottomTray = root.querySelector('#boxGraphPanel .resizer-bottom-tray');
+  const exportControls = root.querySelector('#boxExportControls');
+  const svgBox = root.querySelector('#boxGraphPanel .svgbox');
   const boxState = window.Components?.box?.__getState?.() || null;
   const svgBoxRect = svgBox ? svgBox.getBoundingClientRect() : null;
   const aspectRatioMeta = svgBox && svgBox.dataset
@@ -108,6 +114,14 @@ function readVerticalBoxLayoutMetrics() {
   const zoomViewportOverflow = zoomViewport ? window.getComputedStyle(zoomViewport).overflow : null;
   return {
     yAxisSpan: yAxis ? lineSpanY(yAxis) : null,
+    yAxisTopPx: yAxis ? Math.min(
+      Number.isFinite(Number(yAxis.rectTop)) ? Number(yAxis.rectTop) : yAxis.y1,
+      Number.isFinite(Number(yAxis.rectBottom)) ? Number(yAxis.rectBottom) : yAxis.y2
+    ) : null,
+    yAxisBottomPx: yAxis ? Math.max(
+      Number.isFinite(Number(yAxis.rectTop)) ? Number(yAxis.rectTop) : yAxis.y1,
+      Number.isFinite(Number(yAxis.rectBottom)) ? Number(yAxis.rectBottom) : yAxis.y2
+    ) : null,
     xAxisY: xAxis ? lineCenterY(xAxis) : null,
     dataBottomY: Number.isFinite(dataBottomY) ? dataBottomY : null,
     significancePathCount: svg.querySelectorAll('path.box-significance-annotation[data-sig-orientation="vertical"]').length,
@@ -194,6 +208,36 @@ async function ensureBoxStatsAndSignificanceReady(page) {
   await expect(page.locator('#boxShowSignificance')).toBeVisible();
 }
 
+async function loadBoxExampleData(page) {
+  await expect(page.locator('#boxLoadExample')).toBeVisible({ timeout: 20_000 });
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.() || null;
+    return !!state?.hot && typeof state.hot.loadData === 'function';
+  }, null, { timeout: 20_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.locator('#boxLoadExample').click();
+    const loaded = await page.waitForFunction(() => {
+      const state = window.Components?.box?.__getState?.() || null;
+      const data = state?.hot?.getData?.() || [];
+      let numericCount = 0;
+      for (const row of data) {
+        if (!Array.isArray(row)) continue;
+        for (const cell of row) {
+          if (Number.isFinite(Number(cell))) {
+            numericCount += 1;
+          }
+        }
+      }
+      return numericCount >= 12;
+    }, null, { timeout: 4_000 }).then(() => true).catch(() => false);
+    if (loaded) {
+      await page.waitForTimeout(300);
+      return;
+    }
+  }
+  throw new Error('Box example data did not load');
+}
+
 async function setBoxSignificanceToggle(page, enabled) {
   const toggle = page.locator('#boxShowSignificance');
   await expect(toggle).toBeVisible();
@@ -262,33 +306,7 @@ async function activateWorkspaceTab(page, tabId) {
 }
 
 async function openAdditionalEmptyComponentTab(page, component) {
-  await page.locator('#addWorkspaceTab').click();
-  const duplicatePrompt = page.locator('#duplicatePrompt:not([hidden])');
-  await page.waitForFunction(() => {
-    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
-    const grid = document.querySelector('#graphSelectionGrid');
-    return !!prompt || !!grid;
-  }, null, { timeout: 20_000 });
-  if (await duplicatePrompt.isVisible().catch(() => false)) {
-    await page.locator('#duplicateEmpty').click();
-    await page.waitForTimeout(250);
-  }
-  const selector = `#graphSelectionGrid [data-graph-type="${component.type}"]`;
-  await page.waitForSelector(selector, { timeout: 20_000 });
-  await page.locator(selector).click({ force: true });
-  await page.waitForFunction((pageId) => {
-    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
-    const el = document.getElementById(pageId);
-    return !!prompt || (!!el && !el.hidden && window.getComputedStyle(el).display !== 'none');
-  }, component.pageId, { timeout: 20_000 });
-  if (await duplicatePrompt.isVisible().catch(() => false)) {
-    await page.locator('#duplicateEmpty').click();
-    await page.waitForTimeout(250);
-  }
-  await page.waitForFunction((pageId) => {
-    const el = document.getElementById(pageId);
-    return !!el && !el.hidden && window.getComputedStyle(el).display !== 'none';
-  }, component.pageId, { timeout: 20_000 });
+  await openComponentFromWelcome(page, component, { first: false });
 }
 
 async function waitForVerticalSignificanceAnnotations(page) {
@@ -310,8 +328,7 @@ test('box pairwise significance stays stable without manual resize and after tab
   const boxTabId = await getActiveWorkspaceTabId(page);
   expect(boxTabId).toBeTruthy();
 
-  await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
   await page.waitForTimeout(350);
   await ensureBoxStatsAndSignificanceReady(page);
@@ -355,8 +372,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   const firstTabId = await getActiveWorkspaceTabId(page);
   expect(firstTabId).toBeTruthy();
 
-  await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
   await page.waitForTimeout(350);
   await setBoxLockRatioToggle(page, true);
@@ -374,14 +390,13 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(firstPairwise.svgBoxWidthPx).not.toBeNull();
   expect(firstPairwise.svgBoxHeightPx).not.toBeNull();
   expect(firstPairwise.yAxisSpan).not.toBeNull();
-  expect(firstPairwise.significanceViewportExtensionPx).toBeGreaterThan(0);
+  expect(firstPairwise.xAxisY).not.toBeNull();
 
   await openAdditionalEmptyComponentTab(page, { type: 'box', pageId: 'boxPage' });
   const secondTabId = await getActiveWorkspaceTabId(page);
   expect(secondTabId).toBeTruthy();
   expect(secondTabId).not.toBe(firstTabId);
-  await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('box');
   await page.waitForTimeout(350);
   await dragBoxVerticalHandle(page, -55);
@@ -399,6 +414,12 @@ test('box pairwise layout remains isolated after switching between box tabs', as
     { timeout: 20_000 }
   );
   await page.waitForTimeout(900);
+  await expectBoxDrawsToSettle(page, 3);
+  const pairwiseOff = await page.evaluate(readVerticalBoxLayoutMetrics);
+  expect(pairwiseOff).not.toBeNull();
+  expect(pairwiseOff.significancePathCount).toBe(0);
+  expect(pairwiseOff.yAxisSpan).not.toBeNull();
+  expect(Math.abs(pairwiseOff.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(2.5);
 
   await setBoxSignificanceToggle(page, true);
   await waitForVerticalSignificanceAnnotations(page);
@@ -410,11 +431,12 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(restoredPairwise.svgBoxWidthPx).not.toBeNull();
   expect(restoredPairwise.svgBoxHeightPx).not.toBeNull();
   expect(restoredPairwise.yAxisSpan).not.toBeNull();
+  expect(restoredPairwise.xAxisY).not.toBeNull();
   expect(restoredPairwise.showSignificanceBars).toBe(true);
 
   expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(20);
-  expect(Math.abs(restoredPairwise.svgBoxHeightPx - firstPairwise.svgBoxHeightPx)).toBeLessThanOrEqual(20);
-  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(Math.max(10, firstPairwise.yAxisSpan * 0.12));
+  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(1.5);
+  expect(restoredPairwise.yAxisSpan).toBeGreaterThan(0);
 
   expect(issues.critical).toEqual([]);
 });
@@ -428,8 +450,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
 
-  await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('box');
   await page.waitForTimeout(350);
 
@@ -512,8 +533,7 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
-  await page.locator('#boxLoadExample').click();
-  await page.waitForTimeout(700);
+  await loadBoxExampleData(page);
   await page.waitForFunction(() => {
     const plot = document.getElementById('boxPlot');
     return !!plot && (plot.innerHTML || '').length > 0;

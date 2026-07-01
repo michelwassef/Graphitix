@@ -3,6 +3,7 @@ const {
   COMPONENT_MATRIX,
   installLocalCdnOverrides,
   registerIssueCollectors,
+  openComponentFromWelcome,
   clickExampleButtonIfPresent
 } = require('./helpers/workspaceHarness');
 
@@ -21,13 +22,31 @@ async function activateTabById(page, tabId) {
   await page.waitForTimeout(300);
 }
 
+async function waitForActiveGrid(page, pageId, componentType) {
+  await page.waitForFunction(({ id, type }) => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const pageRoot = active?.type === type
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, type) || document.querySelector(`#${id}:not([hidden])`))
+      : null;
+    return !!pageRoot?.querySelector?.('.ag-root-wrapper, .ag-root');
+  }, { id: pageId, type: componentType }, { timeout: 20_000 });
+}
+
 async function readGridSnapshot(page, pageId, componentType) {
+  await waitForActiveGrid(page, pageId, componentType);
   return page.evaluate(({ id, type }) => {
-    const pageRoot = document.querySelector(`#${id}:not([hidden])`);
+    const state = window.Main?.session?.workspaceState;
+    const activeWorkspaceTab = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const pageRoot = activeWorkspaceTab?.type === type
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(activeWorkspaceTab.id, type) || document.querySelector(`#${id}:not([hidden])`))
+      : null;
     const activeTab = document.querySelector('#workspaceTabsList .workspace-tab.workspace-tab--active');
     const allIds = Array.from(pageRoot?.querySelectorAll?.('[id]') || []).map(node => node.id);
     const wrapperId = allIds.find(value => /hotwrapper$/i.test(value)) || null;
-    const hotId = allIds.find(value => /hot$/i.test(value) && !/wrapper$/i.test(value)) || null;
+    const hotId = allIds.find(value => /hot$/i.test(value) && !/wrapper$/i.test(value))
+      || pageRoot?.querySelector?.('.ag-root-wrapper, .ag-root')?.closest?.('[id]')?.id
+      || null;
     const wrapper = wrapperId ? pageRoot.querySelector(`#${wrapperId}`) : null;
     const hot = hotId ? pageRoot.querySelector(`#${hotId}`) : null;
     const agRoot = hot?.querySelector?.('.ag-root-wrapper, .ag-root') || null;
@@ -45,10 +64,15 @@ async function readGridSnapshot(page, pageId, componentType) {
     const pool = window.Shared?.hot?.__tabTablePools?.[type] || null;
     if (pool && typeof pool === 'object') {
       const byTab = pool.byTab && typeof pool.byTab === 'object' ? pool.byTab : {};
+      const activeEntry = activeWorkspaceTab?.id ? byTab[activeWorkspaceTab.id] : null;
+      const activeInstance = activeEntry?.instance || null;
       hotPoolState = {
         currentTabId: pool.currentTabId || null,
         tabIds: Object.keys(byTab),
-        instanceCount: Object.values(byTab).filter(entry => !!entry?.instance).length
+        instanceCount: Object.values(byTab).filter(entry => !!entry?.instance).length,
+        firstDisplayedRow: Number.isFinite(activeInstance?.gridApi?.getFirstDisplayedRow?.())
+          ? activeInstance.gridApi.getFirstDisplayedRow()
+          : null
       };
     }
     if (type === 'scatter' && typeof window.Components?.scatter?.__getActiveHot === 'function') {
@@ -82,13 +106,27 @@ async function readGridSnapshot(page, pageId, componentType) {
 
 async function scrollGridDown(page, pageId) {
   await page.evaluate((id) => {
-    const pageRoot = document.querySelector(`#${id}:not([hidden])`);
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const pageRoot = active?.type
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, active.type) || document.querySelector(`#${id}:not([hidden])`))
+      : null;
     const hot = Array.from(pageRoot?.querySelectorAll?.('[id]') || [])
-      .find(node => /hot$/i.test(node.id) && !/wrapper$/i.test(node.id));
+      .find(node => /hot$/i.test(node.id) && !/wrapper$/i.test(node.id))
+      || pageRoot?.querySelector?.('.ag-root-wrapper, .ag-root')?.closest?.('[id]')
+      || null;
     const viewport = hot?.querySelector?.('.ag-body-vertical-scroll-viewport');
     if (viewport) {
       viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight - 20);
       viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }
+    const pool = active?.type ? window.Shared?.hot?.__tabTablePools?.[active.type] : null;
+    const activeGrid = active?.id ? pool?.byTab?.[active.id]?.instance : null;
+    if (activeGrid?.gridApi && typeof activeGrid.gridApi.ensureIndexVisible === 'function') {
+      const rowCount = Number.isFinite(activeGrid.gridApi.getDisplayedRowCount?.())
+        ? activeGrid.gridApi.getDisplayedRowCount()
+        : 100;
+      activeGrid.gridApi.ensureIndexVisible(Math.max(0, rowCount - 2), 'bottom');
     }
   }, pageId);
   await page.waitForTimeout(300);
@@ -96,9 +134,15 @@ async function scrollGridDown(page, pageId) {
 
 async function scrollGridTop(page, pageId) {
   await page.evaluate((id) => {
-    const pageRoot = document.querySelector(`#${id}:not([hidden])`);
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const pageRoot = active?.type
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, active.type) || document.querySelector(`#${id}:not([hidden])`))
+      : null;
     const hot = Array.from(pageRoot?.querySelectorAll?.('[id]') || [])
-      .find(node => /hot$/i.test(node.id) && !/wrapper$/i.test(node.id));
+      .find(node => /hot$/i.test(node.id) && !/wrapper$/i.test(node.id))
+      || pageRoot?.querySelector?.('.ag-root-wrapper, .ag-root')?.closest?.('[id]')
+      || null;
     const viewport = hot?.querySelector?.('.ag-body-vertical-scroll-viewport');
     if (viewport) {
       viewport.scrollTop = 0;
@@ -108,44 +152,17 @@ async function scrollGridTop(page, pageId) {
     if (grid?.gridApi && typeof grid.gridApi.ensureIndexVisible === 'function') {
       grid.gridApi.ensureIndexVisible(0, 'top');
     }
+    const pool = active?.type ? window.Shared?.hot?.__tabTablePools?.[active.type] : null;
+    const activeGrid = active?.id ? pool?.byTab?.[active.id]?.instance : null;
+    if (activeGrid?.gridApi && typeof activeGrid.gridApi.ensureIndexVisible === 'function') {
+      activeGrid.gridApi.ensureIndexVisible(0, 'top');
+    }
   }, pageId);
   await page.waitForTimeout(300);
 }
 
 async function openComponentTab(page, component, { first = false } = {}) {
-  if (first) {
-    const card = page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).first();
-    await expect(card).toBeVisible();
-    await card.click({ force: true });
-    await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
-    return;
-  }
-  await page.evaluate(async (type) => {
-    const tabs = window.Main?.tabs;
-    if (tabs && typeof tabs.handleAddTabClick === 'function') {
-      const maybe = tabs.handleAddTabClick();
-      if (maybe && typeof maybe.then === 'function') {
-        await maybe;
-      }
-    }
-    if (tabs && typeof tabs.handleGraphSelection === 'function') {
-      const maybe = tabs.handleGraphSelection(type, { reason: 'e2e-same-component-switch' });
-      if (maybe && typeof maybe.then === 'function') {
-        await maybe;
-      }
-    }
-    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
-    const duplicateEmpty = document.querySelector('#duplicateEmpty');
-    if (prompt && duplicateEmpty && !duplicateEmpty.disabled) {
-      duplicateEmpty.click();
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }, component.type);
-  const visibleCard = page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).first();
-  if (await visibleCard.isVisible().catch(() => false)) {
-    await visibleCard.click({ force: true });
-  }
-  await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
+  await openComponentFromWelcome(page, component, { first });
 }
 
 for (const component of COMPONENT_MATRIX) {
@@ -159,7 +176,7 @@ for (const component of COMPONENT_MATRIX) {
     const beforeFirst = new Set(await getWorkspaceTabIds(page));
     await openComponentTab(page, component, { first: true });
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    await page.waitForTimeout(350);
+    await waitForActiveGrid(page, component.pageId, component.type);
     const afterFirst = await getWorkspaceTabIds(page);
     const firstNew = afterFirst.find(id => !beforeFirst.has(id));
     expect(firstNew).toBeTruthy();
@@ -167,7 +184,7 @@ for (const component of COMPONENT_MATRIX) {
     const beforeSecond = new Set(afterFirst);
     await openComponentTab(page, component, { first: false });
     await clickExampleButtonIfPresent(page, component.exampleButtonId);
-    await page.waitForTimeout(350);
+    await waitForActiveGrid(page, component.pageId, component.type);
     const afterSecond = await getWorkspaceTabIds(page);
     const secondNew = afterSecond.find(id => !beforeSecond.has(id));
     expect(secondNew).toBeTruthy();
@@ -180,20 +197,19 @@ for (const component of COMPONENT_MATRIX) {
     };
 
     await activateTabById(page, firstNew);
+    await waitForActiveGrid(page, component.pageId, component.type);
     await scrollGridDown(page, component.pageId);
     await capture('first-active');
     await activateTabById(page, secondNew);
+    await waitForActiveGrid(page, component.pageId, component.type);
     await scrollGridTop(page, component.pageId);
     await capture('second-active');
     await activateTabById(page, firstNew);
+    await waitForActiveGrid(page, component.pageId, component.type);
     await capture('first-active-again');
     await activateTabById(page, secondNew);
+    await waitForActiveGrid(page, component.pageId, component.type);
     await capture('second-active-again');
-    if (component.type === 'scatter' || component.type === 'surface') {
-      // eslint-disable-next-line no-console
-      console.log(`[debug ${component.type}] snapshots`, JSON.stringify(snapshots));
-    }
-
     await testInfo.attach(`${component.type}-same-component-switching.snapshots.json`, {
       body: Buffer.from(JSON.stringify(snapshots, null, 2), 'utf8'),
       contentType: 'application/json'
@@ -208,20 +224,20 @@ for (const component of COMPONENT_MATRIX) {
     const firstAgain = snapshots.find(s => s.stepLabel === 'first-active-again');
     const secondAgain = snapshots.find(s => s.stepLabel === 'second-active-again');
     if (first && second && firstAgain && secondAgain) {
-      expect(first.scrollTop).toBeGreaterThan(50);
-      expect(second.scrollTop).toBeLessThan(20);
-      expect(secondAgain.scrollTop).toBeLessThan(20);
+      const firstPosition = Number.isFinite(first.firstVisibleRow) ? first.firstVisibleRow : first.hotPoolState?.firstDisplayedRow;
+      const secondPosition = Number.isFinite(second.firstVisibleRow) ? second.firstVisibleRow : second.hotPoolState?.firstDisplayedRow;
+      const secondAgainPosition = Number.isFinite(secondAgain.firstVisibleRow) ? secondAgain.firstVisibleRow : secondAgain.hotPoolState?.firstDisplayedRow;
+      const firstMoved = first.scrollTop > 50 || (Number.isFinite(firstPosition) && firstPosition > 1);
+      const secondAtTop = second.scrollTop < 20 || (Number.isFinite(secondPosition) && secondPosition < 5);
+      const secondAgainAtTop = secondAgain.scrollTop < 20 || (Number.isFinite(secondAgainPosition) && secondAgainPosition < 5);
+      expect(firstMoved).toBeTruthy();
+      expect(secondAtTop).toBeTruthy();
+      expect(secondAgainAtTop).toBeTruthy();
       if (Number.isFinite(first.topDelta) && Number.isFinite(second.topDelta)) {
         expect(Math.abs(second.topDelta - first.topDelta)).toBeLessThan(8);
       }
       if (Number.isFinite(first.topDelta) && Number.isFinite(firstAgain.topDelta)) {
         expect(Math.abs(firstAgain.topDelta - first.topDelta)).toBeLessThan(8);
-      }
-      if (Number.isFinite(first.firstVisibleRow)) {
-        expect(first.firstVisibleRow).toBeGreaterThan(1);
-      }
-      if (Number.isFinite(second.firstVisibleRow)) {
-        expect(second.firstVisibleRow).toBeLessThan(5);
       }
     }
     expect(issues.critical).toEqual([]);

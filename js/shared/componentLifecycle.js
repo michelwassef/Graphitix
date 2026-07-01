@@ -3204,21 +3204,33 @@
     component[hookName] = function lifecycleComponentStateWrappedHook(...args){
       const lastArg = args.length ? args[args.length - 1] : null;
       const meta = lastArg && typeof lastArg === 'object' && !Array.isArray(lastArg) ? lastArg : {};
+      const fallbackTabId = resolveExplicitTabIdFromMeta(meta)
+        || component.__boundTabId
+        || component.__workspaceTabId
+        || component.__graphitixTabId
+        || descriptor?.component?.__boundTabId
+        || null;
+      const lifecycleMeta = {
+        componentKey,
+        type: descriptor?.type || componentKey,
+        ...(fallbackTabId ? { tabId: fallbackTabId } : {}),
+        ...meta
+      };
       const stateModel = descriptor?.stateModel || component.__stateModel || null;
       if(mode === 'apply'){
-        rememberStateBucket(stateModel, bucket, args[0], meta);
+        rememberStateBucket(stateModel, bucket, args[0], lifecycleMeta);
       }
       const result = original.apply(this, args);
       if(result && typeof result.then === 'function'){
         return result.then(value => {
           if(mode !== 'apply'){
-            rememberStateBucket(stateModel, bucket, value, meta);
+            rememberStateBucket(stateModel, bucket, value, lifecycleMeta);
           }
           return value;
         });
       }
       if(mode !== 'apply'){
-        rememberStateBucket(stateModel, bucket, result, meta);
+        rememberStateBucket(stateModel, bucket, result, lifecycleMeta);
       }
       return result;
     };
@@ -3326,7 +3338,11 @@
     let layoutState = null;
     let renderCache = null;
     let stateModel = null;
-    try{ payload = typeof workspace.getPayload === 'function' ? workspace.getPayload(captureMeta) : tab?.payload || null; }
+    const snapshotIntent = meta?.snapshotIntent && typeof meta.snapshotIntent === 'object' ? meta.snapshotIntent : {};
+    const skipLivePayloadCapture = meta?.skipLivePayloadCapture === true
+      || snapshotIntent.captureLivePayload === false
+      || snapshotIntent.skipLivePayloadCapture === true;
+    try{ payload = skipLivePayloadCapture ? (tab?.payload || null) : (typeof workspace.getPayload === 'function' ? workspace.getPayload(captureMeta) : tab?.payload || null); }
     catch(err){ warn('Debug: lifecycle snapshot payload capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     try{ runtime = typeof workspace.captureRuntimeState === 'function' ? workspace.captureRuntimeState(captureMeta) : null; }
     catch(err){ warn('Debug: lifecycle snapshot runtime capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }

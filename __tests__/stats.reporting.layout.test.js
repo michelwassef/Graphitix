@@ -115,4 +115,28 @@ describe('Shared stats reporting layout', () => {
     expect(reportHost.querySelector(':scope > .stats-report-panel')).toBeTruthy();
     expect(section.lastElementChild).toBe(reportHost);
   });
+
+  test('null structured parts do not suppress plain reporting text', async () => {
+    const target = document.createElement('div');
+    target.id = 'scatterStatsResults';
+    document.body.appendChild(target);
+
+    const reporting = global.Shared.statsReporting;
+    expect(reporting).toBeTruthy();
+    reporting.appendReportPanel(target, {
+      methodsText: 'Scatter data were cleaned to numeric X/Y pairs before fitting.',
+      resultsText: 'The fitted model was reported.',
+      methodsParts: null,
+      resultsParts: null
+    }, { title: 'Reporting and reproducibility' });
+    await flushAll();
+
+    const panel = target.querySelector(':scope > .stats-report-panel');
+    expect(panel).toBeTruthy();
+    const methodBlock = panel.querySelector('[data-stats-report-block="methods"]');
+    const resultBlock = panel.querySelector('[data-stats-report-block="results"]');
+    expect(methodBlock?.textContent || '').toContain('Scatter data were cleaned');
+    expect(resultBlock?.textContent || '').toContain('The fitted model was reported');
+  });
+
 });

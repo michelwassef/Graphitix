@@ -133,7 +133,20 @@
   const dom = bootstrap.dom;
   const workspaceState = bootstrap.workspaceState;
   const withSessionContext = bootstrap.withSessionContext;
-  const WORKSPACE_FILE_TYPES = bootstrap.sessionFileTypes || [];
+  const WELCOME_DATA_COMPONENTS = ['box', 'scatter', 'line', 'hist', 'heatmap', 'pca', 'pie', 'roc', 'survival', 'surface'];
+  const WELCOME_FILE_TYPES = [{
+    description: 'Graphitix, Prism, CSV, TSV, Excel, or ODS files',
+    accept: {
+      'application/zip': ['.graph'],
+      'application/json': ['.graph', '.json', '.session'],
+      'application/octet-stream': ['.prism', '.pzfx'],
+      'text/csv': ['.csv'],
+      'text/tab-separated-values': ['.tsv'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.oasis.opendocument.spreadsheet': ['.ods']
+    }
+  }];
 
   const requiredSessionHelpers = [
     'getActiveTab',
@@ -563,6 +576,387 @@
     }
   }
 
+  function getFileExtension(file) {
+    const name = String(file?.name || '').trim();
+    const match = name.match(/\.([^.]+)$/);
+    return match ? match[1].toLowerCase() : '';
+  }
+
+  function getWelcomeGraphLabel(type) {
+    return GRAPH_TYPES.find(item => item.type === type)?.label || WORKSPACES[type]?.tabLabel || type;
+  }
+
+  function hasWelcomeDataImportPrompt() {
+    return !!dom?.welcomeDataImportPrompt
+      && !!dom?.welcomeDataImportComponent
+      && !!dom?.welcomeDataImportFirstRow
+      && !!dom?.welcomeDataImportOpen
+      && !!dom?.welcomeDataImportCancel;
+  }
+
+  function getWelcomeImportStartRow(input) {
+    const value = Number.parseInt(input?.value, 10);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  }
+
+  function getWelcomeDataImportOptions() {
+    return {
+      component: dom.welcomeDataImportComponent?.value || 'box',
+      delimiter: dom.welcomeDataImportDelimiter?.value || 'auto',
+      sheetName: dom.welcomeDataImportSheet?.value || '',
+      sourceStartRow: getWelcomeImportStartRow(dom.welcomeDataImportStartRow),
+      firstRowIsTitles: dom.welcomeDataImportFirstRow?.checked !== false,
+      trimCells: dom.welcomeDataImportTrim?.checked !== false
+    };
+  }
+
+  function syncWelcomeSheetOptions(sheetNames = [], selected = '') {
+    const field = dom.welcomeDataImportSheetField;
+    const select = dom.welcomeDataImportSheet;
+    if (!field || !select) return;
+    const names = Array.isArray(sheetNames) ? sheetNames.filter(Boolean) : [];
+    field.hidden = names.length < 2;
+    if (!names.length) {
+      select.replaceChildren();
+      return;
+    }
+    const current = names.includes(selected) ? selected : (names.includes(select.value) ? select.value : names[0]);
+    select.replaceChildren(...names.map(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      return option;
+    }));
+    select.value = current;
+  }
+
+  function columnName(index) {
+    let n = index + 1;
+    let label = '';
+    while (n > 0) {
+      n -= 1;
+      label = String.fromCharCode(65 + (n % 26)) + label;
+      n = Math.floor(n / 26);
+    }
+    return label;
+  }
+
+  function renderWelcomeImportPreviewTable(rows) {
+    const table = dom.welcomeDataImportPreview;
+    if (!table) return;
+    table.replaceChildren();
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const colCount = Math.max(1, ...safeRows.map(row => Array.isArray(row) ? row.length : 0));
+    const head = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const numberHead = document.createElement('th');
+    numberHead.className = 'row-number';
+    headRow.appendChild(numberHead);
+    for (let c = 0; c < colCount; c += 1) {
+      const th = document.createElement('th');
+      th.textContent = columnName(c);
+      headRow.appendChild(th);
+    }
+    head.appendChild(headRow);
+    const body = document.createElement('tbody');
+    if (!safeRows.length) {
+      const row = document.createElement('tr');
+      const empty = document.createElement('td');
+      empty.colSpan = colCount + 1;
+      empty.textContent = 'No previewable rows.';
+      row.appendChild(empty);
+      body.appendChild(row);
+    } else {
+      safeRows.forEach((sourceRow, r) => {
+        const row = document.createElement('tr');
+        if (r === 0 && dom.welcomeDataImportFirstRow?.checked !== false) row.className = 'is-title-row';
+        const numberCell = document.createElement('td');
+        numberCell.className = 'row-number';
+        numberCell.textContent = String(r + 1);
+        row.appendChild(numberCell);
+        for (let c = 0; c < colCount; c += 1) {
+          const cell = document.createElement('td');
+          const value = Array.isArray(sourceRow) ? sourceRow[c] : '';
+          cell.textContent = value == null ? '' : String(value);
+          row.appendChild(cell);
+        }
+        body.appendChild(row);
+      });
+    }
+    table.append(head, body);
+  }
+
+  function showWelcomeDataImportPrompt(file) {
+    if (!hasWelcomeDataImportPrompt()) {
+      return Promise.resolve({ component: 'box', firstRowIsTitles: true });
+    }
+    const prompt = dom.welcomeDataImportPrompt;
+    const message = dom.welcomeDataImportMessage;
+    const select = dom.welcomeDataImportComponent;
+    const firstRow = dom.welcomeDataImportFirstRow;
+    const openBtn = dom.welcomeDataImportOpen;
+    const cancelBtn = dom.welcomeDataImportCancel;
+    const delimiterField = dom.welcomeDataImportDelimiterField;
+    const delimiter = dom.welcomeDataImportDelimiter;
+    const startRow = dom.welcomeDataImportStartRow;
+    const trim = dom.welcomeDataImportTrim;
+    const status = dom.welcomeDataImportPreviewStatus;
+    const ext = getFileExtension(file);
+    const isSpreadsheet = ['xls', 'xlsx', 'ods'].includes(ext);
+    let previewRun = 0;
+
+    select.replaceChildren(...WELCOME_DATA_COMPONENTS
+      .filter(type => WORKSPACES[type])
+      .map(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = getWelcomeGraphLabel(type);
+        return option;
+      }));
+    select.value = select.value || 'box';
+    firstRow.checked = true;
+    if (trim) trim.checked = true;
+    if (startRow) startRow.value = '1';
+    if (delimiter) delimiter.value = ext === 'tsv' ? 'tab' : 'auto';
+    if (delimiterField) delimiterField.hidden = isSpreadsheet;
+    syncWelcomeSheetOptions([], '');
+    if (message) {
+      message.textContent = `Choose where to import ${file?.name || 'this table'}.`;
+    }
+
+    const renderPreview = async () => {
+      const tableImport = Shared.tableImport;
+      if (!tableImport || typeof tableImport.previewFile !== 'function') {
+        renderWelcomeImportPreviewTable([]);
+        if (status) status.textContent = 'Preview unavailable';
+        return;
+      }
+      const runId = ++previewRun;
+      if (status) status.textContent = 'Loading preview...';
+      try {
+        const preview = await tableImport.previewFile(file, Object.assign(getWelcomeDataImportOptions(), { limit: 20 }));
+        if (runId !== previewRun) return;
+        syncWelcomeSheetOptions(preview?.sheetNames || [], preview?.sheetName || '');
+        renderWelcomeImportPreviewTable(preview?.rows || []);
+        const shown = preview?.rows?.length || 0;
+        const total = preview?.totalRows || shown;
+        const details = preview?.sheetName ? `, sheet: ${preview.sheetName}` : '';
+        if (status) status.textContent = `${shown} of ${total} rows${details}`;
+      } catch (err) {
+        if (runId !== previewRun) return;
+        renderWelcomeImportPreviewTable([]);
+        if (status) status.textContent = `Preview failed: ${err?.message || err}`;
+      }
+    };
+
+    return new Promise(resolve => {
+      let settled = false;
+      const listeners = [
+        [dom.welcomeDataImportSheet, 'change', renderPreview],
+        [delimiter, 'change', renderPreview],
+        [startRow, 'input', renderPreview],
+        [firstRow, 'change', renderPreview],
+        [trim, 'change', renderPreview]
+      ].filter(([node]) => !!node);
+      const cleanup = () => {
+        prompt.setAttribute('hidden', 'hidden');
+        prompt.removeEventListener('keydown', onKeyDown);
+        openBtn.removeEventListener('click', onOpen);
+        cancelBtn.removeEventListener('click', onCancel);
+        listeners.forEach(([node, event, handler]) => node.removeEventListener(event, handler));
+      };
+      const finish = result => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result || null);
+      };
+      const onOpen = () => finish(getWelcomeDataImportOptions());
+      const onCancel = () => finish(null);
+      const onKeyDown = event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          finish(null);
+        }
+      };
+      prompt.addEventListener('keydown', onKeyDown);
+      openBtn.addEventListener('click', onOpen);
+      cancelBtn.addEventListener('click', onCancel);
+      listeners.forEach(([node, event, handler]) => node.addEventListener(event, handler));
+      prompt.removeAttribute('hidden');
+      select.focus?.();
+      void renderPreview();
+    });
+  }
+
+  function resolvePrismComponent(prismMeta) {
+    const kind = String(prismMeta?.kind || '').toLowerCase();
+    if (kind === 'line' || kind === 'scatter' || kind === 'survival' || kind === 'pie') {
+      return kind;
+    }
+    if (kind === 'column') {
+      return 'box';
+    }
+    return 'box';
+  }
+
+  async function inspectPrismComponent(file) {
+    const tableImport = Shared.tableImport;
+    if (!tableImport || typeof tableImport.openFile !== 'function') {
+      return 'box';
+    }
+    const fakeInput = { id: 'welcomePrismInspect', files: [file], dataset: { suppressPrismLimitations: 'true' } };
+    try {
+      const result = await tableImport.openFile(fakeInput, {
+        renameTab: false,
+        suppressPrismLimitations: true,
+        debugLabel: 'welcome-prism-inspect',
+        onRows: rows => ({ rows: Array.isArray(rows) ? rows.length : 0, cols: Array.isArray(rows?.[0]) ? rows[0].length : 0 }),
+        onError: err => { throw err; }
+      });
+      return resolvePrismComponent(result?.prismMeta);
+    } catch (err) {
+      debug('Debug: welcome prism inspection failed; using box fallback', { fileName: file?.name || '', error: err?.message || String(err) });
+      return 'box';
+    }
+  }
+
+  function setInputFile(input, file) {
+    if (!input || !file) {
+      return false;
+    }
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.files = transfer.files;
+      return true;
+    } catch (err) {
+      try {
+        Object.defineProperty(input, 'files', { value: [file], configurable: true });
+        return true;
+      } catch (fallbackErr) {
+        console.error('welcome data import file assignment failed', fallbackErr);
+        return false;
+      }
+    }
+  }
+
+  function nextPaint() {
+    const raf = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : callback => window.setTimeout(callback, 0);
+    return new Promise(resolve => raf(() => raf(resolve)));
+  }
+
+  async function importWelcomeDataFile(file, component, options = {}) {
+    const type = component && WORKSPACES[component] ? component : 'box';
+    const active = typeof MainSession.getActiveTab === 'function' ? MainSession.getActiveTab() : null;
+    if (active && !active.isWelcome && typeof tabsManager.handleAddTabClick === 'function') {
+      tabsManager.handleAddTabClick();
+    }
+    if (typeof tabsManager.launchWelcomeGraph !== 'function') {
+      throw new Error('Welcome graph launcher is unavailable.');
+    }
+    await tabsManager.launchWelcomeGraph(type, { reason: 'welcome-file-import' });
+    await nextPaint();
+    const input = document.getElementById(`${type}File`);
+    if (!input) {
+      throw new Error(`Import input for ${type} was not found.`);
+    }
+    const importDataset = {
+      firstRowIsTitles: options.firstRowIsTitles === false ? 'false' : 'true',
+      suppressPrismLimitations: options.suppressPrismLimitations ? 'true' : 'false',
+      importDelimiter: options.delimiter || '',
+      sourceStartRow: String(options.sourceStartRow || 1),
+      trimCells: options.trimCells === false ? 'false' : 'true',
+      sheetName: options.sheetName || ''
+    };
+    Object.entries(importDataset).forEach(([key, value]) => { input.dataset[key] = value; });
+    input.value = '';
+    if (!setInputFile(input, file)) {
+      throw new Error('Could not attach the selected file to the component importer.');
+    }
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    Object.keys(importDataset).forEach(key => { delete input.dataset[key]; });
+    debug('Debug: welcome data import dispatched', Object.assign({ fileName: file?.name || '', component: type }, importDataset));
+    return true;
+  }
+
+  async function openWelcomeFile(file, meta = {}) {
+    const ext = getFileExtension(file);
+    if (!file || !ext) {
+      return false;
+    }
+    if (['graph', 'json', 'session'].includes(ext)) {
+      const loadPlan = await prepareWelcomeGraphLoadPlan();
+      if (!loadPlan.proceed) {
+        return false;
+      }
+      return importGraphFileFromWelcome(file, {
+        fileHandle: meta.fileHandle || null,
+        fileName: meta.fileName || file.name || '',
+        loadMode: loadPlan.loadMode || 'replace'
+      });
+    }
+    if (ext === 'prism' || ext === 'pzfx') {
+      const component = await inspectPrismComponent(file);
+      return importWelcomeDataFile(file, component, { firstRowIsTitles: true });
+    }
+    if (['csv', 'tsv', 'xlsx', 'xls', 'ods'].includes(ext)) {
+      const choice = await showWelcomeDataImportPrompt(file);
+      if (!choice) {
+        return false;
+      }
+      return importWelcomeDataFile(file, choice.component, choice);
+    }
+    if (typeof window.alert === 'function') {
+      window.alert(`Unsupported file format: .${ext}`);
+    }
+    return false;
+  }
+
+  function initializeWelcomeDropZone() {
+    const dropZone = dom?.welcomeFileDropZone;
+    if (!dropZone) {
+      return;
+    }
+    const setActive = active => dropZone.classList.toggle('welcome-drop-zone--active', !!active);
+    const prevent = event => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    ['dragenter', 'dragover'].forEach(type => {
+      dropZone.addEventListener(type, event => {
+        prevent(event);
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        setActive(true);
+      });
+    });
+    ['dragleave', 'drop'].forEach(type => {
+      dropZone.addEventListener(type, event => {
+        prevent(event);
+        setActive(false);
+      });
+    });
+    dropZone.addEventListener('drop', event => {
+      const file = event.dataTransfer?.files?.[0] || null;
+      if (file) {
+        void openWelcomeFile(file, { fileName: file.name, source: 'drop-zone' }).catch(err => {
+          console.error('welcome drop import error', err);
+        });
+      }
+    });
+    dropZone.addEventListener('click', () => {
+      void handleWelcomeGraphOpen();
+    });
+    dropZone.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        void handleWelcomeGraphOpen();
+      }
+    });
+  }
+
   function debugInteraction(message, payload) {
     debug(message, payload || {});
   }
@@ -590,7 +984,7 @@
     const context = getSessionActionsContext();
     const shared = context.Shared;
     if (!shared?.fileIO || typeof shared.fileIO.openGraphFile !== 'function') {
-      console.warn('Welcome graph picker unavailable: missing Shared.fileIO.openGraphFile');
+      console.warn('Welcome file picker unavailable: missing Shared.fileIO.openGraphFile');
       if (dom?.welcomeGraphInput) {
         dom.welcomeGraphInput.value = '';
         dom.welcomeGraphInput.click();
@@ -601,21 +995,14 @@
     let pendingName = '';
     try {
       const result = await shared.fileIO.openGraphFile({
-        context: 'welcome-graph',
-        fileTypes: WORKSPACE_FILE_TYPES,
+        context: 'welcome-file',
+        fileTypes: WELCOME_FILE_TYPES,
         setFileHandle: handle => { pendingHandle = handle || null; },
         setFileName: name => { pendingName = name || ''; },
-        loadFromFile: async selectedFile => {
-          const loadPlan = await prepareWelcomeGraphLoadPlan();
-          if (!loadPlan.proceed) {
-            return;
-          }
-          await importGraphFileFromWelcome(selectedFile, {
-            fileHandle: pendingHandle,
-            fileName: selectedFile?.name || pendingName,
-            loadMode: loadPlan.loadMode || 'replace'
-          });
-        },
+        loadFromFile: selectedFile => openWelcomeFile(selectedFile, {
+          fileHandle: pendingHandle,
+          fileName: selectedFile?.name || pendingName
+        }),
         triggerInput: () => {
           pendingHandle = null;
           pendingName = '';
@@ -625,7 +1012,7 @@
           }
         }
       });
-      debug('Debug: welcome graph picker result', { status: result?.status, via: result?.via });
+      debug('Debug: welcome file picker result', { status: result?.status, via: result?.via });
     } catch (err) {
       console.error('handleWelcomeGraphOpen error', err);
     }
@@ -635,21 +1022,11 @@
     const input = event?.target;
     const file = input?.files && input.files[0];
     if (!file) {
-      debug('Debug: welcome graph input change without file');
+      debug('Debug: welcome file input change without file');
       return;
     }
-    const loadPlan = await prepareWelcomeGraphLoadPlan();
-    if (!loadPlan.proceed) {
-      if (input) {
-        input.value = '';
-      }
-      return;
-    }
-    void importGraphFileFromWelcome(file, {
-      fileName: file.name,
-      loadMode: loadPlan.loadMode || 'replace'
-    }).catch(err => {
-      console.error('welcome graph input import error', err);
+    void openWelcomeFile(file, { fileName: file.name }).catch(err => {
+      console.error('welcome file input import error', err);
     }).finally(() => {
       if (input) {
         input.value = '';
@@ -708,6 +1085,7 @@
     onMatchStylesClick: styleSyncApi?.handleMatchStylesClick,
     onWelcomeGraphInputChange: handleWelcomeGraphInputChange
   });
+  initializeWelcomeDropZone();
 
   if (MainDocumentState && typeof MainDocumentState.init === 'function') {
     MainDocumentState.init({

@@ -41,6 +41,42 @@
     return Number(state?.workspaceState?.sessionRevision) || 0;
   }
 
+  function getActiveRecoverySnapshotIntent() {
+    const active = state?.session?.getActiveTab?.() || null;
+    const layoutOnly = !!(active && state?.session?.isLayoutOnlyTabDirty?.(active));
+    const boxPayloadAlreadyAuthoritative = !!(
+      active
+      && active.type === 'box'
+      && active.payload
+      && active.payloadDirty !== true
+      && Array.isArray(active.payload.data)
+      && active.payload.data.length > 0
+    );
+    if (layoutOnly || boxPayloadAlreadyAuthoritative) {
+      return {
+        saveLike: false,
+        lifecycleSnapshot: true,
+        captureLivePayload: false,
+        skipLivePayloadCapture: true,
+        allowSkipLivePayloadCapture: true,
+        reasonSkippable: true,
+        runSkippedPayloadDriftProbe: false,
+        promoteSkippedPayloadDrift: false,
+        snapshotCapture: true,
+        layoutOnly,
+        payloadAlreadyAuthoritative: boxPayloadAlreadyAuthoritative
+      };
+    }
+    return {
+      saveLike: false,
+      lifecycleSnapshot: true,
+      captureLivePayload: true,
+      allowSkipLivePayloadCapture: false,
+      reasonSkippable: false,
+      snapshotCapture: true
+    };
+  }
+
   function estimateSnapshotSignatureSize() {
     const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
     let total = 0;
@@ -297,7 +333,7 @@
     }, 2200);
   }
 
-  async function buildRecoveryRecord(reason) {
+  async function buildRecoveryRecord(reason, snapshotIntent = null) {
     if (!state?.sessionActions || typeof state.sessionActions.buildWorkspaceArchiveBlob !== 'function') {
       return null;
     }
@@ -311,6 +347,7 @@
       scope: 'workspace',
       useWorker: true,
       snapshotKind: 'lifecycle-checkpoint',
+      snapshotIntent: snapshotIntent || getActiveRecoverySnapshotIntent(),
       policyMode: 'recovery',
       idleForMs
     });
@@ -355,7 +392,7 @@
   // the empty-default template while the component holds real data. A recovery snapshot must
   // capture authoritative live state (getPayload), exactly like a save does, so it reflects
   // what the user actually sees regardless of how the data was entered.
-  function flushActiveTabForRecovery(reason) {
+  function flushActiveTabForRecovery(reason, snapshotIntent = null) {
     const sessionActions = state?.sessionActions;
     if (!sessionActions || typeof sessionActions.persistActiveTabIfNeeded !== 'function') {
       return;
@@ -367,14 +404,7 @@
       sessionActions.persistActiveTabIfNeeded(state.getSessionActionsContext(), {
         reason: reason || 'recovery-flush',
         captureRenderCache: false,
-        snapshotIntent: {
-          saveLike: false,
-          lifecycleSnapshot: true,
-          captureLivePayload: true,
-          allowSkipLivePayloadCapture: false,
-          reasonSkippable: false,
-          snapshotCapture: true
-        }
+        snapshotIntent: snapshotIntent || getActiveRecoverySnapshotIntent()
       });
     } catch (err) {
       debug('recovery.flushActiveTabFailed', { reason, message: err?.message || String(err) });
@@ -395,7 +425,8 @@
       debug('recovery.write.skippedInFlight', { reason, revision });
       return { status: 'skipped', reason: 'in-flight', revision };
     }
-    flushActiveTabForRecovery(reason);
+    const snapshotIntent = getActiveRecoverySnapshotIntent();
+    flushActiveTabForRecovery(reason, snapshotIntent);
     if (!currentWorkspaceHasRecoverableData()) {
       await clearRecoverySnapshot('no-recoverable-data');
       lastRecoverySavedRevision = revision;
@@ -412,7 +443,7 @@
       cancellable: false
     }) || null;
     try {
-      const record = await buildRecoveryRecord(reason);
+      const record = await buildRecoveryRecord(reason, snapshotIntent);
       if (!record) {
         return { status: 'skipped', reason: 'empty' };
       }

@@ -1,13 +1,20 @@
 const { test, expect } = require('@playwright/test');
+const {
+  installLocalCdnOverrides,
+  openComponentFromWelcome
+} = require('./helpers/workspaceHarness');
 
 test('workspace loads and opens a graph tab from welcome screen', async ({ page }) => {
-  await page.goto('/index.html');
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
 
-  const card = page.locator('#graphSelectionGrid [data-graph-type="scatter"]');
-  await expect(card).toBeVisible();
-  await card.click();
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
 
-  await expect(page.locator('#scatterPage')).toBeVisible();
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId);
+    return active?.type === 'scatter';
+  }, null, { timeout: 20_000 });
   await expect(page.locator('#saveScatter')).toBeVisible();
 });

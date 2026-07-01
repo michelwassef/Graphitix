@@ -126,9 +126,41 @@
     }, meta);
   };
 
+  const inferTableOwnerFromNodes = (meta = {}) => {
+    const container = meta.container || null;
+    const wrapper = meta.wrapper || null;
+    const instance = meta.instance || null;
+    const tabId = normalizeOwnerTabId(
+      meta.tabId
+      || meta.workspaceTabId
+      || instance?.__workspaceTabId
+      || instance?.__graphitixTabId
+      || container?.__workspaceTabId
+      || wrapper?.__workspaceTabId
+      || container?.dataset?.workspaceTabId
+      || wrapper?.dataset?.workspaceTabId
+      || resolveTabIdFromNode(container)
+      || resolveTabIdFromNode(wrapper)
+      || resolveTabIdFromNode(instance?.rootElement || null)
+    );
+    const type = String(
+      meta.type
+      || meta.componentType
+      || instance?.__componentType
+      || instance?.__graphitixComponentType
+      || container?.__componentType
+      || wrapper?.__componentType
+      || container?.dataset?.componentType
+      || wrapper?.dataset?.componentType
+      || ''
+    ).trim() || null;
+    return { tabId, type };
+  };
+
   const stampTableOwner = (instance, meta = {}) => {
-    const tabId = normalizeOwnerTabId(meta.tabId || meta.workspaceTabId);
-    const type = String(meta.type || meta.componentType || '').trim() || null;
+    const inferred = inferTableOwnerFromNodes({ ...meta, instance });
+    const tabId = normalizeOwnerTabId(meta.tabId || meta.workspaceTabId || inferred.tabId);
+    const type = String(meta.type || meta.componentType || inferred.type || '').trim() || null;
     const nodes = [meta.container, instance?.rootElement, meta.wrapper].filter(Boolean);
     nodes.forEach(node => {
       try{
@@ -167,6 +199,118 @@
       }
     }
     return instance || null;
+  };
+
+  const TABLE_HOST_SELECTOR = [
+    '[data-graphitix-hot-container]',
+    '.graphitix-hot-container',
+    '#hot',
+    '[id$="Hot"]'
+  ].join(',');
+
+  const TABLE_RUNTIME_SELECTOR = [
+    '.ag-root-wrapper',
+    '.ag-root',
+    '.ag-center-cols-container',
+    '.ag-body-viewport',
+    '.ht_master',
+    '.handsontable'
+  ].join(',');
+
+  const nodeContains = (root, node) => {
+    if(!root || !node){
+      return false;
+    }
+    if(root === node){
+      return true;
+    }
+    try{
+      return typeof root.contains === 'function' ? root.contains(node) : false;
+    }catch(_err){
+      return false;
+    }
+  };
+
+  const isConnectedNode = node => {
+    if(!node){
+      return false;
+    }
+    if(node.isConnected === true){
+      return true;
+    }
+    const doc = global.document || null;
+    return !!(doc?.documentElement && nodeContains(doc.documentElement, node));
+  };
+
+  const hasInitializedTableDom = root => {
+    if(!root || typeof root.querySelector !== 'function'){
+      return false;
+    }
+    return !!root.querySelector(TABLE_RUNTIME_SELECTOR);
+  };
+
+  hotNS.rootHasTableHost = function rootHasTableHost(root){
+    if(!root || typeof root.querySelector !== 'function'){
+      return false;
+    }
+    return !!root.querySelector(TABLE_HOST_SELECTOR);
+  };
+
+  hotNS.hasInitializedTableDom = function hasInitializedTableDomPublic(root){
+    return hasInitializedTableDom(root);
+  };
+
+  const isUsableTableInstance = instance => {
+    if(!instance || typeof instance !== 'object'){
+      return false;
+    }
+    if(instance.destroyed === true || instance.__destroyed === true){
+      return false;
+    }
+    if(typeof instance.isDestroyed === 'function'){
+      try{
+        if(instance.isDestroyed()){
+          return false;
+        }
+      }catch(_err){}
+    }
+    if(typeof instance.countCols === 'function' && typeof instance.getData === 'function'){
+      return true;
+    }
+    if(instance.gridApi || instance.api){
+      return true;
+    }
+    if(instance.rootElement && hasInitializedTableDom(instance.rootElement)){
+      return true;
+    }
+    return false;
+  };
+
+  hotNS.hasUsableTableForTab = function hasUsableTableForTab(type, tabId, options = {}){
+    const normalizedType = String(type || options.type || '').trim();
+    const normalizedTabId = normalizeOwnerTabId(tabId || options.tabId || options.workspaceTabId);
+    const root = options.root || null;
+    if(!normalizedType || !normalizedTabId){
+      return false;
+    }
+    const pool = tabTablePools[normalizedType] || null;
+    const entry = pool?.byTab?.[normalizedTabId] || null;
+    if(entry && !entry.creating){
+      const container = entry.container || entry.instance?.rootElement || null;
+      const containerInRoot = !root || !container || nodeContains(root, container);
+      const containerConnected = !container || isConnectedNode(container);
+      if(containerInRoot && containerConnected && (isUsableTableInstance(entry.instance) || hasInitializedTableDom(container))){
+        return true;
+      }
+    }
+    return !!(root && hotNS.rootHasTableHost(root) && hasInitializedTableDom(root));
+  };
+
+  hotNS.hasRequiredTableForRoot = function hasRequiredTableForRoot(type, tabId, root, options = {}){
+    if(!root || !hotNS.rootHasTableHost(root)){
+      return true;
+    }
+    return hotNS.hasUsableTableForTab(type, tabId, { ...(options || {}), root });
   };
 
   const resolveTableOwnerSessionAndTab = (meta = {}) => {
@@ -324,14 +468,80 @@
     'box-default-header-seed',
     'heatmap-default-header-seed',
     'hist-default-header-seed',
+    'pca-init',
+    'pca-empty-defaults',
+    'pca-label-row',
+    'pca-loadData',
     'pie-default-header-seed',
     'roc-default-header-seed',
+    'scatter-header-init',
     'venn-default-header-seed'
   ]);
 
+  const SYSTEM_TABLE_MUTATION_SOURCE_RE = /(^|[-_])(grouped-header-(load|normalize)|header-(init|load|normalize)|3d-header-normalize|default-header-seed|empty-defaults|label-row|metadata|payload-load|workspace-baseline-reset|payload-grouped-(names|sample-labels)-restore)([-_]|$)/i;
+
   const isSessionPayloadSyncSuppressedSource = (source) => {
     const normalized = typeof source === 'string' ? source.trim() : '';
-    return !!normalized && SESSION_PAYLOAD_SYNC_SUPPRESSED_SOURCES.has(normalized);
+    return !!normalized && (
+      SESSION_PAYLOAD_SYNC_SUPPRESSED_SOURCES.has(normalized)
+      || SYSTEM_TABLE_MUTATION_SOURCE_RE.test(normalized)
+    );
+  };
+
+  const isSessionPayloadSyncSuppressedInstance = (meta = {}) => {
+    const instance = meta?.hotInstance || meta?.instance || null;
+    const flag = instance?.__graphitixSuppressPayloadSync;
+    return flag === true || (Number.isFinite(Number(flag)) && Number(flag) > 0);
+  };
+
+  const setTablePayloadSyncSuppressed = (instance, enabled) => {
+    if(!instance || typeof instance !== 'object'){
+      return false;
+    }
+    const current = Number(instance.__graphitixSuppressPayloadSync) || 0;
+    if(enabled){
+      instance.__graphitixSuppressPayloadSync = current + 1;
+      return true;
+    }
+    if(current > 1){
+      instance.__graphitixSuppressPayloadSync = current - 1;
+      return true;
+    }
+    delete instance.__graphitixSuppressPayloadSync;
+    return current > 0;
+  };
+
+  const normalizeSuppressionTargets = (targets) => {
+    if(!targets){
+      return [];
+    }
+    const list = Array.isArray(targets) ? targets : [targets];
+    const seen = new Set();
+    return list.filter(target => {
+      if(!target || typeof target !== 'object' || seen.has(target)){
+        return false;
+      }
+      seen.add(target);
+      return true;
+    });
+  };
+
+  const withTablePayloadSyncSuppressed = (targets, callback) => {
+    const instances = normalizeSuppressionTargets(targets);
+    instances.forEach(instance => setTablePayloadSyncSuppressed(instance, true));
+    try{
+      return typeof callback === 'function' ? callback() : undefined;
+    }finally{
+      instances.forEach(instance => setTablePayloadSyncSuppressed(instance, false));
+    }
+  };
+
+  const isUndoSuppressedSource = (source) => {
+    const normalized = typeof source === 'string' ? source.trim() : '';
+    return !!normalized && (
+      isSessionPayloadSyncSuppressedSource(normalized)
+      || normalized === 'loadData'
+    );
   };
 
   const payloadDataMatchesChanges = (payload, changes) => {
@@ -356,12 +566,13 @@
       return false;
     }
     const effectiveReason = reason || 'table-data-change';
-    if (isSessionPayloadSyncSuppressedSource(meta.source)) {
+    if (isSessionPayloadSyncSuppressedSource(meta.source) || isSessionPayloadSyncSuppressedInstance(meta)) {
       console.debug('Debug: Shared.hot owner-tab payload sync suppressed for system table mutation', {
         reason: effectiveReason,
         source: meta.source || null,
         changeCount: normalizedChanges.length,
-        instanceTabId: meta?.hotInstance?.__workspaceTabId || meta?.hotInstance?.__graphitixTabId || null
+        instanceTabId: meta?.hotInstance?.__workspaceTabId || meta?.hotInstance?.__graphitixTabId || null,
+        instanceSuppressed: isSessionPayloadSyncSuppressedInstance(meta)
       });
       return false;
     }
@@ -1237,7 +1448,7 @@
     entry = pool.byTab[tabId] = { container, instance: null, creating: true };
     pool.currentTabId = tabId;
     stampTableOwner(null, { tabId, type, container, wrapper });
-    const instance = typeof createInstance === 'function' ? createInstance(container) : null;
+    const instance = typeof createInstance === 'function' ? createInstance(container, { tabId, type, wrapper, reason: 'mount-table-for-tab' }) : null;
     stampTableOwner(instance, { tabId, type, container, wrapper });
     entry.instance = instance;
     if(instance && typeof instance.resumeRender === 'function'){
@@ -1397,7 +1608,7 @@
       }
     }
     if(typeof hotNS.mountTableForTab !== 'function' || !resolvedWrapper || !tabId){
-      const instance = typeof createInstance === 'function' ? createInstance(resolvedContainer) : null;
+      const instance = typeof createInstance === 'function' ? createInstance(resolvedContainer, { tabId, type: type || null, wrapper: resolvedWrapper, reason: 'ensure-table-for-tab-fallback' }) : null;
       stampTableOwner(instance, {
         tabId,
         type: type || null,
@@ -1853,9 +2064,6 @@
       if(!formulaEvaluationState.enabled){
         return;
       }
-      if(!formulaEvaluationState.active){
-        return;
-      }
       formulaEvaluationState.dirty = true;
       if(isFormulaEvaluationDebugEnabled()){
         logFormulaEvaluationDebug('Debug: Shared.hot formula model marked dirty', {
@@ -1916,7 +2124,6 @@
     const deactivateFormulaModel = reason => {
       formulaEvaluationState.active = false;
       formulaEvaluationState.dirty = false;
-      formulaEvaluationState.model = null;
       logFormulaEvaluationDebug('Debug: Shared.hot formula model deactivated', {
         debugLabel,
         reason: reason || 'formula-none'
@@ -1938,8 +2145,10 @@
       if(!formulaEvaluationState.enabled){
         return false;
       }
+      ensureFormulaModel(reason || 'matrix-sync');
+      rebuildFormulaModelFromMatrix(reason || 'matrix-sync');
       if(matrixContainsFormulaValue(dataHandle.current || [])){
-        activateFormulaModel(reason || 'matrix-formula-detected');
+        formulaEvaluationState.active = true;
         return true;
       }
       deactivateFormulaModel(reason || 'matrix-without-formulas');
@@ -1971,7 +2180,7 @@
       }
     };
     const ensureFormulaModelCurrent = (reason)=>{
-      if(!formulaEvaluationState.active){
+      if(!formulaEvaluationState.enabled){
         return null;
       }
       const model = ensureFormulaModel(reason || 'ensure-current');
@@ -1992,11 +2201,8 @@
       if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
         return false;
       }
-      if(!formulaEvaluationState.active && !isFormulaLikeValue(value)){
-        return true;
-      }
       if(!formulaEvaluationState.active){
-        activateFormulaModel(reason || 'set-formula-cell');
+        formulaEvaluationState.active = isFormulaLikeValue(value);
       }
       const model = ensureFormulaModel(reason || 'set-cell');
       if(!model){
@@ -2010,9 +2216,7 @@
         formulaEvaluationState.active = typeof model.hasFormulas === 'function'
           ? model.hasFormulas()
           : true;
-        if(!formulaEvaluationState.active){
-          formulaEvaluationState.dirty = false;
-        }
+        formulaEvaluationState.dirty = false;
         return true;
       }catch(err){
         console.error('Shared.hot formula model setCellRaw failed', {
@@ -2033,9 +2237,6 @@
       const row = Number(physicalRow);
       const col = Number(physicalCol);
       if(!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0){
-        return fallbackValue;
-      }
-      if(!formulaEvaluationState.active){
         return fallbackValue;
       }
       const model = ensureFormulaModelCurrent('resolve-raw');
@@ -3383,11 +3584,6 @@
           '.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-floating-top-left, .ag-floating-top-center, .ag-floating-top-right, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top',
           'bottom'
         ),
-        stickyTopBottom: resolveFormulaReferenceOverlayOcclusionEdge(
-          hostRoot,
-          '.ag-row.hot-sticky-row',
-          'bottom'
-        ),
         headerBottom: resolveFormulaReferenceOverlayOcclusionEdge(
           hostRoot,
           '.ag-header, .ag-header-viewport',
@@ -3422,8 +3618,6 @@
         && cellEl.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
       const isFloatingTopCell = !!(cellEl && typeof cellEl.closest === 'function'
         && cellEl.closest('.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top'));
-      const isStickyTopCell = !!(cellEl && typeof cellEl.closest === 'function'
-        && cellEl.closest('.ag-row.hot-sticky-row'));
 
       if(isCenterCell && visibilityContext){
         const pinnedLeftRight = visibilityContext.pinnedLeftRight;
@@ -3435,14 +3629,10 @@
           clipRight = Math.min(clipRight, pinnedRightLeft);
         }
       }
-      if(!isFloatingTopCell && !isStickyTopCell && visibilityContext){
+      if(!isFloatingTopCell && visibilityContext){
         const pinnedTopBottom = visibilityContext.pinnedTopBottom;
         if(Number.isFinite(pinnedTopBottom)){
           clipTop = Math.max(clipTop, pinnedTopBottom);
-        }
-        const stickyTopBottom = visibilityContext.stickyTopBottom;
-        if(Number.isFinite(stickyTopBottom)){
-          clipTop = Math.max(clipTop, stickyTopBottom);
         }
         const headerBottom = visibilityContext.headerBottom;
         if(Number.isFinite(headerBottom)){
@@ -3819,6 +4009,12 @@
       outline.className = 'hot-selection-outline';
       outline.setAttribute('aria-hidden', 'true');
       outline.style.display = 'none';
+      ['top', 'right', 'bottom', 'left'].forEach(edge=>{
+        const edgeEl = doc.createElement('div');
+        edgeEl.className = 'hot-selection-outline-edge';
+        edgeEl.dataset.edge = edge;
+        outline.appendChild(edgeEl);
+      });
       container.appendChild(outline);
       selectionOutline = outline;
       cleanupFns.push(()=>{
@@ -4471,6 +4667,8 @@
         && normalized.from.row >= 0
         && normalized.from.row < pinRowCount
         && normalized.to.row >= normalized.from.row);
+      const lastVisualRow = Math.max(0, getVisualRowCount() - 1);
+      const isFullColumnSelection = normalized.from.row === 0 && normalized.to.row === lastVisualRow;
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
@@ -4509,6 +4707,9 @@
         startRectRaw,
         endRectRaw
       });
+      if(isFullColumnSelection){
+        edgeVisibility.top = false;
+      }
       const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
         && !isPinnedSelectionRange
         && edgeVisibility.top === false);
@@ -4518,9 +4719,11 @@
         width,
         height,
         edgeVisibility,
-        zIndex: isPinnedSelectionRange
+        zIndex: isFullColumnSelection
+          ? '7'
+          : (isPinnedSelectionRange
           ? '9'
-          : (bodySelectionClippedUnderPinnedTop ? '2' : (shouldOverlayPinnedLeft ? '7' : '5'))
+          : (bodySelectionClippedUnderPinnedTop ? '2' : (shouldOverlayPinnedLeft ? '7' : '5')))
       };
     };
 
@@ -4556,6 +4759,12 @@
       outline.style.borderTopColor = placement.edgeVisibility.top ? outlineColor : 'transparent';
       outline.style.borderBottomColor = placement.edgeVisibility.bottom ? outlineColor : 'transparent';
       outline.style.zIndex = placement.zIndex;
+      const edges = outline.querySelectorAll('.hot-selection-outline-edge');
+      for(let edgeIndex = 0; edgeIndex < edges.length; edgeIndex += 1){
+        const edge = edges[edgeIndex];
+        const edgeName = edge?.dataset?.edge;
+        edge.style.display = placement.edgeVisibility[edgeName] ? 'block' : 'none';
+      }
       return true;
     };
 
@@ -4737,8 +4946,10 @@
         });
       }
       handle.style.display = 'block';
-      handle.style.left = `${cellRect.right - hostRect.left}px`;
-      handle.style.top = `${cellRect.bottom - hostRect.top}px`;
+      const pixelRatio = Number(handleWin?.devicePixelRatio) || 1;
+      const snapToDevicePixel = value => Math.round(value * pixelRatio) / pixelRatio;
+      handle.style.left = `${snapToDevicePixel(cellRect.right - hostRect.left)}px`;
+      handle.style.top = `${snapToDevicePixel(cellRect.bottom - hostRect.top)}px`;
     };
 
     const scheduleFillHandleUpdate = (reason)=>{
@@ -6175,6 +6386,9 @@
       if(typeof source === 'string' && source.startsWith('UndoRedo.')){
         return;
       }
+      if(isUndoSuppressedSource(source)){
+        return;
+      }
       const physical = buildPhysicalChangeListFromVisualChanges(changesForHook);
       if(!physical.length){
         return;
@@ -6569,20 +6783,6 @@
       ? Math.max(0, pinFirstRow)
       : (pinFirstRow === true ? 1 : 0);
     const shouldPinRows = pinRowCount > 0;
-    const isFirefox = (() => {
-      if(typeof navigator === 'undefined'){
-        return false;
-      }
-      const ua = navigator.userAgent || '';
-      if(/firefox/i.test(ua) || /fxios/i.test(ua)){
-        return true;
-      }
-      const brands = navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)
-        ? navigator.userAgentData.brands
-        : [];
-      return brands.some(entry => /firefox/i.test(entry.brand || ''));
-    })();
-    const preferPinnedTransform = true;
     const virtualizationConfig = (() => {
       const raw = Object.assign({}, hotOptions.virtualization || {}, overrides?.virtualization || {});
       const enabled = raw.enabled !== false;
@@ -6595,8 +6795,6 @@
       const rowBufferLarge = Number.isFinite(raw.rowBufferLarge)
         ? raw.rowBufferLarge
         : (Number.isFinite(raw.rowBuffer) ? raw.rowBuffer : 6);
-      const forcePinnedRows = raw.forcePinnedRows === true || (enabled && raw.forcePinnedRows !== false);
-      const preferStickyHeaderRow = raw.preferStickyHeaderRow === true;
       const suppressColumnVirtualisation = typeof raw.suppressColumnVirtualisation === 'boolean'
         ? raw.suppressColumnVirtualisation
         : null;
@@ -6605,31 +6803,28 @@
         thresholds,
         rowBuffer,
         rowBufferLarge,
-        forcePinnedRows,
-        preferStickyHeaderRow,
         suppressColumnVirtualisation
       };
     })();
-    const useStickyHeaderRow = shouldPinRows
-      && isFirefox
-      && !virtualizationConfig.forcePinnedRows
-      && (virtualizationConfig.preferStickyHeaderRow || virtualizationConfig.enabled === false);
-    const usePinnedRows = shouldPinRows && !useStickyHeaderRow;
-    if(shouldPinRows && isFirefox && usePinnedRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      hotDebug('Debug: Shared.hot pinFirstRow virtualization using pinned rows on Firefox', { debugLabel });
+    // Editable table header rows are rendered through AG Grid's native pinned-top
+    // row layer. Horizontal wheel/trackpad deltas are relayed to AG Grid's real
+    // bottom horizontal scrollbar below, so pinned rows, column headers, and body
+    // rows all follow the same internal scroll path as dragging the scrollbar.
+    let usePinnedRows = shouldPinRows;
+    if(shouldPinRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      hotDebug('Debug: Shared.hot pinFirstRow render mode resolved', {
+        debugLabel,
+        mode: 'ag-pinned-top-rows'
+      });
     }
     const isPinnedPhysicalRow = (physicalRow)=>(
-      shouldPinRows
+      pinRowCount > 0
       && Number.isInteger(physicalRow)
       && physicalRow >= 0
       && physicalRow < pinRowCount
     );
     const isPinnedTopRow = (physicalRow)=>(
       usePinnedRows
-      && isPinnedPhysicalRow(physicalRow)
-    );
-    const isStickyRow = (physicalRow)=>(
-      useStickyHeaderRow
       && isPinnedPhysicalRow(physicalRow)
     );
     const isPinnedOrHeaderRow = (physicalRow)=>(
@@ -6691,29 +6886,21 @@
       hotDebug('Debug: Shared.hot pinFirstRow enabled', {
         debugLabel,
         count: pinRowCount,
-        mode: usePinnedRows ? 'pinned' : 'sticky'
+        mode: 'ag-pinned-top-rows'
       });
     }
-    if(useStickyHeaderRow && container?.classList){
-      container.classList.add('hot-sticky-header');
-      cleanupFns.push(()=>container.classList.remove('hot-sticky-header'));
-    }
-
     const getPinnedTopRowData = ()=>{
-      if(!usePinnedRows){
-        return null;
-      }
-      if(!Array.isArray(rowData) || !rowData.length){
+      if(!usePinnedRows || !Array.isArray(rowData) || !rowData.length){
         return [];
       }
       return rowData.slice(0, Math.min(pinRowCount, rowData.length));
     };
 
     const applyPinnedTopRowData = (api)=>{
-      if(!usePinnedRows || !api){
+      if(!api){
         return;
       }
-      const pinned = getPinnedTopRowData() || [];
+      const pinned = getPinnedTopRowData();
       try{
         let updated = false;
         if(typeof api.setPinnedTopRowData === 'function'){
@@ -6723,309 +6910,229 @@
           api.setGridOption('pinnedTopRowData', pinned);
           updated = true;
         }
-        if(updated){
-          syncPinnedTopRowScroll('pinned-data');
-          schedulePinnedTopRowSync('pinned-data-follow');
+        if(updated && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          hotDebug('Debug: Shared.hot AG pinned top row data updated', { debugLabel, count: pinned.length });
         }
       }catch(err){
         console.error('Shared.hot AG pinned top row update error', err);
       }
     };
 
-    let pinnedTopScrollLeft = null;
-    let pinnedTopViewport = null;
-    let pinnedTopContainer = null;
-    let headerViewport = null;
-    let headerContainer = null;
-    let centerColsContainer = null;
-    let pinnedTopObserver = null;
-    let pinnedTopObservedTarget = null;
-    let pinnedTopSyncAttempts = 0;
-    let pinnedTopSyncRafId = null;
-    let pinnedTopSyncStableFrames = 0;
-
-    const resolvePinnedTopElements = ()=>{
-      if(!container || typeof container.querySelector !== 'function'){
-        pinnedTopViewport = null;
-        pinnedTopContainer = null;
-        headerViewport = null;
-        headerContainer = null;
-        centerColsContainer = null;
+    const refreshPinnedRowLayout = (api, reason)=>{
+      if(!api){
         return;
       }
-      if(!headerViewport || !headerViewport.isConnected){
-        headerViewport = container.querySelector('.ag-header-viewport') || null;
-      }
-      if(!headerContainer || !headerContainer.isConnected){
-        headerContainer = container.querySelector('.ag-header-viewport .ag-header-container')
-          || container.querySelector('.ag-header-container')
-          || null;
-      }
-      if(!pinnedTopViewport || !pinnedTopViewport.isConnected){
-        pinnedTopViewport = container.querySelector('.ag-floating-top .ag-center-cols-viewport')
-          || container.querySelector('.ag-pinned-top .ag-center-cols-viewport')
-          || container.querySelector('.ag-floating-top-viewport')
-          || container.querySelector('.ag-pinned-top-viewport')
-          || container.querySelector('.ag-floating-top')
-          || container.querySelector('.ag-pinned-top')
-          || null;
-      }
-      if(!pinnedTopContainer || !pinnedTopContainer.isConnected){
-        pinnedTopContainer = container.querySelector('.ag-floating-top .ag-center-cols-container')
-          || container.querySelector('.ag-pinned-top .ag-center-cols-container')
-          || container.querySelector('.ag-floating-top-container')
-          || container.querySelector('.ag-pinned-top-container')
-          || null;
-      }
-      if(!centerColsContainer || !centerColsContainer.isConnected){
-        centerColsContainer = container.querySelector('.ag-body-viewport .ag-center-cols-container')
-          || container.querySelector('.ag-center-cols-viewport .ag-center-cols-container')
-          || container.querySelector('.ag-body .ag-center-cols-container')
-          || container.querySelector('.ag-center-cols-container')
-          || null;
-      }
-    };
-
-    const attachPinnedTopObserver = ()=>{
-      if(!usePinnedRows || typeof MutationObserver !== 'function'){
-        return;
-      }
-      resolvePinnedTopElements();
-      const target = centerColsContainer;
-      if(!target){
-        return;
-      }
-      if(pinnedTopObservedTarget === target){
-        return;
-      }
-      if(pinnedTopObserver){
-        pinnedTopObserver.disconnect();
-      }
-      pinnedTopObserver = new MutationObserver(() => {
-        syncPinnedTopRowScroll('center-transform');
-      });
-      pinnedTopObserver.observe(target, { attributes: true, attributeFilter: ['style', 'class'] });
-      pinnedTopObservedTarget = target;
-      cleanupFns.push(()=>{
-        if(pinnedTopObserver){
-          pinnedTopObserver.disconnect();
-          pinnedTopObserver = null;
+      const refresh = (phase)=>{
+        try{
+          if(typeof api.resetRowHeights === 'function'){
+            api.resetRowHeights();
+          }
+          if(typeof api.onRowHeightChanged === 'function'){
+            api.onRowHeightChanged();
+          }
+          if(typeof api.redrawRows === 'function'){
+            api.redrawRows();
+          }else if(typeof api.refreshCells === 'function'){
+            api.refreshCells({ force: true });
+          }
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            hotDebug('Debug: Shared.hot pinFirstRow layout refreshed', { debugLabel, reason, phase, pinRowCount });
+          }
+        }catch(err){
+          console.error('Shared.hot pinFirstRow layout refresh error', {
+            debugLabel,
+            reason,
+            phase,
+            message: err?.message || String(err)
+          });
         }
-        pinnedTopObservedTarget = null;
-      });
-    };
-
-    const parseTranslateX = (value)=>{
-      if(!value || value === 'none'){
-        return null;
-      }
-      const raw = String(value).trim();
-      let match = raw.match(/^matrix3d\((.+)\)$/);
-      if(match){
-        const parts = match[1].split(',').map(part => Number(part.trim()));
-        if(parts.length >= 13 && Number.isFinite(parts[12])){
-          return parts[12];
-        }
-        return null;
-      }
-      match = raw.match(/^matrix\((.+)\)$/);
-      if(match){
-        const parts = match[1].split(',').map(part => Number(part.trim()));
-        if(parts.length >= 6 && Number.isFinite(parts[4])){
-          return parts[4];
-        }
-        return null;
-      }
-      match = raw.match(/translate3d\(([^)]+)\)/i);
-      if(match){
-        const parts = match[1].split(',').map(part => Number(String(part).trim().replace('px', '')));
-        if(parts.length >= 1 && Number.isFinite(parts[0])){
-          return parts[0];
-        }
-        return null;
-      }
-      match = raw.match(/translateX\(([^)]+)\)/i);
-      if(match){
-        const valuePart = Number(String(match[1]).trim().replace('px', ''));
-        return Number.isFinite(valuePart) ? valuePart : null;
-      }
-      match = raw.match(/translate\(([^)]+)\)/i);
-      if(match){
-        const parts = match[1].split(',').map(part => Number(String(part).trim().replace('px', '')));
-        if(parts.length >= 1 && Number.isFinite(parts[0])){
-          return parts[0];
-        }
-      }
-      return null;
-    };
-
-    const resolveTransformTranslateX = (el)=>{
-      if(!el){
-        return null;
-      }
-      const doc = el.ownerDocument || document;
-      const win = doc.defaultView || global;
-      const style = typeof win?.getComputedStyle === 'function' ? win.getComputedStyle(el) : null;
-      const transform = style?.transform || style?.webkitTransform || el.style?.transform || '';
-      return parseTranslateX(transform);
-    };
-
-    const resolveHorizontalScrollLeft = ()=>{
-      if(!container || typeof container.querySelector !== 'function'){
-        return 0;
-      }
-      const centerViewport = container.querySelector('.ag-center-cols-viewport');
-      const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
-      const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
-      const bodyViewport = container.querySelector('.ag-body-viewport');
-      const candidates = [
-        centerViewport,
-        horizontalViewport,
-        horizontalScroll,
-        bodyViewport
-      ];
-      let maxLeft = 0;
-      candidates.forEach(el=>{
-        if(el && typeof el.scrollLeft === 'number' && el.scrollLeft > maxLeft){
-          maxLeft = el.scrollLeft;
-        }
-      });
-      if(maxLeft > 0){
-        return maxLeft;
-      }
-      const transformX = resolveTransformTranslateX(centerColsContainer);
-      if(Number.isFinite(transformX) && transformX !== 0){
-        return Math.abs(transformX);
-      }
-      return 0;
-    };
-
-    const applyPinnedTopTranslateX = (el, offset)=>{
-      if(!el || !el.style){
-        return false;
-      }
-      if(!el.style.willChange){
-        el.style.willChange = 'transform';
-      }
-      const next = `translate3d(${offset}px, 0px, 0px)`;
-      const current = el.style.transform || '';
-      if(current && /translate3d\(/i.test(current)){
-        const updated = current.replace(/translate3d\([^)]+\)/i, next);
-        if(updated !== current){
-          el.style.transform = updated;
-        }
-        return true;
-      }
-      if(current && /translateX\(/i.test(current)){
-        const updated = current.replace(/translateX\([^)]+\)/i, next);
-        if(updated !== current){
-          el.style.transform = updated;
-        }
-        return true;
-      }
-      if(current && /translate\(/i.test(current)){
-        const updated = current.replace(/translate\([^)]+\)/i, next);
-        if(updated !== current){
-          el.style.transform = updated;
-        }
-        return true;
-      }
-      if(current && current !== 'none'){
-        el.style.transform = `${current} ${next}`.trim();
-        return true;
-      }
-      el.style.transform = next;
-      return true;
-    };
-
-    const schedulePinnedTopRowSync = (reason)=>{
-      if(!usePinnedRows){
-        return;
-      }
+      };
+      refresh('immediate');
       const doc = container?.ownerDocument || document;
-      const win = doc.defaultView || global;
+      const win = doc?.defaultView || global;
       const raf = typeof win?.requestAnimationFrame === 'function'
         ? win.requestAnimationFrame.bind(win)
         : (fn)=>win.setTimeout(fn, 16);
-      if(pinnedTopSyncRafId != null){
+      raf(()=>refresh('raf'));
+    };
+
+    let horizontalWheelRedirectHandler = null;
+    let horizontalWheelRedirectAttached = false;
+    let horizontalScrollAuthority = null;
+
+    const resolveAgHorizontalScrollbarViewport = ()=>{
+      if(horizontalScrollAuthority && horizontalScrollAuthority.isConnected){
+        return horizontalScrollAuthority;
+      }
+      if(!container || typeof container.querySelector !== 'function'){
+        horizontalScrollAuthority = null;
+        return null;
+      }
+      const viewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
+      horizontalScrollAuthority = viewport && typeof viewport.scrollLeft === 'number' ? viewport : null;
+      return horizontalScrollAuthority;
+    };
+
+    const getAgHorizontalScrollAuthority = ()=>{
+      const scrollbarViewport = resolveAgHorizontalScrollbarViewport();
+      if(scrollbarViewport){
+        return scrollbarViewport;
+      }
+      if(!container || typeof container.querySelector !== 'function'){
+        return null;
+      }
+      const fallback = container.querySelector('.ag-center-cols-viewport')
+        || container.querySelector('.ag-body-viewport');
+      return fallback && typeof fallback.scrollLeft === 'number' ? fallback : null;
+    };
+
+    const getAgHorizontalScrollLimit = (el)=>{
+      const scrollWidth = Number(el?.scrollWidth);
+      const clientWidth = Number(el?.clientWidth);
+      return Number.isFinite(scrollWidth) && Number.isFinite(clientWidth)
+        ? Math.max(0, scrollWidth - clientWidth)
+        : 0;
+    };
+
+    const clampHorizontalScrollLeft = (value, authority)=>{
+      const raw = Number(value);
+      if(!Number.isFinite(raw) || raw <= 0){
+        return 0;
+      }
+      const max = getAgHorizontalScrollLimit(authority);
+      return max > 0 ? Math.min(raw, max) : raw;
+    };
+
+    const dispatchNativeScrollEvent = (el)=>{
+      if(!el || typeof el.dispatchEvent !== 'function'){
         return;
       }
-      pinnedTopSyncRafId = raf(()=>{
-        pinnedTopSyncRafId = null;
-        const prev = pinnedTopScrollLeft;
-        syncPinnedTopRowScroll(reason || 'raf');
-        const current = pinnedTopScrollLeft;
-        if(current === prev){
-          pinnedTopSyncStableFrames += 1;
-        }else{
-          pinnedTopSyncStableFrames = 0;
-        }
-        const stableThreshold = 6;
-        if(pinnedTopSyncStableFrames < stableThreshold){
-          schedulePinnedTopRowSync('raf-follow');
-        }
+      const doc = el.ownerDocument || container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      const EventCtor = typeof win?.Event === 'function' ? win.Event : Event;
+      try{
+        el.dispatchEvent(new EventCtor('scroll', { bubbles: true }));
+      }catch(_err){
+        try{
+          const evt = doc.createEvent('Event');
+          evt.initEvent('scroll', true, false);
+          el.dispatchEvent(evt);
+        }catch(_err2){}
+      }
+    };
+
+    const setAgHorizontalScrollAuthorityLeft = (value, reason, authorityOverride)=>{
+      const authority = authorityOverride || getAgHorizontalScrollAuthority();
+      if(!authority){
+        return 0;
+      }
+      const nextLeft = clampHorizontalScrollLeft(value, authority);
+      const prevLeft = Number(authority.scrollLeft) || 0;
+      if(Math.abs(prevLeft - nextLeft) <= 0.25){
+        return nextLeft;
+      }
+      authority.scrollLeft = nextLeft;
+      // Match the browser path used by dragging AG Grid's bottom horizontal
+      // scrollbar. This keeps AG Grid's own header/body/pinned-row sync in charge
+      // instead of maintaining a parallel transform mirror in Graphitix.
+      dispatchNativeScrollEvent(authority);
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        hotDebug('Debug: Shared.hot AG horizontal scroll authority set', {
+          debugLabel,
+          reason,
+          prevLeft,
+          nextLeft,
+          maxLeft: getAgHorizontalScrollLimit(authority),
+          authorityClass: authority.className
+        });
+      }
+      return nextLeft;
+    };
+
+    const normalizeWheelDeltaX = (event)=>{
+      if(!event){
+        return 0;
+      }
+      let delta = Number(event.deltaX);
+      if(!Number.isFinite(delta)){
+        delta = 0;
+      }
+      const vertical = Number(event.deltaY);
+      if(Math.abs(delta) < 0.5 && event.shiftKey && Number.isFinite(vertical)){
+        delta = vertical;
+      }
+      if(Math.abs(delta) < 0.5){
+        return 0;
+      }
+      const mode = Number(event.deltaMode);
+      if(mode === 1){
+        delta *= 40;
+      }else if(mode === 2){
+        const authority = getAgHorizontalScrollAuthority();
+        delta *= Number(authority?.clientWidth) || 400;
+      }
+      return delta;
+    };
+
+    const resolveHorizontalWheelRelay = (event)=>{
+      if(!event || event.defaultPrevented || event.ctrlKey){
+        return null;
+      }
+      const target = event.target;
+      if(!target || typeof target.closest !== 'function'){
+        return null;
+      }
+      if(!target.closest('.ag-root, .ag-root-wrapper, .ag-body, .ag-header, .ag-body-viewport, .ag-center-cols-viewport, .ag-floating-top, .ag-pinned-top, .ag-body-horizontal-scroll')){
+        return null;
+      }
+      if(target.closest('input, textarea, select, option, button, [contenteditable="true"]')){
+        return null;
+      }
+      const delta = normalizeWheelDeltaX(event);
+      if(!Number.isFinite(delta) || Math.abs(delta) < 0.5){
+        return null;
+      }
+      const authority = getAgHorizontalScrollAuthority();
+      if(!authority || getAgHorizontalScrollLimit(authority) <= 0){
+        return null;
+      }
+      return { delta, authority };
+    };
+
+    const relayHorizontalWheelToAgScrollbar = (event)=>{
+      const relay = resolveHorizontalWheelRelay(event);
+      if(!relay){
+        return;
+      }
+      const current = Number(relay.authority.scrollLeft) || 0;
+      const nextLeft = clampHorizontalScrollLeft(current + relay.delta, relay.authority);
+      if(Math.abs(nextLeft - current) <= 0.25){
+        return;
+      }
+      if(typeof event.preventDefault === 'function' && event.cancelable !== false){
+        event.preventDefault();
+      }
+      if(typeof event.stopPropagation === 'function'){
+        event.stopPropagation();
+      }
+      setAgHorizontalScrollAuthorityLeft(nextLeft, 'wheel-to-horizontal-scrollbar', relay.authority);
+    };
+
+    const ensureAgHorizontalWheelRedirectHandler = ()=>{
+      if(!container || horizontalWheelRedirectAttached){
+        return;
+      }
+      horizontalWheelRedirectHandler = relayHorizontalWheelToAgScrollbar;
+      container.addEventListener('wheel', horizontalWheelRedirectHandler, { capture: true, passive: false });
+      horizontalWheelRedirectAttached = true;
+      cleanupFns.push(()=>{
+        try{
+          container.removeEventListener('wheel', horizontalWheelRedirectHandler, true);
+        }catch(_err){}
+        horizontalWheelRedirectHandler = null;
+        horizontalWheelRedirectAttached = false;
+        horizontalScrollAuthority = null;
       });
-    };
-
-    const resolveExplicitScrollLeft = (value)=>{
-      const num = Number(value);
-      return Number.isFinite(num) && num >= 0 ? num : null;
-    };
-
-    const syncPinnedTopRowScroll = (reason, explicitScrollLeft)=>{
-      if(!usePinnedRows || !container || typeof container.querySelector !== 'function'){
-        return;
-      }
-      resolvePinnedTopElements();
-      attachPinnedTopObserver();
-      const hasPinnedTarget = !!(pinnedTopViewport || pinnedTopContainer || headerViewport || headerContainer);
-      if(!hasPinnedTarget){
-        pinnedTopScrollLeft = null;
-        return;
-      }
-      const explicitLeft = resolveExplicitScrollLeft(explicitScrollLeft);
-      const transformX = explicitLeft == null ? resolveTransformTranslateX(centerColsContainer) : null;
-      const useTransformOffset = explicitLeft == null && preferPinnedTransform && Number.isFinite(transformX) && transformX !== 0;
-      const scrollLeft = explicitLeft != null
-        ? explicitLeft
-        : (useTransformOffset ? Math.abs(transformX) : resolveHorizontalScrollLeft());
-      const offset = useTransformOffset ? transformX : -scrollLeft;
-      const needsForceSync = preferPinnedTransform
-        && pinnedTopViewport
-        && typeof pinnedTopViewport.scrollLeft === 'number'
-        && pinnedTopViewport.scrollLeft !== 0;
-      const headerNeedsForceSync = headerViewport
-        && typeof headerViewport.scrollLeft === 'number'
-        && headerViewport.scrollLeft !== 0;
-      if(offset === pinnedTopScrollLeft && !needsForceSync && !headerNeedsForceSync){
-        return;
-      }
-      pinnedTopScrollLeft = offset;
-      let applied = false;
-      const useTransform = (preferPinnedTransform || useTransformOffset) && !!pinnedTopContainer;
-      if(headerViewport && typeof headerViewport.scrollLeft === 'number' && headerViewport.scrollLeft !== 0){
-        headerViewport.scrollLeft = 0;
-      }
-      if(headerContainer){
-        applied = applyPinnedTopTranslateX(headerContainer, offset) || applied;
-      }
-      if(useTransform){
-        if(pinnedTopViewport && typeof pinnedTopViewport.scrollLeft === 'number' && pinnedTopViewport.scrollLeft !== 0){
-          pinnedTopViewport.scrollLeft = 0;
-        }
-        applied = applyPinnedTopTranslateX(pinnedTopContainer, offset);
-      }else if(pinnedTopViewport && typeof pinnedTopViewport.scrollLeft === 'number'){
-        pinnedTopViewport.scrollLeft = scrollLeft;
-        applied = true;
-      }else if(pinnedTopContainer){
-        applied = applyPinnedTopTranslateX(pinnedTopContainer, offset);
-      }
-      if(!applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        pinnedTopSyncAttempts += 1;
-        if(pinnedTopSyncAttempts <= 3){
-          hotDebug('Debug: Shared.hot pinFirstRow scroll sync skipped', { debugLabel, reason, scrollLeft });
-        }
-      }
     };
 
     const buildRowHeaderColDef = ()=>{
@@ -8121,9 +8228,7 @@
             colDef.pinned = 'left';
             colDef.lockPinned = true;
           }
-          if(typeof colDef.suppressMovable === 'undefined'){
-            colDef.suppressMovable = false;
-          }
+          colDef.suppressMovable = true;
           if(typeof colDef.sortable === 'undefined'){
             colDef.sortable = true;
           }
@@ -8375,8 +8480,8 @@
       const withNested = applyNestedHeadersToDefs(enhancedDataColumnDefs);
       return rowHeaderCol ? [rowHeaderCol, ...withNested] : withNested;
     };
-    if(formulaEvaluationState.enabled && syncFormulaModelActivityFromMatrix('initial')){
-      rebuildFormulaModelFromMatrix('initial');
+    if(formulaEvaluationState.enabled){
+      syncFormulaModelActivityFromMatrix('initial');
     }
     let columnDefs = buildColumnDefs();
 
@@ -8429,13 +8534,6 @@
       const list = Array.isArray(changesForHook) ? changesForHook : [];
       if(!list.length){
         return;
-      }
-      if(!formulaEvaluationState.active){
-        const hasFormulaUpdate = list.some(entry => Array.isArray(entry) && entry.length >= 4 && isFormulaLikeValue(entry[3]));
-        if(!hasFormulaUpdate){
-          return;
-        }
-        activateFormulaModel(reason || 'sync-visual-formula');
       }
       const model = ensureFormulaModelCurrent(reason || 'sync-visual-changes');
       if(!model){
@@ -8675,8 +8773,7 @@
       try{
         viewport.scrollTop = 0;
         viewport.scrollLeft = 0;
-        syncPinnedTopRowScroll('scroll-top', 0);
-        schedulePinnedTopRowSync('scroll-top-follow');
+        setAgHorizontalScrollAuthorityLeft(0, 'scroll-top');
       }catch(err){
         // best effort
       }
@@ -8729,8 +8826,7 @@
         }
         viewport.scrollTop = targetTop;
         viewport.scrollLeft = snapshot.left || 0;
-        syncPinnedTopRowScroll('restore', snapshot.left || 0);
-        schedulePinnedTopRowSync('restore-follow');
+        setAgHorizontalScrollAuthorityLeft(snapshot.left || 0, 'restore');
       });
     };
 
@@ -8873,18 +8969,8 @@
       const centerViewport = container.querySelector('.ag-center-cols-viewport');
       const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
       const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
-        if(!autoGrowthState.viewportScrollHandler){
-        autoGrowthState.viewportScrollHandler = (event)=>{
-          const target = event?.target;
-          const candidates = [target, centerViewport, horizontalViewport, horizontalScroll, viewport];
-          let horizontalLeft = 0;
-          candidates.forEach(el=>{
-            const left = resolveExplicitScrollLeft(el?.scrollLeft);
-            if(left != null && left > horizontalLeft){
-              horizontalLeft = left;
-            }
-          });
-          syncPinnedTopRowScroll('scroll', horizontalLeft);
+      if(!autoGrowthState.viewportScrollHandler){
+        autoGrowthState.viewportScrollHandler = ()=>{
           scheduleAutoGrowthCheck('scroll');
           scheduleFillHandleUpdate('scroll');
         };
@@ -8900,6 +8986,7 @@
       });
       autoGrowthState.viewportScrollAttached = existing.length > 0;
       autoGrowthState.scrollElements = existing;
+      ensureAgHorizontalWheelRedirectHandler();
     };
 
     const captureExclusionState = ()=>exclusionController.exportState();
@@ -9437,6 +9524,9 @@
       refreshFormulaReferenceOverlay(reason){
         return refreshFormulaReferenceOverlay(reason);
       },
+      getFormulaModel(reason){
+        return ensureFormulaModelCurrent(reason || 'instance-get-formula-model');
+      },
       __hotFlushPendingUndoState(){
         return flushPendingStructuralTransactions('hot-instance');
       },
@@ -9488,6 +9578,7 @@
             : (rawPinFirstRow === true ? 1 : 0);
           if(nextPinRowCount !== pinRowCount){
             pinRowCount = nextPinRowCount;
+            usePinnedRows = pinRowCount > 0;
             pinConfigChanged = true;
           }
         }
@@ -9594,68 +9685,9 @@
         if(needsSync || needsRebuild){
           refreshColumnFiltersForDataMutation('update-settings');
         }
-        if (pinConfigChanged) {
+        if(pinConfigChanged){
           applyPinnedTopRowData(instance.gridApi);
-
-          // When pinFirstRow changes, AG Grid may keep stale internal rowTop values
-          // for the first render pass. That produces a 1-row blank band.
-          // Force a full height + rowTop recompute now, and again on next frame.
-          try {
-            const api = instance.gridApi;
-
-            if (api && typeof api.resetRowHeights === "function") {
-              api.resetRowHeights();
-
-              if (typeof api.onRowHeightChanged === "function") {
-                api.onRowHeightChanged();
-              }
-
-              if (debugEnabled) {
-                hotDebug("Debug: Shared.hot pinFirstRow height recompute (immediate)", {
-                  debugLabel,
-                  pinRowCount,
-                  usePinnedRows,
-                });
-              }
-            }
-
-            // Extra pass next frame to catch the first-layout timing issue.
-            if (api && typeof requestAnimationFrame === "function") {
-              requestAnimationFrame(() => {
-                try {
-                  if (typeof api.resetRowHeights === "function") {
-                    api.resetRowHeights();
-                  }
-                  if (typeof api.onRowHeightChanged === "function") {
-                    api.onRowHeightChanged();
-                  }
-                  if (typeof api.redrawRows === "function") {
-                    api.redrawRows();
-                  } else if (typeof api.refreshCells === "function") {
-                    api.refreshCells({ force: true });
-                  }
-
-                  if (debugEnabled) {
-                    hotDebug("Debug: Shared.hot pinFirstRow height recompute (raf)", {
-                      debugLabel,
-                      pinRowCount,
-                      usePinnedRows,
-                    });
-                  }
-                } catch (err2) {
-                  console.error("Shared.hot pinFirstRow raf recompute error", {
-                    debugLabel,
-                    message: err2?.message || String(err2),
-                  });
-                }
-              });
-            }
-          } catch (err) {
-            console.error("Shared.hot pinFirstRow recompute error", {
-              debugLabel,
-              message: err?.message || String(err),
-            });
-          }
+          refreshPinnedRowLayout(instance.gridApi, 'pinFirstRow-update');
         }
         if(needsSchedule){
           if(hasIncomingData){
@@ -10221,6 +10253,11 @@
         }
       }
     };
+    stampTableOwner(instance, inferTableOwnerFromNodes({
+      container,
+      wrapper: container?.parentElement || null,
+      instance
+    }));
     Object.defineProperty(instance, '_data', {
       get(){ return dataHandle.current; },
       set(value){
@@ -11962,8 +11999,6 @@
         comparator: valueComparator
       },
       singleClickEdit,
-      // Pinned rows also remain in rowData as ghost rows so visual and physical
-      // indexing stay stable; collapse those body duplicates to a 1px seam.
       getRowHeight(params){
         if(!usePinnedRows){
           return undefined;
@@ -11978,26 +12013,6 @@
         }
         return undefined;
       },
-      getRowStyle(params){
-        if(!useStickyHeaderRow){
-          return null;
-        }
-        const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? null;
-        if(!isPinnedPhysicalRow(physicalRow)){
-          return null;
-        }
-        const nodeHeight = Number(params?.node?.rowHeight);
-        const themeHeight = Number(params?.api?.getSizesForCurrentTheme?.()?.rowHeight);
-        const rowHeight = Number.isFinite(nodeHeight) && nodeHeight > 0
-          ? nodeHeight
-          : (Number.isFinite(themeHeight) && themeHeight > 0 ? themeHeight : 28);
-        const offset = Math.max(0, physicalRow) * rowHeight;
-        return {
-          '--hot-sticky-offset': `${offset}px`
-        };
-      },
-      suppressRowVirtualisation: useStickyHeaderRow,
-      suppressRowTransform: useStickyHeaderRow,
       rowSelection: rowSelectionConfig || undefined,
         suppressRowHoverHighlight: true,
         suppressMenuHide: true,
@@ -12123,41 +12138,33 @@
           hotDebug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
         }
       },
-        onGridReady(params){
-          instance.gridApi = params.api;
-          instance.columnApi = params.columnApi;
-          updateSelectionFromApi(params.api);
-          ensureViewportScrollHandler();
-          syncPinnedTopRowScroll('grid-ready');
-          schedulePinnedTopRowSync('grid-ready-follow');
-          maybeGrowRows('gridReady');
-          maybeGrowCols('gridReady');
-        },
-        onFirstDataRendered(){
-          ensureViewportScrollHandler();
-          syncPinnedTopRowScroll('first-data-render');
-          schedulePinnedTopRowSync('first-data-render-follow');
-        },
-        onBodyScroll(params){
-          if(params?.direction && params.direction !== 'horizontal'){
+      onGridReady(params){
+        instance.gridApi = params.api;
+        instance.columnApi = params.columnApi;
+        updateSelectionFromApi(params.api);
+        ensureViewportScrollHandler();
+        ensureAgHorizontalWheelRedirectHandler();
+        maybeGrowRows('gridReady');
+        maybeGrowCols('gridReady');
+      },
+      onFirstDataRendered(){
+        ensureViewportScrollHandler();
+        ensureAgHorizontalWheelRedirectHandler();
+      },
+      onSortChanged(params){
+        const apiRef = params?.api || instance?.gridApi;
+        const docLocal = container?.ownerDocument || document;
+        const winLocal = docLocal?.defaultView || global;
+        const rafLocal = typeof winLocal?.requestAnimationFrame === 'function'
+          ? winLocal.requestAnimationFrame.bind(winLocal)
+          : (fn)=>winLocal.setTimeout(fn, 16);
+        rafLocal(()=>{
+          if(isApplyingSortSelectionSnapshot){
             return;
           }
-          syncPinnedTopRowScroll('body-scroll', params?.left);
-        },
-        onSortChanged(params){
-          const apiRef = params?.api || instance?.gridApi;
-          const docLocal = container?.ownerDocument || document;
-          const winLocal = docLocal?.defaultView || global;
-          const rafLocal = typeof winLocal?.requestAnimationFrame === 'function'
-            ? winLocal.requestAnimationFrame.bind(winLocal)
-            : (fn)=>winLocal.setTimeout(fn, 16);
-          rafLocal(()=>{
-            if(isApplyingSortSelectionSnapshot){
-              return;
-            }
-            restoreSortSelectionSnapshot(apiRef);
-          });
-        },
+          restoreSortSelectionSnapshot(apiRef);
+        });
+      },
         onFilterChanged(params){
           const meta = pendingFilterChangeMeta || { reason: 'filter-change', schedule: true };
           pendingFilterChangeMeta = null;
@@ -12436,9 +12443,6 @@
         const classes = [];
         if(isHeaderRow(physicalRow) && firstRowClassName){
           classes.push(firstRowClassName);
-        }
-        if(isStickyRow(physicalRow)){
-          classes.push('hot-sticky-row');
         }
         if(usePinnedRows && isPinnedTopRow(physicalRow) && !params?.node?.rowPinned){
           classes.push('hot-pinned-ghost-row');
@@ -15827,6 +15831,9 @@
   hotNS.resolveTableOwnerSessionAndTab = resolveTableOwnerSessionAndTab;
   hotNS.syncOwnerTabPayloadDataChanges = syncOwnerTabPayloadDataChanges;
   hotNS.stampTableOwner = stampTableOwner;
+  hotNS.setPayloadSyncSuppressed = setTablePayloadSyncSuppressed;
+  hotNS.withPayloadSyncSuppressed = withTablePayloadSyncSuppressed;
+  hotNS.isSystemTableMutationSource = isSessionPayloadSyncSuppressedSource;
   hotNS.createStandardTable = createStandardTable;
   hotNS.exportExclusions = exportExclusions;
   hotNS.applyExclusions = applyExclusions;

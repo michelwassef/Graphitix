@@ -237,6 +237,44 @@
     if(!tabId){
       return false;
     }
+    const componentName = opts.componentName || tab.type || null;
+    const syncChange = reason === 'sync-change';
+    const restoreTransactionActive = syncChange
+      && componentName
+      && Shared.componentLifecycle?.isRestoreTransactionActive?.(componentName, {
+        tabId,
+        reason: reason || 'resizer-aspect-lock'
+      }) === true;
+    if(restoreTransactionActive){
+      console.debug('Debug: resizer aspect lock tab persistence skipped during restore transaction', {
+        tabId,
+        component: componentName,
+        aspectLocked: !!aspectLockedValue,
+        reason: reason || 'resizer-aspect-lock'
+      });
+      return false;
+    }
+    const existingLayoutAspect = tab.layoutState?.svgBox?.dataset?.resizerAspectLocked;
+    const hasExplicitLayoutAspect = existingLayoutAspect === 'true' || existingLayoutAspect === 'false';
+    const payloadAspect = tab.payload?.meta?.graphSizing?.display?.aspectLocked;
+    const hasMatchingPayloadAspect = typeof payloadAspect === 'boolean'
+      && payloadAspect === (existingLayoutAspect === 'true');
+    if(syncChange
+      && tab.loadedFromArchive === true
+      && tab.userModified !== true
+      && tab.payloadDirty !== true
+      && hasExplicitLayoutAspect
+      && hasMatchingPayloadAspect
+      && existingLayoutAspect !== (aspectLockedValue ? 'true' : 'false')){
+      console.debug('Debug: resizer aspect lock clean archive layout preserved from synthetic sync', {
+        tabId,
+        component: componentName,
+        requestedAspectLocked: !!aspectLockedValue,
+        preservedAspectLocked: existingLayoutAspect === 'true',
+        reason: reason || 'resizer-aspect-lock'
+      });
+      return false;
+    }
     if(!tab.sharedState || typeof tab.sharedState !== 'object'){
       tab.sharedState = {};
     }
@@ -261,7 +299,7 @@
     }
     console.debug('Debug: resizer aspect lock persisted to tab', {
       tabId,
-      component: opts.componentName || tab.type || null,
+      component: componentName,
       aspectLocked: !!aspectLockedValue,
       reason: reason || 'resizer-aspect-lock'
     });

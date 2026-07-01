@@ -1,6 +1,19 @@
 function loadWorker() {
   const ctx = { onmessage: null, postMessage: jest.fn(), importScripts: jest.fn() };
   ctx.Shared = {};
+  ctx.importScripts = jest.fn(script => {
+    if (String(script).includes('boxStatsModel.js')) {
+      const savedSelf = global.self;
+      global.self = ctx;
+      require('../../js/shared/boxStatsModel.js');
+      global.self = savedSelf;
+    }
+    if (String(script).includes('stats.js') && !ctx.Shared.stats) {
+      ctx.Shared.stats = {
+        adjustPValues: values => values.map(v => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 1)))
+      };
+    }
+  });
   const savedSelf = global.self;
   global.self = ctx;
   jest.resetModules();

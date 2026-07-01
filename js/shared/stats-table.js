@@ -664,6 +664,14 @@
     return target;
   };
 
+  const isRenderableStatsTableModel = model => !!(
+    model
+    && typeof model === 'object'
+    && Array.isArray(model.columns)
+    && Array.isArray(model.rows)
+    && model.rows.every(row => Array.isArray(row))
+  );
+
   statsTable.render = function render(config) {
     const target = resolveTarget(config?.target);
     if (!target) {
@@ -673,8 +681,11 @@
     // Accept a pre-built model so a restored stats panel can re-render the card (and
     // re-mount live export controls) from the persisted data model instead of replaying
     // serialized DOM, which cannot carry the live Download/Copy export controls.
-    const model = (config && config.model && typeof config.model === 'object')
+    const sourceModel = config && config.model && typeof config.model === 'object'
       ? config.model
+      : null;
+    const model = sourceModel
+      ? (isRenderableStatsTableModel(sourceModel) ? sourceModel : buildModel(sourceModel))
       : buildModel(config);
     if (!config?.append) {
       target.innerHTML = '';

@@ -1714,7 +1714,7 @@
     ];
     for(let index = 0; index < candidates.length; index += 1){
       const key = candidates[index];
-      if(Object.prototype.hasOwnProperty.call(source, key)){
+      if(Object.prototype.hasOwnProperty.call(source, key) && source[key] != null){
         return source[key];
       }
     }

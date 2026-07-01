@@ -105,6 +105,32 @@
     return (rows || []).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
   }
 
+  function readBooleanOption(value, fallback){
+    if(value === true || value === false){
+      return value;
+    }
+    if(value == null || value === ''){
+      return fallback;
+    }
+    return String(value).toLowerCase() !== 'false';
+  }
+
+  function shouldUseFirstRowAsTitles(inputEl, options){
+    return readBooleanOption(
+      options.firstRowIsTitles,
+      readBooleanOption(inputEl?.dataset?.firstRowIsTitles, true)
+    );
+  }
+
+  function prependSyntheticTitleRow(rows){
+    const filtered = filterRows(rows);
+    const colCount = filtered.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0);
+    if(!colCount){
+      return filtered;
+    }
+    return [Array.from({ length: colCount }, (_, idx) => `Column ${idx + 1}`), ...filtered];
+  }
+
   function isPrismBlankCell(value){
     return String(value ?? '').trim() === '';
   }
@@ -130,10 +156,134 @@
     return fallback || ',';
   }
 
-  function parseDelimitedText(text, delimiter){
+  function parseDelimitedText(text, delimiter, options = {}){
     if(typeof text !== 'string') return [];
-    return text.split(/\r?\n/).map(line => line.split(delimiter));
+    const sep = delimiter || ',';
+    const quote = options.quoteChar === 'none' ? '' : '"';
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    for(let i = 0; i < text.length; i += 1){
+      const ch = text[i];
+      if(quoted){
+        if(ch === quote){
+          if(text[i + 1] === quote){
+            cell += quote;
+            i += 1;
+          }else{
+            quoted = false;
+          }
+        }else{
+          cell += ch;
+        }
+      }else if(quote && ch === quote && cell === ''){
+        quoted = true;
+      }else if(ch === sep){
+        row.push(cell);
+        cell = '';
+      }else if(ch === '\n' || ch === '\r'){
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = '';
+        if(ch === '\r' && text[i + 1] === '\n') i += 1;
+      }else{
+        cell += ch;
+      }
+    }
+    if(cell !== '' || row.length || text.endsWith(sep)){
+      row.push(cell);
+      rows.push(row);
+    }
+    return rows;
   }
+
+  function getFileExtension(file){
+    return String(file?.name || '').split('.').pop().toLowerCase();
+  }
+
+  function readDatasetOption(inputEl, name, fallback){
+    const value = inputEl?.dataset?.[name];
+    return value == null || value === '' ? fallback : value;
+  }
+
+  function normalizeDelimiterChoice(value, fallback){
+    const raw = value == null ? '' : String(value);
+    const key = raw.toLowerCase();
+    if(key === 'tab' || raw === '\\t' || raw === '\t') return '\t';
+    if(key === 'comma' || raw === ',') return ',';
+    if(key === 'semicolon' || raw === ';') return ';';
+    if(key === 'space' || raw === ' ') return ' ';
+    return fallback || ',';
+  }
+
+  function getTextDelimiter(ext, text, inputEl, options = {}){
+    const defaultDelimiter = ext === 'tsv' ? '\t' : ext === 'csv' ? ',' : detectDelimiter(text, options.delimiter);
+    const choice = options.delimiter ?? readDatasetOption(inputEl, 'importDelimiter', '');
+    if(!choice){
+      return defaultDelimiter;
+    }
+    if(String(choice).toLowerCase() === 'auto'){
+      return detectDelimiter(text, defaultDelimiter);
+    }
+    return normalizeDelimiterChoice(choice, defaultDelimiter);
+  }
+
+  function getSourceStartIndex(inputEl, options = {}){
+    const raw = options.sourceStartRow ?? readDatasetOption(inputEl, 'sourceStartRow', 1);
+    const row = Number.parseInt(raw, 10);
+    return Number.isFinite(row) && row > 1 ? row - 1 : 0;
+  }
+
+  function shouldTrimCells(inputEl, options = {}){
+    return readBooleanOption(options.trimCells, readBooleanOption(inputEl?.dataset?.trimCells, false));
+  }
+
+  function getSelectedSheetName(inputEl, options = {}){
+    return String((options.sheetName ?? readDatasetOption(inputEl, 'sheetName', '')) || '');
+  }
+
+  function trimRows(rows){
+    return (rows || []).map(row => Array.isArray(row)
+      ? row.map(cell => typeof cell === 'string' ? cell.trim() : cell)
+      : row);
+  }
+
+  function prepareImportedRows(rows, inputEl, options = {}){
+    const sliced = (rows || []).slice(getSourceStartIndex(inputEl, options));
+    const normalized = shouldTrimCells(inputEl, options) ? trimRows(sliced) : sliced;
+    return shouldUseFirstRowAsTitles(inputEl, options) ? filterRows(normalized) : prependSyntheticTitleRow(normalized);
+  }
+
+  async function readTabularFileRows(file, inputEl, options = {}){
+    const ext = getFileExtension(file);
+    if(['csv','tsv','txt'].includes(ext)){
+      const text = await readFileAsText(file);
+      const delimiter = getTextDelimiter(ext, text, inputEl, options);
+      return { ext, delimiter, rows: parseDelimitedText(text, delimiter) };
+    }
+    if(['xls','xlsx','ods'].includes(ext)){
+      const buffer = await readFileAsArrayBuffer(file);
+      const XLSX = await ensureXLSX();
+      const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+      const sheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
+      const requested = getSelectedSheetName(inputEl, options);
+      const sheetName = sheetNames.includes(requested) ? requested : (sheetNames[0] || '');
+      const sheet = sheetName ? workbook.Sheets[sheetName] : null;
+      return { ext, delimiter: ',', sheetName, sheetNames, rows: sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) : [] };
+    }
+    return null;
+  }
+
+  tableImport.previewFile = async function previewFile(file, options = {}){
+    const parsed = await readTabularFileRows(file, null, options);
+    if(!parsed){
+      return null;
+    }
+    const rows = prepareImportedRows(parsed.rows, null, options);
+    return Object.assign({}, parsed, { rows: rows.slice(0, options.limit || 20), totalRows: rows.length });
+  };
 
   function normalizeDecimalSeparators(rows, delimiter, options = {}){
     if(!Array.isArray(rows)){
@@ -173,6 +323,57 @@
 
   tableImport.normalizeDecimalSeparators = normalizeDecimalSeparators;
 
+  function looksLikeHtmlClipboard(text){
+    return /^\s*<(?:!doctype\s+html|html|head|body|meta|table|tr|td|th)\b/i.test(String(text || ''));
+  }
+
+  function htmlClipboardToTsv(html){
+    const raw = String(html || '');
+    if(!raw.trim()){
+      return '';
+    }
+    const doc = global.document || null;
+    if(!doc || typeof doc.createElement !== 'function'){
+      return raw;
+    }
+    const container = doc.createElement('div');
+    container.innerHTML = raw;
+    const table = container.querySelector?.('table') || null;
+    if(table){
+      const rows = Array.from(table.querySelectorAll('tr')).map(tr => {
+        return Array.from(tr.querySelectorAll('th,td')).map(cell => {
+          return String(cell.textContent || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\r?\n+/g, ' ')
+            .trim();
+        });
+      }).filter(row => row.length && row.some(cell => cell !== ''));
+      if(rows.length){
+        return rows.map(row => row.join('\t')).join('\n');
+      }
+    }
+    return String(container.innerText || container.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .trim();
+  }
+
+  function chooseClipboardTextByType(entries){
+    const list = Array.isArray(entries) ? entries.filter(entry => entry && entry.text) : [];
+    if(!list.length){
+      return '';
+    }
+    const plain = list.find(entry => /^(text\/plain|text|text\/unicode)$/i.test(entry.type || ''));
+    if(plain && !looksLikeHtmlClipboard(plain.text)){
+      return plain.text;
+    }
+    const html = list.find(entry => /^text\/html$/i.test(entry.type || '') || looksLikeHtmlClipboard(entry.text));
+    if(html){
+      return htmlClipboardToTsv(html.text);
+    }
+    return plain?.text || list[0].text || '';
+  }
+
   async function getClipboardTextFromEvent(event){
     if(!event){
       return '';
@@ -184,43 +385,43 @@
         // Prefer DataTransferItemList handling (works well in Firefox/Chrome)
         if(cd.items && cd.items.length){
           tableImportDebug('Debug: tableImport.getClipboardTextFromEvent using DataTransferItemList', { items: cd.items.length });
+          const itemEntries = [];
           for(let i = 0; i < cd.items.length; i++){
             const item = cd.items[i];
             try{
               if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
                 const text = await new Promise(resolve => item.getAsString(s => resolve(s)));
-                tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, length: (text || '').length, snippet: (text||'').slice(0,200) });
-                if(text) return text;
+                const type = item.type || '';
+                tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, type, length: (text || '').length, snippet: (text||'').slice(0,200) });
+                if(text) itemEntries.push({ type, text });
               }
               if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
                 const file = item.getAsFile();
                 if(file){
                   tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.file', { index: i, name: file.name, size: file.size });
                   const txt = await readFileAsText(file);
-                  if(txt) return txt;
+                  if(txt) itemEntries.push({ type: file.type || 'file', text: txt });
                 }
               }
             }catch(e){/* ignore individual item errors */}
           }
+          const chosen = chooseClipboardTextByType(itemEntries);
+          if(chosen) return chosen;
         }
         // Then try getData for common types, preferring plain text then HTML
         const tryTypes = ['text/plain','text','Text','text/unicode','text/html'];
+        const dataEntries = [];
         for(const t of tryTypes){
           try{
             const v = cd.getData(t);
             if(v){
               tableImportDebug('Debug: tableImport.getClipboardTextFromEvent getData', { type: t, length: (v || '').length, snippet: (v||'').slice(0,200) });
-              if(t === 'text/html' && typeof global.document !== 'undefined'){
-                const div = global.document.createElement('div');
-                div.innerHTML = v;
-                const vtext = div.innerText || div.textContent || '';
-                if(vtext) return vtext;
-              }else{
-                return v;
-              }
+              dataEntries.push({ type: t, text: v });
             }
           }catch(e){/* ignore */}
         }
+        const chosen = chooseClipboardTextByType(dataEntries);
+        if(chosen) return chosen;
       }
     }catch(e){/* ignore */}
     // IE/old fallback
@@ -2051,11 +2252,12 @@
       debugLog('openFile.noFile', {}, debugLabel);
       return null;
     }
-    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const ext = getFileExtension(file);
     debugLog('openFile.fileSelected', { name: file.name, size: file.size, ext }, debugLabel);
     const defaultStartRow = options.startRow ?? 0;
     const defaultStartCol = options.startCol ?? 0;
     const allowShrink = options.allowShrink !== false;
+    const prepareTabularRows = rows => prepareImportedRows(rows, inputEl, options);
     const applyRows = (rows, meta = {}) => {
       const handler = typeof options.onRows === 'function'
         ? options.onRows
@@ -2063,7 +2265,7 @@
       return handler(rows, meta);
     };
     if(ext === 'pzfx'){
-      showPrismImportLimitations();
+      if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
         prismDebug('pzfx.load', { name: file.name, size: file.size });
@@ -2093,7 +2295,7 @@
       }
     }
     if(ext === 'prism'){
-      showPrismImportLimitations();
+      if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
         const JSZip = await ensureZip();
@@ -2412,39 +2614,22 @@
         return null;
       }
     }
-    if(['csv','tsv','txt'].includes(ext)){
+    if(['csv','tsv','txt','xls','xlsx','ods'].includes(ext)){
       try{
-        const text = await readFileAsText(file);
-        const delimiter = ext === 'csv' ? ',' : ext === 'tsv' ? '\t' : detectDelimiter(text, options.delimiter);
-        debugLog('openFile.delimiter', { delimiter, ext }, debugLabel);
-        const rows = parseDelimitedText(text, delimiter);
-        const filtered = filterRows(rows);
-        debugLog('openFile.rows', { rows: filtered.length, cols: filtered[0]?.length || 0 }, debugLabel);
-        const result = await applyRows(filtered, { delimiter });
+        const parsed = await readTabularFileRows(file, inputEl, options);
+        const filtered = prepareTabularRows(parsed?.rows || []);
+        debugLog('openFile.rows', {
+          rows: filtered.length,
+          cols: filtered[0]?.length || 0,
+          delimiter: parsed?.delimiter || '',
+          sheetName: parsed?.sheetName || ''
+        }, debugLabel);
+        const result = await applyRows(filtered, { delimiter: parsed?.delimiter || ',', sheetName: parsed?.sheetName || '' });
         renameActiveTabForImport(file, result, options);
         debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
         return result;
       }catch(err){
-        notifyError(options, 'Failed to import text file', err);
-        return null;
-      }
-    }
-    if(['xls','xlsx','ods','odg'].includes(ext)){
-      try{
-        const buffer = await readFileAsArrayBuffer(file);
-        const XLSX = await ensureXLSX();
-        const data = new Uint8Array(buffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        const filtered = filterRows(rows);
-        debugLog('openFile.rows', { rows: filtered.length, cols: filtered[0]?.length || 0 }, debugLabel);
-        const result = await applyRows(filtered, { delimiter: ',' });
-        renameActiveTabForImport(file, result, options);
-        debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
-        return result;
-      }catch(err){
-        notifyError(options, 'Failed to import spreadsheet', err);
+        notifyError(options, ['xls','xlsx','ods'].includes(ext) ? 'Failed to import spreadsheet' : 'Failed to import text file', err);
         return null;
       }
     }

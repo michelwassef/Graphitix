@@ -48,6 +48,19 @@
     return DEFAULT_FILE_TYPES;
   }
 
+  function resolveDesktopFilters(types){
+    const exts = [];
+    resolveTypes(types).forEach(type => {
+      Object.values(type?.accept || {}).forEach(list => {
+        (Array.isArray(list) ? list : []).forEach(ext => {
+          const clean = String(ext || '').replace(/^\./, '').trim();
+          if(clean && !exts.includes(clean)) exts.push(clean);
+        });
+      });
+    });
+    return [{ name: 'Supported Files', extensions: exts.length ? exts : ['graph', 'json', 'session'] }];
+  }
+
   function registerPayloadBlob(blob, payload){
     if(!blob) return;
     payloadBlobMap.set(blob, { value: payload, hasValue: true });
@@ -642,9 +655,9 @@
     if(desktop && typeof desktop.showOpenDialog === 'function' && typeof desktop.readFile === 'function'){
       try{
         const result = await desktop.showOpenDialog({
-          title: 'Open Graphitix workspace',
+          title: 'Open file',
           properties: ['openFile'],
-          filters: [{ name: 'Graph Files', extensions: ['graph', 'json', 'session'] }]
+          filters: resolveDesktopFilters(fileTypes)
         });
         const filePath = result?.filePaths && result.filePaths[0];
         if(result?.canceled || !filePath){
@@ -679,7 +692,8 @@
           return { status: 'cancelled', via: 'picker' };
         }
         const file = await handle.getFile();
-        const parsedPayload = await parseJsonPayloadFromBlob(file, context);
+        const shouldProbePayload = /\.(graph|json|session)$/i.test(String(file?.name || ''));
+        const parsedPayload = shouldProbePayload ? await parseJsonPayloadFromBlob(file, context) : null;
         ensureSetter(setFileHandle, handle);
         if(file?.name) ensureSetter(setFileName, file.name);
         if(typeof loadFromFile === 'function'){

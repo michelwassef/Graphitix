@@ -61,8 +61,9 @@ test('line error bar thickness lives in line toolbar and is grouped-only', async
   const backingInput = page.locator('#lineErrorBarWidth');
   await expect(toolbarInput).toHaveValue(await backingInput.inputValue());
 
-  await toolbarInput.fill('4');
-  await toolbarInput.dispatchEvent('input');
+  await toolbarInput.click();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+  await page.keyboard.type('4');
   await expect(backingInput).toHaveValue('4');
 
   await page.locator('#lineTableFormat').selectOption('single');

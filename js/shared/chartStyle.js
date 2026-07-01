@@ -1607,11 +1607,27 @@
       ? explicitLabelFontSize
       : extractFontSizePxFromFontSpec(labelMeasureFont, fontSize);
     const adjustedLabelOffset = baseLabelOffset + tickLabelFontSize;
-    const titleOffset = adjustedLabelOffset + axisTitleGap + fontSize;
-    const baseBottom = options?.baseBottom || Math.max(titleOffset + outerPadding, Math.round(fontSize * BASE_BOTTOM_FACTOR) + tickLabelFontSize + 8);
+    const includeAxisTitleReserve = options?.includeAxisTitleReserve !== false;
+    const axisTitleReserve = includeAxisTitleReserve ? axisTitleGap + fontSize : 0;
+    const titleOffset = adjustedLabelOffset + axisTitleReserve;
+    const labelReserveMarginRaw = Number(options?.labelReserveMarginPx);
+    const labelReserveMarginPx = Number.isFinite(labelReserveMarginRaw) && labelReserveMarginRaw >= 0
+      ? labelReserveMarginRaw
+      : outerPadding;
+    const baseBottom = options?.baseBottom || Math.max(
+      titleOffset + labelReserveMarginPx,
+      Math.round(fontSize * BASE_BOTTOM_FACTOR) + tickLabelFontSize + 8
+    );
     const widths = labels.map(label => chartStyle.measureText(label || '', labelMeasureFont));
     const maxLabelWidth = widths.length ? Math.max(...widths) : 0;
-    const bandWidth = labels.length ? plotWidth / labels.length : plotWidth;
+    const explicitBandWidth = Number(options?.bandWidth);
+    const bandWidth = labels.length
+      ? (
+          Number.isFinite(explicitBandWidth) && explicitBandWidth > 0
+            ? explicitBandWidth
+            : plotWidth / labels.length
+        )
+      : plotWidth;
     const maxLabelWidthRatio = labels.length > 1 && Number.isFinite(bandWidth) && bandWidth > 0
       ? (maxLabelWidth / bandWidth)
       : 0;
@@ -1648,6 +1664,7 @@
       exitRatio = Math.max(0.1, enterRatio - 0.01);
     }
     const reserveRotatedLabelSpace = options?.reserveRotatedLabelSpace === true;
+    const projectedTickLabelReserve = options?.bottomReserveMode === 'projected-tick-label';
     const shouldRotateRaw = labels.length > 1 && maxAdjacentOverlapRatio > baseRotateRatio;
     const shouldRotate = labels.length > 1
       ? (
@@ -1656,9 +1673,20 @@
             : (maxAdjacentOverlapRatio > enterRatio)
         )
       : false;
-    const rotatedExtra = Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
+    const rotationAngleDegRaw = Number(options?.labelRotationAngleDeg);
+    const rotationAngleDeg = Number.isFinite(rotationAngleDegRaw) ? Math.abs(rotationAngleDegRaw) : 45;
+    const rotationAngleRad = rotationAngleDeg * Math.PI / 180;
+    const projectedRotatedLabelHeight = Math.ceil(
+      Math.abs(Math.sin(rotationAngleRad)) * maxLabelWidth
+      + Math.abs(Math.cos(rotationAngleRad)) * tickLabelFontSize
+    );
+    const rotatedExtra = projectedTickLabelReserve
+      ? Math.max(0, projectedRotatedLabelHeight - tickLabelFontSize)
+      : Math.min(220, Math.max(tickLabelFontSize * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidth) + tickLabelFontSize));
     const extra = (shouldRotate || reserveRotatedLabelSpace) ? rotatedExtra : 0;
-    const bottom = Math.max(baseBottom, titleOffset + outerPadding + extra);
+    const bottom = projectedTickLabelReserve
+      ? Math.max(baseBottom, adjustedLabelOffset + axisTitleReserve + labelReserveMarginPx + extra)
+      : Math.max(baseBottom, titleOffset + outerPadding + extra);
     console.debug('Debug: chartStyle.computeBottomLayout', {
       labelCount: labels.length,
       fontSize,
@@ -1671,10 +1699,14 @@
       enterRatio,
       exitRatio,
       reserveRotatedLabelSpace,
+      projectedTickLabelReserve,
+      includeAxisTitleReserve,
       labelMeasureFont,
       tickLabelFontSize,
+      labelReserveMarginPx,
       extra,
       rotatedExtra,
+      projectedRotatedLabelHeight,
       bottom,
       labelOffset: adjustedLabelOffset,
       titleOffset,
@@ -2249,7 +2281,9 @@
     const fontSize = options?.fontSize || 12;
     const legendWidth = options?.legendWidth || 0;
     const maxYLabelWidth = options?.maxYLabelWidth || 0;
-    const yTitleWidth = options?.yTitleWidth || 0;
+    const legacyYTitleWidthRaw = Number(options?.yTitleWidth);
+    const legacyYTitleWidth = Number.isFinite(legacyYTitleWidthRaw) && legacyYTitleWidthRaw > 0 ? legacyYTitleWidthRaw : 0;
+    const explicitHasYTitle = typeof options?.hasYTitle === 'boolean' ? options.hasYTitle : null;
     const yTickFontSizeRaw = Number(options?.yTickFontSize);
     const yTickFontSize = Number.isFinite(yTickFontSizeRaw) && yTickFontSizeRaw > 0 ? yTickFontSizeRaw : fontSize;
     const xTickFontSizeRaw = Number(options?.xTickFontSize);
@@ -2259,10 +2293,16 @@
     const tickLabelGap = axisMetrics.tickLabelGap ?? Math.max(3, Math.round(fontSize * 0.35));
     const axisTitleGap = axisMetrics.axisTitleGap ?? Math.max(4, Math.round(fontSize * 0.75));
     const outerPadding = axisMetrics.outerPadding ?? Math.max(6, Math.round(fontSize * 0.6));
-    const yTitleGap = axisMetrics.yTitleGap ?? Math.max(4, Math.round(fontSize * 0.5));
+    const yTitleThicknessRaw = Number(options?.yTitleThickness ?? options?.yTitleFontSize);
+    const yTitleThickness = Number.isFinite(yTitleThicknessRaw) && yTitleThicknessRaw > 0 ? yTitleThicknessRaw : fontSize;
+    const hasYTitle = explicitHasYTitle !== null ? explicitHasYTitle : legacyYTitleWidth > 0;
     const top = Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR));
-    const leftBase = maxYLabelWidth + tickLength + tickLabelGap + yTickFontSize + outerPadding;
-    const left = Math.max(56, Math.round(fontSize * 3.2), leftBase, yTitleWidth * 0.5 + yTitleGap + outerPadding);
+    const leftTickReserve = maxYLabelWidth + tickLength + tickLabelGap;
+    const leftTickLabelReserve = leftTickReserve + yTickFontSize + outerPadding;
+    const leftTitleReserve = hasYTitle
+      ? leftTickReserve + axisTitleGap + yTitleThickness + outerPadding
+      : 0;
+    const left = Math.max(56, Math.round(fontSize * 3.2), leftTickLabelReserve, leftTitleReserve);
     const right = 24 + legendWidth;
     const bottomSpacing = tickLength + tickLabelGap + xTickFontSize + axisTitleGap + fontSize + outerPadding;
     const bottom = Math.max(bottomSpacing, Math.max(36, Math.round(fontSize * BASE_BOTTOM_FACTOR)) + fontSize * 0.5);
@@ -2270,7 +2310,9 @@
       fontSize,
       legendWidth,
       maxYLabelWidth,
-      yTitleWidth,
+      legacyYTitleWidth,
+      hasYTitle,
+      yTitleThickness,
       xTickFontSize,
       yTickFontSize,
       axisMetrics,

@@ -2,7 +2,7 @@
  * Real-browser regression guard for PCA stats restoration.
  *
  * The PCA stats panel (scree plot, biplot, summary, eigen table, loadings) is derived
- * from lastPcaStats and must reappear after every restore path. The render cache used to
+ * from PcaSession results state and must reappear after every restore path. The render cache used to
  * snapshot the stats-panel DOM and replay it on restore, which orphaned the component's
  * cached node references and silently dropped the scree plot and biplot (file reopen lost
  * both; recovery lost the biplot). The fix makes the render cache carry only the graph and

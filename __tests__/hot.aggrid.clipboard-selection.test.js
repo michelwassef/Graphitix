@@ -419,6 +419,29 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, lastRow, 2]);
   });
 
+  test('data columns suppress native AG Grid header moving', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderNativeMoveSuppressedHot';
+    document.body.appendChild(container);
+
+    createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-native-move-suppressed',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const dataDefs = (capturedGridOptions?.columnDefs || []).filter(def => /^c\d+$/.test(def?.colId || ''));
+    expect(dataDefs.length).toBeGreaterThan(0);
+    dataDefs.forEach(def => {
+      expect(def.suppressMovable).toBe(true);
+    });
+  });
+
   test('dragging row headers selects a multi-row range', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -2946,6 +2969,122 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+  });
+
+  test('full column selection outline hides top edge and stays below horizontal scrollbar layer', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agFullColumnOutlineHot';
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 180,
+      width: 420,
+      height: 180
+    });
+    document.body.appendChild(container);
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-full-column-outline',
+        data: Shared.createEmptyData(4, 3),
+        pinFirstRow: true
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 60,
+      width: 420,
+      height: 28
+    });
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedCell = document.createElement('div');
+    pinnedCell.className = 'ag-cell';
+    pinnedCell.setAttribute('col-id', 'c1');
+    pinnedCell.setAttribute('row-index', 't-0');
+    pinnedCell.getBoundingClientRect = () => ({
+      left: 100,
+      top: 32,
+      right: 200,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 172,
+      width: 420,
+      height: 112
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    for (let rowIndex = 1; rowIndex <= 3; rowIndex += 1) {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const top = 60 + ((rowIndex - 1) * 28);
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell';
+      cell.setAttribute('col-id', 'c1');
+      cell.setAttribute('row-index', String(rowIndex));
+      cell.getBoundingClientRect = () => ({
+        left: 100,
+        top,
+        right: 200,
+        bottom: top + 28,
+        width: 100,
+        height: 28
+      });
+      row.appendChild(cell);
+      centerViewport.appendChild(row);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderTopColor).toBe('transparent');
+    expect(outline.style.borderLeftColor).not.toBe('transparent');
+    expect(outline.style.borderRightColor).not.toBe('transparent');
+    expect(outline.style.zIndex).toBe('7');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('none');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="left"]').style.display).toBe('block');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
   });
 
   test('plain header click selects full column and header action click preserves selection coordinates', () => {

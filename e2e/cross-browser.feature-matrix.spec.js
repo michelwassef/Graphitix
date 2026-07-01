@@ -54,12 +54,12 @@ test.describe('Cross-browser Feature Matrix', () => {
 
   test('clipboard paste contract works across AG Grid wrappers', async ({ page, context }) => {
     await installLocalCdnOverrides(page);
-    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
-      origin: 'http://127.0.0.1:4173'
-    }).catch(() => {});
 
     await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+      origin: new URL(page.url()).origin
+    }).catch(() => {});
 
     for (let i = 0; i < PASTE_CONTRACT_COMPONENTS.length; i += 1) {
       const component = PASTE_CONTRACT_COMPONENTS[i];
@@ -68,7 +68,7 @@ test.describe('Cross-browser Feature Matrix', () => {
         await expect(page.locator(`#${component.pageId}:not([hidden])`)).toBeVisible();
         await page.waitForSelector(`#${component.hotId} .ag-root`, { timeout: 20_000 });
 
-        const targetPoint = await page.evaluate((hotId) => {
+        const targetCell = await page.evaluate((hotId) => {
           const host = document.getElementById(hotId);
           if (!host) {
             return null;
@@ -77,13 +77,21 @@ test.describe('Cross-browser Feature Matrix', () => {
           for (let i = 0; i < cells.length; i += 1) {
             const rect = cells[i].getBoundingClientRect();
             if (rect.width > 1 && rect.height > 1) {
-              return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              const rowIndex = Number(cells[i].closest('.ag-row')?.getAttribute('row-index'));
+              const colId = cells[i].getAttribute('col-id') || '';
+              const colIndex = Number(String(colId).replace(/^c/, ''));
+              return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                rowIndex: Number.isInteger(rowIndex) ? rowIndex : 0,
+                colIndex: Number.isInteger(colIndex) ? colIndex : 0
+              };
             }
           }
           return null;
         }, component.hotId);
-        expect(targetPoint, `No visible data cell found for ${component.type}`).toBeTruthy();
-        await page.mouse.click(targetPoint.x, targetPoint.y);
+        expect(targetCell, `No visible data cell found for ${component.type}`).toBeTruthy();
+        await page.mouse.click(targetCell.x, targetCell.y);
 
         const token = `fx_${component.type}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
         const writeResult = await page.evaluate(async (value) => {
@@ -112,7 +120,7 @@ test.describe('Cross-browser Feature Matrix', () => {
           return false;
         }, { hotId: component.hotId, token });
         if (!pasted) {
-          await page.evaluate(({ hotId, token, type }) => {
+          await page.evaluate(({ hotId, token, type, targetCell }) => {
             let hot = null;
             if (type === 'box') hot = window.Components?.box?.__getState?.()?.hot || null;
             if (type === 'scatter') hot = window.Components?.scatter?.__ensureHotForActiveTab?.() || null;
@@ -124,9 +132,11 @@ test.describe('Cross-browser Feature Matrix', () => {
             if (!hot || typeof hot.setDataAtCell !== 'function') {
               return;
             }
-            hot.setDataAtCell(0, 0, token);
-            hot.selectCell?.(0, 0, 0, 0);
-          }, { hotId: component.hotId, token, type: component.type });
+            const rowIndex = Number.isInteger(targetCell?.rowIndex) ? targetCell.rowIndex : 0;
+            const colIndex = Number.isInteger(targetCell?.colIndex) ? targetCell.colIndex : 0;
+            hot.setDataAtCell(rowIndex, colIndex, token);
+            hot.selectCell?.(rowIndex, colIndex, rowIndex, colIndex);
+          }, { hotId: component.hotId, token, type: component.type, targetCell });
           await page.waitForTimeout(150);
           pasted = await page.evaluate(({ hotId, token }) => {
             const host = document.getElementById(hotId);

@@ -27,6 +27,12 @@
     if(!snapshot || typeof snapshot !== 'object'){
       return null;
     }
+    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      tabId: meta?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null,
+      reason: meta?.reason || 'survival-owned-runtime-remember'
+    });
     return getSurvivalRuntimeOwner()?.capture(snapshot, {
       ...(meta || {}),
       tab: tabLike || meta?.tab || null,
@@ -36,11 +42,18 @@
   }
 
   function resolveSurvivalOwnedRuntimeSnapshot(snapshot = null, meta = {}){
-    return getSurvivalRuntimeOwner()?.bind(snapshot || null, {
+    const resolved = getSurvivalRuntimeOwner()?.bind(snapshot || null, {
       ...(meta || {}),
       componentKey: 'survival',
       reason: meta?.reason || 'survival-owned-runtime-resolve'
-    }) || null;
+    }) || snapshot || null;
+    if(resolved && typeof resolved === 'object'){
+      setSurvivalSessionStateFromRuntimeRecord(resolved, {
+        ...(meta || {}),
+        reason: meta?.reason || 'survival-owned-runtime-resolve'
+      });
+    }
+    return resolved;
   }
 
   function applyExistingSurvivalOwnedRuntimeRecord(tabLike = null, meta = {}){
@@ -53,6 +66,10 @@
     if(!snapshot || typeof survival.applyRuntimeState !== 'function'){
       return false;
     }
+    bindSurvivalSessionForTab(tabLike || meta?.tabId || null, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-owned-runtime-activate-bind'
+    }, { apply: false });
     return survival.applyRuntimeState(snapshot, {
       ...(meta || {}),
       reason: meta?.reason || 'survival-owned-runtime-activate-apply'
@@ -79,12 +96,12 @@
     }
   }
   const notesState = { text: '', open: false, control: null };
-  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
-    ? fontControls.exportScopeStyles(scopeId)
+  const exportFontStyles = (scopeId, options) => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId, options)
     : null;
-  const importFontStyles = (scopeId, styles) => {
+  const importFontStyles = (scopeId, styles, options) => {
     if(fontControls && typeof fontControls.importScopeStyles === 'function'){
-      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+      fontControls.importScopeStyles(scopeId, styles, { prune: true, ...(options || {}) });
     }
   };
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
@@ -266,7 +283,8 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          state.scheduleDraw?.();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
+          scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-input', tabId: survival.__boundTabId || null });
         },
         onColorChange: (value, ctx) => {
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
@@ -280,7 +298,8 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          state.scheduleDraw?.();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
+          scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-change', tabId: survival.__boundTabId || null });
         },
         onThicknessChange: (value, ctx) => {
           const next = Number(value);
@@ -296,7 +315,8 @@
               if(key){ state.labelStrokeWidth[key] = next; }
             });
           }
-          state.scheduleDraw?.();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelStrokeWidth: state.labelStrokeWidth });
+          scheduleActiveSurvivalDraw({ reason: 'survival-curve-thickness-change', tabId: survival.__boundTabId || null });
         },
         onPatternChange: (value, ctx) => {
           const pattern = sanitizeSurvivalLinePattern(value);
@@ -311,7 +331,8 @@
               if(key){ state.labelLinePattern[key] = pattern; }
             });
           }
-          state.scheduleDraw?.();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelLinePattern: state.labelLinePattern });
+          scheduleActiveSurvivalDraw({ reason: 'survival-curve-pattern-change', tabId: survival.__boundTabId || null });
         },
         onTransparencyChange: (value, ctx) => {
           const pct = Number(value);
@@ -328,7 +349,8 @@
               if(key){ state.labelOpacity[key] = opacity; }
             });
           }
-          state.scheduleDraw?.();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelOpacity: state.labelOpacity });
+          scheduleActiveSurvivalDraw({ reason: 'survival-curve-opacity-change', tabId: survival.__boundTabId || null });
         }
       });
       return;
@@ -367,10 +389,23 @@
   }
 
   function ensureEmptyPayloadTemplate(){
+    const session = getActiveSurvivalSessionForState();
     if(emptyPayloadTemplate){
+      if(session?.cache && !session.cache.emptyPayloadTemplate){
+        session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+        session.updatedAt = Date.now();
+      }
+      return;
+    }
+    if(session?.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(session.cache.emptyPayloadTemplate) || session.cache.emptyPayloadTemplate;
       return;
     }
     emptyPayloadTemplate = { type: 'survival', config: {} };
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
   }
   const BASE_COLUMN_COUNT = 4; // group, time, event, entry time
   const SURVIVAL_COL_HEADERS = [
@@ -611,19 +646,652 @@
     titleText: 'Survival curve',
     lastSummary: null,
     lastStats: null,
+    statsPanelModels: { summary: null, logRank: null, hazardRatios: null, cox: null },
     pairwiseCorrection: 'holm-sidak',
     statsReportPScientific: false,
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
-    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null },
+    controls: null
   };
   let survivalFontEventBound = false;
-  let survivalDataViewsManager = null;
+
+
+  const survivalSessionsByTabId = new Map();
+  let activeSurvivalSession = null;
+
+  function createDefaultSurvivalStatsPanelModels(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      summary: normalizeSurvivalStatsPanelModel(src.summary || null),
+      logRank: normalizeSurvivalStatsPanelModel(src.logRank || null),
+      hazardRatios: normalizeSurvivalStatsPanelModel(src.hazardRatios || null),
+      cox: normalizeSurvivalStatsPanelModel(src.cox || null)
+    };
+  }
+
+  function createDefaultSurvivalDurableState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      labelColors: cloneSimple(src.labelColors) || {},
+      labelStrokeWidth: cloneSimple(src.labelStrokeWidth) || {},
+      labelOpacity: cloneSimple(src.labelOpacity) || {},
+      labelLinePattern: cloneSimple(src.labelLinePattern) || {},
+      groupOrder: cloneSimple(src.groupOrder) || [],
+      minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
+      fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName : 'survival.graph',
+      titleText: src.titleText != null ? String(src.titleText) : 'Survival curve',
+      lastSummary: cloneSimple(src.lastSummary) || null,
+      lastStats: cloneSimple(src.lastStats ?? src.stats) || null,
+      statsPanelModels: createDefaultSurvivalStatsPanelModels(src.statsPanelModels || src.statsPanels || {}),
+      pairwiseCorrection: typeof src.pairwiseCorrection === 'string' && src.pairwiseCorrection.trim()
+        ? src.pairwiseCorrection
+        : 'holm-sidak',
+      statsReportPScientific: sanitizeSurvivalStatsReportPScientific(src.statsReportPScientific),
+      covariateSettings: cloneSimple(src.covariateSettings) || {},
+      covariateColumns: Array.isArray(src.covariateColumns) ? (cloneSimple(src.covariateColumns) || []) : [],
+      axisSettings: cloneSimple(src.axisSettings || src.axis) || createDefaultAxisSettings(),
+      gridStyle: cloneSimple(src.gridStyle) || null,
+      labelPositions: cloneSimple(src.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null },
+      controls: normalizeSurvivalRuntimeControls(src.controls || src.config || {}),
+      drawPending: src.drawPending === true
+    };
+  }
+
+  function createDefaultSurvivalResultsState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      stats: cloneSimple(src.stats ?? src.lastStats ?? null) || null,
+      statsPanelModels: createDefaultSurvivalStatsPanelModels(src.statsPanelModels || src.statsPanels || {})
+    };
+  }
+
+  function createDefaultSurvivalNotesState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      text: src.text == null ? '' : String(src.text),
+      open: !!src.open
+    };
+  }
+
+  function createDefaultSurvivalAdvisorState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      open: !!src.open,
+      activated: !!src.activated,
+      answers: cloneSimple(src.answers) || {},
+      lastApplied: cloneSimple(src.lastApplied) || null,
+      context: cloneSimple(src.context) || null
+    };
+  }
+
+  function createDefaultSurvivalRefs(root = null){
+    return {
+      root: root || null,
+      tablePanel: null,
+      graphPanel: null,
+      panelResizer: null,
+      svgBox: null,
+      configPanel: null,
+      plotDiv: null,
+      hotWrapper: null,
+      hotContainer: null,
+      statsSummary: null,
+      statsLogRank: null,
+      statsHazardRatios: null,
+      statsCox: null,
+      labelColorsDiv: null,
+      labelColorsFieldset: null,
+      showCI: null,
+      showCensor: null,
+      showHazardRatios: null,
+      fitCoxModel: null,
+      covariateControls: null,
+      covariateHint: null,
+      showGrid: null,
+      showFrame: null,
+      timeMax: null,
+      xLabel: null,
+      yLabel: null,
+      fontSize: null,
+      fontSizeVal: null,
+      showLegend: null,
+      loadExampleBtn: null,
+      importBtn: null,
+      fileInput: null,
+      openBtn: null,
+      saveBtn: null,
+      saveAsBtn: null,
+      graphFileInput: null,
+      exportContainer: null,
+      notesControl: null,
+      legendControl: null
+    };
+  }
+
+  function normalizeSurvivalSessionTabId(tabLike = null, meta = {}){
+    const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
+    const objectTabId = tabLike && typeof tabLike === 'object'
+      ? (tabLike.id || tabLike.tabId || tabLike.workspaceTabId || null)
+      : null;
+    const resolved = direct
+      || objectTabId
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.__workspaceSessionMeta?.tabId
+      || Shared.workspaceTabs?.getActiveSessionInfo?.('survival')?.tabId
+      || survival.__boundTabId
+      || '';
+    return String(resolved || '').trim();
+  }
+
+  function createSurvivalSession({ tabId, root = null, initialState = null } = {}){
+    const normalizedTabId = String(tabId || '').trim();
+    const source = initialState && typeof initialState === 'object' ? initialState : {};
+    const durableSource = source.state && typeof source.state === 'object' ? source.state : source;
+    return {
+      componentKey: 'survival',
+      tabId: normalizedTabId,
+      root: root || null,
+      state: createDefaultSurvivalDurableState(durableSource),
+      results: createDefaultSurvivalResultsState({
+        stats: durableSource.lastStats ?? source.stats,
+        statsPanelModels: durableSource.statsPanelModels || source.statsPanelModels || source.statsPanels
+      }),
+      refs: createDefaultSurvivalRefs(root || null),
+      cache: {
+        render: null,
+        emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null
+      },
+      listeners: new Map(),
+      timers: {
+        scheduleDraw: null,
+        pendingDrawOptions: null
+      },
+      workers: new Map(),
+      managers: {
+        hot: null,
+        dataViews: null,
+        layout: null,
+        fileHandle: null
+      },
+      notes: createDefaultSurvivalNotesState(source.notes || durableSource.notes || {}),
+      advisor: createDefaultSurvivalAdvisorState(source.advisor || {}),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+  }
+
+  function ensureSurvivalSessionOwnershipShape(session){
+    if(!session || typeof session !== 'object'){
+      return null;
+    }
+    session.componentKey = 'survival';
+    session.tabId = String(session.tabId || '').trim();
+    session.root = session.root || null;
+    session.state = createDefaultSurvivalDurableState(session.state || {});
+    session.results = createDefaultSurvivalResultsState(session.results || {
+      stats: session.state.lastStats,
+      statsPanelModels: session.state.statsPanelModels
+    });
+    session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultSurvivalRefs(session.root || null);
+    session.refs.root = session.refs.root || session.root || null;
+    session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'render')){ session.cache.render = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
+    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
+    session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    session.workers = session.workers instanceof Map ? session.workers : new Map();
+    session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
+    session.notes = createDefaultSurvivalNotesState(session.notes || {});
+    session.advisor = createDefaultSurvivalAdvisorState(session.advisor || {});
+    session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
+    return session;
+  }
+
+  function getSurvivalSession(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeSurvivalSessionTabId(tabLike, meta);
+    if(!tabId){
+      return options.fallbackActive === true ? ensureSurvivalSessionOwnershipShape(activeSurvivalSession) : null;
+    }
+    let session = survivalSessionsByTabId.get(tabId) || null;
+    if(!session && options.create !== false){
+      session = createSurvivalSession({ tabId, root: resolveSurvivalRoot(tabId || null) || null });
+      survivalSessionsByTabId.set(tabId, session);
+    }
+    return ensureSurvivalSessionOwnershipShape(session);
+  }
+
+  function getActiveSurvivalSessionForState(){
+    if(activeSurvivalSession && (!survival.__boundTabId || String(activeSurvivalSession.tabId || '') === String(survival.__boundTabId || ''))){
+      return ensureSurvivalSessionOwnershipShape(activeSurvivalSession);
+    }
+    const tabId = normalizeSurvivalSessionTabId(null, {});
+    return tabId ? getSurvivalSession(tabId, { tabId, reason: 'active-survival-session' }, { create: true }) : null;
+  }
+
+  function getSurvivalTabIdFromTarget(target = null){
+    if(!target || typeof target.closest !== 'function'){
+      return '';
+    }
+    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
+    return String(
+      owner?.dataset?.workspaceTabId
+      || owner?.dataset?.tabId
+      || owner?.getAttribute?.('data-workspace-tab-id')
+      || owner?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim();
+  }
+
+  function getSurvivalSessionForEvent(event = null, meta = {}, options = {}){
+    const target = event?.currentTarget || event?.target || meta?.target || null;
+    const tabId = normalizeSurvivalSessionTabId(getSurvivalTabIdFromTarget(target) || meta?.tabId || null, meta || {});
+    return tabId
+      ? getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-event-owner' }, { create: options.create !== false })
+      : getActiveSurvivalSessionForState();
+  }
+
+  function runSurvivalControlOwner(event, reason, callback){
+    const session = getSurvivalSessionForEvent(event, { reason }, { create: true });
+    if(session?.tabId && !isSurvivalSessionActiveOrActivating(session)){
+      survivalDebug('Debug: survival control callback skipped for inactive owner', {
+        tabId: session.tabId || null,
+        activeTabId: survival.__boundTabId || activeSurvivalSession?.tabId || null,
+        reason: reason || 'survival-control-owner'
+      });
+      return undefined;
+    }
+    return typeof callback === 'function' ? callback(session) : undefined;
+  }
+
+  function isSurvivalSessionActive(session = null){
+    const shaped = ensureSurvivalSessionOwnershipShape(session);
+    if(!shaped?.tabId){
+      return false;
+    }
+    return String(shaped.tabId) === String(survival.__boundTabId || activeSurvivalSession?.tabId || '');
+  }
+
+  function isSurvivalSessionActiveOrActivating(session = null){
+    const shaped = ensureSurvivalSessionOwnershipShape(session);
+    if(!shaped?.tabId){ return false; }
+    const workspaceActiveTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    return isSurvivalSessionActive(shaped)
+      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+  }
+
+  function scheduleSurvivalDrawForSession(session = null, options = {}){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!shaped){
+      return false;
+    }
+    const scheduleOptions = {
+      ...(options || {}),
+      tabId: shaped.tabId || options?.tabId || undefined,
+      reason: options?.reason || 'survival-session-draw'
+    };
+    if(shaped.timers){
+      shaped.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+    }
+    if(!isSurvivalSessionActiveOrActivating(shaped)){
+      shaped.state.drawPending = true;
+      shaped.updatedAt = Date.now();
+      return false;
+    }
+    const scheduler = shaped.timers?.scheduleDraw || state.scheduleDraw;
+    if(typeof scheduler !== 'function'){
+      return false;
+    }
+    shaped.timers.scheduleDraw = scheduler;
+    shaped.timers.pendingDrawOptions = null;
+    shaped.state.drawPending = false;
+    shaped.updatedAt = Date.now();
+    scheduler(scheduleOptions);
+    return true;
+  }
+
+  function scheduleActiveSurvivalDraw(options = {}){
+    return scheduleSurvivalDrawForSession(getActiveSurvivalSessionForState(), options);
+  }
+
+  function getSurvivalSessionForDrawOptions(options = {}, meta = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || survival.__boundTabId || null;
+    return tabId
+      ? getSurvivalSession(tabId, {
+          ...(meta || {}),
+          tabId,
+          reason: meta?.reason || source.reason || 'survival-draw-session'
+        }, { create: meta?.create !== false })
+      : getActiveSurvivalSessionForState();
+  }
+
+  function normalizeSurvivalOwnerTabId(value){
+    return String(value == null ? '' : value).trim();
+  }
+
+  function resolveSurvivalHotOwnerTabId(hotInstance){
+    const hot = hotInstance || null;
+    return normalizeSurvivalOwnerTabId(
+      hot?.__survivalTabId
+      || hot?.__workspaceTabId
+      || hot?.__graphitixTabId
+      || hot?.__ownerTabId
+      || hot?.rootElement?.dataset?.workspaceTabId
+      || hot?.rootElement?.dataset?.tabId
+      || hot?.container?.dataset?.workspaceTabId
+      || hot?.container?.dataset?.tabId
+      || hot?.__survivalHostContainer?.dataset?.workspaceTabId
+      || hot?.__survivalHostContainer?.dataset?.tabId
+      || ''
+    );
+  }
+
+  function survivalHotBelongsToSession(hotInstance, session){
+    const tabId = normalizeSurvivalOwnerTabId(session?.tabId);
+    if(!hotInstance || !tabId){
+      return false;
+    }
+    const ownerTabId = resolveSurvivalHotOwnerTabId(hotInstance);
+    return !!ownerTabId && ownerTabId === tabId;
+  }
+
+  function resolveSurvivalDataViewsManagerOwnerTabId(manager){
+    return normalizeSurvivalOwnerTabId(
+      manager?.__survivalTabId
+      || manager?.__workspaceTabId
+      || manager?.__ownerTabId
+      || manager?.hot?.__survivalTabId
+      || manager?.hot?.__workspaceTabId
+      || ''
+    );
+  }
+
+  function survivalDataViewsManagerBelongsToSession(manager, session){
+    const tabId = normalizeSurvivalOwnerTabId(session?.tabId);
+    if(!manager || !tabId){
+      return false;
+    }
+    const ownerTabId = resolveSurvivalDataViewsManagerOwnerTabId(manager);
+    return !!ownerTabId && ownerTabId === tabId;
+  }
+
+  function syncSurvivalStateToSession(session = null, overrides = {}){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!shaped){ return null; }
+    shaped.state = createDefaultSurvivalDurableState({
+      ...(shaped.state || {}),
+      labelColors: state.labelColors,
+      labelStrokeWidth: state.labelStrokeWidth,
+      labelOpacity: state.labelOpacity,
+      labelLinePattern: state.labelLinePattern,
+      groupOrder: state.groupOrder,
+      minSvgWidth: state.minSvgWidth,
+      fileName: state.fileName,
+      titleText: state.titleText,
+      lastSummary: state.lastSummary,
+      lastStats: state.lastStats,
+      statsPanelModels: state.statsPanelModels,
+      pairwiseCorrection: state.pairwiseCorrection,
+      statsReportPScientific: state.statsReportPScientific,
+      covariateSettings: state.covariateSettings,
+      covariateColumns: state.covariateColumns,
+      axisSettings: state.axisSettings,
+      gridStyle: state.gridStyle,
+      labelPositions: state.labelPositions,
+      controls: state.controls,
+      ...(overrides || {})
+    });
+    shaped.results = createDefaultSurvivalResultsState({
+      stats: shaped.state.lastStats,
+      statsPanelModels: shaped.state.statsPanelModels
+    });
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function syncSurvivalSessionRefsFromActive(session = null){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || activeSurvivalSession || getActiveSurvivalSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isSurvivalSessionActiveOrActivating(shaped)){
+      return shaped;
+    }
+    shaped.root = refs.root || shaped.root || null;
+    shaped.refs = Object.assign(createDefaultSurvivalRefs(shaped.root || null), shaped.refs || {}, refs || {});
+    shaped.refs.root = refs.root || shaped.refs.root || shaped.root || null;
+    shaped.refs.notesControl = canUseSurvivalNotesControl(notesState.control) ? notesState.control : null;
+    shaped.refs.legendControl = survivalLegendControl || shaped.refs.legendControl || null;
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function syncSurvivalSessionManagersFromActive(session = null){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || activeSurvivalSession || getActiveSurvivalSessionForState());
+    if(!shaped){ return null; }
+    const sessionIsActive = !shaped.tabId || isSurvivalSessionActiveOrActivating(shaped);
+    const activeHot = state.hot || null;
+    if(survivalHotBelongsToSession(activeHot, shaped)){
+      shaped.managers.hot = activeHot;
+    }
+    const hotManager = activeHot?.__survivalDataViewsManager || null;
+    if(survivalDataViewsManagerBelongsToSession(hotManager, shaped)){
+      shaped.managers.dataViews = hotManager;
+    }
+    if(sessionIsActive){
+      shaped.managers.layout = state.layout || shaped.managers.layout || null;
+      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
+      shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
+    }
+    shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function canUseSurvivalNotesControl(noteControl){
+    if(!noteControl){ return false; }
+    const root = refs.root || resolveSurvivalRoot(survival.__boundTabId || null);
+    const controlRoot = noteControl.root || null;
+    if(controlRoot){
+      return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
+    }
+    return !!root && (!noteControl.element || root.contains?.(noteControl.element));
+  }
+
+  function setSurvivalFileHandleForSession(handle, session = null){
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(owner?.managers){
+      owner.managers.fileHandle = handle || null;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isSurvivalSessionActiveOrActivating(owner)){
+      state.fileHandle = handle || null;
+    }
+    return handle || null;
+  }
+
+  function setSurvivalFileNameForSession(name, session = null){
+    const nextName = name || 'survival.graph';
+    const owner = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(owner?.state){
+      owner.state.fileName = nextName;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isSurvivalSessionActiveOrActivating(owner)){
+      state.fileName = nextName;
+    }
+    return nextName;
+  }
+
+  function captureSurvivalNotesMirror(){
+    const noteControl = canUseSurvivalNotesControl(notesState.control) ? notesState.control : null;
+    const text = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (notesState.text || '');
+    const open = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!notesState.open;
+    notesState.text = text == null ? '' : String(text);
+    notesState.open = !!open;
+    return createDefaultSurvivalNotesState(notesState);
+  }
+
+  function captureSurvivalSessionStateFromActive(session = null, meta = {}){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isSurvivalSessionActiveOrActivating(shaped)){
+      shaped.updatedAt = Date.now();
+      return shaped;
+    }
+    if(meta.syncControls !== false){
+      syncSurvivalRuntimeControlsFromDom();
+    }
+    const statsPanels = meta.captureStatsPanels === false
+      ? createDefaultSurvivalStatsPanelModels(state.statsPanelModels || {})
+      : createDefaultSurvivalStatsPanelModels(captureSurvivalStatsPanelModels(state.statsPanelModels || {}));
+    shaped.state = createDefaultSurvivalDurableState({
+      labelColors: state.labelColors,
+      labelStrokeWidth: state.labelStrokeWidth,
+      labelOpacity: state.labelOpacity,
+      labelLinePattern: state.labelLinePattern,
+      groupOrder: state.groupOrder,
+      minSvgWidth: state.minSvgWidth,
+      fileName: state.fileName,
+      titleText: state.titleText,
+      lastSummary: state.lastSummary,
+      lastStats: state.lastStats,
+      statsPanelModels: statsPanels,
+      pairwiseCorrection: state.pairwiseCorrection,
+      statsReportPScientific: state.statsReportPScientific,
+      covariateSettings: state.covariateSettings,
+      covariateColumns: state.covariateColumns,
+      axisSettings: state.axisSettings,
+      gridStyle: state.gridStyle,
+      labelPositions: state.labelPositions,
+      controls: state.controls,
+      drawPending: state.drawPending === true
+    });
+    shaped.results = createDefaultSurvivalResultsState({ stats: shaped.state.lastStats, statsPanelModels: statsPanels });
+    shaped.notes = captureSurvivalNotesMirror();
+    shaped.advisor = createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(shaped));
+    syncSurvivalSessionRefsFromActive(shaped);
+    syncSurvivalSessionManagersFromActive(shaped);
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function applySurvivalSessionStateToActive(session = null, options = {}){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(!shaped){ return false; }
+    state.labelColors = cloneSimple(shaped.state.labelColors) || {};
+    state.labelStrokeWidth = cloneSimple(shaped.state.labelStrokeWidth) || {};
+    state.labelOpacity = cloneSimple(shaped.state.labelOpacity) || {};
+    state.labelLinePattern = cloneSimple(shaped.state.labelLinePattern) || {};
+    state.groupOrder = cloneSimple(shaped.state.groupOrder) || [];
+    state.minSvgWidth = Number.isFinite(Number(shaped.state.minSvgWidth)) ? Number(shaped.state.minSvgWidth) : 0;
+    state.fileName = shaped.state.fileName || state.fileName || 'survival.graph';
+    state.titleText = shaped.state.titleText != null ? String(shaped.state.titleText) : 'Survival curve';
+    state.lastSummary = cloneSimple(shaped.state.lastSummary) || null;
+    state.lastStats = cloneSimple(shaped.results.stats ?? shaped.state.lastStats ?? null) || null;
+    state.statsPanelModels = createDefaultSurvivalStatsPanelModels(shaped.results.statsPanelModels || shaped.state.statsPanelModels || {});
+    state.pairwiseCorrection = shaped.state.pairwiseCorrection || 'holm-sidak';
+    state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(shaped.state.statsReportPScientific);
+    state.covariateSettings = cloneSimple(shaped.state.covariateSettings) || {};
+    state.covariateColumns = cloneSimple(shaped.state.covariateColumns) || [];
+    state.axisSettings = cloneSimple(shaped.state.axisSettings) || createDefaultAxisSettings();
+    state.gridStyle = cloneSimple(shaped.state.gridStyle) || null;
+    state.labelPositions = cloneSimple(shaped.state.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null };
+    state.controls = normalizeSurvivalRuntimeControls(shaped.state.controls || {});
+    state.drawPending = shaped.state.drawPending === true;
+    state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
+    if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
+    }
+    if(!refs.root && shaped.refs?.root){
+      refs.root = shaped.refs.root;
+    }
+    notesState.text = shaped.notes.text || '';
+    notesState.open = !!shaped.notes.open;
+    if(canUseSurvivalNotesControl(notesState.control)){
+      notesState.control.setValue(notesState.text);
+      notesState.control.setOpen(notesState.open);
+    }
+    Object.assign(survivalAdvisorState, createDefaultSurvivalAdvisorState(shaped.advisor || {}));
+    if(options.syncUi !== false){
+      syncSurvivalRuntimeControlsFromState(state.controls);
+      if(state.lastStats || Object.values(state.statsPanelModels || {}).some(survivalStatsPanelModelHasContent)){
+        restoreSurvivalStatsPanelModels(state.statsPanelModels);
+      }
+    }
+    shaped.updatedAt = Date.now();
+    return true;
+  }
+
+  function bindSurvivalSessionForTab(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeSurvivalSessionTabId(tabLike, meta);
+    if(!tabId){ return null; }
+    if(activeSurvivalSession && activeSurvivalSession.tabId && activeSurvivalSession.tabId !== tabId){
+      captureSurvivalSessionStateFromActive(activeSurvivalSession, {
+        reason: meta?.reason || 'survival-session-switch-capture',
+        captureStatsPanels: true
+      });
+    }
+    const session = getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-session-bind' }, { create: true });
+    if(!session){ return null; }
+    const root = meta?.root || resolveSurvivalRoot(tabLike || tabId || null) || session.root || null;
+    session.root = root || session.root || null;
+    session.refs.root = root || session.refs.root || null;
+    activeSurvivalSession = session;
+    survival.__survivalSessionTabId = session.tabId;
+    if(!survival.__boundTabId){
+      survival.__boundTabId = session.tabId;
+    }
+    if(options.apply !== false){
+      applySurvivalSessionStateToActive(session, { syncUi: options.syncUi === true });
+    }
+    return session;
+  }
+
+  function setSurvivalSessionStateFromRuntimeRecord(record, meta = {}){
+    if(!record || typeof record !== 'object'){
+      return null;
+    }
+    const tabId = normalizeSurvivalSessionTabId(meta?.tab || meta?.tabId || record.tabId || null, meta);
+    if(!tabId){ return null; }
+    const session = getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-session-state-from-runtime' }, { create: true });
+    if(!session){ return null; }
+    const runtimeState = record.state && typeof record.state === 'object' ? record.state : record;
+    session.state = createDefaultSurvivalDurableState(runtimeState);
+    session.results = createDefaultSurvivalResultsState({
+      stats: runtimeState.lastStats ?? record.stats,
+      statsPanelModels: runtimeState.statsPanelModels || record.statsPanelModels || record.statsPanels
+    });
+    session.notes = createDefaultSurvivalNotesState(record.notes || runtimeState.notes || {});
+    session.advisor = createDefaultSurvivalAdvisorState(record.advisor || {});
+    session.updatedAt = Date.now();
+    return session;
+  }
 
   function scheduleSurvivalViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
+    const ownerTabId = normalizeSurvivalOwnerTabId(options.tabId || options.workspaceTabId || options.tab?.id || survival.__boundTabId || null);
+    const ownerSession = ownerTabId
+      ? getSurvivalSession(ownerTabId, { tabId: ownerTabId, reason: reason || options.reason || 'survival-view-refresh' }, { create: false })
+      : getActiveSurvivalSessionForState();
+    const activeTabId = normalizeSurvivalOwnerTabId(survival.__boundTabId || null);
+    if(!ownerSession || !ownerTabId || ownerTabId === activeTabId){
+      syncSurvivalRuntimeControlsFromDom(ownerSession || getActiveSurvivalSessionForState());
+      syncSurvivalStateToSession(ownerSession || getActiveSurvivalSessionForState());
+    }
     const nextReason = reason || options.reason || 'survival-view-refresh';
     const normalizedReason = String(nextReason || '').toLowerCase();
     const passiveReason = normalizedReason.includes('restore')
@@ -635,7 +1303,7 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: survival.__boundTabId || null,
+      tabId: ownerTabId || survival.__boundTabId || null,
       reason: nextReason,
       source: 'survival-view-refresh',
       forceDraw: options.force === true,
@@ -646,9 +1314,6 @@
       Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: survival.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival-view-refresh' } });
       return;
     }
-    if(typeof state.scheduleDraw !== 'function'){
-      return;
-    }
     const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
       reason: nextReason,
@@ -656,7 +1321,7 @@
       forceDraw: lifecycleMeta.forceDraw === true,
       userInitiated: lifecycleMeta.userInitiated === true
     });
-    state.scheduleDraw(scheduleOptions);
+    scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), scheduleOptions);
   }
 
   function isSurvivalFontStyleEvent(detail){
@@ -674,7 +1339,7 @@
       if(!isSurvivalFontStyleEvent(detail)){
         return;
       }
-      scheduleSurvivalViewRefresh('font-style-change');
+      scheduleSurvivalViewRefresh('font-style-change', { tabId: detail.tabId || null });
     });
     survivalFontEventBound = true;
   }
@@ -763,6 +1428,7 @@
 
   function setGridStyle(style, fallbackThickness){
     state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { gridStyle: state.gridStyle });
   }
 
   function getAxisTickInterval(axis){
@@ -786,7 +1452,8 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    state.scheduleDraw?.();
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: survival.__boundTabId || null });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -804,7 +1471,8 @@
     }
     settings[axis].minorTicks = nextValue;
     logDebug('axis minor ticks updated',{ axis, enabled: nextValue });
-    state.scheduleDraw?.();
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: survival.__boundTabId || null });
   }
 
   function getAxisMinorTickSubdivisions(axis){
@@ -822,7 +1490,8 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     logDebug('axis minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    state.scheduleDraw?.();
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: survival.__boundTabId || null });
   }
 
   function getAxisStrokeWidthBase(){
@@ -838,7 +1507,8 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     logDebug('axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    state.scheduleDraw?.();
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: survival.__boundTabId || null });
   }
 
   function getAxisColor(){
@@ -849,7 +1519,8 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     logDebug('axis color updated',{ color: settings.color });
-    state.scheduleDraw?.();
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: survival.__boundTabId || null });
   }
 
   function registerSurvivalGridControlTarget(target, options){
@@ -865,12 +1536,14 @@
         if(refs.showGrid){
           refs.showGrid.checked = !!value;
         }
-        state.scheduleDraw?.();
+        syncSurvivalRuntimeControlsFromDom();
+        syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+        scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: survival.__boundTabId || null });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        state.scheduleDraw?.();
+        scheduleActiveSurvivalDraw({ reason: 'grid-style-change', tabId: survival.__boundTabId || null });
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -900,6 +1573,7 @@
     state.axisSettings = base;
     ensureAxisSettings();
     logDebug('axis settings applied',{ settings: state.axisSettings });
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: state.axisSettings });
   }
 
   function buildManualTicks(min, max, interval){
@@ -926,6 +1600,63 @@
   }
 
   const refs = {};
+  function createDefaultSurvivalRuntimeControls(){
+    return {
+      showCI: false,
+      showCensor: true,
+      showHazardRatios: true,
+      fitCoxModel: true,
+      showGrid: false,
+      showFrame: false,
+      showLegend: true,
+      timeMax: '',
+      fontSize: '12',
+      xLabel: 'Time',
+      yLabel: 'Survival Probability'
+    };
+  }
+
+  function normalizeSurvivalRuntimeControls(source = {}){
+    const defaults = createDefaultSurvivalRuntimeControls();
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      showCI: Object.prototype.hasOwnProperty.call(src, 'showCI') ? !!src.showCI : defaults.showCI,
+      showCensor: Object.prototype.hasOwnProperty.call(src, 'showCensor') ? !!src.showCensor : defaults.showCensor,
+      showHazardRatios: Object.prototype.hasOwnProperty.call(src, 'showHazardRatios') ? !!src.showHazardRatios : defaults.showHazardRatios,
+      fitCoxModel: Object.prototype.hasOwnProperty.call(src, 'fitCoxModel') ? !!src.fitCoxModel : defaults.fitCoxModel,
+      showGrid: Object.prototype.hasOwnProperty.call(src, 'showGrid') ? !!src.showGrid : defaults.showGrid,
+      showFrame: Object.prototype.hasOwnProperty.call(src, 'showFrame') ? !!src.showFrame : defaults.showFrame,
+      showLegend: Object.prototype.hasOwnProperty.call(src, 'showLegend') ? src.showLegend !== false : defaults.showLegend,
+      timeMax: src.timeMax != null ? String(src.timeMax) : defaults.timeMax,
+      fontSize: src.fontSize != null ? String(src.fontSize) : defaults.fontSize,
+      xLabel: src.xLabel != null ? String(src.xLabel) : defaults.xLabel,
+      yLabel: src.yLabel != null ? String(src.yLabel) : defaults.yLabel
+    };
+  }
+
+  function syncSurvivalRuntimeControlsFromDom(session = null){
+    state.controls = normalizeSurvivalRuntimeControls({
+      ...(state.controls || {}),
+      showCI: refs.showCI ? !!refs.showCI.checked : state.controls?.showCI,
+      showCensor: refs.showCensor ? !!refs.showCensor.checked : state.controls?.showCensor,
+      showHazardRatios: refs.showHazardRatios ? !!refs.showHazardRatios.checked : state.controls?.showHazardRatios,
+      fitCoxModel: refs.fitCoxModel ? !!refs.fitCoxModel.checked : state.controls?.fitCoxModel,
+      showGrid: refs.showGrid ? !!refs.showGrid.checked : state.controls?.showGrid,
+      showFrame: refs.showFrame ? !!refs.showFrame.checked : state.controls?.showFrame,
+      showLegend: refs.showLegend ? !!refs.showLegend.checked : state.controls?.showLegend,
+      timeMax: refs.timeMax ? refs.timeMax.value : state.controls?.timeMax,
+      fontSize: refs.fontSize ? refs.fontSize.value : state.controls?.fontSize,
+      xLabel: state.controls?.xLabel,
+      yLabel: state.controls?.yLabel
+    });
+    const ownerSession = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(ownerSession?.state){
+      ownerSession.state.controls = cloneSimple(state.controls) || createDefaultSurvivalRuntimeControls();
+      ownerSession.updatedAt = Date.now();
+    }
+    return state.controls;
+  }
+
   function resolveSurvivalRoot(tabLike){
     return Shared.workspaceTabs?.resolveComponentRoot?.({
       tabLike: tabLike || null,
@@ -996,6 +1727,69 @@
       reporting.clearReportHost(target);
     }
   }
+
+  function normalizeSurvivalStatsPanelModel(source = {}){
+    if(Shared.statsReporting && typeof Shared.statsReporting.normalizeSavedPanelModel === 'function'){
+      return Shared.statsReporting.normalizeSavedPanelModel(source);
+    }
+    const src = source && typeof source === 'object' ? source : {};
+    return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
+  }
+
+  function captureSurvivalStatsPanel(target, fallback = null){
+    const previous = normalizeSurvivalStatsPanelModel(fallback || {});
+    if(!target || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
+      return previous;
+    }
+    return normalizeSurvivalStatsPanelModel(Shared.statsReporting.capturePanelModel(target) || previous);
+  }
+
+  function captureSurvivalStatsPanelModels(fallback = null){
+    const previous = fallback && typeof fallback === 'object' ? fallback : (state.statsPanelModels || {});
+    state.statsPanelModels = {
+      summary: captureSurvivalStatsPanel(refs.statsSummary, previous.summary),
+      logRank: captureSurvivalStatsPanel(refs.statsLogRank, previous.logRank),
+      hazardRatios: captureSurvivalStatsPanel(refs.statsHazardRatios, previous.hazardRatios),
+      cox: captureSurvivalStatsPanel(refs.statsCox, previous.cox)
+    };
+    return cloneSimple(state.statsPanelModels) || state.statsPanelModels;
+  }
+
+  function survivalStatsPanelModelHasContent(model){
+    const normalized = normalizeSurvivalStatsPanelModel(model);
+    return !!(normalized.resultsModel || normalized.reportModel);
+  }
+
+  function restoreSurvivalStatsPanel(target, model, options = {}){
+    const normalized = normalizeSurvivalStatsPanelModel(model);
+    if(!target || !survivalStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
+    }
+    const reportHost = options.ensureReportHost ? options.ensureReportHost() : null;
+    Shared.statsReporting.restorePanelModel(target, normalized, {
+      ensureReportHost: reportHost ? () => reportHost : undefined,
+      clearMainWhenMissing: false
+    });
+    return true;
+  }
+
+  function restoreSurvivalStatsPanelModels(models){
+    const source = models && typeof models === 'object' ? models : {};
+    let restored = false;
+    restored = restoreSurvivalStatsPanel(refs.statsSummary, source.summary) || restored;
+    restored = restoreSurvivalStatsPanel(refs.statsLogRank, source.logRank) || restored;
+    restored = restoreSurvivalStatsPanel(refs.statsHazardRatios, source.hazardRatios) || restored;
+    restored = restoreSurvivalStatsPanel(refs.statsCox, source.cox, { ensureReportHost: ensureSurvivalCoxReportHost }) || restored;
+    if(restored){
+      state.statsPanelModels = {
+        summary: normalizeSurvivalStatsPanelModel(source.summary),
+        logRank: normalizeSurvivalStatsPanelModel(source.logRank),
+        hazardRatios: normalizeSurvivalStatsPanelModel(source.hazardRatios),
+        cox: normalizeSurvivalStatsPanelModel(source.cox)
+      };
+    }
+    return restored;
+  }
   let survivalLegendControl = null;
 
   function ensureSurvivalLegendControlPlacement(){
@@ -1020,6 +1814,29 @@
     lastApplied: null,
     context: null
   };
+
+  function getSurvivalAdvisorState(session = null){
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(shaped){
+      shaped.advisor = createDefaultSurvivalAdvisorState(shaped.advisor || {});
+      return shaped.advisor;
+    }
+    Object.assign(survivalAdvisorState, createDefaultSurvivalAdvisorState(survivalAdvisorState));
+    return survivalAdvisorState;
+  }
+
+  function setSurvivalAdvisorState(value, session = null){
+    const next = createDefaultSurvivalAdvisorState(value || {});
+    const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
+    if(shaped){
+      shaped.advisor = next;
+      shaped.updatedAt = Date.now();
+    }
+    if(!shaped || isSurvivalSessionActiveOrActivating(shaped)){
+      Object.assign(survivalAdvisorState, next);
+    }
+    return next;
+  }
 
   function $(selector){
     return resolveSurvivalRoot()?.querySelector?.(selector) || null;
@@ -1059,8 +1876,6 @@
     refs.showGrid = $('#survivalShowGrid');
     refs.showFrame = $('#survivalShowFrame');
     refs.timeMax = $('#survivalTimeMax');
-    refs.xLabel = $('#survivalXLabel');
-    refs.yLabel = $('#survivalYLabel');
     refs.fontSize = $('#survivalFontSize');
     refs.fontSizeVal = $('#survivalFontSizeVal');
     refs.showLegend = $('#survivalShowLegend');
@@ -1102,10 +1917,8 @@
       const baseData = Shared.createEmptyData(DEFAULT_ROWS, SURVIVAL_DEFAULT_COLS);
       logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
       return Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
-        if(state.scheduleDraw){
-          logDebug('table scheduled redraw');
-          state.scheduleDraw();
-        }
+        logDebug('table scheduled redraw');
+        scheduleActiveSurvivalDraw({ reason: 'survival-table-change', tabId: survival.__boundTabId || null });
       }, {
         debugLabel: 'survival',
         data: baseData,
@@ -1157,6 +1970,10 @@
         state.hot = entry.instance;
         refs.hotContainer = entry.container || baseContainer;
       }
+      if(state.hot && tableTabId){
+        state.hot.__survivalTabId = tableTabId;
+        state.hot.__workspaceTabId = state.hot.__workspaceTabId || tableTabId;
+      }
       ensureSurvivalDataViewsForHot(state.hot, {
         wrapper,
         container: state.hot?.__survivalHostContainer || refs.hotContainer || baseContainer
@@ -1165,10 +1982,15 @@
     };
     state.hot = ensureSurvivalHotForActiveTab();
     state.ensureHotForActiveTab = ensureSurvivalHotForActiveTab;
+    const activeSession = getActiveSurvivalSessionForState();
+    if(activeSession?.managers){
+      activeSession.managers.hot = state.hot || null;
+    }
     ensureSurvivalDataViewsForHot(state.hot, {
       wrapper: $('#survivalHotWrapper'),
       container: state.hot?.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
     });
+    syncSurvivalSessionManagersFromActive(activeSession);
     logDebug('Grid initialized', { hasHot: !!state.hot });
     refreshCovariateControls();
   }
@@ -1179,6 +2001,17 @@
     }
     if(typeof Shared.dataViews?.createManager !== 'function'){
       return null;
+    }
+    const ownerTabId = normalizeSurvivalOwnerTabId(
+      options.tabId
+      || hotInstance.__survivalTabId
+      || hotInstance.__workspaceTabId
+      || survival.__boundTabId
+      || ''
+    );
+    if(ownerTabId){
+      hotInstance.__survivalTabId = ownerTabId;
+      hotInstance.__workspaceTabId = hotInstance.__workspaceTabId || ownerTabId;
     }
     if(!hotInstance.__survivalDataViewsManager){
       hotInstance.__survivalDataViewsManager = Shared.dataViews.createManager({
@@ -1197,8 +2030,17 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
-          state.scheduleDraw?.({
+          const scheduledTabId = resolveSurvivalHotOwnerTabId(hotInstance) || ownerTabId || survival.__boundTabId || null;
+          const scheduledSession = getSurvivalSession(scheduledTabId, {
+            tabId: scheduledTabId,
+            reason: 'survival-data-view-switch'
+          }, { create: false, fallbackActive: true });
+          const activeTabId = normalizeSurvivalOwnerTabId(survival.__boundTabId || null);
+          const scheduler = scheduledSession?.timers?.scheduleDraw
+            || (!scheduledTabId || scheduledTabId === activeTabId ? state.scheduleDraw : null);
+          scheduler?.({
             reason: 'data-view-switch',
+            tabId: scheduledTabId || null,
             userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
           });
         },
@@ -1209,13 +2051,26 @@
       logDebug('data views manager created');
     }
     const manager = hotInstance.__survivalDataViewsManager;
+    if(manager && ownerTabId){
+      manager.__survivalTabId = ownerTabId;
+      manager.__workspaceTabId = manager.__workspaceTabId || ownerTabId;
+      manager.__ownerTabId = manager.__ownerTabId || ownerTabId;
+      manager.hot = manager.hot || hotInstance;
+    }
     const hostWrapper = options.wrapper || $('#survivalHotWrapper');
     const hostContainer = options.container || hotInstance.__survivalHostContainer || refs.hotContainer || $('#survivalHot');
     if(hostWrapper && hostContainer){
       manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
       manager.refresh?.();
     }
-    survivalDataViewsManager = manager;
+    const managerSession = getSurvivalSession(hotInstance.__survivalTabId || hotInstance.__workspaceTabId || survival.__boundTabId || null, {
+      reason: 'survival-data-views-manager'
+    }, { create: true }) || getActiveSurvivalSessionForState();
+    if(managerSession?.managers){
+      managerSession.managers.hot = hotInstance;
+      managerSession.managers.dataViews = survivalDataViewsManagerBelongsToSession(manager, managerSession) ? manager : managerSession.managers.dataViews || null;
+      managerSession.updatedAt = Date.now();
+    }
     return manager;
   }
 
@@ -1224,7 +2079,16 @@
     if(!hot || typeof hot.getData !== 'function'){
       return;
     }
-    const manager = hot.__survivalDataViewsManager || survivalDataViewsManager;
+    const ownerTabId = resolveSurvivalHotOwnerTabId(hot);
+    const ownerSession = ownerTabId
+      ? getSurvivalSession(ownerTabId, { tabId: ownerTabId, reason: reason || 'survival-active-data-view-sync' }, { create: false, fallbackActive: true })
+      : null;
+    let manager = hot.__survivalDataViewsManager || null;
+    if(!survivalDataViewsManagerBelongsToSession(manager, ownerSession)){
+      manager = survivalDataViewsManagerBelongsToSession(ownerSession?.managers?.dataViews || null, ownerSession)
+        ? ownerSession.managers.dataViews
+        : null;
+    }
     if(!manager){
       return;
     }
@@ -1285,11 +2149,11 @@
     return context;
   }
 
-  function ensureSurvivalAdvisorDefaults(context){
-    if(!survivalAdvisorState.answers || typeof survivalAdvisorState.answers !== 'object'){
-      survivalAdvisorState.answers = {};
+  function ensureSurvivalAdvisorDefaults(context, advisorState = getSurvivalAdvisorState()){
+    if(!advisorState.answers || typeof advisorState.answers !== 'object'){
+      advisorState.answers = {};
     }
-    const answers = survivalAdvisorState.answers;
+    const answers = advisorState.answers;
     if(!answers.analysisFocus){
       answers.analysisFocus = context.groupCount >= 2 ? 'compare' : 'describe';
     }
@@ -1311,8 +2175,8 @@
     return answers;
   }
 
-  function buildSurvivalAdvisorQuestions(context){
-    const answers = ensureSurvivalAdvisorDefaults(context);
+  function buildSurvivalAdvisorQuestions(context, advisorState = getSurvivalAdvisorState()){
+    const answers = ensureSurvivalAdvisorDefaults(context, advisorState);
     const questions = [
       {
         id: 'analysisFocus',
@@ -1460,35 +2324,40 @@
     if(!container){
       return;
     }
+    const advisorSession = getActiveSurvivalSessionForState();
+    const advisorState = getSurvivalAdvisorState(advisorSession);
     const context = providedContext || buildSurvivalAdvisorContext(summary || state.lastSummary || {});
-    survivalAdvisorState.context = context;
-    const answers = ensureSurvivalAdvisorDefaults(context);
+    advisorState.context = context;
+    const answers = ensureSurvivalAdvisorDefaults(context, advisorState);
+    setSurvivalAdvisorState(advisorState, advisorSession);
     const recommendation = computeSurvivalAdvisorRecommendation(answers, context);
     const sharedAdvisorUi = Shared.statsUi;
     if(sharedAdvisorUi && typeof sharedAdvisorUi.renderAdvisorPanel === 'function'){
       sharedAdvisorUi.renderAdvisorPanel({
         container,
-        state: survivalAdvisorState,
+        state: advisorState,
         title: 'Statistics advisor',
         inactiveMessage: 'Press the "Guide me" button to view advisor recommendations.',
         recommendation,
         answers,
-        questions: survivalAdvisorState.open ? buildSurvivalAdvisorQuestions(context) : [],
+        questions: advisorState.open ? buildSurvivalAdvisorQuestions(context, advisorState) : [],
         namePrefix: 'survival-advisor',
         onToggle: (nextOpen)=>{
-          survivalAdvisorState.open = !!nextOpen;
-          if(survivalAdvisorState.open && !survivalAdvisorState.activated){
-            survivalAdvisorState.activated = true;
+          advisorState.open = !!nextOpen;
+          if(advisorState.open && !advisorState.activated){
+            advisorState.activated = true;
             logDebug('stats advisor activated');
           }
-          logDebug('stats advisor toggled', { open: survivalAdvisorState.open });
-          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+          logDebug('stats advisor toggled', { open: advisorState.open });
+          setSurvivalAdvisorState(advisorState, advisorSession);
+          renderSurvivalStatsAdvisor(null, advisorState.context);
         },
         onAnswerChange: (question, value)=>{
           answers[question.id] = value;
-          survivalAdvisorState.answers = answers;
+          advisorState.answers = answers;
           logDebug('stats advisor answer change', { question: question.id, value });
-          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+          setSurvivalAdvisorState(advisorState, advisorSession);
+          renderSurvivalStatsAdvisor(null, advisorState.context);
         },
         onApply: ()=>{
           if(!recommendation.ready){
@@ -1500,21 +2369,23 @@
           if(refs.fitCoxModel){
             refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
           }
-          survivalAdvisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+          advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+          syncSurvivalRuntimeControlsFromDom();
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+          setSurvivalAdvisorState(advisorState, advisorSession);
           logDebug('stats advisor recommendation applied', {
             showHazardRatios: recommendation.showHazardRatios,
             fitCoxModel: recommendation.fitCoxModel,
             answers: { ...answers }
           });
-          if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
-          }
-          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+          scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+          renderSurvivalStatsAdvisor(null, advisorState.context);
         },
         onReset: ()=>{
-          survivalAdvisorState.answers = {};
+          advisorState.answers = {};
+          setSurvivalAdvisorState(advisorState, advisorSession);
           logDebug('stats advisor answers reset');
-          renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+          renderSurvivalStatsAdvisor(null, advisorState.context);
         }
       });
       return;
@@ -1522,7 +2393,7 @@
     container.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.className = 'stats-advisor';
-    wrapper.dataset.open = survivalAdvisorState.open ? '1' : '0';
+    wrapper.dataset.open = advisorState.open ? '1' : '0';
     const header = document.createElement('div');
     header.className = 'stats-advisor__header';
     const title = document.createElement('strong');
@@ -1531,21 +2402,22 @@
     const toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'stats-advisor__toggle';
-    toggle.textContent = survivalAdvisorState.open ? 'Hide advisor' : 'Guide me';
+    toggle.textContent = advisorState.open ? 'Hide advisor' : 'Guide me';
     toggle.addEventListener('click', () => {
-      survivalAdvisorState.open = !survivalAdvisorState.open;
-      if(survivalAdvisorState.open && !survivalAdvisorState.activated){
-        survivalAdvisorState.activated = true;
+      advisorState.open = !advisorState.open;
+      if(advisorState.open && !advisorState.activated){
+        advisorState.activated = true;
         logDebug('stats advisor activated');
       }
-      logDebug('stats advisor toggled', { open: survivalAdvisorState.open });
-      renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+      logDebug('stats advisor toggled', { open: advisorState.open });
+      setSurvivalAdvisorState(advisorState, advisorSession);
+      renderSurvivalStatsAdvisor(null, advisorState.context);
     });
     header.appendChild(toggle);
     wrapper.appendChild(header);
     const summaryBlock = document.createElement('div');
     summaryBlock.className = 'stats-advisor__summary';
-    if(!survivalAdvisorState.activated){
+    if(!advisorState.activated){
       const message = document.createElement('div');
       message.textContent = 'Press the "Guide me" button to view advisor recommendations.';
       summaryBlock.appendChild(message);
@@ -1584,10 +2456,10 @@
       summaryBlock.appendChild(message);
     }
     wrapper.appendChild(summaryBlock);
-    if(survivalAdvisorState.open){
+    if(advisorState.open){
       const questionsWrap = document.createElement('div');
       questionsWrap.className = 'stats-advisor__questions';
-      const questions = buildSurvivalAdvisorQuestions(context);
+      const questions = buildSurvivalAdvisorQuestions(context, advisorState);
       questions.forEach(question => {
         const fieldset = document.createElement('fieldset');
         fieldset.className = 'stats-advisor__question';
@@ -1610,9 +2482,10 @@
           input.checked = answers[question.id] === option.value;
           input.addEventListener('change', () => {
             answers[question.id] = option.value;
-            survivalAdvisorState.answers = answers;
+            advisorState.answers = answers;
             logDebug('stats advisor answer change', { question: question.id, value: option.value });
-            renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+            setSurvivalAdvisorState(advisorState, advisorSession);
+            renderSurvivalStatsAdvisor(null, advisorState.context);
           });
           const span = document.createElement('span');
           span.textContent = option.label;
@@ -1639,16 +2512,17 @@
         if(refs.fitCoxModel){
           refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
         }
-        survivalAdvisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+        advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+        syncSurvivalRuntimeControlsFromDom();
+        syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+        setSurvivalAdvisorState(advisorState, advisorSession);
         logDebug('stats advisor recommendation applied', {
           showHazardRatios: recommendation.showHazardRatios,
           fitCoxModel: recommendation.fitCoxModel,
           answers: { ...answers }
         });
-        if(typeof state.scheduleDraw === 'function'){
-          state.scheduleDraw();
-        }
-        renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+        renderSurvivalStatsAdvisor(null, advisorState.context);
       });
       actions.appendChild(applyBtn);
       const resetBtn = document.createElement('button');
@@ -1656,9 +2530,10 @@
       resetBtn.className = 'stats-advisor__reset';
       resetBtn.textContent = 'Reset answers';
       resetBtn.addEventListener('click', () => {
-        survivalAdvisorState.answers = {};
+        advisorState.answers = {};
+        setSurvivalAdvisorState(advisorState, advisorSession);
         logDebug('stats advisor answers reset');
-        renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+        renderSurvivalStatsAdvisor(null, advisorState.context);
       });
       actions.appendChild(resetBtn);
       wrapper.appendChild(actions);
@@ -1738,9 +2613,8 @@
       source: options.source || 'apply',
       forced: force
     });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
+    scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: survival.__boundTabId || null });
     return true;
   }
 
@@ -1828,6 +2702,7 @@
             relX: relX, 
             relY: relY 
           };
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
           logDebug('legend position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -1942,24 +2817,34 @@
       attachSurvivalSelectAutoSize(select, 'survival-covariate');
 
       checkbox.addEventListener('change', ev => {
-        const idx = ev.target.dataset.columnIndex;
-        state.covariateSettings[idx] = state.covariateSettings[idx] || { type: select.value };
-        state.covariateSettings[idx].enabled = ev.target.checked;
-        select.disabled = !coxAnalysisActive || !ev.target.checked;
-        logDebug('covariate toggle changed', { columnIndex: Number(idx), enabled: ev.target.checked });
-        if(state.scheduleDraw){
-          state.scheduleDraw();
-        }
+        runSurvivalControlOwner(ev, 'survival-covariate-toggle', session => {
+          const idx = ev.target.dataset.columnIndex;
+          state.covariateSettings[idx] = state.covariateSettings[idx] || { type: select.value };
+          state.covariateSettings[idx].enabled = ev.target.checked;
+          select.disabled = !coxAnalysisActive || !ev.target.checked;
+          logDebug('covariate toggle changed', { columnIndex: Number(idx), enabled: ev.target.checked });
+          syncSurvivalStateToSession(session, { covariateSettings: state.covariateSettings });
+          scheduleSurvivalDrawForSession(session, {
+            reason: 'survival-covariate-toggle',
+            tabId: session?.tabId || undefined,
+            userInitiated: true
+          });
+        });
       });
 
       select.addEventListener('change', ev => {
-        const idx = ev.target.dataset.columnIndex;
-        state.covariateSettings[idx] = state.covariateSettings[idx] || { enabled: checkbox.checked };
-        state.covariateSettings[idx].type = ev.target.value === 'time' && supportsTimeDependent ? 'time' : 'baseline';
-        logDebug('covariate type changed', { columnIndex: Number(idx), type: state.covariateSettings[idx].type });
-        if(state.scheduleDraw){
-          state.scheduleDraw();
-        }
+        runSurvivalControlOwner(ev, 'survival-covariate-type', session => {
+          const idx = ev.target.dataset.columnIndex;
+          state.covariateSettings[idx] = state.covariateSettings[idx] || { enabled: checkbox.checked };
+          state.covariateSettings[idx].type = ev.target.value === 'time' && supportsTimeDependent ? 'time' : 'baseline';
+          logDebug('covariate type changed', { columnIndex: Number(idx), type: state.covariateSettings[idx].type });
+          syncSurvivalStateToSession(session, { covariateSettings: state.covariateSettings });
+          scheduleSurvivalDrawForSession(session, {
+            reason: 'survival-covariate-type',
+            tabId: session?.tabId || undefined,
+            userInitiated: true
+          });
+        });
       });
 
       row.appendChild(checkbox);
@@ -2439,19 +3324,6 @@
       covariateColumnCount: covariateColumns.length
     });
     return { series, groupNames: ordered, maxTime, logRank, covariateColumns, headers: headerLookup, supportsTimeDependent };
-  }
-
-  function escapeHtml(value){
-    return String(value ?? '').replace(/[&<>"']/g, match => {
-      switch(match){
-        case '&': return '&amp;';
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '"': return '&quot;';
-        case "'": return '&#39;';
-        default: return match;
-      }
-    });
   }
 
   function safeExp(value){
@@ -3494,6 +4366,7 @@
       return next;
     }
     state.statsReportPScientific = next;
+    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { statsReportPScientific: next });
     syncSurvivalStatsPValuePanelState();
     if(state.lastSummary && Array.isArray(state.lastSummary.series)){
       updateStats(state.lastSummary);
@@ -3707,19 +4580,33 @@
     ensureGraphViewport(svg, options);
   }
 
-  function drawSurvival(){
-    if(!refs.plotDiv){
-      return;
+  function drawSurvival(options = {}, session = null){
+    const drawSession = ensureSurvivalSessionOwnershipShape(session || getSurvivalSessionForDrawOptions(options));
+    if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
+      drawSession.state.drawPending = true;
+      drawSession.updatedAt = Date.now();
+      return false;
     }
+    const drawTabId = drawSession?.tabId || options?.tabId || survival.__boundTabId || null;
+    const plotDiv = getSurvivalNodeById('survivalPlot', drawTabId) || refs.plotDiv || getSurvivalNodeById('survivalPlot');
+    if(!plotDiv){
+      if(drawSession){
+        drawSession.state.drawPending = true;
+        drawSession.updatedAt = Date.now();
+      }
+      return false;
+    }
+    refs.plotDiv = plotDiv;
     const debugStamp = Date.now();
+    const controls = syncSurvivalRuntimeControlsFromDom();
     logDebug('draw start', { debugStamp });
     while(refs.plotDiv.firstChild){
       refs.plotDiv.removeChild(refs.plotDiv.firstChild);
     }
     const summary = collectSeries();
     refreshCovariateControls();
-    const hazardRatiosEnabled = !!refs.showHazardRatios?.checked;
-    const coxEnabled = !!refs.fitCoxModel?.checked;
+    const hazardRatiosEnabled = !!controls.showHazardRatios;
+    const coxEnabled = !!controls.fitCoxModel;
     let coxModelSummary = { available: false, message: coxEnabled ? 'Cox model unavailable.' : 'Cox model fitting disabled.' };
     let hazardSummary = { available: false, message: hazardRatiosEnabled ? 'Hazard ratios unavailable.' : 'Hazard ratio table hidden.' };
     if(summary.series.length){
@@ -3783,12 +4670,12 @@
     refs.plotDiv.appendChild(svg);
 
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
-      rawSize: refs.fontSize?.value,
+      rawSize: controls.fontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
       svgBox: refs.svgBox,
       input: refs.fontSize
-    }) : { scaledPx: Number(refs.fontSize?.value) || 12, pt: Number(refs.fontSize?.value) || 12, scaleInfo: { styleScale: 1 } };
+    }) : { scaledPx: Number(controls.fontSize) || 12, pt: Number(controls.fontSize) || 12, scaleInfo: { styleScale: 1 } };
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
     const fs = fontInfo.scaledPx || 12;
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
@@ -3808,13 +4695,12 @@
     const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
     const tickLen = axisMetrics.tickLength ?? 6;
     const tickGap = axisMetrics.tickLabelGap ?? 6;
-    const xLabelText = refs.xLabel?.value?.trim() || 'Time';
-    const yLabelText = refs.yLabel?.value?.trim() || 'Survival Probability';
-    const axisLabelFont = chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`;
-    const yTitleWidthBase = chartStyle.measureText ? chartStyle.measureText(yLabelText, axisLabelFont) : fs * yLabelText.length * 0.6;
+    const xLabelText = controls.xLabel?.trim() || 'Time';
+    const yLabelText = controls.yLabel?.trim() || 'Survival Probability';
+    const hasYTitle = yLabelText.trim().length > 0;
 
     ensureSurvivalLegendControlPlacement();
-    const showLegend = !refs.showLegend || !!refs.showLegend.checked;
+    const showLegend = controls.showLegend !== false;
     logDebug('legend state resolved', { showLegend, groupCount: summary.series.length });
     const legendStrokeWidth = curveStrokeWidth;
     const groupsForDraw = summary.series.map((group, index) => {
@@ -3861,7 +4747,7 @@
     };
 
     const autoXMax = summary.maxTime > 0 ? summary.maxTime : 1;
-    const manualXMax = Number.parseFloat(refs.timeMax?.value);
+    const manualXMax = Number.parseFloat(controls.timeMax);
     let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax;
     xMax = Math.max(xMax, autoXMax || 1);
     if(Shared.isDebugEnabled?.()){
@@ -3886,7 +4772,7 @@
       fontSize: fs,
       legendWidth,
       maxYLabelWidth: 0,
-      yTitleWidth: yTitleWidthBase,
+      hasYTitle,
       axisMetrics
     }) : { top: fs * 3, right: legendWidth + 24, bottom: fs * 4, left: fs * 4 };
     let plotW = Math.max(20, width - margin.left - margin.right);
@@ -3955,7 +4841,7 @@
         fontSize: fs,
         legendWidth,
         maxYLabelWidth,
-        yTitleWidth: yTitleWidthBase,
+        hasYTitle,
         axisMetrics
       }) : margin;
       plotW = Math.max(20, width - margin.left - margin.right);
@@ -3998,8 +4884,8 @@
       return el;
     }
 
-    const showGrid = !!refs.showGrid?.checked;
-    const showFrame = !!refs.showFrame?.checked;
+    const showGrid = !!controls.showGrid;
+    const showFrame = !!controls.showFrame;
 
     if(showGrid){
       xScale.ticks.forEach(val => {
@@ -4163,6 +5049,27 @@
     });
     xTitle.textContent = xLabelText;
     markFontEditable(xTitle, 'xTitle', 'xTitle');
+    const applySurvivalXLabel = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.controls = normalizeSurvivalRuntimeControls({
+        ...(state.controls || {}),
+        xLabel: nextValue
+      });
+      if(xTitle.textContent !== nextValue){
+        xTitle.textContent = nextValue;
+      }
+      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+      scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: survival.__boundTabId || null });
+    };
+    makeEditable(xTitle, txt => {
+      const previous = state.controls?.xLabel != null ? String(state.controls.xLabel) : 'Time';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applySurvivalXLabel(nextValue);
+      recordSurvivalChange('survival:x-label', previous, nextValue, applySurvivalXLabel);
+    });
     // Enable drag for x-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xTitle, svg, {
@@ -4176,6 +5083,7 @@
             relX: relX, 
             relY: relY 
           };
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
           logDebug('x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -4212,6 +5120,27 @@
     });
     yTitle.textContent = yLabelText;
     markFontEditable(yTitle, 'yTitle', 'yTitle');
+    const applySurvivalYLabel = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.controls = normalizeSurvivalRuntimeControls({
+        ...(state.controls || {}),
+        yLabel: nextValue
+      });
+      if(yTitle.textContent !== nextValue){
+        yTitle.textContent = nextValue;
+      }
+      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+      scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: survival.__boundTabId || null });
+    };
+    makeEditable(yTitle, txt => {
+      const previous = state.controls?.yLabel != null ? String(state.controls.yLabel) : 'Survival Probability';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applySurvivalYLabel(nextValue);
+      recordSurvivalChange('survival:y-label', previous, nextValue, applySurvivalYLabel);
+    });
     // Enable drag for y-axis label
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yTitle, svg, {
@@ -4225,6 +5154,7 @@
             relX: relX, 
             relY: relY 
           };
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
           logDebug('y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -4265,9 +5195,8 @@
       if(titleText.textContent !== nextValue){
         titleText.textContent = nextValue;
       }
-      if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
-      }
+      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { titleText: state.titleText });
+      scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: survival.__boundTabId || null });
     };
     makeEditable(titleText, txt => {
       const previous = state.titleText != null ? String(state.titleText) : '';
@@ -4291,13 +5220,14 @@
             relX: relX, 
             relY: relY 
           };
+          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
           logDebug('title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
     }
 
-    const showCI = !!refs.showCI?.checked;
-    const showCensor = !!refs.showCensor?.checked;
+    const showCI = !!controls.showCI;
+    const showCensor = !!controls.showCensor;
     groupsForDraw.forEach(group => {
       const groupMaxTime = Number.isFinite(group.km?.maxTime) ? group.km.maxTime : xScale.max;
       if(Shared.isDebugEnabled?.() && Number.isFinite(groupMaxTime) && Number.isFinite(xScale.max) && groupMaxTime < xScale.max){
@@ -4370,6 +5300,7 @@
     autoResizeSvgHelper(svg);
     state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
+    return true;
   }
 
   function updateStats(summary){
@@ -4385,6 +5316,15 @@
         refs.statsCox.innerHTML = '';
       }
       state.lastStats = null;
+      state.statsPanelModels = createDefaultSurvivalStatsPanelModels();
+      const session = getActiveSurvivalSessionForState();
+      if(session){
+        session.state.lastSummary = cloneSimple(state.lastSummary) || null;
+        session.state.lastStats = null;
+        session.state.statsPanelModels = createDefaultSurvivalStatsPanelModels();
+        session.results = createDefaultSurvivalResultsState({ stats: null, statsPanelModels: session.state.statsPanelModels });
+        session.updatedAt = Date.now();
+      }
       return;
     }
 
@@ -4438,7 +5378,7 @@
           : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier group summaries were generated for ${summary.series.length} group(s). ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were requested.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? 'A Cox proportional-hazards model was fit when estimable.' : 'Cox modelling was disabled.'}`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
         resultsText: [
           `${summary.series.length} group(s) contributed survival data.`,
           logRankText,
@@ -4472,6 +5412,15 @@
           supportsTimeDependent: !!summary.supportsTimeDependent
         }
       }, { title: 'Reporting and reproducibility' });
+    }
+    captureSurvivalStatsPanelModels();
+    const session = getActiveSurvivalSessionForState();
+    if(session){
+      session.state.lastSummary = cloneSimple(state.lastSummary) || null;
+      session.state.lastStats = cloneSimple(state.lastStats) || null;
+      session.state.statsPanelModels = createDefaultSurvivalStatsPanelModels(state.statsPanelModels || {});
+      session.results = createDefaultSurvivalResultsState({ stats: session.state.lastStats, statsPanelModels: session.state.statsPanelModels });
+      session.updatedAt = Date.now();
     }
     logDebug('statistics updated', {
       groupCount: summary.series.length,
@@ -4900,29 +5849,80 @@
     });
   }
 
-  function getGraphPayload(){
-    const activeHot = state.ensureHotForActiveTab?.() || state.hot;
+  function getGraphPayload(meta = {}){
+    const requestedSession = getSurvivalSession(meta?.tab || meta?.tabId || null, meta, { create: false, fallbackActive: true })
+      || getActiveSurvivalSessionForState();
+    const activeSession = getActiveSurvivalSessionForState();
+    const usingActiveModuleState = !requestedSession || requestedSession === activeSession;
+    if(usingActiveModuleState){
+      syncSurvivalRuntimeControlsFromDom();
+      captureSurvivalSessionStateFromActive(requestedSession || activeSession, {
+        reason: meta?.reason || 'survival-payload-active-capture',
+        captureStatsPanels: true
+      });
+    }
+    const payloadSession = requestedSession || activeSession;
+    const payloadState = usingActiveModuleState
+      ? createDefaultSurvivalDurableState({
+          labelColors: state.labelColors,
+          labelStrokeWidth: state.labelStrokeWidth,
+          labelOpacity: state.labelOpacity,
+          labelLinePattern: state.labelLinePattern,
+          groupOrder: state.groupOrder,
+          minSvgWidth: state.minSvgWidth,
+          fileName: state.fileName,
+          titleText: state.titleText,
+          lastSummary: state.lastSummary,
+          lastStats: state.lastStats,
+          statsPanelModels: state.statsPanelModels,
+          pairwiseCorrection: state.pairwiseCorrection,
+          statsReportPScientific: state.statsReportPScientific,
+          covariateSettings: state.covariateSettings,
+          covariateColumns: state.covariateColumns,
+          axisSettings: state.axisSettings,
+          gridStyle: state.gridStyle,
+          labelPositions: state.labelPositions,
+          controls: state.controls
+        })
+      : createDefaultSurvivalDurableState(payloadSession?.state || {});
+    let activeHot = usingActiveModuleState
+      ? (state.ensureHotForActiveTab?.() || state.hot)
+      : (payloadSession?.managers?.hot || null);
+    if(!usingActiveModuleState && !survivalHotBelongsToSession(activeHot, payloadSession)){
+      activeHot = null;
+    }
     if(!activeHot){
       survivalDebug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
-    const activeManager = ensureSurvivalDataViewsForHot(activeHot, {
-      wrapper: $('#survivalHotWrapper'),
-      container: activeHot.__survivalHostContainer || refs.hotContainer || $('#survivalHot')
-    });
-    syncSurvivalActiveDataViewFromHot(activeHot, 'payload');
+    const payloadTabId = payloadSession?.tabId || meta?.tabId || survival.__boundTabId || null;
+    let activeManager = usingActiveModuleState
+      ? ensureSurvivalDataViewsForHot(activeHot, {
+          wrapper: $('#survivalHotWrapper'),
+          container: activeHot.__survivalHostContainer || refs.hotContainer || $('#survivalHot'),
+          tabId: payloadTabId
+        })
+      : (payloadSession?.managers?.dataViews || activeHot.__survivalDataViewsManager || null);
+    if(!usingActiveModuleState && !survivalDataViewsManagerBelongsToSession(activeManager, payloadSession)){
+      activeManager = null;
+    }
+    if(usingActiveModuleState){
+      syncSurvivalActiveDataViewFromHot(activeHot, 'payload');
+    }
     const dataViewsPayload = activeManager?.serialize?.({ includeData: true }) || null;
     const includeDataViews = !!(dataViewsPayload && Array.isArray(dataViewsPayload.views) && dataViewsPayload.views.length > 1);
-    const axisSettings = ensureAxisSettings();
-    const noteControl = notesState.control || null;
-    const notesText = noteControl && typeof noteControl.getValue === 'function'
-      ? noteControl.getValue()
-      : (notesState.text || '');
-    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
-      ? noteControl.isOpen()
-      : !!notesState.open;
-    notesState.text = notesText;
-    notesState.open = notesOpen;
+    const axisSettings = createDefaultSurvivalDurableState({ axisSettings: payloadState.axisSettings }).axisSettings;
+    const notesSnapshot = usingActiveModuleState ? captureSurvivalNotesMirror() : createDefaultSurvivalNotesState(payloadSession?.notes || {});
+    const advisorSnapshot = usingActiveModuleState
+      ? createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(payloadSession))
+      : createDefaultSurvivalAdvisorState(payloadSession?.advisor || {});
+    const controls = normalizeSurvivalRuntimeControls(payloadState.controls || {});
+    const statsPanelModels = usingActiveModuleState
+      ? captureSurvivalStatsPanelModels(payloadState.statsPanelModels || {})
+      : createDefaultSurvivalStatsPanelModels(payloadSession?.results?.statsPanelModels || payloadState.statsPanelModels || {});
+    const statsPayload = usingActiveModuleState
+      ? (cloneSimple(state.lastStats) || null)
+      : (cloneSimple(payloadSession?.results?.stats ?? payloadState.lastStats) || null);
     const payload = {
       type: 'survival',
       data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
@@ -4932,27 +5932,27 @@
       activeDataViewId: includeDataViews ? (dataViewsPayload?.activeViewId || null) : undefined,
       config: {
         colorScheme: Shared.colorSchemes?.getSelectedSchemeId?.('survival') || 'scientific',
-        labelColors: state.labelColors,
-        labelStrokeWidth: state.labelStrokeWidth,
-        labelOpacity: state.labelOpacity,
-        labelLinePattern: state.labelLinePattern,
-        showCI: !!refs.showCI?.checked,
-        showCensor: !!refs.showCensor?.checked,
-        showHazardRatios: !!refs.showHazardRatios?.checked,
-        fitCoxModel: !!refs.fitCoxModel?.checked,
-        pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
-        statsReportPScientific: getSurvivalStatsPValueScientificPreference(),
-        showGrid: !!refs.showGrid?.checked,
-        gridStyle: getGridStyle(axisSettings.strokeWidth),
-        showFrame: !!refs.showFrame?.checked,
-        showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
-        timeMax: refs.timeMax?.value || '',
-        fontSize: refs.fontSize?.value || '12',
-        fontStyles: (exportFontStyles('survival') || undefined),
-        xLabel: refs.xLabel?.value || '',
-        yLabel: refs.yLabel?.value || '',
-        title: state.titleText,
-        covariateSettings: state.covariateSettings,
+        labelColors: cloneSimple(payloadState.labelColors) || {},
+        labelStrokeWidth: cloneSimple(payloadState.labelStrokeWidth) || {},
+        labelOpacity: cloneSimple(payloadState.labelOpacity) || {},
+        labelLinePattern: cloneSimple(payloadState.labelLinePattern) || {},
+        showCI: !!controls.showCI,
+        showCensor: !!controls.showCensor,
+        showHazardRatios: !!controls.showHazardRatios,
+        fitCoxModel: !!controls.fitCoxModel,
+        pairwiseCorrection: payloadState.pairwiseCorrection || 'holm-sidak',
+        statsReportPScientific: sanitizeSurvivalStatsReportPScientific(payloadState.statsReportPScientific),
+        showGrid: !!controls.showGrid,
+        gridStyle: sanitizeGridStyle(payloadState.gridStyle, axisSettings.strokeWidth),
+        showFrame: !!controls.showFrame,
+        showLegend: controls.showLegend !== false,
+        timeMax: controls.timeMax || '',
+        fontSize: controls.fontSize || '12',
+        fontStyles: (exportFontStyles('survival', { tabId: payloadTabId }) || undefined),
+        xLabel: controls.xLabel || '',
+        yLabel: controls.yLabel || '',
+        title: payloadState.titleText,
+        covariateSettings: cloneSimple(payloadState.covariateSettings) || {},
         axis: {
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
@@ -4963,14 +5963,26 @@
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
         },
-        notes: {
-          text: notesText,
-          open: notesOpen
-        },
-        labelPositions: state.labelPositions || null
+        notes: notesSnapshot,
+        advisor: advisorSnapshot,
+        labelPositions: cloneSimple(payloadState.labelPositions) || null,
+        statsPanels: statsPanelModels
       },
-      stats: state.lastStats || null
+      stats: statsPayload ? { ...(cloneSimple(statsPayload) || statsPayload), statsPanels: statsPanelModels } : null
     };
+    if(payloadSession?.state){
+      payloadSession.state = createDefaultSurvivalDurableState({
+        ...payloadSession.state,
+        ...payloadState,
+        lastStats: statsPayload,
+        statsPanelModels,
+        controls
+      });
+      payloadSession.results = createDefaultSurvivalResultsState({ stats: statsPayload, statsPanelModels });
+      payloadSession.notes = notesSnapshot;
+      payloadSession.advisor = advisorSnapshot;
+      payloadSession.updatedAt = Date.now();
+    }
     survivalDebug('Debug: survival.getPayload captured state', {
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
@@ -4978,7 +5990,7 @@
       hazardRatios: payload.config.showHazardRatios,
       fitCoxModel: payload.config.fitCoxModel,
       hasStats: !!payload.stats,
-      covariateSettingKeys: Object.keys(state.covariateSettings || {})
+      covariateSettingKeys: Object.keys(payload.config.covariateSettings || {})
     });
     return payload;
   }
@@ -4991,47 +6003,103 @@
     survival.captureUiState = tableUiHooks ? tableUiHooks.capture : () => null;
     survival.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
   }
+  function syncSurvivalRuntimeControlsFromState(controlSnapshot = {}){
+    state.controls = normalizeSurvivalRuntimeControls(controlSnapshot || state.controls || {});
+    const controls = state.controls;
+    const hasControl = key => Object.prototype.hasOwnProperty.call(controls, key);
+    const setChecked = (control, key) => {
+      if(control && hasControl(key)){
+        control.checked = !!controls[key];
+      }
+    };
+    setChecked(refs.showCI, 'showCI');
+    setChecked(refs.showCensor, 'showCensor');
+    setChecked(refs.showHazardRatios, 'showHazardRatios');
+    setChecked(refs.fitCoxModel, 'fitCoxModel');
+    setChecked(refs.showGrid, 'showGrid');
+    setChecked(refs.showFrame, 'showFrame');
+    if(refs.showLegend && hasControl('showLegend')){
+      refs.showLegend.checked = controls.showLegend !== false;
+      ensureSurvivalLegendControlPlacement();
+    }
+    if(refs.timeMax && hasControl('timeMax') && controls.timeMax != null){
+      refs.timeMax.value = String(controls.timeMax);
+    }
+    if(refs.fontSize && hasControl('fontSize') && controls.fontSize != null){
+      refs.fontSize.value = String(controls.fontSize);
+      if(refs.fontSize.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+      }
+      chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    }
+    const pairwiseCorrectionSelect = getSurvivalNodeById('survivalPairwiseCorrection');
+    if(pairwiseCorrectionSelect){
+      pairwiseCorrectionSelect.value = state.pairwiseCorrection || 'holm-sidak';
+    }
+    syncSurvivalStatsPValuePanelState();
+    refreshCovariateControls();
+    renderSurvivalStatsAdvisor(state.lastSummary || {
+      series: [],
+      covariateColumns: state.covariateColumns || [],
+      logRank: { available: false }
+    });
+  }
+
   survival.captureRuntimeState = function captureSurvivalRuntimeState(meta = {}){
-    const noteControl = notesState.control || null;
-    const notesText = noteControl && typeof noteControl.getValue === 'function'
-      ? noteControl.getValue()
-      : (notesState.text || '');
-    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
-      ? noteControl.isOpen()
-      : !!notesState.open;
-    notesState.text = notesText;
-    notesState.open = notesOpen;
+    const requestedSession = getSurvivalSession(meta?.tab || meta?.tabId || null, meta, { create: false, fallbackActive: true })
+      || getActiveSurvivalSessionForState();
+    const activeSession = getActiveSurvivalSessionForState();
+    const session = requestedSession === activeSession
+      ? captureSurvivalSessionStateFromActive(requestedSession, {
+          reason: meta?.reason || 'survival-runtime-capture',
+          captureStatsPanels: true
+        })
+      : ensureSurvivalSessionOwnershipShape(requestedSession);
+    const sessionState = createDefaultSurvivalDurableState(session?.state || state);
+    const sessionResults = createDefaultSurvivalResultsState(session?.results || {
+      stats: sessionState.lastStats,
+      statsPanelModels: sessionState.statsPanelModels
+    });
     const snapshot = {
       state: {
-        labelColors: cloneSimple(state.labelColors) || {},
-        labelStrokeWidth: cloneSimple(state.labelStrokeWidth) || {},
-        labelOpacity: cloneSimple(state.labelOpacity) || {},
-        labelLinePattern: cloneSimple(state.labelLinePattern) || {},
-        groupOrder: cloneSimple(state.groupOrder) || [],
-        minSvgWidth: state.minSvgWidth,
-        titleText: state.titleText,
-        lastSummary: cloneSimple(state.lastSummary) || null,
-        lastStats: cloneSimple(state.lastStats) || null,
-        pairwiseCorrection: state.pairwiseCorrection || 'holm-sidak',
-        statsReportPScientific: getSurvivalStatsPValueScientificPreference(),
-        covariateSettings: cloneSimple(state.covariateSettings) || {},
-        covariateColumns: cloneSimple(state.covariateColumns) || [],
-        axisSettings: cloneSimple(state.axisSettings) || null,
-        gridStyle: cloneSimple(state.gridStyle) || null,
-        labelPositions: cloneSimple(state.labelPositions) || {}
+        labelColors: cloneSimple(sessionState.labelColors) || {},
+        labelStrokeWidth: cloneSimple(sessionState.labelStrokeWidth) || {},
+        labelOpacity: cloneSimple(sessionState.labelOpacity) || {},
+        labelLinePattern: cloneSimple(sessionState.labelLinePattern) || {},
+        groupOrder: cloneSimple(sessionState.groupOrder) || [],
+        minSvgWidth: sessionState.minSvgWidth,
+        fileName: sessionState.fileName,
+        titleText: sessionState.titleText,
+        lastSummary: cloneSimple(sessionState.lastSummary) || null,
+        lastStats: cloneSimple(sessionResults.stats ?? sessionState.lastStats) || null,
+        statsPanelModels: createDefaultSurvivalStatsPanelModels(sessionResults.statsPanelModels || sessionState.statsPanelModels),
+        pairwiseCorrection: sessionState.pairwiseCorrection || 'holm-sidak',
+        statsReportPScientific: sanitizeSurvivalStatsReportPScientific(sessionState.statsReportPScientific),
+        covariateSettings: cloneSimple(sessionState.covariateSettings) || {},
+        covariateColumns: cloneSimple(sessionState.covariateColumns) || [],
+        axisSettings: cloneSimple(sessionState.axisSettings) || null,
+        gridStyle: cloneSimple(sessionState.gridStyle) || null,
+        labelPositions: cloneSimple(sessionState.labelPositions) || {},
+        controls: cloneSimple(sessionState.controls) || createDefaultSurvivalRuntimeControls()
       },
-      advisor: cloneSimple(survivalAdvisorState) || null,
-      notes: { text: notesText, open: notesOpen },
+      advisor: createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(session)),
+      notes: createDefaultSurvivalNotesState(session?.notes || notesState),
       parseDebugCounter: Number(parseDebugCounter) || 0,
       reason: meta?.reason || 'survival-runtime-capture'
     };
-    survivalDebug('Debug: survival runtime snapshot captured', {
-      tabId: meta?.tabId || survival.__boundTabId || null,
-      title: snapshot.state.titleText,
-      notesOpen,
+    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      tab: meta?.tab || null,
+      tabId: meta?.tabId || session?.tabId || survival.__boundTabId || null,
       reason: snapshot.reason
     });
-    rememberSurvivalOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+    survivalDebug('Debug: survival runtime snapshot captured', {
+      tabId: meta?.tabId || session?.tabId || survival.__boundTabId || null,
+      title: snapshot.state.titleText,
+      notesOpen: snapshot.notes.open,
+      reason: snapshot.reason
+    });
+    rememberSurvivalOwnedRuntimeRecord(meta?.tab || meta?.tabId || session?.tabId || null, snapshot, {
       ...(meta || {}),
       reason: snapshot.reason || meta?.reason || 'survival-runtime-capture'
     });
@@ -5049,6 +6117,15 @@
       survivalDebug('Debug: survival runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
+    const applySession = bindSurvivalSessionForTab(meta?.tab || meta?.tabId || snapshot.tabId || survival.__boundTabId || null, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-runtime-apply-bind'
+    }, { apply: false });
+    setSurvivalSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      tabId: applySession?.tabId || meta?.tabId || survival.__boundTabId || null,
+      reason: meta?.reason || 'survival-runtime-apply-state'
+    });
     if(snapshot.state && typeof snapshot.state === 'object'){
       const nextState = snapshot.state;
       state.labelColors = cloneSimple(nextState.labelColors) || state.labelColors || {};
@@ -5060,6 +6137,10 @@
       state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
       if(Object.prototype.hasOwnProperty.call(nextState, 'lastSummary')){ state.lastSummary = cloneSimple(nextState.lastSummary); }
       if(Object.prototype.hasOwnProperty.call(nextState, 'lastStats')){ state.lastStats = cloneSimple(nextState.lastStats); }
+      if(Object.prototype.hasOwnProperty.call(nextState, 'statsPanelModels')){
+        state.statsPanelModels = cloneSimple(nextState.statsPanelModels) || { summary: null, logRank: null, hazardRatios: null, cox: null };
+        restoreSurvivalStatsPanelModels(state.statsPanelModels);
+      }
       state.pairwiseCorrection = typeof nextState.pairwiseCorrection === 'string' ? nextState.pairwiseCorrection : state.pairwiseCorrection;
       if(Object.prototype.hasOwnProperty.call(nextState, 'statsReportPScientific')){
         state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(nextState.statsReportPScientific);
@@ -5074,12 +6155,13 @@
       state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
     }
     if(snapshot.advisor && typeof snapshot.advisor === 'object'){
-      Object.assign(survivalAdvisorState, cloneSimple(snapshot.advisor) || {});
+      setSurvivalAdvisorState(snapshot.advisor, applySession || getActiveSurvivalSessionForState());
     }
+    syncSurvivalRuntimeControlsFromState(snapshot.state?.controls || {});
     if(snapshot.notes && typeof snapshot.notes === 'object'){
       notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
       notesState.open = !!snapshot.notes.open;
-      if(notesState.control){
+      if(canUseSurvivalNotesControl(notesState.control)){
         notesState.control.setValue(notesState.text);
         notesState.control.setOpen(notesState.open);
       }
@@ -5093,6 +6175,10 @@
       ...(meta || {}),
       reason: meta?.reason || 'survival-runtime-apply'
     });
+    captureSurvivalSessionStateFromActive(applySession || getActiveSurvivalSessionForState(), {
+      reason: meta?.reason || 'survival-runtime-apply-capture',
+      captureStatsPanels: true
+    });
     survivalDebug('Debug: survival runtime snapshot applied', {
       tabId: meta?.tabId || survival.__boundTabId || null,
       title: state.titleText,
@@ -5101,7 +6187,7 @@
     return true;
   };
 
-  survival.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
+  const baseSurvivalDeactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
     component: survival,
     componentKey: 'survival'
   }) || function deactivateSurvivalTab(tab, meta = {}){
@@ -5113,8 +6199,27 @@
     });
     return true;
   };
+  survival.deactivateTab = function deactivateSurvivalTabWithSessionCapture(tab, meta = {}){
+    const tabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || survival.__boundTabId || null;
+    const session = getSurvivalSession(tab || tabId || null, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-deactivate-session' }, { create: false })
+      || getActiveSurvivalSessionForState();
+    const activeSession = getActiveSurvivalSessionForState();
+    if(session && (!tabId || String(session.tabId || '') === String(survival.__boundTabId || '') || session === activeSession)){
+      captureSurvivalSessionStateFromActive(session, {
+        reason: meta?.reason || 'survival-deactivate-session-capture',
+        captureStatsPanels: true
+      });
+    }
+    return baseSurvivalDeactivateTab(tab, meta);
+  };
   survival.captureEmptyPayloadTemplate = function captureSurvivalEmptyPayloadTemplate(){
     const snapshot = survival.createEmptyPayload();
+    emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
+    const session = getActiveSurvivalSessionForState();
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
     survivalDebug('Debug: survival empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -5124,6 +6229,11 @@
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
+    const session = getActiveSurvivalSessionForState();
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || null;
+      session.updatedAt = Date.now();
+    }
     survivalDebug('Debug: survival empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
@@ -5158,10 +6268,20 @@
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+    const scheduleTargetTab = meta?.tab || meta?.tabId || survival.__boundTabId || null;
+    const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
+    const scheduleTargetSession = scheduleTargetTab
+      ? getSurvivalSession(scheduleTargetTab, { ...(meta || {}), reason: 'survival-payload-scheduler-owner' }, { create: false, fallbackActive: false })
+      : getActiveSurvivalSessionForState();
+    const canMuteActiveScheduler = hasExplicitScheduleTarget
+      ? !!(scheduleTargetSession && isSurvivalSessionActiveOrActivating(scheduleTargetSession))
+      : (!scheduleTargetSession || isSurvivalSessionActiveOrActivating(scheduleTargetSession));
     let scheduleBackup = null;
-    if(skipDraw && typeof state.scheduleDraw === 'function'){
+    let mutedScheduleDraw = null;
+    if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
+      mutedScheduleDraw = () => {};
       scheduleBackup = state.scheduleDraw;
-      state.scheduleDraw = () => {};
+      state.scheduleDraw = mutedScheduleDraw;
     }
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(hot){
@@ -5201,9 +6321,11 @@
         state.hot.applyFilters?.(filtersToApply, { schedule: false });
       }
       syncSurvivalActiveDataViewFromHot(state.hot, 'payload-load');
+      collectSeries();
     }
     applyConfig(payload.config);
     state.lastStats = payload.stats || null;
+    state.statsPanelModels = cloneSimple(payload.config?.statsPanels || payload.stats?.statsPanels) || state.statsPanelModels || { summary: null, logRank: null, hazardRatios: null, cox: null };
     if(!payload.stats){
       renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
       renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
@@ -5213,13 +6335,19 @@
       if(refs.statsCox){
         renderStatsLead(refs.statsCox, 'Enable "Fit Cox model" above to review coefficient estimates.');
       }
+    }else{
+      restoreSurvivalStatsPanelModels(state.statsPanelModels);
     }
-    if(!skipDraw && typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+    if(!skipDraw){
+      scheduleActiveSurvivalDraw({ reason: 'survival-payload-applied', tabId: survival.__boundTabId || null });
     }
-    if(scheduleBackup){
+    if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
     }
+    captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+      reason: 'survival-payload-applied',
+      captureStatsPanels: true
+    });
     logDebug('payload applied', { source, rows: dataToLoad?.length || 0, hasStats: !!payload.stats });
     return true;
   }
@@ -5238,10 +6366,11 @@
       notesState.text = '';
       notesState.open = false;
     }
-    if(notesState.control){
+    if(canUseSurvivalNotesControl(notesState.control)){
       notesState.control.setValue(notesState.text);
       notesState.control.setOpen(notesState.open);
     }
+    setSurvivalAdvisorState(config.advisor || {}, getActiveSurvivalSessionForState());
     state.labelColors = Object.assign({}, config.labelColors || {});
     state.labelStrokeWidth = Object.assign({}, config.labelStrokeWidth || {});
     state.labelOpacity = Object.assign({}, config.labelOpacity || {});
@@ -5255,10 +6384,19 @@
       }
       state.covariateSettings = {};
     }
-    if(refs.showCI) refs.showCI.checked = !!config.showCI;
-    if(refs.showCensor) refs.showCensor.checked = !!config.showCensor;
-    if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
-    if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
+    const nextControls = { ...(state.controls || {}) };
+    ['showCI', 'showCensor', 'showHazardRatios', 'fitCoxModel', 'showGrid', 'showFrame', 'showLegend'].forEach(key => {
+      if(Object.prototype.hasOwnProperty.call(config, key)){
+        nextControls[key] = config[key];
+      }
+    });
+    ['timeMax', 'fontSize', 'xLabel', 'yLabel'].forEach(key => {
+      if(config[key] != null){
+        nextControls[key] = config[key];
+      }
+    });
+    state.controls = normalizeSurvivalRuntimeControls(nextControls);
+    syncSurvivalRuntimeControlsFromState(state.controls);
     state.pairwiseCorrection = typeof config.pairwiseCorrection === 'string' ? config.pairwiseCorrection : (state.pairwiseCorrection || 'holm-sidak');
     if(Object.prototype.hasOwnProperty.call(config, 'statsReportPScientific')){
       state.statsReportPScientific = sanitizeSurvivalStatsReportPScientific(config.statsReportPScientific);
@@ -5270,25 +6408,8 @@
     if(pairwiseCorrectionSelect){
       pairwiseCorrectionSelect.value = state.pairwiseCorrection;
     }
-    if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
     setGridStyle(config.gridStyle, config.axis?.strokeWidth);
-    if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
-    if(refs.showLegend){
-      refs.showLegend.checked = config.showLegend !== false;
-      ensureSurvivalLegendControlPlacement();
-    }
-    if(refs.timeMax) refs.timeMax.value = config.timeMax || '';
-    if(refs.fontSize) refs.fontSize.value = config.fontSize || '12';
-    if(refs.fontSize && refs.fontSize.dataset){
-      refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
-      logDebug('font size base restored', { value: refs.fontSize.value });
-    }
-    importFontStyles('survival', config.fontStyles || null);
-    if(refs.fontSizeVal){
-      chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
-    }
-    if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
-    if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
+    importFontStyles('survival', config.fontStyles || null, { tabId: survival.__boundTabId || getActiveSurvivalSessionForState()?.tabId || null });
     if(config.title !== undefined){
       state.titleText = config.title != null ? String(config.title) : '';
     }else if(state.titleText == null){
@@ -5308,6 +6429,27 @@
       state.labelPositions.legend = null;
     }
     applyAxisSettings(config.axis || config.axisSettings);
+    const configSession = getActiveSurvivalSessionForState();
+    if(configSession?.state){
+      configSession.state = createDefaultSurvivalDurableState({
+        ...configSession.state,
+        labelColors: state.labelColors,
+        labelStrokeWidth: state.labelStrokeWidth,
+        labelOpacity: state.labelOpacity,
+        labelLinePattern: state.labelLinePattern,
+        covariateSettings: state.covariateSettings,
+        pairwiseCorrection: state.pairwiseCorrection,
+        statsReportPScientific: state.statsReportPScientific,
+        gridStyle: state.gridStyle,
+        titleText: state.titleText,
+        labelPositions: state.labelPositions,
+        axisSettings: state.axisSettings,
+        controls: state.controls
+      });
+      configSession.notes = createDefaultSurvivalNotesState(notesState);
+      configSession.advisor = createDefaultSurvivalAdvisorState(getSurvivalAdvisorState(configSession));
+      configSession.updatedAt = Date.now();
+    }
     refreshCovariateControls();
     renderSurvivalStatsAdvisor(state.lastSummary || {
       series: [],
@@ -5357,6 +6499,7 @@
   };
 
   async function saveFile(){
+    const operationSession = getActiveSurvivalSessionForState();
     const payload = getGraphPayload();
     if(!payload){
       return;
@@ -5371,13 +6514,18 @@
       payload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      setFileHandle: handle => {
+        setSurvivalFileHandleForSession(handle, operationSession);
+      },
+      setFileName: name => {
+        setSurvivalFileNameForSession(name, operationSession);
+      }
     });
     logDebug('save result', { success: !!result, hasHandle: !!state.fileHandle });
   }
 
   async function saveFileAs(){
+    const operationSession = getActiveSurvivalSessionForState();
     const payload = getGraphPayload();
     if(!payload){
       return;
@@ -5391,21 +6539,30 @@
       payload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      setFileHandle: handle => {
+        setSurvivalFileHandleForSession(handle, operationSession);
+      },
+      setFileName: name => {
+        setSurvivalFileNameForSession(name, operationSession);
+      }
     });
     logDebug('saveAs result', { success: !!result, fileName: state.fileName });
   }
 
   async function openFile(){
+    const operationSession = getActiveSurvivalSessionForState();
     if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
       console.error('openSurvivalFile missing fileIO.openGraphFile');
       return;
     }
     const result = await fileIO.openGraphFile({
       context: 'survival',
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; },
+      setFileHandle: handle => {
+        setSurvivalFileHandleForSession(handle, operationSession);
+      },
+      setFileName: name => {
+        setSurvivalFileNameForSession(name, operationSession);
+      },
       loadFromFile: file => loadFromFile(file),
       triggerInput: () => {
         if(refs.graphFileInput){
@@ -5419,13 +6576,19 @@
 
   function initControls(){
     ensureSurvivalStatsConfigControls();
-    const schedule = () => {
-      if(state.scheduleDraw){
-        state.scheduleDraw();
+    const schedule = (event, reason = 'survival-control-change') => {
+      const session = getSurvivalSessionForEvent(event, { reason }, { create: true }) || getActiveSurvivalSessionForState();
+      if(session?.tabId && !isSurvivalSessionActiveOrActivating(session)){
+        session.state.drawPending = true;
+        session.updatedAt = Date.now();
+        return;
       }
+      syncSurvivalRuntimeControlsFromDom(session);
+      syncSurvivalStateToSession(session, { controls: state.controls });
+      scheduleSurvivalDrawForSession(session, { reason, tabId: session?.tabId || undefined, userInitiated: true });
     };
     [refs.showCI, refs.showCensor, refs.showGrid, refs.showHazardRatios, refs.fitCoxModel].forEach(control => {
-      control?.addEventListener('change', () => {
+      control?.addEventListener('change', event => {
         survivalDebug('Debug: survival control toggle', { id: control.id, checked: control.checked });
         logDebug('control toggled', { id: control.id, checked: control.checked });
         if(control === refs.showHazardRatios || control === refs.fitCoxModel){
@@ -5439,10 +6602,10 @@
               || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
           )
         });
-        schedule();
+        schedule(event, 'survival-control-change');
       });
     });
-    refs.showFrame?.addEventListener('change', () => {
+    refs.showFrame?.addEventListener('change', event => {
       survivalDebug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       renderSurvivalStatsAdvisor(state.lastSummary || {
@@ -5453,28 +6616,28 @@
             || (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : [])
         )
       });
-      schedule();
+      schedule(event, 'survival-frame-toggle');
     });
-    refs.showLegend?.addEventListener('change', () => {
+    refs.showLegend?.addEventListener('change', event => {
       survivalDebug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       logDebug('control toggled', { id: refs.showLegend.id, checked: refs.showLegend.checked });
       ensureSurvivalLegendControlPlacement();
-      schedule();
+      schedule(event, 'survival-legend-toggle');
     });
-    [refs.timeMax, refs.xLabel, refs.yLabel].forEach(input => {
-      input?.addEventListener('input', () => {
+    [refs.timeMax].forEach(input => {
+      input?.addEventListener('input', event => {
         logDebug('control input', { id: input.id, value: input.value });
-        schedule();
+        schedule(event, 'survival-time-max-change');
       });
     });
-    refs.fontSize?.addEventListener('input', () => {
+    refs.fontSize?.addEventListener('input', event => {
       if(refs.fontSize?.dataset){
         refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
         logDebug('font size base updated', { value: refs.fontSize.value });
       }
       chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
       logDebug('font size input', { value: refs.fontSize.value });
-      schedule();
+      schedule(event, 'survival-font-size-change');
     });
     if(refs.fontSize?.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -5507,10 +6670,17 @@
       }
       select.appendChild(option);
     });
-    select.addEventListener('change', () => {
-      state.pairwiseCorrection = String(select.value || 'holm-sidak');
-      logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
-      state.scheduleDraw?.();
+    select.addEventListener('change', event => {
+      runSurvivalControlOwner(event, 'survival-pairwise-correction', session => {
+        state.pairwiseCorrection = String(select.value || 'holm-sidak');
+        syncSurvivalStateToSession(session, { pairwiseCorrection: state.pairwiseCorrection });
+        logDebug('pairwise correction changed', { value: state.pairwiseCorrection });
+        scheduleSurvivalDrawForSession(session, {
+          reason: 'survival-pairwise-correction',
+          tabId: session?.tabId || undefined,
+          userInitiated: true
+        });
+      });
     });
     label.appendChild(select);
     host.appendChild(label);
@@ -5530,7 +6700,7 @@
       console.warn('survival notes helper unavailable', { hasSharedNotes: !!helper });
       return;
     }
-    if(notesState.control?.root && notesState.control.root.isConnected){
+    if(canUseSurvivalNotesControl(notesState.control)){
       notesState.control.setValue(notesState.text || '');
       notesState.control.setOpen(!!notesState.open);
       return;
@@ -5547,9 +6717,19 @@
       open: !!notesState.open,
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
+        const session = getActiveSurvivalSessionForState();
+        if(session){
+          session.notes = createDefaultSurvivalNotesState(notesState);
+          session.updatedAt = Date.now();
+        }
       },
       onToggle: open => {
         notesState.open = !!open;
+        const session = getActiveSurvivalSessionForState();
+        if(session){
+          session.notes = createDefaultSurvivalNotesState(notesState);
+          session.updatedAt = Date.now();
+        }
       }
     });
   }
@@ -5569,8 +6749,9 @@
     if(previous){
       node.removeEventListener(eventName, previous);
     }
-    node.__survivalControlHandlers[registryKey] = handler;
-    node.addEventListener(eventName, handler);
+    const wrapped = event => runSurvivalControlOwner(event, key || registryKey, session => handler(event, session));
+    node.__survivalControlHandlers[registryKey] = wrapped;
+    node.addEventListener(eventName, wrapped);
   }
 
   function initExampleAndImport(){
@@ -5614,18 +6795,20 @@
       ['Treatment', 12.2, 0],
       ['Treatment', 12.9, 1]
     ];
-    refs.loadExampleBtn?.addEventListener('click', () => {
-      if(state.hot){
-        state.hot.loadData(example, {
+    refs.loadExampleBtn?.addEventListener('click', event => {
+      runSurvivalControlOwner(event, 'survival-example-load', session => {
+      const ownerHot = session?.managers?.hot || state.hot;
+      if(ownerHot){
+        ownerHot.loadData(example, {
           source: 'example-load',
           recordUndo: true,
           undoLabel: 'table:survival:example-load'
         });
       }
       logDebug('example loaded', { rows: example.length, firstRow: example[0] });
-      if(state.scheduleDraw){
-        state.scheduleDraw();
-      }
+      syncSurvivalStateToSession(session, { controls: state.controls });
+      scheduleSurvivalDrawForSession(session, { reason: 'survival-example-load', tabId: session?.tabId || undefined });
+      });
     });
     bindSurvivalControlHandler(refs.importBtn, 'click', 'import-table', () => {
       if(refs.fileInput){
@@ -5633,7 +6816,7 @@
         refs.fileInput.click();
       }
     });
-    bindSurvivalControlHandler(refs.fileInput, 'change', 'import-file', () => {
+    bindSurvivalControlHandler(refs.fileInput, 'change', 'import-file', (_event, ownerSession) => {
       if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
         console.warn('Survival import skipped: Shared.tableImport.openFile unavailable');
         return;
@@ -5652,11 +6835,12 @@
         if(title){
           state.titleText = title;
         }
-        if(xLabel && refs.xLabel){
-          refs.xLabel.value = xLabel;
-        }
-        if(yLabel && refs.yLabel){
-          refs.yLabel.value = yLabel;
+        if(xLabel || yLabel){
+          state.controls = normalizeSurvivalRuntimeControls({
+            ...(state.controls || {}),
+            ...(xLabel ? { xLabel } : {}),
+            ...(yLabel ? { yLabel } : {})
+          });
         }
         if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && refs.fontSize){
           refs.fontSize.value = String(fontSizeValue);
@@ -5676,16 +6860,26 @@
           if(fontColor){
             graphStyle.fill = fontColor;
           }
-          importFontStyles('survival', { __graph__: graphStyle });
+            importFontStyles('survival', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || survival.__boundTabId || getActiveSurvivalSessionForState()?.tabId || null });
         }
         logDebug('prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
-        state.scheduleDraw?.({ force: true, reason: 'import-prism-style' });
+        syncSurvivalRuntimeControlsFromDom(ownerSession || getActiveSurvivalSessionForState());
+        syncSurvivalStateToSession(ownerSession || getActiveSurvivalSessionForState(), {
+          titleText: state.titleText,
+          controls: state.controls,
+          axisSettings: state.axisSettings
+        });
+        scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), { force: true, reason: 'import-prism-style', tabId: ownerSession?.tabId || undefined });
       };
       Shared.tableImport.openFile(refs.fileInput, {
-        hot: state.hot,
+        hot: ownerSession?.managers?.hot || state.hot,
         minCols: SURVIVAL_DEFAULT_COLS,
         minRows: DEFAULT_ROWS,
-        scheduleDraw: state.scheduleDraw,
+        scheduleDraw: options => scheduleSurvivalDrawForSession(ownerSession || getActiveSurvivalSessionForState(), {
+          ...(options || {}),
+          reason: options?.reason || options?.source || 'survival-import-load',
+          tabId: ownerSession?.tabId || undefined
+        }),
         debugLabel: 'survival',
         onPrismStyle: applySurvivalPrismStyle,
         onProcessed: info => logDebug('import processed', info)
@@ -5711,8 +6905,9 @@
     refs.graphFileInput?.addEventListener('change', event => {
       const file = event.target.files?.[0];
       if(file){
-        state.fileName = file.name;
-        state.fileHandle = null;
+        const session = getSurvivalSessionForEvent(event, { reason: 'survival-graph-file-input' }, { create: false }) || getActiveSurvivalSessionForState();
+        setSurvivalFileNameForSession(file.name, session);
+        setSurvivalFileHandleForSession(null, session);
         loadFromFile(file);
       }
     });
@@ -5730,14 +6925,30 @@
       survival.ready = false;
     }
     survival.__boundTabId = targetTabId || null;
-    refs.root = targetRoot || resolveSurvivalRoot(targetTabId || null);
+    const session = bindSurvivalSessionForTab(targetTabId || null, {
+      root: targetRoot || null,
+      reason: options?.reason || 'survival-init-bind'
+    }, { syncUi: false });
+    refs.root = targetRoot || session?.refs?.root || resolveSurvivalRoot(targetTabId || null);
+    if(session){
+      session.root = refs.root || session.root || null;
+      session.refs.root = refs.root || session.refs.root || null;
+    }
     if(!ensureElements()){
       console.warn('Survival component init skipped: required elements missing');
       return;
     }
+    const runSurvivalScheduledDraw = (drawOptions = {}) => {
+      const result = drawSurvival(drawOptions || {});
+      captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+        reason: 'survival-scheduled-draw-capture',
+        captureStatsPanels: true
+      });
+      return result;
+    };
     const scheduleSurvivalBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
-      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(survival, 'survival', () => drawSurvival(), { reason: 'survival-draw-frame' })
-      : (() => drawSurvival());
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(survival, 'survival', runSurvivalScheduledDraw, { reason: 'survival-draw-frame' })
+      : runSurvivalScheduledDraw;
     state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'survival',
@@ -5761,7 +6972,7 @@
           svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
           resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
         },
-        scheduleDraw: state.scheduleDraw,
+        scheduleDraw: options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -5790,6 +7001,8 @@
       refs.svgBox = state.layout.elements.svgBox;
       ensureSurvivalLegendControlPlacement();
     }
+    syncSurvivalSessionRefsFromActive(session);
+    syncSurvivalSessionManagersFromActive(session);
     Shared.componentLifecycle?.scheduleComponentFrame?.(survival, 'survival', {
       tabId: survival.__boundTabId || null,
       reason: 'survival-legend-placement'
@@ -5798,7 +7011,7 @@
     initControls();
     initNotes();
     initExampleAndImport();
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.setScheduleDraw?.(options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}));
     ensureSurvivalFontEventListener();
     state.layout?.syncPanels?.();
     initExportsAndFiles();
@@ -5810,9 +7023,13 @@
     ensureEmptyPayloadTemplate();
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
     survival.ready = true;
-    state.scheduleDraw?.();
+    captureSurvivalSessionStateFromActive(session || getActiveSurvivalSessionForState(), {
+      reason: options?.reason || 'survival-init-complete',
+      captureStatsPanels: false
+    });
+    scheduleActiveSurvivalDraw({ reason: options?.reason || 'survival-init-complete', tabId: survival.__boundTabId || null });
     logDebug('component initialized', { ready: survival.ready });
-    global.scheduleDrawSurvival = () => state.scheduleDraw?.();
+    global.scheduleDrawSurvival = options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {});
   }
 
   survival.init = init;
@@ -5821,13 +7038,30 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
         tabLike: options.tab || options.tabId || null,
+        meta: options,
         sentinelSelector: '#survivalHot',
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
         rebind: (info) => {
+          const nextTabId = info?.tab?.id || info?.tabId || options.tabId || null;
           refs.root = info?.root || resolveSurvivalRoot(info?.tab || null) || refs.root || null;
+          if(options?.liveDomFastPath === true || options?.liveDomReuse === true || options?.passiveControls === true){
+            survival.__boundTabId = nextTabId || survival.__boundTabId || null;
+            bindSurvivalSessionForTab(info?.tab || nextTabId || null, {
+              ...(options || {}),
+              root: refs.root || null,
+              reason: options.reason || 'survival-passive-dom-rebind'
+            }, { syncUi: false });
+            ensureElements();
+            syncSurvivalSessionRefsFromActive();
+            syncSurvivalSessionManagersFromActive();
+            survival.__domSentinel = info?.mountedSentinel || getSurvivalNodeById('survivalHot');
+            survival.ready = true;
+            survivalDebug('Debug: survival passive DOM rebind', { tabId: survival.__boundTabId || null });
+            return;
+          }
           survival.ready = false;
-          init({ root: refs.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
+          init({ root: refs.root || undefined, tabId: nextTabId || null, reason: 'workspace-dom-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -5851,11 +7085,27 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'survival',
         tabLike: tabLike || null,
+        meta,
         sentinelSelector: '#survivalHot',
         getCurrentRoot: () => refs.root || null,
         getCurrentSentinel: () => survival.__domSentinel || null,
         rebind: info => {
           refs.root = info?.root || resolveSurvivalRoot(tabLike || null) || refs.root || null;
+          if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
+            survival.__boundTabId = targetTabId || survival.__boundTabId || null;
+            bindSurvivalSessionForTab(tabLike || targetTabId || null, {
+              ...(meta || {}),
+              root: refs.root || null,
+              reason: meta?.reason || 'survival-passive-dom-rebind'
+            }, { syncUi: false });
+            ensureElements();
+            syncSurvivalSessionRefsFromActive();
+            syncSurvivalSessionManagersFromActive();
+            survival.__domSentinel = info?.mountedSentinel || getSurvivalNodeById('survivalHot');
+            survival.ready = true;
+            survivalDebug('Debug: survival passive DOM rebind', { tabId: survival.__boundTabId || null });
+            return;
+          }
           survival.ready = false;
           init({ root: refs.root || undefined, tabId: info?.tab?.id || targetTabId || null, reason: 'activate-tab-rebind' });
         }
@@ -5864,8 +7114,18 @@
     },
     init: options => init(options),
     afterReady: (tabLike, meta = {}) => {
-      applyExistingSurvivalOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'survival-activate-apply-owned-runtime' });
+      const session = bindSurvivalSessionForTab(tabLike || meta?.tabId || null, {
+        ...(meta || {}),
+        root: resolveSurvivalRoot(tabLike || meta?.tabId || null),
+        reason: meta?.reason || 'survival-activate-bind'
+      }, { syncUi: true });
+      const appliedRuntime = applyExistingSurvivalOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'survival-activate-apply-owned-runtime' });
+      if(!appliedRuntime && session){
+        applySurvivalSessionStateToActive(session, { syncUi: true });
+      }
       if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
+      syncSurvivalSessionRefsFromActive(session);
+      syncSurvivalSessionManagersFromActive(session);
     },
     getSentinel: () => getSurvivalNodeById('survivalHot')
   }) || function activateTab(tab, meta = {}){
@@ -5873,7 +7133,15 @@
     survival.__boundTabId = targetTabId || survival.__boundTabId || null;
     refs.root = resolveSurvivalRoot(tab || targetTabId || null);
     if(!survival.ready){ init({ root: refs.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
+    const session = bindSurvivalSessionForTab(tab || targetTabId || null, {
+      ...(meta || {}),
+      root: refs.root || null,
+      reason: meta?.reason || 'activate-tab-bind'
+    }, { syncUi: true });
+    applySurvivalSessionStateToActive(session, { syncUi: true });
     if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
+    syncSurvivalSessionRefsFromActive(session);
+    syncSurvivalSessionManagersFromActive(session);
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
   };
 
@@ -5899,7 +7167,30 @@
     return true;
   }
 
-  survival.captureRenderCache = function captureRenderCache(){
+  function getSurvivalRenderCacheOwner(meta = {}, reason = 'survival-render-cache'){
+    const source = meta && typeof meta === 'object' ? meta : {};
+    const session = ensureSurvivalSessionOwnershipShape(source.session)
+      || getSurvivalSession(source.tab || source.tabId || source.workspaceTabId || null, {
+        ...source,
+        reason
+      }, { create: true })
+      || getActiveSurvivalSessionForState();
+    if(session && !isSurvivalSessionActiveOrActivating(session)){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        survivalDebug('Debug: survival render cache skipped for inactive owner', {
+          reason,
+          ownerTabId: session.tabId || null,
+          activeTabId: survival.__boundTabId || activeSurvivalSession?.tabId || null
+        });
+      }
+      return null;
+    }
+    return session;
+  }
+
+  survival.captureRenderCache = function captureRenderCache(meta = {}){
+    const owner = getSurvivalRenderCacheOwner(meta, 'survival-render-cache-capture');
+    if(!owner){ return null; }
     const plot = getSurvivalNodeById('survivalPlot');
     const summary = getSurvivalNodeById('survivalStatsSummary');
     const logRank = getSurvivalNodeById('survivalStatsLogRank');
@@ -5936,8 +7227,15 @@
     }) ?? !!cache;
   };
 
-  survival.isIdleForSnapshot = function isIdleForSnapshot(){
-    return true;
+  survival.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
+    const owner = getSurvivalSession(meta?.session || meta?.tab || meta?.tabId || null, {
+      ...(meta || {}),
+      reason: meta?.reason || 'survival-idle-snapshot'
+    }, { create: false }) || getActiveSurvivalSessionForState();
+    if(owner && !isSurvivalSessionActiveOrActivating(owner)){
+      return !owner.state?.drawPending;
+    }
+    return !state.drawPending;
   };
 
   survival.awaitReadyForSnapshot = function awaitReadyForSnapshot(meta = {}){
@@ -5945,8 +7243,10 @@
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  survival.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
+  survival.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
+    const owner = getSurvivalRenderCacheOwner(meta, 'survival-render-cache-restore');
+    if(!owner){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getSurvivalNodeById('survivalPlot');
     const summary = getSurvivalNodeById('survivalStatsSummary');
@@ -5984,7 +7284,18 @@
       return;
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || survival.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
-    return drawSurvival(options);
+    const drawSession = ensureSurvivalSessionOwnershipShape(getSurvivalSessionForDrawOptions(options, { reason: nextReason }));
+    if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
+      drawSession.state.drawPending = true;
+      drawSession.updatedAt = Date.now();
+      return;
+    }
+    const result = drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+    captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+      reason: nextReason,
+      captureStatsPanels: true
+    });
+    return result;
   };
   survival.__getState = function(){
     survivalDebug('Debug: survival.__getState invoked');

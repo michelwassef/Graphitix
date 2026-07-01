@@ -116,6 +116,31 @@ describe('Extended statistical coverage', () => {
     });
   });
 
+  test('box standard pair results preserve Kolmogorov-Smirnov D as the rendered statistic', () => {
+    const control = [1, 2, 3, 4, 5];
+    const treatment = [8, 9, 10, 11, 12];
+    const ks = boxHooks.kolmogorovSmirnovTwoSample(control, treatment);
+    expect(isFiniteNumber(ks.D)).toBe(true);
+
+    const pair = boxHooks.buildStandardPairResult({
+      a: 0,
+      b: 1,
+      ai: 0,
+      bi: 1,
+      rawAValues: control,
+      rawBValues: treatment,
+      testResult: ks,
+      labelA: 'Control',
+      labelB: 'Treatment',
+      paramEffectMeta: { value: 'cohenD', label: "Cohen's d", shortLabel: "Cohen's d", format: 'decimal' },
+      nonParamEffectMeta: { value: 'rankBiserial', label: 'Rank-biserial r', shortLabel: 'Rank-biserial r', format: 'decimal' }
+    });
+
+    expect(pair.statName).toBe('D');
+    expectClose(pair.stat, ks.D, 'box KS pair statistic');
+    expect(`${pair.statName} = ${pair.stat.toFixed(4)}`).toMatch(/^D = \d/);
+  });
+
   test('box grouped statistical engines cover row-wise and grouped-comparison scopes with multiplicity families', () => {
     const groupedData = {
       groupsCount: 3,

@@ -55,6 +55,44 @@
     return normalizeTabId(root?.dataset?.workspaceTabId || root?.dataset?.tabId);
   }
 
+  function resolveElementOwnerTabId(node){
+    if(!node){
+      return '';
+    }
+    const scopedRoot = node?.closest?.('[data-workspace-tab-id],[data-tab-id]') || null;
+    return resolveInstanceRootTabId(node)
+      || normalizeTabId(node?.dataset?.workspaceTabId || node?.dataset?.tabId)
+      || normalizeTabId(scopedRoot?.dataset?.workspaceTabId || scopedRoot?.dataset?.tabId);
+  }
+
+  function resolveElementsOwnerTabId(elements){
+    const candidates = [
+      elements?.resizeTarget,
+      elements?.svgBox,
+      elements?.graphPanel,
+      elements?.tablePanel,
+      elements?.hotWrapper,
+      elements?.hotContainer,
+      elements?.configPanel
+    ];
+    for(let i = 0; i < candidates.length; i += 1){
+      const owner = resolveElementOwnerTabId(candidates[i]);
+      if(owner){
+        return owner;
+      }
+    }
+    return '';
+  }
+
+  function elementsBelongToLayoutTab(elements, tabId){
+    const target = normalizeTabId(tabId);
+    if(!target){
+      return true;
+    }
+    const owner = resolveElementsOwnerTabId(elements);
+    return !owner || owner === target;
+  }
+
 
   function ensureRegistryBucket(componentName){
     const key = String(componentName || '').trim();
@@ -642,6 +680,7 @@
         width: size.width,
         height: size.height,
         forceExact: true,
+        simulateAspectLock: size.aspectLocked,
         preserveAspectLock: true,
         updateAspectRatio: true,
         updateDefaults: true,
@@ -731,7 +770,13 @@
     nextState.svgBox.dataset = nextState.svgBox.dataset && typeof nextState.svgBox.dataset === 'object'
       ? { ...nextState.svgBox.dataset }
       : {};
-    nextState.svgBox.dataset.resizerAspectLocked = resizer.aspectLocked ? 'true' : 'false';
+    const snapshotAspectRaw = nextState.svgBox.dataset.resizerAspectLocked
+      ?? nextState.svgBox.dataset.graphAspectLocked
+      ?? nextState.svgBox.dataset.aspectLocked;
+    const snapshotHasAspectLock = snapshotAspectRaw === 'true' || snapshotAspectRaw === 'false';
+    if(!snapshotHasAspectLock){
+      nextState.svgBox.dataset.resizerAspectLocked = resizer.aspectLocked ? 'true' : 'false';
+    }
     const snapshotHasAspectRatio = Number.isFinite(Number(nextState.svgBox.dataset.resizerAspectRatio))
       && Number(nextState.svgBox.dataset.resizerAspectRatio) > 0;
     if(!snapshotHasAspectRatio && resizer.aspectRatio !== undefined && resizer.aspectRatio !== null){
@@ -740,7 +785,8 @@
     console.debug('Debug: componentLayout tab layout override merged', {
       tabId: tab?.id || null,
       component: tab?.type || nextState.component || null,
-      aspectLocked: resizer.aspectLocked
+      aspectLocked: snapshotHasAspectLock ? (snapshotAspectRaw === 'true') : resizer.aspectLocked,
+      source: snapshotHasAspectLock ? 'layout-snapshot' : 'shared-resizer'
     });
     return nextState;
   };
@@ -1583,11 +1629,19 @@
     };
 
     const captureState = () => {
+      if(layoutTabId && !elementsBelongToLayoutTab(elements, layoutTabId)){
+        console.debug('Debug: componentLayout captureState skipped tab-owner mismatch', {
+          component: componentName,
+          tabId: layoutTabId,
+          ownerTabId: resolveElementsOwnerTabId(elements) || null
+        });
+        return null;
+      }
       const aspectCheckbox = elements.svgBox?.querySelector?.('.resizer-aspect-checkbox') || null;
       if(aspectCheckbox && elements.svgBox?.dataset){
         elements.svgBox.dataset.resizerAspectLocked = aspectCheckbox.checked ? 'true' : 'false';
         const tab = layoutTabId ? Shared.workspaceTabs?.resolveTab?.(layoutTabId) : null;
-        if(tab){
+        if(tab && elementsBelongToLayoutTab(elements, layoutTabId)){
           tab.sharedState = tab.sharedState || {};
           tab.sharedState.layout = tab.sharedState.layout || {};
           tab.sharedState.layout.resizer = tab.sharedState.layout.resizer || {};
@@ -1684,6 +1738,61 @@
       });
     };
 
+    const styleSnapshotMatches = (element, map, options = {}) => {
+      const current = cloneStyle(element) || {};
+      const target = map && typeof map === 'object' ? map : {};
+      const keys = new Set([...Object.keys(current), ...Object.keys(target)]);
+      if(options.reset !== true){
+        Object.keys(target).forEach(key => keys.add(key));
+      }
+      for(const key of keys){
+        if(options.reset !== true && !Object.prototype.hasOwnProperty.call(target, key)){
+          continue;
+        }
+        if(String(current[key] || '') !== String(target[key] || '')){
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const datasetSnapshotMatches = (element, map, options = {}) => {
+      if(!element?.dataset){
+        return !map || !Object.keys(map).length;
+      }
+      const current = cloneDataset(element) || {};
+      const target = map && typeof map === 'object'
+        ? rehomeDatasetForTab(map, componentName, options.tabId || layoutTabId)
+        : {};
+      const keys = new Set([...Object.keys(target)]);
+      if(options.reset === true){
+        Object.keys(current).forEach(key => keys.add(key));
+      }
+      for(const key of keys){
+        if(options.reset !== true && !Object.prototype.hasOwnProperty.call(target, key)){
+          continue;
+        }
+        if(String(current[key] || '') !== String(target[key] || '')){
+          return false;
+        }
+      }
+      return true;
+    };
+
+    const layoutStateAlreadyApplied = (state, options = {}) => {
+      if(Number.isFinite(state.minSvgWidth) && Number.isFinite(panelState.minSvgWidth) && Number(state.minSvgWidth) !== Number(panelState.minSvgWidth)){
+        return false;
+      }
+      const tabId = options.tabId || layoutTabId || null;
+      return styleSnapshotMatches(elements.tablePanel, state.tablePanel?.style, { reset: options.resetStyles === true })
+        && datasetSnapshotMatches(elements.tablePanel, state.tablePanel?.dataset, { reset: options.resetDataset === true, tabId })
+        && styleSnapshotMatches(elements.graphPanel, state.graphPanel?.style, { reset: options.resetStyles === true })
+        && datasetSnapshotMatches(elements.graphPanel, state.graphPanel?.dataset, { reset: options.resetDataset === true, tabId })
+        && styleSnapshotMatches(elements.configPanel, state.configPanel?.style, { reset: options.resetStyles === true })
+        && styleSnapshotMatches(elements.svgBox, state.svgBox?.style, { reset: options.resetStyles === true })
+        && datasetSnapshotMatches(elements.svgBox, state.svgBox?.dataset, { reset: options.resetDataset === true, tabId });
+    };
+
     const applyState = (state, options = {}) => {
       const resetStyles = options.resetStyles === true;
       const resetDataset = options.resetDataset === true;
@@ -1708,7 +1817,24 @@
         }
         return false;
       }
+      if((options.tabId || layoutTabId) && !elementsBelongToLayoutTab(elements, options.tabId || layoutTabId)){
+        console.debug('Debug: componentLayout applyState skipped tab-owner mismatch', {
+          component: componentName,
+          tabId: options.tabId || layoutTabId || null,
+          ownerTabId: resolveElementsOwnerTabId(elements) || null,
+          reason: options.reason || null
+        });
+        return false;
+      }
       const clonedState = state;
+      if(options.skipIfUnchanged === true && layoutStateAlreadyApplied(clonedState, options)){
+        console.debug('Debug: componentLayout applyState skipped unchanged', {
+          component: componentName,
+          tabId: options.tabId || layoutTabId || null,
+          reason: options.reason || null
+        });
+        return false;
+      }
       if(Number.isFinite(clonedState.minSvgWidth)){
         updateMinSvgWidth(clonedState.minSvgWidth);
       }
@@ -1898,6 +2024,15 @@
     if(!componentName){ return null; }
     const entry = resolveRegistryEntry(componentName, options);
     if(entry && typeof entry.captureState === 'function'){
+      const targetTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId);
+      if(targetTabId && entry.elements && !elementsBelongToLayoutTab(entry.elements, targetTabId)){
+        console.debug('Debug: componentLayout.captureStateFor skipped tab-owner mismatch', {
+          component: componentName,
+          tabId: targetTabId,
+          ownerTabId: resolveElementsOwnerTabId(entry.elements) || null
+        });
+        return null;
+      }
       try{
         return entry.captureState();
       }catch(err){
@@ -1912,6 +2047,15 @@
     if(!componentName){ return false; }
     const entry = resolveRegistryEntry(componentName, options);
     if(entry && typeof entry.applyState === 'function'){
+      const targetTabId = normalizeTabId(options?.tabId || options?.workspaceTabId || options?.activeTabId);
+      if(targetTabId && entry.elements && !elementsBelongToLayoutTab(entry.elements, targetTabId)){
+        console.debug('Debug: componentLayout.applyStateFor skipped tab-owner mismatch', {
+          component: componentName,
+          tabId: targetTabId,
+          ownerTabId: resolveElementsOwnerTabId(entry.elements) || null
+        });
+        return false;
+      }
       try{
         return entry.applyState(state, options);
       }catch(err){

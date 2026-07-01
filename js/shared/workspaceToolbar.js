@@ -3,7 +3,7 @@
   const Shared = global.Shared = global.Shared || {};
   const workspaceToolbar = Shared.workspaceToolbar = Shared.workspaceToolbar || {};
   const doc = global.document;
-  const TABLE_IMPORT_TOOLTIP = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, PRISM, or PZFX files';
+  const TABLE_IMPORT_TOOLTIP = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, PRISM, or PZFX files';
 
   const ICON_PATHS = Object.freeze({
     open: {
@@ -1295,7 +1295,7 @@
     if(fromSection){ return fromSection; }
     const key = String(toolbarKey || '').trim();
     if(key && doc){
-      const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+      const toolbar = resolveToolbarByKey(key);
       const fromToolbar = resolveToolbarTabIdFromNode(toolbar);
       if(fromToolbar){ return fromToolbar; }
     }
@@ -1304,6 +1304,27 @@
     }catch(_err){
       return null;
     }
+  }
+
+  function resolveToolbarByKey(toolbarKey){
+    if(!doc){ return null; }
+    const key = String(toolbarKey || '').trim();
+    if(!key){ return null; }
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    const activeRoot = activeTab?.type === key
+      ? (Shared.workspaceTabs?.getMountedRoot?.(activeTab.id, key) || null)
+      : null;
+    const activeToolbar = activeRoot?.querySelector?.(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`)
+      || activeRoot?.querySelector?.('.workspace-page__topbar[data-toolbar] .workspace-toolbar')
+      || null;
+    if(activeToolbar){
+      return activeToolbar;
+    }
+    const visibleToolbar = doc.querySelector(`.workspace-page:not([hidden]) .workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    if(visibleToolbar){
+      return visibleToolbar;
+    }
+    return doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
   }
 
   function ensureToolbarState(tabId, reason){
@@ -1345,7 +1366,7 @@
     if(!doc){ return null; }
     const key = String(toolbarKey || '').trim();
     if(!key){ return null; }
-    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const toolbar = resolveToolbarByKey(key);
     return toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR) || null;
   }
 
@@ -2067,7 +2088,7 @@
     const key = String(toolbarKey || '').trim();
     const label = String(sectionLabel || '').trim().toLowerCase();
     if(!key || !label){ return false; }
-    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const toolbar = resolveToolbarByKey(key);
     if(!toolbar){ return false; }
     const tab = Array.from(toolbar.querySelectorAll('.workspace-toolbar__tab[data-toolbar-section-target]'))
       .find(node => String(node.textContent || '').trim().toLowerCase() === label);
@@ -2081,7 +2102,7 @@
     if(!doc){ return false; }
     const key = String(toolbarKey || '').trim();
     if(!key){ return false; }
-    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const toolbar = resolveToolbarByKey(key);
     const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
     const modeToggle = section?.querySelector?.(TRANSFORM_MODE_TOGGLE_SELECTOR);
     return !!modeToggle?.checked;
@@ -2090,7 +2111,7 @@
     if(!doc){ return []; }
     const key = String(toolbarKey || '').trim();
     if(!key){ return []; }
-    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const toolbar = resolveToolbarByKey(key);
     const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
     if(!section){
       return [];
@@ -2103,7 +2124,7 @@
     if(!doc){ return false; }
     const key = String(toolbarKey || '').trim();
     if(!key){ return false; }
-    const toolbar = doc.querySelector(`.workspace-page__topbar[data-toolbar="${key}"] .workspace-toolbar`);
+    const toolbar = resolveToolbarByKey(key);
     const section = toolbar?.querySelector?.(TRANSFORM_SECTION_SELECTOR);
     if(!section){
       return false;

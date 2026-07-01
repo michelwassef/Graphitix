@@ -47,6 +47,17 @@ async function getScatterDataRowCount(page) {
   });
 }
 
+async function waitForActiveScatterPayload(page) {
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state?.activeTabId) || null;
+    return active?.type === 'scatter'
+      && active.payload
+      && Array.isArray(active.payload.data)
+      && active.payload.data.length > 1;
+  }, null, { timeout: 20_000 });
+}
+
 test('scatter duplicate reuse keeps data, trendline state, and stats-ready state', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -60,9 +71,15 @@ test('scatter duplicate reuse keeps data, trendline state, and stats-ready state
   await computeScatterStatsWithTrendline(page);
   const sourceRows = await getScatterDataRowCount(page);
   expect(sourceRows).toBeGreaterThan(0);
+  await waitForActiveScatterPayload(page);
 
-  await page.locator('#addWorkspaceTab').click();
-  await page.locator('#graphSelectionGrid [data-graph-type="scatter"]').first().click({ force: true });
+  await page.evaluate(async () => {
+    const tabs = window.Main?.tabs;
+    const maybeAdd = tabs?.handleAddTabClick?.();
+    if (maybeAdd && typeof maybeAdd.then === 'function') await maybeAdd;
+    const maybeSelect = tabs?.handleGraphSelection?.('scatter', { reason: 'e2e-scatter-duplicate-reuse' });
+    if (maybeSelect && typeof maybeSelect.then === 'function') await maybeSelect;
+  });
   await expect(page.locator('#duplicatePrompt:not([hidden])')).toBeVisible({ timeout: 20_000 });
   await page.locator('#duplicateReuse').click();
   await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });

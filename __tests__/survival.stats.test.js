@@ -99,4 +99,38 @@ describe('Survival statistics pipeline', () => {
     expect(payload.config.fitCoxModel).toBe(true);
     await flushAsyncWork();
   }, 30000);
+
+  test('axis labels are edited inline after removing the Labels panel controls', async () => {
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+    graphSelection('survival');
+
+    document.getElementById('survivalLoadExample')?.click();
+    await flushAsyncWork();
+    window.Components?.survival?.draw?.();
+    await flushAsyncWork();
+
+    const configLegends = Array.from(document.querySelectorAll('#survivalGraphPanel .config-panel legend'))
+      .map(node => node.textContent.trim());
+    expect(configLegends).not.toContain('Labels');
+    expect(document.getElementById('survivalXLabel')).toBeNull();
+    expect(document.getElementById('survivalYLabel')).toBeNull();
+
+    const xAxisTitle = Array.from(document.querySelectorAll('#survivalPlot svg text'))
+      .find(node => node.textContent === 'Time');
+    expect(xAxisTitle).toBeTruthy();
+
+    xAxisTitle.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await flushAsyncWork();
+
+    const editor = document.querySelector('.inline-edit-input');
+    expect(editor).toBeTruthy();
+    editor.value = 'Months';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flushAsyncWork();
+
+    const payload = window.Components?.survival?.getPayload?.();
+    expect(payload?.config?.xLabel).toBe('Months');
+  }, 30000);
 });

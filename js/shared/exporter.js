@@ -5467,7 +5467,9 @@
       return false;
     }
     const hasSvgPayload = Object.prototype.hasOwnProperty.call(blobMap, SVG_MIME_TYPE);
-    if (hasSvgPayload) {
+    const svgBlobLike = hasSvgPayload ? blobMap[SVG_MIME_TYPE] : null;
+    const hasDeferredSvgPayload = !!(svgBlobLike && typeof svgBlobLike.then === 'function');
+    if (hasSvgPayload && !hasDeferredSvgPayload) {
       try {
         const svgSuccess = await copySvgBlobMapWithAsyncClipboard(blobMap, contextLabel);
         if (svgSuccess) {
@@ -5518,6 +5520,22 @@
     return success;
   }
 
+  function createDeferredClipboardBlobMap(payloadPromise) {
+    const resolveBlob = type => Promise.resolve(payloadPromise)
+      .then(payload => payload?.clipboardMap?.[type] || payload?.svgBlob || null)
+      .then(blob => {
+        if (!blob) {
+          throw new Error(`Missing clipboard blob for ${type}`);
+        }
+        return blob;
+      });
+    return {
+      [SVG_MIME_TYPE]: resolveBlob(SVG_MIME_TYPE),
+      'text/plain': resolveBlob('text/plain'),
+      'text/html': resolveBlob('text/html')
+    };
+  }
+
   function createPlaceholderOption(action) {
     const option = doc.createElement('option');
     option.value = '';
@@ -5532,7 +5550,32 @@
     const option = doc.createElement('option');
     option.value = format.key;
     option.textContent = format.label;
+    if (format.disabled) {
+      option.disabled = true;
+      if (format.disabledReason) {
+        option.title = format.disabledReason;
+      }
+    }
     return option;
+  }
+
+  function isFirefoxBrowser() {
+    const ua = String(global.navigator?.userAgent || '');
+    return /\bFirefox\//i.test(ua);
+  }
+
+  function getSvgCopyDisabledReason(action, format) {
+    if (!isFirefoxBrowser()) {
+      return '';
+    }
+    if (action?.key !== 'copy') {
+      return '';
+    }
+    const key = String(format?.key || '');
+    if (key !== 'svg' && key !== 'svg-hybrid') {
+      return '';
+    }
+    return 'SVG copy is not supported in Firefox. Use Download > SVG, or copy in Chrome.';
   }
 
   function resetExportSelect(select) {
@@ -5558,7 +5601,16 @@
     select.dataset.minSelectWidth = action.minWidth ? String(action.minWidth) : '96';
     select.appendChild(createPlaceholderOption(action));
 
-    const formats = action.formats.filter(format => format && format.key && typeof format.handler === 'function');
+    const formats = action.formats
+      .filter(format => format && format.key && typeof format.handler === 'function')
+      .map(format => {
+        const disabledReason = getSvgCopyDisabledReason(action, format);
+        return disabledReason ? { ...format, disabled: true, disabledReason } : format;
+      });
+    const firstDisabledReason = formats.find(format => format.disabledReason)?.disabledReason || '';
+    if (firstDisabledReason) {
+      select.title = firstDisabledReason;
+    }
     formats.forEach(format => {
       select.appendChild(createFormatOption(format));
     });
@@ -5569,6 +5621,10 @@
       const format = formats.find(entry => entry.key === selectedKey);
       resetExportSelect(select);
       if (!format) {
+        return;
+      }
+      if (format.disabled) {
+        warn('export option disabled', { contextLabel, action: action.key, format: format.key, reason: format.disabledReason || null });
         return;
       }
       logDebug('optionSelected', { contextLabel, action: action.key, format: format.key });
@@ -5609,6 +5665,7 @@
   function createSvgActions(config) {
     const {
       getSvg,
+      getHybridSvg,
       fileName = 'chart',
       contextLabel = 'svg-export',
       fallbackWidth,
@@ -5643,8 +5700,16 @@
         return null;
       }
     };
+    const resolveHybridSvg = () => {
+      try {
+        return typeof getHybridSvg === 'function' ? (getHybridSvg() || resolveSvg()) : resolveSvg();
+      } catch (err) {
+        console.error('exporter getHybridSvg error', err);
+        return resolveSvg();
+      }
+    };
     async function handle(mode, format) {
-      const svgEl = resolveSvg();
+      const svgEl = format === 'svg-hybrid' ? resolveHybridSvg() : resolveSvg();
       if (!svgEl) {
         logDebug('svgActions missing element', { contextLabel, format, mode });
         return;
@@ -5699,22 +5764,25 @@
           warn('svgActions hybrid missing config', { contextLabel });
           return;
         }
-        const payload = await buildHybridSvgExportPayload(svgEl, {
+        const payloadPromise = Promise.resolve().then(() => buildHybridSvgExportPayload(svgEl, {
           ...hybridConfig,
           baseFileName: hybridConfig.baseFileName || fileName,
           contextLabel: `${contextLabel}-hybrid`
-        });
+        }));
+        if (mode === 'copy') {
+          const copied = await copyBlobMap(createDeferredClipboardBlobMap(payloadPromise), `${contextLabel}-hybrid`);
+          if (!copied) {
+            warn('svgActions hybrid copy unavailable', { contextLabel: `${contextLabel}-hybrid` });
+          }
+          return;
+        }
+        const payload = await payloadPromise;
         if (!payload) {
           warn('svgActions hybrid payload missing', { contextLabel });
           return handle(mode, 'svg');
         }
         if (mode === 'download') {
           downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
-        } else {
-          const copied = await copyBlobMap(payload.clipboardMap, `${contextLabel}-hybrid`);
-          if (!copied) {
-            warn('svgActions hybrid copy unavailable', { contextLabel: `${contextLabel}-hybrid` });
-          }
         }
       } else if (format === 'emf') {
         const backgroundColor = resolveBackground();
@@ -6210,6 +6278,7 @@
   exporter.mountSvgControls = function mountSvgControls(config) {
     const actions = createSvgActions({
       getSvg: typeof config.getSvg === 'function' ? config.getSvg : () => resolveElement(config.svgSelector),
+      getHybridSvg: typeof config.getHybridSvg === 'function' ? config.getHybridSvg : null,
       fileName: config.fileName,
       contextLabel: config.contextLabel,
       fallbackWidth: config.fallbackWidth,

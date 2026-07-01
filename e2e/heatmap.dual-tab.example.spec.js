@@ -72,28 +72,6 @@ function expectNear(actual, expected, tolerance, label) {
   expect(Math.abs(actual - expected), `${label}: ${actual} vs ${expected}`).toBeLessThanOrEqual(tolerance);
 }
 
-async function openSecondHeatmapTab(page, reuse = false) {
-  await page.locator('#addWorkspaceTab').click();
-  const resolveDuplicatePrompt = async () => {
-    const prompt = page.locator('#duplicatePrompt:not([hidden])');
-    if (!(await prompt.count())) {
-      return false;
-    }
-    if (reuse) {
-      await page.locator('#duplicateReuse').click({ force: true });
-    } else {
-      await page.locator('#duplicateEmpty').click({ force: true });
-    }
-    await page.waitForTimeout(200);
-    return true;
-  };
-  if (!(await resolveDuplicatePrompt())) {
-    await page.locator('#graphSelectionGrid [data-graph-type="heatmap"]').first().click({ force: true });
-    await resolveDuplicatePrompt();
-  }
-  await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 20_000 });
-}
-
 test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
   test.setTimeout(120_000);
   const lifecycleOwnershipWarnings = [];
@@ -121,7 +99,11 @@ test('Heatmap example load works in two heatmap tabs', async ({ page }) => {
   const firstTabId = first.activeTabId;
   expect(firstTabId).toBeTruthy();
 
-  await openSecondHeatmapTab(page, false);
+  await openComponentFromWelcome(
+    page,
+    { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
+    { first: false }
+  );
   await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
   await waitForHeatmapCells(page);
   const second = await activeHeatmapStatus(page);

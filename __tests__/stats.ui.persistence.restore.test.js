@@ -54,6 +54,16 @@ async function activateWorkspace(type){
   await Promise.resolve();
 }
 
+async function activateTabById(tabId, reason){
+  const activate = window.Main?.tabs?.activateTab;
+  expect(typeof activate).toBe('function');
+  const result = activate(tabId, { reason: reason || 'test-switch' });
+  if(result && typeof result.then === 'function'){
+    await result;
+  }
+  await Promise.resolve();
+}
+
 async function flushAsyncWork(iterations = 40){
   for(let i = 0; i < iterations; i += 1){
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -286,6 +296,42 @@ describe('UI stats persistence and restore', () => {
     console.debug = originalDebug;
     console.log = originalLog;
   });
+
+  test('box reporting stays below descriptive statistics and survives switching to another component tab', async () => {
+    await prepareBoxStats();
+    const boxTabId = window.Main?.session?.workspaceState?.activeTabId;
+    expect(boxTabId).toBeTruthy();
+
+    let statsResults = document.getElementById('statsResults');
+    let statsTable = document.getElementById('statsTable');
+    let reportHost = document.getElementById('boxStatsReportHost');
+    expect(statsResults).toBeTruthy();
+    expect(statsTable).toBeTruthy();
+    expect(reportHost).toBeTruthy();
+    expect(statsResults.contains(reportHost)).toBe(false);
+    expect(reportHost.querySelectorAll('.stats-report-panel').length).toBe(1);
+    expect(reportHost.textContent || '').toContain('Reporting and reproducibility');
+    expect(statsTable.parentElement).toBe(reportHost.parentElement);
+    expect(statsTable.compareDocumentPosition(reportHost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await activateWorkspace('scatter');
+    await flushAsyncWork(40);
+    await activateTabById(boxTabId, 'test-box-reporting-switch-back');
+    await flushAsyncWork(60);
+
+    statsResults = document.getElementById('statsResults');
+    statsTable = document.getElementById('statsTable');
+    reportHost = document.getElementById('boxStatsReportHost');
+    expect(statsResults).toBeTruthy();
+    expect(statsTable).toBeTruthy();
+    expect(reportHost).toBeTruthy();
+    expect(statsResults.contains(reportHost)).toBe(false);
+    expect(reportHost.querySelectorAll('.stats-report-panel').length).toBe(1);
+    expect(reportHost.textContent || '').toContain('Reporting and reproducibility');
+    expect(reportHost.textContent || '').toMatch(/Methods text|Results text/);
+    expect(statsTable.parentElement).toBe(reportHost.parentElement);
+    expect(statsTable.compareDocumentPosition(reportHost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }, 120000);
 
   test('payload restore preserves stats content for box, scatter, line, pie, pca, and heatmap', async () => {
     const box = await prepareBoxStats();

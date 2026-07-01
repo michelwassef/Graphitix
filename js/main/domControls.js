@@ -78,6 +78,7 @@
       matchStylesBtn: document.getElementById('matchWorkspaceStyles'),
       sessionFileInput: document.getElementById('workspaceSessionInput'),
       welcomeGraphInput: document.getElementById('welcomeGraphFileInput'),
+      welcomeFileDropZone: document.getElementById('welcomeFileDropZone'),
       welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
@@ -105,6 +106,21 @@
       welcomeReplaceUnsavedSave: document.getElementById('welcomeReplaceUnsavedSave'),
       welcomeReplaceUnsavedDiscard: document.getElementById('welcomeReplaceUnsavedDiscard'),
       welcomeReplaceUnsavedCancel: document.getElementById('welcomeReplaceUnsavedCancel'),
+      welcomeDataImportPrompt: document.getElementById('welcomeDataImportPrompt'),
+      welcomeDataImportTitle: document.getElementById('welcomeDataImportTitle'),
+      welcomeDataImportMessage: document.getElementById('welcomeDataImportMessage'),
+      welcomeDataImportComponent: document.getElementById('welcomeDataImportComponent'),
+      welcomeDataImportSheetField: document.getElementById('welcomeDataImportSheetField'),
+      welcomeDataImportSheet: document.getElementById('welcomeDataImportSheet'),
+      welcomeDataImportDelimiterField: document.getElementById('welcomeDataImportDelimiterField'),
+      welcomeDataImportDelimiter: document.getElementById('welcomeDataImportDelimiter'),
+      welcomeDataImportStartRow: document.getElementById('welcomeDataImportStartRow'),
+      welcomeDataImportFirstRow: document.getElementById('welcomeDataImportFirstRow'),
+      welcomeDataImportTrim: document.getElementById('welcomeDataImportTrim'),
+      welcomeDataImportPreview: document.getElementById('welcomeDataImportPreview'),
+      welcomeDataImportPreviewStatus: document.getElementById('welcomeDataImportPreviewStatus'),
+      welcomeDataImportOpen: document.getElementById('welcomeDataImportOpen'),
+      welcomeDataImportCancel: document.getElementById('welcomeDataImportCancel'),
       styleSyncPrompt: document.getElementById('styleSyncPrompt'),
       styleSyncForm: document.querySelector('#styleSyncPrompt [data-style-sync-form]'),
       styleSyncSource: document.getElementById('styleSyncSource'),
@@ -935,6 +951,20 @@
           reason: options.reason || 'workspace-view-prepare'
         }) || config.element)
       : config.element;
+    const buildWorkspaceEnsureOptions = reason => ({
+      root: activeWorkspaceElement,
+      tabId: tab.id,
+      tab,
+      type: tab.type,
+      restoreRenderCache: canRestoreRender,
+      skipInitialDraw: canRestoreRender,
+      suppressDraw: canRestoreRender,
+      suppressAutoDraw: canRestoreRender,
+      suppressResizeDraw: canRestoreRender,
+      suppressStatsRecompute: canRestoreRender,
+      passiveControls: canRestoreRender,
+      reason: reason || options.reason || 'workspace-ensure'
+    });
     if (config.perTabDomInstances === true) {
       config.activeElement = activeWorkspaceElement;
     }
@@ -972,6 +1002,25 @@
     };
     const getWorkspaceSessionRecord = () => Shared.workspaceTabs?.getSessionRecord?.(tab, tab.type) || null;
     const getWorkspaceComponent = () => window.Components?.[tab.type] || null;
+    const hasRequiredInteractiveTable = () => {
+      if (config.perTabDomInstances !== true || !activeWorkspaceElement) {
+        return true;
+      }
+      if (typeof Shared.hot?.hasRequiredTableForRoot === 'function') {
+        return !!Shared.hot.hasRequiredTableForRoot(tab.type, tab.id, activeWorkspaceElement, {
+          reason: options.reason || 'workspace-view-bind-check'
+        });
+      }
+      return true;
+    };
+    const logMissingInteractiveTable = reasonText => {
+      console.debug('Debug: workspace bound-root reuse blocked until table exists', {
+        tabId: tab.id,
+        type: tab.type,
+        reason: reasonText || options.reason || 'workspace-bind-check',
+        hasTableHost: !!Shared.hot?.rootHasTableHost?.(activeWorkspaceElement)
+      });
+    };
     let didRuntimeRebindForActivation = false;
     const bindPerTabRootIfNeeded = reason => {
       if (config.perTabDomInstances !== true || !activeWorkspaceElement) {
@@ -983,12 +1032,15 @@
         return false;
       }
       if (record?.dom?.bound && config.__activeRuntimeTabId && String(config.__activeRuntimeTabId) === String(tab.id)) {
-        console.debug('Debug: workspace per-tab root already active', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: reason || options.reason || 'bind-per-tab-root'
-        });
-        return false;
+        if (hasRequiredInteractiveTable()) {
+          console.debug('Debug: workspace per-tab root already active', {
+            tabId: tab.id,
+            type: tab.type,
+            reason: reason || options.reason || 'bind-per-tab-root'
+          });
+          return false;
+        }
+        logMissingInteractiveTable(`${reason || options.reason || 'bind-per-tab-root'}-already-active`);
       }
       let currentComponentRoot = null;
       if (component.ready && typeof component.__getState === 'function') {
@@ -1000,19 +1052,123 @@
         }
       }
       if (component.ready && currentComponentRoot === activeWorkspaceElement) {
-        if (record) {
-          record.dom = record.dom || {};
-          record.dom.bound = true;
-          record.dom.boundAt = Date.now();
+        if (hasRequiredInteractiveTable()) {
+          if (record) {
+            record.dom = record.dom || {};
+            record.dom.bound = true;
+            record.dom.boundAt = Date.now();
+          }
+          config.__activeRuntimeTabId = tab.id;
+          didRuntimeRebindForActivation = false;
+          console.debug('Debug: workspace per-tab root already bound', {
+            tabId: tab.id,
+            type: tab.type,
+            reason: reason || options.reason || 'bind-per-tab-root'
+          });
+          return true;
+        }
+        logMissingInteractiveTable(`${reason || options.reason || 'bind-per-tab-root'}-component-root`);
+      }
+      const bindReason = reason || options.reason || 'bind-per-tab-root';
+      const markDomBound = reasonText => {
+        const nextRecord = getWorkspaceSessionRecord();
+        if (nextRecord) {
+          nextRecord.dom = nextRecord.dom || {};
+          nextRecord.dom.root = activeWorkspaceElement;
+          nextRecord.dom.bound = true;
+          nextRecord.dom.boundAt = Date.now();
         }
         config.__activeRuntimeTabId = tab.id;
-        didRuntimeRebindForActivation = false;
-        console.debug('Debug: workspace per-tab root already bound', {
+        console.debug('Debug: workspace per-tab root bound', {
           tabId: tab.id,
           type: tab.type,
-          reason: reason || options.reason || 'bind-per-tab-root'
+          reason: reasonText || bindReason
         });
+      };
+      const isComponentBoundToActiveRoot = () => {
+        if (!component || !activeWorkspaceElement) {
+          return false;
+        }
+        if (String(component.__boundTabId || '') !== String(tab.id || '')) {
+          return false;
+        }
+        if (!hasRequiredInteractiveTable()) {
+          logMissingInteractiveTable(`${bindReason}-component-sentinel`);
+          return false;
+        }
+        const sentinel = component.__domSentinel || null;
+        if (sentinel && activeWorkspaceElement.contains?.(sentinel)) {
+          return true;
+        }
+        try {
+          if (typeof component.__getState === 'function') {
+            const componentState = component.__getState();
+            const root = componentState?.ui?.root || componentState?.root || componentState?.activeRoot || null;
+            if (root === activeWorkspaceElement) {
+              return true;
+            }
+          }
+        } catch (_err) {}
+        return false;
+      };
+      if (isComponentBoundToActiveRoot()) {
+        didRuntimeRebindForActivation = false;
+        markDomBound(`${bindReason}-already-bound`);
         return true;
+      }
+      const canUsePassiveRebind = !!(
+        record?.dom?.bound
+        && record?.dom?.root === activeWorkspaceElement
+      );
+      if (canUsePassiveRebind) {
+        const passiveBindOptions = {
+          root: activeWorkspaceElement,
+          tab,
+          tabId: tab.id,
+          type: tab.type,
+          restoreRenderCache: canRestoreRender,
+          skipInitialDraw: true,
+          liveDomFastPath: true,
+          liveDomReuse: true,
+          passiveControls: true,
+          suppressDraw: true,
+          suppressAutoDraw: true,
+          suppressResizeDraw: true,
+          suppressStatsRecompute: true,
+          reason: `${bindReason}-passive`
+        };
+        if (typeof component.ensure === 'function') {
+          try {
+            const ensureResult = component.ensure(passiveBindOptions);
+            if (ensureResult && typeof ensureResult.then === 'function') {
+              console.debug('Debug: workspace per-tab passive root bind deferred', {
+                tabId: tab.id,
+                type: tab.type,
+                reason: bindReason
+              });
+            }
+            if (isComponentBoundToActiveRoot()) {
+              didRuntimeRebindForActivation = false;
+              markDomBound(`${bindReason}-passive`);
+              return true;
+            }
+          } catch (err) {
+            console.debug('Debug: workspace per-tab passive root bind failed', {
+              tabId: tab.id,
+              type: tab.type,
+              reason: bindReason,
+              err: err?.message || String(err)
+            });
+          }
+        }
+      } else {
+        console.debug('Debug: workspace passive root bind skipped for uninitialized tab root', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: bindReason,
+          hasRecord: !!record,
+          domBound: !!record?.dom?.bound
+        });
       }
       const previousReady = component.ready;
       try {
@@ -1023,21 +1179,10 @@
           type: tab.type,
           restoreRenderCache: canRestoreRender,
           skipInitialDraw: canRestoreRender,
-          reason: reason || options.reason || 'bind-per-tab-root'
+          reason: bindReason
         });
-        const nextRecord = getWorkspaceSessionRecord();
-        if (nextRecord) {
-          nextRecord.dom = nextRecord.dom || {};
-          nextRecord.dom.bound = true;
-          nextRecord.dom.boundAt = Date.now();
-        }
-        config.__activeRuntimeTabId = tab.id;
+        markDomBound(bindReason);
         didRuntimeRebindForActivation = true;
-        console.debug('Debug: workspace per-tab root bound', {
-          tabId: tab.id,
-          type: tab.type,
-          reason: reason || options.reason || 'bind-per-tab-root'
-        });
         return true;
       } catch (err) {
         component.ready = previousReady;
@@ -1172,7 +1317,14 @@
       try {
         if (Shared.workspaceTabs?.activateWorkspace) {
           Shared.workspaceTabs.activateWorkspace(tab, config, {
-            reason: fastReason
+            reason: fastReason,
+            liveDomFastPath: true,
+            liveDomReuse: true,
+            passiveControls: true,
+            suppressDraw: true,
+            suppressAutoDraw: true,
+            suppressResizeDraw: true,
+            suppressStatsRecompute: true
           });
         }
         // Important: re-run the component's activation hook in passive mode. Reattaching
@@ -1204,25 +1356,32 @@
         }
         if (Shared.componentLayout?.captureStateFor && !Shared.componentLayout.captureStateFor(tab.type, { tabId: tab.id, exact: true, reason: `${fastReason}-registry-probe` })) {
           const component = getWorkspaceComponent();
-          if (component && typeof component.init === 'function') {
+          if (component && (typeof component.ensure === 'function' || typeof component.init === 'function')) {
+            const registryOptions = {
+              root: activeWorkspaceElement,
+              tab,
+              tabId: tab.id,
+              type: tab.type,
+              reason: `${fastReason}-registry-rebind`,
+              liveDomFastPath: true,
+              liveDomReuse: true,
+              passiveControls: true,
+              skipInitialDraw: true,
+              suppressDraw: true,
+              suppressAutoDraw: true,
+              suppressResizeDraw: true,
+              suppressStatsRecompute: true
+            };
             try {
-              const previousReady = component.ready;
-              component.ready = false;
-              component.init({
-                root: activeWorkspaceElement,
-                tabId: tab.id,
-                type: tab.type,
-                reason: `${fastReason}-registry-rebind`,
-                liveDomFastPath: true,
-                passiveControls: true,
-                skipInitialDraw: true,
-                suppressDraw: true,
-                suppressAutoDraw: true,
-                suppressResizeDraw: true,
-                suppressStatsRecompute: true
-              });
-              if (previousReady === false && component.ready !== true) {
-                component.ready = previousReady;
+              if (typeof component.ensure === 'function') {
+                component.ensure(registryOptions);
+              } else {
+                const previousReady = component.ready;
+                component.ready = false;
+                component.init(registryOptions);
+                if (previousReady === false && component.ready !== true) {
+                  component.ready = previousReady;
+                }
               }
               console.debug('Debug: workspace live DOM registry rebound', {
                 tabId: tab.id,
@@ -1251,6 +1410,7 @@
               resetStyles: true,
               resetDataset: true,
               skipSchedule: true,
+              skipIfUnchanged: true,
               passiveControls: true,
               suppressDraw: true,
               suppressAutoDraw: true,
@@ -1510,11 +1670,22 @@
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
       const shouldResetSharedComponentState = isSameComponentTabSwitch
         && !options.skipApply
-        && options.skipBaselineReset !== true;
+        && options.skipBaselineReset !== true
+        // Per-tab DOM components either reuse their own already-loaded live DOM or run
+        // a real component init for the target root before payload restore. Applying an
+        // empty baseline payload in that path is both redundant and harmful: it briefly
+        // resets the target tab to defaults, triggers component table normalizers, and
+        // can mark the reopened file dirty before the saved payload is applied. Keep the
+        // old defensive baseline reset only for legacy singleton-DOM components.
+        && config.perTabDomInstances !== true
+        && !didRuntimeRebindForActivation;
       if (shouldResetSharedComponentState) {
         const baselineResetPayload = resolveBaselineResetPayload();
         if (baselineResetPayload && guardWorkspaceMutation('baseline-reset')) {
           namespace.applyWorkspacePayload(config, baselineResetPayload, {
+            tabId: tab.id,
+            componentKey: tab.type,
+            type: tab.type,
             skipDraw: true,
             skipDataLoad: true,
             skipPayloadSizing: true,
@@ -1764,11 +1935,7 @@
     if (!alreadyInitialized) {
       if (typeof config.ensure === 'function') {
         try {
-          const ensureResult = config.ensure({
-            tabId: tab.id,
-            tab,
-            reason: options.reason || 'workspace-ensure'
-          });
+          const ensureResult = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure'));
           if (ensureResult && typeof ensureResult.then === 'function') {
             ensurePromise = workspacePromiseWithTimeout(ensureResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
               label: 'workspace-ensure',
@@ -1808,11 +1975,7 @@
         // The tab-specific root has just been initialized.
       } else if (typeof config.ensure === 'function') {
         try {
-          const maybePromise = config.ensure({
-            tabId: tab.id,
-            tab,
-            reason: options.reason || 'workspace-ensure-cached'
-          });
+          const maybePromise = config.ensure(buildWorkspaceEnsureOptions(options.reason || 'workspace-ensure-cached'));
           if (maybePromise && typeof maybePromise.then === 'function') {
             ensurePromise = workspacePromiseWithTimeout(maybePromise, WORKSPACE_ENSURE_TIMEOUT_MS, {
               label: 'workspace-ensure-cached',

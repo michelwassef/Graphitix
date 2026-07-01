@@ -854,13 +854,13 @@
       title.textContent = info.label;
       content.appendChild(title);
 
+      main.appendChild(content);
+      card.appendChild(main);
+
       const description = document.createElement('p');
       description.className = 'graph-card__description';
       description.textContent = info.description;
-      content.appendChild(description);
-
-      main.appendChild(content);
-      card.appendChild(main);
+      card.appendChild(description);
 
       const actions = document.createElement('div');
       actions.className = 'graph-card__actions';
@@ -1208,6 +1208,7 @@
       determineDuplicateSourceCandidate,
       handleAddTabClick,
       handleGraphSelection,
+      launchWelcomeGraph,
       hideDuplicatePrompt,
       showGraphSelection,
       showWorkspaceForTab,
@@ -1215,7 +1216,7 @@
       getSessionActionsContext
     });
     console.debug('Debug: Main.tabs helpers attached', {
-      exposed: ['renderTabs', 'beginRenameTab', 'commitTabRename', 'cancelTabRename', 'activateTab', 'closeTab', 'getActiveTab', 'determineDuplicateSourceCandidate', 'handleAddTabClick', 'handleGraphSelection', 'hideDuplicatePrompt', 'showGraphSelection', 'showWorkspaceForTab', 'initializeWorkspace']
+      exposed: ['renderTabs', 'beginRenameTab', 'commitTabRename', 'cancelTabRename', 'activateTab', 'closeTab', 'getActiveTab', 'determineDuplicateSourceCandidate', 'handleAddTabClick', 'handleGraphSelection', 'launchWelcomeGraph', 'hideDuplicatePrompt', 'showGraphSelection', 'showWorkspaceForTab', 'initializeWorkspace']
     });
 
     return {
@@ -1229,6 +1230,7 @@
       determineDuplicateSourceCandidate,
       handleAddTabClick,
       handleGraphSelection,
+      launchWelcomeGraph,
       hideDuplicatePrompt,
       showGraphSelection,
       showWorkspaceForTab,

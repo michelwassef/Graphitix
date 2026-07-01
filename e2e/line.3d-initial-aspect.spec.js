@@ -28,23 +28,67 @@ test('line 3D plot scales uniformly on initial load (no stretch/distortion)', as
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
   await openComponentFromWelcome(page, { type: 'line', pageId: 'linePage' }, { first: true });
+  await page.waitForFunction(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = active?.type === 'line'
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line') || document.querySelector('#linePage:not([hidden])'))
+      : null;
+    return !!(window.Components?.line?.ready && root?.querySelector?.('#lineHot .ag-root, #lineHot .ag-root-wrapper'));
+  }, null, { timeout: 45_000 });
 
-  await page.locator('#lineViewMode').selectOption('3d');
+  await page.evaluate(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = active?.type === 'line'
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line') || document.querySelector('#linePage:not([hidden])'))
+      : null;
+    const tableFormat = root?.querySelector?.('#lineTableFormat');
+    const viewMode = root?.querySelector?.('#lineViewMode');
+    if (!tableFormat || !viewMode) {
+      throw new Error('Active Line 3D controls not found');
+    }
+    tableFormat.value = '3d';
+    tableFormat.dispatchEvent(new Event('change', { bubbles: true }));
+    viewMode.value = '3d';
+    viewMode.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await page.waitForTimeout(300);
-  await page.locator('#lineLoadExample').click();
+  await page.evaluate(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = active?.type === 'line'
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line') || document.querySelector('#linePage:not([hidden])'))
+      : null;
+    const loadExample = root?.querySelector?.('#lineLoadExample');
+    if (!loadExample) {
+      throw new Error('Active Line example button not found');
+    }
+    loadExample.click();
+  });
 
   // Wait for the live plot SVG to be in 3D mode AND for the viewport helper to have
   // stamped a preserveAspectRatio (applied via requestAnimationFrame inside
   // autoResizeSvg) — no manual resize anywhere.
   await page.waitForFunction(() => {
-    const svg = document.querySelector('#linePage:not([hidden]) #linePlot svg');
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = active?.type === 'line'
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line') || document.querySelector('#linePage:not([hidden])'))
+      : null;
+    const svg = root?.querySelector?.('#linePlot svg');
     const mode = svg && (svg.dataset?.viewMode || svg.getAttribute('data-view-mode'));
     return !!(svg && mode === '3d' && svg.getAttribute('preserveAspectRatio'));
   }, null, { timeout: 40_000 });
   await page.waitForTimeout(300);
 
   const par = await page.evaluate(() => {
-    const svg = document.querySelector('#linePage:not([hidden]) #linePlot svg');
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    const root = active?.type === 'line'
+      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, 'line') || document.querySelector('#linePage:not([hidden])'))
+      : null;
+    const svg = root?.querySelector?.('#linePlot svg');
     return svg.getAttribute('preserveAspectRatio') || null;
   });
 

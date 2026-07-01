@@ -231,14 +231,15 @@ test('box formula reference highlighting follows displayed row coordinates after
     });
   });
 
-  const sortIndicator = page.locator('#hot .ag-header-cell[col-id="c1"] .hot-sort-indicator').first();
+  const sortIndicator = page.locator('#hot .ag-header-cell[col-id="c1"] .hot-filter-indicator').first();
   await expect(sortIndicator).toBeVisible();
   await sortIndicator.click();
+  await page.getByRole('button', { name: 'Sort smallest to largest' }).click();
 
   await expect.poll(async () => {
     return await page.evaluate(() => {
-      const indicator = document.querySelector('#hot .ag-header-cell[col-id="c1"] .hot-sort-indicator');
-      return !!indicator && indicator.classList.contains('is-asc');
+      const indicator = document.querySelector('#hot .ag-header-cell[col-id="c1"] .hot-filter-indicator');
+      return !!indicator && indicator.classList.contains('is-sorted-asc');
     });
   }, {
     timeout: 10_000,

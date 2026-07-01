@@ -55,10 +55,23 @@
   }
 
   function ensureEmptyPayloadTemplate(){
+    const session = getActiveHistSessionForState();
     if(emptyPayloadTemplate){
+      if(session?.cache && !session.cache.emptyPayloadTemplate){
+        session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+        session.updatedAt = Date.now();
+      }
+      return;
+    }
+    if(session?.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(session.cache.emptyPayloadTemplate) || session.cache.emptyPayloadTemplate;
       return;
     }
     emptyPayloadTemplate = { type: 'hist', config: {} };
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
   }
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
@@ -94,6 +107,12 @@
     if(!snapshot || typeof snapshot !== 'object'){
       return null;
     }
+    setHistSessionStateFromRuntimeRecord(snapshot, {
+      ...(meta || {}),
+      tab: tabLike || meta?.tab || null,
+      tabId: meta?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null,
+      reason: meta?.reason || 'hist-owned-runtime-remember'
+    });
     return getHistRuntimeOwner()?.capture(snapshot, {
       ...(meta || {}),
       tab: tabLike || meta?.tab || null,
@@ -103,11 +122,18 @@
   }
 
   function resolveHistOwnedRuntimeSnapshot(snapshot = null, meta = {}){
-    return getHistRuntimeOwner()?.bind(snapshot || null, {
+    const resolved = getHistRuntimeOwner()?.bind(snapshot || null, {
       ...(meta || {}),
       componentKey: 'hist',
       reason: meta?.reason || 'hist-owned-runtime-resolve'
-    }) || null;
+    }) || snapshot || null;
+    if(resolved && typeof resolved === 'object'){
+      setHistSessionStateFromRuntimeRecord(resolved, {
+        ...(meta || {}),
+        reason: meta?.reason || 'hist-owned-runtime-resolve'
+      });
+    }
+    return resolved;
   }
 
   function applyExistingHistOwnedRuntimeRecord(tabLike = null, meta = {}){
@@ -120,6 +146,10 @@
     if(!snapshot || typeof hist.applyRuntimeState !== 'function'){
       return false;
     }
+    bindHistSessionForTab(tabLike || meta?.tabId || null, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-owned-runtime-activate-bind'
+    }, { apply: false });
     return hist.applyRuntimeState(snapshot, {
       ...(meta || {}),
       reason: meta?.reason || 'hist-owned-runtime-activate-apply'
@@ -242,18 +272,6 @@
     return 'decimal';
   }
 
-  function readNumericInputValue(input){
-    if(!input){
-      return null;
-    }
-    const raw = String(input.value ?? '').trim();
-    if(!raw){
-      return null;
-    }
-    const numeric = Number(raw);
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-
   function writeNumericInputValue(input, value){
     if(!input){
       return;
@@ -267,18 +285,37 @@
   }
 
   function readHistAxisLimitsFromInputs(){
+    const controls = normalizeHistRuntimeControls(state.runtimeControls || {});
     return {
-      xMin: readNumericInputValue(getHistNodeById('histXMin')),
-      xMax: readNumericInputValue(getHistNodeById('histXMax')),
-      yMax: readNumericInputValue(getHistNodeById('histYMax'))
+      xMin: readNumericControlValue(controls.xMin),
+      xMax: readNumericControlValue(controls.xMax),
+      yMax: readNumericControlValue(controls.yMax)
     };
+  }
+
+  function readNumericControlValue(value){
+    const raw = String(value ?? '').trim();
+    if(!raw){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) ? numeric : null;
   }
 
   function applyHistAxisLimitsToInputs(limits){
     const source = limits && typeof limits === 'object' ? limits : {};
-    writeNumericInputValue(getHistNodeById('histXMin'), source.xMin);
-    writeNumericInputValue(getHistNodeById('histXMax'), source.xMax);
-    writeNumericInputValue(getHistNodeById('histYMax'), source.yMax);
+    const xMinInput = getHistNodeById('histXMin');
+    const xMaxInput = getHistNodeById('histXMax');
+    const yMaxInput = getHistNodeById('histYMax');
+    writeNumericInputValue(xMinInput, source.xMin);
+    writeNumericInputValue(xMaxInput, source.xMax);
+    writeNumericInputValue(yMaxInput, source.yMax);
+    state.runtimeControls = normalizeHistRuntimeControls({
+      ...(state.runtimeControls || {}),
+      xMin: xMinInput ? xMinInput.value : source.xMin,
+      xMax: xMaxInput ? xMaxInput.value : source.xMax,
+      yMax: yMaxInput ? yMaxInput.value : source.yMax
+    });
   }
 
   const DEFAULT_DISTRIBUTION_COLORS = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'];
@@ -298,6 +335,65 @@
       comparisonMode: 'ks'
     };
   }
+  function createDefaultHistRuntimeControls(){
+    return {
+      bins: '10',
+      showGrid: false,
+      showFrame: false,
+      logY: false,
+      xMin: '0',
+      xMax: '',
+      yMax: '',
+      fontSize: '12'
+    };
+  }
+
+  function normalizeHistRuntimeControls(source = {}){
+    const defaults = createDefaultHistRuntimeControls();
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      bins: src.bins != null ? String(src.bins) : defaults.bins,
+      showGrid: !!src.showGrid,
+      showFrame: !!src.showFrame,
+      logY: !!src.logY,
+      xMin: src.xMin != null ? String(src.xMin) : defaults.xMin,
+      xMax: src.xMax != null ? String(src.xMax) : defaults.xMax,
+      yMax: src.yMax != null ? String(src.yMax) : defaults.yMax,
+      fontSize: src.fontSize != null ? String(src.fontSize) : defaults.fontSize
+    };
+  }
+
+  function setHistRuntimeControl(key, value){
+    const current = normalizeHistRuntimeControls(state.runtimeControls || {});
+    current[key] = value;
+    state.runtimeControls = normalizeHistRuntimeControls(current);
+    return state.runtimeControls;
+  }
+
+  function syncHistRuntimeControlsFromDom(){
+    const current = normalizeHistRuntimeControls(state.runtimeControls || {});
+    const bins = getHistNodeById('histBins');
+    const showGrid = getHistNodeById('histShowGrid');
+    const showFrame = getHistNodeById('histShowFrame');
+    const logY = getHistNodeById('histLogY');
+    const xMin = getHistNodeById('histXMin');
+    const xMax = getHistNodeById('histXMax');
+    const yMax = getHistNodeById('histYMax');
+    const fontSize = getHistNodeById('histFontSize');
+    state.runtimeControls = normalizeHistRuntimeControls({
+      ...current,
+      bins: bins ? bins.value : current.bins,
+      showGrid: showGrid ? !!showGrid.checked : current.showGrid,
+      showFrame: showFrame ? !!showFrame.checked : current.showFrame,
+      logY: logY ? !!logY.checked : current.logY,
+      xMin: xMin ? xMin.value : current.xMin,
+      xMax: xMax ? xMax.value : current.xMax,
+      yMax: yMax ? yMax.value : current.yMax,
+      fontSize: fontSize ? fontSize.value : current.fontSize
+    });
+    return state.runtimeControls;
+  }
+
 
   function sanitizeHistDiagnosticsMode(value){
     return value === 'off' || value === 'normal-fit'
@@ -554,29 +650,11 @@
     axisSettings: createDefaultAxisSettings(),
     gridStyle: null,
     frequencySettings: createDefaultHistFrequencySettings(),
-    frequencyInputs: {
-      createMode: null,
-      tabulateMode: null,
-      binningMode: null,
-      binsCount: null,
-      binWidth: null,
-      firstCenterAuto: null,
-      firstCenter: null,
-      lastCenterAuto: null,
-      lastCenter: null
-    },
     distributionSettings: createDefaultDistributionSettings(),
     distributionOptions: [],
-    distributionInputs: {
-      checkboxes: {},
-      showPdf: null,
-      showCdf: null
-    },
     statsSettings: createDefaultHistStatsSettings(),
-    statsInputs: {
-      diagnosticsMode: null,
-      comparisonMode: null
-    },
+    lastStatsPanelModel: { resultsModel: null, reportModel: null },
+    runtimeControls: createDefaultHistRuntimeControls(),
     notes: {
       text: '',
       open: false,
@@ -591,6 +669,975 @@
     root: null
   };
 
+
+  const histSessionsByTabId = new Map();
+  let activeHistSession = null;
+
+  function normalizeHistSessionTabId(tabLike = null, meta = {}){
+    const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
+    const objectTabId = tabLike && typeof tabLike === 'object'
+      ? (tabLike.id || tabLike.tabId || tabLike.workspaceTabId || null)
+      : null;
+    const resolved = direct
+      || objectTabId
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.__workspaceSessionMeta?.tabId
+      || Shared.workspaceTabs?.getActiveSessionInfo?.('hist')?.tabId
+      || hist.__boundTabId
+      || '';
+    return String(resolved || '').trim();
+  }
+
+  function createDefaultHistStatsPanelModel(source = {}){
+    return normalizeHistStatsPanelModel(source || {});
+  }
+
+  function createDefaultHistLabelsState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      title: src.title != null ? String(src.title) : getHistDefaultTitle(HIST_PLOT_MODE_HISTOGRAM),
+      titleAuto: Object.prototype.hasOwnProperty.call(src, 'titleAuto') ? !!src.titleAuto : true,
+      x: src.x != null ? String(src.x) : 'Value',
+      y: src.y != null ? String(src.y) : getHistDefaultYLabel(HIST_PLOT_MODE_HISTOGRAM),
+      yAuto: Object.prototype.hasOwnProperty.call(src, 'yAuto') ? !!src.yAuto : true,
+      positions: cloneSimple(src.positions) || { title: null, xLabel: null, yLabel: null, legend: null }
+    };
+  }
+
+  function createDefaultHistColorState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      series: cloneSimple(src.series) || {},
+      densityLines: cloneSimple(src.densityLines) || {},
+      fill: typeof src.fill === 'string' && src.fill.trim() ? src.fill : HIST_DEFAULT_FILL,
+      border: typeof src.border === 'string' && src.border.trim() ? src.border : HIST_DEFAULT_BORDER,
+      borderWidth: Number.isFinite(Number(src.borderWidth)) ? Number(src.borderWidth) : HIST_DEFAULT_BORDER_WIDTH
+    };
+  }
+
+  function createDefaultHistAutoDrawState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      autoDrawEnabled: Object.prototype.hasOwnProperty.call(src, 'autoDrawEnabled') ? !!src.autoDrawEnabled : true,
+      autoDrawReason: src.autoDrawReason || null,
+      autoDrawLockedByThreshold: !!src.autoDrawLockedByThreshold,
+      drawPending: false,
+      lastDataShape: cloneSimple(src.lastDataShape) || { rows: 0, cols: 0 },
+      lastAutoDrawEvaluation: cloneSimple(src.lastAutoDrawEvaluation) || null
+    };
+  }
+
+  function createDefaultHistNotesState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      text: src.text == null ? '' : String(src.text),
+      open: !!src.open
+    };
+  }
+
+  function createDefaultHistDurableState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    const labelsSource = src.labels && typeof src.labels === 'object'
+      ? src.labels
+      : {
+          title: src.titleText,
+          titleAuto: src.titleAuto,
+          x: src.xLabelText,
+          y: src.yLabelText,
+          yAuto: src.yLabelAuto,
+          positions: src.labelPositions
+        };
+    const colorSource = src.colors && typeof src.colors === 'object'
+      ? src.colors
+      : {
+          series: src.seriesColors,
+          densityLines: src.densityLineColors,
+          fill: src.barFill,
+          border: src.barBorder,
+          borderWidth: src.barBorderWidth
+        };
+    const autoDrawSource = src.autoDraw && typeof src.autoDraw === 'object'
+      ? src.autoDraw
+      : src;
+    return {
+      plotMode: normalizeHistPlotMode(src.plotMode),
+      labels: createDefaultHistLabelsState(labelsSource),
+      showLegend: Object.prototype.hasOwnProperty.call(src, 'showLegend') ? src.showLegend !== false : true,
+      colors: createDefaultHistColorState(colorSource),
+      axisSettings: cloneSimple(src.axisSettings || src.axis) || createDefaultAxisSettings(),
+      gridStyle: cloneSimple(src.gridStyle) || null,
+      frequencySettings: sanitizeHistFrequencySettings(src.frequencySettings || src.frequency || {}),
+      distributionSettings: {
+        ...createDefaultDistributionSettings(),
+        ...(cloneSimple(src.distributionSettings || src.distributions || {}) || {})
+      },
+      distributionOptions: Array.isArray(src.distributionOptions) ? cloneSimple(src.distributionOptions) || [] : [],
+      statsSettings: {
+        ...createDefaultHistStatsSettings(),
+        ...(src.statsSettings && typeof src.statsSettings === 'object' ? cloneSimple(src.statsSettings) || {} : {})
+      },
+      statsPanelModel: createDefaultHistStatsPanelModel(src.statsPanel || src.statsPanelModel || src.stats || {}),
+      runtimeControls: normalizeHistRuntimeControls(src.runtimeControls || src.controls || src.config || {}),
+      autoDraw: createDefaultHistAutoDrawState(autoDrawSource),
+      fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName : 'histogram.graph',
+      minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
+      labelPositions: cloneSimple(src.labelPositions || labelsSource.positions) || { title: null, xLabel: null, yLabel: null, legend: null }
+    };
+  }
+
+  function createDefaultHistResultsState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      statsPanelModel: createDefaultHistStatsPanelModel(src.statsPanelModel || src.statsPanel || src.stats || {})
+    };
+  }
+
+  function normalizeHistResizeMarginLock(value){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    return {
+      top: Number(value.top) || 0,
+      right: Number(value.right) || 0,
+      bottom: Number(value.bottom) || 0,
+      left: Number(value.left) || 0
+    };
+  }
+
+  function createDefaultHistLayoutRuntime(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      resizeMarginLock: normalizeHistResizeMarginLock(src.resizeMarginLock)
+    };
+  }
+
+  function syncHistLayoutRuntimeMirror(runtime, session = null){
+    const normalized = createDefaultHistLayoutRuntime(runtime || {});
+    const shouldMirror = !session || session === getActiveHistSessionForState() || isHistSessionActiveForModuleState(session);
+    if(shouldMirror){
+      state.resizeMarginLock = normalizeHistResizeMarginLock(normalized.resizeMarginLock);
+    }
+    return normalized;
+  }
+
+  function getHistLayoutRuntime(session = null){
+    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(shaped?.cache){
+      shaped.cache.layoutRuntime = createDefaultHistLayoutRuntime(shaped.cache.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
+      return shaped.cache.layoutRuntime;
+    }
+    return createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock });
+  }
+
+  function updateHistLayoutRuntime(updater, session = null){
+    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    const runtime = createDefaultHistLayoutRuntime(shaped?.cache?.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
+    if(typeof updater === 'function'){
+      updater(runtime);
+    }
+    const normalized = createDefaultHistLayoutRuntime(runtime);
+    if(shaped?.cache){
+      shaped.cache.layoutRuntime = normalized;
+      shaped.updatedAt = Date.now();
+    }
+    return syncHistLayoutRuntimeMirror(normalized, shaped);
+  }
+
+  function normalizeHistLabelPositions(value){
+    return cloneSimple(value) || { title: null, xLabel: null, yLabel: null, legend: null };
+  }
+
+  function getHistLabelsState(session = null){
+    const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(owner?.state){
+      owner.state.labels = createDefaultHistLabelsState(owner.state.labels || { positions: owner.state.labelPositions });
+      owner.state.labelPositions = normalizeHistLabelPositions(owner.state.labels.positions || owner.state.labelPositions);
+      return owner.state.labels;
+    }
+    return createDefaultHistLabelsState({
+      title: state.titleText,
+      titleAuto: state.titleAuto,
+      x: state.xLabelText,
+      y: state.yLabelText,
+      yAuto: state.yLabelAuto,
+      positions: state.labelPositions
+    });
+  }
+
+  function patchHistLabelsState(session = null, patch = {}, meta = {}){
+    const owner = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    const current = getHistLabelsState(owner);
+    const nextLabels = createDefaultHistLabelsState({
+      ...current,
+      ...(patch || {}),
+      positions: Object.prototype.hasOwnProperty.call(patch || {}, 'positions')
+        ? normalizeHistLabelPositions(patch.positions)
+        : normalizeHistLabelPositions(current.positions)
+    });
+    if(owner?.state){
+      owner.state.labels = nextLabels;
+      owner.state.labelPositions = normalizeHistLabelPositions(nextLabels.positions);
+      owner.updatedAt = Date.now();
+      histDebug('Debug: hist labels patched to owner session', {
+        tabId: owner.tabId || null,
+        reason: meta?.reason || null,
+        patched: Object.keys(patch || {})
+      });
+    }
+    if(!owner || isHistSessionActiveOrActivating(owner)){
+      state.titleText = nextLabels.title;
+      state.titleAuto = !!nextLabels.titleAuto;
+      state.xLabelText = nextLabels.x;
+      state.yLabelText = nextLabels.y;
+      state.yLabelAuto = !!nextLabels.yAuto;
+      state.labelPositions = normalizeHistLabelPositions(nextLabels.positions);
+    }
+    return nextLabels;
+  }
+
+  function patchHistLabelPosition(session = null, key, value, meta = {}){
+    const current = normalizeHistLabelPositions(getHistLabelsState(session)?.positions || state.labelPositions);
+    const nextPositions = normalizeHistLabelPositions({ ...current, [key]: value || null });
+    return patchHistLabelsState(session, { positions: nextPositions }, meta);
+  }
+
+  function createDefaultHistRefs(root = null){
+    return {
+      root: root || null,
+      tablePanel: null,
+      graphPanel: null,
+      panelResizer: null,
+      svgBox: null,
+      hotWrapper: null,
+      hotContainer: null,
+      plot: null,
+      statsResults: null,
+      renderRow: null,
+      renderButton: null,
+      autoDrawNotice: null,
+      plotMode: null,
+      showLegend: null,
+      showGrid: null,
+      showFrame: null,
+      logY: null,
+      fontSize: null,
+      fontSizeVal: null,
+      bins: null,
+      importButton: null,
+      fileInput: null,
+      openButton: null,
+      saveButton: null,
+      saveAsButton: null,
+      graphFileInput: null,
+      notesControl: null
+    };
+  }
+
+  function createHistSession({ tabId, root = null, initialState = null } = {}){
+    const normalizedTabId = String(tabId || '').trim();
+    const source = initialState && typeof initialState === 'object' ? initialState : {};
+    const durableSource = source.state && typeof source.state === 'object' ? source.state : source;
+    return {
+      componentKey: 'hist',
+      tabId: normalizedTabId,
+      root: root || null,
+      state: createDefaultHistDurableState(durableSource),
+      results: createDefaultHistResultsState({
+        statsPanelModel: durableSource.statsPanelModel || durableSource.statsPanel || source.statsPanel || source.stats
+      }),
+      refs: createDefaultHistRefs(root || null),
+      cache: {
+        emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null,
+        layoutRuntime: createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock }),
+        pendingPayload: null
+      },
+      listeners: new Map(),
+      timers: {
+        scheduleDraw: null,
+        pendingDrawOptions: null
+      },
+      workers: new Map(),
+      managers: {
+        hot: null,
+        autoDraw: null,
+        dataViews: null,
+        layout: null,
+        fileHandle: null
+      },
+      notes: createDefaultHistNotesState(source.notes || durableSource.notes || {}),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+  }
+
+  function ensureHistSessionOwnershipShape(session){
+    if(!session || typeof session !== 'object'){
+      return null;
+    }
+    session.componentKey = 'hist';
+    session.tabId = String(session.tabId || '').trim();
+    session.root = session.root || null;
+    session.state = createDefaultHistDurableState(session.state || {});
+    session.results = createDefaultHistResultsState(session.results || { statsPanelModel: session.state.statsPanelModel });
+    session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultHistRefs(session.root || null);
+    session.refs.root = session.refs.root || session.root || null;
+    session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
+    session.cache.layoutRuntime = createDefaultHistLayoutRuntime(session.cache.layoutRuntime || { resizeMarginLock: state.resizeMarginLock });
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'pendingPayload')){ session.cache.pendingPayload = null; }
+    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
+    session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    session.workers = session.workers instanceof Map ? session.workers : new Map();
+    session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'autoDraw')){ session.managers.autoDraw = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
+    session.notes = createDefaultHistNotesState(session.notes || {});
+    session.updatedAt = Number.isFinite(Number(session.updatedAt)) ? Number(session.updatedAt) : Date.now();
+    return session;
+  }
+
+  function getHistSession(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeHistSessionTabId(tabLike, meta);
+    if(!tabId){
+      return options.fallbackActive === true ? ensureHistSessionOwnershipShape(activeHistSession) : null;
+    }
+    let session = histSessionsByTabId.get(tabId) || null;
+    if(!session && options.create !== false){
+      session = createHistSession({ tabId, root: resolveHistRoot(tabId || null) || null });
+      histSessionsByTabId.set(tabId, session);
+    }
+    return ensureHistSessionOwnershipShape(session);
+  }
+
+  function getHistWorkspaceActiveTabId(){
+    const workspaceInfo = Shared.workspaceTabs?.getActiveSessionInfo?.('hist') || null;
+    if(workspaceInfo?.tabId){
+      return String(workspaceInfo.tabId).trim();
+    }
+    const workspace = global.Main?.session?.workspaceState || null;
+    const activeId = workspace?.activeTabId || null;
+    if(activeId && Array.isArray(workspace?.tabs)){
+      const activeTab = workspace.tabs.find(tab => tab && String(tab.id || '') === String(activeId));
+      if(activeTab?.type === 'hist'){
+        return String(activeId).trim();
+      }
+    }
+    return '';
+  }
+
+  function getActiveHistSessionForState(){
+    const workspaceActiveTabId = getHistWorkspaceActiveTabId();
+    if(workspaceActiveTabId){
+      return getHistSession(workspaceActiveTabId, { tabId: workspaceActiveTabId, reason: 'active-hist-session-workspace' }, { create: true });
+    }
+    if(activeHistSession && (!hist.__boundTabId || String(activeHistSession.tabId || '') === String(hist.__boundTabId || ''))){
+      return ensureHistSessionOwnershipShape(activeHistSession);
+    }
+    const tabId = normalizeHistSessionTabId(null, {});
+    return tabId ? getHistSession(tabId, { tabId, reason: 'active-hist-session' }, { create: true }) : null;
+  }
+
+  function getHistTabIdFromTarget(target = null){
+    if(!target || typeof target.closest !== 'function'){
+      return '';
+    }
+    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
+    return String(
+      owner?.dataset?.workspaceTabId
+      || owner?.dataset?.tabId
+      || owner?.getAttribute?.('data-workspace-tab-id')
+      || owner?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim();
+  }
+
+  function isHistSessionActiveForModuleState(session){
+    if(!session){ return false; }
+    const tabId = String(session.tabId || '').trim();
+    if(!tabId){ return false; }
+    const workspaceActiveTabId = getHistWorkspaceActiveTabId();
+    if(workspaceActiveTabId){
+      return workspaceActiveTabId === tabId;
+    }
+    return !hist.__boundTabId || String(hist.__boundTabId || '') === tabId;
+  }
+
+  function getHistActiveTabId(){
+    return String(getHistWorkspaceActiveTabId() || hist.__boundTabId || '').trim();
+  }
+
+  function getHistHotOwnerTabId(hotInstance){
+    return String(
+      hotInstance?.__histTabId
+      || hotInstance?.__workspaceTabId
+      || hotInstance?.__graphitixTabId
+      || hotInstance?.__hotWorkspaceTabId
+      || ''
+    ).trim();
+  }
+
+  function getHistCallbackOwner(meta = {}){
+    const target = meta?.target || meta?.event?.currentTarget || meta?.event?.target || null;
+    const tabId = String(meta?.tabId || getHistHotOwnerTabId(meta?.hot) || getHistTabIdFromTarget(target) || getHistActiveTabId() || '').trim();
+    return {
+      tabId,
+      session: tabId ? getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-callback-owner' }, { create: true }) : getActiveHistSessionForState(),
+      hot: meta?.hot || null
+    };
+  }
+
+  function histDataViewsManagerBelongsToSession(manager = null, session = null){
+    const shaped = ensureHistSessionOwnershipShape(session);
+    if(!manager || !shaped?.tabId){ return false; }
+    const ownerTabId = String(
+      manager.__histTabId
+      || manager.__workspaceTabId
+      || manager.__graphitixTabId
+      || manager.__ownerTabId
+      || ''
+    ).trim();
+    return !!ownerTabId && ownerTabId === String(shaped.tabId);
+  }
+
+  function isHistCallbackOwnerActive(owner){
+    const ownerTabId = String(owner?.tabId || '').trim();
+    const activeTabId = getHistActiveTabId();
+    return !!(!ownerTabId || (activeTabId && ownerTabId === activeTabId));
+  }
+
+  function isHistSessionActiveOrActivating(session = null){
+    const shaped = ensureHistSessionOwnershipShape(session);
+    if(!shaped?.tabId){ return false; }
+    const workspaceActiveTabId = Shared.workspaceTabs?.getActiveSessionInfo?.('hist')?.tabId
+      || global.Main?.session?.workspaceState?.activeTabId
+      || null;
+    return isHistCallbackOwnerActive({ tabId: shaped.tabId, session: shaped })
+      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+  }
+
+  function runHistOwnedCallback(owner, callback, meta = {}){
+    if(typeof callback !== 'function'){
+      return undefined;
+    }
+    const resolvedOwner = owner?.session || owner?.tabId
+      ? owner
+      : getHistCallbackOwner(meta);
+    if(!isHistCallbackOwnerActive(resolvedOwner)){
+      histDebug('Debug: hist callback skipped for inactive owner', {
+        ownerTabId: resolvedOwner?.tabId || null,
+        activeTabId: getHistActiveTabId() || null,
+        reason: meta?.reason || 'hist-owned-callback'
+      });
+      return undefined;
+    }
+    return callback(resolvedOwner);
+  }
+
+  function runHistEventOwnerCallback(event, reason, callback){
+    const owner = getHistCallbackOwner({ event, target: event?.currentTarget || event?.target || null, reason });
+    return runHistOwnedCallback(owner, callback, { event, reason });
+  }
+
+  function commitHistActiveStateToOwner(owner = null, meta = {}){
+    const session = ensureHistSessionOwnershipShape(owner?.session || null);
+    if(!session){
+      return null;
+    }
+    return captureHistSessionStateFromActive(session, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-control-owner-commit',
+      captureStats: meta?.captureStats === true
+    });
+  }
+
+  function commitHistOwnerHotRuntime(owner, meta = {}){
+    const session = ensureHistSessionOwnershipShape(
+      owner?.session
+      || (owner?.tabId ? getHistSession(owner.tabId, meta, { create: false }) : null)
+      || null
+    );
+    if(!session){
+      return null;
+    }
+    const hot = owner?.hot || session.managers?.hot || null;
+    if(hot && typeof hot.getData === 'function'){
+      const hotOwner = getHistHotOwnerTabId(hot);
+      if(!session.tabId || !hotOwner || hotOwner === session.tabId){
+        session.managers.hot = hot;
+        const manager = hot.__histDataViewsManager || session.managers.dataViews || null;
+        if(manager && (!hot.__histDataViewsManager || manager === hot.__histDataViewsManager) && histDataViewsManagerBelongsToSession(manager, session)){
+          session.managers.dataViews = manager;
+          try{ manager.updateActiveData?.(hot.getData() || []); }catch(_err){}
+          try{ manager.updateActiveExclusions?.(hot.exportExclusions?.() || null); }catch(_err){}
+          try{ manager.updateActiveFilters?.(hot.exportFilters?.() || null); }catch(_err){}
+          if(meta.refreshDataViews === true){
+            try{ manager.refresh?.(); }catch(_err){}
+          }
+        }
+      }else{
+        histDebug('Debug: hist owner HOT commit skipped for mismatched tab', {
+          sessionTabId: session.tabId || null,
+          hotOwner,
+          reason: meta?.reason || 'hist-owner-hot-commit'
+        });
+      }
+    }
+    session.state.autoDraw = {
+      ...createDefaultHistAutoDrawState(session.state.autoDraw || {}),
+      autoDrawReason: meta?.reason || session.state.autoDraw?.autoDrawReason || null,
+      drawPending: meta.drawPending === false ? false : true
+    };
+    session.updatedAt = Date.now();
+    return session;
+  }
+
+  function scheduleHistOwnerDraw(owner, options = {}){
+    const resolvedOwner = owner?.session || owner?.tabId || owner?.hot
+      ? owner
+      : getHistCallbackOwner({ ...(options || {}), reason: options.reason || 'hist-owner-draw' });
+    const session = ensureHistSessionOwnershipShape(
+      resolvedOwner?.session
+      || (resolvedOwner?.tabId ? getHistSession(resolvedOwner.tabId, {
+        ...(options || {}),
+        tabId: resolvedOwner.tabId,
+        reason: options.reason || 'hist-owner-draw'
+      }, { create: false }) : null)
+      || null
+    );
+    const tabId = String(resolvedOwner?.tabId || session?.tabId || '').trim();
+    if(!isHistCallbackOwnerActive({ tabId, session })){
+      commitHistOwnerHotRuntime({ ...resolvedOwner, session }, {
+        ...(options || {}),
+        reason: options.reason || 'hist-owner-draw-inactive',
+        refreshDataViews: options.refreshDataViews !== false
+      });
+      return false;
+    }
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = {
+      ...sourceOptions,
+      tabId: tabId || undefined,
+      reason: sourceOptions.reason || 'hist-owner-draw'
+    };
+    if(session?.timers){
+      session.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+      session.updatedAt = Date.now();
+    }
+    const scheduler = session?.timers?.scheduleDraw || state.scheduleDraw;
+    if(typeof scheduler !== 'function'){
+      return false;
+    }
+    scheduler(scheduleOptions);
+    return true;
+  }
+
+  function scheduleActiveHistDraw(options = {}){
+    return scheduleHistOwnerDraw(getHistCallbackOwner({
+      ...(options || {}),
+      reason: options.reason || 'hist-active-draw'
+    }), options);
+  }
+
+  function getHistSessionForDrawOptions(options = {}, meta = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || hist.__boundTabId || null;
+    return tabId
+      ? getHistSession(tabId, {
+          ...(meta || {}),
+          tabId,
+          reason: meta?.reason || source.reason || 'hist-draw-session'
+        }, { create: meta?.create !== false })
+      : getActiveHistSessionForState();
+  }
+
+  function renameHistOwnerTabForImport(owner, fileName){
+    const tabId = String(owner?.tabId || '').trim();
+    const raw = String(fileName || '').split(/[\\/]/).pop().trim();
+    const nextTitleBase = raw.replace(/\.[^.]*$/, '').trim() || raw;
+    if(!tabId || !nextTitleBase){
+      return;
+    }
+    try{
+      const appMain = global.Main || null;
+      if(typeof appMain?.tabs?.commitTabRename === 'function'){
+        appMain.tabs.commitTabRename(tabId, nextTitleBase, { reason: 'hist-table-import-file-name' });
+        return;
+      }
+      const session = appMain?.session || null;
+      const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+      const tab = tabs.find(item => item && String(item.id || '') === tabId) || null;
+      if(!tab){
+        return;
+      }
+      const previousTitle = tab.title || '';
+      tab.title = typeof session.generateUniqueTabTitle === 'function'
+        ? session.generateUniqueTabTitle(nextTitleBase, { excludeTabId: tabId })
+        : nextTitleBase;
+      appMain?.tabs?.renderTabs?.();
+      if(tab.title !== previousTitle && typeof session.markSessionDirty === 'function'){
+        session.markSessionDirty('tab-title-updated-from-hist-import', {
+          tabId,
+          previousTitle,
+          nextTitle: tab.title,
+          origin: 'user',
+          fileName: raw
+        });
+      }
+    }catch(err){
+      histDebug('Debug: hist import tab rename failed', {
+        tabId,
+        fileName: raw,
+        message: err?.message || String(err)
+      });
+    }
+  }
+
+
+  function getHistDeactivationTabId(tab, meta = {}){
+    return (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+  }
+
+  function getHistDeactivationSession(tab, meta = {}){
+    const tabId = getHistDeactivationTabId(tab, meta);
+    const activeSession = getActiveHistSessionForState();
+    const activeTabId = hist.__boundTabId || activeSession?.tabId || null;
+    if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
+      return getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-deactivate-target-session' }, { create: false });
+    }
+    return activeSession || (tabId ? getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-deactivate-active-session' }, { create: false }) : null);
+  }
+
+  function captureHistSessionForDeactivation(tab, meta = {}){
+    const tabId = getHistDeactivationTabId(tab, meta);
+    const activeSession = getActiveHistSessionForState();
+    const activeTabId = hist.__boundTabId || activeSession?.tabId || null;
+    const targetSession = getHistDeactivationSession(tab, meta);
+    if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
+      if(targetSession){
+        targetSession.state.drawPending = false;
+        targetSession.updatedAt = Date.now();
+      }
+      histDebug('Debug: hist inactive-tab deactivate skipped active mirror capture', {
+        tabId,
+        activeTabId,
+        reason: meta?.reason || 'hist-deactivate'
+      });
+      return targetSession;
+    }
+    if(targetSession){
+      captureHistSessionStateFromActive(targetSession, {
+        reason: meta?.reason || 'hist-deactivate',
+        captureStatsPanel: true
+      });
+    }
+    return targetSession;
+  }
+
+  function syncHistSessionRefsFromActive(session = null){
+    const shaped = ensureHistSessionOwnershipShape(session || activeHistSession || getActiveHistSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isHistSessionActiveOrActivating(shaped)){
+      return shaped;
+    }
+    const root = state.root || shaped.root || null;
+    shaped.root = root;
+    shaped.refs = Object.assign(createDefaultHistRefs(root || null), shaped.refs || {}, {
+      root,
+      tablePanel: state.layout?.elements?.tablePanel || queryHistRoot('#histTablePanel'),
+      graphPanel: state.layout?.elements?.graphPanel || queryHistRoot('#histGraphPanel'),
+      panelResizer: state.layout?.elements?.panelResizer || queryHistRoot('#histPanelResizer'),
+      svgBox: state.svgBox || state.layout?.elements?.svgBox || queryHistRoot('#histGraphPanel .svgbox'),
+      hotWrapper: state.layout?.elements?.hotWrapper || queryHistRoot('#histHotWrapper'),
+      hotContainer: state.layout?.elements?.hotContainer || queryHistRoot('#histHot'),
+      plot: queryHistRoot('#histPlot'),
+      statsResults: queryHistRoot('#histStatsResults'),
+      renderRow: histRenderRowEl || queryHistRoot('#histRenderRow'),
+      renderButton: histRenderButtonEl || queryHistRoot('#histRenderButton'),
+      autoDrawNotice: histAutoDrawNoticeEl || queryHistRoot('#histAutoDrawNotice'),
+      plotMode: queryHistRoot('#histPlotMode'),
+      showLegend: queryHistRoot('#histShowLegend'),
+      showGrid: queryHistRoot('#histShowGrid'),
+      showFrame: queryHistRoot('#histShowFrame'),
+      logY: queryHistRoot('#histLogY'),
+      fontSize: queryHistRoot('#histFontSize'),
+      fontSizeVal: queryHistRoot('#histFontSizeVal'),
+      bins: queryHistRoot('#histBins'),
+      importButton: queryHistRoot('#histImport'),
+      fileInput: queryHistRoot('#histFile'),
+      openButton: queryHistRoot('#openHistGraph'),
+      saveButton: queryHistRoot('#saveHistGraph'),
+      saveAsButton: queryHistRoot('#saveAsHist'),
+      graphFileInput: queryHistRoot('#histGraphFile'),
+      notesControl: canUseHistNotesControl(state.notes?.control) ? state.notes.control : null
+    });
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function syncHistSessionManagersFromActive(session = null){
+    const shaped = ensureHistSessionOwnershipShape(session || activeHistSession || getActiveHistSessionForState());
+    if(!shaped){ return null; }
+    const sessionIsActive = !shaped.tabId || isHistSessionActiveOrActivating(shaped);
+    const stateHotTabId = getHistHotOwnerTabId(state.hot);
+    const hotBelongsToSession = !!state.hot && (!shaped.tabId || (stateHotTabId && stateHotTabId === shaped.tabId));
+    if(hotBelongsToSession){
+      shaped.managers.hot = state.hot;
+    }
+    if(sessionIsActive){
+      shaped.managers.autoDraw = histAutoDrawManager || null;
+    }
+    if(hotBelongsToSession){
+      const manager = state.hot?.__histDataViewsManager || null;
+      shaped.managers.dataViews = histDataViewsManagerBelongsToSession(manager, shaped) ? manager : shaped.managers.dataViews || null;
+    }
+    if(sessionIsActive){
+      shaped.managers.layout = state.layout || shaped.managers.layout || null;
+      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
+      shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
+    }
+    shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function canUseHistNotesControl(noteControl){
+    if(!noteControl){ return false; }
+    const root = state.root || resolveHistRoot(hist.__boundTabId || null);
+    const controlRoot = noteControl.root || null;
+    if(controlRoot){
+      return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
+    }
+    return !!root && (!noteControl.element || root.contains?.(noteControl.element));
+  }
+
+  function setHistFileHandleForOwner(handle, owner = null){
+    const session = ensureHistSessionOwnershipShape(
+      owner?.session
+      || (owner?.tabId ? getHistSession(owner.tabId, { reason: 'hist-file-handle-owner' }, { create: false }) : null)
+      || getActiveHistSessionForState()
+    );
+    if(session?.managers){
+      session.managers.fileHandle = handle || null;
+      session.updatedAt = Date.now();
+    }
+    if(!session || isHistSessionActiveOrActivating(session)){
+      state.fileHandle = handle || null;
+    }
+    return handle || null;
+  }
+
+  function setHistFileNameForOwner(name, owner = null){
+    const nextName = name || 'histogram.graph';
+    const session = ensureHistSessionOwnershipShape(
+      owner?.session
+      || (owner?.tabId ? getHistSession(owner.tabId, { reason: 'hist-file-name-owner' }, { create: false }) : null)
+      || getActiveHistSessionForState()
+    );
+    if(session?.state){
+      session.state.fileName = nextName;
+      session.updatedAt = Date.now();
+    }
+    if(!session || isHistSessionActiveOrActivating(session)){
+      state.fileName = nextName;
+    }
+    return nextName;
+  }
+
+  function captureHistNotesMirror(){
+    const noteControl = canUseHistNotesControl(state.notes?.control) ? state.notes.control : null;
+    const text = noteControl && typeof noteControl.getValue === 'function'
+      ? noteControl.getValue()
+      : (state.notes?.text || '');
+    const open = noteControl && typeof noteControl.isOpen === 'function'
+      ? noteControl.isOpen()
+      : !!state.notes?.open;
+    state.notes.text = text == null ? '' : String(text);
+    state.notes.open = !!open;
+    return createDefaultHistNotesState(state.notes);
+  }
+
+  function captureHistSessionStateFromActive(session = null, meta = {}){
+    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isHistSessionActiveOrActivating(shaped)){
+      shaped.updatedAt = Date.now();
+      return shaped;
+    }
+    if(meta.syncControls !== false){
+      syncHistRuntimeControlsFromDom();
+    }
+    const statsPanelModel = meta.captureStatsPanel === false
+      ? createDefaultHistStatsPanelModel(state.lastStatsPanelModel || {})
+      : createDefaultHistStatsPanelModel(captureHistStatsPanelModel(state.lastStatsPanelModel || {}));
+    const labels = createDefaultHistLabelsState({
+      title: state.titleText,
+      titleAuto: state.titleAuto,
+      x: state.xLabelText,
+      y: state.yLabelText,
+      yAuto: state.yLabelAuto,
+      positions: state.labelPositions
+    });
+    const colors = createDefaultHistColorState({
+      series: state.seriesColors,
+      densityLines: state.densityLineColors,
+      fill: state.barFill,
+      border: state.barBorder,
+      borderWidth: state.barBorderWidth
+    });
+    shaped.state = createDefaultHistDurableState({
+      plotMode: state.plotMode,
+      labels,
+      showLegend: state.showLegend,
+      colors,
+      axisSettings: state.axisSettings,
+      gridStyle: state.gridStyle,
+      frequencySettings: state.frequencySettings,
+      distributionSettings: state.distributionSettings,
+      distributionOptions: state.distributionOptions,
+      statsSettings: state.statsSettings,
+      statsPanelModel,
+      runtimeControls: state.runtimeControls,
+      autoDraw: {
+        autoDrawEnabled: state.autoDrawEnabled,
+        autoDrawReason: state.autoDrawReason,
+        autoDrawLockedByThreshold: state.autoDrawLockedByThreshold,
+        drawPending: false,
+        lastDataShape: state.lastDataShape,
+        lastAutoDrawEvaluation: state.lastAutoDrawEvaluation
+      },
+      fileName: state.fileName,
+      minSvgWidth: state.minSvgWidth,
+      labelPositions: state.labelPositions
+    });
+    shaped.results = createDefaultHistResultsState({ statsPanelModel });
+    shaped.notes = captureHistNotesMirror();
+    syncHistSessionRefsFromActive(shaped);
+    syncHistSessionManagersFromActive(shaped);
+    shaped.cache.layoutRuntime = createDefaultHistLayoutRuntime({ resizeMarginLock: state.resizeMarginLock });
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function applyHistSessionStateToActive(session = null, options = {}){
+    const shaped = ensureHistSessionOwnershipShape(session || getActiveHistSessionForState());
+    if(!shaped){ return false; }
+    const durable = shaped.state || createDefaultHistDurableState();
+    const labels = createDefaultHistLabelsState(durable.labels || {});
+    const colors = createDefaultHistColorState(durable.colors || {});
+    const autoDraw = createDefaultHistAutoDrawState(durable.autoDraw || {});
+    state.plotMode = normalizeHistPlotMode(durable.plotMode);
+    state.titleText = labels.title;
+    state.titleAuto = !!labels.titleAuto;
+    state.xLabelText = labels.x;
+    state.yLabelText = labels.y;
+    state.yLabelAuto = !!labels.yAuto;
+    state.labelPositions = cloneSimple(labels.positions || durable.labelPositions) || { title: null, xLabel: null, yLabel: null, legend: null };
+    state.showLegend = durable.showLegend !== false;
+    state.seriesColors = cloneSimple(colors.series) || {};
+    state.densityLineColors = cloneSimple(colors.densityLines) || {};
+    state.barFill = colors.fill || HIST_DEFAULT_FILL;
+    state.barBorder = colors.border || HIST_DEFAULT_BORDER;
+    state.barBorderWidth = Number.isFinite(Number(colors.borderWidth)) ? Number(colors.borderWidth) : HIST_DEFAULT_BORDER_WIDTH;
+    state.axisSettings = cloneSimple(durable.axisSettings) || createDefaultAxisSettings();
+    state.gridStyle = cloneSimple(durable.gridStyle) || null;
+    state.frequencySettings = sanitizeHistFrequencySettings(durable.frequencySettings || {});
+    state.distributionOptions = Array.isArray(durable.distributionOptions) && durable.distributionOptions.length
+      ? cloneSimple(durable.distributionOptions) || []
+      : getDistributionOptions();
+    state.distributionSettings = normalizeHistDistributionSettingsForActiveMode(
+      durable.distributionSettings || {},
+      state.plotMode,
+      state.frequencySettings
+    );
+    state.statsSettings = {
+      ...createDefaultHistStatsSettings(),
+      ...(cloneSimple(durable.statsSettings) || {})
+    };
+    state.lastStatsPanelModel = createDefaultHistStatsPanelModel(shaped.results?.statsPanelModel || durable.statsPanelModel || {});
+    state.runtimeControls = normalizeHistRuntimeControls(durable.runtimeControls || {});
+    state.autoDrawEnabled = !!autoDraw.autoDrawEnabled;
+    state.autoDrawReason = autoDraw.autoDrawReason || null;
+    state.autoDrawLockedByThreshold = !!autoDraw.autoDrawLockedByThreshold;
+    state.drawPending = false;
+    state.lastDataShape = cloneSimple(autoDraw.lastDataShape) || { rows: 0, cols: 0 };
+    state.lastAutoDrawEvaluation = cloneSimple(autoDraw.lastAutoDrawEvaluation) || null;
+    state.fileName = durable.fileName || state.fileName || 'histogram.graph';
+    state.minSvgWidth = Number.isFinite(Number(durable.minSvgWidth)) ? Number(durable.minSvgWidth) : 0;
+    state.fileHandle = shaped.managers.fileHandle || state.fileHandle || null;
+    syncHistLayoutRuntimeMirror(shaped.cache?.layoutRuntime, shaped);
+    if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
+    }
+    if(!state.root && shaped.root){
+      state.root = shaped.root;
+    }
+    state.notes.text = shaped.notes.text || '';
+    state.notes.open = !!shaped.notes.open;
+    if(canUseHistNotesControl(state.notes.control)){
+      state.notes.control.setValue(state.notes.text);
+      state.notes.control.setOpen(state.notes.open);
+    }
+    if(options.syncUi !== false){
+      syncHistRuntimeControlsFromState();
+      syncHistPlotModeControls();
+      syncHistFrequencyControls();
+      projectHistDistributionControlsFromState({ rebuild: false });
+      syncHistStatsControls();
+      restoreHistStatsPanelModel(state.lastStatsPanelModel);
+    }
+    shaped.updatedAt = Date.now();
+    return true;
+  }
+
+  function bindHistSessionForTab(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeHistSessionTabId(tabLike, meta);
+    if(!tabId){ return null; }
+    if(activeHistSession && activeHistSession.tabId && activeHistSession.tabId !== tabId){
+      captureHistSessionStateFromActive(activeHistSession, {
+        reason: meta?.reason || 'hist-session-switch-capture',
+        captureStatsPanel: true
+      });
+    }
+    const session = getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-session-bind' }, { create: true });
+    if(!session){ return null; }
+    const root = meta?.root || resolveHistRoot(tabLike || tabId || null) || session.root || null;
+    session.root = root || session.root || null;
+    session.refs.root = root || session.refs.root || null;
+    activeHistSession = session;
+    hist.__histSessionTabId = session.tabId;
+    if(options.passiveBound !== false){
+      hist.__boundTabId = session.tabId;
+    }
+    if(options.apply !== false){
+      applyHistSessionStateToActive(session, { syncUi: options.syncUi !== false });
+    }
+    return session;
+  }
+
+  function setHistSessionStateFromRuntimeRecord(record, meta = {}){
+    if(!record || typeof record !== 'object'){
+      return null;
+    }
+    const tabId = normalizeHistSessionTabId(meta?.tab || meta?.tabId || record.tabId || null, meta);
+    if(!tabId){ return null; }
+    const session = getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-session-state-from-runtime' }, { create: true });
+    if(!session){ return null; }
+    session.state = createDefaultHistDurableState(record.state && typeof record.state === 'object' ? record.state : record);
+    session.results = createDefaultHistResultsState({
+      statsPanelModel: record.statsPanelModel || record.statsPanel || record.stats || record.state?.statsPanelModel
+    });
+    session.notes = createDefaultHistNotesState(record.notes || record.state?.notes || {});
+    session.updatedAt = Date.now();
+    return session;
+  }
+
   function stabilizeHistMarginForAxisResize(margin){
     if(!margin || typeof margin !== 'object'){
       return margin;
@@ -603,22 +1650,24 @@
     };
     const dataset = state.svgBox?.dataset || null;
     if(!dataset || dataset.resizerAspectLocked === 'true'){
-      state.resizeMarginLock = locked;
+      updateHistLayoutRuntime(runtime => { runtime.resizeMarginLock = locked; });
       return locked;
     }
     const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
       ? dataset.resizerLastAxis
       : 'both';
-    if(state.resizeMarginLock){
+    const runtime = getHistLayoutRuntime();
+    const previousLock = normalizeHistResizeMarginLock(runtime.resizeMarginLock);
+    if(previousLock){
       if(axis === 'y'){
-        locked.left = state.resizeMarginLock.left;
-        locked.right = state.resizeMarginLock.right;
+        locked.left = previousLock.left;
+        locked.right = previousLock.right;
       }else if(axis === 'x'){
-        locked.top = state.resizeMarginLock.top;
-        locked.bottom = state.resizeMarginLock.bottom;
+        locked.top = previousLock.top;
+        locked.bottom = previousLock.bottom;
       }
     }
-    state.resizeMarginLock = { ...locked };
+    updateHistLayoutRuntime(next => { next.resizeMarginLock = locked; });
     return locked;
   }
 
@@ -759,14 +1808,55 @@
       reporting.clearReportHost(target);
     }
   }
-  let histDataViewsManager = null;
+
+  function normalizeHistStatsPanelModel(source = {}){
+    if(Shared.statsReporting && typeof Shared.statsReporting.normalizeSavedPanelModel === 'function'){
+      return Shared.statsReporting.normalizeSavedPanelModel(source);
+    }
+    const src = source && typeof source === 'object' ? source : {};
+    return { resultsModel: cloneSimple(src.resultsModel) || null, reportModel: cloneSimple(src.reportModel) || null };
+  }
+
+  function captureHistStatsPanelModel(fallback = null){
+    const target = getHistNodeById('histStatsResults');
+    const previous = normalizeHistStatsPanelModel(fallback || state.lastStatsPanelModel || {});
+    if(!target || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
+      return previous;
+    }
+    state.lastStatsPanelModel = normalizeHistStatsPanelModel(Shared.statsReporting.capturePanelModel(target) || previous);
+    return state.lastStatsPanelModel;
+  }
+
+  function histStatsPanelModelHasContent(model){
+    const normalized = normalizeHistStatsPanelModel(model);
+    return !!(normalized.resultsModel || normalized.reportModel);
+  }
+
+  function restoreHistStatsPanelModel(model){
+    const target = getHistNodeById('histStatsResults');
+    const normalized = normalizeHistStatsPanelModel(model);
+    if(!target || !histStatsPanelModelHasContent(normalized) || !Shared.statsReporting || typeof Shared.statsReporting.restorePanelModel !== 'function'){
+      return false;
+    }
+    const reportHost = ensureHistStatsReportHost(target);
+    Shared.statsReporting.restorePanelModel(target, normalized, {
+      ensureReportHost: reportHost ? () => reportHost : undefined,
+      clearMainWhenMissing: false
+    });
+    state.lastStatsPanelModel = normalized;
+    return true;
+  }
   let histDataToolbarBound = false;
-  let histDataToolbarLastActivation = 0;
+  const histDataToolbarLastActivationByTabId = new Map();
   let histFontEventBound = false;
 
   function scheduleHistViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'hist-view-refresh';
+    const ownerTabId = normalizeHistSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || getHistActiveTabId() || null, {});
+    const ownerSession = ownerTabId
+      ? getHistSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
+      : getActiveHistSessionForState();
     const normalizedReason = String(nextReason || '').toLowerCase();
     const passiveReason = normalizedReason.includes('restore')
       || normalizedReason.includes('payload')
@@ -777,28 +1867,26 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: hist.__boundTabId || null,
+      tabId: ownerTabId || getHistActiveTabId() || null,
       reason: nextReason,
       source: 'hist-view-refresh',
       forceDraw: options.force === true,
       userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
     };
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', lifecycleMeta)){
-      histDebug('Debug: hist view refresh suppressed by lifecycle', { reason: nextReason, tabId: hist.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: hist.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist-view-refresh' } });
-      return;
-    }
-    if(typeof state.scheduleDraw !== 'function'){
+      histDebug('Debug: hist view refresh suppressed by lifecycle', { reason: nextReason, tabId: lifecycleMeta.tabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: lifecycleMeta.tabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist-view-refresh' } });
       return;
     }
     const scheduleOptions = Object.assign({}, options, {
       viewOnly: true,
       reason: nextReason,
       source: 'hist-view-refresh',
+      tabId: ownerTabId || options.tabId || undefined,
       forceDraw: lifecycleMeta.forceDraw === true,
       userInitiated: lifecycleMeta.userInitiated === true
     });
-    state.scheduleDraw(scheduleOptions);
+    scheduleHistOwnerDraw(ownerSession || getActiveHistSessionForState(), scheduleOptions);
   }
 
   function isHistFontStyleEvent(detail){
@@ -816,7 +1904,7 @@
       if(!isHistFontStyleEvent(detail)){
         return;
       }
-      scheduleHistViewRefresh('font-style-change');
+      scheduleHistViewRefresh('font-style-change', { tabId: detail.tabId || null });
     });
     histFontEventBound = true;
   }
@@ -856,6 +1944,169 @@
     return histOverlayController?.force(reason, options) || false;
   }
 
+
+  function getHistFrequencyControls(){
+    return {
+      createMode: getHistNodeById('histFrequencyCreateMode'),
+      tabulateMode: getHistNodeById('histFrequencyTabulateMode'),
+      binningMode: getHistNodeById('histBinningMode'),
+      binsCount: getHistNodeById('histBins'),
+      binWidth: getHistNodeById('histBinWidth'),
+      firstCenterAuto: getHistNodeById('histFirstBinCenterAuto'),
+      firstCenter: getHistNodeById('histFirstBinCenter'),
+      lastCenterAuto: getHistNodeById('histLastBinCenterAuto'),
+      lastCenter: getHistNodeById('histLastBinCenter')
+    };
+  }
+
+  function getHistDistributionCheckboxes(){
+    const list = getHistNodeById('histDistributionList');
+    if(!list || typeof list.querySelectorAll !== 'function'){
+      return {};
+    }
+    const entries = {};
+    list.querySelectorAll('input[data-dist-key]').forEach(input => {
+      const key = String(input?.dataset?.distKey || '').trim();
+      if(key){
+        entries[key] = input;
+      }
+    });
+    return entries;
+  }
+
+  function ensureHistDistributionOptionsForState(){
+    const defaults = getDistributionOptions();
+    const configured = Array.isArray(state.distributionOptions) ? state.distributionOptions : [];
+    state.distributionOptions = mergeDistributionOptions(defaults, configured);
+    return state.distributionOptions;
+  }
+
+  function projectHistDistributionControlsFromState(options = {}){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    const distributionOptions = ensureHistDistributionOptionsForState();
+    state.distributionSettings = normalizeHistDistributionSettingsForActiveMode(
+      state.distributionSettings,
+      state.plotMode,
+      state.frequencySettings
+    );
+    state.distributionSettings.selections = mergeDistributionSelections(
+      state.distributionSettings.selections || {},
+      distributionOptions
+    );
+
+    const distListEl = getHistNodeById('histDistributionList');
+    const currentInputs = getHistDistributionCheckboxes();
+    const currentKeys = Object.keys(currentInputs).sort().join('|');
+    const optionKeys = distributionOptions.map(opt => String(opt?.key || '')).filter(Boolean).sort().join('|');
+    const shouldRebuild = !!options.rebuild || (distListEl && currentKeys !== optionKeys);
+
+    if(distListEl && shouldRebuild){
+      distListEl.innerHTML = '';
+      const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+      distributionOptions.forEach(opt => {
+        if(!opt?.key){
+          return;
+        }
+        const wrapper = document.createElement('label');
+        wrapper.className = 'hist-dist-option';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = `histDist_${opt.key}`;
+        input.dataset.distKey = opt.key;
+        input.checked = !!state.distributionSettings.selections[opt.key];
+        input.addEventListener('change', event => {
+          runHistEventOwnerCallback(event, 'distribution-selection-change', owner => {
+            const session = owner?.session || getActiveHistSessionForState();
+            if(!session || !isHistSessionActiveForModuleState(session)){
+              return;
+            }
+            state.distributionSettings = normalizeHistDistributionSettingsForActiveMode(
+              state.distributionSettings,
+              state.plotMode,
+              state.frequencySettings
+            );
+            state.distributionSettings.selections = mergeDistributionSelections(
+              state.distributionSettings.selections || {},
+              state.distributionOptions || []
+            );
+            state.distributionSettings.selections[opt.key] = !!input.checked;
+            if(debugEnabled){
+              histDebug('Debug: hist distribution selection change', { key: opt.key, checked: input.checked });
+            }
+            projectHistDistributionControlsFromState({ rebuild: false });
+            commitHistActiveStateToOwner(owner, { reason: 'distribution-selection-change' });
+            scheduleHistOwnerDraw(owner, { reason: 'distribution-selection-change', tabId: owner.tabId || undefined });
+          });
+        });
+        const swatch = document.createElement('span');
+        swatch.className = 'hist-dist-swatch';
+        swatch.dataset.distKey = opt.key;
+        swatch.style.backgroundColor = opt.color;
+        wrapper.appendChild(input);
+        wrapper.appendChild(swatch);
+        const text = document.createElement('span');
+        text.textContent = opt.label || opt.key;
+        wrapper.appendChild(text);
+        distListEl.appendChild(wrapper);
+      });
+      if(debugEnabled){
+        histDebug('Debug: hist distribution controls rebuilt from session', {
+          options: distributionOptions.map(opt => opt?.key).filter(Boolean),
+          selected: Object.keys(state.distributionSettings.selections || {}).filter(key => state.distributionSettings.selections[key])
+        });
+      }
+    }
+
+    const inputs = getHistDistributionCheckboxes();
+    Object.entries(inputs).forEach(([key, input]) => {
+      input.checked = !!state.distributionSettings.selections[key];
+    });
+    const colorByKey = {};
+    distributionOptions.forEach(option => {
+      if(option?.key){
+        colorByKey[option.key] = option.color;
+      }
+    });
+    distListEl?.querySelectorAll?.('.hist-dist-swatch[data-dist-key]')?.forEach(node => {
+      const key = node.dataset ? node.dataset.distKey : '';
+      if(key && colorByKey[key]){
+        node.style.backgroundColor = colorByKey[key];
+      }
+    });
+    const pdfInput = getHistNodeById('histShowPdf');
+    const cdfInput = getHistNodeById('histShowCdf');
+    if(pdfInput){
+      pdfInput.checked = !!state.distributionSettings.showPdf;
+    }
+    if(cdfInput){
+      cdfInput.checked = !!state.distributionSettings.showCdf;
+    }
+  }
+
+  function normalizeHistDistributionSettingsForActiveMode(settings = state.distributionSettings, mode = state.plotMode, frequencySettings = state.frequencySettings){
+    const plotMode = normalizeHistPlotMode(mode);
+    const frequency = sanitizeHistFrequencySettings(frequencySettings || {});
+    const options = ensureHistDistributionOptionsForState();
+    const next = {
+      ...createDefaultDistributionSettings(),
+      ...(settings && typeof settings === 'object' ? cloneSimple(settings) || settings : {})
+    };
+    next.selections = mergeDistributionSelections(next.selections || {}, options);
+
+    // PDF/CDF availability is a function of the active plot mode, not a durable
+    // user preference from another tab. Keep the session state legal before
+    // projecting controls so a reused same-component DOM cannot display stale
+    // overlays from the previously active Histogram tab.
+    if(plotMode === HIST_PLOT_MODE_DENSITY){
+      next.showCdf = false;
+    }else if(frequency.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative){
+      next.showPdf = false;
+    }
+    return next;
+  }
+
   function syncHistPlotModeControls(){
     if(typeof document === 'undefined'){
       return;
@@ -863,6 +2114,7 @@
     const mode = normalizeHistPlotMode(state.plotMode);
     const densityMode = mode === HIST_PLOT_MODE_DENSITY;
     const frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
+    state.distributionSettings = normalizeHistDistributionSettingsForActiveMode(state.distributionSettings, mode, frequencySettings);
     const plotModeSelect = getHistNodeById('histPlotMode');
     if(plotModeSelect && plotModeSelect.value !== mode){
       plotModeSelect.value = mode;
@@ -906,22 +2158,20 @@
     const cdfInput = getHistNodeById('histShowCdf');
     const pdfInput = getHistNodeById('histShowPdf');
     const cumulativeMode = frequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative;
-    const disablePdf = cumulativeMode;
+    const disablePdf = !densityMode && cumulativeMode;
     if(pdfInput){
       pdfInput.disabled = disablePdf;
-      const title = cumulativeMode ? 'PDF overlay is disabled for cumulative frequency mode.' : '';
+      pdfInput.checked = !!state.distributionSettings.showPdf;
+      const title = disablePdf ? 'PDF overlay is disabled for cumulative frequency mode.' : '';
       pdfInput.title = title;
       const label = pdfInput.closest('label');
       if(label){
         label.title = title;
       }
-      if(disablePdf){
-        state.distributionSettings.showPdf = false;
-        pdfInput.checked = false;
-      }
     }
     if(cdfInput){
       cdfInput.disabled = densityMode;
+      cdfInput.checked = !!state.distributionSettings.showCdf;
       const title = densityMode ? 'CDF overlay is only available in histogram mode.' : '';
       cdfInput.title = title;
       const label = cdfInput.closest('label');
@@ -937,7 +2187,7 @@
     }
     const settings = sanitizeHistFrequencySettings(state.frequencySettings);
     state.frequencySettings = settings;
-    const inputs = state.frequencyInputs || {};
+    const inputs = getHistFrequencyControls();
     if(inputs.createMode && inputs.createMode.value !== settings.createMode){
       inputs.createMode.value = settings.createMode;
     }
@@ -992,8 +2242,8 @@
         yLabelAuto: state.yLabelAuto
       });
     }
-    if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+    if(options.schedule !== false){
+      scheduleActiveHistDraw({ reason: 'hist-plot-mode-change' });
     }
   }
 
@@ -1006,8 +2256,8 @@
       state.yLabelAuto = true;
     }
     syncHistFrequencyControls();
-    if(options.schedule !== false && typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
+    if(options.schedule !== false){
+      scheduleActiveHistDraw({ reason: 'hist-frequency-settings-change' });
     }
   }
 
@@ -1035,6 +2285,68 @@
     if(comparisonLabel){
       comparisonLabel.title = title;
     }
+  }
+
+  function syncHistRuntimeControlsFromState(seriesCount){
+    if(typeof document === 'undefined'){
+      return;
+    }
+    state.plotMode = normalizeHistPlotMode(state.plotMode);
+    state.frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
+    state.statsSettings = {
+      ...createDefaultHistStatsSettings(),
+      ...(state.statsSettings && typeof state.statsSettings === 'object' ? state.statsSettings : {})
+    };
+    ensureHistDistributionOptionsForState();
+    state.distributionSettings = normalizeHistDistributionSettingsForActiveMode(
+      state.distributionSettings,
+      state.plotMode,
+      state.frequencySettings
+    );
+
+    const plotModeSelect = getHistNodeById('histPlotMode');
+    if(plotModeSelect){
+      plotModeSelect.value = state.plotMode;
+    }
+    const legendInput = getHistNodeById('histShowLegend');
+    if(legendInput){
+      legendInput.checked = state.showLegend !== false;
+    }
+    const controls = normalizeHistRuntimeControls(state.runtimeControls || {});
+    state.runtimeControls = controls;
+    const hasControl = key => Object.prototype.hasOwnProperty.call(controls, key);
+    const setChecked = (id, key) => {
+      const input = getHistNodeById(id);
+      if(input && hasControl(key)){
+        input.checked = !!controls[key];
+      }
+    };
+    const setValue = (id, key) => {
+      const input = getHistNodeById(id);
+      if(input && hasControl(key) && controls[key] != null){
+        input.value = String(controls[key]);
+      }
+    };
+    setChecked('histShowGrid', 'showGrid');
+    setChecked('histShowFrame', 'showFrame');
+    setChecked('histLogY', 'logY');
+    setValue('histBins', 'bins');
+    setValue('histXMin', 'xMin');
+    setValue('histXMax', 'xMax');
+    setValue('histYMax', 'yMax');
+    const fontInput = getHistNodeById('histFontSize');
+    const fontLabel = getHistNodeById('histFontSizeVal');
+    if(fontInput && hasControl('fontSize') && controls.fontSize != null){
+      fontInput.value = String(controls.fontSize);
+      if(fontInput.dataset){
+        fontInput.dataset.fontBasePt = String(fontInput.value);
+      }
+      chartStyle.renderFontSizeLabel({ element: fontLabel, pt: Number(fontInput.value), input: fontInput, manual: true });
+    }
+    syncHistFrequencyControls();
+
+    projectHistDistributionControlsFromState({ rebuild: false });
+    syncHistStatsControls(seriesCount);
   }
 
   let histNoticeBoundWidth = null;
@@ -1070,7 +2382,7 @@
     return reason => {
       lastReason = reason || 'frame';
       if(debounced){
-        debounced({ tabId: hist.__boundTabId || null, reason: 'hist-notice-width' });
+        debounced({ tabId: getHistActiveTabId() || null, reason: 'hist-notice-width' });
         return;
       }
       syncHistAutoDrawNoticeWidth(lastReason);
@@ -1086,7 +2398,16 @@
       return true;
     }
     const hot = state.ensureHotForActiveTab?.() || state.hot || null;
-    const manager = hot?.__histDataViewsManager || histDataViewsManager || null;
+    const hotOwner = getHistHotOwnerTabId(hot);
+    const manager = hot?.__histDataViewsManager || null;
+    if(hotOwner && getHistActiveTabId() && hotOwner !== getHistActiveTabId()){
+      histDebug('Debug: hist skipped schedule for non-active HOT owner', {
+        hotOwner,
+        activeTabId: getHistActiveTabId(),
+        source: source || null
+      });
+      return true;
+    }
     const activeView = manager?.getActiveView?.() || null;
     if(isHistFrequencyTableDataView(activeView)){
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -1103,10 +2424,12 @@
 
   function activateHistDataToolbar(reason){
     const now = Date.now();
-    if(now - histDataToolbarLastActivation < 80){
+    const tabId = String(getHistActiveTabId() || 'global');
+    const lastActivation = Number(histDataToolbarLastActivationByTabId.get(tabId)) || 0;
+    if(now - lastActivation < 80){
       return false;
     }
-    histDataToolbarLastActivation = now;
+    histDataToolbarLastActivationByTabId.set(tabId, now);
     const activated = !!Shared.workspaceToolbar?.activateSection?.('hist', 'Data');
     if(activated){
       histDebug('Debug: hist data toolbar activated', { reason: reason || 'unknown' });
@@ -1121,6 +2444,11 @@
     if(typeof Shared.dataViews?.createManager !== 'function'){
       return null;
     }
+    const owner = getHistCallbackOwner({
+      hot: hotInstance,
+      tabId: options.tabId || getHistHotOwnerTabId(hotInstance) || getHistActiveTabId() || null,
+      reason: options.reason || 'hist-dataviews-manager'
+    });
     if(!hotInstance.__histDataViewsManager){
       hotInstance.__histDataViewsManager = Shared.dataViews.createManager({
         componentKey: 'hist',
@@ -1128,6 +2456,23 @@
         initialData: hotInstance.getData() || [],
         onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
+            return;
+          }
+          const viewOwner = getHistCallbackOwner({
+            hot: hotInstance,
+            tabId: getHistHotOwnerTabId(hotInstance) || owner.tabId || null,
+            reason: 'hist-dataview-switch'
+          });
+          if(!isHistCallbackOwnerActive(viewOwner)){
+            commitHistOwnerHotRuntime(viewOwner, {
+              reason: 'hist-dataview-switch-inactive',
+              refreshDataViews: true
+            });
+            histDebug('Debug: hist DataViews activation ignored for inactive owner', {
+              ownerTabId: viewOwner.tabId || null,
+              activeTabId: getHistActiveTabId() || null,
+              viewId: view?.id || null
+            });
             return;
           }
           const isFrequencyView = isHistFrequencyTableDataView(view);
@@ -1143,18 +2488,27 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
+          commitHistOwnerHotRuntime(viewOwner, {
+            reason: isFrequencyView ? 'hist-frequency-dataview-switch' : 'hist-dataview-switch',
+            refreshDataViews: true,
+            drawPending: !isFrequencyView
+          });
           if(!isFrequencyView){
             markHistOverlayPending('data-view-switch');
-            state.scheduleDraw?.({
+            scheduleHistOwnerDraw(viewOwner, {
               reason: 'data-view-switch',
               userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
             });
           }
         },
         onInteraction(){
-          activateHistDataToolbar('data-tab-interaction');
+          runHistOwnedCallback(owner, () => activateHistDataToolbar('data-tab-interaction'), { reason: 'data-tab-interaction' });
         }
       });
+      const ownerTabId = owner.session?.tabId || owner.tabId || getHistHotOwnerTabId(hotInstance) || hist.__boundTabId || null;
+      hotInstance.__histDataViewsManager.__histTabId = ownerTabId;
+      hotInstance.__histDataViewsManager.__workspaceTabId = ownerTabId;
+      hotInstance.__histDataViewsManager.__ownerTabId = ownerTabId;
       histDebug('Debug: hist data views manager created', {
         tabId: hotInstance.__histTabId || null
       });
@@ -1169,7 +2523,12 @@
       });
       manager.refresh?.();
     }
-    histDataViewsManager = manager;
+    const session = owner.session || getActiveHistSessionForState();
+    if(session){
+      session.managers.dataViews = histDataViewsManagerBelongsToSession(manager, session) ? manager : session.managers.dataViews || null;
+      session.managers.hot = hotInstance || session.managers.hot || null;
+      session.updatedAt = Date.now();
+    }
     return manager;
   }
 
@@ -1178,7 +2537,13 @@
     if(!hot || typeof hot.getData !== 'function'){
       return;
     }
-    const manager = hot.__histDataViewsManager || histDataViewsManager;
+    const hotOwner = getHistHotOwnerTabId(hot);
+    const activeTabId = getHistActiveTabId();
+    if(hotOwner && activeTabId && hotOwner !== activeTabId){
+      histDebug('Debug: hist active DataView sync skipped for inactive HOT owner', { hotOwner, activeTabId, reason: reason || null });
+      return;
+    }
+    const manager = hot.__histDataViewsManager || null;
     if(!manager){
       return;
     }
@@ -1196,9 +2561,7 @@
 
   function resolveHistViewContext(hotInstance){
     const hot = hotInstance || state.ensureHotForActiveTab?.() || state.hot || null;
-    const manager = hot
-      ? (hot.__histDataViewsManager || histDataViewsManager || null)
-      : (histDataViewsManager || null);
+    const manager = hot ? (hot.__histDataViewsManager || null) : null;
     const activeView = manager?.getActiveView?.() || null;
     let sourceView = activeView;
     let sourceViewId = String(activeView?.id || manager?.getActiveViewId?.() || 'raw');
@@ -1475,6 +2838,10 @@
   }
 
   function applyHistTransformToNewView(transformSpec, options = {}){
+    const owner = getHistCallbackOwner({ reason: options.reason || 'toolbar-transform' });
+    if(!isHistCallbackOwnerActive(owner)){
+      return false;
+    }
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(!hot){
       return false;
@@ -1562,6 +2929,10 @@
   }
 
   function applyHistTransformPipelineToNewView(transformSpecs, options = {}){
+    const owner = getHistCallbackOwner({ reason: options.reason || 'toolbar-transform-pipeline' });
+    if(!isHistCallbackOwnerActive(owner)){
+      return false;
+    }
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(!hot){
       return false;
@@ -1604,6 +2975,10 @@
   }
 
   function applyHistSelectedTransforms(){
+    const owner = getHistCallbackOwner({ reason: 'toolbar-transform-selected' });
+    if(!isHistCallbackOwnerActive(owner)){
+      return false;
+    }
     const toolbarApi = Shared.workspaceToolbar || null;
     const selected = toolbarApi?.getSelectedTransforms?.('hist') || [];
     if(!Array.isArray(selected) || !selected.length){
@@ -1651,6 +3026,10 @@
       return;
     }
     document.addEventListener('click', event => {
+      const owner = getHistCallbackOwner({ reason: 'hist-toolbar-click' });
+      if(!isHistCallbackOwnerActive(owner)){
+        return;
+      }
       const button = event.target?.closest?.(
         '#histTransformApplySelected, #histTransformCustomApply, #histTransformCpm, #histTransformLog2p1, #histTransformCenterRowsMean, #histTransformCenterRowsMedian, #histTransformCenterColsMean, #histTransformCenterColsMedian, #histTransformNormalizeRows, #histTransformNormalizeCols, #histTransformCustom'
       );
@@ -1821,9 +3200,7 @@
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
     histDebug('Debug: hist axis notation updated',{ axis, notation: nextValue });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: `hist-${axis}-axis-notation-change` });
   }
 
   function getAxisTickInterval(axis){
@@ -1847,9 +3224,7 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     histDebug('Debug: hist axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: `hist-${axis}-tick-interval-change` });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -1867,9 +3242,7 @@
     }
     settings[axis].minorTicks = nextValue;
     histDebug('Debug: hist minor ticks updated',{ axis, enabled: nextValue });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-ticks-change` });
   }
 
   function getAxisMinorTickSubdivisions(axis){
@@ -1887,9 +3260,7 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     histDebug('Debug: hist minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: `hist-${axis}-minor-subdivisions-change` });
   }
 
   function getAxisStrokeWidthBase(){
@@ -1905,9 +3276,7 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     histDebug('Debug: hist axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: 'hist-axis-stroke-width-change' });
   }
 
   function getAxisColor(){
@@ -1918,9 +3287,7 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     histDebug('Debug: hist axis color updated',{ color: settings.color });
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
+    scheduleActiveHistDraw({ reason: 'hist-axis-color-change' });
   }
 
   function registerHistGridControlTarget(target, options){
@@ -1937,12 +3304,12 @@
         if(input){
           input.checked = !!value;
         }
-        state.scheduleDraw?.();
+        scheduleActiveHistDraw({ reason: 'hist-grid-visibility-change' });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        state.scheduleDraw?.();
+        scheduleActiveHistDraw({ reason: 'hist-grid-style-change' });
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -2145,6 +3512,10 @@
   function showHistBarFormatControls(target){
     const doc = global.document;
     if(!doc) return;
+    const owner = getHistCallbackOwner({ reason: 'hist-bar-format-controls' });
+    if(!isHistCallbackOwnerActive(owner)){
+      return;
+    }
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const activeSeries = collectHistSeries();
@@ -2219,6 +3590,7 @@
             return 'square';
           },
           onColorInput(value, context){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_FILL;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
             if(scopedSeriesKey){
@@ -2230,15 +3602,16 @@
             resolveBars().forEach(node => node.setAttribute('fill', nextValue));
           },
           onColorChange(value, context){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_FILL;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
             if(scopedSeriesKey){
               setHistSeriesColor(scopedSeriesKey, nextValue);
-              state.scheduleDraw?.();
+              scheduleHistOwnerDraw(owner, { reason: 'hist-bar-fill-change' });
               return;
             }
             state.barFill = nextValue;
-            state.scheduleDraw?.();
+            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-fill-change' });
           }
         },
         border: {
@@ -2252,6 +3625,7 @@
             return state.barBorder || target?.getAttribute?.('stroke') || HIST_DEFAULT_BORDER;
           },
           onColorInput(value, context){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_BORDER;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
             if(densityTraceMode && scopedSeriesKey){
@@ -2263,15 +3637,16 @@
             resolveBars().forEach(node => node.setAttribute('stroke', nextValue));
           },
           onColorChange(value, context){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
             const nextValue = value || HIST_DEFAULT_BORDER;
             const scopedSeriesKey = resolveScopedSeriesKey(context);
             if(densityTraceMode && scopedSeriesKey){
               setHistDensityLineColor(scopedSeriesKey, nextValue);
-              state.scheduleDraw?.();
+              scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-change' });
               return;
             }
             state.barBorder = nextValue;
-            state.scheduleDraw?.();
+            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-change' });
           },
           getWidth(){
             const inputWidth = Number(state.barBorderWidth);
@@ -2280,6 +3655,7 @@
             return Number.isFinite(nodeWidth) ? nodeWidth : 0;
           },
           onWidthChange(value){
+            if(!isHistCallbackOwnerActive(owner)){ return; }
             const numeric = Number(value);
             const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
             state.barBorderWidth = normalized;
@@ -2292,7 +3668,7 @@
                 node.removeAttribute('stroke-width');
               }
             });
-            state.scheduleDraw?.();
+            scheduleHistOwnerDraw(owner, { reason: 'hist-bar-border-width-change' });
           }
         },
         size: {
@@ -2315,6 +3691,10 @@
   // Format toolbar for overlay (pdf/cdf) paths
   function showHistOverlayFormatControls(target){
     if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
+      const owner = getHistCallbackOwner({ reason: 'hist-overlay-format-controls' });
+      if(!isHistCallbackOwnerActive(owner)){
+        return;
+      }
       let distKey = target.getAttribute('data-dist') || null;
       const knownDistKeys = () => {
         const keys = new Set();
@@ -2446,6 +3826,7 @@
           return Math.round((1 - bounded) * 100);
         },
         onColorInput: (value, ctx) => {
+          if(!isHistCallbackOwnerActive(owner)){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
           nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
@@ -2455,9 +3836,10 @@
           }else{
             state.distributionOptions.forEach(o => { o.color = value; });
           }
-          state.scheduleDraw?.();
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-input' });
         },
         onColorChange: (value, ctx) => {
+          if(!isHistCallbackOwnerActive(owner)){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
           nodes.forEach(node => { try{ node.setAttribute('stroke', value); }catch(e){} });
@@ -2467,9 +3849,10 @@
           }else{
             state.distributionOptions.forEach(o => { o.color = value; });
           }
-          state.scheduleDraw?.();
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-color-change' });
         },
         onThicknessChange: (value, ctx) => {
+          if(!isHistCallbackOwnerActive(owner)){ return; }
           const next = Number(value);
           if(!Number.isFinite(next)){ return; }
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
@@ -2481,9 +3864,10 @@
           }else{
             state.distributionOptions.forEach(o => { o.strokeWidth = next; });
           }
-          state.scheduleDraw?.();
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-thickness-change' });
         },
         onPatternChange: (value, ctx) => {
+          if(!isHistCallbackOwnerActive(owner)){ return; }
           const pattern = sanitizeHistOverlayPattern(value);
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
           const nodes = resolveTargets(scopeValue);
@@ -2494,9 +3878,10 @@
           }else{
             state.distributionOptions.forEach(o => { o.pattern = pattern; });
           }
-          state.scheduleDraw?.();
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-pattern-change' });
         },
         onTransparencyChange: (value, ctx) => {
+          if(!isHistCallbackOwnerActive(owner)){ return; }
           const pct = Number(value);
           const bounded = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
           const opacity = 1 - (bounded / 100);
@@ -2509,7 +3894,7 @@
           }else{
             state.distributionOptions.forEach(o => { o.alpha = opacity; });
           }
-          state.scheduleDraw?.();
+          scheduleHistOwnerDraw(owner, { reason: 'hist-overlay-transparency-change' });
         }
       });
       return;
@@ -2812,9 +4197,12 @@
       if(getHistNodeById('histStatsResults')){
         updateHistStats([]);
       }
-      if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
-      }
+      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+        reason: scheduleMeta?.source || 'hist-table-change',
+        syncControls: true,
+        captureStatsPanel: false
+      });
+      scheduleActiveHistDraw({ reason: scheduleMeta?.source || 'hist-table-change' });
     };
 
     const createHistTable = (container) => {
@@ -2903,6 +4291,8 @@
     };
     state.hot = ensureHistHotForActiveTab();
     state.ensureHotForActiveTab = ensureHistHotForActiveTab;
+    syncHistSessionManagersFromActive();
+    syncHistSessionRefsFromActive();
     bindHistDataToolbar();
   }
 
@@ -2921,8 +4311,9 @@
     if(previous){
       node.removeEventListener(eventName, previous);
     }
-    node.__histControlHandlers[registryKey] = handler;
-    node.addEventListener(eventName, handler);
+    const wrapped = event => runHistEventOwnerCallback(event, key || registryKey, owner => handler(event, owner));
+    node.__histControlHandlers[registryKey] = wrapped;
+    node.addEventListener(eventName, wrapped);
   }
 
   function initControls(){
@@ -2944,155 +4335,190 @@
     state.distributionOptions = getDistributionOptions();
     state.distributionSettings.selections = mergeDistributionSelections(state.distributionSettings?.selections || {}, state.distributionOptions);
     state.frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
-    state.frequencyInputs = {
-      createMode: histFrequencyCreateMode,
-      tabulateMode: histFrequencyTabulateMode,
-      binningMode: histBinningMode,
-      binsCount: histBins,
-      binWidth: histBinWidth,
-      firstCenterAuto: histFirstBinCenterAuto,
-      firstCenter: histFirstBinCenter,
-      lastCenterAuto: histLastBinCenterAuto,
-      lastCenter: histLastBinCenter
-    };
+    state.runtimeControls = normalizeHistRuntimeControls({
+      ...(state.runtimeControls || {}),
+      bins: histBins ? histBins.value : undefined,
+      showGrid: histShowGrid ? !!histShowGrid.checked : undefined,
+      showFrame: histShowFrame ? !!histShowFrame.checked : undefined,
+      logY: histLogY ? !!histLogY.checked : undefined,
+      xMin: histXMin ? histXMin.value : undefined,
+      xMax: histXMax ? histXMax.value : undefined,
+      yMax: histYMax ? histYMax.value : undefined,
+      fontSize: histFontSize ? histFontSize.value : undefined
+    });
     applyHistPlotMode(histPlotMode?.value || state.plotMode, { schedule: false, syncDefaults: false });
     syncHistFrequencyControls();
     const distListEl=getHistNodeById('histDistributionList');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     if(histPlotMode){
       histPlotMode.value = normalizeHistPlotMode(state.plotMode);
-      histPlotMode.addEventListener('change',()=>{
-        applyHistPlotMode(histPlotMode.value);
+      histPlotMode.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-plot-mode-change', owner => {
+          applyHistPlotMode(histPlotMode.value, { schedule: false });
+          commitHistActiveStateToOwner(owner, { reason: 'hist-plot-mode-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-plot-mode-change', tabId: owner.tabId || undefined });
+        });
       });
     }
     if(histShowLegend){
       histShowLegend.checked = state.showLegend !== false;
-      histShowLegend.addEventListener('change',()=>{
-        state.showLegend = !!histShowLegend.checked;
-        state.scheduleDraw();
+      histShowLegend.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-legend-toggle', owner => {
+          state.showLegend = !!histShowLegend.checked;
+          commitHistActiveStateToOwner(owner, { reason: 'hist-legend-toggle' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-legend-toggle', tabId: owner.tabId || undefined });
+        });
       });
     }
     if(histStatsDiagnosticsMode){
       histStatsDiagnosticsMode.value = sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode);
-      histStatsDiagnosticsMode.addEventListener('change',()=>{
-        state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(histStatsDiagnosticsMode.value);
-        syncHistStatsControls();
-        state.scheduleDraw();
+      histStatsDiagnosticsMode.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-stats-diagnostics-change', owner => {
+          state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(histStatsDiagnosticsMode.value);
+          syncHistStatsControls();
+          commitHistActiveStateToOwner(owner, { reason: 'hist-stats-diagnostics-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-diagnostics-change', tabId: owner.tabId || undefined });
+        });
       });
-      state.statsInputs.diagnosticsMode = histStatsDiagnosticsMode;
     }
     if(histStatsComparisonMode){
       histStatsComparisonMode.value = sanitizeHistComparisonMode(state.statsSettings?.comparisonMode);
-      histStatsComparisonMode.addEventListener('change',()=>{
-        state.statsSettings.comparisonMode = sanitizeHistComparisonMode(histStatsComparisonMode.value);
-        syncHistStatsControls();
-        state.scheduleDraw();
-      });
-      state.statsInputs.comparisonMode = histStatsComparisonMode;
-    }
-    if(distListEl){
-      distListEl.innerHTML='';
-      state.distributionInputs.checkboxes={};
-      state.distributionOptions.forEach((opt,index)=>{
-        const wrapper=document.createElement('label');
-        wrapper.className='hist-dist-option';
-        const input=document.createElement('input');
-        input.type='checkbox';
-        input.id=`histDist_${opt.key}`;
-        input.dataset.distKey=opt.key;
-        input.checked=!!state.distributionSettings.selections[opt.key];
-        input.addEventListener('change',()=>{
-          state.distributionSettings.selections[opt.key]=input.checked;
-          if(debugEnabled){
-            histDebug('Debug: hist distribution selection change',{ key: opt.key, checked: input.checked });
-          }
-          state.scheduleDraw();
+      histStatsComparisonMode.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'hist-stats-comparison-change', owner => {
+          state.statsSettings.comparisonMode = sanitizeHistComparisonMode(histStatsComparisonMode.value);
+          syncHistStatsControls();
+          commitHistActiveStateToOwner(owner, { reason: 'hist-stats-comparison-change' });
+          scheduleHistOwnerDraw(owner, { reason: 'hist-stats-comparison-change', tabId: owner.tabId || undefined });
         });
-        const swatch=document.createElement('span');
-        swatch.className='hist-dist-swatch';
-        swatch.dataset.distKey=opt.key;
-        swatch.style.backgroundColor=opt.color;
-        wrapper.appendChild(input);
-        wrapper.appendChild(swatch);
-        const text=document.createElement('span');
-        text.textContent=opt.label;
-        wrapper.appendChild(text);
-        distListEl.appendChild(wrapper);
-        state.distributionInputs.checkboxes[opt.key]=input;
       });
-      if(debugEnabled){
-        histDebug('Debug: hist distribution controls initialized',{ options: state.distributionOptions.map(opt=>opt.key) });
-      }
     }
     const histShowPdfInput=getHistNodeById('histShowPdf');
     const histShowCdfInput=getHistNodeById('histShowCdf');
     if(histShowPdfInput){
       histShowPdfInput.checked=!!state.distributionSettings.showPdf;
-      histShowPdfInput.addEventListener('change',()=>{
-        state.distributionSettings.showPdf=!!histShowPdfInput.checked;
-        if(debugEnabled){
-          histDebug('Debug: hist showPdf toggle',{ checked: state.distributionSettings.showPdf });
-        }
-        state.scheduleDraw();
+      histShowPdfInput.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'distribution-pdf-toggle', owner => {
+          state.distributionSettings = normalizeHistDistributionSettingsForActiveMode({
+            ...state.distributionSettings,
+            showPdf: !!histShowPdfInput.checked
+          }, state.plotMode, state.frequencySettings);
+          histShowPdfInput.checked = !!state.distributionSettings.showPdf;
+          if(debugEnabled){
+            histDebug('Debug: hist showPdf toggle',{ checked: state.distributionSettings.showPdf });
+          }
+          commitHistActiveStateToOwner(owner, { reason: 'distribution-pdf-toggle' });
+          scheduleHistOwnerDraw(owner, { reason: 'distribution-pdf-toggle', tabId: owner.tabId || undefined });
+        });
       });
-      state.distributionInputs.showPdf=histShowPdfInput;
     }
     if(histShowCdfInput){
       histShowCdfInput.checked=!!state.distributionSettings.showCdf;
-      histShowCdfInput.addEventListener('change',()=>{
-        state.distributionSettings.showCdf=!!histShowCdfInput.checked;
-        if(debugEnabled){
-          histDebug('Debug: hist showCdf toggle',{ checked: state.distributionSettings.showCdf });
-        }
-        state.scheduleDraw();
+      histShowCdfInput.addEventListener('change', event => {
+        runHistEventOwnerCallback(event, 'distribution-cdf-toggle', owner => {
+          state.distributionSettings = normalizeHistDistributionSettingsForActiveMode({
+            ...state.distributionSettings,
+            showCdf: !!histShowCdfInput.checked
+          }, state.plotMode, state.frequencySettings);
+          histShowCdfInput.checked = !!state.distributionSettings.showCdf;
+          if(debugEnabled){
+            histDebug('Debug: hist showCdf toggle',{ checked: state.distributionSettings.showCdf });
+          }
+          commitHistActiveStateToOwner(owner, { reason: 'distribution-cdf-toggle' });
+          scheduleHistOwnerDraw(owner, { reason: 'distribution-cdf-toggle', tabId: owner.tabId || undefined });
+        });
       });
-      state.distributionInputs.showCdf=histShowCdfInput;
     }
     syncHistPlotModeControls();
+    projectHistDistributionControlsFromState({ rebuild: true });
     syncHistStatsControls();
-    histFrequencyCreateMode?.addEventListener('change',()=>{
-      applyHistFrequencySettings({ createMode: sanitizeHistFrequencyCreateMode(histFrequencyCreateMode.value) });
-    });
-    histFrequencyTabulateMode?.addEventListener('change',()=>{
-      applyHistFrequencySettings({ tabulateMode: sanitizeHistFrequencyTabulateMode(histFrequencyTabulateMode.value) });
-    });
-    histBinningMode?.addEventListener('change',()=>{
-      applyHistFrequencySettings({ binningMode: sanitizeHistBinningMode(histBinningMode.value) });
-    });
-    histBinWidth?.addEventListener('input',()=>{
-      applyHistFrequencySettings({
-        manualBinWidth: sanitizePositiveFinite(histBinWidth.value)
+    histFrequencyCreateMode?.addEventListener('change', event => {
+      runHistEventOwnerCallback(event, 'hist-frequency-create-mode-change', owner => {
+        applyHistFrequencySettings({ createMode: sanitizeHistFrequencyCreateMode(histFrequencyCreateMode.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-frequency-create-mode-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
       });
     });
-    histFirstBinCenterAuto?.addEventListener('change',()=>{
-      applyHistFrequencySettings({
-        firstCenterAuto: !!histFirstBinCenterAuto.checked
+    histFrequencyTabulateMode?.addEventListener('change', event => {
+      runHistEventOwnerCallback(event, 'hist-frequency-tabulate-mode-change', owner => {
+        applyHistFrequencySettings({ tabulateMode: sanitizeHistFrequencyTabulateMode(histFrequencyTabulateMode.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-frequency-tabulate-mode-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
       });
     });
-    histFirstBinCenter?.addEventListener('input',()=>{
-      applyHistFrequencySettings({
-        firstCenter: sanitizeOptionalFinite(histFirstBinCenter.value)
+    histBinningMode?.addEventListener('change', event => {
+      runHistEventOwnerCallback(event, 'hist-binning-mode-change', owner => {
+        applyHistFrequencySettings({ binningMode: sanitizeHistBinningMode(histBinningMode.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-binning-mode-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
       });
     });
-    histLastBinCenterAuto?.addEventListener('change',()=>{
-      applyHistFrequencySettings({
-        lastCenterAuto: !!histLastBinCenterAuto.checked
+    histBinWidth?.addEventListener('input', event => {
+      runHistEventOwnerCallback(event, 'hist-bin-width-change', owner => {
+        applyHistFrequencySettings({ manualBinWidth: sanitizePositiveFinite(histBinWidth.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-bin-width-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
       });
     });
-    histLastBinCenter?.addEventListener('input',()=>{
-      applyHistFrequencySettings({
-        lastCenter: sanitizeOptionalFinite(histLastBinCenter.value)
+    histFirstBinCenterAuto?.addEventListener('change', event => {
+      runHistEventOwnerCallback(event, 'hist-first-center-auto-change', owner => {
+        applyHistFrequencySettings({ firstCenterAuto: !!histFirstBinCenterAuto.checked }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-first-center-auto-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
       });
     });
-    [histBins,histShowGrid,histLogY,histXMin,histXMax,histYMax].forEach(el=>el?.addEventListener('input',()=>state.scheduleDraw()));
-    histShowFrame?.addEventListener('change',()=>{ histDebug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
-    histFontSize.addEventListener('input',()=>{
+    histFirstBinCenter?.addEventListener('input', event => {
+      runHistEventOwnerCallback(event, 'hist-first-center-change', owner => {
+        applyHistFrequencySettings({ firstCenter: sanitizeOptionalFinite(histFirstBinCenter.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-first-center-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+      });
+    });
+    histLastBinCenterAuto?.addEventListener('change', event => {
+      runHistEventOwnerCallback(event, 'hist-last-center-auto-change', owner => {
+        applyHistFrequencySettings({ lastCenterAuto: !!histLastBinCenterAuto.checked }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-last-center-auto-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+      });
+    });
+    histLastBinCenter?.addEventListener('input', event => {
+      runHistEventOwnerCallback(event, 'hist-last-center-change', owner => {
+        applyHistFrequencySettings({ lastCenter: sanitizeOptionalFinite(histLastBinCenter.value) }, { schedule: false });
+        commitHistActiveStateToOwner(owner, { reason: 'hist-last-center-change' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-frequency-settings-change', tabId: owner.tabId || undefined });
+      });
+    });
+    const bindRuntimeControl = (node, eventName, key, valueFactory, reason, afterUpdate) => {
+      node?.addEventListener(eventName, event => {
+        runHistEventOwnerCallback(event, reason, owner => {
+          setHistRuntimeControl(key, valueFactory());
+          if(typeof afterUpdate === 'function'){
+            afterUpdate();
+          }
+          commitHistActiveStateToOwner(owner, { reason });
+          scheduleHistOwnerDraw(owner, { reason, tabId: owner.tabId || undefined });
+        });
+      });
+    };
+    bindRuntimeControl(histBins, 'input', 'bins', () => histBins.value, 'hist-bins-change');
+    bindRuntimeControl(histShowGrid, 'input', 'showGrid', () => !!histShowGrid.checked, 'hist-grid-toggle');
+    bindRuntimeControl(histLogY, 'input', 'logY', () => !!histLogY.checked, 'hist-log-y-toggle');
+    bindRuntimeControl(histXMin, 'input', 'xMin', () => histXMin.value, 'hist-x-min-change');
+    bindRuntimeControl(histXMax, 'input', 'xMax', () => histXMax.value, 'hist-x-max-change');
+    bindRuntimeControl(histYMax, 'input', 'yMax', () => histYMax.value, 'hist-y-max-change');
+    bindRuntimeControl(histShowFrame, 'change', 'showFrame', () => !!histShowFrame.checked, 'hist-frame-toggle', () => {
+      histDebug('Debug: hist showFrame change',{checked:histShowFrame.checked});
+    });
+    histFontSize.addEventListener('input', event => {
+      runHistEventOwnerCallback(event, 'hist-font-size-change', owner => {
+      setHistRuntimeControl('fontSize', histFontSize.value);
       if(histFontSize.dataset){
         histFontSize.dataset.fontBasePt = String(histFontSize.value);
         histDebug('Debug: hist font size input manual set',{ value: histFontSize.value }); // Debug: manual slider update
       }
       chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
-      state.scheduleDraw();
+      commitHistActiveStateToOwner(owner, { reason: 'hist-font-size-change' });
+      scheduleHistOwnerDraw(owner, { reason: 'hist-font-size-change', tabId: owner.tabId || undefined });
+      });
     });
 
     // Example + Import
@@ -3107,7 +4533,8 @@
     ];
     const exampleBtn = getHistNodeById('histLoadExample');
     if(exampleBtn){
-      exampleBtn.addEventListener('click',()=>{
+      exampleBtn.addEventListener('click', event => {
+        runHistEventOwnerCallback(event, 'hist-example-load', owner => {
         markHistOverlayPending('example-data');
         state.hot.loadData(example, {
           source: 'example-load',
@@ -3115,7 +4542,9 @@
           undoLabel: 'table:hist:example-load'
         });
         histDebug('hist example loaded');
-        state.scheduleDraw();
+        commitHistActiveStateToOwner(owner, { reason: 'hist-example-load' });
+        scheduleHistOwnerDraw(owner, { reason: 'hist-example-load', tabId: owner.tabId || undefined });
+        });
       });
     } else {
       console.warn('hist example button missing');
@@ -3126,6 +4555,14 @@
     if(histImportBtn && histFileInput){
       bindHistControlHandler(histImportBtn, 'click', 'import-table', ()=>{histFileInput.value=''; histFileInput.click();});
       bindHistControlHandler(histFileInput, 'change', 'import-file', ()=>{
+        const importOwner = getHistCallbackOwner({
+          hot: state.hot,
+          reason: 'hist-import-file'
+        });
+        const importHot = importOwner.hot || state.hot;
+        if(!isHistCallbackOwnerActive(importOwner)){
+          return;
+        }
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('hist import skipped: Shared.tableImport.openFile unavailable');
           return;
@@ -3136,28 +4573,69 @@
           forcedOverlay = !!forceHistOverlay('file-import', { message: 'Importing table data...' });
           markHistOverlayPending('file-import');
         }
+        const importFileName = histFileInput?.files?.[0]?.name || '';
         const importPromise = tableImport.openFile(histFileInput, {
-          hot: state.hot,
+          hot: importHot,
           minCols: HIST_DEFAULT_COLS,
           minRows: HIST_DEFAULT_ROWS,
+          renameTab: false,
           scheduleDraw: () => {
+            if(!isHistCallbackOwnerActive(importOwner)){
+              commitHistOwnerHotRuntime(importOwner, {
+                reason: 'hist-import-load-inactive',
+                refreshDataViews: true
+              });
+              return;
+            }
+            commitHistOwnerHotRuntime(importOwner, {
+              reason: 'hist-import-load',
+              refreshDataViews: true
+            });
             markHistOverlayPending('file-import');
-            state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+            scheduleHistOwnerDraw(importOwner, {
+              force: true,
+              reason: 'import-load',
+              skipThresholdEvaluation: true,
+              refreshDataViews: true
+            });
           },
           debugLabel: 'hist',
           onProcessed: info => histDebug('hist data imported',{rows: info?.rows, cols: info?.cols}),
           onCompleted: () => {
+            if(!isHistCallbackOwnerActive(importOwner)){
+              commitHistOwnerHotRuntime(importOwner, {
+                reason: 'hist-import-complete-inactive',
+                refreshDataViews: true
+              });
+              return;
+            }
+            commitHistOwnerHotRuntime(importOwner, {
+              reason: 'hist-import-complete',
+              refreshDataViews: true
+            });
             const renderReason = 'import-load';
             markHistOverlayPending(renderReason);
             forceHistOverlay(renderReason, { message: 'Rendering histogram...' });
           }
         });
         Promise.resolve(importPromise).then(result => {
+          if(result){
+            commitHistOwnerHotRuntime(importOwner, {
+              reason: isHistCallbackOwnerActive(importOwner)
+                ? 'hist-import-resolved'
+                : 'hist-import-resolved-inactive',
+              refreshDataViews: true
+            });
+            renameHistOwnerTabForImport(importOwner, importFileName);
+          }
+          if(!isHistCallbackOwnerActive(importOwner)){
+            return;
+          }
           if(!result && forcedOverlay){
             resolveHistOverlay('file-import-empty');
           }
         }).catch(err => {
-          if(forcedOverlay){
+          if(forcedOverlay && isHistCallbackOwnerActive(importOwner)){
             resolveHistOverlay('file-import-error');
           }
           console.error('hist import failed', err);
@@ -3184,19 +4662,14 @@
 
     // File Save/Open
     function getPayload(){
+      syncHistRuntimeControlsFromDom();
       const activeHot = state.ensureHotForActiveTab?.() || state.hot;
       if(!activeHot){
         return null;
       }
-      const noteControl = state.notes?.control || null;
-      const notesText = noteControl && typeof noteControl.getValue === 'function'
-        ? noteControl.getValue()
-        : (state.notes?.text || '');
-      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
-        ? noteControl.isOpen()
-        : !!state.notes?.open;
-      state.notes.text = notesText;
-      state.notes.open = notesOpen;
+      const notesSnapshot = captureHistNotesMirror();
+      const notesText = notesSnapshot.text || '';
+      const notesOpen = !!notesSnapshot.open;
       const activeManager = ensureHistDataViewsForHot(activeHot, {
         wrapper: getHistNodeById('histHotWrapper'),
         container: activeHot.__histHostContainer || getHistNodeById('histHot')
@@ -3207,6 +4680,12 @@
       const axisSettings = ensureAxisSettings();
       const axisLimits = readHistAxisLimitsFromInputs();
       const plotMode = normalizeHistPlotMode(state.plotMode);
+      const statsPanelModel = captureHistStatsPanelModel();
+      const activeSession = getActiveHistSessionForState();
+      if(activeSession){
+        activeSession.results = createDefaultHistResultsState({ statsPanelModel });
+        activeSession.updatedAt = Date.now();
+      }
       const c={
         plotMode,
         title:state.titleText,
@@ -3219,13 +4698,13 @@
         fill:state.barFill,
         border:state.barBorder,
         borderWidth:state.barBorderWidth,
-        bins:$('#histBins').value,
+        bins: normalizeHistRuntimeControls(state.runtimeControls || {}).bins,
         frequency: sanitizeHistFrequencySettings(state.frequencySettings),
-        showGrid:$('#histShowGrid').checked,
+        showGrid: !!normalizeHistRuntimeControls(state.runtimeControls || {}).showGrid,
         gridStyle:getGridStyle(axisSettings.strokeWidth),
-        showFrame:$('#histShowFrame').checked,
-        logY:$('#histLogY').checked,
-        fontSize:$('#histFontSize').value,
+        showFrame: !!normalizeHistRuntimeControls(state.runtimeControls || {}).showFrame,
+        logY: !!normalizeHistRuntimeControls(state.runtimeControls || {}).logY,
+        fontSize: normalizeHistRuntimeControls(state.runtimeControls || {}).fontSize,
         fontStyles: (exportFontStyles('hist') || undefined),
         axis:{
           strokeWidth: axisSettings.strokeWidth,
@@ -3251,7 +4730,9 @@
         },
         stats: {
           diagnosticsMode: sanitizeHistDiagnosticsMode(state.statsSettings?.diagnosticsMode),
-          comparisonMode: sanitizeHistComparisonMode(state.statsSettings?.comparisonMode)
+          comparisonMode: sanitizeHistComparisonMode(state.statsSettings?.comparisonMode),
+          resultsModel: statsPanelModel.resultsModel || null,
+          reportModel: statsPanelModel.reportModel || null
         },
         notes: {
           text: notesText,
@@ -3289,10 +4770,20 @@
       const skipDraw = meta?.skipDraw === true;
       const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
       const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+      const scheduleTargetTab = meta?.tab || meta?.tabId || hist.__boundTabId || null;
+      const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
+      const scheduleTargetSession = scheduleTargetTab
+        ? getHistSession(scheduleTargetTab, { ...(meta || {}), reason: 'hist-payload-scheduler-owner' }, { create: false, fallbackActive: false })
+        : getActiveHistSessionForState();
+      const canMuteActiveScheduler = hasExplicitScheduleTarget
+        ? !!(scheduleTargetSession && isHistSessionActiveOrActivating(scheduleTargetSession))
+        : (!scheduleTargetSession || isHistSessionActiveOrActivating(scheduleTargetSession));
       let scheduleBackup = null;
-      if(skipDraw && typeof state.scheduleDraw === 'function'){
+      let mutedScheduleDraw = null;
+      if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
+        mutedScheduleDraw = () => {};
         scheduleBackup = state.scheduleDraw;
-        state.scheduleDraw = () => {};
+        state.scheduleDraw = mutedScheduleDraw;
       }
       const hot = state.ensureHotForActiveTab?.() || state.hot;
       if(hot){
@@ -3332,6 +4823,15 @@
           state.hot.applyFilters(filtersToApply, { schedule: false });
         }
         syncHistActiveDataViewFromHot(state.hot, 'payload-load');
+      }
+      if(histAutoDrawManager && isHistCallbackOwnerActive({ session: getActiveHistSessionForState() })){
+        histAutoDrawManager.evaluateThresholds({
+          shape: {
+            rows: Array.isArray(dataToLoad) ? dataToLoad.length : 0,
+            cols: Array.isArray(dataToLoad?.[0]) ? dataToLoad[0].length : 0
+          },
+          reason: `hist-payload-${source}`
+        });
       }
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
@@ -3423,40 +4923,10 @@
       } else {
         state.distributionSettings.selections = mergeDistributionSelections(defaultSelections, state.distributionOptions);
       }
-      if(state.distributionInputs?.checkboxes){
-        Object.entries(state.distributionInputs.checkboxes).forEach(([key,input]) => {
-          if(input){ input.checked = !!state.distributionSettings.selections[key]; }
-        });
-      }
-      const distListEl = getHistNodeById('histDistributionList');
-      if(distListEl){
-        const colorByKey = {};
-        state.distributionOptions.forEach(option => {
-          if(option && option.key){
-            colorByKey[option.key] = option.color;
-          }
-        });
-        distListEl.querySelectorAll('.hist-dist-swatch[data-dist-key]').forEach(node => {
-          const key = node.dataset ? node.dataset.distKey : '';
-          if(key && colorByKey[key]){
-            node.style.backgroundColor = colorByKey[key];
-          }
-        });
-      }
-      if(state.distributionInputs?.showPdf){
-        state.distributionInputs.showPdf.checked = !!state.distributionSettings.showPdf;
-      }
-      if(state.distributionInputs?.showCdf){
-        state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
-      }
+      projectHistDistributionControlsFromState({ rebuild: true });
       state.statsSettings.diagnosticsMode = sanitizeHistDiagnosticsMode(config.stats?.diagnosticsMode);
       state.statsSettings.comparisonMode = sanitizeHistComparisonMode(config.stats?.comparisonMode);
-      if(state.statsInputs?.diagnosticsMode){
-        state.statsInputs.diagnosticsMode.value = state.statsSettings.diagnosticsMode;
-      }
-      if(state.statsInputs?.comparisonMode){
-        state.statsInputs.comparisonMode.value = state.statsSettings.comparisonMode;
-      }
+      state.lastStatsPanelModel = normalizeHistStatsPanelModel(config.stats || {});
       syncHistStatsControls();
       if(config.notes && typeof config.notes === 'object'){
         state.notes.text = config.notes.text == null ? '' : String(config.notes.text);
@@ -3468,7 +4938,7 @@
         state.notes.text = '';
         state.notes.open = false;
       }
-      if(state.notes.control){
+      if(canUseHistNotesControl(state.notes.control)){
         state.notes.control.setValue(state.notes.text);
         state.notes.control.setOpen(state.notes.open);
       }
@@ -3481,10 +4951,16 @@
           legend: config.labelPositions.legend || null
         };
       }
-      if(!skipDraw && typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+      syncHistRuntimeControlsFromDom();
+      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+        reason: `hist-payload-${source}`,
+        syncControls: false,
+        captureStatsPanel: false
+      });
+      if(!skipDraw){
+        scheduleActiveHistDraw({ reason: `hist-payload-${source}` });
       }
-      if(scheduleBackup){
+      if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
         state.scheduleDraw = scheduleBackup;
       }
       const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
@@ -3501,15 +4977,10 @@
       hist.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
     hist.captureRuntimeState = function captureHistRuntimeState(meta = {}){
-      const noteControl = state.notes?.control || null;
-      const notesText = noteControl && typeof noteControl.getValue === 'function'
-        ? noteControl.getValue()
-        : (state.notes?.text || '');
-      const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
-        ? noteControl.isOpen()
-        : !!state.notes?.open;
-      state.notes.text = notesText;
-      state.notes.open = notesOpen;
+      syncHistRuntimeControlsFromDom();
+      const notesSnapshot = captureHistNotesMirror();
+      const notesText = notesSnapshot.text || '';
+      const notesOpen = !!notesSnapshot.open;
       const snapshot = {
         plotMode: state.plotMode,
         labels: {
@@ -3534,6 +5005,8 @@
         distributionSettings: cloneSimple(state.distributionSettings) || null,
         distributionOptions: cloneSimple(state.distributionOptions) || [],
         statsSettings: cloneSimple(state.statsSettings) || null,
+        statsPanel: captureHistStatsPanelModel(),
+        runtimeControls: cloneSimple(state.runtimeControls) || createDefaultHistRuntimeControls(),
         notes: { text: notesText, open: notesOpen },
         autoDraw: {
           autoDrawEnabled: !!state.autoDrawEnabled,
@@ -3550,6 +5023,11 @@
         plotMode: snapshot.plotMode,
         notesOpen,
         reason: snapshot.reason
+      });
+      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture',
+        syncControls: false,
+        captureStatsPanel: false
       });
       rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
         ...(meta || {}),
@@ -3596,10 +5074,17 @@
       if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionSettings')){ state.distributionSettings = cloneSimple(snapshot.distributionSettings) || state.distributionSettings; }
       if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionOptions')){ state.distributionOptions = cloneSimple(snapshot.distributionOptions) || []; }
       if(Object.prototype.hasOwnProperty.call(snapshot, 'statsSettings')){ state.statsSettings = cloneSimple(snapshot.statsSettings) || state.statsSettings; }
+      if(Object.prototype.hasOwnProperty.call(snapshot, 'statsPanel')){
+        state.lastStatsPanelModel = normalizeHistStatsPanelModel(snapshot.statsPanel);
+        restoreHistStatsPanelModel(state.lastStatsPanelModel);
+      }
+      state.runtimeControls = Object.prototype.hasOwnProperty.call(snapshot, 'runtimeControls')
+        ? normalizeHistRuntimeControls(cloneSimple(snapshot.runtimeControls) || {})
+        : normalizeHistRuntimeControls(state.runtimeControls || {});
       if(snapshot.notes && typeof snapshot.notes === 'object'){
         state.notes.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
         state.notes.open = !!snapshot.notes.open;
-        if(state.notes.control){
+        if(canUseHistNotesControl(state.notes.control)){
           state.notes.control.setValue(state.notes.text);
           state.notes.control.setOpen(state.notes.open);
         }
@@ -3612,6 +5097,7 @@
         state.lastDataShape = cloneSimple(snapshot.autoDraw.lastDataShape) || state.lastDataShape;
         state.lastAutoDrawEvaluation = cloneSimple(snapshot.autoDraw.lastAutoDrawEvaluation) || state.lastAutoDrawEvaluation;
       }
+      syncHistRuntimeControlsFromState();
       rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
         ...(meta || {}),
         reason: meta?.reason || 'hist-runtime-apply'
@@ -3631,8 +5117,12 @@
     hist.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
       component: hist,
       componentKey: 'hist',
-      cancel: () => { state.drawPending = false; }
+      cancel: (tab, meta = {}) => {
+        captureHistSessionForDeactivation(tab, meta);
+        state.drawPending = false;
+      }
     }) || function deactivateHistTab(tab, meta = {}){
+      captureHistSessionForDeactivation(tab, meta);
       state.drawPending = false;
       hist.__runtimeGeneration = (Number(hist.__runtimeGeneration) || 0) + 1;
       histDebug('Debug: hist tab deactivated', {
@@ -3644,6 +5134,12 @@
     };
     hist.captureEmptyPayloadTemplate = function captureHistEmptyPayloadTemplate(){
     const snapshot = createImmutableHistDefaultPayload();
+    emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
+    const session = getActiveHistSessionForState();
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
     histDebug('Debug: hist empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -3653,6 +5149,11 @@
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
+    const session = getActiveHistSessionForState();
+    if(session){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || null;
+      session.updatedAt = Date.now();
+    }
     histDebug('Debug: hist empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
@@ -3664,6 +5165,7 @@
       return createImmutableHistDefaultPayload();
     };
     hist.save = async function(){
+      const owner = getHistCallbackOwner({ reason: 'hist-save' });
       histDebug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
       if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
         console.error('hist.save missing fileIO.saveGraphFile');
@@ -3675,12 +5177,17 @@
         getPayload,
         fileName: state.fileName,
         downloadFileName: state.fileName,
-        setFileHandle: handle => { state.fileHandle = handle; },
-        setFileName: name => { state.fileName = name; }
+        setFileHandle: handle => {
+          setHistFileHandleForOwner(handle, owner);
+        },
+        setFileName: name => {
+          setHistFileNameForOwner(name, owner);
+        }
       });
       histDebug('Debug: hist.save result', result);
     };
     hist.saveAs = async function(){
+      const owner = getHistCallbackOwner({ reason: 'hist-save-as' });
       histDebug('Debug: hist.saveAs invoked', { currentName: state.fileName });
       if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
         console.error('hist.saveAs missing fileIO.saveGraphFileAs');
@@ -3691,12 +5198,17 @@
         getPayload,
         fileName: state.fileName,
         downloadFileName: state.fileName,
-        setFileHandle: handle => { state.fileHandle = handle; },
-        setFileName: name => { state.fileName = name; }
+        setFileHandle: handle => {
+          setHistFileHandleForOwner(handle, owner);
+        },
+        setFileName: name => {
+          setHistFileNameForOwner(name, owner);
+        }
       });
       histDebug('Debug: hist.saveAs result', result);
     };
     hist.open = async function(){
+      const owner = getHistCallbackOwner({ reason: 'hist-open' });
       histDebug('Debug: hist.open invoked');
       if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
         console.error('hist.open missing fileIO.openGraphFile');
@@ -3704,9 +5216,13 @@
       }
       const result = await fileIO.openGraphFile({
         context: 'hist',
-        setFileHandle: handle => { state.fileHandle = handle; },
-        setFileName: name => { state.fileName = name; },
-        loadFromFile: file => hist.loadFromFile(file),
+        setFileHandle: handle => {
+          setHistFileHandleForOwner(handle, owner);
+        },
+        setFileName: name => {
+          setHistFileNameForOwner(name, owner);
+        },
+        loadFromFile: file => hist.loadFromFile(file, { tabId: owner.tabId || undefined, owner }),
         triggerInput: () => {
           const input = getHistNodeById('histGraphFile');
           if(input){
@@ -3717,8 +5233,25 @@
       });
       histDebug('Debug: hist.open result', result);
     };
-    hist.loadFromFile = function(file){
-      const apply = payload => applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' });
+    hist.loadFromFile = function(file, options = {}){
+      const owner = options.owner || getHistCallbackOwner({ tabId: options.tabId || null, reason: 'hist-load-file' });
+      const apply = payload => {
+        if(!isHistCallbackOwnerActive(owner)){
+          if(owner.session?.cache){
+            owner.session.cache.pendingPayload = {
+              payload: cloneSimple(payload) || payload,
+              meta: { source: 'file', flagOverlay: true, overlayReason: 'graph-file' }
+            };
+            owner.session.updatedAt = Date.now();
+          }
+          histDebug('Debug: hist file payload stored for inactive owner', {
+            ownerTabId: owner.tabId || null,
+            activeTabId: getHistActiveTabId() || null
+          });
+          return true;
+        }
+        return applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file', tabId: owner.tabId || undefined });
+      };
       if(file instanceof Blob){
         const reader=new FileReader();
         reader.onload=e=>{
@@ -3758,7 +5291,15 @@
     getHistNodeById('openHistGraph')?.addEventListener('click', hist.open);
     getHistNodeById('saveHistGraph')?.addEventListener('click', hist.save);
     getHistNodeById('saveAsHist').addEventListener('click', hist.saveAs);
-    getHistNodeById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
+    getHistNodeById('histGraphFile')?.addEventListener('change',e=>{
+      const owner = getHistCallbackOwner({ reason: 'hist-graph-file-input' });
+      const f=e.target.files[0];
+      if(f && isHistCallbackOwnerActive(owner)){
+        setHistFileNameForOwner(f.name, owner);
+        setHistFileHandleForOwner(null, owner);
+        hist.loadFromFile(f, { tabId: owner.tabId || undefined, owner });
+      }
+    });
   }
 
   function initNotes(){
@@ -3774,7 +5315,7 @@
       console.warn('hist notes helper unavailable', { hasSharedNotes: !!helper });
       return;
     }
-    if(state.notes?.control?.root && state.notes.control.root.isConnected){
+    if(canUseHistNotesControl(state.notes?.control)){
       state.notes.control.setValue(state.notes.text || '');
       state.notes.control.setOpen(!!state.notes.open);
       return;
@@ -3791,9 +5332,19 @@
       open: !!state.notes.open,
       onChange: value => {
         state.notes.text = value == null ? '' : String(value);
+        const session = getActiveHistSessionForState();
+        if(session){
+          session.notes = createDefaultHistNotesState(state.notes);
+          session.updatedAt = Date.now();
+        }
       },
       onToggle: open => {
         state.notes.open = !!open;
+        const session = getActiveHistSessionForState();
+        if(session){
+          session.notes = createDefaultHistNotesState(state.notes);
+          session.updatedAt = Date.now();
+        }
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           histDebug('Debug: hist notes toggled', { open: state.notes.open });
         }
@@ -4099,6 +5650,13 @@
     target.innerHTML = '';
     if(!entries.length){
       target.textContent = 'No data';
+      state.lastStatsPanelModel = { resultsModel: null, reportModel: null };
+      const emptyStatsSession = getActiveHistSessionForState();
+      if(emptyStatsSession){
+        emptyStatsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+        emptyStatsSession.state.statsPanelModel = createDefaultHistStatsPanelModel(state.lastStatsPanelModel);
+        emptyStatsSession.updatedAt = Date.now();
+      }
       if(debugEnabled){
         histDebug('Debug: hist stats skipped (no values)');
       }
@@ -4276,7 +5834,8 @@
     }
     if(Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       const methods = [
-        `${graphLabel} descriptive statistics were computed for ${summaries.length} series spanning ${totalObservations} numeric observations.`,
+        `${graphLabel} descriptive statistics were computed for ${summaries.length} visible series spanning ${totalObservations} finite numeric observations.`,
+        'Missing, blank, and non-numeric cells were excluded independently for each series before binning and summary calculation.',
         'Expanded summaries include SEM, variance, CV, IQR, skewness, kurtosis, and positive-only geometric and harmonic means.'
       ];
       if(diagnosticsMode === 'normal-fit'){
@@ -4285,7 +5844,7 @@
         methods.push('Fit diagnostics report normal-model KS and Anderson-Darling results and compare normal versus log-normal fits with AICc.');
       }
       if(comparisonMode === 'ks' && summaries.length === 2 && ksResult?.available){
-        methods.push('A two-sample Kolmogorov-Smirnov test compared the two visible series.');
+        methods.push('A two-sample Kolmogorov-Smirnov test compared the complete empirical distributions of the two visible series using the reported exact or asymptotic calibration.');
       }
       const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${formatNumber(entry.summary.skewness, 3)}.`);
       const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
@@ -4308,6 +5867,13 @@
           ksPValue: ksResult?.available ? ksResult.p : null
         }
       }, { title: 'Reporting and reproducibility' });
+    }
+    captureHistStatsPanelModel();
+    const statsSession = getActiveHistSessionForState();
+    if(statsSession){
+      statsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+      statsSession.state.statsPanelModel = createDefaultHistStatsPanelModel(state.lastStatsPanelModel);
+      statsSession.updatedAt = Date.now();
     }
     if(debugEnabled){
       histDebug('Debug: hist stats rendered', {
@@ -4722,8 +6288,17 @@
     };
   }
 
-  function draw(){
-    const histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
+  function draw(options = {}, session = null){
+    const drawSession = ensureHistSessionOwnershipShape(session || getHistSessionForDrawOptions(options));
+    if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
+      markHistOwnerDrawPending(drawSession, {
+        ...(options || {}),
+        reason: options?.reason || 'hist-draw-inactive'
+      });
+      return false;
+    }
+    const histFontSizeVal=$('#histFontSizeVal');
+    const controls = normalizeHistRuntimeControls(state.runtimeControls || {});
     ensureAxisSettings();
     const plotMode = normalizeHistPlotMode(state.plotMode);
     const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
@@ -4744,7 +6319,7 @@
         plotEl.innerHTML='<i>Add data to the input table to generate a plot.</i>';
       }
       updateHistStats([]);
-      return;
+      return false;
     }
     const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
     // Density mode does not use cumulative frequency tables; do not gate PDF overlays
@@ -4783,7 +6358,7 @@
       xMax = rawXMax;
     }
     let manualYMax = Number.isFinite(manualAxisLimits.yMax) ? manualAxisLimits.yMax : null;
-    if(histLogY.checked && manualYMax != null && manualYMax <= 0){
+    if(controls.logY && manualYMax != null && manualYMax <= 0){
       if(drawDebugEnabled){
         histDebug('Debug: hist manual Y max ignored in log scale because value is not positive', {
           yMax: manualAxisLimits.yMax
@@ -4815,11 +6390,11 @@
       });
     }
     const fontInfo=chartStyle.resolveScaledFontSize({
-      rawSize: histFontSize.value,
+      rawSize: controls.fontSize,
       width: drawableFrame.width,
       height: drawableFrame.height,
       svgBox: state.svgBox,
-      input: histFontSize
+      input: getHistNodeById('histFontSize')
     });
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -4872,11 +6447,11 @@
                 if(!nextValue || nextValue === previousColor) return;
                 recordHistChange(`hist:series-color:${seriesKey}`, previousColor, nextValue, committed => {
                   setHistSeriesColor(seriesKey, committed);
-                  state.scheduleDraw?.();
+                  scheduleActiveHistDraw({ reason: `hist-series-color-undo:${seriesKey}` });
                 });
                 setHistSeriesColor(seriesKey, nextValue);
                 previousColor = nextValue;
-                state.scheduleDraw?.();
+                scheduleActiveHistDraw({ reason: `hist-series-color-change:${seriesKey}` });
               }
             });
           }
@@ -4910,8 +6485,8 @@
       const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
       return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
-    const requestedBins=Math.max(1,Math.floor(Number(histBins.value)||10));
-    const logY=histLogY.checked;
+    const requestedBins=Math.max(1,Math.floor(Number(controls.bins)||10));
+    const logY=!!controls.logY;
     const storedManualIntervalX = getAxisTickInterval('x');
     const storedManualIntervalY = getAxisTickInterval('y');
     const manualIntervalX = storedManualIntervalX;
@@ -4951,7 +6526,7 @@
     }); // Debug: histogram style scaling summary
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo, input: histFontSize });
     histDebug('Debug: hist font scaling applied',{
-      input:histFontSize.value,
+      input:controls.fontSize,
       fontSizePt:fontInfo.pt,
       baseFontPx:fontInfo.px,
       scaledFontPx:fs,
@@ -4972,8 +6547,7 @@
       ? chartStyle.resolveScopedLabelMeasureFont({ styles: histFontStyles, role: 'yTick', fallbackPx: fs }).fontSpec
       : chartStyle.makeFont(fs);
     const tickFont=yTickMeasureFont;
-    const axisLabelFont=chartStyle.makeFont(fs);
-    const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
+    const hasYTitle = String(state.yLabelText == null ? '' : state.yLabelText).trim().length > 0;
     const tickLen=axisMetrics.tickLength;
     const tickGap=axisMetrics.tickLabelGap;
     const legendWidth = legendVisible ? (legendLayout?.legendWidthForMargin || 0) : 0;
@@ -4982,7 +6556,7 @@
       ? legendLayout.renderer
       : { entries: [], width: 0, height: 0, draw(){ return null; } };
     let margin=stabilizeHistMarginForAxisResize(
-      chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics})
+      chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth:0,hasYTitle,axisMetrics})
     );
     let plotW=Math.max(20,W-margin.left-margin.right);
     let plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -5161,7 +6735,7 @@
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
       margin=stabilizeHistMarginForAxisResize(
-        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics})
+        chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,hasYTitle,axisMetrics})
       );
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -5180,8 +6754,8 @@
       yTickTarget=refinedY;
     }
     histDebug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth});
-    const showGrid=$('#histShowGrid').checked;
-    const showFrame=$('#histShowFrame').checked;
+    const showGrid=!!controls.showGrid;
+    const showFrame=!!controls.showFrame;
     histDebug('Debug: hist showFrame state',{showFrame});
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
@@ -5524,7 +7098,11 @@
     const xText=add('text',{x: xLabelPos.x, y: xLabelPos.y,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     xText.textContent=renderedXLabel;
     markFontEditable(xText,'xTitle','xTitle');
-    const applyHistXLabel=value=>{ state.xLabelText = value != null ? String(value) : ''; state.scheduleDraw?.(); };
+    const applyHistXLabel=value=>{
+      const nextValue = value != null ? String(value) : '';
+      patchHistLabelsState(drawSession, { x: nextValue }, { reason: 'hist-x-label-edit' });
+      scheduleActiveHistDraw({ reason: 'hist-x-label-edit' });
+    };
     if(global.makeEditable){
       makeEditable(xText,txt=>{
         const previous=state.xLabelText!=null?String(state.xLabelText):'';
@@ -5542,12 +7120,12 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(xText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.xLabel = {
+          patchHistLabelPosition(drawSession, 'xLabel', {
             x: pos.x,
             y: pos.y,
             relX: (pos.x - margin.left) / Math.max(plotW, 1),
             relY: (pos.y - xAxisBase) / Math.max(plotH + margin.top, 1)
-          };
+          }, { reason: 'hist-x-label-position' });
         }
       });
     }
@@ -5558,9 +7136,11 @@
     markFontEditable(yText,'yTitle','yTitle');
     const applyHistYLabel=value=>{
       const nextValue=value!=null?String(value):'';
-      state.yLabelText=nextValue;
-      state.yLabelAuto = nextValue === getHistDefaultYLabel(state.plotMode, state.frequencySettings);
-      state.scheduleDraw?.();
+      patchHistLabelsState(drawSession, {
+        y: nextValue,
+        yAuto: nextValue === getHistDefaultYLabel(state.plotMode, state.frequencySettings)
+      }, { reason: 'hist-y-label-edit' });
+      scheduleActiveHistDraw({ reason: 'hist-y-label-edit' });
     };
     if(global.makeEditable){
       makeEditable(yText,txt=>{
@@ -5576,12 +7156,12 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(yText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.yLabel = {
+          patchHistLabelPosition(drawSession, 'yLabel', {
             x: pos.x,
             y: pos.y,
             relX: (pos.x - margin.left) / Math.max(yLabelOffsetSpan, 1),
             relY: (pos.y - margin.top) / Math.max(plotH, 1)
-          };
+          }, { reason: 'hist-y-label-position' });
         }
       });
     }
@@ -5591,9 +7171,11 @@
     markFontEditable(titleText,'graphTitle','graphTitle');
     const applyHistTitle=value=>{
       const nextValue=value!=null?String(value):'';
-      state.titleText=nextValue;
-      state.titleAuto = nextValue === getHistDefaultTitle(state.plotMode);
-      state.scheduleDraw?.();
+      patchHistLabelsState(drawSession, {
+        title: nextValue,
+        titleAuto: nextValue === getHistDefaultTitle(state.plotMode)
+      }, { reason: 'hist-title-edit' });
+      scheduleActiveHistDraw({ reason: 'hist-title-edit' });
     };
     if(global.makeEditable){
       makeEditable(titleText,txt=>{
@@ -5609,12 +7191,12 @@
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, svg, {
         onDragEnd: pos => {
-          state.labelPositions.title = {
+          patchHistLabelPosition(drawSession, 'title', {
             x: pos.x,
             y: pos.y,
             relX: (pos.x - margin.left) / Math.max(plotW, 1),
             relY: (pos.y - margin.top) / Math.max(plotH, 1)
-          };
+          }, { reason: 'hist-title-position' });
         }
       });
     }
@@ -5636,12 +7218,12 @@
         Array.from(legendGroup.querySelectorAll('text')).forEach((node, index) => markFontEditable(node, 'legend', `legend-${index}`));
         Shared.enableLegendDrag?.(legendGroup, svg, {
           onDragEnd: pos => {
-            state.labelPositions.legend = {
+            patchHistLabelPosition(drawSession, 'legend', {
               x: pos.x,
               y: pos.y,
               relX: (pos.x - plotRight) / Math.max(legendGapPx, 1),
               relY: (pos.y - margin.top) / Math.max(plotH, 1)
-            };
+            }, { reason: 'hist-legend-position' });
           }
         });
       }
@@ -5688,6 +7270,7 @@
       }
     }
     histDebug('Debug: drawHistogram complete', { mode: plotMode, seriesCount: seriesEntries.length });
+    return true;
   }
 
   // Public API
@@ -5699,7 +7282,21 @@
       return;
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
-    return draw(options);
+    const drawSession = ensureHistSessionOwnershipShape(getHistSessionForDrawOptions(options, { reason: nextReason }));
+    if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
+      markHistOwnerDrawPending(drawSession, {
+        ...(options || {}),
+        reason: nextReason
+      });
+      return;
+    }
+    const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+    captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+      reason: nextReason,
+      syncControls: false,
+      captureStatsPanel: true
+    });
+    return result;
   };
   hist.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || hist.__boundTabId || null;
@@ -5713,23 +7310,36 @@
     });
     return true;
   };
-  function ensureHistDomBindings(tabLike){
+  function ensureHistDomBindings(tabLike, meta = {}){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
       return false;
     }
     const result = Shared.workspaceTabs.ensureActiveDomBindings({
       componentKey: 'hist',
       tabLike: tabLike || null,
+      meta,
       sentinelSelector: '#histHot',
       getCurrentSentinel: () => hist.__domSentinel || null,
       rebind: info => {
+        const nextTabId = info?.tab?.id || info?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null;
         state.root = info?.root
           || Shared.workspaceTabs?.getMountedRoot?.(info?.tab || tabLike || null, 'hist')
           || state.root
           || resolveHistRoot()
           || global.document;
+        bindHistSessionForTab(nextTabId || info?.tab || null, { root: state.root || null, reason: meta?.reason || 'workspace-dom-rebind' }, { apply: true, syncUi: false });
+        if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
+          hist.__boundTabId = nextTabId || hist.__boundTabId || null;
+          state.svgBox = state.root?.querySelector?.('#histGraphPanel .svgbox') || state.svgBox || null;
+          syncHistSessionRefsFromActive();
+          syncHistSessionManagersFromActive();
+          hist.__domSentinel = info?.mountedSentinel || getHistNodeById('histHot');
+          hist.ready = true;
+          histDebug('Debug: Components.hist passive DOM rebind', { tabId: hist.__boundTabId || null });
+          return;
+        }
         hist.ready = false;
-        hist.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
+        hist.init({ root: state.root || undefined, tabId: nextTabId || null, reason: 'workspace-dom-rebind' });
       }
     });
     return !!result?.rebound;
@@ -5749,6 +7359,7 @@
     hist.__boundTabId = targetTabId || null;
     histDebug('Debug: Components.hist.init', { tabId: hist.__boundTabId || null });
     state.root = targetRoot;
+    bindHistSessionForTab(targetTabId || null, { root: state.root || null, reason: options?.reason || 'hist-init' }, { apply: true, syncUi: false });
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
@@ -5765,7 +7376,7 @@
         svgBox: () => queryHistRoot('#histGraphPanel .svgbox'),
         resizeTarget: () => queryHistRoot('#histGraphPanel .svgbox')
       },
-      scheduleDraw: state.scheduleDraw,
+      scheduleDraw: options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}),
       preserveGraphContent: false,
       panelSyncOptions: {
         disableAutoWidthClamp: true,
@@ -5790,25 +7401,33 @@
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    syncHistSessionManagersFromActive();
+    syncHistSessionRefsFromActive();
+    state.layout?.setScheduleDraw?.(options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}));
     state.layout?.syncPanels?.();
     histRenderRowEl = getHistNodeById('histRenderRow');
     histRenderButtonEl = getHistNodeById('histRenderButton');
     histAutoDrawNoticeEl = getHistNodeById('histAutoDrawNotice');
     if(histRenderButtonEl){
+      const renderOwner = getHistCallbackOwner({ reason: 'hist-manual-render-bind' });
       histRenderButtonEl.addEventListener('click', () => {
+        if(!isHistCallbackOwnerActive(renderOwner)){
+          return;
+        }
         histDebug('Debug: hist manual render button');
         const overlayReason = 'manual-render';
         markHistOverlayPending(overlayReason);
         forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
-        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+        scheduleHistOwnerDraw(renderOwner, { force: true, reason: 'manual-render', tabId: renderOwner.tabId || undefined });
       });
     }
     scheduleHistNoticeWidth('init');
     initHot();
     initControls();
     initNotes();
-    if(!histAutoDrawManager && Shared.hot?.createAutoDrawManager){
+    const managerSession = getActiveHistSessionForState();
+    histAutoDrawManager = null;
+    if(Shared.hot?.createAutoDrawManager){
       histAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'hist',
         state,
@@ -5825,8 +7444,23 @@
         },
         debugLog: console.debug
       });
+      if(managerSession){
+        managerSession.managers.autoDraw = histAutoDrawManager;
+        managerSession.updatedAt = Date.now();
+      }
     }
-    const runHistDrawCycle = () => {
+    const runHistDrawCycle = (cycleOptions = {}) => {
+      const ownerTabId = String(cycleOptions?.tabId || getHistActiveTabId() || '').trim();
+      const activeTabId = getHistActiveTabId();
+      if(ownerTabId && activeTabId && ownerTabId !== activeTabId){
+        histDebug('Debug: hist scheduled draw skipped for inactive owner', {
+          ownerTabId,
+          activeTabId,
+          reason: cycleOptions?.reason || 'hist-draw-frame'
+        });
+        resolveHistOverlay(cycleOptions?.reason || 'inactive-owner');
+        return;
+      }
       let status = 'complete';
       try{
         draw();
@@ -5838,10 +7472,11 @@
       }
     };
     const scheduleHistBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
-      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(hist, 'hist', runHistDrawCycle, { reason: 'hist-draw-frame' })
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(hist, 'hist', options => runHistDrawCycle(options || {}), { reason: 'hist-draw-frame' })
       : runHistDrawCycle;
     const scheduleHistInstrumented = (opts) => {
-      const nextOpts = opts || {};
+      const nextOpts = { ...(opts || {}) };
+      nextOpts.tabId = nextOpts.tabId || getHistActiveTabId() || undefined;
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
       const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
       if(nextOpts.force && !suppressOverlay){
@@ -5850,7 +7485,14 @@
       }else if(!suppressOverlay){
         queueHistOverlay(overlayReason);
       }
-      const runSchedule = () => scheduleHistBase(nextOpts);
+      const runSchedule = () => {
+        const ownerSession = getHistSessionForDrawOptions(nextOpts, { reason: overlayReason, create: false });
+        if(ownerSession?.timers){
+          ownerSession.timers.pendingDrawOptions = cloneSimple(nextOpts) || null;
+          ownerSession.updatedAt = Date.now();
+        }
+        scheduleHistBase(nextOpts);
+      };
       const shouldDelayForOverlay = histOverlayController?.isActive?.() && !suppressOverlay;
       if(shouldDelayForOverlay){
         const scheduleAfterPaint = () => {
@@ -5858,7 +7500,7 @@
           runSchedule();
         };
         Shared.componentLifecycle?.scheduleComponentFrame?.(hist, 'hist', {
-          tabId: nextOpts.tabId || hist.__boundTabId || null,
+          tabId: nextOpts.tabId || getHistActiveTabId() || null,
           reason: overlayReason
         }, scheduleAfterPaint);
         return;
@@ -5881,22 +7523,36 @@
         notice: histAutoDrawNoticeEl
       });
       state.scheduleDraw = (opts) => histAutoDrawManager.schedule(opts);
+      const activeSession = getActiveHistSessionForState();
+      if(activeSession){
+        activeSession.managers.autoDraw = histAutoDrawManager;
+        activeSession.timers.scheduleDraw = state.scheduleDraw;
+        activeSession.updatedAt = Date.now();
+      }
       histAutoDrawManager.updateUi();
       histAutoDrawManager.evaluateThresholds();
       syncHistAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawHistRaw;
+      const activeSession = getActiveHistSessionForState();
+      if(activeSession){
+        activeSession.timers.scheduleDraw = state.scheduleDraw;
+        activeSession.updatedAt = Date.now();
+      }
     }
     histDebug('Debug: hist scheduleDraw configured via tab-scoped lifecycle frame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.setScheduleDraw?.(options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}));
     ensureHistFontEventListener();
     ensureEmptyPayloadTemplate();
+    syncHistSessionManagersFromActive();
+    syncHistSessionRefsFromActive();
+    captureHistSessionStateFromActive(getActiveHistSessionForState(), { reason: 'hist-init-complete', captureStatsPanel: false });
     hist.__domSentinel = getHistNodeById('histHot');
     hist.ready = true;
   };
 
   hist.ensure = function ensure(options = {}){
-    if(ensureHistDomBindings(options.tab || options.tabId || null)){
+    if(ensureHistDomBindings(options.tab || options.tabId || null, options || {})){
       return;
     }
     if (!hist.ready) hist.init({ ...options, tabId: options.tabId || options.tab?.id || hist.__boundTabId || undefined, reason: options.reason || 'ensure' });
@@ -5909,10 +7565,22 @@
       || resolveHistRoot()
       || global.document,
     setRoot: root => { state.root = root; },
-    ensureBindings: tabLike => ensureHistDomBindings(tabLike),
+    ensureBindings: (tabLike, meta) => ensureHistDomBindings(tabLike, meta),
     init: options => hist.init(options),
     afterReady: (tabLike, meta = {}) => {
+      bindHistSessionForTab(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'hist-activate-bind-session' }, { apply: true, syncUi: true });
       applyExistingHistOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'hist-activate-apply-owned-runtime' });
+      const activationSession = getActiveHistSessionForState();
+      const pendingPayload = activationSession?.cache?.pendingPayload || null;
+      if(pendingPayload?.payload){
+        activationSession.cache.pendingPayload = null;
+        hist.loadFromPayload(pendingPayload.payload, {
+          ...(pendingPayload.meta || {}),
+          source: pendingPayload.meta?.source || 'pending-file',
+          tabId: activationSession.tabId,
+          reason: 'hist-pending-payload-activate'
+        });
+      }
       if(typeof state.ensureHotForActiveTab === 'function'){
         const hot = state.ensureHotForActiveTab();
         if(hot){
@@ -5923,6 +7591,8 @@
           syncHistActiveDataViewFromHot(hot, 'prepare-tab');
         }
       }
+      syncHistSessionManagersFromActive();
+      syncHistSessionRefsFromActive();
     },
     getSentinel: () => getHistNodeById('histHot')
   }) || function activateTab(tab, meta = {}){
@@ -5932,9 +7602,23 @@
       || state.root
       || resolveHistRoot()
       || global.document;
+    bindHistSessionForTab(targetTabId || null, { root: state.root || null, reason: meta?.reason || 'activate-tab' }, { apply: true, syncUi: true });
+    const activationSession = getActiveHistSessionForState();
+    const pendingPayload = activationSession?.cache?.pendingPayload || null;
+    if(pendingPayload?.payload){
+      activationSession.cache.pendingPayload = null;
+      hist.loadFromPayload(pendingPayload.payload, {
+        ...(pendingPayload.meta || {}),
+        source: pendingPayload.meta?.source || 'pending-file',
+        tabId: activationSession.tabId,
+        reason: 'hist-pending-payload-activate'
+      });
+    }
     if(ensureHistDomBindings(tab)){ return; }
     if(!hist.ready){ hist.init({ root: state.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
     if(typeof state.ensureHotForActiveTab === 'function'){ state.ensureHotForActiveTab(); }
+    syncHistSessionManagersFromActive();
+    syncHistSessionRefsFromActive();
     hist.__domSentinel = getHistNodeById('histHot');
   };
 
@@ -5960,7 +7644,30 @@
     return true;
   }
 
-  hist.captureRenderCache = function captureRenderCache(){
+  function getHistRenderCacheOwner(meta = {}, reason = 'hist-render-cache'){
+    const source = meta && typeof meta === 'object' ? meta : {};
+    const session = ensureHistSessionOwnershipShape(source.session)
+      || getHistSession(source.tab || source.tabId || source.workspaceTabId || null, {
+        ...source,
+        reason
+      }, { create: true })
+      || getActiveHistSessionForState();
+    if(session && !isHistSessionActiveOrActivating(session)){
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        histDebug('Debug: hist render cache skipped for inactive owner', {
+          reason,
+          ownerTabId: session.tabId || null,
+          activeTabId: getHistActiveTabId() || null
+        });
+      }
+      return null;
+    }
+    return session;
+  }
+
+  hist.captureRenderCache = function captureRenderCache(meta = {}){
+    const owner = getHistRenderCacheOwner(meta, 'hist-render-cache-capture');
+    if(!owner){ return null; }
     const plot = getHistNodeById('histPlot');
     const stats = getHistNodeById('histStatsResults');
     const plotCache = detachChildren(plot);
@@ -5982,7 +7689,14 @@
     }) ?? !!cache;
   };
 
-  hist.isIdleForSnapshot = function isIdleForSnapshot(){
+  hist.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
+    const owner = getHistSession(meta?.session || meta?.tab || meta?.tabId || null, {
+      ...(meta || {}),
+      reason: meta?.reason || 'hist-idle-snapshot'
+    }, { create: false }) || getActiveHistSessionForState();
+    if(owner && !isHistSessionActiveOrActivating(owner)){
+      return !owner.state?.autoDraw?.drawPending && !owner.state?.drawPending;
+    }
     return !state.drawPending;
   };
 
@@ -5991,8 +7705,10 @@
       || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
   };
 
-  hist.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
+  hist.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
+    const owner = getHistRenderCacheOwner(meta, 'hist-render-cache-restore');
+    if(!owner){ return false; }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.plot || cache?.preview || cache?.graph || cache?.svg || cache?.stage;
     const plot = getHistNodeById('histPlot');
     const stats = getHistNodeById('histStatsResults');

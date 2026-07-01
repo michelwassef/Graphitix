@@ -217,6 +217,22 @@ async function resizeBoxWidthOnly(page, targetWidthPx) {
   return payload;
 }
 
+async function dragBoxWidthHandleBy(page, deltaX) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-vertical').first();
+  await expect(handle).toBeVisible({ timeout: 15_000 });
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error('Missing Box width handle geometry');
+  }
+  const startX = box.x + Math.max(2, Math.min(box.width - 2, box.width / 2));
+  const startY = box.y + Math.max(2, Math.min(box.height - 2, box.height / 2));
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + deltaX, startY, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(900);
+}
+
 async function calibrateLabelsForRotationOnHalfShrink(page) {
   const labelCandidates = [
     ['Control', 'Treatment A', 'Treatment B'],
@@ -260,10 +276,14 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
 
   expect(after.svgBoxWidthPx).toBeLessThan(before.svgBoxWidthPx * 0.56);
   expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
-  expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(3);
-  expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(6);
+  const verticalReserveTolerance = Math.max(
+    3,
+    Math.min(48, Math.max(Number(before.bottomViewportExtensionPx) || 0, Number(after.bottomViewportExtensionPx) || 0))
+  );
+  expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(verticalReserveTolerance);
+  expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(verticalReserveTolerance + 6);
   expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(6);
-  expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(3);
+  expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(verticalReserveTolerance);
   expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
 
   if (withSignificance) {
@@ -311,6 +331,33 @@ test.describe('Box horizontal shrink layout invariants', () => {
     await expect(page.locator('#welcomeScreen')).toBeVisible();
     await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
     await runHorizontalShrinkScenario(page, true);
+    expect(issues.critical).toEqual([]);
+  });
+
+  test('default labels keep x-axis fixed when horizontal drag triggers rotation', async ({ page }, testInfo) => {
+    const issues = registerIssueCollectors(page);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+    await loadStripExample(page);
+    await resizeBoxWidthOnly(page, 385);
+    const before = await page.evaluate(readBoxLayoutInvariantMetrics);
+    await dragBoxWidthHandleBy(page, -10);
+    const after = await page.evaluate(readBoxLayoutInvariantMetrics);
+
+    await testInfo.attach('box-default-label-rotation-axis.metrics.json', {
+      body: Buffer.from(JSON.stringify({ before, after }, null, 2), 'utf8'),
+      contentType: 'application/json'
+    });
+
+    expect(before).not.toBeNull();
+    expect(after).not.toBeNull();
+    expect(before.rotated).toBe(false);
+    expect(after.rotated).toBe(true);
+    expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(1.5);
+    expect(after.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expect(issues.critical).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ const {
   COMPONENT_MATRIX,
   installLocalCdnOverrides,
   registerIssueCollectors,
+  openComponentFromWelcome,
   clickExampleButtonIfPresent
 } = require('./helpers/workspaceHarness');
 
@@ -15,41 +16,20 @@ async function getWorkspaceTabIds(page) {
 }
 
 async function openComponentTab(page, component, { first = false } = {}) {
-  if (first) {
-    const card = page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).first();
-    await expect(card).toBeVisible();
-    await card.click({ force: true });
-    await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
-    return;
-  }
-  await page.evaluate(async (type) => {
-    const tabs = window.Main?.tabs;
-    if (tabs && typeof tabs.handleAddTabClick === 'function') {
-      const maybe = tabs.handleAddTabClick();
-      if (maybe && typeof maybe.then === 'function') await maybe;
-    }
-    if (tabs && typeof tabs.handleGraphSelection === 'function') {
-      const maybe = tabs.handleGraphSelection(type, { reason: 'e2e-same-component-resize-switch' });
-      if (maybe && typeof maybe.then === 'function') await maybe;
-    }
-    const prompt = document.querySelector('#duplicatePrompt:not([hidden])');
-    const duplicateEmpty = document.querySelector('#duplicateEmpty');
-    if (prompt && duplicateEmpty && !duplicateEmpty.disabled) {
-      duplicateEmpty.click();
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-  }, component.type);
-  const visibleCard = page.locator(`#graphSelectionGrid [data-graph-type="${component.type}"]`).first();
-  if (await visibleCard.isVisible().catch(() => false)) {
-    await visibleCard.click({ force: true });
-  }
-  await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
+  await openComponentFromWelcome(page, component, { first });
 }
 
 async function activateTabById(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible();
   await tab.click({ force: true });
+  const clicked = await page.waitForFunction((id) => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 2_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!clicked) {
+    await page.evaluate((id) => window.Main?.tabs?.activateTab?.(id, { reason: 'e2e-resize-switch-activate' }), tabId);
+    await page.waitForFunction((id) => window.Main?.session?.workspaceState?.activeTabId === id, tabId, { timeout: 20_000 });
+  }
   await page.waitForTimeout(350);
 }
 

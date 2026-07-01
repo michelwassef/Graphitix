@@ -81,4 +81,5 @@ describe('exporter graph dropdown stacking', () => {
 
     expect(css).toContain('.export-menu.export-dropdown-layer{position:fixed');
   });
+
 });

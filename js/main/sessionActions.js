@@ -417,7 +417,7 @@
   }
   namespace.persistActiveTabIfNeeded = persistActiveTabIfNeeded;
 
-  function buildArchiveTabSnapshot(context, tab) {
+  function buildArchiveTabSnapshot(context, tab, options = {}) {
     const { session, workspaces } = context || {};
     if (!tab || tab.isWelcome || !tab.type) {
       return null;
@@ -438,6 +438,9 @@
     }
     const activeId = session?.getActiveTab?.()?.id || null;
     const config = workspaces?.[tab.type] || null;
+    const snapshotIntent = resolvePersistSnapshotIntent(options);
+    const skipLifecyclePayloadCapture = snapshotIntent.captureLivePayload === false
+      || snapshotIntent.skipLivePayloadCapture === true;
     let lifecycleSnapshot = null;
     if (config && tab.id === activeId && Shared.componentLifecycle?.snapshotWorkspaceSync) {
       try {
@@ -445,9 +448,11 @@
           tabId: tab.id,
           type: tab.type,
           componentKey: tab.type,
-          reason: 'archive-save-lifecycle-snapshot'
+          reason: 'archive-save-lifecycle-snapshot',
+          snapshotIntent,
+          skipLivePayloadCapture: skipLifecyclePayloadCapture
         });
-        if (lifecycleSnapshot?.payload) {
+        if (!skipLifecyclePayloadCapture && lifecycleSnapshot?.payload) {
           payload = cloneWithSession(session, lifecycleSnapshot.payload);
         }
         if (lifecycleSnapshot?.layoutState) {
@@ -620,13 +625,13 @@
       const activeIndex = graphTabs.findIndex(tab => tab.id === activeId);
       return {
         activeIndex: activeIndex >= 0 ? activeIndex : (graphTabs.length ? 0 : -1),
-        tabs: graphTabs.map(tab => buildArchiveTabSnapshot(context, tab)).filter(Boolean)
+        tabs: graphTabs.map(tab => buildArchiveTabSnapshot(context, tab, options)).filter(Boolean)
       };
     }
 
     const targetTabId = options.targetTabId || session.getActiveTab?.()?.id || null;
     const tab = findTabById(workspaceState, targetTabId);
-    const snapshot = buildArchiveTabSnapshot(context, tab);
+    const snapshot = buildArchiveTabSnapshot(context, tab, options);
     if (!snapshot) {
       return null;
     }
@@ -758,8 +763,21 @@
     }
   }
 
-  function tabHasLiveRenderCache(tab) {
-    return !!(tab && tab.renderCache && tab.renderCache.cache && !tab.renderCache.promotedFromArchive);
+  function tabHasRuntimeRenderCache(tab) {
+    return !!(tab && tab.renderCache && tab.renderCache.cache);
+  }
+
+  function tabHasArchiveRenderCache(tab) {
+    return !!(tab && tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object');
+  }
+
+  function tabHasReusableRenderCache(tab) {
+    return tabHasRuntimeRenderCache(tab) || tabHasArchiveRenderCache(tab);
+  }
+
+  function hasTabsNeedingPostLoadWarmup(workspaceState) {
+    const tabs = getGraphTabsFromWorkspaceState(workspaceState);
+    return tabs.some(tab => tab && !tabHasReusableRenderCache(tab));
   }
 
   function isComponentReadyForWarmup(type) {
@@ -843,14 +861,14 @@
     // Phase 1: ensure every component bundle is loaded and its setup() has run, so the
     // upcoming activation loop never triggers cold setup against a per-tab clone.
     const candidateTypes = graphTabs
-      .filter(tab => tab.id !== finalTabId && !tabHasLiveRenderCache(tab))
+      .filter(tab => tab.id !== finalTabId && !tabHasReusableRenderCache(tab))
       .map(tab => tab.type);
     const readyTypes = await ensureComponentsBeforeWarmup(context, candidateTypes, { reason: reasonBase });
     const tabsToWarm = [];
     let skippedColdComponents = 0;
     for (let i = 0; i < graphTabs.length; i += 1) {
       const tab = graphTabs[i];
-      if (tab.id === finalTabId || tabHasLiveRenderCache(tab)) {
+      if (tab.id === finalTabId || tabHasReusableRenderCache(tab)) {
         continue;
       }
       if (!readyTypes.has(tab.type) && !isComponentReadyForWarmup(tab.type)) {
@@ -893,7 +911,7 @@
     // re-activates it. Re-activation triggers a fresh debounced draw; isIdleForSnapshot()
     // would return true before that draw fires → fallback capture grabs the wrong state.
     const preFinalTab = graphTabs.find(t => t && t.id === finalTabId) || null;
-    if (preFinalTab && !tabHasLiveRenderCache(preFinalTab)) {
+    if (preFinalTab && !tabHasReusableRenderCache(preFinalTab)) {
       await awaitWorkspaceReadyForSnapshot(context, preFinalTab, { reason: `${reasonBase}-pre-warmup-active-ready` });
       try {
         if (typeof session.persistActiveTabState === 'function') {
@@ -975,7 +993,7 @@
       } catch (err) {
         console.error('warmTabRenderCaches final-activate error', { tabId: finalTabId, err });
       }
-      if (finalTab && !tabHasLiveRenderCache(finalTab)) {
+      if (finalTab && !tabHasReusableRenderCache(finalTab)) {
         await awaitWorkspaceReadyForSnapshot(context, finalTab, { reason: `${reasonBase}-finish-ready` });
         try {
           if (typeof session.persistActiveTabState === 'function') {
@@ -1022,7 +1040,10 @@
 
   namespace.warmTabRenderCaches = warmTabRenderCaches;
   namespace.awaitWorkspaceReadyForSnapshot = awaitWorkspaceReadyForSnapshot;
-  namespace.tabHasLiveRenderCache = tabHasLiveRenderCache;
+  namespace.tabHasRuntimeRenderCache = tabHasRuntimeRenderCache;
+  namespace.tabHasArchiveRenderCache = tabHasArchiveRenderCache;
+  namespace.tabHasReusableRenderCache = tabHasReusableRenderCache;
+  namespace.hasTabsNeedingPostLoadWarmup = hasTabsNeedingPostLoadWarmup;
 
   let pendingPostLoadWarmup = null;
   function schedulePostLoadWarmup(context, reason) {
@@ -1220,7 +1241,7 @@
       addedTabCount,
       tabCount: payloadToApply.tabs.length
     });
-    if (meta.skipWarmup !== true && payloadToApply.tabs.length > 1) {
+    if (meta.skipWarmup !== true && payloadToApply.tabs.length > 1 && hasTabsNeedingPostLoadWarmup(workspaceState)) {
       schedulePostLoadWarmup(context, meta.reason || 'post-load-warmup');
     }
     return {

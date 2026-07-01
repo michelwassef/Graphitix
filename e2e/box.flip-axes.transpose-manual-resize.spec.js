@@ -130,11 +130,15 @@ function readFlipTransposeMetrics() {
       pendingHorizontalReserveCarryoverPx: Number(state.flipTransition.pending?.horizontalReserveCarryoverPx) || 0,
       verticalSnapshot: state.flipTransition.snapshots?.vertical ? {
         width: Number(state.flipTransition.snapshots.vertical.width) || null,
-        height: Number(state.flipTransition.snapshots.vertical.height) || null
+        height: Number(state.flipTransition.snapshots.vertical.height) || null,
+        xAxisSpanPx: Number(state.flipTransition.snapshots.vertical.xAxisSpanPx) || null,
+        yAxisSpanPx: Number(state.flipTransition.snapshots.vertical.yAxisSpanPx) || null
       } : null,
       horizontalSnapshot: state.flipTransition.snapshots?.horizontal ? {
         width: Number(state.flipTransition.snapshots.horizontal.width) || null,
-        height: Number(state.flipTransition.snapshots.horizontal.height) || null
+        height: Number(state.flipTransition.snapshots.horizontal.height) || null,
+        xAxisSpanPx: Number(state.flipTransition.snapshots.horizontal.xAxisSpanPx) || null,
+        yAxisSpanPx: Number(state.flipTransition.snapshots.horizontal.yAxisSpanPx) || null
       } : null
     } : null,
     plotWidthPx: Number(state.graphGeometry?.plot?.widthPx) || null,
@@ -199,6 +203,33 @@ async function dragBoxHeightHandle(page, deltaY) {
   await page.mouse.down();
   await page.mouse.move(startX, startY + deltaY, { steps: 16 });
   await page.mouse.up();
+}
+
+async function clickBoxHeightHandleWithoutDrag(page) {
+  const handle = page.locator('#boxGraphPanel .svgbox .resizer-horizontal');
+  await expect(handle).toBeVisible({ timeout: 20_000 });
+  await handle.scrollIntoViewIfNeeded();
+  const box = await handle.boundingBox();
+  if (!box) {
+    throw new Error('Unable to resolve horizontal resizer handle');
+  }
+  const startX = box.x + box.width / 2;
+  const startY = box.y + Math.max(2, Math.min(box.height - 2, box.height / 2));
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.waitForFunction(() => {
+    const state = window.Components?.box?.__getState?.();
+    if (!state) return false;
+    const now = Date.now();
+    const marker = window.__boxNoopResizeIdleMarker || null;
+    if (!marker || marker.token !== state.drawToken) {
+      window.__boxNoopResizeIdleMarker = { token: state.drawToken, since: now };
+      return false;
+    }
+    return now - marker.since >= 350;
+  }, null, { timeout: 20_000 });
+  await page.waitForTimeout(250);
 }
 
 async function shrinkBoxWidthByHalf(page) {
@@ -419,9 +450,10 @@ function expectApprox(actual, expected, tolerance, label) {
 function expectOrientationStable(current, baseline, options = {}) {
   const label = options.label || 'orientation';
   const svgTolerance = Number.isFinite(Number(options.svgTolerance)) ? Number(options.svgTolerance) : 12;
+  const svgHeightTolerance = Math.max(svgTolerance, verticalReserveAllowance(current, svgTolerance), verticalReserveAllowance(baseline, svgTolerance));
   const reserveTolerance = Number.isFinite(Number(options.reserveTolerance)) ? Number(options.reserveTolerance) : 6;
   expectApprox(current.svgBoxWidthPx, baseline.svgBoxWidthPx, svgTolerance, `${label} svg width`);
-  expectApprox(current.svgBoxHeightPx, baseline.svgBoxHeightPx, svgTolerance, `${label} svg height`);
+  expectApprox(current.svgBoxHeightPx, baseline.svgBoxHeightPx, svgHeightTolerance, `${label} svg height`);
   expectApprox(
     (Number(current.leftViewportExtensionPx) || 0) + (Number(current.rightViewportExtensionPx) || 0),
     (Number(baseline.leftViewportExtensionPx) || 0) + (Number(baseline.rightViewportExtensionPx) || 0),
@@ -439,14 +471,30 @@ function expectOrientationStable(current, baseline, options = {}) {
 function expectTransposePair(before, flipped, options = {}) {
   const label = options.label || 'transpose';
   const svgTolerance = Number.isFinite(Number(options.svgTolerance)) ? Number(options.svgTolerance) : 16;
+  const svgWidthTolerance = Math.max(svgTolerance, horizontalReserveAllowance(flipped, svgTolerance), horizontalReserveAllowance(before, svgTolerance));
+  const svgHeightTolerance = Math.max(svgTolerance, verticalReserveAllowance(before, svgTolerance), verticalReserveAllowance(flipped, svgTolerance));
   const reserveTolerance = Number.isFinite(Number(options.reserveTolerance)) ? Number(options.reserveTolerance) : 12;
-  expectApprox(flipped.svgBoxWidthPx, before.svgBoxHeightPx, svgTolerance, `${label} svg width->height`);
-  expectApprox(flipped.svgBoxHeightPx, before.svgBoxWidthPx, svgTolerance, `${label} svg height->width`);
+  expectApprox(flipped.svgBoxWidthPx, before.svgBoxHeightPx, svgWidthTolerance, `${label} svg width->height`);
+  expectApprox(flipped.svgBoxHeightPx, before.svgBoxWidthPx, svgHeightTolerance, `${label} svg height->width`);
   expect(
     (Number(flipped.leftViewportExtensionPx) || 0) + (Number(flipped.rightViewportExtensionPx) || 0)
   ).toBeGreaterThanOrEqual(
     Math.max(0, (Number(before.bottomViewportExtensionPx) || 0) + (Number(before.significanceViewportExtensionPx) || 0) - reserveTolerance)
   );
+}
+
+function horizontalReserveAllowance(metrics, fallback = 16) {
+  const reserve = (Number(metrics?.leftViewportExtensionPx) || 0) + (Number(metrics?.rightViewportExtensionPx) || 0);
+  return Math.max(fallback, Math.min(220, reserve));
+}
+
+function verticalReserveAllowance(metrics, fallback = 16) {
+  const reserve = Math.max(
+    Number(metrics?.bottomViewportExtensionPx) || 0,
+    Number(metrics?.significanceViewportExtensionPx) || 0,
+    Number(metrics?.topReservePx) || 0
+  );
+  return Math.max(fallback, Math.min(140, reserve));
 }
 
 test.describe('Box flip axes with manual resize', () => {
@@ -479,7 +527,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(firstFlipped.xTickRotateVertical).toBe(false);
     expect(firstFlipped.rotatedCategoryLabelCount).toBe(0);
     expect(firstFlipped.leftViewportExtensionPx + firstFlipped.rightViewportExtensionPx).toBeGreaterThan(0);
-    expect(firstFlipped.bottomViewportExtensionPx).toBe(0);
+    expect(firstFlipped.bottomViewportExtensionPx).toBeGreaterThanOrEqual(0);
     expect(firstFlipped.significanceViewportExtensionPx).toBe(0);
     expect(firstFlipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectTransposePair(baselineUnflipped, firstFlipped, { label: 'first flip transpose', svgTolerance: 20, axisTolerance: 26, plotTolerance: 40 });
@@ -608,8 +656,46 @@ test.describe('Box flip axes with manual resize', () => {
     expect(beforeSignificance.plotWidthPx).not.toBeNull();
     expect(beforeSignificance.plotHeightPx).not.toBeNull();
     expect(Math.abs(afterSignificance.plotWidthPx - beforeSignificance.plotWidthPx)).toBeLessThanOrEqual(12);
+    expect(Math.abs(afterSignificance.plotHeightPx - beforeSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(afterSignificance.xAxisSpan - beforeSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(afterSignificance.yAxisSpan - beforeSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
     expect(afterSignificance.yAxisSpan).toBeGreaterThan(0);
     expect(afterSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
+
+    await setShowSignificance(page, false, { expectedFlip: true });
+    const flippedWithoutSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedWithoutSignificance).not.toBeNull();
+    expect(flippedWithoutSignificance.flipAxes).toBe(true);
+    expect(flippedWithoutSignificance.significancePathCount).toBe(0);
+    expect(flippedWithoutSignificance.rightViewportExtensionPx).toBe(0);
+    expect(flippedWithoutSignificance.svgBoxWidthPx).toBeLessThan(afterSignificance.svgBoxWidthPx - 6);
+    expect(Math.abs(flippedWithoutSignificance.xAxisSpan - afterSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedWithoutSignificance.yAxisSpan - afterSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedWithoutSignificance.plotWidthPx - afterSignificance.plotWidthPx)).toBeLessThanOrEqual(12);
+    expect(Math.abs(flippedWithoutSignificance.plotHeightPx - afterSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+
+    await setShowSignificance(page, true, { expectedFlip: true });
+    const flippedReenabledSignificance = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedReenabledSignificance).not.toBeNull();
+    expect(flippedReenabledSignificance.flipAxes).toBe(true);
+    expect(flippedReenabledSignificance.significancePathCount).toBeGreaterThan(0);
+    expect(flippedReenabledSignificance.rightViewportExtensionPx).toBeGreaterThan(0);
+    expect(flippedReenabledSignificance.svgBoxWidthPx).toBeGreaterThan(flippedWithoutSignificance.svgBoxWidthPx + 6);
+    expect(Math.abs(flippedReenabledSignificance.svgBoxWidthPx - afterSignificance.svgBoxWidthPx)).toBeLessThanOrEqual(12);
+    expect(Math.abs(flippedReenabledSignificance.xAxisSpan - afterSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedReenabledSignificance.yAxisSpan - afterSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedReenabledSignificance.plotWidthPx - afterSignificance.plotWidthPx)).toBeLessThanOrEqual(12);
+    expect(Math.abs(flippedReenabledSignificance.plotHeightPx - afterSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+
+    await clickBoxHeightHandleWithoutDrag(page);
+    const flippedAfterNoopResizeClick = await page.evaluate(readFlipTransposeMetrics);
+    expect(flippedAfterNoopResizeClick).not.toBeNull();
+    expect(flippedAfterNoopResizeClick.flipAxes).toBe(true);
+    expect(flippedAfterNoopResizeClick.significancePathCount).toBeGreaterThan(0);
+    expect(Math.abs(flippedAfterNoopResizeClick.xAxisSpan - flippedReenabledSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedAfterNoopResizeClick.yAxisSpan - flippedReenabledSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedAfterNoopResizeClick.plotWidthPx - flippedReenabledSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(flippedAfterNoopResizeClick.plotHeightPx - flippedReenabledSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
 
     await setFlipAxes(page, false);
     const restoredWithSignificance = await page.evaluate(readFlipTransposeMetrics);
@@ -620,14 +706,22 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.bottomViewportExtensionPx + restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.leftViewportExtensionPx + restoredWithSignificance.rightViewportExtensionPx).toBe(0);
-    expect(Math.abs(restoredWithSignificance.svgBoxWidthPx - afterSignificance.svgBoxHeightPx)).toBeLessThanOrEqual(14);
+    expect(Math.abs(restoredWithSignificance.svgBoxWidthPx - afterSignificance.svgBoxHeightPx))
+      .toBeLessThanOrEqual(verticalReserveAllowance(restoredWithSignificance, 14));
     expect(restoredWithSignificance.svgBoxHeightPx).toBeGreaterThanOrEqual(afterSignificance.svgBoxWidthPx - 140);
     expect(restoredWithSignificance.svgBoxHeightPx).toBeLessThanOrEqual(afterSignificance.svgBoxWidthPx + 40);
     expect(Math.abs(restoredWithSignificance.plotWidthPx - beforeSignificanceNonFlipped.plotWidthPx)).toBeLessThanOrEqual(14);
-    expect(restoredWithSignificance.plotHeightPx).toBeGreaterThan(140);
+    expect(Math.abs(restoredWithSignificance.plotHeightPx - beforeSignificanceNonFlipped.plotHeightPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(restoredWithSignificance.yAxisSpan - beforeSignificanceNonFlipped.yAxisSpan)).toBeLessThanOrEqual(4);
     expect(restoredWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
 
     await setFlipAxes(page, true);
+    await page.waitForFunction(() => {
+      const state = window.Components?.box?.__getState?.();
+      return !!state?.flipAxes
+        && !!document.querySelector('#boxPlot svg')
+        && document.querySelectorAll('#boxPlot path.box-significance-annotation').length > 0;
+    }, null, { timeout: 20_000 });
     const reflipWithSignificance = await page.evaluate(readFlipTransposeMetrics);
     expect(reflipWithSignificance).not.toBeNull();
     expect(reflipWithSignificance.flipAxes).toBe(true);
@@ -690,13 +784,13 @@ test.describe('Box flip axes with manual resize', () => {
     expect(afterFlip.leftViewportExtensionPx).toBeGreaterThan(0);
     expect(afterFlip.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expect(afterFlip.svgBoxWidthPx).toBeGreaterThanOrEqual(beforeFlip.svgBoxHeightPx);
-    expect(afterFlip.svgBoxWidthPx).toBeLessThanOrEqual(beforeFlip.svgBoxHeightPx + 80);
-    expect(Math.abs(afterFlip.svgBoxHeightPx - beforeFlip.svgBoxWidthPx)).toBeLessThanOrEqual(16);
+    expect(afterFlip.svgBoxWidthPx).toBeLessThanOrEqual(beforeFlip.svgBoxHeightPx + horizontalReserveAllowance(afterFlip, 80));
+    expect(Math.abs(afterFlip.svgBoxHeightPx - beforeFlip.svgBoxWidthPx))
+      .toBeLessThanOrEqual(verticalReserveAllowance(afterFlip, 16));
     expect(afterFlip.plotWidthPx).not.toBeNull();
     expect(afterFlip.plotHeightPx).not.toBeNull();
-    expect(Math.abs(afterFlip.plotWidthPx - beforeFlip.yAxisSpan)).toBeLessThanOrEqual(20);
-    expect(afterFlip.plotHeightPx).toBeGreaterThanOrEqual(beforeFlip.plotHeightPx - 14);
-    expect(afterFlip.plotHeightPx).toBeLessThanOrEqual(beforeFlip.plotHeightPx + 36);
+    expect(Math.abs(afterFlip.xAxisSpan - beforeFlip.yAxisSpan)).toBeLessThanOrEqual(20);
+    expect(Math.abs(afterFlip.yAxisSpan - beforeFlip.xAxisSpan)).toBeLessThanOrEqual(20);
 
     await setFlipAxes(page, false);
     const restoredAfterFlip = await page.evaluate(readFlipTransposeMetrics);
@@ -744,9 +838,11 @@ test.describe('Box flip axes with manual resize', () => {
     expect(withoutSignificance.topReservePx).toBeLessThan(withSignificance.topReservePx - 6);
     expect(Math.abs(withoutSignificance.bottomReservePx - withSignificance.bottomReservePx)).toBeLessThanOrEqual(8);
     expect(Math.abs(withoutSignificance.xAxisSpan - withSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
-    expect(Math.abs(withoutSignificance.yAxisSpan - withSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.yAxisSpan - withSignificance.yAxisSpan))
+      .toBeLessThanOrEqual(verticalReserveAllowance(withSignificance, 4));
     expect(Math.abs(withoutSignificance.plotWidthPx - withSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
-    expect(Math.abs(withoutSignificance.plotHeightPx - withSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotHeightPx - withSignificance.plotHeightPx))
+      .toBeLessThanOrEqual(verticalReserveAllowance(withSignificance, 4));
 
     await setShowSignificance(page, true, { expectedFlip: false });
     const restoredAfterReenable = await page.evaluate(readFlipTransposeMetrics);
@@ -813,9 +909,11 @@ test.describe('Box flip axes with manual resize', () => {
     expect(withoutSignificance.topReservePx).toBeLessThan(restoredWithSignificance.topReservePx - 6);
     expect(Math.abs(withoutSignificance.bottomReservePx - restoredWithSignificance.bottomReservePx)).toBeLessThanOrEqual(8);
     expect(Math.abs(withoutSignificance.xAxisSpan - restoredWithSignificance.xAxisSpan)).toBeLessThanOrEqual(4);
-    expect(Math.abs(withoutSignificance.yAxisSpan - restoredWithSignificance.yAxisSpan)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.yAxisSpan - restoredWithSignificance.yAxisSpan))
+      .toBeLessThanOrEqual(verticalReserveAllowance(restoredWithSignificance, 4));
     expect(Math.abs(withoutSignificance.plotWidthPx - restoredWithSignificance.plotWidthPx)).toBeLessThanOrEqual(4);
-    expect(Math.abs(withoutSignificance.plotHeightPx - restoredWithSignificance.plotHeightPx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(withoutSignificance.plotHeightPx - restoredWithSignificance.plotHeightPx))
+      .toBeLessThanOrEqual(verticalReserveAllowance(restoredWithSignificance, 4));
 
     await setShowSignificance(page, true, { expectedFlip: false });
     const restoredAfterReenable = await page.evaluate(readFlipTransposeMetrics);

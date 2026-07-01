@@ -156,4 +156,45 @@ describe('Scatter adaptive point sizing', () => {
     expect(svg.style.position).toBe('absolute');
     expect(svg.style.visibility).toBe('hidden');
   });
+
+  test('export svg rebuilds canvas-backed points as vector paths', () => {
+    document.body.innerHTML = `
+      <div id="scatterPage">
+        <div id="scatterPlot">
+          <svg id="scatterSvg" width="320" height="240" viewBox="0 0 320 240">
+            <g data-export-layer="scatter-points" data-layer="points" data-render-mode="canvas">
+              <foreignObject data-point-renderer="canvas-preview"><canvas></canvas></foreignObject>
+            </g>
+          </svg>
+        </div>
+      </div>
+    `;
+    const pointLayer = document.querySelector('[data-export-layer="scatter-points"]');
+    pointLayer.__scatterCanvasVectorExportState = {
+      mode: 'indexed',
+      buckets: new Map([[
+        'circle|#123456|1||0|1',
+        {
+          shape: 'circle',
+          fill: '#123456',
+          fillOpacity: 1,
+          stroke: '',
+          strokeWidth: 0,
+          strokeOpacity: 1,
+          radius: 2,
+          indices: [0, 1]
+        }
+      ]]),
+      cxValues: [12, 24],
+      cyValues: [18, 36]
+    };
+
+    const exportSvg = scatter.getExportSvg();
+
+    expect(exportSvg).toBeTruthy();
+    expect(exportSvg).not.toBe(document.getElementById('scatterSvg'));
+    expect(exportSvg.querySelector('foreignObject, foreignobject, canvas, img')).toBeNull();
+    expect(exportSvg.querySelector('[data-export-layer="scatter-points"] path')).toBeTruthy();
+    expect(exportSvg.querySelector('[data-export-layer="scatter-points"]')?.getAttribute('data-render-mode')).toBe('batched-vector-export');
+  });
 });

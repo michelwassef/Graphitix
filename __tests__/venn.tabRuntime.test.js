@@ -177,4 +177,37 @@ describe('Venn shared runtime isolation', () => {
     expect(restoredB.ui.speciesSelect?.value || '').toBe('mmusculus');
     expect(restoredB.ui.speciesSelect?.style?.backgroundColor || '').toBe('rgb(242, 139, 130)');
   });
+
+  test('inactive venn draw scheduling stores only serializable owner metadata', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'venn');
+    const venn = window.Components?.venn;
+    const tabA = Main.tabs.getActiveTab();
+    expect(tabA?.type).toBe('venn');
+
+    Main.tabs.handleAddTabClick();
+    await flush();
+    await handleGraphSelection(Main, 'venn');
+    const tabB = Main.tabs.getActiveTab();
+    expect(tabB?.id).not.toBe(tabA.id);
+
+    const sessionA = venn.__testHooks.getSession(tabA.id);
+    expect(sessionA).toBeTruthy();
+    const domTarget = venn.__getState().ui.stage;
+    const scheduled = venn.__testHooks.scheduleDrawForSession(sessionA, {
+      reason: 'test-inactive-schedule',
+      mode: 'lists',
+      target: domTarget,
+      event: { currentTarget: domTarget },
+      nested: { ok: true, node: domTarget }
+    });
+
+    expect(scheduled).toBe(false);
+    expect(sessionA.timers.pendingDrawOptions).toEqual({
+      reason: 'test-inactive-schedule',
+      mode: 'lists',
+      nested: { ok: true },
+      tabId: tabA.id
+    });
+  });
 });

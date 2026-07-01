@@ -261,6 +261,44 @@ describe('Scatter SVG export optimization', () => {
     }
   });
 
+  test('copyBlobMap starts async clipboard write before promised SVG blob resolves', async () => {
+    const originalClipboard = global.navigator.clipboard;
+    const originalClipboardItem = global.ClipboardItem;
+    let resolveBlob;
+    const svgPromise = new Promise(resolve => {
+      resolveBlob = resolve;
+    });
+    const writeMock = jest.fn(() => Promise.resolve());
+    class TestClipboardItem {
+      constructor(items){
+        this.items = items;
+      }
+      static supports(){
+        return true;
+      }
+    }
+    Object.defineProperty(global.navigator, 'clipboard', {
+      configurable: true,
+      value: { write: writeMock }
+    });
+    global.ClipboardItem = TestClipboardItem;
+    try{
+      const copyPromise = exporter.copyBlobMap({ 'image/svg+xml': svgPromise }, 'promised-svg-test');
+      await Promise.resolve();
+      expect(writeMock).toHaveBeenCalledTimes(1);
+      const item = writeMock.mock.calls[0][0][0];
+      expect(item.items['image/svg+xml']).toBe(svgPromise);
+      resolveBlob(new Blob(['<svg xmlns="http://www.w3.org/2000/svg"></svg>'], { type: 'image/svg+xml' }));
+      await expect(copyPromise).resolves.toBe(true);
+    }finally{
+      Object.defineProperty(global.navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard
+      });
+      global.ClipboardItem = originalClipboardItem;
+    }
+  });
+
   test('handles empty layer gracefully', () => {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');

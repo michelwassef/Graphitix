@@ -39,17 +39,58 @@ const CASES = [
 ];
 
 function statsRichnessInPage(containerIds) {
+  const normalizeStatsText = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const normalizePValueToken = value => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? String(Number(numeric.toPrecision(8))) : null;
+  };
+  const collectStatsPValues = el => {
+    if (!el) { return []; }
+    const values = [];
+    el.querySelectorAll('[data-stats-pvalue-raw]').forEach(node => {
+      const token = normalizePValueToken(node.dataset?.statsPvalueRaw);
+      if (token) { values.push(token); }
+    });
+    el.querySelectorAll('.stats-assumption__pvalue, .assumption-variance-detail').forEach(node => {
+      const text = normalizeStatsText(node.textContent);
+      const match = text.match(/(?:p\s*=\s*)?([0-9]*\.?[0-9]+(?:e[-+]?\d+)?)/i);
+      const token = match ? normalizePValueToken(match[1]) : null;
+      if (token) { values.push(token); }
+    });
+    const text = normalizeStatsText(el.textContent);
+    const regex = /\bp(?:-?value)?\s*(?:[=<]\s*)?([0-9]*\.?[0-9]+(?:e[-+]?\d+)?)/gi;
+    let match = regex.exec(text);
+    while (match) {
+      const token = normalizePValueToken(match[1]);
+      if (token) { values.push(token); }
+      match = regex.exec(text);
+    }
+    return Array.from(new Set(values)).sort();
+  };
   let svgs = 0, rows = 0, vectors = 0, textLen = 0, exportDropdowns = 0;
+  const pValues = [];
+  const containerTexts = [];
   for (const id of containerIds) {
     const el = document.getElementById(id);
     if (!el) { continue; }
     svgs += el.querySelectorAll('svg').length;
     rows += el.querySelectorAll('tr').length;
     vectors += el.querySelectorAll('path, rect, circle, line, polyline').length;
-    textLen += (el.textContent || '').trim().length;
+    const text = normalizeStatsText(el.textContent);
+    textLen += text.length;
+    containerTexts.push(text);
+    pValues.push(...collectStatsPValues(el));
     exportDropdowns += el.querySelectorAll('.export-dropdown').length;
   }
-  return { svgs, rows, vectors, textLen, exportDropdowns };
+  return {
+    svgs,
+    rows,
+    vectors,
+    textLen,
+    exportDropdowns,
+    pValues: Array.from(new Set(pValues)).sort(),
+    textSignature: containerTexts.join('\n---stats-container---\n')
+  };
 }
 
 // Click the first stats-table export trigger and report whether its menu opens. Proves the
@@ -122,6 +163,10 @@ function expectNoStatsLoss(before, after, label) {
   expect(after.vectors, `${label}: stats vector primitives dropped (${after.vectors} < ${before.vectors})`).toBeGreaterThanOrEqual(before.vectors);
   expect(after.textLen, `${label}: stats text shrank (${after.textLen} < ${Math.floor(before.textLen * 0.9)})`).toBeGreaterThanOrEqual(Math.floor(before.textLen * 0.9));
   expect(after.exportDropdowns, `${label}: stats export controls dropped (${after.exportDropdowns} < ${before.exportDropdowns})`).toBeGreaterThanOrEqual(before.exportDropdowns);
+  if (before.pValues.length) {
+    const missing = before.pValues.filter(value => !after.pValues.includes(value));
+    expect(missing, `${label}: restored stats lost p-value facts`).toEqual([]);
+  }
 }
 
 // Assert the restored stats-table Download/Copy controls are live (their menu opens), not

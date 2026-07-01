@@ -12,6 +12,19 @@ async function computeStats(page) {
   await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
 }
 
+async function duplicateBoxWithReuse(page) {
+  await page.evaluate(async () => {
+    const tabs = window.Main?.tabs;
+    const maybeAdd = tabs?.handleAddTabClick?.();
+    if (maybeAdd && typeof maybeAdd.then === 'function') await maybeAdd;
+    const maybeSelect = tabs?.handleGraphSelection?.('box', { reason: 'e2e-box-duplicate-computed-stats-reuse' });
+    if (maybeSelect && typeof maybeSelect.then === 'function') await maybeSelect;
+  });
+  await expect(page.locator('#duplicatePrompt:not([hidden])')).toBeVisible({ timeout: 20_000 });
+  await page.locator('#duplicateReuse').click({ force: true });
+  await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
+}
+
 test('box duplicate tab with precomputed stats can recalculate without annotation crash', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -25,11 +38,7 @@ test('box duplicate tab with precomputed stats can recalculate without annotatio
   await page.locator('#boxLoadExample').click();
   await computeStats(page);
 
-  await page.locator('#addWorkspaceTab').click();
-  await page.locator('#graphSelectionGrid [data-graph-type="box"]').first().click({ force: true });
-  await expect(page.locator('#duplicatePrompt:not([hidden])')).toBeVisible({ timeout: 20_000 });
-  await page.locator('#duplicateReuse').click();
-  await page.waitForSelector('#boxPage:not([hidden])', { timeout: 20_000 });
+  await duplicateBoxWithReuse(page);
 
   await computeStats(page);
 

@@ -139,8 +139,25 @@
       return false;
     }
     return LIVE_CAPTURE_SKIP_REASONS.has(normalized)
+      || normalized.startsWith('resizer-')
       || normalized.includes('warmup')
+      || normalized === 'activate-switch'
+      || normalized === 'duplicate-before-create'
+      || normalized === 'duplicate-context-reuse'
+      || normalized === 'cached-workspace-bind'
+      || normalized.endsWith('-dom-rebind')
+      || normalized.endsWith('-bind-owned-runtime')
       || normalized.endsWith('-private-snapshot');
+  }
+
+  function isLayoutOnlyTabDirty(tabLike) {
+    const tab = resolveTab(tabLike);
+    return !!(tab
+      && !tab.isWelcome
+      && tab.userModified === true
+      && tab.layoutDirty === true
+      && tab.payloadDirty !== true
+      && tab.payload);
   }
 
   function isSaveLikeLiveCaptureReason(reason, options = {}) {
@@ -319,6 +336,11 @@
     if (affectsPayload) {
       tab.payloadDirty = true;
       tab.payloadDirtyReason = tab.lastUserModifiedReason;
+      tab.layoutDirty = false;
+      tab.layoutDirtyReason = '';
+    } else {
+      tab.layoutDirty = true;
+      tab.layoutDirtyReason = tab.lastUserModifiedReason;
     }
     // Root-cause fix: any user mutation makes previously captured render caches stale.
     // Invalidate both runtime and archive caches immediately so tab switching can never
@@ -364,6 +386,8 @@
     const wasDirty = !!tab.payloadDirty;
     tab.payloadDirty = false;
     tab.payloadDirtyReason = '';
+    tab.layoutDirty = false;
+    tab.layoutDirtyReason = '';
     tab.lastPayloadFlushedReason = normalizeReason(reason) || 'payload-flushed';
     tab.lastPayloadFlushedAt = Date.now();
     if (wasDirty) {
@@ -402,6 +426,8 @@
       tab.userModified = false;
       tab.payloadDirty = false;
       tab.payloadDirtyReason = '';
+      tab.layoutDirty = false;
+      tab.layoutDirtyReason = '';
       tab.lastCleanReason = normalizeReason(reason) || 'clean';
       tab.lastCleanAt = Date.now();
     });
@@ -1887,6 +1913,8 @@
       lastUserModifiedAt: 0,
       payloadDirty: options.payloadDirty === true,
       payloadDirtyReason: options.payloadDirtyReason || '',
+      layoutDirty: options.layoutDirty === true,
+      layoutDirtyReason: options.layoutDirtyReason || '',
       lastPayloadFlushedReason: '',
       lastPayloadFlushedAt: 0,
       loadedFromArchive: options.loadedFromArchive === true,
@@ -2447,6 +2475,7 @@
       return false;
     }
     const reason = options.reason || 'persist-active';
+    const layoutOnlyDirtyAtEntry = isLayoutOnlyTabDirty(tab);
     const snapshotIntent = resolveSnapshotIntent(options);
     // Skip the live-state read for any persist call where the tab is clean (no
     // user modifications since last flush) AND the call is either autosave-like
@@ -2455,8 +2484,7 @@
     // authoritative — running config.getPayload() risks projecting half-bound
     // component state over a perfectly good loaded-from-disk payload.
     const isLifecycleOrigin = options.origin === 'lifecycle';
-    const skipCaptureBlockedByReason = reason === 'duplicate-before-create'
-      || reason === 'add-tab-before-new';
+    const skipCaptureBlockedByReason = reason === 'add-tab-before-new';
     const shouldCaptureLivePayloadForSave = snapshotIntent.captureLivePayload === true
       || isSaveLikeLiveCaptureReason(reason, options);
     const allowSkipLivePayloadCapture = snapshotIntent.allowSkipLivePayloadCapture !== false;
@@ -2551,6 +2579,8 @@
         if (skippedLayoutChanged) {
           tab.layoutVersion = Number(tab.layoutVersion || 0) + 1;
         }
+        tab.layoutDirty = false;
+        tab.layoutDirtyReason = '';
         if (skippedLayoutChanged) {
           if (shouldInvalidateArchiveOnLayoutSignatureChange(tab, options)) {
             clearTabArchiveRenderCache(tab, { reason: options.reason || 'layout-changed-skip' });
@@ -2598,7 +2628,7 @@
       // For explicit save/user/regression snapshots we now promote detected drift into
       // the authoritative tab payload to prevent stale reopen payloads.
       let driftHealed = false;
-      if (shouldRunSkippedPayloadDriftProbe(reason, options) && typeof config.getPayload === 'function') {
+      if (!layoutOnlyDirtyAtEntry && shouldRunSkippedPayloadDriftProbe(reason, options) && typeof config.getPayload === 'function') {
         try {
           const probe = config.getPayload({
             tabId: tab.id,
@@ -3336,6 +3366,7 @@
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.markTabUserModified = markTabUserModified;
   namespace.markActiveTabUserModified = markActiveTabUserModified;
+  namespace.isLayoutOnlyTabDirty = isLayoutOnlyTabDirty;
   namespace.disposeWorkspaceTabResources = disposeWorkspaceTabResources;
   namespace.disposeWorkspaceTabs = disposeWorkspaceTabs;
   namespace.markTabRenderCommitted = markTabRenderCommitted;

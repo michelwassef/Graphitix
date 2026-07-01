@@ -636,7 +636,15 @@
     const sentinelMismatch = !!mountedSentinel && !!currentSentinel && mountedSentinel !== currentSentinel;
     const missingCurrentRoot = !!mountedRoot && !currentRoot;
     const missingCurrentSentinel = !!sentinelSelector && !!mountedSentinel && !currentSentinel;
-    const requiresRebind = rootMismatch || sentinelMismatch || missingCurrentRoot || missingCurrentSentinel;
+    const missingRequiredTable = !!(
+      mountedRoot
+      && global.Shared?.hot?.rootHasTableHost?.(mountedRoot)
+      && !global.Shared.hot.hasUsableTableForTab?.(componentKey, tab?.id || config.tabId || null, {
+        root: mountedRoot,
+        reason: config.meta?.reason || 'ensure-active-dom-bindings'
+      })
+    );
+    const requiresRebind = rootMismatch || sentinelMismatch || missingCurrentRoot || missingCurrentSentinel || missingRequiredTable;
     let rebound = false;
     if(requiresRebind && typeof config.rebind === 'function'){
       try{
@@ -648,7 +656,8 @@
           currentRoot,
           sentinelSelector: sentinelSelector || null,
           currentSentinel,
-          mountedSentinel
+          mountedSentinel,
+          meta: config.meta || null
         });
         rebound = true;
       }catch(err){
@@ -667,6 +676,7 @@
         sentinelMismatch,
         missingCurrentRoot,
         missingCurrentSentinel,
+        missingRequiredTable,
         rebound
       });
     }
@@ -680,6 +690,7 @@
       sentinelMismatch,
       missingCurrentRoot,
       missingCurrentSentinel,
+      missingRequiredTable,
       requiresRebind,
       rebound
     };
@@ -1499,11 +1510,13 @@
       }
     }
     namespace.applyRuntimeState(tab, resolvedType, resolvedConfig, {
+      ...meta,
       tabId: tab.id,
       type: resolvedType || null,
       reason: `${activationReason}:apply-runtime-state`
     });
     invokeWorkspaceHook(resolvedConfig, 'activateTab', [tab, {
+      ...meta,
       tabId: tab.id,
       type: resolvedType || null,
       reason: activationReason,

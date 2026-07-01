@@ -14,8 +14,17 @@ async function waitForHeatmapReady(page) {
 }
 
 async function duplicateHeatmapWithReuse(page) {
-  await page.locator('#addWorkspaceTab').click();
-  await page.locator('#graphSelectionGrid [data-graph-type="heatmap"]').first().click({ force: true });
+  await page.evaluate(async () => {
+    const tabs = window.Main?.tabs;
+    const session = window.Main?.session;
+    if (session?.persistActiveTabState) {
+      await session.persistActiveTabState({ reason: 'e2e-heatmap-duplicate-reuse-before-create' });
+    }
+    const maybeAdd = tabs?.handleAddTabClick?.();
+    if (maybeAdd && typeof maybeAdd.then === 'function') await maybeAdd;
+    const maybeSelect = tabs?.handleGraphSelection?.('heatmap', { reason: 'e2e-heatmap-duplicate-reuse' });
+    if (maybeSelect && typeof maybeSelect.then === 'function') await maybeSelect;
+  });
   await expect(page.locator('#duplicatePrompt:not([hidden])')).toBeVisible({ timeout: 20_000 });
   await page.locator('#duplicateReuse').click({ force: true });
   await page.waitForSelector('#heatmapPage:not([hidden])', { timeout: 20_000 });

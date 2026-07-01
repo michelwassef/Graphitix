@@ -234,6 +234,55 @@
     return false;
   };
 
+  function resolveSvgViewportLength(svgEl, attrName, fallback){
+    const rawAttr = Number(svgEl && typeof svgEl.getAttribute === 'function' ? svgEl.getAttribute(attrName) : NaN);
+    if(Number.isFinite(rawAttr) && rawAttr > 0){ return rawAttr; }
+    const box = svgEl?.viewBox?.baseVal || null;
+    const boxValue = attrName === 'width' ? box?.width : box?.height;
+    if(Number.isFinite(boxValue) && boxValue > 0){ return boxValue; }
+    const bboxValue = attrName === 'width' ? svgEl?.clientWidth : svgEl?.clientHeight;
+    if(Number.isFinite(bboxValue) && bboxValue > 0){ return bboxValue; }
+    const fallbackValue = Number(fallback);
+    return Number.isFinite(fallbackValue) && fallbackValue > 0 ? fallbackValue : 1;
+  }
+
+  plot3d.ensureRotationHitSurface = function(svgEl, options){
+    if(!svgEl || typeof svgEl.querySelector !== 'function'){
+      return null;
+    }
+    const opts = options || {};
+    const width = resolveSvgViewportLength(svgEl, 'width', opts.width);
+    const height = resolveSvgViewportLength(svgEl, 'height', opts.height);
+    let surface = svgEl.querySelector('[data-plot3d-rotation-hit-surface="1"]');
+    if(!surface){
+      surface = (svgEl.ownerDocument || global.document).createElementNS(NS, 'rect');
+      surface.setAttribute('data-plot3d-rotation-hit-surface', '1');
+      surface.setAttribute('aria-hidden', 'true');
+    }
+    surface.setAttribute('x', '0');
+    surface.setAttribute('y', '0');
+    surface.setAttribute('width', String(width));
+    surface.setAttribute('height', String(height));
+    surface.setAttribute('fill', 'transparent');
+    surface.setAttribute('stroke', 'none');
+    surface.setAttribute('pointer-events', 'all');
+    if(surface.style){
+      surface.style.pointerEvents = 'all';
+      surface.style.cursor = 'inherit';
+    }
+    if(surface.parentNode !== svgEl){
+      svgEl.insertBefore(surface, svgEl.firstChild || null);
+    }else if(svgEl.firstChild !== surface){
+      svgEl.insertBefore(surface, svgEl.firstChild || null);
+    }
+    debugLog('Debug: plot3d rotation hit surface ensured', {
+      label: opts.debugLabel || opts.label || 'plot3d-rotation',
+      width,
+      height
+    });
+    return surface;
+  };
+
   plot3d.applyLegendPointerGuards = function(element, options){
     if(!element){ return; }
     const label = options && options.label ? options.label : null;
@@ -293,7 +342,7 @@
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
     svgEl.style.webkitUserSelect = 'none';
-    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0 };
+    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, captured: false };
     control.pointerState = pointerState;
     const selectionGuards = { applied: false, previous: null };
     const disableSelection = () => {
@@ -338,7 +387,15 @@
       pointerState.pointerId = event.pointerId;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      svgEl.setPointerCapture(event.pointerId);
+      pointerState.captured = false;
+      if(typeof svgEl.setPointerCapture === 'function'){
+        try {
+          svgEl.setPointerCapture(event.pointerId);
+          pointerState.captured = true;
+        } catch(err){
+          debugLog('Debug: plot3d rotation pointer capture skipped', { label: control.label, message: err && err.message });
+        }
+      }
       svgEl.style.cursor = 'grabbing';
       disableSelection();
       const state = control.state || (control.state = plot3d.createRotationState());
@@ -384,11 +441,14 @@
       if(!pointerState.active){ return; }
       if(event && event.pointerId !== pointerState.pointerId){ return; }
       pointerState.active = false;
+      const capturedPointerId = pointerState.pointerId;
+      const hadCapture = pointerState.captured;
       pointerState.pointerId = null;
+      pointerState.captured = false;
       svgEl.style.cursor = 'grab';
       try {
-        if(event && typeof svgEl.releasePointerCapture === 'function'){
-          svgEl.releasePointerCapture(event.pointerId);
+        if(hadCapture && typeof svgEl.releasePointerCapture === 'function'){
+          svgEl.releasePointerCapture(capturedPointerId);
         }
       } catch(err){
         debugLog('Debug: plot3d rotation pointer capture release error', { label: control.label, message: err && err.message });

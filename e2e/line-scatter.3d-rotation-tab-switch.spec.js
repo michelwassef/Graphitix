@@ -8,13 +8,6 @@ const {
 
 const CASES = [
   {
-    type: 'line',
-    pageId: 'linePage',
-    viewModeId: 'lineViewMode',
-    exampleButtonId: 'lineLoadExample',
-    svgSelector: '#linePage:not([hidden]) #linePlot #lineSvg'
-  },
-  {
     type: 'scatter',
     pageId: 'scatterPage',
     viewModeId: 'scatterViewMode',

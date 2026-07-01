@@ -118,10 +118,23 @@
   }
 
   function ensureEmptyPayloadTemplate(){
+    const session = getActiveSurfaceSessionForState();
     if(emptyPayloadTemplate){
+      if(session?.cache && !session.cache.emptyPayloadTemplate){
+        session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+        session.updatedAt = Date.now();
+      }
+      return;
+    }
+    if(session?.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(session.cache.emptyPayloadTemplate) || session.cache.emptyPayloadTemplate;
       return;
     }
     emptyPayloadTemplate = { type: 'surface', config: {} };
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
   }
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
@@ -200,6 +213,7 @@
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
     lastStats: null,
+    statsPanelModel: { resultsModel: null, reportModel: null },
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
@@ -220,12 +234,669 @@
     fileHandle: null
   };
   const SURFACE_RUNTIME_KEY = `surface-runtime-${Math.random().toString(36).slice(2, 10)}`;
-  let surfaceDataViewsManager = null;
   let surfaceDataToolbarBound = false;
-  let surfaceDataToolbarLastActivation = 0;
+  const surfaceDataToolbarLastActivationByTabId = new Map();
   let surfaceFontEventBound = false;
   let surfaceLockRatioInput = null;
   let surfaceAspectSyncing = false;
+
+
+  const surfaceSessionsByTabId = new Map();
+  let activeSurfaceSession = null;
+
+  function normalizeSurfaceSessionTabId(tabLike = null, meta = {}){
+    const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
+    const objectTabId = tabLike && typeof tabLike === 'object'
+      ? (tabLike.id || tabLike.tabId || tabLike.workspaceTabId || null)
+      : null;
+    const resolved = direct
+      || objectTabId
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.__workspaceSessionMeta?.tabId
+      || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId
+      || surface.__boundTabId
+      || '';
+    return String(resolved || '').trim();
+  }
+
+  function createDefaultSurfaceNotesState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      text: src.text == null ? '' : String(src.text),
+      open: !!src.open
+    };
+  }
+
+  function createDefaultSurfaceDurableState(source = {}){
+    const defaults = createDefaultSurfaceTabContext();
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      autoDrawEnabled: src.autoDrawEnabled == null ? defaults.autoDrawEnabled : !!src.autoDrawEnabled,
+      autoDrawReason: cloneSimple(src.autoDrawReason) || null,
+      autoDrawLockedByThreshold: !!src.autoDrawLockedByThreshold,
+      drawPending: false,
+      lastDataShape: cloneSimple(src.lastDataShape) || cloneSimple(defaults.lastDataShape),
+      lastAutoDrawEvaluation: cloneSimple(src.lastAutoDrawEvaluation) || null,
+      lastStats: cloneSimple(src.lastStats) || null,
+      statsPanelModel: normalizeSurfaceStatsPanelModel(src.statsPanelModel || {}),
+      axisMap: Object.assign({}, defaults.axisMap, cloneSimple(src.axisMap) || {}),
+      legendPosition: cloneSimple(src.legendPosition) || null,
+      labelPositions: cloneSimple(src.labelPositions) || cloneSimple(defaults.labelPositions),
+      settings: Object.assign(createDefaultSurfaceSettings(), cloneSimple(src.settings) || {}),
+      gridStyle: sanitizeGridStyle(src.gridStyle, src.settings?.axisStroke ?? defaults.settings.axisStroke),
+      labels: Object.assign(createDefaultSurfaceLabels(), cloneSimple(src.labels) || {}),
+      rotation: normalizeSurfaceRotationSnapshot(src.rotation || defaults.rotation),
+      fileName: (typeof src.fileName === 'string' && src.fileName.trim()) ? src.fileName.trim() : DEFAULT_FILE_NAME,
+      notes: createDefaultSurfaceNotesState(src.notes || {})
+    };
+  }
+
+  function createDefaultSurfaceResultsState(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return {
+      lastStats: cloneSimple(src.lastStats) || null,
+      statsPanelModel: normalizeSurfaceStatsPanelModel(src.statsPanelModel || {})
+    };
+  }
+
+  function createDefaultSurfaceRefs(root = null){
+    return {
+      root: root || null,
+      tablePanel: null,
+      graphPanel: null,
+      panelResizer: null,
+      hotWrapper: null,
+      hotContainer: null,
+      svg: null,
+      svgBox: null,
+      statsEl: null,
+      messageEl: null,
+      exportContainer: null,
+      renderRow: null,
+      renderButton: null,
+      autoDrawNotice: null,
+      xAxis: null,
+      yAxis: null,
+      zAxis: null,
+      interpolation: null,
+      fontSize: null,
+      fontSizeVal: null,
+      axisStroke: null,
+      axisStrokeVal: null,
+      axisColor: null,
+      showGrid: null,
+      showFrame: null,
+      showPoints: null,
+      loadExample: null,
+      importButton: null,
+      fileInput: null,
+      openButton: null,
+      saveButton: null,
+      saveAsButton: null,
+      graphFileInput: null,
+      notesControl: null
+    };
+  }
+
+  function createSurfaceSession({ tabId, root = null, initialState = null } = {}){
+    const normalizedTabId = String(tabId || '').trim();
+    const source = initialState && typeof initialState === 'object' ? initialState : {};
+    const durableSource = source.state && typeof source.state === 'object' ? source.state : source;
+    return {
+      componentKey: 'surface',
+      tabId: normalizedTabId,
+      root: root || null,
+      state: createDefaultSurfaceDurableState(durableSource),
+      results: createDefaultSurfaceResultsState({
+        lastStats: durableSource.lastStats || source.lastStats,
+        statsPanelModel: durableSource.statsPanelModel || source.statsPanelModel
+      }),
+      refs: createDefaultSurfaceRefs(root || null),
+      cache: {
+        emptyPayloadTemplate: cloneSimple(emptyPayloadTemplate) || null,
+        facePool: [],
+        pointPool: [],
+        facePoolUsed: 0,
+        pointPoolUsed: 0
+      },
+      listeners: new Map(),
+      timers: {
+        scheduleDraw: null,
+        pendingDrawOptions: null,
+        overlayTimeout: null
+      },
+      workers: new Map(),
+      managers: {
+        hot: null,
+        dataViews: null,
+        layout: null,
+        fileHandle: null,
+        autoDraw: null
+      },
+      notes: createDefaultSurfaceNotesState(source.notes || durableSource.notes || {}),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+  }
+
+  function ensureSurfaceSessionOwnershipShape(session){
+    if(!session || typeof session !== 'object'){
+      return null;
+    }
+    session.componentKey = 'surface';
+    session.tabId = String(session.tabId || '').trim();
+    session.root = session.root || null;
+    session.state = createDefaultSurfaceDurableState(session.state || {});
+    session.results = createDefaultSurfaceResultsState(session.results || {
+      lastStats: session.state.lastStats,
+      statsPanelModel: session.state.statsPanelModel
+    });
+    session.refs = session.refs && typeof session.refs === 'object' ? session.refs : createDefaultSurfaceRefs(session.root || null);
+    session.refs.root = session.refs.root || session.root || null;
+    session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
+    if(!Array.isArray(session.cache.facePool)){ session.cache.facePool = []; }
+    if(!Array.isArray(session.cache.pointPool)){ session.cache.pointPool = []; }
+    session.cache.facePoolUsed = Number(session.cache.facePoolUsed) || 0;
+    session.cache.pointPoolUsed = Number(session.cache.pointPoolUsed) || 0;
+    session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
+    session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'overlayTimeout')){ session.timers.overlayTimeout = null; }
+    session.workers = session.workers instanceof Map ? session.workers : new Map();
+    session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'dataViews')){ session.managers.dataViews = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.managers, 'autoDraw')){ session.managers.autoDraw = null; }
+    session.notes = createDefaultSurfaceNotesState(session.notes || session.state?.notes || {});
+    return session;
+  }
+
+  function getSurfaceSession(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeSurfaceSessionTabId(tabLike, meta);
+    if(!tabId){
+      return null;
+    }
+    let session = surfaceSessionsByTabId.get(tabId) || null;
+    if(!session && options.create !== false){
+      session = createSurfaceSession({
+        tabId,
+        root: meta?.root || resolveSurfaceRoot(tabLike || tabId || null) || null,
+        initialState: options.initialState || null
+      });
+      surfaceSessionsByTabId.set(tabId, session);
+    }
+    return ensureSurfaceSessionOwnershipShape(session);
+  }
+
+  function getActiveSurfaceSessionForState(){
+    if(activeSurfaceSession && (!surface.__boundTabId || String(activeSurfaceSession.tabId || '') === String(surface.__boundTabId || ''))){
+      return ensureSurfaceSessionOwnershipShape(activeSurfaceSession);
+    }
+    const tabId = surface.__boundTabId || normalizeSurfaceSessionTabId(null, {}) || null;
+    return tabId ? getSurfaceSession(tabId, { tabId, reason: 'active-surface-session' }, { create: true }) : null;
+  }
+
+  function getSurfaceHotOwnerTabId(hotInstance = null){
+    return String(
+      hotInstance?.__surfaceTabId
+      || hotInstance?.__workspaceTabId
+      || hotInstance?.__graphitixTabId
+      || hotInstance?.__hotWorkspaceTabId
+      || ''
+    ).trim();
+  }
+
+  function getSurfaceTabIdFromTarget(target = null){
+    if(!target || typeof target.closest !== 'function'){
+      return '';
+    }
+    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
+    return String(
+      owner?.dataset?.workspaceTabId
+      || owner?.dataset?.tabId
+      || owner?.getAttribute?.('data-workspace-tab-id')
+      || owner?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim();
+  }
+
+  function getSurfaceActiveTabId(){
+    return String(surface.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId || '').trim();
+  }
+
+  function getSurfaceCallbackOwner(meta = {}){
+    const target = meta?.target || meta?.event?.currentTarget || meta?.event?.target || null;
+    const tabId = String(meta?.tabId || getSurfaceHotOwnerTabId(meta?.hot) || getSurfaceTabIdFromTarget(target) || getSurfaceActiveTabId() || '').trim();
+    return {
+      tabId,
+      session: tabId
+        ? getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'surface-callback-owner' }, { create: true })
+        : getActiveSurfaceSessionForState(),
+      hot: meta?.hot || null
+    };
+  }
+
+  function isSurfaceCallbackOwnerActive(owner = null){
+    const ownerTabId = String(owner?.tabId || owner?.session?.tabId || '').trim();
+    const activeTabId = getSurfaceActiveTabId();
+    return !!(!ownerTabId || (activeTabId && ownerTabId === activeTabId));
+  }
+
+  function runSurfaceOwnedCallback(owner, callback, meta = {}){
+    if(typeof callback !== 'function'){
+      return undefined;
+    }
+    const resolvedOwner = owner?.session || owner?.tabId
+      ? owner
+      : getSurfaceCallbackOwner(meta);
+    if(!isSurfaceCallbackOwnerActive(resolvedOwner)){
+      debugLog('Debug: surface callback skipped for inactive owner', {
+        ownerTabId: resolvedOwner?.tabId || resolvedOwner?.session?.tabId || null,
+        activeTabId: getSurfaceActiveTabId() || null,
+        reason: meta?.reason || 'surface-owned-callback'
+      });
+      return undefined;
+    }
+    return callback(resolvedOwner);
+  }
+
+  function runSurfaceEventOwnerCallback(event, reason, callback){
+    const owner = getSurfaceCallbackOwner({ event, target: event?.currentTarget || event?.target || null, reason });
+    return runSurfaceOwnedCallback(owner, callback, { event, reason });
+  }
+
+  function getSurfaceSessionForHot(hotInstance = null, meta = {}, options = {}){
+    const tabId = getSurfaceHotOwnerTabId(hotInstance);
+    if(tabId){
+      return getSurfaceSession(tabId, { ...(meta || {}), tabId }, { create: options.create === true });
+    }
+    return options.fallbackActive === false ? null : getActiveSurfaceSessionForState();
+  }
+
+  function surfaceDataViewsManagerBelongsToSession(manager = null, session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session);
+    if(!manager || !shaped?.tabId){ return false; }
+    const ownerTabId = String(
+      manager.__surfaceTabId
+      || manager.__workspaceTabId
+      || manager.__graphitixTabId
+      || manager.__ownerTabId
+      || ''
+    ).trim();
+    return !!ownerTabId && ownerTabId === String(shaped.tabId);
+  }
+
+  function isSurfaceSessionActive(session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session);
+    if(!shaped?.tabId){
+      return false;
+    }
+    return String(shaped.tabId) === String(surface.__boundTabId || activeSurfaceSession?.tabId || '');
+  }
+
+  function isSurfaceSessionActiveOrActivating(session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session);
+    if(!shaped?.tabId){ return false; }
+    const workspaceActiveTabId = global.Main?.session?.workspaceState?.activeTabId || null;
+    return isSurfaceSessionActive(shaped)
+      || (workspaceActiveTabId && String(shaped.tabId) === String(workspaceActiveTabId));
+  }
+
+  function scheduleSurfaceDrawForSession(session = null, options = {}){
+    const shaped = ensureSurfaceSessionOwnershipShape(session);
+    if(!shaped){
+      return false;
+    }
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = {
+      ...sourceOptions,
+      tabId: shaped.tabId || undefined,
+      reason: sourceOptions.reason || 'surface-session-draw'
+    };
+    shaped.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+    shaped.updatedAt = Date.now();
+    if(!isSurfaceSessionActiveOrActivating(shaped)){
+      shaped.state.drawPending = true;
+      debugLog('Debug: surface draw scheduled for inactive owner', {
+        tabId: shaped.tabId || null,
+        reason: scheduleOptions.reason || null
+      });
+      return false;
+    }
+    const scheduler = shaped.timers?.scheduleDraw || state.scheduleDraw;
+    if(typeof scheduler !== 'function'){
+      return false;
+    }
+    scheduler(scheduleOptions);
+    return true;
+  }
+
+  function scheduleSurfaceDrawForHot(hotInstance = null, options = {}){
+    const session = getSurfaceSessionForHot(hotInstance, {
+      ...(options || {}),
+      reason: options.reason || 'surface-hot-draw'
+    }, { create: false });
+    if(session && !isSurfaceSessionActiveOrActivating(session)){
+      session.state.drawPending = true;
+      session.updatedAt = Date.now();
+      return false;
+    }
+    return scheduleSurfaceDrawForSession(session || getActiveSurfaceSessionForState(), options);
+  }
+
+  function scheduleActiveSurfaceDraw(options = {}){
+    return scheduleSurfaceDrawForSession(getActiveSurfaceSessionForState(), options);
+  }
+
+
+  function normalizeSurfaceLabelPositions(value){
+    return cloneSimple(value) || { title: null, legend: null };
+  }
+
+  function patchSurfaceVisualState(session = null, patch = {}, meta = {}){
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    const hasLabels = Object.prototype.hasOwnProperty.call(patch || {}, 'labels');
+    const hasPositions = Object.prototype.hasOwnProperty.call(patch || {}, 'labelPositions');
+    const nextLabels = hasLabels
+      ? Object.assign(createDefaultSurfaceLabels(), cloneSimple(patch.labels) || {})
+      : Object.assign(createDefaultSurfaceLabels(), cloneSimple(state.labels) || {});
+    const nextPositions = hasPositions ? normalizeSurfaceLabelPositions(patch.labelPositions) : normalizeSurfaceLabelPositions(state.labelPositions);
+    if(owner?.state){
+      if(hasLabels){ owner.state.labels = nextLabels; }
+      if(hasPositions){
+        owner.state.labelPositions = nextPositions;
+        owner.state.legendPosition = nextPositions.legend || null;
+      }
+      owner.updatedAt = Date.now();
+      debugLog('Debug: surface visual state patched to owner session', {
+        tabId: owner.tabId || null,
+        reason: meta?.reason || null,
+        labels: hasLabels,
+        labelPositions: hasPositions
+      });
+    }
+    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+      if(hasLabels){ state.labels = nextLabels; }
+      if(hasPositions){
+        state.labelPositions = nextPositions;
+        state.legendPosition = nextPositions.legend || null;
+      }
+    }
+    return { labels: nextLabels, labelPositions: nextPositions };
+  }
+
+  function patchSurfaceLabelPosition(session = null, key, value, meta = {}){
+    const nextPositions = normalizeSurfaceLabelPositions({
+      ...normalizeSurfaceLabelPositions(state.labelPositions),
+      [key]: value || null
+    });
+    return patchSurfaceVisualState(session, { labelPositions: nextPositions }, meta);
+  }
+
+
+  function getSurfaceDeactivationTabId(tab, meta = {}){
+    return (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
+  }
+
+  function getSurfaceDeactivationSession(tab, meta = {}){
+    const tabId = getSurfaceDeactivationTabId(tab, meta);
+    const activeSession = getActiveSurfaceSessionForState();
+    const activeTabId = surface.__boundTabId || activeSession?.tabId || null;
+    if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
+      return getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'surface-deactivate-target-session' }, { create: false });
+    }
+    return activeSession || (tabId ? getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'surface-deactivate-active-session' }, { create: false }) : null);
+  }
+
+  function markSurfaceSessionDrawIdle(session = null){
+    if(!session){ return; }
+    session.state.drawPending = false;
+    session.updatedAt = Date.now();
+  }
+
+  function captureSurfaceSessionForDeactivation(tab, meta = {}){
+    const tabId = getSurfaceDeactivationTabId(tab, meta);
+    const activeSession = getActiveSurfaceSessionForState();
+    const activeTabId = surface.__boundTabId || activeSession?.tabId || null;
+    const targetSession = getSurfaceDeactivationSession(tab, meta);
+    if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
+      markSurfaceSessionDrawIdle(targetSession);
+      debugLog('Debug: surface inactive-tab deactivate skipped active mirror capture', {
+        tabId,
+        activeTabId,
+        reason: meta?.reason || 'surface-deactivate-capture'
+      });
+      return targetSession;
+    }
+    if(targetSession){
+      captureSurfaceSessionStateFromActive(targetSession, { ...(meta || {}), reason: meta?.reason || 'surface-deactivate-capture' });
+      markSurfaceSessionDrawIdle(targetSession);
+    }
+    return targetSession;
+  }
+
+  function syncSurfaceSessionRefsFromActive(session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || activeSurfaceSession || getActiveSurfaceSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isSurfaceSessionActiveOrActivating(shaped)){
+      return shaped;
+    }
+    shaped.root = state.root || shaped.root || null;
+    shaped.refs = Object.assign(createDefaultSurfaceRefs(shaped.root || null), shaped.refs || {}, {
+      root: state.root || shaped.root || null,
+      tablePanel: state.layout?.elements?.tablePanel || querySurfaceRoot('#surfaceTablePanel'),
+      graphPanel: state.layout?.elements?.graphPanel || querySurfaceRoot('#surfaceGraphPanel'),
+      panelResizer: state.layout?.elements?.panelResizer || querySurfaceRoot('#surfacePanelResizer'),
+      hotWrapper: state.layout?.elements?.hotWrapper || querySurfaceRoot('#surfaceHotWrapper'),
+      hotContainer: state.layout?.elements?.hotContainer || querySurfaceRoot('#surfaceHot'),
+      svg: state.svg || getSurfaceNodeById('surfaceSvg'),
+      svgBox: state.svgBox || state.layout?.elements?.svgBox || querySurfaceRoot('#surfaceGraphPanel .svgbox'),
+      statsEl: state.statsEl || getSurfaceNodeById('surfaceStatsSummary'),
+      messageEl: state.messageEl || getSurfaceNodeById('surfaceMessage'),
+      exportContainer: state.exportContainer || getSurfaceNodeById('surfaceExportControls'),
+      renderRow: state.renderRow || getSurfaceNodeById('surfaceRenderRow'),
+      renderButton: state.renderButton || getSurfaceNodeById('surfaceRenderButton'),
+      autoDrawNotice: state.autoDrawNotice || getSurfaceNodeById('surfaceAutoDrawNotice'),
+      xAxis: state.axisSelects?.x || getSurfaceNodeById('surfaceXAxis'),
+      yAxis: state.axisSelects?.y || getSurfaceNodeById('surfaceYAxis'),
+      zAxis: state.axisSelects?.z || getSurfaceNodeById('surfaceZAxis'),
+      interpolation: state.controls?.interpolation || getSurfaceNodeById('surfaceInterpolation'),
+      fontSize: state.controls?.fontSize || getSurfaceNodeById('surfaceFontSize'),
+      fontSizeVal: state.controls?.fontSizeVal || getSurfaceNodeById('surfaceFontSizeVal'),
+      axisStroke: state.controls?.axisStroke || getSurfaceNodeById('surfaceAxisStroke'),
+      axisStrokeVal: state.controls?.axisStrokeVal || getSurfaceNodeById('surfaceAxisStrokeVal'),
+      axisColor: state.controls?.axisColor || getSurfaceNodeById('surfaceAxisColor'),
+      showGrid: state.controls?.showGrid || getSurfaceNodeById('surfaceShowGrid'),
+      showFrame: state.controls?.showFrame || getSurfaceNodeById('surfaceShowFrame'),
+      showPoints: state.controls?.showPoints || getSurfaceNodeById('surfaceShowPoints'),
+      loadExample: state.controls?.loadExample || getSurfaceNodeById('surfaceLoadExample'),
+      importButton: state.controls?.importBtn || getSurfaceNodeById('surfaceImport'),
+      fileInput: state.controls?.importFile || getSurfaceNodeById('surfaceFile'),
+      openButton: getSurfaceNodeById('openSurfaceGraph'),
+      saveButton: getSurfaceNodeById('saveSurfaceGraph'),
+      saveAsButton: getSurfaceNodeById('saveAsSurface'),
+      graphFileInput: state.controls?.graphFileInput || getSurfaceNodeById('surfaceGraphFile'),
+      notesControl: canUseSurfaceNotesControl(notesState.control) ? notesState.control : null
+    });
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function syncSurfaceSessionManagersFromActive(session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || activeSurfaceSession || getActiveSurfaceSessionForState());
+    if(!shaped){ return null; }
+    const sessionIsActive = !shaped.tabId || isSurfaceSessionActiveOrActivating(shaped);
+    const stateHotTabId = String(
+      state.hot?.__surfaceTabId
+      || state.hot?.__workspaceTabId
+      || state.hot?.__graphitixTabId
+      || state.hot?.__hotWorkspaceTabId
+      || ''
+    ).trim();
+    const hotBelongsToSession = !!state.hot && (!shaped.tabId || (stateHotTabId && stateHotTabId === shaped.tabId));
+    if(hotBelongsToSession){
+      shaped.managers.hot = state.hot;
+      const manager = state.hot?.__surfaceDataViewsManager || null;
+      shaped.managers.dataViews = surfaceDataViewsManagerBelongsToSession(manager, shaped) ? manager : shaped.managers.dataViews || null;
+    }
+    if(sessionIsActive){
+      shaped.managers.layout = state.layout || shaped.managers.layout || null;
+      shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
+      shaped.managers.autoDraw = surfaceAutoDrawManager || shaped.managers.autoDraw || null;
+      shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
+      shaped.timers.overlayTimeout = _surfaceOverlayTimeout || shaped.timers.overlayTimeout || null;
+      shaped.cache.facePool = Array.isArray(state._facePool) ? state._facePool.slice() : [];
+      shaped.cache.pointPool = Array.isArray(state._pointPool) ? state._pointPool.slice() : [];
+      shaped.cache.facePoolUsed = Number(state._facePoolUsed) || 0;
+      shaped.cache.pointPoolUsed = Number(state._pointPoolUsed) || 0;
+    }
+    shaped.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || shaped.cache.emptyPayloadTemplate || null;
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function resolveSurfaceOverlaySession(options = {}){
+    const opts = options && typeof options === 'object' ? options : {};
+    if(opts.session){
+      return ensureSurfaceSessionOwnershipShape(opts.session);
+    }
+    const tabLike = opts.tab || opts.tabId || null;
+    if(tabLike){
+      return getSurfaceSession(tabLike, { ...(opts || {}), reason: opts.reason || 'surface-overlay-session' }, { create: opts.create === true });
+    }
+    return getActiveSurfaceSessionForState();
+  }
+
+  function setSurfaceOverlayTimeoutForSession(session = null, timeoutHandle = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(!shaped){ return null; }
+    shaped.timers.overlayTimeout = timeoutHandle || null;
+    if(isSurfaceSessionActiveOrActivating(shaped)){
+      _surfaceOverlayTimeout = timeoutHandle || null;
+    }
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function clearSurfaceOverlayTimeoutForSession(session = null){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(!shaped){ return null; }
+    const timeoutHandle = shaped.timers?.overlayTimeout || (isSurfaceSessionActiveOrActivating(shaped) ? _surfaceOverlayTimeout : null);
+    if(timeoutHandle){
+      try{ Shared.componentLifecycle?.clearComponentTimeout?.(surface, timeoutHandle); }catch(_err){}
+    }
+    shaped.timers.overlayTimeout = null;
+    if(isSurfaceSessionActiveOrActivating(shaped)){
+      _surfaceOverlayTimeout = null;
+    }
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function captureSurfaceNotesMirror(){
+    const snapshot = captureSurfaceNotesSnapshot();
+    return createDefaultSurfaceNotesState(snapshot);
+  }
+
+  function captureSurfaceSessionStateFromActive(session = null, meta = {}){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(!shaped){ return null; }
+    if(shaped.tabId && !isSurfaceSessionActiveOrActivating(shaped)){
+      shaped.updatedAt = Date.now();
+      return shaped;
+    }
+    const context = buildSurfaceTabContextSnapshotFromState();
+    shaped.state = createDefaultSurfaceDurableState(context);
+    shaped.results = createDefaultSurfaceResultsState({
+      lastStats: context.lastStats,
+      statsPanelModel: context.statsPanelModel
+    });
+    shaped.notes = createDefaultSurfaceNotesState(context.notes || captureSurfaceNotesMirror());
+    syncSurfaceSessionRefsFromActive(shaped);
+    syncSurfaceSessionManagersFromActive(shaped);
+    shaped.updatedAt = Date.now();
+    return shaped;
+  }
+
+  function applySurfaceSessionStateToActive(session = null, options = {}){
+    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(!shaped){ return false; }
+    const durable = createDefaultSurfaceDurableState(shaped.state || {});
+    const context = Object.assign({}, durable, {
+      lastStats: cloneSimple(shaped.results?.lastStats || durable.lastStats) || null,
+      statsPanelModel: normalizeSurfaceStatsPanelModel(shaped.results?.statsPanelModel || durable.statsPanelModel || {}),
+      fileHandle: shaped.managers?.fileHandle || state.fileHandle || null,
+      notes: createDefaultSurfaceNotesState(shaped.notes || durable.notes || {})
+    });
+    applySurfaceTabContextSnapshot(context, { syncUi: options.syncUi !== false, session: shaped });
+    state._facePool = Array.isArray(shaped.cache?.facePool) ? shaped.cache.facePool.slice() : [];
+    state._pointPool = Array.isArray(shaped.cache?.pointPool) ? shaped.cache.pointPool.slice() : [];
+    state._facePoolUsed = Number(shaped.cache?.facePoolUsed) || 0;
+    state._pointPoolUsed = Number(shaped.cache?.pointPoolUsed) || 0;
+    if(options.restoreEmptyPayload !== false && shaped.cache?.emptyPayloadTemplate){
+      emptyPayloadTemplate = cloneSimple(shaped.cache.emptyPayloadTemplate) || emptyPayloadTemplate;
+    }
+    if(!state.root && shaped.root){
+      state.root = shaped.root;
+    }
+    _surfaceOverlayTimeout = shaped.timers?.overlayTimeout || null;
+    shaped.updatedAt = Date.now();
+    return true;
+  }
+
+  function bindSurfaceSessionForTab(tabLike = null, meta = {}, options = {}){
+    const tabId = normalizeSurfaceSessionTabId(tabLike, meta);
+    if(!tabId){ return null; }
+    if(activeSurfaceSession && activeSurfaceSession.tabId && activeSurfaceSession.tabId !== tabId){
+      captureSurfaceSessionStateFromActive(activeSurfaceSession, {
+        reason: meta?.reason || 'surface-session-switch-capture'
+      });
+    }
+    const session = getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'surface-session-bind' }, { create: true });
+    if(!session){ return null; }
+    const root = meta?.root || resolveSurfaceRoot(tabLike || tabId || null) || session.root || null;
+    session.root = root || session.root || null;
+    session.refs.root = root || session.refs.root || null;
+    activeSurfaceSession = session;
+    surface.__surfaceSessionTabId = session.tabId;
+    if(!surface.__boundTabId){
+      surface.__boundTabId = session.tabId;
+    }
+    if(options.apply === true){
+      applySurfaceSessionStateToActive(session, options);
+    }
+    syncSurfaceSessionRefsFromActive(session);
+    syncSurfaceSessionManagersFromActive(session);
+    return session;
+  }
+
+  function setSurfaceSessionStateFromRuntimeRecord(record, meta = {}){
+    if(!record || typeof record !== 'object'){
+      return null;
+    }
+    const session = getSurfaceSession(meta?.tab || meta?.tabId || surface.__boundTabId || null, meta, { create: true });
+    if(!session){
+      return null;
+    }
+    const source = record.state && typeof record.state === 'object' ? record.state : record;
+    session.state = createDefaultSurfaceDurableState(source);
+    session.results = createDefaultSurfaceResultsState({
+      lastStats: source.lastStats || record.lastStats,
+      statsPanelModel: source.statsPanelModel || record.statsPanelModel
+    });
+    session.notes = createDefaultSurfaceNotesState(record.notes || source.notes || {});
+    if(record.emptyPayloadTemplate){
+      session.cache.emptyPayloadTemplate = cloneSimple(record.emptyPayloadTemplate) || session.cache.emptyPayloadTemplate || null;
+    }
+    session.updatedAt = Date.now();
+    return session;
+  }
 
   function resolveSurfaceRoot(tabLike){
     return Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'surface')
@@ -434,6 +1105,7 @@
       lastDataShape: { rows: 0, cols: 0 },
       lastAutoDrawEvaluation: null,
       lastStats: null,
+      statsPanelModel: { resultsModel: null, reportModel: null },
       axisMap: { x: 0, y: 1, z: 2 },
       legendPosition: null,
       labelPositions: { title: null, legend: null },
@@ -450,8 +1122,18 @@
     };
   }
 
+  function canUseSurfaceNotesControl(noteControl){
+    if(!noteControl){ return false; }
+    const root = state.root || resolveSurfaceRoot(surface.__boundTabId || null);
+    const controlRoot = noteControl.root || null;
+    if(controlRoot){
+      return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
+    }
+    return !!root && (!noteControl.element || root.contains?.(noteControl.element));
+  }
+
   function captureSurfaceNotesSnapshot(){
-    const noteControl = notesState.control || null;
+    const noteControl = canUseSurfaceNotesControl(notesState.control) ? notesState.control : null;
     const text = noteControl && typeof noteControl.getValue === 'function'
       ? noteControl.getValue()
       : (notesState.text || '');
@@ -460,6 +1142,12 @@
       : !!notesState.open;
     notesState.text = text;
     notesState.open = open;
+    const session = getActiveSurfaceSessionForState();
+    if(session){
+      session.notes = createDefaultSurfaceNotesState({ text, open });
+      session.state.notes = createDefaultSurfaceNotesState({ text, open });
+      session.updatedAt = Date.now();
+    }
     return { text, open };
   }
 
@@ -482,15 +1170,56 @@
     return cloneSimple(restored) || createDefaultSurfaceRotation();
   }
 
-  function setSurfaceFileName(name){
+
+  function commitSurfaceRotationState(rotation, reason = 'surface-rotation-state'){
+    if(rotation && typeof rotation === 'object'){
+      state.rotation = rotation;
+    }else if(!state.rotation || typeof state.rotation !== 'object'){
+      state.rotation = createDefaultSurfaceRotation();
+    }
+    if(typeof plot3d.normalizeRotation === 'function'){
+      try{ plot3d.normalizeRotation(state.rotation); }catch(_err){}
+    }
+    const session = getActiveSurfaceSessionForState();
+    if(session?.state){
+      session.state.rotation = state.rotation;
+      session.updatedAt = Date.now();
+    }
+    debugLog('Debug: surface rotation state committed', {
+      reason,
+      tabId: session?.tabId || surface.__boundTabId || null,
+      rotation: {
+        x: state.rotation?.x,
+        y: state.rotation?.y,
+        z: state.rotation?.z
+      }
+    });
+    return state.rotation;
+  }
+
+  function setSurfaceFileName(name, session = null){
     const normalized = (typeof name === 'string' && name.trim()) ? name.trim() : DEFAULT_FILE_NAME;
-    state.fileName = normalized;
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(owner?.state){
+      owner.state.fileName = normalized;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+      state.fileName = normalized;
+    }
     return normalized;
   }
 
-  function setSurfaceFileHandle(handle){
-    state.fileHandle = handle || null;
-    return state.fileHandle;
+  function setSurfaceFileHandle(handle, session = null){
+    const owner = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
+    if(owner?.managers){
+      owner.managers.fileHandle = handle || null;
+      owner.updatedAt = Date.now();
+    }
+    if(!owner || isSurfaceSessionActiveOrActivating(owner)){
+      state.fileHandle = handle || null;
+    }
+    return handle || null;
   }
 
   function buildSurfaceTabContextSnapshotFromState(){
@@ -503,6 +1232,7 @@
       lastDataShape: cloneSimple(state.lastDataShape) || { ...defaults.lastDataShape },
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),
       lastStats: cloneSimple(state.lastStats),
+      statsPanelModel: captureSurfaceStatsPanelModel(),
       axisMap: cloneSimple(state.axisMap) || { ...defaults.axisMap },
       legendPosition: cloneSimple(state.legendPosition),
       labelPositions: cloneSimple(state.labelPositions) || cloneSimple(defaults.labelPositions),
@@ -526,6 +1256,7 @@
     state.lastDataShape = cloneSimple(source.lastDataShape) || { ...defaults.lastDataShape };
     state.lastAutoDrawEvaluation = cloneSimple(source.lastAutoDrawEvaluation) || null;
     state.lastStats = cloneSimple(source.lastStats) || null;
+    state.statsPanelModel = normalizeSurfaceStatsPanelModel(source.statsPanelModel || {});
     state.axisMap = Object.assign({}, defaults.axisMap, cloneSimple(source.axisMap) || {});
     state.legendPosition = cloneSimple(source.legendPosition) || null;
     state.labelPositions = cloneSimple(source.labelPositions) || cloneSimple(defaults.labelPositions);
@@ -533,16 +1264,22 @@
     setGridStyle(source.gridStyle, state.settings?.axisStroke ?? defaults.settings.axisStroke);
     state.labels = Object.assign(createDefaultSurfaceLabels(), cloneSimple(source.labels) || {});
     state.rotation = normalizeSurfaceRotationSnapshot(source.rotation);
-    setSurfaceFileName(source.fileName);
-    setSurfaceFileHandle(source.fileHandle);
+    commitSurfaceRotationState(state.rotation, 'surface-context-apply');
+    const ownerSession = options.session || null;
+    setSurfaceFileName(source.fileName, ownerSession);
+    setSurfaceFileHandle(source.fileHandle, ownerSession);
     notesState.text = source.notes?.text == null ? '' : String(source.notes.text);
     notesState.open = !!source.notes?.open;
     if(options.syncUi !== false){
       cacheDom();
       applySettingsToControls();
       updateAxisOptions();
-      updateStats(state.lastStats);
-      if(notesState.control){
+      if(state.lastStats){
+        updateStats(state.lastStats);
+      }else{
+        restoreSurfaceStatsPanelModel(state.statsPanelModel);
+      }
+      if(canUseSurfaceNotesControl(notesState.control)){
         notesState.control.setValue(notesState.text);
         notesState.control.setOpen(notesState.open);
       }
@@ -554,6 +1291,10 @@
   function scheduleSurfaceViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'surface-view-refresh';
+    const ownerTabId = normalizeSurfaceSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || surface.__boundTabId || null, {});
+    const ownerSession = ownerTabId
+      ? getSurfaceSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
+      : getActiveSurfaceSessionForState();
     const normalizedReason = String(nextReason || '').toLowerCase();
     const passiveReason = normalizedReason.includes('restore')
       || normalizedReason.includes('payload')
@@ -564,34 +1305,35 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: surface.__boundTabId || null,
+      tabId: ownerTabId || surface.__boundTabId || null,
       reason: nextReason,
       source: 'surface-view-refresh',
       forceDraw: options.force === true,
       userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
     };
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('surface', lifecycleMeta)){
-      debugLog('Debug: surface view refresh suppressed by lifecycle', { reason: nextReason, tabId: surface.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: surface.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface-view-refresh' } });
-      return;
-    }
-    if(typeof state.scheduleDraw !== 'function'){
+      debugLog('Debug: surface view refresh suppressed by lifecycle', { reason: nextReason, tabId: lifecycleMeta.tabId || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: lifecycleMeta.tabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'surface-view-refresh' } });
       return;
     }
     const scheduleOptions = Object.assign({}, options, {
+      tabId: ownerTabId || options.tabId || undefined,
       viewOnly: true,
       reason: nextReason,
       source: 'surface-view-refresh',
       forceDraw: lifecycleMeta.forceDraw === true,
       userInitiated: lifecycleMeta.userInitiated === true
     });
-    state.scheduleDraw(scheduleOptions);
+    scheduleSurfaceDrawForSession(ownerSession || getActiveSurfaceSessionForState(), scheduleOptions);
   }
 
-  function scheduleSurfaceRotationRedraw(){
-    state.scheduleDraw?.({
+  function scheduleSurfaceRotationRedraw(rotation = null){
+    commitSurfaceRotationState(rotation || state.rotation, 'surface-rotation-change');
+    scheduleActiveSurfaceDraw({
       viewOnly: true,
       silentOverlay: true,
+      force: true,
+      userInitiated: true,
       reason: 'rotation'
     });
   }
@@ -600,9 +1342,15 @@
     if(!svg || typeof plot3d.attachRotationControls !== 'function'){
       return false;
     }
+    const rotationState = commitSurfaceRotationState(state.rotation, 'surface-rotation-bind');
+    if(typeof plot3d.ensureRotationHitSurface === 'function'){
+      plot3d.ensureRotationHitSurface(svg, { debugLabel: debugLabel || 'surface-plot' });
+    }
     plot3d.attachRotationControls(svg, {
-      state: state.rotation,
-      onChange: scheduleSurfaceRotationRedraw,
+      state: rotationState,
+      onStart: (_event, state) => commitSurfaceRotationState(state, 'surface-rotation-start'),
+      onChange: (_event, state) => scheduleSurfaceRotationRedraw(state),
+      onEnd: (_event, state) => commitSurfaceRotationState(state, 'surface-rotation-end'),
       debugLabel: debugLabel || 'surface-plot',
       shouldIgnorePointer: (event) => {
         if(typeof plot3d.isInteractivePointerTarget === 'function'){
@@ -637,7 +1385,7 @@
       if(!isSurfaceFontStyleEvent(detail)){
         return;
       }
-      scheduleSurfaceViewRefresh('font-style-change');
+      scheduleSurfaceViewRefresh('font-style-change', { tabId: detail.tabId || null });
     });
     surfaceFontEventBound = true;
   }
@@ -699,10 +1447,12 @@
 
   function activateSurfaceDataToolbar(reason){
     const now = Date.now();
-    if(now - surfaceDataToolbarLastActivation < 80){
+    const tabId = String(surface.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId || 'global');
+    const lastActivation = Number(surfaceDataToolbarLastActivationByTabId.get(tabId)) || 0;
+    if(now - lastActivation < 80){
       return false;
     }
-    surfaceDataToolbarLastActivation = now;
+    surfaceDataToolbarLastActivationByTabId.set(tabId, now);
     const activated = !!Shared.workspaceToolbar?.activateSection?.('surface', 'Data');
     if(activated){
       debugLog('Debug: surface data toolbar activated', { reason: reason || 'unknown' });
@@ -717,6 +1467,8 @@
     if(typeof Shared.dataViews?.createManager !== 'function'){
       return null;
     }
+    const ownerSession = getSurfaceSessionForHot(hotInstance, { reason: 'surface-dataviews-owner' }, { create: true })
+      || getActiveSurfaceSessionForState();
     const existingManager = hotInstance.__surfaceDataViewsManager || null;
     if(existingManager && existingManager.__surfaceRuntimeKey !== SURFACE_RUNTIME_KEY){
       existingManager.unmount?.();
@@ -739,17 +1491,36 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
+          const session = getSurfaceSessionForHot(hotInstance, { reason: 'surface-data-view-switch' }, { create: false })
+            || ownerSession
+            || getActiveSurfaceSessionForState();
+          if(session){
+            session.managers.hot = hotInstance;
+            const manager = hotInstance.__surfaceDataViewsManager || null;
+            session.managers.dataViews = surfaceDataViewsManagerBelongsToSession(manager, session) ? manager : session.managers.dataViews || null;
+            session.state.drawPending = true;
+            session.updatedAt = Date.now();
+          }
+          if(!isSurfaceSessionActiveOrActivating(session)){
+            return;
+          }
           updateAxisOptions();
           markSurfaceOverlayPending('data-view-switch');
-          state.scheduleDraw?.({
+          scheduleSurfaceDrawForSession(session, {
             reason: 'data-view-switch',
             userInitiated: String(meta?.reason || '').trim().toLowerCase() === 'tab-click'
           });
         },
         onInteraction(){
-          activateSurfaceDataToolbar('data-tab-interaction');
+          if(isSurfaceSessionActiveOrActivating(getSurfaceSessionForHot(hotInstance, { reason: 'surface-dataview-interaction' }, { create: false }))){
+            activateSurfaceDataToolbar('data-tab-interaction');
+          }
         }
       });
+      const ownerTabId = ownerSession?.tabId || getSurfaceHotOwnerTabId(hotInstance) || surface.__boundTabId || null;
+      hotInstance.__surfaceDataViewsManager.__surfaceTabId = ownerTabId;
+      hotInstance.__surfaceDataViewsManager.__workspaceTabId = ownerTabId;
+      hotInstance.__surfaceDataViewsManager.__ownerTabId = ownerTabId;
       hotInstance.__surfaceDataViewsManager.__surfaceRuntimeKey = SURFACE_RUNTIME_KEY;
       debugLog('Debug: surface data views manager created', {
         tabId: hotInstance.__surfaceTabId || null
@@ -765,7 +1536,16 @@
       });
       manager.refresh?.();
     }
-    surfaceDataViewsManager = manager;
+    const currentOwnerSession = getSurfaceSessionForHot(hotInstance, { reason: 'surface-dataviews-owner-refresh' }, { create: true })
+      || ownerSession;
+    if(currentOwnerSession){
+      currentOwnerSession.managers.hot = hotInstance;
+      currentOwnerSession.managers.dataViews = surfaceDataViewsManagerBelongsToSession(manager, currentOwnerSession) ? manager : currentOwnerSession.managers.dataViews || null;
+      currentOwnerSession.updatedAt = Date.now();
+    }
+    if(isSurfaceSessionActiveOrActivating(currentOwnerSession)){
+      syncSurfaceSessionManagersFromActive(currentOwnerSession);
+    }
     return manager;
   }
 
@@ -774,7 +1554,19 @@
     if(!hot || typeof hot.getData !== 'function'){
       return;
     }
-    const manager = hot.__surfaceDataViewsManager || surfaceDataViewsManager;
+    const ownerSession = getSurfaceSessionForHot(hot, { reason: 'surface-active-dataview-sync' }, { create: false, fallbackActive: false });
+    if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+      debugLog('Debug: surface active DataView sync skipped for inactive HOT owner', {
+        ownerTabId: ownerSession.tabId || null,
+        activeTabId: surface.__boundTabId || null,
+        reason: reason || null
+      });
+      return;
+    }
+    const manager = hot.__surfaceDataViewsManager || null;
+    if(ownerSession && !surfaceDataViewsManagerBelongsToSession(manager, ownerSession)){
+      return;
+    }
     if(!manager){
       return;
     }
@@ -784,6 +1576,7 @@
     if(reason === 'afterLoadData'){
       manager.refresh?.();
     }
+    syncSurfaceSessionManagersFromActive();
   }
 
   function applySurfaceTransformToNewView(transformSpec, options = {}){
@@ -1037,20 +1830,29 @@
     }
     const opts = options && typeof options === 'object' ? options : {};
     const fallbackThickness = Number.isFinite(Number(opts.fallbackThickness)) ? Number(opts.fallbackThickness) : getAxisStrokeWidthBase();
+    const owner = getSurfaceCallbackOwner({ target, reason: 'surface-grid-control-register' });
+    const runOwnerChange = (reason, callback) => runSurfaceOwnedCallback(owner, resolvedOwner => {
+      const result = callback(resolvedOwner);
+      captureSurfaceSessionStateFromActive(resolvedOwner.session || getActiveSurfaceSessionForState(), { reason });
+      scheduleSurfaceDrawForSession(resolvedOwner.session || getActiveSurfaceSessionForState(), { reason });
+      return result;
+    }, { reason });
     gridControls.registerGraphElement(target, {
       scopeId: 'surface',
       getVisible: () => !!state.settings.showGrid,
       onVisibleChange: value => {
-        state.settings.showGrid = !!value;
-        if(state.controls.showGrid){
-          state.controls.showGrid.checked = !!value;
-        }
-        state.scheduleDraw?.();
+        runOwnerChange('surface-grid-visible-control', () => {
+          state.settings.showGrid = !!value;
+          if(state.controls.showGrid){
+            state.controls.showGrid.checked = !!value;
+          }
+        });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
-        setGridStyle(style, fallbackThickness);
-        state.scheduleDraw?.();
+        runOwnerChange('surface-grid-style-control', () => {
+          setGridStyle(style, fallbackThickness);
+        });
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -1062,11 +1864,11 @@
     try{ state._listeners.push({ node, type, handler, options }); }catch(e){ /* ignore */ }
   }
 
-  function bindSurfaceControlHandler(node, eventName, key, handler){
+  function bindSurfaceControlHandler(node, eventName, key, handler, options){
     if(!node || typeof node.addEventListener !== 'function'){
       return;
     }
-    const registryKey = `${eventName}:${key}`;
+    const registryKey = `${eventName}:${key || 'control'}`;
     if(!node.__surfaceControlHandlers){
       Object.defineProperty(node, '__surfaceControlHandlers', {
         value: Object.create(null),
@@ -1075,14 +1877,18 @@
     }
     const previous = node.__surfaceControlHandlers[registryKey];
     if(previous){
-      node.removeEventListener(eventName, previous);
+      node.removeEventListener(eventName, previous, options);
       if(Array.isArray(state._listeners)){
         state._listeners = state._listeners.filter(rec => !(rec && rec.node === node && rec.type === eventName && rec.handler === previous));
       }
     }
-    node.__surfaceControlHandlers[registryKey] = handler;
-    attachListener(node, eventName, handler);
+    const wrapped = event => runSurfaceEventOwnerCallback(event, key || registryKey, owner => handler(event, owner));
+    node.__surfaceControlHandlers[registryKey] = wrapped;
+    attachListener(node, eventName, wrapped, options);
   }
+  const SURFACE_OVERLAY_TIMEOUT_MS = 30000;
+  let _surfaceOverlayTimeout = null;
+
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
@@ -1102,18 +1908,29 @@
     )
   });
 
-  function markSurfaceOverlayPending(reason){
+  function markSurfaceOverlayPending(reason, options = {}){
+    const session = resolveSurfaceOverlaySession(options);
     surfaceOverlayController?.markPending(reason);
     debugLog('Debug: surface overlay pending flagged', { reason: reason || 'data-change' });
     try{
-      if(_surfaceOverlayTimeout){ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); }
-      _surfaceOverlayTimeout = Shared.componentLifecycle?.scheduleComponentTimeout?.(surface, 'surface', {
-        tabId: surface.__boundTabId || null,
+      clearSurfaceOverlayTimeoutForSession(session);
+      const timeoutTabId = session?.tabId || surface.__boundTabId || null;
+      const timeoutHandle = Shared.componentLifecycle?.scheduleComponentTimeout?.(surface, 'surface', {
+        tabId: timeoutTabId,
         reason: reason || 'surface-overlay-timeout'
       }, () => {
-        try{ resolveSurfaceOverlay('timeout'); }catch(e){}
-        debugLog('Debug: surface overlay auto-resolved due to timeout', { reason });
+        try{
+          const timedOutSession = timeoutTabId
+            ? getSurfaceSession(timeoutTabId, { tabId: timeoutTabId, reason: 'surface-overlay-timeout' }, { create: false })
+            : session;
+          setSurfaceOverlayTimeoutForSession(timedOutSession, null);
+          if(!timedOutSession || isSurfaceSessionActiveOrActivating(timedOutSession)){
+            surfaceOverlayController?.resolve('timeout');
+          }
+        }catch(e){}
+        debugLog('Debug: surface overlay auto-resolved due to timeout', { reason, tabId: timeoutTabId });
       }, SURFACE_OVERLAY_TIMEOUT_MS);
+      setSurfaceOverlayTimeoutForSession(session, timeoutHandle || null);
     }catch(e){ /* ignore */ }
   }
 
@@ -1121,9 +1938,12 @@
     return surfaceOverlayController?.queue(reason, options) || false;
   }
 
-  function resolveSurfaceOverlay(reason){
-    surfaceOverlayController?.resolve(reason);
-    try{ if(_surfaceOverlayTimeout){ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); _surfaceOverlayTimeout = null; } }catch(e){}
+  function resolveSurfaceOverlay(reason, options = {}){
+    const session = resolveSurfaceOverlaySession(options);
+    if(!session || isSurfaceSessionActiveOrActivating(session)){
+      surfaceOverlayController?.resolve(reason);
+    }
+    try{ clearSurfaceOverlayTimeoutForSession(session); }catch(e){}
   }
 
   function forceSurfaceOverlay(reason, options = {}){
@@ -1382,32 +2202,37 @@
     return chartStyle.formatScientific(value, { maxDecimals: 2 });
   }
 
-  function cacheDom(){
-    state.svg = getSurfaceNodeById('surfaceSvg') || state.svg;
-    state.svgBox = state.layout?.elements?.svgBox || querySurfaceRoot('#surfaceGraphPanel .svgbox') || state.svgBox;
-    state.statsEl = getSurfaceNodeById('surfaceStatsSummary') || state.statsEl;
-    state.messageEl = getSurfaceNodeById('surfaceMessage') || state.messageEl;
-    state.exportContainer = getSurfaceNodeById('surfaceExportControls') || state.exportContainer;
-    state.renderRow = getSurfaceNodeById('surfaceRenderRow') || state.renderRow;
-    state.renderButton = getSurfaceNodeById('surfaceRenderButton') || state.renderButton;
-    state.autoDrawNotice = getSurfaceNodeById('surfaceAutoDrawNotice') || state.autoDrawNotice;
-    state.axisSelects.x = getSurfaceNodeById('surfaceXAxis') || state.axisSelects.x;
-    state.axisSelects.y = getSurfaceNodeById('surfaceYAxis') || state.axisSelects.y;
-    state.axisSelects.z = getSurfaceNodeById('surfaceZAxis') || state.axisSelects.z;
-    state.controls.interpolation = getSurfaceNodeById('surfaceInterpolation') || state.controls.interpolation;
-    state.controls.fontSize = getSurfaceNodeById('surfaceFontSize') || state.controls.fontSize;
-    state.controls.fontSizeVal = getSurfaceNodeById('surfaceFontSizeVal') || state.controls.fontSizeVal;
-    state.controls.axisStroke = getSurfaceNodeById('surfaceAxisStroke') || state.controls.axisStroke;
-    state.controls.axisStrokeVal = getSurfaceNodeById('surfaceAxisStrokeVal') || state.controls.axisStrokeVal;
-    state.controls.axisColor = getSurfaceNodeById('surfaceAxisColor') || state.controls.axisColor;
-    state.controls.showGrid = getSurfaceNodeById('surfaceShowGrid') || state.controls.showGrid;
-    state.controls.showFrame = getSurfaceNodeById('surfaceShowFrame') || state.controls.showFrame;
-    state.controls.showPoints = getSurfaceNodeById('surfaceShowPoints') || state.controls.showPoints;
-    state.controls.loadExample = getSurfaceNodeById('surfaceLoadExample') || state.controls.loadExample;
-    state.controls.importBtn = getSurfaceNodeById('surfaceImport') || state.controls.importBtn;
-    state.controls.importFile = getSurfaceNodeById('surfaceFile') || state.controls.importFile;
-    state.controls.graphFileInput = getSurfaceNodeById('surfaceGraphFile') || state.controls.graphFileInput;
+  function cacheDom(session = null){
+    const owner = ensureSurfaceSessionOwnershipShape(session || activeSurfaceSession || getActiveSurfaceSessionForState());
+    const tabId = owner?.tabId || surface.__boundTabId || null;
+    state.svg = getSurfaceNodeById('surfaceSvg', tabId) || owner?.refs?.svg || state.svg;
+    state.svgBox = querySurfaceRoot('#surfaceGraphPanel .svgbox', tabId) || owner?.refs?.svgBox || state.layout?.elements?.svgBox || state.svgBox;
+    state.statsEl = getSurfaceNodeById('surfaceStatsSummary', tabId) || owner?.refs?.statsEl || state.statsEl;
+    state.messageEl = getSurfaceNodeById('surfaceMessage', tabId) || owner?.refs?.messageEl || state.messageEl;
+    state.exportContainer = getSurfaceNodeById('surfaceExportControls', tabId) || owner?.refs?.exportContainer || state.exportContainer;
+    state.renderRow = getSurfaceNodeById('surfaceRenderRow', tabId) || owner?.refs?.renderRow || state.renderRow;
+    state.renderButton = getSurfaceNodeById('surfaceRenderButton', tabId) || owner?.refs?.renderButton || state.renderButton;
+    state.autoDrawNotice = getSurfaceNodeById('surfaceAutoDrawNotice', tabId) || owner?.refs?.autoDrawNotice || state.autoDrawNotice;
+    state.axisSelects.x = getSurfaceNodeById('surfaceXAxis', tabId) || owner?.refs?.xAxis || state.axisSelects.x;
+    state.axisSelects.y = getSurfaceNodeById('surfaceYAxis', tabId) || owner?.refs?.yAxis || state.axisSelects.y;
+    state.axisSelects.z = getSurfaceNodeById('surfaceZAxis', tabId) || owner?.refs?.zAxis || state.axisSelects.z;
+    state.controls.interpolation = getSurfaceNodeById('surfaceInterpolation', tabId) || owner?.refs?.interpolation || state.controls.interpolation;
+    state.controls.fontSize = getSurfaceNodeById('surfaceFontSize', tabId) || owner?.refs?.fontSize || state.controls.fontSize;
+    state.controls.fontSizeVal = getSurfaceNodeById('surfaceFontSizeVal', tabId) || owner?.refs?.fontSizeVal || state.controls.fontSizeVal;
+    state.controls.axisStroke = getSurfaceNodeById('surfaceAxisStroke', tabId) || owner?.refs?.axisStroke || state.controls.axisStroke;
+    state.controls.axisStrokeVal = getSurfaceNodeById('surfaceAxisStrokeVal', tabId) || owner?.refs?.axisStrokeVal || state.controls.axisStrokeVal;
+    state.controls.axisColor = getSurfaceNodeById('surfaceAxisColor', tabId) || owner?.refs?.axisColor || state.controls.axisColor;
+    state.controls.showGrid = getSurfaceNodeById('surfaceShowGrid', tabId) || owner?.refs?.showGrid || state.controls.showGrid;
+    state.controls.showFrame = getSurfaceNodeById('surfaceShowFrame', tabId) || owner?.refs?.showFrame || state.controls.showFrame;
+    state.controls.showPoints = getSurfaceNodeById('surfaceShowPoints', tabId) || owner?.refs?.showPoints || state.controls.showPoints;
+    state.controls.loadExample = getSurfaceNodeById('surfaceLoadExample', tabId) || owner?.refs?.loadExample || state.controls.loadExample;
+    state.controls.importBtn = getSurfaceNodeById('surfaceImport', tabId) || owner?.refs?.importButton || state.controls.importBtn;
+    state.controls.importFile = getSurfaceNodeById('surfaceFile', tabId) || owner?.refs?.fileInput || state.controls.importFile;
+    state.controls.graphFileInput = getSurfaceNodeById('surfaceGraphFile', tabId) || owner?.refs?.graphFileInput || state.controls.graphFileInput;
     syncSurfaceAspectControls('cache-dom');
+    if(owner){
+      syncSurfaceSessionRefsFromActive(owner);
+    }
   }
 
   function updateAxisOptions(){
@@ -1544,16 +2369,28 @@
       maxCols: 6,
       afterChange: (changes, source) => {
         if(source === 'loadData'){ return; }
+        const ownerSession = getSurfaceSessionForHot(state.hot, { reason: 'surface-table-change' }, { create: false });
+        if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+          ownerSession.state.drawPending = true;
+          ownerSession.updatedAt = Date.now();
+          return;
+        }
         updateAxisOptions();
         if(Array.isArray(changes) && changes.length){
           syncSurfaceActiveDataViewFromHot(state.hot, 'afterChange');
         }
-        state.scheduleDraw();
+        scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-table-change' });
       },
       afterLoadData: () => {
+        const ownerSession = getSurfaceSessionForHot(state.hot, { reason: 'surface-table-load' }, { create: false });
+        if(ownerSession && !isSurfaceSessionActiveOrActivating(ownerSession)){
+          ownerSession.state.drawPending = true;
+          ownerSession.updatedAt = Date.now();
+          return;
+        }
         updateAxisOptions();
         syncSurfaceActiveDataViewFromHot(state.hot, 'afterLoadData');
-        state.scheduleDraw();
+        scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-table-load' });
       },
       afterSelectionEnd: () => {
         activateSurfaceDataToolbar('table-selection');
@@ -1563,7 +2400,13 @@
       if(typeof hotNS.createStandardTable !== 'function'){
         return null;
       }
-      const instance = hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), overrides);
+      let instance = null;
+      instance = hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, meta => {
+        scheduleSurfaceDrawForHot(instance, {
+          ...(meta && typeof meta === 'object' ? meta : {}),
+          reason: meta?.reason || meta?.source || 'surface-table-schedule'
+        });
+      }, overrides);
       if(instance){
         instance.__surfaceHostContainer = container || null;
       }
@@ -1626,6 +2469,7 @@
       state.hot.addHook('afterColumnMove', updateAxisOptions);
       state._hotHooks.push({ name: 'afterColumnMove', fn: updateAxisOptions });
     }
+    syncSurfaceSessionManagersFromActive();
     debugLog('Debug: surface grid initialized', { hasHot: !!state.hot });
     return state.hot;
   }
@@ -1833,7 +2677,7 @@
     });
     if(info && Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function'){
       Shared.statsReporting.appendReportPanel(container, {
-        methodsText: 'Surface summary statistics were generated from the parsed X/Y/Z grid or point cloud.',
+        methodsText: `Surface summary statistics were generated from parsed numeric X/Y/Z data after excluding rows with missing or non-numeric coordinates. ${info.gridExpected ? `Input points were interpreted as a ${info.gridColumns || 0} × ${info.gridRows || 0} grid${info.gridComplete ? '' : ' with incomplete grid coverage'}.` : 'Input points were treated as an unstructured point cloud.'} Reported ranges and mesh counts describe the rendered surface geometry, not the raw table before filtering.`,
         resultsText: [
           Number.isFinite(info.vertexCount) ? `Vertices = ${info.vertexCount}.` : null,
           Number.isFinite(info.faceCount) ? `Faces = ${info.faceCount}.` : null,
@@ -1852,7 +2696,67 @@
         }
       }, { title: 'Reporting and reproducibility' });
     }
+    captureSurfaceStatsPanelModel();
+    const session = getActiveSurfaceSessionForState();
+    if(session){
+      session.state.lastStats = cloneSimple(state.lastStats) || null;
+      session.results.lastStats = cloneSimple(state.lastStats) || null;
+      session.results.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
+      session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
+      session.updatedAt = Date.now();
+    }
   }
+
+  function normalizeSurfaceStatsPanelModel(source = {}){
+    const src = source && typeof source === 'object' ? source : {};
+    return Shared.statsReporting && typeof Shared.statsReporting.normalizeSavedPanelModel === 'function'
+      ? Shared.statsReporting.normalizeSavedPanelModel(src)
+      : {
+        resultsModel: cloneSimple(src.resultsModel) || null,
+        reportModel: cloneSimple(src.reportModel) || null
+      };
+  }
+
+  function captureSurfaceStatsPanelModel(fallback = null){
+    const previous = normalizeSurfaceStatsPanelModel(fallback || state.statsPanelModel || {});
+    if(!state.statsEl || !Shared.statsReporting || typeof Shared.statsReporting.capturePanelModel !== 'function'){
+      state.statsPanelModel = previous;
+      return state.statsPanelModel;
+    }
+    state.statsPanelModel = normalizeSurfaceStatsPanelModel(Shared.statsReporting.capturePanelModel(state.statsEl) || previous);
+    const session = getActiveSurfaceSessionForState();
+    if(session){
+      session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
+      session.results.statsPanelModel = normalizeSurfaceStatsPanelModel(state.statsPanelModel || {});
+      session.updatedAt = Date.now();
+    }
+    return state.statsPanelModel;
+  }
+
+  function surfaceStatsPanelModelHasContent(model){
+    const normalized = normalizeSurfaceStatsPanelModel(model);
+    return !!(normalized.resultsModel || normalized.reportModel);
+  }
+
+  function restoreSurfaceStatsPanelModel(model){
+    const normalized = normalizeSurfaceStatsPanelModel(model);
+    if(!state.statsEl || !surfaceStatsPanelModelHasContent(normalized)){
+      return false;
+    }
+    if(Shared.statsReporting && typeof Shared.statsReporting.restorePanelModel === 'function'){
+      Shared.statsReporting.restorePanelModel(state.statsEl, normalized, { clearMainWhenMissing: false });
+      state.statsPanelModel = normalized;
+      const session = getActiveSurfaceSessionForState();
+      if(session){
+        session.state.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+        session.results.statsPanelModel = normalizeSurfaceStatsPanelModel(normalized);
+        session.updatedAt = Date.now();
+      }
+      return true;
+    }
+    return false;
+  }
+
   function ensureAxisRange(range){
     if(!range){ return { min: -1, max: 1 }; }
     let min = Number(range.min);
@@ -2084,13 +2988,12 @@
             const relY = metrics.availableHeight > 0
               ? (pos.y - metrics.marginTop) / metrics.availableHeight
               : 0;
-            state.labelPositions.legend = {
+            patchSurfaceLabelPosition(getActiveSurfaceSessionForState(), 'legend', {
               x: pos.x,
               y: pos.y,
               relX,
               relY
-            };
-            state.legendPosition = state.labelPositions.legend;
+            }, { reason: 'surface-legend-position' });
             debugLog('Debug: surface legend position saved', { absolute: pos, relative: { relX, relY } });
           },
           undoLabel: 'surface-legend-position'
@@ -2167,59 +3070,59 @@
     applySettingsToControls();
     const interpolationSelect = state.controls.interpolation;
     if(interpolationSelect){
-      attachListener(interpolationSelect, 'change', () => {
+      bindSurfaceControlHandler(interpolationSelect, 'change', 'interpolation', () => {
         const value = interpolationSelect.value;
         state.settings.interpolation = INTERPOLATION_OPTIONS[value] ? value : 'grid';
         debugLog('Debug: surface interpolation updated', { value: state.settings.interpolation });
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: 'surface-interpolation-change' });
       });
     }
     if(state.controls.fontSize){
-      attachListener(state.controls.fontSize, 'input', () => {
+      bindSurfaceControlHandler(state.controls.fontSize, 'input', 'font-size', () => {
         state.settings.fontSize = Number(state.controls.fontSize.value) || 12;
         if(chartStyle.renderFontSizeLabel){
           chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: state.settings.fontSize, input: state.controls.fontSize, manual: true });
         }
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: 'surface-font-size-change' });
       });
     }
     if(state.controls.axisStroke){
-      attachListener(state.controls.axisStroke, 'input', () => {
+      bindSurfaceControlHandler(state.controls.axisStroke, 'input', 'axis-stroke', () => {
         state.settings.axisStroke = Number(state.controls.axisStroke.value) || DEFAULT_SURFACE_SETTINGS.axisStroke;
         if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: 'surface-axis-stroke-change' });
       });
     }
     if(state.controls.axisColor){
       if(typeof Shared.attachColorPickerNear === 'function'){
         Shared.attachColorPickerNear(state.controls.axisColor);
       }
-      attachListener(state.controls.axisColor, 'input', () => {
+      bindSurfaceControlHandler(state.controls.axisColor, 'input', 'axis-color', () => {
         state.settings.axisColor = state.controls.axisColor.value || '#3b3b3b';
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: 'surface-axis-color-change' });
       });
     }
     ['showGrid', 'showFrame', 'showPoints'].forEach(key => {
       const control = state.controls[key];
       if(!control){ return; }
-      attachListener(control, 'change', () => {
+      bindSurfaceControlHandler(control, 'change', `setting-${key}`, () => {
         state.settings[key] = !!control.checked;
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: `surface-${key}-change` });
       });
     });
     ['x', 'y', 'z'].forEach(axis => {
       const select = state.axisSelects[axis];
       if(!select){ return; }
-      attachListener(select, 'change', () => {
+      bindSurfaceControlHandler(select, 'change', `axis-${axis}`, () => {
         const next = Number(select.value);
         if(Number.isFinite(next)){
           state.axisMap[axis] = next;
         }
-        state.scheduleDraw();
+        scheduleActiveSurfaceDraw({ reason: `surface-${axis}-axis-change` });
       });
     });
     if(state.controls.loadExample){
-      attachListener(state.controls.loadExample, 'click', () => {
+      bindSurfaceControlHandler(state.controls.loadExample, 'click', 'load-example', () => {
         const example = buildExampleDataset();
         if(state.hot && typeof state.hot.loadData === 'function'){
           markSurfaceOverlayPending('example-data');
@@ -2230,7 +3133,7 @@
           });
           debugLog('Debug: surface example dataset loaded', { rows: example.length });
           updateAxisOptions();
-          state.scheduleDraw();
+          scheduleSurfaceDrawForHot(state.hot, { reason: 'surface-example-load' });
         }
       });
     }
@@ -2244,19 +3147,27 @@
           console.warn('surface import skipped: tableImport unavailable');
           return;
         }
+        const importHot = state.hot || null;
+        const importSession = getSurfaceSessionForHot(importHot, { reason: 'surface-import-file' }, { create: false })
+          || getActiveSurfaceSessionForState();
         const hasFile = !!(state.controls.importFile?.files && state.controls.importFile.files[0]);
         let forcedOverlay = false;
-        if(hasFile){
+        if(hasFile && isSurfaceSessionActiveOrActivating(importSession)){
           forcedOverlay = !!forceSurfaceOverlay('file-import', { message: 'Importing table data...' });
           markSurfaceOverlayPending('file-import');
         }
         tableImport.openFile(state.controls.importFile, {
-          hot: state.hot,
+          hot: importHot,
           minCols: 3,
           minRows: 5,
           scheduleDraw: () => {
+            if(importSession && !isSurfaceSessionActiveOrActivating(importSession)){
+              importSession.state.drawPending = true;
+              importSession.updatedAt = Date.now();
+              return;
+            }
             markSurfaceOverlayPending('file-import');
-            state.scheduleDraw?.({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+            scheduleSurfaceDrawForSession(importSession || getActiveSurfaceSessionForState(), { force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'surface',
           onProcessed: info => {
@@ -2264,16 +3175,21 @@
             updateAxisOptions();
           },
           onCompleted: () => {
+            if(importSession && !isSurfaceSessionActiveOrActivating(importSession)){
+              importSession.state.drawPending = true;
+              importSession.updatedAt = Date.now();
+              return;
+            }
             const renderReason = 'import-load';
             markSurfaceOverlayPending(renderReason);
             forceSurfaceOverlay(renderReason, { message: 'Rendering surface plot...' });
           }
         }).then(result => {
-          if(!result && forcedOverlay){
+          if(!result && forcedOverlay && isSurfaceSessionActiveOrActivating(importSession)){
             resolveSurfaceOverlay('file-import-empty');
           }
         }).catch(err => {
-          if(forcedOverlay){
+          if(forcedOverlay && isSurfaceSessionActiveOrActivating(importSession)){
             resolveSurfaceOverlay('file-import-error');
           }
           console.error('surface import failed', err);
@@ -2295,14 +3211,27 @@
     const openBtn = getSurfaceNodeById('openSurfaceGraph');
     if(openBtn){ attachListener(openBtn, 'click', () => surface.open()); }
   }
-  function draw(){
-    drawSurface();
+  function getSurfaceSessionForDrawOptions(options = {}, meta = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || surface.__boundTabId || null;
+    return tabId
+      ? getSurfaceSession(tabId, {
+          ...(meta || {}),
+          tabId,
+          reason: meta?.reason || source.reason || 'surface-draw-session'
+        }, { create: meta?.create !== false })
+      : getActiveSurfaceSessionForState();
   }
 
-  function runSurfaceDrawCycle(){
+  function draw(options = {}, session = null){
+    return drawSurface(session || getSurfaceSessionForDrawOptions(options), options);
+  }
+
+  function runSurfaceDrawCycle(options = {}){
+    const drawSession = getSurfaceSessionForDrawOptions(options, { reason: options?.reason || 'surface-draw-cycle-session' });
     let status = 'complete';
     try{
-      draw();
+      draw(options, drawSession);
     }catch(err){
       status = 'error';
       throw err;
@@ -2311,13 +3240,24 @@
     }
   }
 
-  function drawSurface(){
-    cacheDom();
+  function drawSurface(session = null, options = {}){
+    const drawSession = ensureSurfaceSessionOwnershipShape(session || getSurfaceSessionForDrawOptions(options));
+    if(drawSession && !isSurfaceSessionActiveOrActivating(drawSession)){
+      drawSession.state.drawPending = true;
+      drawSession.updatedAt = Date.now();
+      debugLog('Debug: surface draw skipped for inactive session', {
+        tabId: drawSession.tabId || null,
+        reason: options?.reason || null
+      });
+      return false;
+    }
+    bindSurfaceSessionForTab(drawSession?.tabId || surface.__boundTabId || null, { reason: 'surface-draw-bind', root: state.root || null }, { apply: false });
+    cacheDom(drawSession);
     const svg = state.svg;
     const svgBox = state.svgBox;
     if(!svg || !svgBox){
       debugLog('Debug: surface draw skipped', { reason: 'missing-svg' });
-      return;
+      return false;
     }
     const parsed = parseSurfaceTable();
     if(!parsed.points.length){
@@ -2325,7 +3265,8 @@
       renderSurfaceEmptyPlotNotice();
       updateStats(parsed.stats);
       removeLegend(svg);
-      return;
+      captureSurfaceSessionStateFromActive(activeSurfaceSession, { reason: 'surface-draw-empty' });
+      return false;
     }
     updateAxisLabelsFromHeaders();
     displayMessage('');
@@ -2599,7 +3540,7 @@
                 }
               }
             }
-            state.scheduleDraw?.();
+            scheduleActiveSurfaceDraw({ reason: `surface-${axisKey || 'axis'}-label-edit` });
             if(el.textContent !== resolved){
               el.textContent = resolved;
             }
@@ -2745,11 +3686,13 @@
     const applySurfaceTitle = value => {
       const trimmed = value != null ? String(value).trim() : '';
       const resolved = trimmed || 'Surface Plot';
-      state.labels.title = resolved;
+      patchSurfaceVisualState(drawSession, {
+        labels: { ...state.labels, title: resolved }
+      }, { reason: 'surface-title-edit' });
       if(title && title.textContent !== resolved){
         title.textContent = resolved;
       }
-      state.scheduleDraw?.();
+      scheduleSurfaceDrawForSession(drawSession, { reason: 'surface-title-edit' });
       return resolved;
     };
     if(!title){
@@ -2789,12 +3732,12 @@
             // Store both absolute and relative positions
             const relX = (pos.x - margin.left) / plotWidth;
             const relY = (pos.y - margin.top) / plotHeight;
-            state.labelPositions.title = { 
+            patchSurfaceLabelPosition(drawSession, 'title', { 
               x: pos.x, 
               y: pos.y,
               relX: relX, 
               relY: relY 
-            };
+            }, { reason: 'surface-title-position' });
             debugLog('Debug: surface title position saved', { absolute: pos, relative: { relX, relY } });
           }
         });
@@ -2900,11 +3843,13 @@
     updateStats(parsed.stats);
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncSurfaceAutoDrawNoticeWidth('draw');
+    captureSurfaceSessionStateFromActive(activeSurfaceSession, { reason: 'surface-draw-complete' });
     debugLog('Debug: surface draw complete', {
       mode: effectiveMode,
       points: parsed.points.length,
       faces: parsed.faces.length
     });
+    return true;
   }
 
   surface.draw = function drawSurfacePublic(options = {}){
@@ -2915,16 +3860,18 @@
       return;
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'surface', tabId: options?.tabId || surface.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'surface.draw' } });
-    runSurfaceDrawCycle(options);
+    const drawSession = getSurfaceSessionForDrawOptions(options, { reason: nextReason });
+    if(drawSession && !isSurfaceSessionActiveOrActivating(drawSession)){
+      drawSession.state.drawPending = true;
+      drawSession.updatedAt = Date.now();
+      return;
+    }
+    runSurfaceDrawCycle({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
   };
   surface.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || surface.__boundTabId || null;
     try{ surface.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'surface-draw-cancel'); }catch(_err){}
-    if(_surfaceOverlayTimeout){
-      try{ Shared.componentLifecycle?.clearComponentTimeout?.(surface, _surfaceOverlayTimeout); }catch(_err){}
-      _surfaceOverlayTimeout = null;
-    }
-    resolveSurfaceOverlay(meta?.reason || 'cancelled');
+    resolveSurfaceOverlay(meta?.reason || 'cancelled', { tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'surface',
       tabId,
@@ -2948,7 +3895,7 @@
       console.warn('surface notes helper unavailable', { hasSharedNotes: !!helper });
       return;
     }
-    if(notesState.control?.root && notesState.control.root.isConnected){
+    if(canUseSurfaceNotesControl(notesState.control)){
       notesState.control.setValue(notesState.text || '');
       notesState.control.setOpen(!!notesState.open);
       return;
@@ -2965,9 +3912,21 @@
       open: !!notesState.open,
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
+        const session = getActiveSurfaceSessionForState();
+        if(session){
+          session.notes.text = notesState.text;
+          session.state.notes = createDefaultSurfaceNotesState(notesState);
+          session.updatedAt = Date.now();
+        }
       },
       onToggle: open => {
         notesState.open = !!open;
+        const session = getActiveSurfaceSessionForState();
+        if(session){
+          session.notes.open = notesState.open;
+          session.state.notes = createDefaultSurfaceNotesState(notesState);
+          session.updatedAt = Date.now();
+        }
       }
     });
   }
@@ -2976,6 +3935,9 @@
     const targetTabId = options?.tabId || surface.__boundTabId || null;
     const targetRoot = options?.root || resolveSurfaceRoot(targetTabId || null) || null;
     if(surface.ready && (!targetTabId || surface.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
+      bindSurfaceSessionForTab(targetTabId || null, { root: targetRoot || state.root || null, reason: options?.reason || 'surface-init-same-tab' }, { apply: false });
+      syncSurfaceSessionRefsFromActive();
+      syncSurfaceSessionManagersFromActive();
       debugLog('Debug: surface.init skipped', { reason: 'ready', tabId: surface.__boundTabId || null });
       return;
     }
@@ -2985,6 +3947,7 @@
     }
     surface.__boundTabId = targetTabId || null;
     state.root = targetRoot || resolveSurfaceRoot(targetTabId || null);
+    bindSurfaceSessionForTab(targetTabId || null, { root: state.root || null, reason: options?.reason || 'surface-init' }, { apply: true, syncUi: false });
     cacheDom();
     state.scheduleDraw = () => {};
     if(state.renderButton){
@@ -2993,7 +3956,7 @@
         const overlayReason = 'manual-render';
         markSurfaceOverlayPending(overlayReason);
         forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
-        state.scheduleDraw?.({ force: true, reason: overlayReason });
+        scheduleActiveSurfaceDraw({ force: true, reason: overlayReason });
       });
     }
     state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
@@ -3011,7 +3974,7 @@
         svgBox: () => querySurfaceRoot('#surfaceGraphPanel .svgbox'),
         resizeTarget: () => querySurfaceRoot('#surfaceGraphPanel .svgbox')
       },
-        scheduleDraw: state.scheduleDraw,
+        scheduleDraw: options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}),
         preserveGraphContent: false,
         panelSyncOptions: {
           disableAutoWidthClamp: true,
@@ -3036,7 +3999,7 @@
       })
       : null;
     if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
-      state.layout.setScheduleDraw(state.scheduleDraw);
+      state.layout.setScheduleDraw(options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}));
     }
     if(state.layout && state.layout.elements && state.layout.elements.svgBox){
       state.svgBox = state.layout.elements.svgBox;
@@ -3050,6 +4013,7 @@
     initHot();
     initControls();
     initNotes();
+    applySurfaceSessionStateToActive(activeSurfaceSession, { syncUi: true, restoreEmptyPayload: false });
     if(!surfaceAutoDrawManager && Shared.hot?.createAutoDrawManager){
       surfaceAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'surface',
@@ -3072,8 +4036,13 @@
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(surface, 'surface', runSurfaceDrawCycle, { reason: 'surface-draw-frame' })
       : runSurfaceDrawCycle;
     const scheduleSurfaceDrawInstrumented = (opts) => {
-      const nextOpts = opts || {};
+      const nextOpts = { ...(opts || {}) };
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      const ownerSession = getSurfaceSessionForDrawOptions(nextOpts, { reason: overlayReason, create: false });
+      if(ownerSession?.timers){
+        ownerSession.timers.pendingDrawOptions = cloneSimple(nextOpts) || null;
+        ownerSession.updatedAt = Date.now();
+      }
       const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
       if(nextOpts.force && !suppressOverlay){
         markSurfaceOverlayPending(overlayReason);
@@ -3119,7 +4088,7 @@
       state.scheduleDraw = scheduleDrawSurfaceRaw;
     }
     if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
-      state.layout.setScheduleDraw(state.scheduleDraw);
+      state.layout.setScheduleDraw(options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}));
     }
     ensureSurfaceFontEventListener();
     if(state.layout && typeof state.layout.syncPanels === 'function'){
@@ -3128,9 +4097,11 @@
     syncSurfaceAutoDrawNoticeWidth('panel-resync');
     updateAxisOptions();
     ensureEmptyPayloadTemplate();
+    syncSurfaceSessionRefsFromActive();
+    syncSurfaceSessionManagersFromActive();
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
     surface.ready = true;
-    state.scheduleDraw();
+    scheduleActiveSurfaceDraw({ reason: options?.reason || 'surface-init-complete' });
   };
 
   surface.ensure = function ensure(options = {}){
@@ -3138,13 +4109,25 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
         tabLike: options.tab || options.tabId || null,
+        meta: options,
         sentinelSelector: '#surfaceHot',
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveSurfaceRoot(info?.tab || null) || state.root || null;
+          const nextTabId = info?.tab?.id || info?.tabId || options.tabId || (options.tab && typeof options.tab === 'object' ? options.tab.id : options.tab) || null;
+          state.root = info?.root || resolveSurfaceRoot(info?.tab || nextTabId || null) || state.root || null;
+          if(options?.liveDomFastPath === true || options?.liveDomReuse === true || options?.passiveControls === true){
+            surface.__boundTabId = nextTabId || surface.__boundTabId || null;
+            bindSurfaceSessionForTab(info?.tab || nextTabId || null, { ...(options || {}), root: state.root || null, reason: options.reason || 'surface-passive-dom-rebind' }, { apply: true, syncUi: false });
+            syncSurfaceSessionRefsFromActive();
+            syncSurfaceSessionManagersFromActive();
+            surface.__domSentinel = info?.mountedSentinel || getSurfaceNodeById('surfaceHot');
+            surface.ready = true;
+            debugLog('Debug: surface passive DOM rebind', { tabId: surface.__boundTabId || null });
+            return;
+          }
           surface.ready = false;
-          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || null, reason: 'workspace-dom-rebind' });
+          surface.init({ root: state.root || undefined, tabId: nextTabId || null, reason: 'workspace-dom-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -3183,7 +4166,8 @@
     }
     return Object.keys(runtime).length === 0;
   }
-  function syncSurfaceActivationState(tabLike = null){
+  function syncSurfaceActivationState(tabLike = null, meta = {}){
+    bindSurfaceSessionForTab(tabLike || surface.__boundTabId || null, { reason: 'surface-activate-sync', root: resolveSurfaceRoot(tabLike || surface.__boundTabId || null) || state.root || null }, { apply: true, syncUi: true });
     if(state.layout && typeof state.layout.syncPanels === 'function'){
       state.layout.syncPanels({ skipSchedule: true });
       syncSurfaceAutoDrawNoticeWidth('activate-tab');
@@ -3203,13 +4187,20 @@
     }
     if(tabLike?.uiState?.component && typeof surface.applyUiState === 'function'){
       try{
-        surface.applyUiState(tabLike.uiState.component, { reason: 'activate-tab-final-ui-state' });
+        surface.applyUiState(tabLike.uiState.component, {
+          ...(meta || {}),
+          tabId: (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || meta?.tabId || surface.__boundTabId || null,
+          componentKey: 'surface',
+          reason: 'activate-tab-final-ui-state'
+        });
       }catch(err){
         debugLog('Debug: surface activateTab final uiState apply failed', { message: err?.message || String(err) });
       }
     }
     cacheDom();
     bindActiveSurface3dRotationControls('surface-activate');
+    syncSurfaceSessionRefsFromActive();
+    syncSurfaceSessionManagersFromActive();
     surface.__domSentinel = getSurfaceNodeById('surfaceHot');
   }
 
@@ -3226,13 +4217,25 @@
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
         tabLike: tabLike || null,
+        meta,
         sentinelSelector: '#surfaceHot',
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveSurfaceRoot(tabLike || null) || state.root || null;
+          const nextTabId = info?.tab?.id || info?.tabId || targetTabId || surface.__boundTabId || null;
+          state.root = info?.root || resolveSurfaceRoot(tabLike || nextTabId || null) || state.root || null;
+          if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
+            surface.__boundTabId = nextTabId || surface.__boundTabId || null;
+            bindSurfaceSessionForTab(tabLike || nextTabId || null, { ...(meta || {}), root: state.root || null, reason: meta?.reason || 'surface-passive-dom-rebind' }, { apply: true, syncUi: false });
+            syncSurfaceSessionRefsFromActive();
+            syncSurfaceSessionManagersFromActive();
+            surface.__domSentinel = info?.mountedSentinel || getSurfaceNodeById('surfaceHot');
+            surface.ready = true;
+            debugLog('Debug: surface passive DOM rebind', { tabId: surface.__boundTabId || null });
+            return;
+          }
           surface.ready = false;
-          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || targetTabId || surface.__boundTabId || null, reason: 'activate-tab-rebind' });
+          surface.init({ root: state.root || undefined, tabId: nextTabId, reason: 'activate-tab-rebind' });
         }
       });
       return !!rebound?.rebound;
@@ -3242,25 +4245,39 @@
       if(!surface.ready){
         return;
       }
+      bindSurfaceSessionForTab(tabLike || meta?.tabId || null, { ...(meta || {}), root: resolveSurfaceRoot(tabLike || meta?.tabId || null) || state.root || null, reason: meta?.reason || 'surface-activate-session-bind' }, { apply: true, syncUi: true });
       applyExistingSurfaceOwnedRuntimeRecord(tabLike || meta?.tabId || null, { ...(meta || {}), reason: meta?.reason || 'surface-activate-apply-owned-runtime' });
-      syncSurfaceActivationState(tabLike || null);
+      syncSurfaceActivationState(tabLike || meta?.tabId || null, meta);
     },
     getSentinel: () => getSurfaceNodeById('surfaceHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
     surface.__boundTabId = targetTabId || surface.__boundTabId || null;
     state.root = resolveSurfaceRoot(tab || targetTabId || null);
+    bindSurfaceSessionForTab(tab || targetTabId || null, { ...(meta || {}), root: state.root || null, reason: meta?.reason || 'surface-activate-tab' }, { apply: true, syncUi: true });
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings === 'function'){
       const rebound = Shared.workspaceTabs.ensureActiveDomBindings({
         componentKey: 'surface',
         tabLike: tab || null,
+        meta,
         sentinelSelector: '#surfaceHot',
         getCurrentRoot: () => state.root || null,
         getCurrentSentinel: () => surface.__domSentinel || null,
         rebind: (info) => {
-          state.root = info?.root || resolveSurfaceRoot(tab || null) || state.root || null;
+          const nextTabId = info?.tab?.id || info?.tabId || targetTabId || surface.__boundTabId || null;
+          state.root = info?.root || resolveSurfaceRoot(tab || nextTabId || null) || state.root || null;
+          if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
+            surface.__boundTabId = nextTabId || surface.__boundTabId || null;
+            bindSurfaceSessionForTab(tab || nextTabId || null, { ...(meta || {}), root: state.root || null, reason: meta?.reason || 'surface-passive-dom-rebind' }, { apply: true, syncUi: false });
+            syncSurfaceSessionRefsFromActive();
+            syncSurfaceSessionManagersFromActive();
+            surface.__domSentinel = info?.mountedSentinel || getSurfaceNodeById('surfaceHot');
+            surface.ready = true;
+            debugLog('Debug: surface passive DOM rebind', { tabId: surface.__boundTabId || null });
+            return;
+          }
           surface.ready = false;
-          surface.init({ root: state.root || undefined, tabId: info?.tab?.id || targetTabId || surface.__boundTabId || null, reason: 'activate-tab-rebind' });
+          surface.init({ root: state.root || undefined, tabId: nextTabId, reason: 'activate-tab-rebind' });
         }
       });
       if(rebound?.rebound){
@@ -3270,14 +4287,23 @@
     if(!surface.ready){
       surface.init({ root: state.root || undefined, tabId: targetTabId || surface.__boundTabId || undefined, reason: meta?.reason || 'activate-tab' });
     }
-    syncSurfaceActivationState(tab || targetTabId || null);
+    syncSurfaceActivationState(tab || targetTabId || null, meta);
   };
   surface.__getActiveHot = function __getActiveHot(){
     return (typeof state.ensureHotForActiveTab === 'function' ? state.ensureHotForActiveTab() : null) || state.hot || null;
   };
 
   surface.captureRuntimeState = function captureRuntimeState(meta = {}){
-    const snapshot = buildSurfaceTabContextSnapshotFromState();
+    const session = bindSurfaceSessionForTab(meta?.tab || meta?.tabId || surface.__boundTabId || null, { ...(meta || {}), reason: meta.reason || 'surface-runtime-capture-bind' }, { apply: false });
+    const capturedSession = captureSurfaceSessionStateFromActive(session, meta);
+    const snapshot = capturedSession
+      ? Object.assign({}, capturedSession.state, {
+        lastStats: cloneSimple(capturedSession.results?.lastStats) || null,
+        statsPanelModel: normalizeSurfaceStatsPanelModel(capturedSession.results?.statsPanelModel || capturedSession.state?.statsPanelModel || {}),
+        fileHandle: capturedSession.managers?.fileHandle || null,
+        notes: createDefaultSurfaceNotesState(capturedSession.notes || capturedSession.state?.notes || {})
+      })
+      : buildSurfaceTabContextSnapshotFromState();
     rememberSurfaceOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
       ...(meta || {}),
       reason: meta.reason || 'surface-runtime-capture'
@@ -3295,7 +4321,13 @@
     if(!resolvedSnapshot || typeof resolvedSnapshot !== 'object'){
       return false;
     }
-    applySurfaceTabContextSnapshot(resolvedSnapshot, { syncUi: true });
+    const session = setSurfaceSessionStateFromRuntimeRecord(resolvedSnapshot, meta);
+    if(session){
+      activeSurfaceSession = session;
+      applySurfaceSessionStateToActive(session, { syncUi: true });
+    }else{
+      applySurfaceTabContextSnapshot(resolvedSnapshot, { syncUi: true });
+    }
     rememberSurfaceOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
       ...(meta || {}),
       reason: meta.reason || 'surface-runtime-apply'
@@ -3311,10 +4343,12 @@
   surface.deactivateTab = Shared.componentLifecycle?.createDeactivateHandler?.({
     component: surface,
     componentKey: 'surface',
-    cancel: () => {
+    cancel: (tab, meta = {}) => {
+      captureSurfaceSessionForDeactivation(tab, meta);
       state.drawPending = false;
     }
   }) || function deactivateSurfaceTab(tab, meta = {}){
+    captureSurfaceSessionForDeactivation(tab, meta);
     state.drawPending = false;
     surface.__runtimeGeneration = (Number(surface.__runtimeGeneration) || 0) + 1;
     debugLog('Debug: surface tab deactivated', {
@@ -3334,10 +4368,20 @@
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
+    const scheduleTargetTab = meta?.tab || meta?.tabId || surface.__boundTabId || null;
+    const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
+    const scheduleTargetSession = scheduleTargetTab
+      ? getSurfaceSession(scheduleTargetTab, { ...(meta || {}), reason: 'surface-payload-scheduler-owner' }, { create: false, fallbackActive: false })
+      : getActiveSurfaceSessionForState();
+    const canMuteActiveScheduler = hasExplicitScheduleTarget
+      ? !!(scheduleTargetSession && isSurfaceSessionActiveOrActivating(scheduleTargetSession))
+      : (!scheduleTargetSession || isSurfaceSessionActiveOrActivating(scheduleTargetSession));
     let scheduleBackup = null;
-    if(skipDraw && typeof state.scheduleDraw === 'function'){
+    let mutedScheduleDraw = null;
+    if(skipDraw && canMuteActiveScheduler && typeof state.scheduleDraw === 'function'){
+      mutedScheduleDraw = () => {};
       scheduleBackup = state.scheduleDraw;
-      state.scheduleDraw = () => {};
+      state.scheduleDraw = mutedScheduleDraw;
     }
     const hot = state.ensureHotForActiveTab?.() || state.hot;
     if(hot){
@@ -3389,7 +4433,7 @@
       notesState.text = '';
       notesState.open = false;
     }
-    if(notesState.control){
+    if(canUseSurfaceNotesControl(notesState.control)){
       notesState.control.setValue(notesState.text);
       notesState.control.setOpen(notesState.open);
     }
@@ -3448,6 +4492,7 @@
         y: restored.quaternion.y,
         z: restored.quaternion.z
       } : state.rotation.quaternion;
+      commitSurfaceRotationState(state.rotation, 'surface-payload-apply');
     }
     if(config.fontStyles){
       importFontStyles('surface', config.fontStyles);
@@ -3457,16 +4502,20 @@
     state.lastStats = (payload.stats && typeof payload.stats === 'object')
       ? (cloneSimple(payload.stats) || payload.stats)
       : null;
+    state.statsPanelModel = normalizeSurfaceStatsPanelModel(config.statsPanelModel || payload.stats?.statsPanelModel || {});
     if(!skipDraw){
-      updateStats(state.lastStats);
-      if(typeof state.scheduleDraw === 'function'){
-        state.scheduleDraw();
+      if(state.lastStats){
+        updateStats(state.lastStats);
+      }else{
+        restoreSurfaceStatsPanelModel(state.statsPanelModel);
       }
+      scheduleActiveSurfaceDraw({ reason: 'surface-payload-applied' });
     }
-    if(scheduleBackup){
+    if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
     }
     const rowCount = Array.isArray(dataToLoad) ? dataToLoad.length : 0;
+    captureSurfaceSessionStateFromActive(activeSurfaceSession, { reason: 'surface-payload-apply', source });
     debugLog('Debug: surface payload applied', { source, rows: rowCount });
     return true;
   }
@@ -3476,21 +4525,20 @@
     if(!activeHot || typeof activeHot.getData !== 'function'){
       return { type: 'surface', data: [] };
     }
-    const noteControl = notesState.control || null;
-    const notesText = noteControl && typeof noteControl.getValue === 'function'
-      ? noteControl.getValue()
-      : (notesState.text || '');
-    const notesOpen = noteControl && typeof noteControl.isOpen === 'function'
-      ? noteControl.isOpen()
-      : !!notesState.open;
-    notesState.text = notesText;
-    notesState.open = notesOpen;
+    const notesSnapshot = captureSurfaceNotesSnapshot();
+    const notesText = notesSnapshot.text || '';
+    const notesOpen = !!notesSnapshot.open;
+    const statsPanelModel = captureSurfaceStatsPanelModel();
+    const savedStats = state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null;
+    if(savedStats && typeof savedStats === 'object'){
+      savedStats.statsPanelModel = statsPanelModel;
+    }
     const payload = {
       type: 'surface',
       data: Shared.hot.trimTrailingEmptyCols(activeHot.getData()),
       exclusions: activeHot.exportExclusions ? activeHot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(activeHot) : undefined),
       filters: activeHot.exportFilters ? activeHot.exportFilters() : (Shared.hot && typeof Shared.hot.exportFilters === 'function' ? Shared.hot.exportFilters(activeHot) : undefined),
-      stats: state.lastStats ? (cloneSimple(state.lastStats) || state.lastStats) : null,
+      stats: savedStats,
       config: {
         axisMap: Object.assign({}, state.axisMap),
         colorScheme: state.settings?.colorScheme || 'scientific',
@@ -3524,7 +4572,8 @@
         notes: {
           text: notesText,
           open: notesOpen
-        }
+        },
+        statsPanelModel
       }
     };
     const activeManager = ensureSurfaceDataViewsForHot(activeHot, {
@@ -3538,6 +4587,7 @@
       payload.dataViews = dataViewsPayload;
       payload.activeDataViewId = dataViewsPayload?.activeViewId || null;
     }
+    captureSurfaceSessionStateFromActive(activeSurfaceSession, { reason: 'surface-payload-capture' });
     debugLog('Debug: surface payload captured', { rows: payload.data.length });
     return payload;
   }
@@ -3553,6 +4603,12 @@
   }
   surface.captureEmptyPayloadTemplate = function captureSurfaceEmptyPayloadTemplate(){
     const snapshot = surface.createEmptyPayload();
+    emptyPayloadTemplate = cloneSimple(snapshot) || snapshot;
+    const session = getActiveSurfaceSessionForState();
+    if(session?.cache){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || emptyPayloadTemplate;
+      session.updatedAt = Date.now();
+    }
     console.debug('Debug: surface empty payload template captured', { hasTemplate: !!snapshot });
     return snapshot;
   };
@@ -3562,6 +4618,11 @@
       return false;
     }
     emptyPayloadTemplate = cloneSimple(template);
+    const session = getActiveSurfaceSessionForState();
+    if(session){
+      session.cache.emptyPayloadTemplate = cloneSimple(emptyPayloadTemplate) || null;
+      session.updatedAt = Date.now();
+    }
     console.debug('Debug: surface empty payload template restored', { hasTemplate: !!emptyPayloadTemplate, reason: options.reason || 'unspecified' });
     return !!emptyPayloadTemplate;
   };
@@ -3587,6 +4648,7 @@
   };
 
   surface.save = async function save(){
+    const operationSession = getActiveSurfaceSessionForState();
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
       console.error('surface.save missing Shared.fileIO.saveGraphFile');
       return;
@@ -3597,13 +4659,14 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { setSurfaceFileHandle(handle); },
-      setFileName: name => { setSurfaceFileName(name); }
+      setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+      setFileName: name => { setSurfaceFileName(name, operationSession); }
     });
     debugLog('Debug: surface save result', result);
   };
 
   surface.saveAs = async function saveAs(){
+    const operationSession = getActiveSurfaceSessionForState();
     if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
       console.error('surface.saveAs missing Shared.fileIO.saveGraphFileAs');
       return;
@@ -3613,21 +4676,22 @@
       getPayload,
       fileName: state.fileName,
       downloadFileName: state.fileName,
-      setFileHandle: handle => { setSurfaceFileHandle(handle); },
-      setFileName: name => { setSurfaceFileName(name); }
+      setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+      setFileName: name => { setSurfaceFileName(name, operationSession); }
     });
     debugLog('Debug: surface saveAs result', result);
   };
 
   surface.open = async function open(){
+    const operationSession = getActiveSurfaceSessionForState();
     if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
       console.error('surface.open missing Shared.fileIO.openGraphFile');
       return;
     }
     const result = await fileIO.openGraphFile({
       context: 'surface',
-      setFileHandle: handle => { setSurfaceFileHandle(handle); },
-      setFileName: name => { setSurfaceFileName(name); },
+      setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+      setFileName: name => { setSurfaceFileName(name, operationSession); },
       loadFromFile: blob => surface.loadFromFile(blob),
       triggerInput: () => {
         if(state.controls.graphFileInput){
@@ -3853,7 +4917,26 @@
     }
   }
 
+  function resolveSurfaceRenderCacheSession(meta = {}, options = {}){
+    const source = meta && typeof meta === 'object' ? meta : {};
+    if(source.session){
+      return ensureSurfaceSessionOwnershipShape(source.session);
+    }
+    const tabLike = source.tab || source.tabId || surface.__boundTabId || null;
+    return tabLike
+      ? getSurfaceSession(tabLike, { ...(source || {}), reason: source.reason || 'surface-render-cache-session' }, { create: options.create === true })
+      : getActiveSurfaceSessionForState();
+  }
+
   surface.captureRenderCache = function captureRenderCache(meta = {}){
+    const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
+    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+      debugLog('Debug: surface render cache capture skipped for inactive session', {
+        tabId: cacheSession.tabId || null,
+        reason: meta?.reason || 'capture-render-cache'
+      });
+      return null;
+    }
     cacheDom();
     const hasGraphNodes = !!(state.svg && state.svg.childNodes && state.svg.childNodes.length > 0);
     if(!hasGraphNodes && typeof drawSurface === 'function'){
@@ -3880,6 +4963,14 @@
   };
 
   surface.canRestoreRenderCache = function canRestoreRenderCache(cache, meta = {}){
+    const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
+    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+      debugLog('Debug: surface render cache restore rejected for inactive session', {
+        tabId: cacheSession.tabId || null,
+        reason: meta?.reason || null
+      });
+      return false;
+    }
     if(String(meta?.reason || '').toLowerCase().includes('recovery')){
       if(meta?.tab && global.Main?.session?.clearTabArchiveRenderCache){
         global.Main.session.clearTabArchiveRenderCache(meta.tab, { reason: 'surface-recovery-render-cache-rejected' });
@@ -3899,7 +4990,11 @@
     }) ?? !!cache;
   };
 
-  surface.isIdleForSnapshot = function isIdleForSnapshot(){
+  surface.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
+    const owner = resolveSurfaceRenderCacheSession(meta, { create: false }) || getActiveSurfaceSessionForState();
+    if(owner && !isSurfaceSessionActiveOrActivating(owner)){
+      return !owner.state?.drawPending;
+    }
     return !state.drawPending;
   };
 
@@ -3910,6 +5005,14 @@
 
   surface.restoreRenderCache = function restoreRenderCache(cache, _meta = {}){
     if(!cache){ return false; }
+    const cacheSession = resolveSurfaceRenderCacheSession(_meta, { create: false });
+    if(cacheSession && !isSurfaceSessionActiveOrActivating(cacheSession)){
+      debugLog('Debug: surface render cache restore skipped for inactive session', {
+        tabId: cacheSession.tabId || null,
+        reason: _meta?.reason || null
+      });
+      return false;
+    }
     const graphCachePayload = cache?.[cache?.__graphitixRenderCache?.graphicKey] || cache?.svg || cache?.plot || cache?.preview || cache?.graph || cache?.stage;
     cacheDom();
     restoreSurfaceSvgRootState(state.svg, cache.svgRootState);

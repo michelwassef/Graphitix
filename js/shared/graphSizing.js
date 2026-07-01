@@ -690,6 +690,7 @@
             height: record.display.heightPx,
             axis: typeof options.axis === 'string' && options.axis ? options.axis : 'both',
             reason: options.context || `${type || 'graph'}-apply`,
+            simulateAspectLock: record.display.aspectLocked === true,
             updateDefaults,
             updateAspectRatio: options.updateAspectRatio !== false,
             preserveAspectLock: options.preserveAspectLock !== false,

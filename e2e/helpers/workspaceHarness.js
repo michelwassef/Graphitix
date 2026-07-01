@@ -5,37 +5,38 @@ const KNOWN_NON_FATAL_LOG_PATTERNS = [
   /AG Grid: invalid gridOptions property 'columnBuffer'/i,
   /AG Grid: to see all the valid gridOptions properties/i,
   /AG Grid: The return of `getRowHeight` cannot be zero/i,
+  /exporter clipboard write error .*Write permission denied/i,
   /The Components object is deprecated\./i
 ];
 
 const CDN_OVERRIDE_ENTRIES = [
   {
-    match: /\/ag-grid-community@32\.3\.3\/styles\/ag-grid\.css$/i,
+    match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/styles\/ag-grid\.css$/i,
     localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/styles/ag-grid.css'),
     contentType: 'text/css; charset=utf-8'
   },
   {
-    match: /\/ag-grid-community@32\.3\.3\/styles\/ag-theme-balham\.css$/i,
+    match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/styles\/ag-theme-balham\.css$/i,
     localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/styles/ag-theme-balham.css'),
     contentType: 'text/css; charset=utf-8'
   },
   {
-    match: /\/ag-grid-community@32\.3\.3\/dist\/ag-grid-community\.min\.noStyle\.js$/i,
+    match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/dist\/ag-grid-community\.min\.noStyle\.js$/i,
     localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
-    match: /\/jstat@1\.9\.5\/dist\/jstat\.min\.js$/i,
+    match: /\/(?:npm\/)?jstat@1\.9\.5\/dist\/jstat\.min\.js$/i,
     localPath: path.resolve(__dirname, '../../node_modules/jstat/dist/jstat.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
-    match: /\/jszip@3\.10\.1\/dist\/jszip\.min\.js$/i,
+    match: /\/(?:npm\/)?jszip@3\.10\.1\/dist\/jszip\.min\.js$/i,
     localPath: path.resolve(__dirname, '../../node_modules/jszip/dist/jszip.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
-    match: /\/svd-js@1\.1\.1\/build-umd\/svd-js\.min\.js$/i,
+    match: /\/(?:npm\/)?svd-js@1\.1\.1\/build-umd\/svd-js\.min\.js$/i,
     localPath: path.resolve(__dirname, '../../node_modules/svd-js/build-umd/svd-js.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
@@ -64,6 +65,10 @@ const COMPONENT_MATRIX = [
 
 function shouldIgnoreConsoleEntry(text) {
   return KNOWN_NON_FATAL_LOG_PATTERNS.some(pattern => pattern.test(String(text || '')));
+}
+
+function shouldIgnoreRequestFailure(text) {
+  return /(?:NS_BINDING_ABORTED|net::ERR_ABORTED|cancelled|canceled)/i.test(String(text || ''));
 }
 
 function readOverrideBody(entry) {
@@ -101,11 +106,35 @@ function registerIssueCollectors(page) {
   const all = [];
   const critical = [];
 
-  page.on('console', message => {
+  page.on('console', async message => {
+    let serializedArgs = [];
+    if (message.type() === 'error') {
+      serializedArgs = await Promise.all(message.args().map(async arg => {
+        try {
+          return await arg.evaluate(value => {
+            if (value instanceof Error) {
+              return { name: value.name, message: value.message, stack: value.stack };
+            }
+            if (value && typeof value === 'object') {
+              return JSON.parse(JSON.stringify(value, (_key, entry) => {
+                if (entry instanceof Error) {
+                  return { name: entry.name, message: entry.message, stack: entry.stack };
+                }
+                return entry;
+              }));
+            }
+            return value;
+          });
+        } catch (err) {
+          return null;
+        }
+      }));
+    }
     const entry = {
       kind: 'console',
       type: message.type(),
-      text: message.text()
+      text: message.text(),
+      args: serializedArgs
     };
     all.push(entry);
     if (entry.type === 'error' && !shouldIgnoreConsoleEntry(entry.text)) {
@@ -124,13 +153,16 @@ function registerIssueCollectors(page) {
   });
 
   page.on('requestfailed', request => {
+    const text = `${request.method()} ${request.url()} :: ${request.failure()?.errorText || 'unknown'}`;
     const entry = {
       kind: 'requestfailed',
       type: 'error',
-      text: `${request.method()} ${request.url()} :: ${request.failure()?.errorText || 'unknown'}`
+      text
     };
     all.push(entry);
-    critical.push(entry);
+    if (!shouldIgnoreRequestFailure(text)) {
+      critical.push(entry);
+    }
   });
 
   return {
@@ -151,21 +183,93 @@ async function maybeHandleDuplicatePrompt(page) {
   }
 }
 
+async function getActiveWorkspaceTabMeta(page) {
+  return page.evaluate(() => {
+    const state = window.Main?.session?.workspaceState;
+    const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+    return active
+      ? { id: String(active.id || ''), type: active.type || null, title: active.title || '' }
+      : null;
+  }).catch(() => null);
+}
+
+async function waitForActiveComponentLaunch(page, component, timeout = 20_000, expectedTabId = null) {
+  const startedAt = Date.now();
+  const pollMs = 120;
+  while (Date.now() - startedAt < timeout) {
+    const launched = await page.evaluate(({ type, pageId, expectedId }) => {
+      const state = window.Main?.session?.workspaceState;
+      const active = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+      if (expectedId && String(active?.id || '') !== String(expectedId)) {
+        return false;
+      }
+      if (!active || active.type !== type) {
+        return false;
+      }
+      const mountedRoot = window.Shared?.workspaceTabs?.getMountedRoot?.(active.id, type) || null;
+      const searchRoot = mountedRoot || document.querySelector(`#${pageId}:not([hidden])`) || null;
+      if (!searchRoot) {
+        return false;
+      }
+      return !!searchRoot.querySelector?.([
+        '.ag-root-wrapper',
+        '.ag-root',
+        '.workspace-toolbar',
+        '.svgbox',
+        '.config-panel',
+        `[id="${type}LoadExample"]`
+      ].join(','));
+    }, { type: component.type, pageId: component.pageId, expectedId: expectedTabId || null }).catch(() => false);
+    if (launched) {
+      return true;
+    }
+    await page.waitForTimeout(pollMs);
+  }
+  return false;
+}
+
 async function openComponentFromWelcome(page, component, options = {}) {
+  const previousActive = await getActiveWorkspaceTabMeta(page);
+  let expectedTabId = options.expectedTabId || null;
+  const tileAction = options.loadExample === true ? 'example' : 'new';
   if (!options.first) {
     await page.locator('#addWorkspaceTab').click();
     await maybeHandleDuplicatePrompt(page);
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 10_000 && !expectedTabId) {
+      const active = await getActiveWorkspaceTabMeta(page);
+      if (active?.id && active.id !== previousActive?.id) {
+        expectedTabId = active.id;
+        break;
+      }
+      await page.waitForTimeout(120);
+    }
+  }
+  if (!expectedTabId && !options.first) {
+    expectedTabId = (await getActiveWorkspaceTabMeta(page))?.id || null;
   }
   const selector = `#graphSelectionGrid [data-graph-type="${component.type}"]`;
   const card = page.locator(selector);
   await page.waitForSelector(selector, { timeout: 20_000 });
-  let clicked = false;
+  let launched = false;
   let lastError = null;
-  for (let attempt = 0; attempt < 4 && !clicked; attempt += 1) {
+  for (let attempt = 0; attempt < 4 && !launched; attempt += 1) {
     try {
-      await card.scrollIntoViewIfNeeded();
-      await card.click({ force: true, timeout: 5000 });
-      clicked = true;
+      if (!(await card.first().isVisible().catch(() => false))) {
+        break;
+      }
+      await card.scrollIntoViewIfNeeded({ timeout: 3000 });
+      const preferredButton = tileAction === 'example'
+        ? card.getByRole('button', { name: /^Load example\b/i }).first()
+        : card.getByRole('button', { name: /^New\b/i }).first();
+      const fallbackButton = tileAction === 'example'
+        ? card.getByRole('button', { name: /^New\b/i }).first()
+        : card.getByRole('button', { name: /^Load example\b/i }).first();
+      const target = await preferredButton.count()
+        ? preferredButton
+        : (await fallbackButton.count() ? fallbackButton : card);
+      await target.click({ force: true, timeout: 5000 });
+      launched = await waitForActiveComponentLaunch(page, component, 10_000, expectedTabId);
     } catch (err) {
       lastError = err;
       if (page.isClosed()) {
@@ -174,23 +278,68 @@ async function openComponentFromWelcome(page, component, options = {}) {
       await page.waitForTimeout(200 * (attempt + 1));
     }
   }
-  if (!clicked && !page.isClosed()) {
+  if (!launched && !page.isClosed()) {
     try {
-      await page.evaluate((type) => {
-        const fn = window.Main?.tabs?.handleGraphSelection;
-        if (typeof fn === 'function') {
-          fn(type);
+      const fallbackState = await page.evaluate(({ type, expectedId, loadExample }) => {
+        if (expectedId && window.Main?.tabs?.activateTab) {
+          window.Main.tabs.activateTab(expectedId, {
+            skipPersist: true,
+            skipDuplicatePrompt: true,
+            disableDuplicatePrompt: true,
+            forceBlankWorkspace: true,
+            reason: 'e2e-open-component-reactivate-target'
+          });
         }
-      }, component.type);
-      clicked = true;
+        const promptVisible = !!document.querySelector('#duplicatePrompt:not([hidden])');
+        const state = window.Main?.session?.workspaceState;
+        const before = state?.tabs?.find(tab => tab?.id === state.activeTabId) || null;
+        const fn = window.Main?.tabs?.launchWelcomeGraph || window.Main?.tabs?.handleGraphSelection;
+        if (typeof fn === 'function') {
+          if (fn === window.Main?.tabs?.launchWelcomeGraph) {
+            void fn(type, {
+              loadExample: !!loadExample,
+              reason: loadExample ? 'e2e-open-component-example-fallback' : 'e2e-open-component-new-fallback'
+            });
+          } else {
+            fn(type, {
+              forceBlankWorkspace: !loadExample,
+              loadExample: !!loadExample,
+              skipDuplicatePrompt: true,
+              disableDuplicatePrompt: true,
+              reason: loadExample ? 'e2e-open-component-example-fallback' : 'e2e-open-component-fallback'
+            });
+          }
+        }
+        const afterState = window.Main?.session?.workspaceState;
+        const after = afterState?.tabs?.find(tab => tab?.id === afterState.activeTabId) || null;
+        return {
+          promptVisible,
+          before: before ? { id: before.id, type: before.type || null, title: before.title || '' } : null,
+          after: after ? { id: after.id, type: after.type || null, title: after.title || '' } : null
+        };
+      }, { type: component.type, expectedId: expectedTabId || null, loadExample: tileAction === 'example' });
+      launched = await waitForActiveComponentLaunch(page, component, 20_000, expectedTabId);
     } catch (err) {
       lastError = err;
     }
   }
-  if (!clicked) {
-    throw lastError || new Error(`Failed to open component card: ${component.type}`);
+  if (!launched) {
+    const state = await page.evaluate(() => {
+      const workspaceState = window.Main?.session?.workspaceState;
+      const active = workspaceState?.tabs?.find(tab => tab?.id === workspaceState.activeTabId) || null;
+      return {
+        activeTabId: workspaceState?.activeTabId || null,
+        active: active ? { id: active.id, type: active.type || null, title: active.title || '' } : null,
+        tabs: Array.isArray(workspaceState?.tabs)
+          ? workspaceState.tabs.map(tab => ({ id: tab.id, type: tab.type || null, title: tab.title || '', isWelcome: !!tab.isWelcome }))
+          : [],
+        expectedTabId: expectedTabId || null
+      };
+    }).catch(() => null);
+    const details = state ? ` ${JSON.stringify(state)}` : '';
+    const causeMessage = lastError ? ` Cause: ${lastError.message || String(lastError)}` : '';
+    throw new Error(`Failed to open component card: ${component.type}.${details}${causeMessage}`);
   }
-  await page.waitForSelector(`#${component.pageId}:not([hidden])`, { timeout: 20_000 });
 }
 
 async function clickExampleButtonIfPresent(page, buttonId) {
