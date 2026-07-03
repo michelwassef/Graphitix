@@ -9282,11 +9282,9 @@
     let matches = 0;
     for(let startCol = 0; startCol + 2 < row.length; startCol += LINE_3D_COLS_PER_DATASET){
       groups += 1;
-      const x = String(row[startCol] ?? '').trim().toLowerCase();
       const y = String(row[startCol + 1] ?? '').trim().toLowerCase();
       const z = String(row[startCol + 2] ?? '').trim().toLowerCase();
-      if((!x || x === 'x' || x === 'x title' || x === 'x values')
-        && (!y || y === 'y' || y === 'y title' || y === 'y values')
+      if((!y || y === 'y' || y === 'y title' || y === 'y values')
         && (!z || z === 'z' || z === 'z title' || z === 'z values')){
         matches += 1;
       }
@@ -9657,7 +9655,11 @@
     const safeMatrix = Array.isArray(matrix) ? matrix.map(row => Array.isArray(row) ? row.slice() : []) : [];
     const requestedCount = Math.max(0, Number(seriesCount) || 0);
     const inferredCount = Math.max(0, inferLine3dSeriesCount(safeMatrix));
-    const count = Math.max(requestedCount, inferredCount, Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0, 1);
+    const newFormat = isLine3dDatasetHeaderMatrix(safeMatrix);
+    const labelCount = Array.isArray(options.labels)
+      ? options.labels.length
+      : (newFormat ? 0 : (Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0));
+    const count = Math.max(requestedCount, inferredCount, labelCount, 1);
     const labels = resolveLine3dDatasetLabels(safeMatrix, count, {
       labels: options.labels || lineSeriesGroupLabels,
       preferTableLabels: isLine3dDatasetHeaderMatrix(safeMatrix)
@@ -9666,7 +9668,6 @@
     ensureLineGroupShapeCapacity(count);
 
     const targetCols = count * LINE_3D_COLS_PER_DATASET;
-    const newFormat = isLine3dDatasetHeaderMatrix(safeMatrix);
     const sourceRows = newFormat
       ? safeMatrix.slice(LINE_3D_HEADER_ROW_COUNT)
       : safeMatrix.slice(1);
@@ -17839,6 +17840,10 @@
       options
     ),
     resolveDrawableFrame: plot => resolveLineDrawableFrame(plot),
+    buildLine3dMatrixFrom2d,
+    applyLine3dHeaderRow,
+    inferLine3dSeriesCount,
+    isLine3dDatasetHeaderMatrix,
     getActiveSession: () => activeLineSession,
     getSessionForTab: tabId => getLineSession(tabId, { tabId, reason: 'test-session-read' }, { create: false }),
     captureCanonicalState: (tabId, options = {}) => captureLineCanonicalSnapshot(tabId || line.__boundTabId || null, { tabId, reason: 'test-canonical-capture' }, { readActiveControls: options.readActiveControls !== false })

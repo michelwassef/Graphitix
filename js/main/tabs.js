@@ -42,6 +42,7 @@
     const WELCOME_EXAMPLE_RETRY_DELAY_MS = 60;
     const DEFAULT_GRAPH_CARD_ICON = '<svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true"><path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" /><path class="welcome-icon__primary" d="M14 32L21 25L28 29L36 17" /></svg>';
     let lastWelcomeVariantLaunch = null;
+    const welcomePreloadPromises = new Map();
     normalizedGraphVariants.sort((a, b) => {
       const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
       return groupCompare !== 0 ? groupCompare : a.label.localeCompare(b.label);
@@ -777,6 +778,7 @@
         console.warn('welcome graph launch skipped: unsupported type', { type, options });
         return;
       }
+      preloadWelcomeGraphType(type, { reason: options.reason || 'welcome-launch' });
       const result = handleGraphSelection(type, {
         variantId: options.variantId || null,
         reason: options.reason || (options.loadExample ? 'welcome-load-example' : 'welcome-new'),
@@ -790,6 +792,49 @@
       if (options.loadExample) {
         await invokeWelcomeLoadExample(type, { reason: options.reason || 'welcome-load-example' });
       }
+    }
+
+    function preloadWelcomeGraphType(type, meta = {}) {
+      const componentType = String(type || '').trim();
+      if (!componentType || !workspaces[componentType]) return null;
+      if (welcomePreloadPromises.has(componentType)) {
+        return welcomePreloadPromises.get(componentType);
+      }
+      const loader = Main.components && typeof Main.components.loadComponentBundle === 'function'
+        ? Main.components.loadComponentBundle
+        : null;
+      if (!loader) return null;
+      const promise = Promise.resolve()
+        .then(() => loader(componentType, { reason: meta.reason || 'welcome-preload' }))
+        .then(component => {
+          console.debug('Debug: welcome component bundle preloaded', {
+            type: componentType,
+            hasComponent: !!component,
+            reason: meta.reason || 'welcome-preload'
+          });
+          return component;
+        })
+        .catch(err => {
+          welcomePreloadPromises.delete(componentType);
+          console.debug('Debug: welcome component bundle preload failed', {
+            type: componentType,
+            reason: meta.reason || 'welcome-preload',
+            message: err?.message || String(err)
+          });
+          return null;
+        });
+      welcomePreloadPromises.set(componentType, promise);
+      return promise;
+    }
+
+    function bindWelcomeGraphPreload(element, type, reasonPrefix) {
+      if (!element || !type) return;
+      const requestPreload = event => {
+        preloadWelcomeGraphType(type, { reason: `${reasonPrefix}-${event.type}` });
+      };
+      element.addEventListener('pointerenter', requestPreload, { passive: true });
+      element.addEventListener('pointerdown', requestPreload, { passive: true });
+      element.addEventListener('focusin', requestPreload);
     }
 
     function handleAddTabClick() {
@@ -831,6 +876,7 @@
       card.className = 'graph-card';
       card.setAttribute('role', 'listitem');
       card.dataset.graphType = info.type;
+      bindWelcomeGraphPreload(card, info.type, 'welcome-card');
 
       const main = document.createElement('div');
       main.className = 'graph-card__main';
@@ -894,7 +940,7 @@
     }
 
     function createSelectionCards() {
-      if (!dom.selectionGrid) return;
+      if (!dom.selectionGrid) return false;
       const fragment = document.createDocumentFragment();
       graphTypes.forEach(info => {
         fragment.appendChild(createGraphCard(info));
@@ -902,6 +948,13 @@
       dom.selectionGrid.innerHTML = '';
       dom.selectionGrid.appendChild(fragment);
       console.debug('Debug: selection cards generated', { count: graphTypes.length });
+      return true;
+    }
+
+    function markWelcomeReady(meta = {}) {
+      if (!dom?.welcomeScreen) return;
+      dom.welcomeScreen.dataset.welcomeReady = 'true';
+      console.debug('Debug: welcome screen ready', { reason: meta.reason || 'unspecified' });
     }
 
       function syncPickerAria() {
@@ -1035,8 +1088,10 @@
           button.type = 'button';
           button.className = 'welcome-picker__option';
           button.dataset.variantId = variant.id;
+          button.dataset.graphType = variant.type;
           button.setAttribute('role', 'option');
           button.setAttribute('aria-selected', selectedVariantId === variant.id ? 'true' : 'false');
+          bindWelcomeGraphPreload(button, variant.type, 'welcome-picker');
 
           const line = document.createElement('span');
           line.className = 'welcome-picker__option-line';
@@ -1164,6 +1219,7 @@
     function initializeWorkspace(callbacks = {}) {
       createSelectionCards();
       initializeVariantPicker();
+      markWelcomeReady({ reason: 'initial-welcome-render' });
       const welcomeTab = session.createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
       workspaceState.tabs.push(welcomeTab);
       workspaceState.activeTabId = welcomeTab.id;

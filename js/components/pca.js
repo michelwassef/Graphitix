@@ -1177,6 +1177,16 @@
     return groups.length ? groups : null;
   }
 
+  function buildPcaTableFormatSignature(hotInstance, options = {}){
+    const pcaHot = hotInstance || ensurePcaHotForActiveTab();
+    const tableFormat = options.tableFormat || pcaState.tableFormat || 'standard';
+    const colCount = typeof pcaHot?.countCols === 'function' ? pcaHot.countCols() : '';
+    if(tableFormat !== 'grouped'){
+      return `standard:${colCount}`;
+    }
+    return `grouped:${getPcaGroupedReplicateCount({ ...options, hotInstance: pcaHot })}:${colCount}`;
+  }
+
   function updatePcaGroupedHeaders(hotInstance){
     const pcaHot = hotInstance || ensurePcaHotForActiveTab();
     if(!pcaHot){
@@ -1198,6 +1208,10 @@
       }
     }
     if(pcaState.tableFormat !== 'grouped'){
+      const signature = buildPcaTableFormatSignature(pcaHot, { tableFormat: 'standard' });
+      if(pcaHot.__pcaAppliedTableFormatSignature === signature){
+        return;
+      }
       pcaHot.updateSettings({
         nestedHeaders: false,
         colHeaders: true,
@@ -1205,6 +1219,11 @@
         headerRowIndex: PCA_HEADER_ROW_INDEX,
         pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceStandard: true })
       });
+      pcaHot.__pcaAppliedTableFormatSignature = signature;
+      return;
+    }
+    const signature = buildPcaTableFormatSignature(pcaHot, { tableFormat: 'grouped', forceGrouped: true });
+    if(pcaHot.__pcaAppliedTableFormatSignature === signature){
       return;
     }
     normalizePcaGroupedHeaderRow(pcaHot, { forceGrouped: true, source: 'pca-grouped-header-normalize' });
@@ -1216,6 +1235,7 @@
       headerRowIndex: getPcaHeaderRowIndexForMode({ forceGrouped: true }),
       pinFirstRow: getPcaPinnedMetaRowCountForMode({ forceGrouped: true })
     });
+    pcaHot.__pcaAppliedTableFormatSignature = signature;
     debugLog('Debug: pca grouped headers applied',{ headers, totalCols: pcaHot.countCols() });
   }
 
@@ -1561,7 +1581,9 @@
             if(headerTouched && source !== 'pca-grouped-header-normalize'){
               normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
             }
-            updatePcaGroupedHeaders(pcaHot);
+            if(headerTouched || source === 'pca-grouped-header-normalize'){
+              updatePcaGroupedHeaders(pcaHot);
+            }
           }
           if(Array.isArray(changes) && changes.length){
             syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
@@ -1584,6 +1606,9 @@
           debugLog('Debug: pca table afterChange',{ count: changeCount, source });
         },
         afterLoadData(){
+          if(pcaHot){
+            pcaHot.__pcaAppliedTableFormatSignature = null;
+          }
           if(pcaState.tableFormat === 'grouped'){
             normalizePcaGroupedHeaderRow(pcaHot, { source: 'pca-grouped-header-normalize' });
             updatePcaGroupedHeaders(pcaHot);

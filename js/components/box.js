@@ -142,6 +142,9 @@
     if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
       return false;
     }
+    if(normalizeBoxTableFormat(hot.__boxTableFormat || state.tableFormat) === 'grouped'){
+      return false;
+    }
     const data = hot.getData() || [];
     const headerRow = Array.isArray(data[0]) ? data[0] : [];
     const hasBodyData = data.slice(1).some(row => Array.isArray(row) && row.some(value => value != null && String(value).trim() !== ''));
@@ -18942,11 +18945,20 @@
     let candidate = options.replicates ?? null;
     if(candidate == null && options.hotInstance?.__boxTabId){
       const hotTabId = options.hotInstance.__boxTabId;
+      const session = getBoxSession(hotTabId, {
+        tabId: hotTabId,
+        reason: 'box-hot-grouped-replicates-session'
+      }, { create: false });
+      candidate = session?.state?.controls?.groupedReplicates
+        ?? session?.state?.visual?.grouped?.replicatesPerGroup
+        ?? session?.state?.visual?.groupedHeaders?.replicatesPerGroup
+        ?? null;
       const record = getBoxOwnedRuntimeRecord(hotTabId, {
         tabId: hotTabId,
         reason: 'box-hot-grouped-replicates'
       }, { create: false });
-      candidate = record?.controls?.groupedReplicates
+      candidate = candidate
+        ?? record?.controls?.groupedReplicates
         ?? record?.visual?.grouped?.replicatesPerGroup
         ?? record?.visual?.groupedHeaders?.replicatesPerGroup
         ?? null;
@@ -19301,6 +19313,8 @@
     owner.updatedAt = Date.now();
     if(isBoxSessionActiveForModuleState(owner)){
       state.grouped = cloneSimple(owner.state.visual.grouped) || state.grouped;
+      state.grouped.groups = next.groups.slice();
+      state.grouped.conditions = next.conditions.slice();
     }
     return next;
   }
@@ -19480,12 +19494,14 @@
       return false;
     }
     hot.setDataAtCell(changes, options.source || 'box-grouped-header-normalize');
-    console.debug('Debug: box grouped header row normalized', {
-      changes: changes.length,
-      replicates,
-      groupCount: groupEntries.length,
-      conditionCount: conditionLabels.length
-    });
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: box grouped header row normalized', {
+        changes: changes.length,
+        replicates,
+        groupCount: groupEntries.length,
+        conditionCount: conditionLabels.length
+      });
+    }
     return true;
   }
 
@@ -19605,6 +19621,16 @@
     });
   }
 
+  function buildBoxTableFormatSignature(hotInstance, tableFormat = null, options = {}){
+    const hot = hotInstance || getBoxActiveHotManager();
+    const normalizedFormat = normalizeBoxTableFormat(tableFormat || (hot ? getBoxTableFormatForHot(hot) : state.tableFormat));
+    if(normalizedFormat !== 'grouped'){
+      return 'single';
+    }
+    const colCount = typeof hot?.countCols === 'function' ? hot.countCols() : '';
+    return `grouped:${getBoxGroupedReplicateCount({ ...options, hotInstance: hot })}:${colCount}`;
+  }
+
   function updateGroupedHeaders(hotInstance){
     const hot = hotInstance || getBoxActiveHotManager();
     const tableFormat = hot ? getBoxTableFormatForHot(hot) : state.tableFormat;
@@ -19613,6 +19639,11 @@
       return;
     }
     updateBoxGroupedHeaderMergeStyles(hot, { forceGrouped: true });
+    const signature = buildBoxTableFormatSignature(hot, 'grouped', { forceGrouped: true });
+    if(hot.__boxAppliedTableFormatSignature === signature){
+      syncBoxGroupedCheckboxColumnLabels(hot, { forceGrouped: true });
+      return;
+    }
     const colHeaders = buildBoxAgColHeaders(hot, { forceGrouped: true });
     const groupedHeaderRows = getBoxHeaderRowCount({ forceGrouped: true });
     hot.updateSettings({
@@ -19623,7 +19654,10 @@
       pinFirstRow: groupedHeaderRows
     });
     syncBoxGroupedCheckboxColumnLabels(hot, { forceGrouped: true });
-    console.debug('Debug: updateGroupedHeaders applied',{ nested: false, colHeaders });
+    hot.__boxAppliedTableFormatSignature = signature;
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: updateGroupedHeaders applied',{ nested: false, colHeaders });
+    }
   }
 
   function adjustColumnsForGrouped(hotInstance){
@@ -19669,6 +19703,12 @@
     hot.__boxTableFormat = currentFormat;
     hot.__boxTableFormatTabId = hot.__boxTabId || resolveBoxTabIdFromNode(hot.__boxHostContainer || null) || null;
     if(currentFormat === 'grouped'){
+      const signature = buildBoxTableFormatSignature(hot, 'grouped', { forceGrouped: true });
+      if(hot.__boxAppliedTableFormatSignature === signature){
+        updateBoxGroupedHeaderMergeStyles(hot, { forceGrouped: true });
+        syncBoxGroupedCheckboxColumnLabels(hot, { forceGrouped: true });
+        return;
+      }
       ensureGroupedDefaults();
       adjustColumnsForGrouped(hot);
       normalizeBoxGroupedHeaderRow(hot, { forceGrouped: true });
@@ -19682,8 +19722,10 @@
         pinFirstRow: groupedHeaderRows
       });
       syncBoxGroupedCheckboxColumnLabels(hot, { forceGrouped: true });
-      hot.__boxAppliedTableFormatSignature = `grouped:${getBoxGroupedReplicateCount({ hotInstance: hot })}:${typeof hot.countCols === 'function' ? hot.countCols() : ''}`;
-      console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
+      hot.__boxAppliedTableFormatSignature = buildBoxTableFormatSignature(hot, 'grouped', { forceGrouped: true });
+      if(Shared.isDebugEnabled?.()){
+        console.debug('Debug: applyTableFormatToHot grouped',{ nested: false });
+      }
     }else{
       updateBoxGroupedHeaderMergeStyles(hot, { forceGrouped: false });
       hot.updateSettings({
@@ -19715,7 +19757,9 @@
     }
   }
 
-    function updateTableFormatUI(){
+    function updateTableFormatUI(hotInstance = null){
+      const hot = hotInstance || getBoxActiveHotManager();
+      state.tableFormat = hot ? getBoxTableFormatForHot(hot) : normalizeBoxTableFormat(state.tableFormat);
       if(els.tableFormat){
         els.tableFormat.value = state.tableFormat;
       }
@@ -19735,7 +19779,6 @@
         if(els.groupedReplicates){
           els.groupedReplicates.value = String(getBoxGroupedReplicateCount());
         }
-        updateGroupedHeaders();
       }
       console.debug('Debug: updateTableFormatUI',{ tableFormat: state.tableFormat });
     }
@@ -19743,14 +19786,14 @@
   function setTableFormat(mode, options){
     const opts = options || {};
     const normalized = normalizeBoxTableFormat(mode);
-    const previousFormat = state.tableFormat;
     const activeHot = getBoxActiveHotManager();
     const ownerSession = getBoxSessionForHot(activeHot, { reason: 'box-table-format-owner' }, { create: false }) || getActiveBoxSessionForState();
-    if(state.tableFormat === normalized){
+    const previousFormat = activeHot ? getBoxTableFormatForHot(activeHot) : normalizeBoxTableFormat(ownerSession?.state?.controls?.tableFormat || state.tableFormat);
+    if(previousFormat === normalized){
       console.debug('Debug: setTableFormat no change',{ mode: normalized });
       commitBoxTableFormatStateToSession(normalized, ownerSession, { hotInstance: activeHot, reason: 'box-table-format-no-change' });
       if(!opts.skipUI){
-        updateTableFormatUI();
+        updateTableFormatUI(activeHot);
       }
       applyTableFormatToHot(activeHot);
       if(!opts.skipDraw){
@@ -19781,7 +19824,7 @@
       console.debug('Debug: auto color mode switch for grouped');
     }
     if(!opts.skipUI){
-      updateTableFormatUI();
+      updateTableFormatUI(activeHot);
     }
     applyTableFormatToHot(activeHot);
     syncBoxDefaultColorSchemeForFormat(normalized, { previousFormat });
@@ -19822,6 +19865,9 @@
         debugLabel: 'box',
         data,
         pinFirstRow: true,
+        suppressScheduleForSource(source){
+          return /^(box-default-header-seed|box-grouped-header-normalize)$/i.test(String(source || ''));
+        },
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
           if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
@@ -19968,9 +20014,10 @@
         hotOptions: {
           manualColumnMove: true,
           afterChange(changes, source){
-            if(!changes || source === 'loadData') return;
+            if(!changes || source === 'loadData' || source === 'example-load') return;
             const applyingPayload = state.applyingPayload === true;
-            if(!applyingPayload){
+            const systemGroupedHeaderNormalize = source === 'box-grouped-header-normalize';
+            if(!applyingPayload && !systemGroupedHeaderNormalize){
               instance?.render?.();
               const api = instance?.gridApi;
               if(api && typeof api.refreshCells === 'function'){
@@ -20015,15 +20062,15 @@
                   preferredConditionLabelMap
                 });
               }
-              if(headerTouched || source === 'box-grouped-header-normalize'){
+              if(headerTouched || systemGroupedHeaderNormalize){
                 commitBoxGroupedHeaderStateToSession(instance, null, {
                   source,
                   reason: applyingPayload ? 'box-grouped-header-restore' : 'box-grouped-header-edit'
                 });
+                updateGroupedHeaders(instance);
               }
-              updateGroupedHeaders(instance);
             }
-            if(!applyingPayload){
+            if(!applyingPayload && !systemGroupedHeaderNormalize){
               revalidateActiveBoxLogScale('data-edit');
               syncBoxActiveDataViewFromHot(instance, 'afterChange');
             }
@@ -20031,6 +20078,7 @@
           afterLoadData(){
             const ownerFormat = getBoxTableFormatForHot(instance);
             if(ownerFormat === 'grouped'){
+              instance.__boxAppliedTableFormatSignature = null;
               normalizeBoxGroupedHeaderRow(instance, { source: 'box-grouped-header-normalize' });
               updateGroupedHeaders(instance);
             }else if(instance){
@@ -20237,7 +20285,7 @@
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     const loadExampleData = (attempt = 0) => {
       const activeTab = window.Main?.session?.getActiveTab?.() || null;
-      if(activeTab && activeTab.type === 'box' && !activeTab.payload && attempt < 20){
+      if(activeTab && activeTab.type === 'box' && !activeTab.payload && !state.hot && attempt < 20){
         global.setTimeout?.(() => loadExampleData(attempt + 1), 50);
         return;
       }
@@ -20251,18 +20299,24 @@
         resolveBoxLoading('example-data');
         return;
       }
+      const activeFormat = getBoxTableFormatForHot(hot);
+      commitBoxTableFormatStateToSession(activeFormat, null, {
+        hotInstance: hot,
+        reason: 'box-example-active-format'
+      });
       const overlayReason = 'example-data';
-      const overlayMessage = state.tableFormat === 'grouped'
+      const overlayMessage = activeFormat === 'grouped'
         ? 'Loading grouped example data...'
         : 'Loading example data...';
       forceBoxOverlay(overlayReason, { message: overlayMessage });
       markBoxOverlayPending(overlayReason);
       state.selectedCols.clear();
-      const loadedExampleMatrix = state.tableFormat === 'grouped' ? exampleGrouped : exampleSingle;
-      if(state.tableFormat === 'grouped'){
+      const loadedExampleMatrix = activeFormat === 'grouped' ? exampleGrouped : exampleSingle;
+      if(activeFormat === 'grouped'){
         state.grouped.replicatesPerGroup = 3;
         updateTableFormatUI();
         applyTableFormatToHot(hot);
+        hot.__boxAppliedTableFormatSignature = null;
         hot.loadData(exampleGrouped, {
           source: 'example-load',
           recordUndo: true,
@@ -31448,11 +31502,11 @@ Technical analysis record (advanced)
       ? Math.max(40, Number(containerRect.height))
       : containerRect?.height;
     const fontInfo = chartStyle.resolveScaledFontSize({
-      rawSize: els.boxFontSize.value,
+      rawSize: els.boxFontSize?.value || state.fontSize || '12',
       width: containerRect?.width,
       height: effectiveContainerHeightForScale,
       svgBox: els.svgBox,
-      input: els.boxFontSize
+      input: els.boxFontSize || null
     });
     const fs = fontInfo.scaledPx;
     const styleScaleInfo = fontInfo.scaleInfo;
@@ -31590,19 +31644,21 @@ Technical analysis record (advanced)
 	    let annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
 	    const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
 	    const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
-    console.debug('Debug: box showSignificance flag',{ showSignificance });
+    if(debugEnabled){ console.debug('Debug: box showSignificance flag',{ showSignificance }); }
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo, input: els.boxFontSize });
-    console.debug('Debug: box font scaling applied',{
-      input: els.boxFontSize.value,
-      fontSizePt: fontInfo.pt,
-      baseFontPx: fontInfo.px,
-      scaledFontPx: fs,
-      scale: fontInfo.scaleInfo?.scale,
-      containerWidth: containerRect?.width,
-      containerHeight: containerRect?.height,
-      effectiveContainerHeightForScale,
-      viewportExtensionForScale
-    });
+    if(debugEnabled){
+      console.debug('Debug: box font scaling applied',{
+        input: els.boxFontSize?.value || state.fontSize || '12',
+        fontSizePt: fontInfo.pt,
+        baseFontPx: fontInfo.px,
+        scaledFontPx: fs,
+        scale: fontInfo.scaleInfo?.scale,
+        containerWidth: containerRect?.width,
+        containerHeight: containerRect?.height,
+        effectiveContainerHeightForScale,
+        viewportExtensionForScale
+      });
+    }
     console.debug('Debug: box style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
@@ -31623,14 +31679,14 @@ Technical analysis record (advanced)
       styleScale: styleScaleInfo?.styleScale
     });
     const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
-    console.debug('Debug: box axis metrics', axisMetrics);
-    const showGrid = els.boxShowGrid.checked;
+    if(debugEnabled){ console.debug('Debug: box axis metrics', axisMetrics); }
+    const showGrid = !!els.boxShowGrid?.checked;
     const showFrame = !!els.boxShowFrame?.checked;
-    console.debug('Debug: box showFrame state',{ showFrame });
+    if(debugEnabled){ console.debug('Debug: box showFrame state',{ showFrame }); }
     const showLegend = !!els.boxShowLegend?.checked;
-    console.debug('Debug: box showLegend state',{ showLegend });
-    const logScale = els.boxLogScale.checked;
-    const graphTypeRaw = els.boxGraphType.value;
+    if(debugEnabled){ console.debug('Debug: box showLegend state',{ showLegend }); }
+    const logScale = !!els.boxLogScale?.checked;
+    const graphTypeRaw = els.boxGraphType?.value || 'strip';
     const annotationClearanceMin = Math.max(
       6,
       (fs || 12) * 0.35,
@@ -31653,8 +31709,8 @@ Technical analysis record (advanced)
     if(usesSummarySelector){
       individualSummaryMode = syncBoxSummaryControlForGraphType(graphTypeRaw);
     }
-    console.debug('Debug: box summary selector mode',{ graphTypeRaw, individualSummaryMode });
-    const pointMode = els.boxPointMode.value;
+    if(debugEnabled){ console.debug('Debug: box summary selector mode',{ graphTypeRaw, individualSummaryMode }); }
+    const pointMode = els.boxPointMode?.value || state.pointMode || 'all';
     const connectPointsRequested = !!state.connectPointsAcrossDatasets;
     const connectPointsEligible = isBoxPointConnectionModeEligible(graphTypeRaw, pointMode);
     const connectPointsActive = connectPointsRequested && connectPointsEligible;
@@ -31667,8 +31723,8 @@ Technical analysis record (advanced)
         pointMode
       });
     }
-    const showCaps = els.boxShowCaps.checked;
-    const errorMode = els.boxErrorMode.value;
+    const showCaps = els.boxShowCaps?.checked !== false;
+    const errorMode = els.boxErrorMode?.value || state.errorMode || 'sem';
     const isFlipped = !!els.boxFlipAxes?.checked;
     state.flipAxes = isFlipped;
     syncBoxFlipTransitionOrientationFromState('draw-orientation-sync');
@@ -31886,7 +31942,7 @@ Technical analysis record (advanced)
           const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
           const col = [];
           const rowIndices = [];
-          console.time(`boxColCollect_${i}_${token}`);
+          if(debugEnabled){ console.time(`boxColCollect_${i}_${token}`); }
           for(let r = dataStartRow; r < nRows; r++){
             const rawValue = dataMatrix?.[r]?.[i];
             if(rawValue === null || typeof rawValue === 'undefined'){
@@ -31904,7 +31960,7 @@ Technical analysis record (advanced)
               console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
             }
           }
-          console.timeEnd(`boxColCollect_${i}_${token}`);
+          if(debugEnabled){ console.timeEnd(`boxColCollect_${i}_${token}`); }
           boxLog('boxplot collected column',{ index: i, values: col.length });
           if(!isBoxDrawTokenCurrent(drawSession, token)){
             finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
@@ -31962,7 +32018,7 @@ Technical analysis record (advanced)
             }
             const values = [];
             const rowIndices = [];
-            console.time(`boxColCollect_${colIndex}_${token}`);
+            if(debugEnabled){ console.time(`boxColCollect_${colIndex}_${token}`); }
             for(let r = dataStartRow; r < nRows; r++){
               const rawValue = dataMatrix?.[r]?.[colIndex];
               if(rawValue === null || typeof rawValue === 'undefined'){
@@ -31980,7 +32036,7 @@ Technical analysis record (advanced)
                 console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
               }
             }
-            console.timeEnd(`boxColCollect_${colIndex}_${token}`);
+            if(debugEnabled){ console.timeEnd(`boxColCollect_${colIndex}_${token}`); }
             boxLog('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
             if(!isBoxDrawTokenCurrent(drawSession, token)){
               finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
@@ -31995,7 +32051,7 @@ Technical analysis record (advanced)
             }
           }
           if(!replicateBucket.length){
-            console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
+            if(debugEnabled){ console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx }); }
             continue;
           }
           const finalCategoryName = conditionLabels[repIdx] || `Condition ${repIdx + 1}`;
@@ -32238,16 +32294,23 @@ Technical analysis record (advanced)
       }
       return candidates[candidates.length - 1] || candidates[0] || null;
     })();
+    const plotDiv = els.plotDiv || getBoxNodeById('boxPlot');
+    if(plotDiv){
+      els.plotDiv = plotDiv;
+    }
+    if(!plotDiv){
+      return;
+    }
     if(!retainPreviousPlotFrame){
-      while (els.plotDiv.firstChild) els.plotDiv.removeChild(els.plotDiv.firstChild);
+      while (plotDiv.firstChild) plotDiv.removeChild(plotDiv.firstChild);
     }else if(debugEnabled){
       console.debug('Debug: box retaining previous plot frame during async redraw', {
         reason: drawOpts?.reason || null,
         retainedNodeCount: retainedPlotNodes?.length || 0
       });
     }
-    let W = Math.max(50, Math.floor(plotResizeZone.width || els.plotDiv.clientWidth || 50));
-    let H = Math.max(40, Math.floor(plotResizeZone.height || els.plotDiv.clientHeight || 40));
+    let W = Math.max(50, Math.floor(plotResizeZone.width || plotDiv.clientWidth || 50));
+    let H = Math.max(40, Math.floor(plotResizeZone.height || plotDiv.clientHeight || 40));
     if(drawOpts?.reason === 'flip-axes-change'){
       const pendingZone = consumeBoxFlipTransitionPendingDrawZoneOverride(resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
       if(pendingZone && Number.isFinite(Number(pendingZone.width)) && Number(pendingZone.width) > 0
@@ -32603,8 +32666,8 @@ Technical analysis record (advanced)
         console.debug('Debug: box stacked extent',{ categories: stackedPreview.size, ymin, ymax });
       }
     }
-    const userYMin = parseFloat(els.boxYMin.value);
-    const userYMax = parseFloat(els.boxYMax.value);
+    const userYMin = parseFloat(els.boxYMin?.value || '');
+    const userYMax = parseFloat(els.boxYMax?.value || '');
     if(!Number.isFinite(userYMax) && shouldAutoScaleBoxAxisToVisibleFeature(graphTypeRaw, pointMode)){
       let visibleAutoYMax = null;
       if(graphTypeRaw === 'bar'){
@@ -37953,7 +38016,9 @@ Technical analysis record (advanced)
         flipAxes: state.flipAxes,
         tableFormat: state.tableFormat,
         grouped: {
-          replicatesPerGroup: state.grouped?.replicatesPerGroup
+          replicatesPerGroup: state.grouped?.replicatesPerGroup,
+          groups: Array.isArray(state.grouped?.groups) ? state.grouped.groups.slice() : undefined,
+          conditions: Array.isArray(state.grouped?.conditions) ? state.grouped.conditions.slice() : undefined
         },
         whisker: {
           rule: state.whiskerRule,

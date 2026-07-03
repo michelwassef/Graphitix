@@ -1797,7 +1797,14 @@
       : (Number.isFinite(Number(hotOptions?.formulaReferenceOverlayMaxCells))
         ? Math.max(1, Math.floor(Number(hotOptions.formulaReferenceOverlayMaxCells)))
         : 2048);
+    const DEFAULT_GRID_ROW_HEIGHT = 20;
+    const DEFAULT_GRID_HEADER_HEIGHT = 20;
+    const DEFAULT_DATA_COLUMN_WIDTH = 80;
+    const SPREADSHEET_NUMERIC_VALUE_RE = /^[+-]?(?:(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?)|\.\d+)(?:[eE][+-]?\d+)?%?$/;
     const colDefEnhancer = typeof overrides?.colDefEnhancer === 'function' ? overrides.colDefEnhancer : null;
+    const suppressScheduleForSource = typeof overrides?.suppressScheduleForSource === 'function'
+      ? overrides.suppressScheduleForSource
+      : (typeof hotOptions.suppressScheduleForSource === 'function' ? hotOptions.suppressScheduleForSource : null);
     let instance;
     const allowCustomPasteBypass = overrides?.allowCustomPasteBypass === true || hotOptions.allowCustomPasteBypass === true;
     const disableBuiltInPaste = allowCustomPasteBypass === true && (overrides?.disablePaste === true || hotOptions.disablePaste === true);
@@ -7155,6 +7162,85 @@
       });
     };
 
+    const ROW_HEADER_MIN_WIDTH = 24;
+    const ROW_HEADER_MAX_WIDTH = 96;
+    const ROW_HEADER_HORIZONTAL_PAD = 14;
+    const ROW_HEADER_DIGIT_WIDTH = 8;
+    let rowHeaderWidth = 30;
+    let rowHeaderWidthUpdatePending = false;
+
+    const estimateRowHeaderWidthForLabels = labels=>{
+      const maxLen = labels.reduce((max, label)=>Math.max(max, String(label || '').length), 0);
+      return Math.max(
+        ROW_HEADER_MIN_WIDTH,
+        Math.min(ROW_HEADER_MAX_WIDTH, Math.ceil((maxLen * ROW_HEADER_DIGIT_WIDTH) + ROW_HEADER_HORIZONTAL_PAD))
+      );
+    };
+
+    const collectVisibleRowHeaderLabels = ()=>{
+      if(!container || typeof container.querySelectorAll !== 'function'){
+        return [];
+      }
+      return Array.from(container.querySelectorAll('.ag-cell[col-id="__rowHeader"]'))
+        .filter(cell => !cell.closest('.ag-floating-top,.ag-pinned-top,.ag-floating-top-viewport,.ag-pinned-top-viewport'))
+        .map(cell => String(cell.textContent || '').trim())
+        .filter(Boolean);
+    };
+
+    const applyRowHeaderWidth = (width, reason)=>{
+      if(!rowHeadersEnabled || !Number.isFinite(width) || width <= 0 || width === rowHeaderWidth){
+        return;
+      }
+      rowHeaderWidth = width;
+      const api = instance?.gridApi;
+      const columnStateApi = resolveColumnStateApi(api);
+      try{
+        if(columnStateApi && typeof columnStateApi.applyColumnState === 'function'){
+          columnStateApi.applyColumnState({
+            state: [{ colId: '__rowHeader', width }],
+            applyOrder: false
+          });
+        }else if(api && typeof api.setGridOption === 'function'){
+          api.setGridOption('columnDefs', buildColumnDefs());
+        }
+      }catch(err){
+        console.error('Shared.hot row header width update error', { debugLabel, reason, err });
+      }
+    };
+
+    const updateVisibleRowHeaderWidth = reason=>{
+      if(rowHeaderWidthUpdatePending){
+        return;
+      }
+      rowHeaderWidthUpdatePending = true;
+      const doc = container?.ownerDocument || document;
+      const win = doc?.defaultView || global;
+      const raf = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      raf(()=>{
+        rowHeaderWidthUpdatePending = false;
+        const labels = collectVisibleRowHeaderLabels();
+        if(!labels.length){
+          return;
+        }
+        applyRowHeaderWidth(estimateRowHeaderWidthForLabels(labels), reason || 'visible-row-headers');
+      });
+    };
+
+    const bindRowHeaderWidthEvents = api=>{
+      if(!api || typeof api.addEventListener !== 'function'){
+        return;
+      }
+      const handler = event=>updateVisibleRowHeaderWidth(event?.type || 'grid-event');
+      ['bodyScroll', 'bodyScrollEnd', 'viewportChanged', 'modelUpdated', 'firstDataRendered'].forEach(eventName=>{
+        try{
+          api.addEventListener(eventName, handler);
+          cleanupFns.push(()=>{ try{ api.removeEventListener?.(eventName, handler); }catch(_err){} });
+        }catch(_err){}
+      });
+    };
+
     const buildRowHeaderColDef = ()=>{
       if(!rowHeadersEnabled){
         return null;
@@ -7168,7 +7254,8 @@
         suppressNavigable: true,
         editable: false,
         resizable: false,
-        width: 56,
+        minWidth: ROW_HEADER_MIN_WIDTH,
+        width: rowHeaderWidth,
         valueGetter(params){
           const node = params?.node;
           const isPinnedTop = !!(node && node.rowPinned === 'top');
@@ -7301,9 +7388,9 @@
       return result;
     };
 
-    const fixedDataColWidth = Math.round((Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
+    const fixedDataColWidth = Math.round(Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
       ? overrides.fixedColumnWidth
-      : 80) * 1.2);
+      : DEFAULT_DATA_COLUMN_WIDTH);
     const pinFirstDataColumn = overrides?.pinFirstColumn === true;
     const rowSelectionConfig = (Object.prototype.hasOwnProperty.call(overrides || {}, 'rowSelection'))
       ? overrides.rowSelection
@@ -8051,6 +8138,67 @@
     };
 
     const buildColumnDefs = ()=>{
+      const appendClassResult = (classes, classSource, params)=>{
+        let result = classSource;
+        if(typeof classSource === 'function'){
+          result = classSource(params);
+        }
+        if(Array.isArray(result)){
+          classes.push(...result.filter(Boolean));
+        }else if(typeof result === 'string' && result.trim()){
+          classes.push(result.trim());
+        }
+      };
+      const isSpreadsheetNumericValue = value=>{
+        if(value == null || value === '' || typeof value === 'boolean'){
+          return false;
+        }
+        if(typeof value === 'number'){
+          return Number.isFinite(value);
+        }
+        const text = String(value).trim();
+        if(!text || text.startsWith("'") || text.startsWith('=')){
+          return false;
+        }
+        return SPREADSHEET_NUMERIC_VALUE_RE.test(text);
+      };
+      const formatSpreadsheetDisplayValue = (value, params)=>{
+        const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+        if(Number.isInteger(physicalRow) && isHeaderRow(physicalRow)){
+          return value;
+        }
+        if(typeof value !== 'string'){
+          return value == null ? '' : value;
+        }
+        const text = value.trim();
+        if(!/^[+-]?\d+$/.test(text)){
+          return value;
+        }
+        const sign = text.startsWith('-') || text.startsWith('+') ? text.charAt(0) : '';
+        const digits = sign ? text.slice(1) : text;
+        const normalizedDigits = digits.replace(/^0+(?=\d)/, '');
+        return `${sign}${normalizedDigits || '0'}`;
+      };
+      const normalizeSpreadsheetEditValue = value=>{
+        if(typeof value !== 'string'){
+          return value;
+        }
+        const text = value.trim();
+        if(!/^[+-]?\d+$/.test(text)){
+          return value;
+        }
+        const sign = text.startsWith('-') || text.startsWith('+') ? text.charAt(0) : '';
+        const digits = sign ? text.slice(1) : text;
+        const normalizedDigits = digits.replace(/^0+(?=\d)/, '');
+        return sign === '-' ? `-${normalizedDigits || '0'}` : (normalizedDigits || '0');
+      };
+      const resolveSpreadsheetAlignmentClass = params=>{
+        const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex ?? params?.node?.rowIndex);
+        if(Number.isInteger(physicalRow) && isHeaderRow(physicalRow)){
+          return 'hot-cell-text';
+        }
+        return isSpreadsheetNumericValue(params?.value) ? 'hot-cell-numeric' : 'hot-cell-text';
+      };
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
         : Array.from({ length: colCount }, (_, col)=>{
@@ -8209,6 +8357,29 @@
         const colId = colDef.colId ?? null;
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
+          const existingCellClass = colDef.cellClass;
+          colDef.cellClass = params=>{
+            const classes = [];
+            appendClassResult(classes, existingCellClass, params);
+            classes.push(resolveSpreadsheetAlignmentClass(params));
+            return classes.length ? classes.join(' ') : null;
+          };
+          const existingValueFormatter = colDef.valueFormatter;
+          colDef.valueFormatter = params=>{
+            const value = typeof existingValueFormatter === 'function'
+              ? existingValueFormatter(params)
+              : params?.value;
+            return formatSpreadsheetDisplayValue(value, params);
+          };
+          const existingValueSetter = colDef.valueSetter;
+          if(typeof existingValueSetter === 'function'){
+            colDef.valueSetter = params=>{
+              if(params && Object.prototype.hasOwnProperty.call(params, 'newValue')){
+                params.newValue = normalizeSpreadsheetEditValue(params.newValue);
+              }
+              return existingValueSetter(params);
+            };
+          }
           const existingHeaderClass = colDef.headerClass;
           colDef.headerClass = params=>{
             const classes = [];
@@ -9337,6 +9508,9 @@
         return;
       }
       const payload = Object.assign({ reason }, meta || {});
+      if(suppressScheduleForSource && suppressScheduleForSource(payload.source, payload, reason) === true){
+        return;
+      }
       if(!payload.invalidate){
         const inferredInvalidate = classifyScheduleInvalidation(reason, payload);
         if(inferredInvalidate){
@@ -9427,7 +9601,7 @@
       pruneColumnWidthOverrides();
       columnDefs = buildColumnDefs();
       applyColumnDefs(api, columnDefs);
-      applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
+      applyHeaderHeight(api, colHeadersEnabled ? DEFAULT_GRID_HEADER_HEIGHT : 0);
       applyCapturedColumnWidths(api, preservedWidths);
     };
 
@@ -9492,7 +9666,7 @@
         pendingRebuildColumns = false;
         updateVirtualizationState('flushBatch-columns');
         applyColumnDefs(api, columnDefs);
-        applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
+        applyHeaderHeight(api, colHeadersEnabled ? DEFAULT_GRID_HEADER_HEIGHT : 0);
       }
       if(pendingRender){
         pendingRender = false;
@@ -12006,6 +12180,7 @@
     const gridOptions = {
       rowData,
       pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
+      rowHeight: DEFAULT_GRID_ROW_HEIGHT,
 
       columnDefs,
       rowBuffer: initialRowBuffer,
@@ -12038,7 +12213,7 @@
         suppressMenuHide: true,
         ensureDomOrder: true,
         alwaysShowHorizontalScroll: true,
-        headerHeight: colHeadersEnabled ? 24 : 0,
+        headerHeight: colHeadersEnabled ? DEFAULT_GRID_HEADER_HEIGHT : 0,
       isExternalFilterPresent(){
         return compiledColumnFilters.size > 0;
       },
@@ -12164,12 +12339,15 @@
         updateSelectionFromApi(params.api);
         ensureViewportScrollHandler();
         ensureAgHorizontalWheelRedirectHandler();
+        bindRowHeaderWidthEvents(params.api);
         maybeGrowRows('gridReady');
         maybeGrowCols('gridReady');
+        updateVisibleRowHeaderWidth('gridReady');
       },
       onFirstDataRendered(){
         ensureViewportScrollHandler();
         ensureAgHorizontalWheelRedirectHandler();
+        updateVisibleRowHeaderWidth('firstDataRendered');
       },
       onSortChanged(params){
         const apiRef = params?.api || instance?.gridApi;

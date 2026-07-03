@@ -13481,7 +13481,9 @@
                   normalizeScatterGroupedHeaderRow(hotInstance, { source: 'scatter-grouped-header-normalize' });
                   persistTabState('scatter-grouped-header-row-edit');
                 }
-                updateScatterNestedHeaders(hotInstance);
+                if(headerTouched || source === 'scatter-grouped-header-normalize'){
+                  updateScatterNestedHeaders(hotInstance);
+                }
               }
               revalidateActiveScatterLogAxis('x','data-edit');
               revalidateActiveScatterLogAxis('y','data-edit');
@@ -13492,6 +13494,7 @@
               }
             },
             afterLoadData(){
+              hotInstance.__scatterAppliedTableFormatSignature = null;
               ensureScatterHeaderTitles(hotInstance, {
                 graphType: scatterCurrentGraphType,
                 tableFormat: getScatterReplicateMode()
@@ -14165,7 +14168,8 @@
       }
 
       function getScatterReplicateMode(){
-        return normalizeScatterTableFormat(scatterTableFormatSelect?.value || scatterTableFormat);
+        const sessionGrouped = getActiveScatterSessionForState()?.state?.grouped;
+        return normalizeScatterTableFormat(sessionGrouped?.tableFormat || scatterTableFormat);
       }
 
       function isGroupedScatterModeActive(){
@@ -14277,12 +14281,19 @@
             hotRoot.style.removeProperty('--scatter-group-span');
           }
         }
+        const signature = groupedActive
+          ? `grouped:${scatterCurrentGraphType}:${replicates}:${xReplicatesEnabled ? 1 : 0}:${typeof hot.countCols === 'function' ? hot.countCols() : ''}`
+          : `single:${typeof hot.countCols === 'function' ? hot.countCols() : ''}`;
+        if(hot.__scatterAppliedTableFormatSignature === signature){
+          return;
+        }
         if(!groupedActive){
           hot.updateSettings({
             nestedHeaders: false,
             colHeaders: buildScatterAgColHeaders(hot, options),
             columnDragGroups: null
           });
+          hot.__scatterAppliedTableFormatSignature = signature;
           return;
         }
         hot.updateSettings({
@@ -14290,6 +14301,7 @@
           colHeaders: buildScatterAgColHeaders(hot, options),
           columnDragGroups: buildScatterGroupedColumnDragGroups(hot, options)
         });
+        hot.__scatterAppliedTableFormatSignature = signature;
         scatterDebug('Debug: scatter grouped col headers restored', {
           replicates,
           xReplicateCount
@@ -25794,10 +25806,14 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             showPI: payloadScatterShowPI ? !!payloadScatterShowPI.checked : undefined,
             showDiagnostics:isScatterDiagnosticsEnabled(),
             graphType:payloadScatterGraphType?.value || scatterCurrentGraphType || 'scatter',
-            tableFormat: normalizeScatterTableFormat(payloadScatterTableFormat?.value || scatterTableFormat),
-            replicates: clampScatterReplicateCount(scatterReplicates),
-            xReplicates: !!scatterGroupedXReplicates,
-            groupLabels: Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : [],
+            tableFormat: normalizeScatterTableFormat(payloadSession?.state?.grouped?.tableFormat || payloadScatterTableFormat?.value || scatterTableFormat),
+            replicates: clampScatterReplicateCount(payloadSession?.state?.grouped?.replicates ?? scatterReplicates),
+            xReplicates: typeof payloadSession?.state?.grouped?.groupedXReplicates === 'boolean'
+              ? !!payloadSession.state.grouped.groupedXReplicates
+              : !!scatterGroupedXReplicates,
+            groupLabels: Array.isArray(payloadSession?.state?.grouped?.seriesGroupLabels)
+              ? payloadSession.state.grouped.seriesGroupLabels.slice()
+              : (Array.isArray(scatterSeriesGroupLabels) ? scatterSeriesGroupLabels.slice() : []),
             showErrorBars: scatterShowErrorBars ? !!scatterShowErrorBars.checked : false,
             showGroupedReplicatePoints: scatterShowGroupedReplicates ? !!scatterShowGroupedReplicates.checked : false,
             errorBarWidth: scatterErrorBarWidth ? scatterErrorBarWidth.value : undefined,

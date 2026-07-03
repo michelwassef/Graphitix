@@ -568,8 +568,19 @@ describe('UI events and example loaders', () => {
     expect(String(matrix?.[1]?.[4] || '')).toBe('Week 1');
     expect(String(matrix?.[1]?.[5] || '')).toBe('Week 2');
 
+    await flushAsyncWork(40);
+    const updateSettingsSpy = jest.spyOn(hot, 'updateSettings');
+    await flushAsyncWork(10);
+    updateSettingsSpy.mockClear();
+    hot.setDataAtCell?.(2, 4, 99);
+    await flushAsyncWork(20);
+    expect(updateSettingsSpy).not.toHaveBeenCalled();
+
     hot.setDataAtCell?.(1, 4, 'Day 7');
     await flushAsyncWork(40);
+    expect(updateSettingsSpy).not.toHaveBeenCalled();
+    updateSettingsSpy.mockRestore();
+
     const synced = hot.getData?.() || [];
     expect(String(synced?.[1]?.[1] || '')).toBe('Day 7');
     expect(String(synced?.[1]?.[4] || '')).toBe('Day 7');
@@ -814,6 +825,13 @@ describe('UI events and example loaders', () => {
       ['', '', '', '', '', '', '', '']
     ]);
     await flushAsyncWork(40);
+
+    const updateSettingsSpy = jest.spyOn(hot, 'updateSettings');
+    updateSettingsSpy.mockClear();
+    hot.setDataAtCell?.(2, 5, 27);
+    await flushAsyncWork(20);
+    expect(updateSettingsSpy).not.toHaveBeenCalled();
+    updateSettingsSpy.mockRestore();
 
     const showErrorBars = document.getElementById('scatterShowErrorBars');
     expect(showErrorBars).toBeTruthy();

@@ -163,6 +163,31 @@ describe('Line view labels', () => {
     ]);
   });
 
+  test('3D conversion from grouped replicates keeps custom X headers stable', async () => {
+    const hooks = window.Components?.line?.__testHooks;
+    expect(hooks).toBeTruthy();
+
+    const grouped = [
+      ['Hours', 'Control Rep 1', 'Control Rep 2', 'Control Rep 3', 'Treated Rep 1', 'Treated Rep 2', 'Treated Rep 3'],
+      [0, 45, 43, 47, 50, 48, 49],
+      [24, 58, 60, 57, 68, 70, 69],
+      [48, 72, 71, 74, 80, 82, 81]
+    ];
+
+    const converted = hooks.buildLine3dMatrixFrom2d(grouped, 3);
+    expect(hooks.isLine3dDatasetHeaderMatrix(converted.data)).toBe(true);
+    expect(hooks.inferLine3dSeriesCount(converted.data)).toBe(2);
+    expect(converted.data[1].slice(0, 6)).toEqual(['Hours', 'Y', 'Z', 'Hours', 'Y', 'Z']);
+
+    const once = hooks.applyLine3dHeaderRow(converted.data, hooks.inferLine3dSeriesCount(converted.data));
+    const twice = hooks.applyLine3dHeaderRow(once, hooks.inferLine3dSeriesCount(once));
+
+    expect(hooks.inferLine3dSeriesCount(once)).toBe(2);
+    expect(hooks.inferLine3dSeriesCount(twice)).toBe(2);
+    expect(once[0].length).toBe(6);
+    expect(twice[0].length).toBe(6);
+  });
+
   test('legend label clicks do not hide rendered line series', async () => {
     const exampleBtn = document.getElementById('lineLoadExample');
     expect(exampleBtn).toBeTruthy();

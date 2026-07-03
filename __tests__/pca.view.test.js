@@ -155,6 +155,32 @@ describe('PCA view controls', () => {
     expect(payload.config.viewMode).toBe('3d');
   });
 
+  test('grouped body edits do not rebuild AG Grid headers', async () => {
+    const formatSelect = document.getElementById('pcaTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(12);
+
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+    hot.loadData([
+      ['Labels', true, false, true, false],
+      ['Group', 'Control', '', 'Treated', ''],
+      ['Sample', 'A', 'B', 'C', 'D'],
+      ['Var1', 1, 2, 3, 4],
+      ['Var2', 2, 3, 4, 5]
+    ]);
+    await flushAll(12);
+
+    const updateSettingsSpy = jest.spyOn(hot, 'updateSettings');
+    updateSettingsSpy.mockClear();
+    hot.setDataAtCell?.(3, 2, 8);
+    await flushAll(8);
+    expect(updateSettingsSpy).not.toHaveBeenCalled();
+    updateSettingsSpy.mockRestore();
+  });
+
   test('PCA scree data and eigen table export are generated for example dataset', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
