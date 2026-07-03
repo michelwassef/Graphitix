@@ -571,6 +571,54 @@
     return normalized;
   }
 
+  function patchLineStylesState(session = null, patch = {}, meta = {}){
+    const current = getLineStylesState(session);
+    return setLineStylesState(session, {
+      ...current,
+      ...(patch || {}),
+      series: Object.prototype.hasOwnProperty.call(patch || {}, 'series') ? patch.series : current.series,
+      overlays: Object.prototype.hasOwnProperty.call(patch || {}, 'overlays') ? patch.overlays : current.overlays,
+      overlayToolbarScope: Object.prototype.hasOwnProperty.call(patch || {}, 'overlayToolbarScope')
+        ? patch.overlayToolbarScope
+        : current.overlayToolbarScope
+    }, meta);
+  }
+
+  function patchLineSeriesStyleState(session = null, seriesKey = '', patch = {}, meta = {}){
+    const resolvedKey = String(seriesKey == null ? '' : seriesKey).trim();
+    if(!resolvedKey){
+      return getLineStylesState(session);
+    }
+    const current = getLineStylesState(session);
+    const nextSeries = cloneLineRuntimeValue(current.series, {}) || {};
+    nextSeries[resolvedKey] = Object.assign({}, nextSeries[resolvedKey] || {}, patch || {});
+    return patchLineStylesState(session, { series: nextSeries }, {
+      ...(meta || {}),
+      reason: meta?.reason || 'line-series-style-patch'
+    });
+  }
+
+  function renameLineSeriesStyleStateKey(session = null, previousLabel = '', nextLabel = '', meta = {}){
+    const previous = previousLabel == null ? '' : String(previousLabel).trim();
+    const next = nextLabel == null ? '' : String(nextLabel).trim();
+    if(!previous || !next || previous === next){
+      return getLineStylesState(session);
+    }
+    const current = getLineStylesState(session);
+    const nextSeries = cloneLineRuntimeValue(current.series, {}) || {};
+    if(!Object.prototype.hasOwnProperty.call(nextSeries, previous)){
+      return current;
+    }
+    if(!Object.prototype.hasOwnProperty.call(nextSeries, next)){
+      nextSeries[next] = Object.assign({}, nextSeries[previous]);
+    }
+    delete nextSeries[previous];
+    return patchLineStylesState(session, { series: nextSeries }, {
+      ...(meta || {}),
+      reason: meta?.reason || 'line-series-style-rename'
+    });
+  }
+
   function getLineGroupedState(session = null){
     const target = resolveLineStateSession(session);
     if(target?.state){
@@ -614,6 +662,32 @@
       labels: Object.prototype.hasOwnProperty.call(patch || {}, 'labels') ? patch.labels : current.labels,
       shapes: Object.prototype.hasOwnProperty.call(patch || {}, 'shapes') ? patch.shapes : current.shapes
     }, meta);
+  }
+
+  function setLineGroupShapesState(session = null, shapes = [], meta = {}){
+    const normalizedShapes = Array.isArray(shapes)
+      ? shapes.map((shape, idx) => sanitizeLineGroupShape(shape, idx))
+      : [];
+    const grouped = patchLineGroupedState(session, { shapes: normalizedShapes }, {
+      ...(meta || {}),
+      reason: meta?.reason || 'line-group-shapes-state'
+    });
+    return Array.isArray(grouped.shapes) ? grouped.shapes.slice() : [];
+  }
+
+  function patchLineGroupShapeState(session = null, index = 0, shape = '', meta = {}){
+    const safeIndex = Number.isInteger(index) && index >= 0 ? index : 0;
+    const grouped = getLineGroupedState(session);
+    const count = Math.max(Array.isArray(grouped.labels) ? grouped.labels.length : 0, Array.isArray(grouped.shapes) ? grouped.shapes.length : 0, safeIndex + 1);
+    const shapes = new Array(count);
+    for(let i = 0; i < count; i += 1){
+      shapes[i] = sanitizeLineGroupShape(grouped.shapes?.[i], i);
+    }
+    shapes[safeIndex] = sanitizeLineGroupShape(shape, safeIndex);
+    return setLineGroupShapesState(session, shapes, {
+      ...(meta || {}),
+      reason: meta?.reason || 'line-group-shape-patch'
+    });
   }
 
   function getLineForecastState(session = null){
@@ -947,7 +1021,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    lineUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || ((opts) => lineUndoManager.recordStateChange(opts));
+    recorder({
+      manager: lineUndoManager,
       label,
       scope: 'lineGraphPanel',
       from: previous,
@@ -6341,31 +6417,31 @@
         inputEl.value = value;
         inputEl.dispatchEvent(new Event(type, { bubbles: true }));
       };
-      const ensureSeriesStyle = key => {
-        const resolvedKey = String(key == null ? '' : key).trim();
-        if(!resolvedKey){ return null; }
-        const prev = lineSeriesStyles[resolvedKey];
-        if(prev && typeof prev === 'object'){
-          return prev;
-        }
-        lineSeriesStyles[resolvedKey] = {};
-        return lineSeriesStyles[resolvedKey];
-      };
       const applySeriesPatch = (patch, keyOverride) => {
         const resolvedKey = String(keyOverride == null ? seriesKey : keyOverride).trim();
         if(!resolvedKey){ return; }
-        const style = ensureSeriesStyle(resolvedKey);
-        Object.assign(style, patch);
+        patchLineSeriesStyleState(getLineActiveSessionForState(), resolvedKey, patch, { reason: 'line-series-style-change' });
         scheduleActiveLineDraw();
       };
       const knownSeriesKeys = () => {
         const keys = new Set(Object.keys(lineSeriesStyles || {}));
+        Object.keys(lineLabelColors || {}).forEach(name => {
+          const normalized = name == null ? '' : String(name).trim();
+          if(normalized){ keys.add(normalized); }
+        });
         if(Array.isArray(lineSeriesGroupLabels)){
           lineSeriesGroupLabels.forEach(name => {
             const normalized = name == null ? '' : String(name).trim();
             if(normalized){ keys.add(normalized); }
           });
         }
+        try{
+          const plotHost = refs.plot || getLineNodeById('linePlot');
+          plotHost?.querySelectorAll?.('[data-series]').forEach(node => {
+            const normalized = String(node?.dataset?.series || node?.getAttribute?.('data-series') || '').trim();
+            if(normalized){ keys.add(normalized); }
+          });
+        }catch(err){}
         if(seriesKey){ keys.add(seriesKey); }
         return Array.from(keys);
       };
@@ -6397,12 +6473,38 @@
       };
       const applyGlobalPatch = (key, value) => {
         const keys = knownSeriesKeys();
+        const activeSession = getLineActiveSessionForState();
+        const currentStyles = getLineStylesState(activeSession);
+        const nextSeries = cloneLineRuntimeValue(currentStyles.series, {}) || {};
         keys.forEach(k => {
-          lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
+          nextSeries[k] = Object.assign({}, nextSeries[k] || {}, { [key]: value });
         });
+        patchLineStylesState(activeSession, { series: nextSeries }, { reason: 'line-series-style-global-change' });
         scheduleActiveLineDraw();
       };
-      const resolveSeriesStyle = scopedSeriesKey => (scopedSeriesKey ? (lineSeriesStyles[scopedSeriesKey] || {}) : {});
+      const resolveSeriesStyle = scopedSeriesKey => {
+        if(!scopedSeriesKey){ return {}; }
+        const state = getLineStylesState(getLineActiveSessionForState());
+        return state.series?.[scopedSeriesKey] || {};
+      };
+      const resolveAggregateSeriesStyleValue = key => {
+        const keys = knownSeriesKeys();
+        const stylesState = getLineStylesState(getLineActiveSessionForState());
+        let resolved = null;
+        for(let i = 0; i < keys.length; i += 1){
+          const value = stylesState.series?.[keys[i]]?.[key];
+          if(typeof value !== 'string' || !value.trim()){
+            return null;
+          }
+          const normalized = value.trim();
+          if(resolved == null){
+            resolved = normalized;
+          }else if(resolved !== normalized){
+            return null;
+          }
+        }
+        return resolved;
+      };
       const getMarkerFill = ctx => {
         const scopedSeriesKey = resolveScopedSeriesKey(ctx);
         const style = resolveSeriesStyle(scopedSeriesKey);
@@ -6449,6 +6551,10 @@
         const style = resolveSeriesStyle(scopedSeriesKey);
         if(scopedSeriesKey){
           return style?.lineStroke || lineLabelColors[scopedSeriesKey] || strokeInput?.value || '#000000';
+        }
+        const aggregateLineStroke = resolveAggregateSeriesStyleValue('lineStroke');
+        if(aggregateLineStroke){
+          return aggregateLineStroke;
         }
         return strokeInput?.value || '#000000';
       };
@@ -6569,7 +6675,7 @@
               const safe = idx >= 0 ? idx : 0;
               const shapes = ensureLineGroupShapeCapacity(Math.max((lineSeriesGroupLabels || []).length, safe + 1));
               shapes[safe] = sanitizeShape(nextShape, safe);
-              lineGroupShapes = shapes;
+              setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-marker-shape-change' });
               updateLineGroupShapeSelect(safe, shapes[safe]);
               scheduleActiveLineDraw();
               return;
@@ -6586,7 +6692,7 @@
               }
             }
             if(changed){
-              lineGroupShapes = shapes;
+              setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-marker-shape-global-change' });
               scheduleActiveLineDraw();
             }
           }
@@ -6628,7 +6734,7 @@
         size: {
           get(ctx){
             const scopedSeriesKey = resolveScopedSeriesKey(ctx);
-            const style = scopedSeriesKey ? lineSeriesStyles[scopedSeriesKey] || {} : null;
+            const style = scopedSeriesKey ? resolveSeriesStyle(scopedSeriesKey) : null;
             if(scopedSeriesKey && Number.isFinite(Number(style?.dotSize))){
               return Number(style.dotSize);
             }
@@ -6775,7 +6881,7 @@
               if(scopedSeriesKey){
                 applySeriesPatch({ lineStroke: nextColor }, scopedSeriesKey);
               }else{
-                if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+                if(strokeInput){ strokeInput.value = nextColor; }
                 applyGlobalPatch('lineStroke', nextColor);
               }
             },
@@ -6784,7 +6890,7 @@
               if(scopedSeriesKey){
                 applySeriesPatch({ lineStroke: nextColor }, scopedSeriesKey);
               }else{
-                if(strokeInput){ applyAndDispatch(strokeInput, nextColor); }
+                if(strokeInput){ strokeInput.value = nextColor; }
                 applyGlobalPatch('lineStroke', nextColor);
               }
             },
@@ -8051,12 +8157,7 @@
       }
       delete lineLabelColors[previous];
     }
-    if(lineSeriesStyles && Object.prototype.hasOwnProperty.call(lineSeriesStyles, previous)){
-      if(!Object.prototype.hasOwnProperty.call(lineSeriesStyles, next)){
-        lineSeriesStyles[next] = Object.assign({}, lineSeriesStyles[previous]);
-      }
-      delete lineSeriesStyles[previous];
-    }
+    renameLineSeriesStyleStateKey(getLineActiveSessionForState(), previous, next, { reason: 'line-series-label-style-rename' });
   }
 
   function syncLineSeriesLabelState(nextLabels, options = {}){
@@ -8081,7 +8182,7 @@
     if(!changed){
       return false;
     }
-    lineSeriesGroupLabels = next;
+    patchLineGroupedState(getLineActiveSessionForState(), { labels: next }, { reason: options.reason || 'line-series-label-sync' });
     lineDebug('Debug: line series labels synced', {
       reason: options.reason || null,
       previous,
@@ -8512,15 +8613,24 @@
     return Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
   }
 
-  function ensureLineGroupShapeCapacity(count){
+  function ensureLineGroupShapeCapacity(count, session = null){
     const safeCount = Math.max(0, count | 0);
+    const targetSession = session || getLineActiveSessionForState();
+    const grouped = getLineGroupedState(targetSession);
+    const sourceShapes = Array.isArray(grouped.shapes) ? grouped.shapes : [];
     const nextShapes = new Array(safeCount);
+    let changed = sourceShapes.length !== safeCount;
     for(let i=0;i<safeCount;i+=1){
-      const existing = Array.isArray(lineGroupShapes) ? lineGroupShapes[i] : undefined;
+      const existing = sourceShapes[i];
       nextShapes[i] = sanitizeLineGroupShape(existing, i);
+      if(nextShapes[i] !== existing){
+        changed = true;
+      }
     }
-    lineGroupShapes = nextShapes;
-    return lineGroupShapes;
+    if(changed){
+      return setLineGroupShapesState(targetSession, nextShapes, { reason: 'line-group-shape-capacity' });
+    }
+    return nextShapes;
   }
 
   function getLineGroupShape(index){
@@ -8529,7 +8639,7 @@
     const resolved = sanitizeLineGroupShape(shapes[safeIndex], safeIndex);
     if(shapes[safeIndex] !== resolved){
       shapes[safeIndex] = resolved;
-      lineGroupShapes = shapes;
+      setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-group-shape-normalize' });
     }
     return resolved;
   }
@@ -8707,7 +8817,7 @@
       }
       nextShapes[s] = sanitizeLineGroupShape(candidateShape, s);
     }
-    lineGroupShapes = nextShapes;
+    setLineGroupShapesState(getLineActiveSessionForState(), nextShapes, { reason: 'line-replicate-matrix-shapes' });
     console.debug('Debug: line group labels synchronized', {
       shouldResetGroupLabels,
       preserveExistingLabels,
@@ -9138,7 +9248,7 @@
       shapeSelect.value = currentShape;
       shapeSelect.addEventListener('change', e => {
         const sanitized = sanitizeLineGroupShape(e.target.value, idx);
-        lineGroupShapes[idx] = sanitized;
+        patchLineGroupShapeState(getLineActiveSessionForState(), idx, sanitized, { reason: 'line-grouped-list-shape-change' });
         if(e.target.value !== sanitized){
           e.target.value = sanitized;
         }
@@ -9627,11 +9737,15 @@
     if(!snapshot || !hot){
       return false;
     }
-    if(Array.isArray(snapshot.groupLabels)){
-      lineSeriesGroupLabels = snapshot.groupLabels.slice();
-    }
-    if(Array.isArray(snapshot.groupShapes)){
-      lineGroupShapes = snapshot.groupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+    if(Array.isArray(snapshot.groupLabels) || Array.isArray(snapshot.groupShapes)){
+      const groupedPatch = {};
+      if(Array.isArray(snapshot.groupLabels)){
+        groupedPatch.labels = snapshot.groupLabels.slice();
+      }
+      if(Array.isArray(snapshot.groupShapes)){
+        groupedPatch.shapes = snapshot.groupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+      }
+      patchLineGroupedState(getLineActiveSessionForState(), groupedPatch, { reason: 'line-hot-state-restore-grouped' });
     }
     if(snapshot.labelColors && typeof snapshot.labelColors === 'object'){
       lineLabelColors = { ...snapshot.labelColors };
@@ -10931,7 +11045,7 @@
   }
 
   function buildLinePayloadSeriesStyles(data, viewMode){
-    const sourceStyles = lineSeriesStyles && typeof lineSeriesStyles === 'object' ? lineSeriesStyles : {};
+    const sourceStyles = getLineStylesState(getLineActiveSessionForState()).series || {};
     const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
     let labels = [];
     if(viewMode === '3d'){
@@ -11260,13 +11374,19 @@
       getLineViewState().equalAxes = false;
       lineDebug('Debug: line axes length payload exclusivity enforced', { kept: 'variance' });
     }
-    if(storedGroupLabels){
-      lineSeriesGroupLabels = storedGroupLabels.slice();
-      console.debug('Debug: line group labels restored from payload', { labels: storedGroupLabels });
-    }
-    if(storedGroupShapes){
-      lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
-      console.debug('Debug: line group shapes restored from payload', { shapes: lineGroupShapes.slice() });
+    if(storedGroupLabels || storedGroupShapes){
+      const groupedPatch = {};
+      if(storedGroupLabels){
+        groupedPatch.labels = storedGroupLabels.slice();
+        console.debug('Debug: line group labels restored from payload', { labels: storedGroupLabels });
+      }
+      if(storedGroupShapes){
+        groupedPatch.shapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+      }
+      patchLineGroupedState(payloadStateSession, groupedPatch, { reason: 'line-payload-grouped-restore' });
+      if(storedGroupShapes){
+        console.debug('Debug: line group shapes restored from payload', { shapes: lineGroupShapes.slice() });
+      }
     }
     if(!skipDataLoad && payloadHot && matrixData){
       if(wants3d){
@@ -11288,13 +11408,13 @@
           payloadHot.applyFilters?.(filtersToApply, { schedule: false });
         }
         if(storedGroupLabels){
-          lineSeriesGroupLabels = storedGroupLabels.slice();
+          patchLineGroupedState(payloadStateSession, { labels: storedGroupLabels.slice() }, { reason: 'line-payload-3d-labels' });
         }
         ensureLine3dGroupLabelCapacity(seriesCount);
         if(storedGroupShapes){
-          lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+          setLineGroupShapesState(payloadStateSession, storedGroupShapes, { reason: 'line-payload-3d-shapes' });
         }
-        ensureLineGroupShapeCapacity(seriesCount);
+        ensureLineGroupShapeCapacity(seriesCount, payloadStateSession);
         if(payloadRefs.displayMode){
           payloadRefs.displayMode.disabled = true;
           payloadRefs.displayMode.value = 'line';
@@ -11400,7 +11520,7 @@
       }
       updateLineReplicateModeControls(wants3d ? '3d' : undefined);
       if(storedGroupShapes){
-        lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+        setLineGroupShapesState(payloadStateSession, storedGroupShapes, { reason: 'line-payload-no-data-shapes' });
       }
     }
     if(!skipDataLoad && payloadHot){
@@ -11459,14 +11579,14 @@
     lineLabelColors = c.labelColors && typeof c.labelColors === 'object' && !Array.isArray(c.labelColors)
       ? cloneLineRuntimeValue(c.labelColors, {}) || {}
       : {};
-    lineSeriesStyles = c.seriesStyles && typeof c.seriesStyles === 'object' && !Array.isArray(c.seriesStyles)
+    const restoredSeriesStyles = c.seriesStyles && typeof c.seriesStyles === 'object' && !Array.isArray(c.seriesStyles)
       ? cloneLineRuntimeValue(c.seriesStyles, {}) || {}
       : {};
-    lineOverlayStyles=sanitizeLineOverlayStylesMap(c.overlayStyles);
+    const restoredOverlayStyles = sanitizeLineOverlayStylesMap(c.overlayStyles);
     setLineStylesState(payloadStateSession, {
       ...getLineStylesState(payloadStateSession),
-      series: lineSeriesStyles,
-      overlays: lineOverlayStyles
+      series: restoredSeriesStyles,
+      overlays: restoredOverlayStyles
     }, {
       ...(meta || {}),
       reason: meta?.colorSchemeOnly ? 'line-color-scheme-styles' : 'line-payload-styles'
@@ -16069,8 +16189,10 @@
         markLineOverlayPending('example-data');
         enterLine3dMode({ skipDraw: true });
         const hot = getActiveLineHotManager();
-        lineSeriesGroupLabels = example.groupLabels.slice();
-        lineGroupShapes = example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+        patchLineGroupedState(getLineActiveSessionForState(), {
+          labels: example.groupLabels.slice(),
+          shapes: example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx))
+        }, { reason: 'line-3d-example-grouped' });
         if(hot && Array.isArray(example?.data)){
           hot.loadData(example.data, {
             source: 'example-load',

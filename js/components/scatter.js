@@ -17586,7 +17586,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         if(typeof apply !== 'function'){
           return;
         }
-        scatterUndoManager.recordStateChange({
+        const recorder = Shared.styleUndo?.recordStateChange || (opts => scatterUndoManager.recordStateChange(opts));
+        recorder({
+          manager: scatterUndoManager,
           label,
           scope: 'scatterGraphPanel',
           from: previous,

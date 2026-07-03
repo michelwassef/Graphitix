@@ -1615,7 +1615,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    rocUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => rocUndoManager.recordStateChange(opts));
+    recorder({
+      manager: rocUndoManager,
       label,
       scope: 'rocGraphPanel',
       from: previous,

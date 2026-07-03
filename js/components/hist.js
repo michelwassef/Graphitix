@@ -3106,7 +3106,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    histUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => histUndoManager.recordStateChange(opts));
+    recorder({
+      manager: histUndoManager,
       label,
       scope: 'histGraphPanel',
       from: previous,

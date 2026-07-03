@@ -100,6 +100,7 @@ describe('Line view labels', () => {
     require('../js/shared/regression.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/axisControls.js');
+    require('../js/shared/symbolToolbar.js');
     require('../js/shared/additionalLineControls.js');
     require('../js/shared/significanceControls.js');
     require('../js/shared/stats.js');
@@ -180,6 +181,107 @@ describe('Line view labels', () => {
     await flushAll(5);
 
     expect(seriesPath.style.display).not.toBe('none');
+  });
+
+  test('line marker symbol controls update rendered series style', async () => {
+    const exampleBtn = document.getElementById('lineLoadExample');
+    expect(exampleBtn).toBeTruthy();
+
+    exampleBtn.click();
+    await flushAll(20);
+
+    const northMarker = Array.from(document.querySelectorAll('#lineSvg circle, #lineSvg rect, #lineSvg path'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(northMarker).toBeTruthy();
+    expect(northMarker.getAttribute('fill')?.toLowerCase()).not.toBe('#ffaa00');
+    const initialRadius = Number(northMarker.getAttribute('r')) || 0;
+
+    northMarker.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAll(5);
+
+    const fillInput = document.querySelector('.line-point-controls .shared-shape-color-input');
+    expect(fillInput).toBeTruthy();
+    fillInput.value = '#ffaa00';
+    fillInput.dispatchEvent(new Event('input', { bubbles: true }));
+    fillInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(30);
+
+    const updatedNorthMarker = Array.from(document.querySelectorAll('#lineSvg circle, #lineSvg rect, #lineSvg path'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(updatedNorthMarker?.getAttribute('fill')?.toLowerCase()).toBe('#ffaa00');
+
+    const lineColorInput = Array.from(document.querySelectorAll('.font-toolbar-host--line-dual .additional-line-controls-panel__color-input')).pop();
+    expect(lineColorInput).toBeTruthy();
+    lineColorInput.value = '#00aaee';
+    lineColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    lineColorInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(30);
+
+    const updatedNorthLine = document.querySelector('#lineSvg path[data-series="North"][data-render-mode="line"]');
+    expect(updatedNorthLine?.getAttribute('stroke')?.toLowerCase()).toBe('#00aaee');
+
+    const fillSwatch = document.querySelector('.line-point-controls .shared-shape-color-swatch');
+    expect(fillSwatch).toBeTruthy();
+    fillSwatch.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120 }));
+    await flushAll(30);
+
+    const resizedNorthMarker = Array.from(document.querySelectorAll('#lineSvg circle, #lineSvg rect, #lineSvg path'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(Number(resizedNorthMarker?.getAttribute('r'))).toBeGreaterThan(initialRadius);
+
+    fillSwatch.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await flushAll(5);
+    const squareInput = document.querySelector('.shared-color-picker__shape-input[value="square"]');
+    expect(squareInput).toBeTruthy();
+    squareInput.checked = true;
+    squareInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(30);
+
+    const reshapedNorthMarker = Array.from(document.querySelectorAll('#lineSvg rect'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(reshapedNorthMarker).toBeTruthy();
+  });
+
+  test('line toolbar global line color updates every rendered line', async () => {
+    const exampleBtn = document.getElementById('lineLoadExample');
+    expect(exampleBtn).toBeTruthy();
+
+    exampleBtn.click();
+    await flushAll(20);
+
+    const northMarker = Array.from(document.querySelectorAll('#lineSvg circle, #lineSvg rect, #lineSvg path'))
+      .find(node => node.__linePointData?.seriesName === 'North');
+    expect(northMarker).toBeTruthy();
+
+    northMarker.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await flushAll(5);
+
+    document.querySelectorAll('.font-toolbar-host--line-dual select').forEach(select => {
+      if(!Array.from(select.options || []).some(option => option.value === 'global')){
+        return;
+      }
+      select.value = 'global';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flushAll(5);
+    expect(Array.from(document.querySelectorAll('.font-toolbar-host--line-dual select'))
+      .filter(select => Array.from(select.options || []).some(option => option.value === 'global'))
+      .map(select => select.value)).toEqual(['global', 'global']);
+
+    const lineColorInput = Array.from(document.querySelectorAll('.font-toolbar-host--line-dual .additional-line-controls-panel__color-input')).pop();
+    expect(lineColorInput).toBeTruthy();
+    lineColorInput.value = '#cc00aa';
+    expect(lineColorInput.value).toBe('#cc00aa');
+    lineColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(lineColorInput.value).toBe('#cc00aa');
+    lineColorInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAll(30);
+
+    const renderedLines = Array.from(document.querySelectorAll('#lineSvg path[data-render-mode="line"]'));
+    expect(renderedLines.length).toBeGreaterThan(1);
+    expect(renderedLines.map(node => node.getAttribute('stroke')?.toLowerCase())).toEqual(
+      renderedLines.map(() => '#cc00aa')
+    );
   });
 
   test('same-component line tabs preserve rendered regression overlays after activation', async () => {

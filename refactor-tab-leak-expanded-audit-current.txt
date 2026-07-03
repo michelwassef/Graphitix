@@ -1,0 +1,1323 @@
+GRAPHITIX EXPANDED TAB-LEAK SURFACE AUDIT
+Generated: 2026-06-30T06:12:05.193Z
+Scope: js/components/*.js
+
+This is a conservative static audit. Findings are candidates for triage, not automatic proof of a bug.
+Prioritize ownerless callbacks that mutate module state or call active-singleton draw schedulers.
+
+Summary by class:
+- Ownerless event/control callback candidates: 349
+- Async/timer/worker stale-owner candidates: 55
+- Keyless pending/cache/result mirror candidates: 516
+- Active refs/managers/HOT/root mirror candidates: 66
+- Global listener / one-time bound-flag candidates: 51
+- Active-singleton draw scheduler calls: 234
+
+Summary by component:
+- js/components/box.js: 287
+- js/components/scatter.js: 198
+- js/components/line.js: 164
+- js/components/pca.js: 131
+- js/components/heatmap.js: 104
+- js/components/hist.js: 82
+- js/components/survival.js: 75
+- js/components/pie.js: 68
+- js/components/roc.js: 64
+- js/components/venn.js: 54
+- js/components/surface.js: 44
+
+----------------------------------------------------------------------
+Ownerless event/control callback candidates (HIGH) — 349
+----------------------------------------------------------------------
+js/components/box.js:1738: el.addEventListener('mouseenter', handleBoxPointEnter);
+js/components/box.js:1739: el.addEventListener('mousemove', handleBoxPointMove);
+js/components/box.js:1740: el.addEventListener('mouseleave', handleBoxPointLeave);
+js/components/box.js:1741: el.addEventListener('click', handleBoxPointClick);
+js/components/box.js:1949: node.addEventListener('click', handleBoxShapeClick);
+js/components/box.js:1964: node.addEventListener('click', handleBoxSummaryClick);
+js/components/box.js:2730: scopeSelect.addEventListener('change', () => {
+js/components/box.js:4714: el.addEventListener('click', handleBoxPointClick);
+js/components/box.js:8494: summaryGroup.addEventListener('click', params.onClick);
+js/components/box.js:13881: node.addEventListener(eventKey, wrappedHandler);
+js/components/box.js:14354: global.document.addEventListener('click', event => {
+js/components/box.js:14415: wrapper.addEventListener('mousedown', () => {
+js/components/box.js:18117: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/box.js:18672: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/box.js:20496: fillInput.addEventListener('input',e=>{
+js/components/box.js:20505: borderInput.addEventListener('input',e=>{
+js/components/box.js:25059: button.addEventListener('click',evt=>{
+js/components/box.js:25149: button.addEventListener('click',()=>{
+js/components/box.js:26609: toggle.addEventListener('click',()=>{
+js/components/box.js:26713: input.addEventListener('change',()=>{
+js/components/box.js:26733: btn.addEventListener('click',()=>{
+js/components/box.js:26775: btn.addEventListener('click',()=>{
+js/components/box.js:26821: applyBtn.addEventListener('click',()=>{
+js/components/box.js:26892: resetBtn.addEventListener('click',()=>{
+js/components/box.js:27017: checkbox.addEventListener('change', () => {
+js/components/box.js:27100: testSel.addEventListener('change',()=>{
+js/components/box.js:27120: pairedSel.addEventListener('change',()=>{
+js/components/box.js:27146: modeSel.addEventListener('change',()=>{
+js/components/box.js:27209: testChoiceSel.addEventListener('change',()=>{
+js/components/box.js:27237: nullInput.addEventListener('change',()=>{
+js/components/box.js:27263: postHocSel.addEventListener('change',()=>{
+js/components/box.js:27296: correctionSel.addEventListener('change',()=>{
+js/components/box.js:27342: alphaInput.addEventListener('change',()=>{
+js/components/box.js:27356: advancedDetails.addEventListener('toggle',()=>{
+js/components/box.js:27379: ciInput.addEventListener('change',()=>{
+js/components/box.js:27406: alternativeSel.addEventListener('change',()=>{
+js/components/box.js:27431: normalitySel.addEventListener('change',()=>{
+js/components/box.js:27456: varianceSel.addEventListener('change',()=>{
+js/components/box.js:27480: distributionSel.addEventListener('change',()=>{
+js/components/box.js:27497: trendInput.addEventListener('change',()=>{
+js/components/box.js:27523: resamplingSel.addEventListener('change',()=>{
+js/components/box.js:27542: iterationsInput.addEventListener('change',()=>{
+js/components/box.js:27559: seedInput.addEventListener('change',()=>{
+js/components/box.js:27586: outlierSel.addEventListener('change',()=>{
+js/components/box.js:27607: outlierParamInput.addEventListener('change',()=>{
+js/components/box.js:27636: paramEffectSel.addEventListener('change',()=>{
+js/components/box.js:27657: nonParamEffectSel.addEventListener('change',()=>{
+js/components/box.js:27695: refSel.addEventListener('change',()=>{
+js/components/box.js:27711: pairInput.addEventListener('change',()=>{
+js/components/box.js:27768: select.addEventListener('change',()=>{
+js/components/box.js:27799: scopeSel.addEventListener('change',()=>{
+js/components/box.js:27827: familySel.addEventListener('change',()=>{
+js/components/box.js:27851: correctionSel.addEventListener('change',()=>{
+js/components/box.js:32335: svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
+js/components/box.js:32886: connectionPath.addEventListener('click', handleBoxConnectionLineClick);
+js/components/heatmap.js:258: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/heatmap.js:2202: global.document.addEventListener('click', onDocClick, true);
+js/components/heatmap.js:2939: global.document.addEventListener('click', event => {
+js/components/heatmap.js:3005: wrapper.addEventListener('mousedown', () => {
+js/components/heatmap.js:3979: node.addEventListener(eventName, wrapped, options);
+js/components/heatmap.js:4593: global.addEventListener('venn:stats-pvalue-format-change', event => {
+js/components/heatmap.js:9928: state.svg.addEventListener('click', handleHeatmapSvgFormatClick, false);
+js/components/hist.js:1902: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/hist.js:2019: input.addEventListener('change', event => {
+js/components/hist.js:3028: document.addEventListener('click', event => {
+js/components/hist.js:3093: wrapper.addEventListener('mousedown', () => {
+js/components/hist.js:4316: node.addEventListener(eventName, wrapped);
+js/components/hist.js:4355: histPlotMode.addEventListener('change', event => {
+js/components/hist.js:4365: histShowLegend.addEventListener('change', event => {
+js/components/hist.js:4375: histStatsDiagnosticsMode.addEventListener('change', event => {
+js/components/hist.js:4386: histStatsComparisonMode.addEventListener('change', event => {
+js/components/hist.js:4399: histShowPdfInput.addEventListener('change', event => {
+js/components/hist.js:4416: histShowCdfInput.addEventListener('change', event => {
+js/components/hist.js:4434: histFrequencyCreateMode?.addEventListener('change', event => {
+js/components/hist.js:4441: histFrequencyTabulateMode?.addEventListener('change', event => {
+js/components/hist.js:4448: histBinningMode?.addEventListener('change', event => {
+js/components/hist.js:4455: histBinWidth?.addEventListener('input', event => {
+js/components/hist.js:4462: histFirstBinCenterAuto?.addEventListener('change', event => {
+js/components/hist.js:4469: histFirstBinCenter?.addEventListener('input', event => {
+js/components/hist.js:4476: histLastBinCenterAuto?.addEventListener('change', event => {
+js/components/hist.js:4483: histLastBinCenter?.addEventListener('input', event => {
+js/components/hist.js:4491: node?.addEventListener(eventName, event => {
+js/components/hist.js:4511: histFontSize.addEventListener('input', event => {
+js/components/hist.js:4536: exampleBtn.addEventListener('click', event => {
+js/components/hist.js:5291: getHistNodeById('openHistGraph')?.addEventListener('click', hist.open);
+js/components/hist.js:5292: getHistNodeById('saveHistGraph')?.addEventListener('click', hist.save);
+js/components/hist.js:5293: getHistNodeById('saveAsHist').addEventListener('click', hist.saveAs);
+js/components/hist.js:5294: getHistNodeById('histGraphFile')?.addEventListener('change',e=>{
+js/components/hist.js:6950: node.addEventListener('click', evt=>{
+js/components/hist.js:6983: try{ barShape.style.cursor='pointer'; barShape.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){}
+js/components/hist.js:7043: try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }
+js/components/hist.js:7074: try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }
+js/components/hist.js:7413: histRenderButtonEl.addEventListener('click', () => {
+js/components/line.js:325: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/line.js:2842: equalScaleCheckbox.addEventListener('change', onChange);
+js/components/line.js:2872: equalLengthCheckbox.addEventListener('change', onChange);
+js/components/line.js:2927: varianceCheckbox.addEventListener('change', onChange);
+js/components/line.js:5677: input.addEventListener('input', applyToolbarValue);
+js/components/line.js:5678: input.addEventListener('change', applyToolbarValue);
+js/components/line.js:6016: global.document.addEventListener('click', event => {
+js/components/line.js:6078: refs.hotWrapper.addEventListener('mousedown', () => {
+js/components/line.js:6283: el.addEventListener('mouseenter', handleLineMarkerEnter);
+js/components/line.js:6284: el.addEventListener('mousemove', handleLineMarkerMove);
+js/components/line.js:6285: el.addEventListener('mouseleave', handleLineMarkerLeave);
+js/components/line.js:6286: el.addEventListener('click', handleLineMarkerClick);
+js/components/line.js:7056: scopeSelect.addEventListener('change', () => {
+js/components/line.js:7059: colorInput.addEventListener('input', () => {
+js/components/line.js:7063: colorInput.addEventListener('change', () => {
+js/components/line.js:7067: patternSelect.addEventListener('change', () => {
+js/components/line.js:7071: transparencyInput.addEventListener('input', () => {
+js/components/line.js:7077: transparencyInput.addEventListener('change', () => {
+js/components/line.js:7082: styleChip.addEventListener('wheel', evt => {
+js/components/line.js:7091: styleChip.addEventListener('click', evt => {
+js/components/line.js:7123: markerScopeSelect.addEventListener('change', () => {
+js/components/line.js:7166: element.addEventListener('click', handler);
+js/components/line.js:7837: toggle.addEventListener('click',()=>{
+js/components/line.js:7914: input.addEventListener('change',()=>{
+js/components/line.js:7936: applyBtn.addEventListener('click',()=>{
+js/components/line.js:7970: resetBtn.addEventListener('click',()=>{
+js/components/line.js:9100: input.addEventListener('change', e => {
+js/components/line.js:9116: colorInput.addEventListener('input', e => {
+js/components/line.js:9139: shapeSelect.addEventListener('change', e => {
+js/components/line.js:9155: removeBtn.addEventListener('click', () => {
+js/components/line.js:12240: svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
+js/components/line.js:12619: path.addEventListener('click', handleLinePathClick);
+js/components/line.js:13356: svg.addEventListener('mouseleave', handleLinePlotMouseLeave);
+js/components/line.js:14696: path.addEventListener('click', handleLinePathClick);
+js/components/line.js:15080: node.addEventListener(eventName, handler);
+js/components/line.js:15123: refs.plot.addEventListener('pointerdown', onPlotPointerDown);
+js/components/line.js:15134: refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
+js/components/line.js:15147: refs.displayMode.addEventListener('change',e=>{
+js/components/line.js:15158: refs.replicatesInput.addEventListener('change',e=>{
+js/components/line.js:15172: refs.replicateMode.addEventListener('change',e=>{
+js/components/line.js:15212: refs.viewMode.addEventListener('change', e => {
+js/components/line.js:15224: refs.regressionMode.addEventListener('change',e=>{
+js/components/line.js:15481: refs.forecastHorizon.addEventListener('change',()=>{
+js/components/line.js:15487: refs.forecastSeasonLength.addEventListener('change',()=>{
+js/components/line.js:15493: refs.forecastAuto.addEventListener('change',()=>{
+js/components/line.js:15499: refs.forecastCriterion.addEventListener('change',()=>{
+js/components/line.js:16065: refs.loadExample?.addEventListener('click',()=>{
+js/components/line.js:16246: refs.plot.addEventListener('mouseleave', handleLinePlotMouseLeave);
+js/components/line.js:16249: refs.renderButton.addEventListener('click', () => {
+js/components/line.js:16262: refs.fill?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-fill-change'); });
+js/components/line.js:16263: refs.border?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-change'); });
+js/components/line.js:16264: refs.borderWidth?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-width-change'); });
+js/components/line.js:16265: refs.errorBarWidth?.addEventListener('input',()=>{
+js/components/line.js:16270: refs.dotSize?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-dot-size-change'); });
+js/components/line.js:16271: refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineViewRefresh('line-alpha-change'); });
+js/components/line.js:16272: refs.fontSize?.addEventListener('input',()=>{
+js/components/line.js:16282: refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineViewRefresh('line-grid-toggle'); });
+js/components/line.js:16283: refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineViewRefresh('line-frame-toggle'); });
+js/components/line.js:16285: checkbox?.addEventListener('change',()=>{
+js/components/line.js:16352: el.addEventListener('input',()=>{
+js/components/line.js:16370: el.addEventListener('change',()=>{
+js/components/line.js:16381: refs.originMode.addEventListener('change',()=>{
+js/components/line.js:16391: refs.statType?.addEventListener('change',()=>{
+js/components/line.js:16395: refs.showTrendLine?.addEventListener('change',e=>{
+js/components/line.js:16419: refs.showIntervals?.addEventListener('change',e=>{
+js/components/line.js:16436: refs.showPredictionIntervals?.addEventListener('change',e=>{
+js/components/line.js:16453: refs.showLegend?.addEventListener('change',e=>{
+js/components/line.js:16471: refs.openBtn?.addEventListener('click',openLineFile);
+js/components/line.js:16472: refs.saveBtn?.addEventListener('click',saveLineFile);
+js/components/line.js:16473: refs.saveAsBtn?.addEventListener('click',saveAsLineFile);
+js/components/line.js:16474: refs.graphFileInput?.addEventListener('change',e=>{
+js/components/pca.js:71: el.addEventListener('pointerdown', evt => evt?.stopPropagation?.());
+js/components/pca.js:1693: container.addEventListener('pointerdown', clickHandler, true);
+js/components/pca.js:2120: node.addEventListener(eventKey, wrapped);
+js/components/pca.js:2129: global.document.addEventListener('click', event => {
+js/components/pca.js:2190: wrapper.addEventListener('mousedown', () => {
+js/components/pca.js:2454: equalScaleCheckbox.addEventListener('change', onChange);
+js/components/pca.js:2482: equalLengthCheckbox.addEventListener('change', onChange);
+js/components/pca.js:2800: menu.addEventListener('contextmenu', evt => {
+js/components/pca.js:2806: labelItem.addEventListener('click', evt => {
+js/components/pca.js:2834: doc.addEventListener('pointerdown', evt => {
+js/components/pca.js:2844: doc.addEventListener('keydown', evt => {
+js/components/pca.js:3029: node.addEventListener('contextmenu', evt => {
+js/components/pca.js:3041: el.addEventListener('mouseenter', handlePcaPointEnter);
+js/components/pca.js:3042: el.addEventListener('mousemove', handlePcaPointMove);
+js/components/pca.js:3043: el.addEventListener('mouseleave', handlePcaPointLeave);
+js/components/pca.js:3044: el.addEventListener('click', handlePcaPointClick);
+js/components/pca.js:3045: el.addEventListener('contextmenu', handlePcaPointContextMenu);
+js/components/pca.js:6403: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/pca.js:6944: pcaPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
+js/components/pca.js:7243: getPcaNodeById('pcaLoadExample').addEventListener('click',()=>{
+js/components/pca.js:7474: pcaLoadingsLimitInput.addEventListener('input', () => {
+js/components/pca.js:7639: ruleSelect.addEventListener('change', () => {
+js/components/pca.js:7654: thresholdInput.addEventListener('change', handleThresholdUpdate);
+js/components/pca.js:7655: thresholdInput.addEventListener('input', handleThresholdUpdate);
+js/components/pca.js:7666: iterationsInput.addEventListener('change', handleParallelUpdate);
+js/components/pca.js:7667: iterationsInput.addEventListener('input', handleParallelUpdate);
+js/components/pca.js:7668: includeNonRetainedInput.addEventListener('change', () => {
+js/components/pca.js:7722: pcaShowLegend.addEventListener('change',()=>{
+js/components/pca.js:8006: element.addEventListener('change', () => {
+js/components/pca.js:8024: pcaVarianceAxisScale.addEventListener('change', () => {
+js/components/pca.js:8504: scoresToggleInput.addEventListener('change', () => {
+js/components/pca.js:11383: svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
+js/components/pca.js:12095: swatch3.addEventListener('click',(evt)=>{
+js/components/pca.js:12446: svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
+js/components/pca.js:13789: getPcaNodeById('openPcaGraph')?.addEventListener('click',openPcaFile);
+js/components/pca.js:13790: getPcaNodeById('savePcaGraph')?.addEventListener('click',savePcaFile);
+js/components/pca.js:13791: getPcaNodeById('saveAsPca')?.addEventListener('click',saveAsPcaFile);
+js/components/pca.js:13792: getPcaNodeById('pcaGraphFile').addEventListener('change',e=>{
+js/components/pie.js:1576: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/pie.js:2338: node.addEventListener(eventKey, wrapped);
+js/components/pie.js:2583: button.addEventListener('click', () => {
+js/components/pie.js:3225: toggle.addEventListener('click', () => {
+js/components/pie.js:3304: input.addEventListener('change', () => {
+js/components/pie.js:3327: applyBtn.addEventListener('click', () => {
+js/components/pie.js:3375: resetBtn.addEventListener('click', () => {
+js/components/pie.js:3915: input.addEventListener('change', event => {
+js/components/pie.js:3975: scopeSelect.addEventListener('change', event => {
+js/components/pie.js:3995: testSelect.addEventListener('change', event => {
+js/components/pie.js:4012: observedSelect.addEventListener('change', event => {
+js/components/pie.js:4030: expectedSelect.addEventListener('change', event => {
+js/components/pie.js:4050: referenceSelect.addEventListener('change', event => {
+js/components/pie.js:4082: input.addEventListener('change', event => {
+js/components/pie.js:4121: correctionSelect.addEventListener('change', event => {
+js/components/pie.js:4134: alphaInput.addEventListener('change', event => {
+js/components/pie.js:4146: advanced.addEventListener('toggle', event => {
+js/components/pie.js:4169: sparseInput.addEventListener('change', event => {
+js/components/pie.js:4187: yatesInput.addEventListener('change', event => {
+js/components/pie.js:4767: el.addEventListener('input', event => {
+js/components/pie.js:4793: pieShowLegendInput.addEventListener('change', event => {
+js/components/pie.js:4804: pieShowFrame.addEventListener('change', event => {
+js/components/pie.js:4814: pieBorderColor.addEventListener('input', event => {
+js/components/pie.js:4824: pieBorderWidth.addEventListener('input', event => {
+js/components/pie.js:4835: pieComputeStatsButton.addEventListener('click',handlePieStatsComputeClick);
+js/components/pie.js:4842: getPieNodeById('pieLoadExample').addEventListener('click', event => {
+js/components/pie.js:5589: getPieNodeById('openPieGraph')?.addEventListener('click',pie.open);
+js/components/pie.js:5590: getPieNodeById('savePieGraph')?.addEventListener('click',pie.save);
+js/components/pie.js:5591: getPieNodeById('saveAsPie').addEventListener('click',pie.saveAs);
+js/components/pie.js:5592: getPieNodeById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ const session = getPieSessionForEvent(e, { reason: 'pie-graph-file-input' }, { create: false }) || getActivePieSessionForStat
+js/components/pie.js:6201: rect.addEventListener('click', evt => {
+js/components/pie.js:6536: path.addEventListener('click', evt => {
+js/components/roc.js:1588: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/roc.js:2709: toggle.addEventListener('click', event => {
+js/components/roc.js:2788: input.addEventListener('change', event => {
+js/components/roc.js:2812: applyBtn.addEventListener('click', event => {
+js/components/roc.js:2833: resetBtn.addEventListener('click', event => {
+js/components/roc.js:2875: select.addEventListener('change', event => {
+js/components/roc.js:2892: state.compareSel.addEventListener('change', event => {
+js/components/roc.js:3019: node.addEventListener(eventName, wrapped);
+js/components/roc.js:3049: refs.loadExampleBtn?.addEventListener('click', event => {
+js/components/roc.js:3074: refs.renderButton.addEventListener('click', event => {
+js/components/roc.js:4564: try{ curveEl.style.cursor='pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showRocStrokeFormatControls(evt.currentTarget); }); }catch(e){}
+js/components/roc.js:5291: refs.saveBtn?.addEventListener('click', () => { void saveFile(); });
+js/components/roc.js:5292: refs.saveAsBtn?.addEventListener('click', () => { void saveFileAs(); });
+js/components/roc.js:5293: refs.openBtn?.addEventListener('click', () => { void openFile(); });
+js/components/roc.js:5294: refs.graphFileInput?.addEventListener('change', event => {
+js/components/roc.js:5307: refs.fontSize.addEventListener('input', event => {
+js/components/roc.js:5315: refs.showGrid?.addEventListener('change', event => {
+js/components/roc.js:5320: refs.showFrame?.addEventListener('change', event => {
+js/components/roc.js:5327: refs.showLegend.addEventListener('change', event => {
+js/components/roc.js:5335: refs.graphType?.addEventListener('change', event => {
+js/components/scatter.js:2910: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/scatter.js:3538: modeSelect.addEventListener('change', () => {
+js/components/scatter.js:3934: element.addEventListener(type, wrapped, options);
+js/components/scatter.js:5035: equalScaleCheckbox.addEventListener('change', onChange);
+js/components/scatter.js:5066: equalLengthCheckbox.addEventListener('change', onChange);
+js/components/scatter.js:5122: varianceCheckbox.addEventListener('change', onChange);
+js/components/scatter.js:8160: menu.addEventListener('contextmenu', evt => {
+js/components/scatter.js:8166: labelItem.addEventListener('click', evt => {
+js/components/scatter.js:8192: doc.addEventListener('pointerdown', evt => {
+js/components/scatter.js:8202: doc.addEventListener('keydown', evt => {
+js/components/scatter.js:8378: node.addEventListener('contextmenu', evt => {
+js/components/scatter.js:8402: node.addEventListener(eventKey, wrapped);
+js/components/scatter.js:8413: el.addEventListener('mouseenter', handleScatterPointEnter);
+js/components/scatter.js:8414: el.addEventListener('mousemove', handleScatterPointMove);
+js/components/scatter.js:8415: el.addEventListener('mouseleave', handleScatterPointLeave);
+js/components/scatter.js:8416: el.addEventListener('click', handleScatterPointClick);
+js/components/scatter.js:8417: el.addEventListener('contextmenu', handleScatterPointContextMenu);
+js/components/scatter.js:8449: container.addEventListener('mouseover', evt => {
+js/components/scatter.js:8453: container.addEventListener('mousemove', evt => {
+js/components/scatter.js:8458: container.addEventListener('mouseout', evt => {
+js/components/scatter.js:8469: container.addEventListener('mouseleave', () => {
+js/components/scatter.js:8475: container.addEventListener('click', evt => {
+js/components/scatter.js:8498: container.addEventListener('contextmenu', evt => {
+js/components/scatter.js:13146: document.addEventListener('click', event => {
+js/components/scatter.js:13206: scatterHotWrapper.addEventListener('mousedown', () => {
+js/components/scatter.js:13544: api.addEventListener('selectionChanged', handler);
+js/components/scatter.js:13545: api.addEventListener('rowSelected', handler);
+js/components/scatter.js:17319: scatterViewMode.addEventListener('change', event => {
+js/components/scatter.js:18167: toggle.addEventListener('click',()=>{
+js/components/scatter.js:18248: input.addEventListener('change',()=>{
+js/components/scatter.js:18269: applyBtn.addEventListener('click',()=>{
+js/components/scatter.js:18322: resetBtn.addEventListener('click',()=>{
+js/components/scatter.js:18343: scatterGraphTypeSelect.addEventListener('change',()=>{
+js/components/scatter.js:18355: scatterTableFormatSelect.addEventListener('change', e => {
+js/components/scatter.js:18368: scatterReplicatesInput.addEventListener('change', e => {
+js/components/scatter.js:18385: scatterGroupedXReplicatesInput.addEventListener('change', e => {
+js/components/scatter.js:18405: scatterLog2FCThreshold.addEventListener('input',()=>{
+js/components/scatter.js:18414: scatterNegLogPThreshold.addEventListener('input',()=>{
+js/components/scatter.js:18423: scatterShowSignificantLabels.addEventListener('change',()=>{
+js/components/scatter.js:18433: scatterColorMode.addEventListener('change',()=>{
+js/components/scatter.js:18443: scatterDensityPalette.addEventListener('change',()=>{
+js/components/scatter.js:18490: scatterErrorBarWidth.addEventListener('input', () => {
+js/components/scatter.js:18548: .forEach(el => el && el.addEventListener('input', () => {
+js/components/scatter.js:18698: el.addEventListener('input',()=>{
+js/components/scatter.js:18716: el.addEventListener('change',()=>{
+js/components/scatter.js:19675: scatterPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
+js/components/scatter.js:19711: scatterPlotDiv.addEventListener('click', onPlotClick);
+js/components/scatter.js:21459: svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
+js/components/scatter.js:22193: svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
+js/components/scatter.js:26536: getScatterNodeById('openScatterGraph')?.addEventListener('click',openScatterFile);
+js/components/scatter.js:26537: getScatterNodeById('saveScatterGraph')?.addEventListener('click',saveScatterFile);
+js/components/scatter.js:26538: getScatterNodeById('saveAsScatter')?.addEventListener('click',saveAsScatterFile);
+js/components/scatter.js:26539: getScatterNodeById('scatterGraphFile')?.addEventListener('change',e=>{
+js/components/surface.js:1383: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/surface.js:1758: global.document.addEventListener('click', event => {
+js/components/surface.js:1819: wrapper.addEventListener('mousedown', () => {
+js/components/surface.js:1863: node.addEventListener(type, handler, options);
+js/components/survival.js:1337: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/survival.js:2406: toggle.addEventListener('click', () => {
+js/components/survival.js:2483: input.addEventListener('change', () => {
+js/components/survival.js:2505: applyBtn.addEventListener('click', () => {
+js/components/survival.js:2532: resetBtn.addEventListener('click', () => {
+js/components/survival.js:2579: input.addEventListener('input', ev => {
+js/components/survival.js:2819: checkbox.addEventListener('change', ev => {
+js/components/survival.js:2835: select.addEventListener('change', ev => {
+js/components/survival.js:4398: button.addEventListener('click', event => {
+js/components/survival.js:5259: try{ curveEl.style.cursor = 'pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showSurvivalStrokeFormatControls(evt.currentTarget); }); }catch(e){}
+js/components/survival.js:6591: control?.addEventListener('change', event => {
+js/components/survival.js:6608: refs.showFrame?.addEventListener('change', event => {
+js/components/survival.js:6621: refs.showLegend?.addEventListener('change', event => {
+js/components/survival.js:6628: input?.addEventListener('input', event => {
+js/components/survival.js:6633: refs.fontSize?.addEventListener('input', event => {
+js/components/survival.js:6673: select.addEventListener('change', event => {
+js/components/survival.js:6754: node.addEventListener(eventName, wrapped);
+js/components/survival.js:6798: refs.loadExampleBtn?.addEventListener('click', event => {
+js/components/survival.js:6902: refs.saveBtn?.addEventListener('click', () => { void saveFile(); });
+js/components/survival.js:6903: refs.saveAsBtn?.addEventListener('click', () => { void saveFileAs(); });
+js/components/survival.js:6904: refs.openBtn?.addEventListener('click', () => { void openFile(); });
+js/components/survival.js:6905: refs.graphFileInput?.addEventListener('change', event => {
+js/components/venn.js:634: target.addEventListener(cfg.type, wrapped, cfg.options);
+js/components/venn.js:1865: target.addEventListener('beforeinput', prepare);
+js/components/venn.js:1866: target.addEventListener('pointerdown', prepare);
+js/components/venn.js:1867: target.addEventListener('keydown', prepare);
+js/components/venn.js:1868: target.addEventListener('focus', prepare);
+js/components/venn.js:1869: target.addEventListener('blur', () => discardVennUndo(target));
+js/components/venn.js:4135: stage.onclick = null;
+js/components/venn.js:4136: stage.addEventListener('click', wrapped);
+js/components/venn.js:6180: circle.addEventListener('click', (event) => {
+js/components/venn.js:6204: t.addEventListener('mouseenter', e => {
+js/components/venn.js:6245: t.addEventListener('mouseleave', () => {
+js/components/venn.js:6619: stage.onclick = null;
+js/components/venn.js:7035: bar.addEventListener('click', (event) => {
+js/components/venn.js:7056: bar.addEventListener('click', (event) => {
+js/components/venn.js:7122: activeGroup.addEventListener('click', (event) => {
+js/components/venn.js:7216: setBar.addEventListener('click', (event) => {
+
+----------------------------------------------------------------------
+Async/timer/worker stale-owner candidates (HIGH) — 55
+----------------------------------------------------------------------
+js/components/box.js:1294: return Promise.reject(new Error('Box stats worker unavailable'));
+js/components/box.js:1327: return Promise.reject(new Error('Box swarm worker unavailable'));
+js/components/box.js:20291: global.setTimeout?.(() => loadExampleData(attempt + 1), 50);
+js/components/box.js:20297: global.setTimeout?.(() => loadExampleData(attempt + 1), 50);
+js/components/box.js:20429: Promise.resolve(importPromise).then(result => {
+js/components/box.js:39149: global.setTimeout(() => {
+js/components/box.js:40306: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/box.js:40426: await Promise.resolve();
+js/components/box.js:40430: await Promise.resolve();
+js/components/heatmap.js:8806: return clusterState.promise.then((clusterResult) => {
+js/components/heatmap.js:8897: const rowPromise = rowClusterState.promise || Promise.resolve(rowClusterState.result);
+js/components/heatmap.js:8898: const columnPromise = columnClusterState.promise || Promise.resolve(columnClusterState.result);
+js/components/heatmap.js:8899: return Promise.all([rowPromise, columnPromise]).then(([rowCluster, columnCluster]) => {
+js/components/heatmap.js:9366: return renderResult.then((value) => {
+js/components/heatmap.js:9989: return pendingPromise.then(() => {
+js/components/heatmap.js:10520: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/hist.js:4621: Promise.resolve(importPromise).then(result => {
+js/components/hist.js:7705: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/line.js:17230: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/pca.js:5400: if(scope && typeof scope.requestAnimationFrame === 'function'){
+js/components/pca.js:5401: return scope.requestAnimationFrame({
+js/components/pca.js:5414: if(scope && typeof scope.setTimeout === 'function'){
+js/components/pca.js:5415: return scope.setTimeout({
+js/components/pca.js:8661: setTimeout(restore, 0);
+js/components/pca.js:9289: setTimeout(() => URL.revokeObjectURL(url), 1000);
+js/components/pca.js:14468: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/pie.js:7119: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/roc.js:1755: if(typeof requestAnimationFrame === 'function'){
+js/components/roc.js:1756: requestAnimationFrame(run);
+js/components/roc.js:1758: setTimeout(run, 80);
+js/components/roc.js:1759: setTimeout(run, 250);
+js/components/roc.js:5794: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/scatter.js:3872: const raf = typeof global.requestAnimationFrame === 'function'
+js/components/scatter.js:3873: ? global.requestAnimationFrame.bind(global)
+js/components/scatter.js:3874: : cb => global.setTimeout(cb, 0);
+js/components/scatter.js:13911: Promise.resolve(importPromise).then(result => {
+js/components/scatter.js:15389: return Promise.reject(new Error('Scatter stats worker unavailable'));
+js/components/scatter.js:15426: return Promise.reject(new Error('Scatter render worker unavailable'));
+js/components/scatter.js:17028: return Promise.resolve(false);
+js/components/scatter.js:17036: return Promise.resolve(false);
+js/components/scatter.js:17041: return Promise.resolve(false);
+js/components/scatter.js:17122: return Promise.resolve(true);
+js/components/scatter.js:17192: return Promise.resolve(true);
+js/components/scatter.js:25521: const raf = typeof global.requestAnimationFrame === 'function'
+js/components/scatter.js:25522: ? global.requestAnimationFrame.bind(global)
+js/components/scatter.js:25523: : cb => global.setTimeout(cb, 0);
+js/components/scatter.js:26971: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/surface.js:5003: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/survival.js:7243: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+js/components/venn.js:508: detection.pendingTimeoutId = scope.setTimeout({
+js/components/venn.js:4797: : (typeof global.requestAnimationFrame === 'function'
+js/components/venn.js:4798: ? global.requestAnimationFrame(runOwnerReflow)
+js/components/venn.js:4799: : setTimeout(runOwnerReflow, 0));
+js/components/venn.js:5515: await Promise.all(chunk.map(g => fetchGene(g)));
+js/components/venn.js:9661: || Promise.resolve({ ok: true, skipped: true, reason: 'missing-componentLifecycle' });
+
+----------------------------------------------------------------------
+Keyless pending/cache/result mirror candidates (MEDIUM) — 516
+----------------------------------------------------------------------
+js/components/box.js:625: const source = result && typeof result === 'object' ? result : {};
+js/components/box.js:1016: const cacheMeta = getBoxRenderCacheMetadata(cache);
+js/components/box.js:1031: const cacheMeta = getBoxRenderCacheMetadata(cache);
+js/components/box.js:1043: const cacheScheme = normalizeBoxCacheColorSchemeId(cacheMeta.colorScheme || cacheMeta.liveColorScheme || cacheMeta.svgColorScheme || inferredSvgScheme, state.tableFormat);
+js/components/box.js:1368: const result = await runBoxSwarmWorker(payload);
+js/components/box.js:2551: let pendingBoxGlobalOpacity = null;
+js/components/box.js:2557: pendingBoxGlobalOpacity = normalized.pendingGlobalOpacity;
+js/components/box.js:2582: pendingBoxGlobalOpacity = normalizedOpacity;
+js/components/box.js:2592: if(runtime.pendingGlobalOpacity == null){ return; }
+js/components/box.js:5683: const result = computeSwarmOffsets(points, {
+js/components/box.js:8589: const pendingBars = Array.isArray(params.pendingBars) ? params.pendingBars : null;
+js/components/box.js:8590: const pendingCaps = Array.isArray(params.pendingCaps) ? params.pendingCaps : null;
+js/components/box.js:8973: const timerLabel = `boxplotPoints_${params.drawToken}_${traceIndex}`;
+js/components/box.js:9932: const result=(step/3)*acc;
+js/components/box.js:9948: const result=studentizedRangeCDFInfinite(adjusted,r);
+js/components/box.js:10876: state.cachedDrawInput = null;
+js/components/box.js:10878: state.pendingDrawOpts = null;
+js/components/box.js:10889: state.pendingFlipDrawZoneOverride = null;
+js/components/box.js:11195: const resultsModel = normalized?.resultsModel || source.resultsModel || nested?.resultsModel || null;
+js/components/box.js:11385: record.results = normalizeBoxStatsResultsState(record.results || record.stats || null);
+js/components/box.js:11449: const pendingSource = source.pendingOptions || source.pendingDrawOpts || null;
+js/components/box.js:11453: pendingOptions: pendingSource && typeof pendingSource === 'object' ? { ...pendingSource } : null,
+js/components/box.js:11482: pendingGlobalOpacity: raw.pendingGlobalOpacity == null ? null : raw.pendingGlobalOpacity,
+js/components/box.js:11495: state.pendingDrawOpts = runtime.pendingOptions || null;
+js/components/box.js:11558: state.cachedDrawInput = runtime.cachedDrawInput || null;
+js/components/box.js:11600: runtime.cachedDrawInput = next;
+js/components/box.js:11609: runtime.cachedDrawInput = null;
+js/components/box.js:11762: runtime.pendingOptions = null;
+js/components/box.js:12092: shaped.state.results = normalizeBoxStatsResultsState(shaped.state.results || null);
+js/components/box.js:12103: shaped.state.results = next;
+js/components/box.js:12166: const results = getBoxStatsResultsState(shaped);
+js/components/box.js:12182: const results = getBoxStatsResultsState(shaped);
+js/components/box.js:12184: shaped.state.results = results;
+js/components/box.js:12251: return updateBoxStatsResultsFields(session, results => {
+js/components/box.js:12258: const updated = updateBoxStatsResultsFields(session, results => {
+js/components/box.js:12272: const results = getBoxStatsResultsState(session || getActiveBoxSessionForState());
+js/components/box.js:12278: return updateBoxStatsResultsFields(session, results => {
+js/components/box.js:12284: const results = getBoxStatsResultsState(session || getActiveBoxSessionForState());
+js/components/box.js:12294: return updateBoxStatsResultsFields(session, results => {
+js/components/box.js:12317: const results = getBoxStatsResultsState(shaped);
+js/components/box.js:12343: const results = getBoxStatsResultsState(shaped);
+js/components/box.js:12345: shaped.state.results = results;
+js/components/box.js:12358: statsRuntime.pending = false;
+js/components/box.js:12527: const result = Shared.statsReporting.restorePanelModel(statsDiv, normalized.panelModel, {
+js/components/box.js:12945: if(handle == null){
+js/components/box.js:13232: const results = normalizeBoxStatsResultsState(record.results || record.stats || null);
+js/components/box.js:13733: renderRuntime.cachedDrawInput = runtime ? (cloneSimple(runtime.cachedDrawInput) || null) : null;
+js/components/box.js:13749: drawRuntime.pendingOptions = null;
+js/components/box.js:13760: state.pendingAutoShowSignificance = false;
+js/components/box.js:13772: state.flipTransition.pending = normalizeBoxFlipTransitionPendingState({
+js/components/box.js:14189: const result = manager.applyTransform(transformSpec, {
+js/components/box.js:14283: const result = manager.applyPipeline(specs, {
+js/components/box.js:14680: const source = pending && typeof pending === 'object' ? pending : {};
+js/components/box.js:14720: const pending = normalizeBoxFlipTransitionPendingState(current.pending);
+js/components/box.js:14746: state.pendingFlipDrawZoneOverride = transition.pending.drawZoneOverride ? cloneSimple(transition.pending.drawZoneOverride) : null;
+js/components/box.js:14800: const cachedSnapshot = cloneBoxFlipTransitionSnapshot(transition.snapshots[normalizedOrientation]);
+js/components/box.js:14821: transition.pending = normalizeBoxFlipTransitionPendingState({
+js/components/box.js:14823: ...(pendingPatch && typeof pendingPatch === 'object' ? pendingPatch : {})
+js/components/box.js:14832: const pending = transition.pending?.drawZoneOverride || null;
+js/components/box.js:14984: const cachedTargetSnapshotBefore = cloneBoxFlipTransitionSnapshot(
+js/components/box.js:15023: const pendingDrawZoneOverride = targetSnapshot
+js/components/box.js:15301: const result = {
+js/components/box.js:16326: let result = null;
+js/components/box.js:16329: result = state.layout.setIntrinsicContentSize(constraints, { reason, enforce: options.enforce === true });
+js/components/box.js:16336: result = Shared.componentLayout.setIntrinsicContentSizeFor('box', constraints, {
+js/components/box.js:16491: const resultShape = horizontal
+js/components/box.js:17352: const pendingDetail='pending calculation';
+js/components/box.js:17920: runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, { viewOnly: true, reason: scheduleReason, tabId: refreshTabId });
+js/components/box.js:18095: runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, scheduleOptions);
+js/components/box.js:19820: state.pendingAutoShowSignificance = false;
+js/components/box.js:20429: Promise.resolve(importPromise).then(result => {
+js/components/box.js:20577: const handleBandwidthInput = ()=>{
+js/components/box.js:20626: const handleSampleInput = ()=>{
+js/components/box.js:20826: const handleCustomMultiplier=()=>{
+js/components/box.js:20878: state.pendingAutoShowSignificance = false;
+js/components/box.js:20905: const handleBoxAxisLimitInput=(event)=>{
+js/components/box.js:21959: const safeResult=result && typeof result==='object' ? result : {};
+js/components/box.js:22078: const cached=memo.get(key);
+js/components/box.js:22772: const result=mode==='grubbs'
+js/components/box.js:22794: const result=mode==='grubbs'
+js/components/box.js:22826: report.resultsText=`${report.resultsText || ''} ${context.resultSuffix}`.trim();
+js/components/box.js:22828: report.resultsParts = report.resultsParts.concat([' ', context.resultSuffix]);
+js/components/box.js:22990: const result = tTestOneSample(logRatios, 0, options);
+js/components/box.js:23012: const result=tTestEqualVariance(arrA.map(Math.log),arrB.map(Math.log),options);
+js/components/box.js:23024: const result=tTest(arrA.map(Math.log),arrB.map(Math.log),options);
+js/components/box.js:24093: const cached = SHAPIRO_A_CACHE.get(n);
+js/components/box.js:24320: let result=method==='dagostino'
+js/components/box.js:24324: result=computeShapiroWilk(cleaned);
+js/components/box.js:24659: badge.textContent=label || (result ? 'PASS' : result===false ? 'FAIL' : 'N/A');
+js/components/box.js:24660: badge.dataset.result=result===false?'fail':result?'pass':'na';
+js/components/box.js:25831: const result = tTest(sampleA, sampleB,{ alpha: state.statsAlpha, ciLevel: state.statsCiLevel, alternative: state.statsAlternative });
+js/components/box.js:25970: const result=(paired ? tTestPaired : tTest)(sampleA,sampleB,{
+js/components/box.js:26213: const results={
+js/components/box.js:26734: const results=computeAdvisorNormalityResults(traces,selectionIndices,debugEnabled);
+js/components/box.js:26776: const results=computeAdvisorVarianceResults(traces,selectionIndices,debugEnabled);
+js/components/box.js:28073: const cacheKey = `${fontStyle}|${fontWeight}|${fontSize}|${fontFamily}|${labelText}`;
+js/components/box.js:28074: const cached = significanceLabelInkOffsetCache.get(cacheKey);
+js/components/box.js:29006: state.pendingAutoShowSignificance = false;
+js/components/box.js:29122: let cachedTraces = Array.isArray(state.cachedDrawInput?.traces)
+js/components/box.js:29127: cachedTraces = buildBoxStatsTracesFromMatrix(dataMatrix, { tabId: tab?.id || null });
+js/components/box.js:29273: reportModel.resultsParts = report.resultsParts;
+js/components/box.js:29310: const results = els.statsResults || getBoxNodeById('statsResults');
+js/components/box.js:29347: const cachedHost = els.statsReportHost && els.statsReportHost.nodeType === 1 ? els.statsReportHost : null;
+js/components/box.js:29348: const cachedBelongsToCurrentRoot = !!(cachedHost && (
+js/components/box.js:29540: const cachedTraces = Array.isArray(state.cachedDrawInput?.traces)
+js/components/box.js:29587: state.pendingAutoShowSignificance = false;
+js/components/box.js:30030: let resultsContainer = statsDiv;
+js/components/box.js:30148: resultsContainer = document.createElement('div');
+js/components/box.js:30839: const cached = normalizeBoxStatsContextState(shaped.cache?.statsContext || null);
+js/components/box.js:30863: updateBoxStatsResultsFields(shaped, results => {
+js/components/box.js:30970: state.pendingAutoShowSignificance = true;
+js/components/box.js:30993: state.pendingAutoShowSignificance = false;
+js/components/box.js:31032: runtime.pending = true;
+js/components/box.js:31095: statsRuntime.pending = false;
+js/components/box.js:31141: state.pendingAutoShowSignificance = false;
+js/components/box.js:31152: state.pendingAutoShowSignificance = false;
+js/components/box.js:31426: let pendingPlotFrameCommitted = true;
+js/components/box.js:31797: let cachedDrawInput = state.cachedDrawInput;
+js/components/box.js:31821: const cachedTraces = Array.isArray(cachedDrawInput.traces) ? cachedDrawInput.traces : [];
+js/components/box.js:32096: cachedDrawInput = nextCachedDrawInput;
+js/components/box.js:32196: const cachedY = cachedDrawInput.transformCache.yByTrace;
+js/components/box.js:32270: const pendingZone = consumeBoxFlipTransitionPendingDrawZoneOverride(resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
+js/components/box.js:32336: pendingPlotFrameCommitted = !retainPreviousPlotFrame;
+js/components/box.js:32378: pendingPlotFrameCommitted = true;
+js/components/box.js:32457: const cachedDistribution = canUseCachedDrawInput
+js/components/box.js:33606: cacheAxisKey = orientation,
+js/components/box.js:33723: const cacheBucket = pointLayoutCache && typeof pointLayoutCache === 'object'
+js/components/box.js:33741: const cachedLayout = cacheBucket[traceIndex];
+js/components/box.js:34496: const cacheAxisKey = orientation;
+js/components/box.js:35989: const pendingIndividualSummaryBars = [];
+js/components/box.js:35990: const pendingIndividualSummaryIntervalCaps = [];
+js/components/box.js:36904: const pendingIndividualSummaryBars = [];
+js/components/box.js:36905: const pendingIndividualSummaryIntervalCaps = [];
+js/components/box.js:38257: const result = await fileIO.saveGraphFile({
+js/components/box.js:38263: setFileHandle: handle => setBoxFileHandleForSession(handle, operationSession),
+js/components/box.js:38275: const result = await fileIO.saveGraphFileAs({
+js/components/box.js:38280: setFileHandle: handle => setBoxFileHandleForSession(handle, operationSession),
+js/components/box.js:38292: const result = await fileIO.openGraphFile({
+js/components/box.js:38294: setFileHandle: handle => setBoxFileHandleForSession(handle, operationSession),
+js/components/box.js:38904: state.statsResultsTab=statsConfig.resultsTab==='comparisons' ? 'comparisons' : 'overall';
+js/components/box.js:39216: runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, guardedOptions);
+js/components/box.js:39243: let pending = null;
+js/components/box.js:39249: pending = runtime.pendingOptions;
+js/components/box.js:39250: runtime.pendingOptions = null;
+js/components/box.js:39384: if (typeof cacheEls === 'function') cacheEls({ root: boxRoot, tabId: targetTabId });
+js/components/box.js:39540: const cachedPointCount = countCachedBoxPoints();
+js/components/box.js:39548: runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, nextOpts);
+js/components/box.js:39554: let pending = null;
+js/components/box.js:39557: pending = runtime.pendingOptions;
+js/components/box.js:39558: runtime.pendingOptions = null;
+js/components/box.js:39982: const cacheMeta = captureBoxRenderCacheMetadata(meta);
+js/components/heatmap.js:362: runtime.pendingDrawOptions = cloneSimple(recoveryOptions) || {};
+js/components/heatmap.js:1015: runtime.pendingDrawOptions = cloneSimple(scheduleOptions) || {};
+js/components/heatmap.js:1368: const results = createDefaultHeatmapResultsState(shaped?.results || {
+js/components/heatmap.js:1385: shaped.results = createDefaultHeatmapResultsState({
+js/components/heatmap.js:2673: const pendingLoadSource = String(hot.__heatmapPendingProgrammaticLoadSource || '').trim();
+js/components/heatmap.js:2755: const result = manager.applyTransform(transformSpec, {
+js/components/heatmap.js:2858: const result = manager.applyPipeline(specs, {
+js/components/heatmap.js:3172: updateHeatmapResultsState(session || getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:3181: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:3182: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:3196: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:3197: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:3207: updateHeatmapResultsState(targetSession, results => {
+js/components/heatmap.js:3219: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:3220: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:3269: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:3308: drawRuntime.pendingDrawOptions = cloneSimple(nextFallback) || {};
+js/components/heatmap.js:3331: drawRuntime.pendingDrawOptions = cloneSimple(next) || {};
+js/components/heatmap.js:3375: drawRuntime.deferredHiddenDrawOptions = cloneSimple(nextFallback) || null;
+js/components/heatmap.js:3396: drawRuntime.deferredHiddenDrawOptions = cloneSimple(next) || null;
+js/components/heatmap.js:3404: const handle = runtime?.hiddenDrawFlushHandle || ((!targetSession || isHeatmapSessionActiveForModuleState(targetSession)) ? hiddenDrawFlushHandle : null) || null;
+js/components/heatmap.js:3405: if(handle == null){
+js/components/heatmap.js:3420: const mirrorHandle = handle => {
+js/components/heatmap.js:3436: const deferred = cloneSimple(flushRuntime?.deferredHiddenDrawOptions || null) || null;
+js/components/heatmap.js:3440: const pending = { ...deferred, tabId: deferred.tabId || drawOwner?.tabId || heatmap.__boundTabId || null };
+js/components/heatmap.js:3442: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:3631: const pending = mergeDeferredHiddenDrawOptions(scheduleOpts);
+js/components/heatmap.js:3808: const result = originalLoadData.apply(this, arguments);
+js/components/heatmap.js:4360: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:4361: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:4549: const result = await tableImport.openFile(fileInput, {
+js/components/heatmap.js:4579: const handleStatsThresholdInteraction = event => {
+js/components/heatmap.js:5634: const normalized = result && typeof result === 'object' ? result : {};
+js/components/heatmap.js:7501: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:7514: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:7597: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:7670: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:7679: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:7687: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:9141: const results = createDefaultHeatmapResultsState(targetSession?.results || {
+js/components/heatmap.js:9177: const pendingOptions = cloneSimple(scheduledRuntime?.pendingDrawOptions || null) || {};
+js/components/heatmap.js:9188: runtime.pendingDrawOptions = cloneSimple(drawOpts) || {};
+js/components/heatmap.js:9192: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:9206: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:9237: const pending = mergeDeferredHiddenDrawOptions(drawOpts);
+js/components/heatmap.js:9283: const cachedRenderModel = renderRuntime?.lastRenderModel || getHeatmapActiveRenderModel(drawSession);
+js/components/heatmap.js:9545: const resultState = updateHeatmapResultsState(payloadSession, results => {
+js/components/heatmap.js:9635: const result = await fileIO.saveGraphFile({
+js/components/heatmap.js:9641: setFileHandle: handle => setHeatmapFileHandle(handle, operationSession),
+js/components/heatmap.js:9654: const result = await fileIO.saveGraphFileAs({
+js/components/heatmap.js:9659: setFileHandle: handle => setHeatmapFileHandle(handle, operationSession),
+js/components/heatmap.js:9672: const result = await fileIO.openGraphFile({
+js/components/heatmap.js:9674: setFileHandle: handle => setHeatmapFileHandle(handle, operationSession),
+js/components/heatmap.js:9775: updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+js/components/heatmap.js:9832: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:9833: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:9978: let pendingPromise = null;
+js/components/heatmap.js:9980: const result = draw();
+js/components/heatmap.js:9982: pendingPromise = result;
+js/components/heatmap.js:10011: runtime.pendingDrawOptions = cloneSimple(nextOpts) || {};
+js/components/heatmap.js:10242: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:10243: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:10254: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:10255: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:10262: runtime.pendingDrawOptions = {};
+js/components/heatmap.js:10263: runtime.deferredHiddenDrawOptions = null;
+js/components/heatmap.js:10393: const cache = tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null;
+js/components/heatmap.js:10549: const cachedModel = restoreRuntime?.lastRenderModel || getHeatmapActiveRenderModel(restoreSession);
+js/components/heatmap.js:10550: const cachedViewOptions = restoreRuntime?.lastViewOptions || state.lastViewOptions;
+js/components/hist.js:1519: shaped.results = createDefaultHistResultsState({ statsPanelModel });
+js/components/hist.js:2858: const result = manager.applyTransform(transformSpec, {
+js/components/hist.js:2953: const result = manager.applyPipeline(specs, {
+js/components/hist.js:3948: const results = [];
+js/components/hist.js:4621: Promise.resolve(importPromise).then(result => {
+js/components/hist.js:4686: activeSession.results = createDefaultHistResultsState({ statsPanelModel });
+js/components/hist.js:5174: const result = await fileIO.saveGraphFile({
+js/components/hist.js:5180: setFileHandle: handle => {
+js/components/hist.js:5196: const result = await fileIO.saveGraphFileAs({
+js/components/hist.js:5201: setFileHandle: handle => {
+js/components/hist.js:5217: const result = await fileIO.openGraphFile({
+js/components/hist.js:5219: setFileHandle: handle => {
+js/components/hist.js:5656: emptyStatsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+js/components/hist.js:5849: const resultFragments = summaries.map(entry => `${entry.label}: mean = ${formatNumber(entry.summary.mean, 2)}, median = ${formatNumber(entry.summary.median, 2)}, SD = ${formatNumber(entry.summary.sd, 2)}, skewness = ${fo
+js/components/hist.js:5850: const resultParts = resultFragments.map((text, index) => index === 0 ? text : ` ${text}`);
+js/components/hist.js:5874: statsSession.results = createDefaultHistResultsState({ statsPanelModel: state.lastStatsPanelModel });
+js/components/hist.js:7293: const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+js/components/hist.js:7317: const result = Shared.workspaceTabs.ensureActiveDomBindings({
+js/components/hist.js:7574: const pendingPayload = activationSession?.cache?.pendingPayload || null;
+js/components/hist.js:7607: const pendingPayload = activationSession?.cache?.pendingPayload || null;
+js/components/line.js:909: const pending = [];
+js/components/line.js:1457: const resultsModel = source.resultsModel || nested?.resultsModel || null;
+js/components/line.js:3265: const pendingRestore = statsState.restorePending;
+js/components/line.js:5853: const result = manager.applyTransform(transformSpec, {
+js/components/line.js:5944: const result = manager.applyPipeline(specs, {
+js/components/line.js:7160: const handler = evt => {
+js/components/line.js:8004: const result = cleaned || fallback;
+js/components/line.js:10501: const cached = regressionCache.get(s.name);
+js/components/line.js:10863: const resultsParts = [
+js/components/line.js:11778: const result = await fileIO.saveGraphFile({
+js/components/line.js:11784: setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
+js/components/line.js:11799: const result = await fileIO.saveGraphFileAs({
+js/components/line.js:11804: setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
+js/components/line.js:11817: const result = await fileIO.openGraphFile({
+js/components/line.js:11819: setFileHandle: handle => { setLineFileHandleForSession(handle, operationSession); },
+js/components/line.js:16187: const result = await tableImport.openFile(refs.fileInput,{
+js/components/line.js:16284: const handleLineLogToggle=(axis,checkbox)=>{
+js/components/line.js:16725: const result = Shared.workspaceTabs.ensureActiveDomBindings({
+js/components/line.js:16958: const cacheMeta = getLineRenderCacheMetadata(cache);
+js/components/line.js:16982: const cachePayload = resolveLineGraphCachePayload(tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null);
+js/components/line.js:16984: const cachedSvg = cachePayload.fragment.querySelector('#lineSvg') || cachePayload.fragment.querySelector('svg');
+js/components/line.js:17047: const result = [points[0]];
+js/components/line.js:17205: const cacheMeta = captureLineRenderCacheMetadata(meta, svg);
+js/components/pca.js:1717: const result = originalLoadData.apply(this, arguments);
+js/components/pca.js:1937: const result = manager.applyTransform(transformSpec, {
+js/components/pca.js:2033: const result = manager.applyPipeline(specs, {
+js/components/pca.js:3733: const result = await workerApi.runTask({
+js/components/pca.js:3781: const result = await workerApi.runTask({
+js/components/pca.js:3809: let pendingDrawOptions = {};
+js/components/pca.js:3998: runtime.pendingDrawOptions = previous.viewOnly ? { ...previous } : {};
+js/components/pca.js:4018: runtime.pendingDrawOptions = next;
+js/components/pca.js:4130: const resultsTarget = getPcaNodeById('pcaStatsResults');
+js/components/pca.js:4134: const resultsSnapshot = Shared.statsReporting && typeof Shared.statsReporting.capturePanelModel === 'function' && resultsTarget
+js/components/pca.js:4153: const resultsTarget = getPcaNodeById('pcaStatsResults');
+js/components/pca.js:4251: shaped.state.results = normalizePcaResultsState(shaped.state.results || {
+js/components/pca.js:4265: shaped.state.results = normalized;
+js/components/pca.js:4348: const cached = options.clone === false ? payload : (cloneSimple(payload) || payload);
+js/components/pca.js:4389: const cache = normalizePcaAnalysisCachePayload(src.cache || src.cachedAnalysis || src.cachedRender || src.runtimeCache || null);
+js/components/pca.js:4404: runtime.cache = normalizePcaAnalysisCachePayload(runtime.cache || runtime.cachedAnalysis || runtime.cachedRender || runtime.runtimeCache || null, { clone: false });
+js/components/pca.js:4423: runtime.cache = normalizedCache;
+js/components/pca.js:4439: pcaState.cachedRender = normalizedCache;
+js/components/pca.js:4481: pcaState.cachedRender = normalizedCache;
+js/components/pca.js:4491: const results = getPcaResultsState(session || getActivePcaSessionForState());
+js/components/pca.js:4496: const results = getPcaResultsState(session || getActivePcaSessionForState());
+js/components/pca.js:4843: pendingDrawOptions = cloneSimple(runtime.pendingDrawOptions || null) || {};
+js/components/pca.js:4912: runtime.cachedRender = runtime.cachedRender || runtime.runtimeCache || null;
+js/components/pca.js:4925: pcaState.cachedRender = runtime.cachedRender || null;
+js/components/pca.js:5137: runtime.pendingDrawOptions = cloneSimple(scheduleOptions) || {};
+js/components/pca.js:5233: renderRuntime.cachedRender = renderRuntime.cachedRender || pcaState.cachedRender || null;
+js/components/pca.js:5502: const results = seedFromActive ? readPcaResultsFromMirrors() : createDefaultPcaResultsState();
+js/components/pca.js:5523: record.results = normalizePcaResultsState(record.results || { stats: record.stats || null, statsPanel: record.statsPanel || record.stats?.statsPanel || {} });
+js/components/pca.js:5608: pcaState.cachedRender = pcaState.cachedRender || null;
+js/components/pca.js:5857: record.results = normalizePcaResultsState(snapshot.results);
+js/components/pca.js:5867: record.results = normalizePcaResultsState({
+js/components/pca.js:6284: renderRuntime.cachedRender = null;
+js/components/pca.js:7298: const result = await tableImport.openFile(pcaFileInput, {
+js/components/pca.js:7644: const handleThresholdUpdate = () => {
+js/components/pca.js:7656: const handleParallelUpdate = () => {
+js/components/pca.js:7749: result = run();
+js/components/pca.js:8510: const resultsSnapshot = getPcaResultsState(getActivePcaSessionForState());
+js/components/pca.js:8513: const cachedBiplot = (resultsSnapshot?.supplemental?.biplot && typeof resultsSnapshot.supplemental.biplot === 'object')
+js/components/pca.js:8571: const resultsSnapshot = getPcaResultsState(session);
+js/components/pca.js:8586: const resultsLoadings = resultsSnapshot?.supplemental?.loadings || null;
+js/components/pca.js:9871: runtime.pendingDrawOptions = {};
+js/components/pca.js:9917: let cachePayload = null;
+js/components/pca.js:9957: const cachedAnalysisPayload = getPcaAnalysisCache(drawSession);
+js/components/pca.js:10117: const cached = cachedAnalysisPayload || getPcaAnalysisCache(drawSession);
+js/components/pca.js:11122: cachePayload = {
+js/components/pca.js:11157: cachePayload = {
+js/components/pca.js:11936: manualLabelLayout.forEach(result => {
+js/components/pca.js:12988: manualLabelLayout.forEach(result => {
+js/components/pca.js:13110: runtime.cachedRender = getPcaAnalysisCache(drawSession);
+js/components/pca.js:13171: const cachedStatsRender = getPcaAnalysisCache(payloadSession)
+js/components/pca.js:13172: || (payloadRenderRuntime.cachedRender && typeof payloadRenderRuntime.cachedRender === 'object'
+js/components/pca.js:13177: const resultsSnapshot = normalizePcaResultsState({
+js/components/pca.js:13353: const result = await fileIO.saveGraphFile({
+js/components/pca.js:13359: setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
+js/components/pca.js:13371: const result = await fileIO.saveGraphFileAs({
+js/components/pca.js:13376: setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
+js/components/pca.js:13388: const result = await fileIO.openGraphFile({
+js/components/pca.js:13390: setFileHandle: handle => setPcaFileHandleForSession(handle, operationSession),
+js/components/pca.js:14077: runtime.pendingDrawOptions = {};
+js/components/pca.js:14491: renderRuntime.cachedRender = getPcaAnalysisCache(session);
+js/components/pca.js:14539: drawRuntime.pendingDrawOptions = {};
+js/components/pie.js:1266: shaped.results = createDefaultPieResultsState({
+js/components/pie.js:2568: stats.resultsTab = nextTab;
+js/components/pie.js:2791: stats.resultsTab = sanitizePieStatsResultsTab(stats.resultsTab);
+js/components/pie.js:2917: stats.pending = false;
+js/components/pie.js:3043: const result = computePieContingencyTest(dataset.rows, {
+js/components/pie.js:3732: const result = computePieContingencyTest(dataset.rows, {
+js/components/pie.js:3855: stats.pending = false;
+js/components/pie.js:4250: stats.resultsTab = sanitizePieStatsResultsTab(input.resultsTab ?? stats.resultsTab);
+js/components/pie.js:4907: const result = await tableImport.openFile(pieFileInput,{
+js/components/pie.js:5056: const results = createDefaultPieResultsState(targetSession.results || {});
+js/components/pie.js:5502: const result = await fileIO.saveGraphFile({
+js/components/pie.js:5508: setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
+js/components/pie.js:5520: const result = await fileIO.saveGraphFileAs({
+js/components/pie.js:5525: setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
+js/components/pie.js:5537: const result = await fileIO.openGraphFile({
+js/components/pie.js:5539: setFileHandle: handle => { setPieFileHandleForSession(handle, operationSession); },
+js/components/pie.js:5650: const result = computePieChiSquare(observed, expected);
+js/components/pie.js:6683: const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
+js/components/pie.js:6694: const result = Shared.workspaceTabs.ensureActiveDomBindings({
+js/components/pie.js:7175: const cachePayload = renderCache?.[renderCache?.__graphitixRenderCache?.graphicKey]
+js/components/pie.js:7182: const cachedFragment = cachePayload?.fragment || null;
+js/components/pie.js:7184: const cachedSvg = cachedFragment.querySelector('#piePlot svg#pieSvg')
+js/components/roc.js:726: const result = src.result && typeof src.result === 'object' ? src.result : src;
+js/components/roc.js:761: const result = diffResult && typeof diffResult === 'object' ? diffResult : {};
+js/components/roc.js:1156: const pendingDrawOptions = sanitizeRocDrawOptions(scheduleOptions);
+js/components/roc.js:1328: shaped.results = createDefaultRocResultsState({
+js/components/roc.js:1841: shaped.results = createDefaultRocResultsState({
+js/components/roc.js:3104: const result = await tableImport.openFile(refs.fileInput, {
+js/components/roc.js:5184: const result = await fileIO.saveGraphFile({
+js/components/roc.js:5190: setFileHandle: handle => {
+js/components/roc.js:5208: const result = await fileIO.saveGraphFileAs({
+js/components/roc.js:5213: setFileHandle: handle => {
+js/components/roc.js:5263: const result = await fileIO.openGraphFile({
+js/components/roc.js:5265: setFileHandle: handle => { setRocFileHandleForSession(handle, operationSession); },
+js/components/scatter.js:374: if(handle == null){
+js/components/scatter.js:802: const resultsModel = source.resultsModel || nested?.resultsModel || null;
+js/components/scatter.js:1877: scatterState.pendingDrawOpts = runtime.pendingOptions || null;
+js/components/scatter.js:1883: scatterState.pendingDrawReasons = runtime.pendingReasons || null;
+js/components/scatter.js:1967: scatterState.cachedCollect = runtime.cachedCollect || null;
+js/components/scatter.js:1968: scatterState.cachedGeometry = runtime.cachedGeometry || null;
+js/components/scatter.js:2020: renderRuntime.cachedCollect = null;
+js/components/scatter.js:2021: renderRuntime.cachedGeometry = null;
+js/components/scatter.js:3749: runtime.pendingOptions = cloneScatterDrawOptions(options || {}) || {};
+js/components/scatter.js:3784: drawRuntime.pendingOptions = null;
+js/components/scatter.js:3785: drawRuntime.pendingReasons = null;
+js/components/scatter.js:4109: renderRuntime.cachedCollect = null;
+js/components/scatter.js:4110: renderRuntime.cachedGeometry = null;
+js/components/scatter.js:4133: drawRuntime.pendingOptions = null;
+js/components/scatter.js:4134: drawRuntime.pendingReasons = null;
+js/components/scatter.js:7306: let handled = false;
+js/components/scatter.js:7308: handled = separateAnnotationPair(entryA, entryB, context);
+js/components/scatter.js:7310: handled = resolveAnnotationPairSegments(entryA, entryB, context);
+js/components/scatter.js:7390: const results = entries.map(entry => {
+js/components/scatter.js:7547: const result = new Array(n);
+js/components/scatter.js:7981: const results = [];
+js/components/scatter.js:9812: runtime.deferredSync = !!value;
+js/components/scatter.js:12169: const result = { objective: totalSse, totalSse, seriesStats, parameterCount };
+js/components/scatter.js:12984: const result = manager.applyTransform(transformSpec, {
+js/components/scatter.js:13075: const result = manager.applyPipeline(specs, {
+js/components/scatter.js:13534: const handler = () => {
+js/components/scatter.js:13911: Promise.resolve(importPromise).then(result => {
+js/components/scatter.js:15128: const cacheKey = buildScatterStatsCacheKey(signature, context);
+js/components/scatter.js:15132: const cacheSession = getScatterSession(resolveScatterStatsCacheTabId(context) || scatter.__boundTabId || null, { reason: 'scatter-read-stats-cache' }, { create: true });
+js/components/scatter.js:15137: const cached = runtime.cacheBySignature.get(cacheKey);
+js/components/scatter.js:15149: const cacheKey = buildScatterStatsCacheKey(signature, context);
+js/components/scatter.js:15154: const cacheSession = getScatterSession(resolveScatterStatsCacheTabId(context) || scatter.__boundTabId || null, { reason: 'scatter-write-stats-cache' }, { create: true });
+js/components/scatter.js:15157: runtime.cacheBySignature = new Map();
+js/components/scatter.js:15159: const cacheMap = runtime.cacheBySignature;
+js/components/scatter.js:15177: statsRuntime.cacheBySignature = cacheMap;
+js/components/scatter.js:15187: const cached = readScatterStatsCache(scatterState.statsContextSignature, context);
+js/components/scatter.js:15273: const cachedContext = scatterState.statsContext;
+js/components/scatter.js:15449: const pendingRestore = statsState.restorePending || scatterState.statsRestorePending;
+js/components/scatter.js:16418: const resultsParts = [];
+js/components/scatter.js:16563: reportModel.resultsParts = report.resultsParts;
+js/components/scatter.js:17142: .then(result => {
+js/components/scatter.js:18149: advisorState.pendingPoints = points;
+js/components/scatter.js:18171: const pendingPoints = advisorState.pendingPoints;
+js/components/scatter.js:18172: advisorState.pendingPoints = null;
+js/components/scatter.js:18597: const handleScatterLogToggle=(axis,checkbox)=>{
+js/components/scatter.js:19989: const cachedCollect = renderRuntime.cachedCollect;
+js/components/scatter.js:20073: updateScatterRenderRuntime(drawSession, cacheRuntime => {
+js/components/scatter.js:20074: cacheRuntime.cachedCollect = null;
+js/components/scatter.js:20075: cacheRuntime.cachedGeometry = null;
+js/components/scatter.js:20627: updateScatterRenderRuntime(drawSession, cacheRuntime => {
+js/components/scatter.js:20628: cacheRuntime.cachedCollect = nextScatterCollectCache;
+js/components/scatter.js:20792: const cachedSignificanceSignature = typeof renderRuntime.cachedCollect?.significanceRefreshSignature === 'string'
+js/components/scatter.js:20798: && cachedSignificanceSignature === significanceRefreshSignature;
+js/components/scatter.js:20889: let cachedVisualStats = null;
+js/components/scatter.js:20890: let cachedVisualStatsSignature = null;
+js/components/scatter.js:20891: let cachedVisualStatsControlSignature = null;
+js/components/scatter.js:20934: const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
+js/components/scatter.js:20935: cachedVisualStats = cachedStatsResult.stats;
+js/components/scatter.js:20936: cachedVisualStatsSignature = cachedStatsResult.signature;
+js/components/scatter.js:20937: cachedVisualStatsControlSignature = cachedStatsResult.controlSignature;
+js/components/scatter.js:21944: manualLabelLayout.forEach(result => {
+js/components/scatter.js:23371: updateScatterRenderRuntime(drawSession, cacheRuntime => {
+js/components/scatter.js:23372: cacheRuntime.cachedGeometry = nextScatterGeometryCache;
+js/components/scatter.js:24005: manualLabelLayout.forEach(result => {
+js/components/scatter.js:24192: const result = hot.setDataAtCell([0, layout.xCol, value], 'scatter-x-axis-undo-sync');
+js/components/scatter.js:24315: const result = hot.setDataAtCell([0, layout.xCol, nextValue], 'scatter-x-axis-edit');
+js/components/scatter.js:24508: const result = hot.setDataAtCell([0, layout.yCol, value], 'scatter-y-axis-undo-sync');
+js/components/scatter.js:24631: const result = hot.setDataAtCell([0, layout.yCol, nextValue], 'scatter-y-axis-edit');
+js/components/scatter.js:24840: const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
+js/components/scatter.js:25274: runtime.pendingOptions = mergeScatterDrawOptions(runtime.pendingOptions, nextOpts);
+js/components/scatter.js:25305: runtime.pendingReasons = null;
+js/components/scatter.js:25328: let pending = null;
+js/components/scatter.js:25334: pending = runtime.pendingOptions;
+js/components/scatter.js:25335: runtime.pendingOptions = null;
+js/components/scatter.js:25417: runtime.pendingReasons = new Set();
+js/components/scatter.js:25475: const cachedPointCount = Array.isArray(latestRenderRuntime?.cachedCollect?.points)
+js/components/scatter.js:25486: runtime.pendingOptions = mergeScatterDrawOptions(runtime.pendingOptions, nextOpts);
+js/components/scatter.js:25492: let pending = null;
+js/components/scatter.js:25496: runtime.pendingOptions = null;
+js/components/scatter.js:25504: pending = runtime.pendingOptions;
+js/components/scatter.js:25505: runtime.pendingOptions = null;
+js/components/scatter.js:25902: const result = await fileIO.saveGraphFile({
+js/components/scatter.js:25908: setFileHandle: handle => setScatterFileHandleForSession(handle, operationSession),
+js/components/scatter.js:25920: const result = await fileIO.saveGraphFileAs({
+js/components/scatter.js:25925: setFileHandle: handle => setScatterFileHandleForSession(handle, operationSession),
+js/components/scatter.js:25937: const result = await fileIO.openGraphFile({
+js/components/scatter.js:25939: setFileHandle: handle => setScatterFileHandleForSession(handle, operationSession),
+js/components/scatter.js:27155: const cacheMeta = getScatterRenderCacheMetadata(cache);
+js/components/scatter.js:27177: const cacheMeta = getScatterRenderCacheMetadata(cache);
+js/components/scatter.js:27395: const cachedSvg = cachedFragment.querySelector('#scatterSvg') || cachedFragment.querySelector('svg');
+js/components/scatter.js:27609: const cacheSession = resolveScatterRenderCacheSession(meta, { create: false });
+js/components/scatter.js:27635: const cacheMeta = captureScatterRenderCacheMetadata(meta, plotSvg);
+js/components/scatter.js:27648: const cacheSession = resolveScatterRenderCacheSession(meta, { create: false });
+js/components/scatter.js:27661: const cacheSession = resolveScatterRenderCacheSession(meta, { create: false });
+js/components/scatter.js:27747: runtime.pendingOptions = null;
+js/components/scatter.js:27748: runtime.pendingReasons = null;
+js/components/surface.js:816: shaped.results = createDefaultSurfaceResultsState({
+js/components/surface.js:1596: const result = manager.applyTransform(transformSpec, {
+js/components/surface.js:1687: const result = manager.applyPipeline(specs, {
+js/components/surface.js:1835: const result = callback(resolvedOwner);
+js/components/surface.js:1882: state._listeners = state._listeners.filter(rec => !(rec && rec.node === node && rec.type === eventName && rec.handler === previous));
+js/components/surface.js:2130: const cacheKey = `${min}|${max}|${String(rampKey)}`;
+js/components/surface.js:3187: }).then(result => {
+js/components/surface.js:4656: const result = await fileIO.saveGraphFile({
+js/components/surface.js:4662: setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+js/components/surface.js:4674: const result = await fileIO.saveGraphFileAs({
+js/components/surface.js:4679: setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+js/components/surface.js:4691: const result = await fileIO.openGraphFile({
+js/components/surface.js:4693: setFileHandle: handle => { setSurfaceFileHandle(handle, operationSession); },
+js/components/surface.js:4932: const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
+js/components/surface.js:4966: const cacheSession = resolveSurfaceRenderCacheSession(meta, { create: false });
+js/components/surface.js:5008: const cacheSession = resolveSurfaceRenderCacheSession(_meta, { create: false });
+js/components/survival.js:1055: shaped.results = createDefaultSurvivalResultsState({
+js/components/survival.js:1183: shaped.results = createDefaultSurvivalResultsState({ stats: shaped.state.lastStats, statsPanelModels: statsPanels });
+js/components/survival.js:3184: const result = finalizeSurvivalQuadraticTest(diff, variance, {
+js/components/survival.js:3222: const result = computeWeightedLogRank(series, {
+js/components/survival.js:3339: let handled = false;
+js/components/survival.js:3343: handled = true;
+js/components/survival.js:3347: handled = true;
+js/components/survival.js:3354: handled = true;
+js/components/survival.js:3359: handled = true;
+js/components/survival.js:3362: handled = true;
+js/components/survival.js:3370: handled = true;
+js/components/survival.js:4113: const result = {
+js/components/survival.js:4207: const result = computeLogRank(subset);
+js/components/survival.js:5981: payloadSession.results = createDefaultSurvivalResultsState({ stats: statsPayload, statsPanelModels });
+js/components/survival.js:6511: const result = await fileIO.saveGraphFile({
+js/components/survival.js:6517: setFileHandle: handle => {
+js/components/survival.js:6537: const result = await fileIO.saveGraphFileAs({
+js/components/survival.js:6542: setFileHandle: handle => {
+js/components/survival.js:6558: const result = await fileIO.openGraphFile({
+js/components/survival.js:6560: setFileHandle: handle => {
+js/components/survival.js:6942: const result = drawSurvival(drawOptions || {});
+js/components/survival.js:7293: const result = drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+js/components/venn.js:459: detection.pendingTimeoutId = null;
+js/components/venn.js:507: detection.pendingReason = reason;
+js/components/venn.js:508: detection.pendingTimeoutId = scope.setTimeout({
+js/components/venn.js:512: detection.pendingTimeoutId = null;
+js/components/venn.js:1542: shaped.results = captureVennResultsStateFromActive();
+js/components/venn.js:1551: function applyVennResultsStateToActive(results = {}){
+js/components/venn.js:2374: detection.cache = restoreMapEntries(detectionSnapshot.cacheEntries);
+js/components/venn.js:2375: detection.pendingTimeoutId = null;
+js/components/venn.js:2376: detection.pendingReason = null;
+js/components/venn.js:3175: const result = { ...trilaterate(dAB, dAC, dBC), rA, rB, rC, dAB, dAC, dBC };
+js/components/venn.js:4901: ownerSession.results = createDefaultVennResultsState({
+js/components/venn.js:5476: const cached = cache.get(cacheKey);
+js/components/venn.js:5560: const cacheKey = computeGeneSignature(genes);
+js/components/venn.js:5668: const results = response.result || [];
+js/components/venn.js:7920: const result = await fileIO.saveGraphFile({
+js/components/venn.js:7926: setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
+js/components/venn.js:7942: const result = await fileIO.saveGraphFileAs({
+js/components/venn.js:7947: setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
+js/components/venn.js:7962: const result = await fileIO.openGraphFile({
+js/components/venn.js:7964: setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
+js/components/venn.js:8571: const cacheKey = computeGeneSignature(allGenes);
+js/components/venn.js:8595: const cacheKey = computeGeneSignature(allGenes);
+js/components/venn.js:8699: const handleTableStructureChange = (label) => {
+js/components/venn.js:9143: const result = Shared.workspaceTabs.ensureActiveDomBindings({
+
+----------------------------------------------------------------------
+Active refs/managers/HOT/root mirror candidates (MEDIUM) — 66
+----------------------------------------------------------------------
+js/components/box.js:10895: let boxSignificanceFontRefreshDebounced = null;
+js/components/box.js:10898: let boxRoot = null;
+js/components/box.js:11409: let boxFallbackStatsResultsState = createDefaultBoxStatsResultsState();
+js/components/box.js:20407: let forcedOverlay = false;
+js/components/box.js:31698: let legendLayout = null;
+js/components/box.js:31798: let pointLayoutCache = null;
+js/components/box.js:35380: let bottomLayoutResult = resolveBottomLayoutForVerticalShift(plotWLocal, marginLocal.bottom);
+js/components/box.js:35381: let bottomLayout = bottomLayoutResult.bottomLayout;
+js/components/box.js:38523: let uiLayout = state.groupLayout;
+js/components/heatmap.js:189: let heatmapFontRefreshReason = null;
+js/components/heatmap.js:190: let heatmapFontRefreshTabId = null;
+js/components/heatmap.js:226: let shouldRefresh = false;
+js/components/heatmap.js:272: let heatmapResizeRefreshReason = null;
+js/components/heatmap.js:4543: let forcedOverlay = false;
+js/components/heatmap.js:8443: let needsReflow = false;
+js/components/heatmap.js:9257: let drawAsyncState = null;
+js/components/hist.js:173: let histAutoDrawManager = null;
+js/components/hist.js:4571: let forcedOverlay = false;
+js/components/hist.js:6563: let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+js/components/line.js:237: let lineFallbackAutoDrawState = createDefaultLineAutoDrawState();
+js/components/line.js:242: let lineFallbackAutoDrawManager = null;
+js/components/line.js:243: let lineFallbackHotManager = null;
+js/components/line.js:359: let lineFallbackViewState = createDefaultLineViewState();
+js/components/line.js:705: let lineSvgBoxRef = null;
+js/components/line.js:984: let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
+js/components/line.js:1110: let lineOverlayStyles = cloneLineOverlayStyleDefaults();
+js/components/line.js:1111: let lineOverlayToolbarScope = 'global';
+js/components/line.js:1388: let lineFallbackStatsState = createDefaultLineStatsState();
+js/components/line.js:1404: let lineAdvisorState = createDefaultLineAdvisorState();
+js/components/line.js:4832: let refreshedModeCacheFromState = false;
+js/components/line.js:11877: let lineLabelsState = getLineLabelsState(invocation.session);
+js/components/line.js:11880: let lineGroupedState = getLineGroupedState(invocation.session);
+js/components/line.js:12820: let lineLabelsState = getLineLabelsState(invocation.session);
+js/components/line.js:12823: let lineGroupedState = getLineGroupedState(invocation.session);
+js/components/line.js:13414: let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+js/components/line.js:16135: let forcedOverlay = false;
+js/components/pca.js:795: let pcaSvgBoxRef = null;
+js/components/pca.js:803: let pcaHotInstance = null;
+js/components/pca.js:804: let pcaRoot = null;
+js/components/pca.js:1276: let pcaHot = null;
+js/components/pca.js:4241: let pcaFallbackResultsState = createDefaultPcaResultsState();
+js/components/pca.js:7292: let forcedOverlay = false;
+js/components/pca.js:9966: let pcaLabelsState = getPcaLabelsState(drawSession, method);
+js/components/pca.js:9982: let pcaLabelPositionsState = getPcaLabelPositionsState(drawSession);
+js/components/pca.js:12246: let bottomLayout = chartStyle.computeBottomLayout({labels: [], fontSize: fs, labelMeasureFont: xTickMeasureFont, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
+js/components/roc.js:638: let rocAutoDrawManager = null;
+js/components/roc.js:3096: let forcedOverlay = false;
+js/components/roc.js:4074: let bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, labelMeasureFont: xTickMeasureFont, plotWidth, baseBottom: margin.bottom, axisMetrics});
+js/components/scatter.js:381: let scatterRoot = null;
+js/components/scatter.js:3233: let scatterOverlayStyles = cloneScatterOverlayStyleDefaults();
+js/components/scatter.js:3234: let scatterOverlayToolbarScope = 'global';
+js/components/scatter.js:4328: let scatterSvgBoxRef = null;
+js/components/scatter.js:9679: let scatterLayout = null;
+js/components/scatter.js:9680: let scatterLayoutWasHidden = true;
+js/components/scatter.js:9681: let scatterLayoutDeferredSync = false;
+js/components/scatter.js:10130: let scatterHot = null;
+js/components/scatter.js:13835: let forcedOverlay = false;
+js/components/scatter.js:19815: let scatterLabelsState = resolveScatterOwnedLabelsStateForTab(drawSession?.tabId || scatter.__boundTabId || null, {
+js/components/scatter.js:20121: let legendLayout=null;
+js/components/scatter.js:22313: let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,labelMeasureFont:xTickMeasureFont,labelFontSizePx:xTickFontSize,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+js/components/surface.js:1890: let _surfaceOverlayTimeout = null;
+js/components/surface.js:1952: let surfaceAutoDrawManager = null;
+js/components/surface.js:3154: let forcedOverlay = false;
+js/components/survival.js:4780: let bottomLayout = chartStyle.computeBottomLayout ? chartStyle.computeBottomLayout({
+js/components/survival.js:5888: let activeHot = usingActiveModuleState
+js/components/survival.js:5899: let activeManager = usingActiveModuleState
+
+----------------------------------------------------------------------
+Global listener / one-time bound-flag candidates (MEDIUM) — 51
+----------------------------------------------------------------------
+js/components/box.js:6885: let axisBoundary = Math.max(0, axisSpacing / 2 - basePointRadius);
+js/components/box.js:10892: let boxDataToolbarBound = false;
+js/components/box.js:10894: let boxSignificanceFontEventBound = false;
+js/components/box.js:10896: let boxFontEventBound = false;
+js/components/box.js:14354: global.document.addEventListener('click', event => {
+js/components/box.js:18117: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/box.js:18672: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/box.js:36044: let violinPointBounds = null;
+js/components/box.js:36959: let violinPointBounds = null;
+js/components/heatmap.js:188: let heatmapFontEventBound = false;
+js/components/heatmap.js:258: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/heatmap.js:572: let heatmapDataToolbarBound = false;
+js/components/heatmap.js:2202: global.document.addEventListener('click', onDocClick, true);
+js/components/heatmap.js:2939: global.document.addEventListener('click', event => {
+js/components/hist.js:1849: let histDataToolbarBound = false;
+js/components/hist.js:1851: let histFontEventBound = false;
+js/components/hist.js:1902: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/hist.js:2352: let histNoticeBoundWidth = null;
+js/components/hist.js:3028: document.addEventListener('click', event => {
+js/components/line.js:241: let lineFontEventBound = false;
+js/components/line.js:244: let lineDataToolbarBound = false;
+js/components/line.js:325: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/line.js:5550: let lineNoticeBoundWidth = null;
+js/components/line.js:6016: global.document.addEventListener('click', event => {
+js/components/pca.js:797: let pcaPointContextMenuGlobalBound = false;
+js/components/pca.js:805: let pcaDataToolbarBound = false;
+js/components/pca.js:2129: global.document.addEventListener('click', event => {
+js/components/pca.js:3808: let pcaFontEventBound = false;
+js/components/pca.js:6403: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/pca.js:11692: let contentRightBound = margin3.left + plotW3;
+js/components/pie.js:1513: let pieFontEventBound = false;
+js/components/pie.js:1576: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/roc.js:640: let rocFontEventBound = false;
+js/components/roc.js:1588: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/roc.js:1887: let rocNoticeBoundWidth = null;
+js/components/scatter.js:2899: let scatterFontEventBound = false;
+js/components/scatter.js:2910: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/scatter.js:4339: let scatterPointContextMenuGlobalBound = false;
+js/components/scatter.js:10131: let scatterDataToolbarBound = false;
+js/components/scatter.js:13146: document.addEventListener('click', event => {
+js/components/scatter.js:21830: let contentRightBound=margin3.left+plotW3;
+js/components/scatter.js:23387: let pointBounds = shouldCollectManualLabels ? [] : null;
+js/components/scatter.js:23410: let canvasPointBounds = null;
+js/components/surface.js:237: let surfaceDataToolbarBound = false;
+js/components/surface.js:239: let surfaceFontEventBound = false;
+js/components/surface.js:1383: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/surface.js:1758: global.document.addEventListener('click', event => {
+js/components/surface.js:1953: let surfaceNoticeBoundWidth = null;
+js/components/survival.js:659: let survivalFontEventBound = false;
+js/components/survival.js:1337: global.document.addEventListener('fontControls:styleChanged', event => {
+js/components/venn.js:1720: let vennDocumentHandlersBound = false;
+
+----------------------------------------------------------------------
+Active-singleton draw scheduler calls (HIGH) — 234
+----------------------------------------------------------------------
+js/components/box.js:2513: scheduleActiveBoxDraw({ reason: 'point-style-trace-undo' });
+js/components/box.js:2544: scheduleActiveBoxDraw({ reason: 'point-style-global-undo' });
+js/components/box.js:11748: function scheduleActiveBoxDraw(options = {}){
+js/components/box.js:19807: scheduleActiveBoxDraw();
+js/components/box.js:19839: scheduleActiveBoxDraw();
+js/components/box.js:20353: scheduleActiveBoxDraw({ force: true, reason: 'example-load' });
+js/components/box.js:20399: scheduleActiveBoxDraw({ force: true, reason: 'import-prism-style' });
+js/components/box.js:20418: scheduleActiveBoxDraw({ force: true, reason: 'import-load' });
+js/components/box.js:20467: scheduleActiveBoxDraw();
+js/components/box.js:20499: scheduleActiveBoxDraw();
+js/components/box.js:20508: scheduleActiveBoxDraw();
+js/components/box.js:20544: scheduleActiveBoxDraw();
+js/components/box.js:20566: scheduleActiveBoxDraw();
+js/components/box.js:20606: scheduleActiveBoxDraw();
+js/components/box.js:20617: scheduleActiveBoxDraw();
+js/components/box.js:20678: scheduleActiveBoxDraw();
+js/components/box.js:20698: scheduleActiveBoxDraw();
+js/components/box.js:20795: scheduleActiveBoxDraw();
+js/components/box.js:20810: scheduleActiveBoxDraw();
+js/components/box.js:20822: scheduleActiveBoxDraw();
+js/components/box.js:20835: scheduleActiveBoxDraw();
+js/components/box.js:26844: scheduleActiveBoxDraw();
+js/components/box.js:26879: scheduleActiveBoxDraw();
+js/components/box.js:27106: scheduleActiveBoxDraw();
+js/components/box.js:27126: scheduleActiveBoxDraw();
+js/components/box.js:27165: scheduleActiveBoxDraw();
+js/components/box.js:27222: scheduleActiveBoxDraw();
+js/components/box.js:27244: scheduleActiveBoxDraw();
+js/components/box.js:27269: scheduleActiveBoxDraw();
+js/components/box.js:27303: scheduleActiveBoxDraw();
+js/components/box.js:27349: scheduleActiveBoxDraw();
+js/components/box.js:27386: scheduleActiveBoxDraw();
+js/components/box.js:27411: scheduleActiveBoxDraw();
+js/components/box.js:27437: scheduleActiveBoxDraw();
+js/components/box.js:27461: scheduleActiveBoxDraw();
+js/components/box.js:27485: scheduleActiveBoxDraw();
+js/components/box.js:27502: scheduleActiveBoxDraw();
+js/components/box.js:27529: scheduleActiveBoxDraw();
+js/components/box.js:27549: scheduleActiveBoxDraw();
+js/components/box.js:27566: scheduleActiveBoxDraw();
+js/components/box.js:27592: scheduleActiveBoxDraw();
+js/components/box.js:27621: scheduleActiveBoxDraw();
+js/components/box.js:27642: scheduleActiveBoxDraw();
+js/components/box.js:27663: scheduleActiveBoxDraw();
+js/components/box.js:27701: scheduleActiveBoxDraw();
+js/components/box.js:27717: scheduleActiveBoxDraw();
+js/components/box.js:27771: scheduleActiveBoxDraw();
+js/components/box.js:27802: scheduleActiveBoxDraw();
+js/components/box.js:27830: scheduleActiveBoxDraw();
+js/components/box.js:27856: scheduleActiveBoxDraw();
+js/components/box.js:37557: scheduleActiveBoxDraw({ viewOnly: true, reason: 'significance-viewport-extension' });
+js/components/box.js:39407: scheduleDraw: (...args) => scheduleActiveBoxDraw(...args),
+js/components/box.js:39606: scheduleActiveBoxDraw({
+js/components/box.js:39621: try{ scheduleActiveBoxDraw(); } catch(e){ console.error('box init initial draw error', e); }
+js/components/heatmap.js:368: scheduleActiveHeatmapDraw({ viewOnly: true, reason: nextReason });
+js/components/heatmap.js:1031: function scheduleActiveHeatmapDraw(options = {}){
+js/components/heatmap.js:2429: scheduleActiveHeatmapDraw({ viewOnly: true, reason: 'dendrogram-thickness' });
+js/components/heatmap.js:2439: scheduleActiveHeatmapDraw({ viewOnly: true, reason: 'dendrogram-color' });
+js/components/heatmap.js:4073: scheduleActiveHeatmapDraw({ viewOnly: false, reason: 'user-control-change', userInitiated: true });
+js/components/heatmap.js:4080: scheduleActiveHeatmapDraw({ viewOnly: true, reason: reason || 'user-view-only-change', userInitiated: true });
+js/components/heatmap.js:4555: scheduleActiveHeatmapDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+js/components/heatmap.js:9786: scheduleActiveHeatmapDraw({ reason: `heatmap-payload-${meta?.source || 'unknown'}` });
+js/components/heatmap.js:10051: state.layout?.setScheduleDraw?.(meta => scheduleActiveHeatmapDraw(meta && typeof meta === 'object' ? meta : undefined));
+js/components/hist.js:1241: function scheduleActiveHistDraw(options = {}){
+js/components/hist.js:2246: scheduleActiveHistDraw({ reason: 'hist-plot-mode-change' });
+js/components/hist.js:2260: scheduleActiveHistDraw({ reason: 'hist-frequency-settings-change' });
+js/components/hist.js:3203: scheduleActiveHistDraw({ reason: `hist-${axis}-axis-notation-change` });
+js/components/hist.js:3227: scheduleActiveHistDraw({ reason: `hist-${axis}-tick-interval-change` });
+js/components/hist.js:3245: scheduleActiveHistDraw({ reason: `hist-${axis}-minor-ticks-change` });
+js/components/hist.js:3263: scheduleActiveHistDraw({ reason: `hist-${axis}-minor-subdivisions-change` });
+js/components/hist.js:3279: scheduleActiveHistDraw({ reason: 'hist-axis-stroke-width-change' });
+js/components/hist.js:3290: scheduleActiveHistDraw({ reason: 'hist-axis-color-change' });
+js/components/hist.js:3307: scheduleActiveHistDraw({ reason: 'hist-grid-visibility-change' });
+js/components/hist.js:3312: scheduleActiveHistDraw({ reason: 'hist-grid-style-change' });
+js/components/hist.js:4205: scheduleActiveHistDraw({ reason: scheduleMeta?.source || 'hist-table-change' });
+js/components/hist.js:4961: scheduleActiveHistDraw({ reason: `hist-payload-${source}` });
+js/components/hist.js:6450: scheduleActiveHistDraw({ reason: `hist-series-color-undo:${seriesKey}` });
+js/components/hist.js:6454: scheduleActiveHistDraw({ reason: `hist-series-color-change:${seriesKey}` });
+js/components/hist.js:7104: scheduleActiveHistDraw({ reason: 'hist-x-label-edit' });
+js/components/hist.js:7143: scheduleActiveHistDraw({ reason: 'hist-y-label-edit' });
+js/components/hist.js:7178: scheduleActiveHistDraw({ reason: 'hist-title-edit' });
+js/components/hist.js:7379: scheduleDraw: options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}),
+js/components/hist.js:7406: state.layout?.setScheduleDraw?.(options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}));
+js/components/hist.js:7544: state.layout?.setScheduleDraw?.(options => scheduleActiveHistDraw(options && typeof options === 'object' ? options : {}));
+js/components/line.js:283: scheduleActiveLineDraw(scheduleOptions);
+js/components/line.js:2250: scheduleActiveLineDraw();
+js/components/line.js:2277: scheduleActiveLineDraw();
+js/components/line.js:2298: scheduleActiveLineDraw();
+js/components/line.js:2319: scheduleActiveLineDraw();
+js/components/line.js:2350: scheduleActiveLineDraw();
+js/components/line.js:2486: scheduleActiveLineDraw();
+js/components/line.js:2491: scheduleActiveLineDraw();
+js/components/line.js:2510: scheduleActiveLineDraw();
+js/components/line.js:2537: scheduleActiveLineDraw();
+js/components/line.js:2839: scheduleActiveLineDraw({ reason: 'equal-scale-toggle' });
+js/components/line.js:2869: scheduleActiveLineDraw({ reason: 'equal-length-toggle' });
+js/components/line.js:2924: scheduleActiveLineDraw({ reason: 'variance-axis-scale' });
+js/components/line.js:4449: function scheduleActiveLineDraw(options = {}){
+js/components/line.js:6359: scheduleActiveLineDraw();
+js/components/line.js:6403: scheduleActiveLineDraw();
+js/components/line.js:6574: scheduleActiveLineDraw();
+js/components/line.js:6590: scheduleActiveLineDraw();
+js/components/line.js:8988: scheduleActiveLineDraw();
+js/components/line.js:9030: scheduleActiveLineDraw();
+js/components/line.js:9121: scheduleActiveLineDraw();
+js/components/line.js:9146: scheduleActiveLineDraw();
+js/components/line.js:10125: scheduleActiveLineDraw();
+js/components/line.js:11735: scheduleActiveLineDraw({ reason: drawReason });
+js/components/line.js:12107: scheduleActiveLineDraw();
+js/components/line.js:12121: scheduleActiveLineDraw();
+js/components/line.js:12533: scheduleActiveLineDraw();
+js/components/line.js:12752: scheduleActiveLineDraw();
+js/components/line.js:13192: scheduleActiveLineDraw();
+js/components/line.js:13210: scheduleActiveLineDraw();
+js/components/line.js:14844: scheduleActiveLineDraw();
+js/components/line.js:14870: scheduleActiveLineDraw();
+js/components/line.js:14924: scheduleActiveLineDraw();
+js/components/line.js:14982: scheduleActiveLineDraw();
+js/components/line.js:15292: scheduleActiveLineDraw();
+js/components/line.js:15483: scheduleActiveLineDraw();
+js/components/line.js:15489: scheduleActiveLineDraw();
+js/components/line.js:15495: scheduleActiveLineDraw();
+js/components/line.js:15501: scheduleActiveLineDraw();
+js/components/line.js:15596: scheduleActiveLineDraw({ ...meta, reason: meta.reason || 'hot-change' });
+js/components/line.js:16086: scheduleActiveLineDraw();
+js/components/line.js:16124: scheduleActiveLineDraw();
+js/components/line.js:16185: scheduleActiveLineDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
+js/components/line.js:16193: scheduleActiveLineDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+js/components/line.js:16254: scheduleActiveLineDraw({ force: true, reason: 'manual-render' });
+js/components/line.js:16587: scheduleActiveLineDraw({ tabId: targetTabId, reason: 'line-setup-initial-draw' });
+js/components/line.js:17320: scheduleActiveLineDraw(drawOptions);
+js/components/pca.js:2823: scheduleActivePcaDraw({ reason: 'point-context-menu' });
+js/components/pca.js:4656: pcaState.scheduleDraw = (opts) => scheduleActivePcaDraw(opts);
+js/components/pca.js:5153: function scheduleActivePcaDraw(options = {}){
+js/components/pca.js:6327: scheduleActivePcaDraw(nextOptions);
+js/components/pca.js:6900: scheduleDraw: (...args) => scheduleActivePcaDraw(...args),
+js/components/pca.js:6936: pcaLayout?.setScheduleDraw?.((...args) => scheduleActivePcaDraw(...args));
+js/components/pca.js:7280: scheduleActivePcaDraw({ force: true, reason: 'example-load' });
+js/components/pca.js:7305: scheduleActivePcaDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
+js/components/pca.js:9594: scheduleActivePcaDraw({ force: true, reason: 'method-change' });
+js/components/pca.js:13849: pcaLayout?.setScheduleDraw?.((...args) => scheduleActivePcaDraw(...args));
+js/components/pie.js:538: scheduleActivePieDraw({ reason: `pie-${axis}-tick-interval-change` });
+js/components/pie.js:556: scheduleActivePieDraw({ reason: `pie-${axis}-minor-ticks-change` });
+js/components/pie.js:574: scheduleActivePieDraw({ reason: `pie-${axis}-minor-subdivisions-change` });
+js/components/pie.js:590: scheduleActivePieDraw({ reason: 'pie-axis-stroke-width-change' });
+js/components/pie.js:601: scheduleActivePieDraw({ reason: 'pie-axis-color-change' });
+js/components/pie.js:994: function scheduleActivePieDraw(options = {}){
+js/components/pie.js:4532: scheduleActivePieDraw({ reason: 'pie-table-edit' });
+js/components/pie.js:5443: scheduleActivePieDraw({ reason: `pie-payload-${source}` });
+js/components/pie.js:6020: scheduleActivePieDraw({ viewOnly: true, reason: 'pie-bottom-viewport-extension' });
+js/components/pie.js:6839: scheduleActivePieDraw(meta && typeof meta === 'object' ? meta : undefined);
+js/components/pie.js:6914: scheduleActivePieDraw({ reason: 'pie-init-complete' });
+js/components/roc.js:275: scheduleActiveRocDraw({ reason: 'roc-line-color-input' });
+js/components/roc.js:289: scheduleActiveRocDraw({ reason: 'roc-line-color-change' });
+js/components/roc.js:305: scheduleActiveRocDraw({ reason: 'roc-line-thickness-change' });
+js/components/roc.js:320: scheduleActiveRocDraw({ reason: 'roc-line-pattern-change' });
+js/components/roc.js:337: scheduleActiveRocDraw({ reason: 'roc-line-transparency-change' });
+js/components/roc.js:1175: function scheduleActiveRocDraw(options = {}){
+js/components/roc.js:1643: scheduleActiveRocDraw({ reason: 'roc-label-color-change' });
+js/components/roc.js:2074: scheduleActiveRocDraw({ reason: `roc-${axis}-tick-interval-change` });
+js/components/roc.js:2092: scheduleActiveRocDraw({ reason: `roc-${axis}-minor-ticks-change` });
+js/components/roc.js:2110: scheduleActiveRocDraw({ reason: `roc-${axis}-minor-subdivisions-change` });
+js/components/roc.js:2127: scheduleActiveRocDraw({ reason: 'roc-axis-stroke-width-change' });
+js/components/roc.js:2138: scheduleActiveRocDraw({ reason: 'roc-axis-color-change' });
+js/components/roc.js:2154: scheduleActiveRocDraw({ reason: 'roc-grid-visibility-change' });
+js/components/roc.js:2159: scheduleActiveRocDraw({ reason: 'roc-grid-style-change' });
+js/components/roc.js:2294: scheduleActiveRocDraw({ reason: 'roc-title-edit' });
+js/components/roc.js:5163: scheduleActiveRocDraw({ reason: `roc-payload-${source}` });
+js/components/roc.js:5520: scheduleDraw: options => scheduleActiveRocDraw(options && typeof options === 'object' ? options : {}),
+js/components/roc.js:5562: state.layout?.setScheduleDraw?.(options => scheduleActiveRocDraw(options && typeof options === 'object' ? options : {}));
+js/components/roc.js:5571: scheduleActiveRocDraw({ reason: 'roc-init-complete' });
+js/components/roc.js:5577: global.scheduleDrawRoc = () => scheduleActiveRocDraw({ reason: 'roc-public-schedule' });
+js/components/roc.js:5703: roc.scheduleDraw = () => scheduleActiveRocDraw({ reason: 'roc-public-schedule' });
+js/components/scatter.js:3764: function scheduleActiveScatterDraw(options = {}){
+js/components/scatter.js:4174: scheduleActiveScatterDraw({
+js/components/scatter.js:13231: scheduleDraw: (...args) => scheduleActiveScatterDraw(...args),
+js/components/scatter.js:13264: scatterLayout?.setScheduleDraw?.((...args) => scheduleActiveScatterDraw(...args));
+js/components/scatter.js:13823: scheduleActiveScatterDraw({ force: true, reason: 'example-load' });
+js/components/scatter.js:13846: scheduleActiveScatterDraw({ force: true, reason: 'import-load' });
+js/components/scatter.js:13901: scheduleActiveScatterDraw({ force: true, reason: 'import-prism-style' });
+js/components/scatter.js:13975: scheduleActiveScatterDraw({ force: true, reason: 'import-prism-grouped' });
+js/components/scatter.js:14385: scheduleActiveScatterDraw({ reason: 'scatter-replicate-change' });
+js/components/scatter.js:14457: scheduleActiveScatterDraw({ reason: 'scatter-table-format-applied' });
+js/components/scatter.js:18348: scheduleActiveScatterDraw({ reason: 'scatter-graph-type-change' });
+js/components/scatter.js:18486: scheduleActiveScatterDraw({ reason: 'scatter-grouped-replicates-toggle' });
+js/components/scatter.js:25551: scatterLayout?.setScheduleDraw?.((...args) => scheduleActiveScatterDraw(...args));
+js/components/scatter.js:27811: scheduleActiveScatterDraw(opts || {});
+js/components/surface.js:593: function scheduleActiveSurfaceDraw(options = {}){
+js/components/surface.js:1332: scheduleActiveSurfaceDraw({
+js/components/surface.js:3077: scheduleActiveSurfaceDraw({ reason: 'surface-interpolation-change' });
+js/components/surface.js:3086: scheduleActiveSurfaceDraw({ reason: 'surface-font-size-change' });
+js/components/surface.js:3093: scheduleActiveSurfaceDraw({ reason: 'surface-axis-stroke-change' });
+js/components/surface.js:3102: scheduleActiveSurfaceDraw({ reason: 'surface-axis-color-change' });
+js/components/surface.js:3110: scheduleActiveSurfaceDraw({ reason: `surface-${key}-change` });
+js/components/surface.js:3121: scheduleActiveSurfaceDraw({ reason: `surface-${axis}-axis-change` });
+js/components/surface.js:3543: scheduleActiveSurfaceDraw({ reason: `surface-${axisKey || 'axis'}-label-edit` });
+js/components/surface.js:3959: scheduleActiveSurfaceDraw({ force: true, reason: overlayReason });
+js/components/surface.js:3977: scheduleDraw: options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}),
+js/components/surface.js:4002: state.layout.setScheduleDraw(options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}));
+js/components/surface.js:4091: state.layout.setScheduleDraw(options => scheduleActiveSurfaceDraw(options && typeof options === 'object' ? options : {}));
+js/components/surface.js:4104: scheduleActiveSurfaceDraw({ reason: options?.reason || 'surface-init-complete' });
+js/components/surface.js:4512: scheduleActiveSurfaceDraw({ reason: 'surface-payload-applied' });
+js/components/survival.js:287: scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-input', tabId: survival.__boundTabId || null });
+js/components/survival.js:302: scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:319: scheduleActiveSurvivalDraw({ reason: 'survival-curve-thickness-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:335: scheduleActiveSurvivalDraw({ reason: 'survival-curve-pattern-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:353: scheduleActiveSurvivalDraw({ reason: 'survival-curve-opacity-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:963: function scheduleActiveSurvivalDraw(options = {}){
+js/components/survival.js:1456: scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: survival.__boundTabId || null });
+js/components/survival.js:1475: scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: survival.__boundTabId || null });
+js/components/survival.js:1494: scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: survival.__boundTabId || null });
+js/components/survival.js:1511: scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: survival.__boundTabId || null });
+js/components/survival.js:1523: scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: survival.__boundTabId || null });
+js/components/survival.js:1541: scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:1546: scheduleActiveSurvivalDraw({ reason: 'grid-style-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:1921: scheduleActiveSurvivalDraw({ reason: 'survival-table-change', tabId: survival.__boundTabId || null });
+js/components/survival.js:2381: scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+js/components/survival.js:2524: scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+js/components/survival.js:2617: scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: survival.__boundTabId || null });
+js/components/survival.js:5062: scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: survival.__boundTabId || null });
+js/components/survival.js:5133: scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: survival.__boundTabId || null });
+js/components/survival.js:5199: scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: survival.__boundTabId || null });
+js/components/survival.js:6342: scheduleActiveSurvivalDraw({ reason: 'survival-payload-applied', tabId: survival.__boundTabId || null });
+js/components/survival.js:6975: scheduleDraw: options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}),
+js/components/survival.js:7014: state.layout?.setScheduleDraw?.(options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {}));
+js/components/survival.js:7030: scheduleActiveSurvivalDraw({ reason: options?.reason || 'survival-init-complete', tabId: survival.__boundTabId || null });
+js/components/survival.js:7032: global.scheduleDrawSurvival = options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {});
+js/components/venn.js:1449: function scheduleActiveVennDraw(options = {}){
+js/components/venn.js:6099: scheduleActiveVennDraw({ reason: 'venn-title-edit' });
+js/components/venn.js:7609: if(!scheduleActiveVennDraw({ reason: reason || 'venn-auto-redraw', mode: state.analysis.lastDrawMode || null })){
+js/components/venn.js:7620: scheduleActiveVennDraw({ reason: 'venn-layout-resize' });
+js/components/venn.js:7680: scheduleDraw: options => scheduleActiveVennDraw(options && typeof options === 'object' ? options : {}),
+js/components/venn.js:9226: state.ui.layout?.setScheduleDraw?.(options => scheduleActiveVennDraw(options && typeof options === 'object' ? options : {}));
+js/components/venn.js:9359: scheduleActiveVennDraw({ reason: meta.reason || 'venn-activate-tab' });
+

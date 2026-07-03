@@ -1351,7 +1351,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    survivalUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => survivalUndoManager.recordStateChange(opts));
+    recorder({
+      manager: survivalUndoManager,
       label,
       scope: 'survivalGraphPanel',
       from: previous,

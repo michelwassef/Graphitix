@@ -1,6 +1,9 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.styleUndo && typeof require === 'function'){
+    try{ require('./styleUndo.js'); }catch(err){}
+  }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
 
   let panelEl = null;
@@ -212,11 +215,7 @@
   }
 
   function getUndoManager(){
-    const manager = global.Shared?.undoManager;
-    if(manager && typeof manager.recordStateChange === 'function'){
-      return manager;
-    }
-    return null;
+    return Shared.styleUndo?.getUndoManager?.() || null;
   }
 
   function configsMatch(a, b){
@@ -1843,30 +1842,26 @@
     const compare = typeof equals === 'function'
       ? equals
       : ((a, b) => (a === b) || (a === null && b === null));
-    if(compare(previousValue, nextValue)){ return; }
     const parts = ['axis'];
     if(config?.scopeId){ parts.push(config.scopeId); }
     if(config?.axis){ parts.push(config.axis); }
     parts.push(type);
     const label = parts.filter(Boolean).join(':');
-    manager.recordStateChange({
+    Shared.styleUndo.recordStateChange({
+      manager,
       label,
       scope: getUndoScope(config),
       from: previousValue,
       to: nextValue,
       equals: compare,
-      apply(value){
-        applyingFromUndo = true;
-        try{
-          if(typeof applyFn === 'function'){
-            applyFn(value);
-          }
-        }finally{
-          applyingFromUndo = false;
+      beforeApply(){ applyingFromUndo = true; },
+      afterApply(){ applyingFromUndo = false; },
+      apply: value => {
+        if(typeof applyFn === 'function'){
+          applyFn(value);
         }
-        syncPanelInputsFromConfig(config);
-        return true;
-      }
+      },
+      sync(){ syncPanelInputsFromConfig(config); }
     });
   }
 
@@ -3507,4 +3502,3 @@
   };
   axisControls.close = closePanel;
 })(typeof window !== 'undefined' ? window : globalThis);
-

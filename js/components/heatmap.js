@@ -3017,7 +3017,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    heatmapUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => heatmapUndoManager.recordStateChange(opts));
+    recorder({
+      manager: heatmapUndoManager,
       label,
       scope: 'heatmapGraphPanel',
       from: previous,

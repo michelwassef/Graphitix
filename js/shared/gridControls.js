@@ -37,6 +37,7 @@
   let applyingSync = false;
   let applyingFromUndo = false;
   let colorPickerAttached = false;
+  let pendingColorEdit = null;
 
   const DEFAULTS = Object.freeze({
     color: '#dddddd',
@@ -104,6 +105,10 @@
     if(!panelEl || panelEl.dataset.open !== '1'){ return; }
     if(activeConfig !== config){ return; }
     syncPanelFromConfig(config);
+  }
+
+  function clearPendingColorEdit(){
+    pendingColorEdit = null;
   }
 
   function recordGridStateChange(config, target, fieldType, previousValue, nextValue, applyFn, equals){
@@ -908,7 +913,14 @@
       const config = activeConfig;
       const context = getContext();
       const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
-      const previousColor = sanitizeColor(baseStyle.color, DEFAULTS.color);
+      if(!pendingColorEdit || pendingColorEdit.config !== config){
+        pendingColorEdit = {
+          config,
+          context,
+          previousColor: sanitizeColor(baseStyle.color, DEFAULTS.color)
+        };
+      }
+      const previousColor = pendingColorEdit.previousColor;
       const nextColor = sanitizeColor(colorInput.value, previousColor);
       const style = Object.assign({}, baseStyle, { color: nextColor });
       try{
@@ -916,20 +928,6 @@
       }catch(err){
         logDebug('onStyleChange(color) failed', { error: err?.message || String(err) });
       }
-      recordGridStateChange(
-        config,
-        context.target,
-        'color',
-        previousColor,
-        nextColor,
-        value => {
-          const applyContext = buildContext(config, context.target);
-          const current = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(applyContext) : null, config.defaults);
-          const applied = Object.assign({}, current, { color: sanitizeColor(value, current.color) });
-          config.onStyleChange(applied, applyContext);
-        },
-        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
-      );
       syncPanelFromConfig(config);
     });
 
@@ -939,9 +937,13 @@
       const config = activeConfig;
       const context = getContext();
       const baseStyle = sanitizeStyle(typeof config.getStyle === 'function' ? config.getStyle(context) : null, config.defaults);
-      const previousColor = sanitizeColor(baseStyle.color, DEFAULTS.color);
+      const pending = pendingColorEdit && pendingColorEdit.config === config ? pendingColorEdit : null;
+      const previousColor = pending
+        ? pending.previousColor
+        : sanitizeColor(baseStyle.color, DEFAULTS.color);
       const nextColor = sanitizeColor(colorInput.value, previousColor);
       const style = Object.assign({}, baseStyle, { color: nextColor });
+      clearPendingColorEdit();
       try{
         config.onStyleChange(style, context);
       }catch(err){
@@ -1093,6 +1095,7 @@
     }
     activeConfig = null;
     activeHost = null;
+    clearPendingColorEdit();
     logDebug('panel closed', { reason });
   }
 
@@ -1112,6 +1115,7 @@
       }
     }
     activeConfig = config;
+    clearPendingColorEdit();
     const host = config.host || resolveToolbarHost(config.scopeId);
     if(host){
       if(config.clearHost === true || (config.appendToHost !== true && config.clearHost !== false)){
@@ -1233,4 +1237,3 @@
   gridControls.transparencyToOpacity = transparencyToOpacity;
   gridControls.getStrokeAttributes = buildStrokeAttributes;
 })(typeof window !== 'undefined' ? window : globalThis);
-

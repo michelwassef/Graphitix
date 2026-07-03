@@ -2807,7 +2807,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    vennUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => vennUndoManager.recordStateChange(opts));
+    recorder({
+      manager: vennUndoManager,
       label: 'venn:title',
       scope: 'vennGraphPanel',
       from: previous,
@@ -4183,7 +4185,9 @@
       : resolveVennTraceBaseStyle(traceId);
     debugLog('venn trace toolbar open requested', { traceId });
     const getStyle = ctx => {
-      const scopedTraceId = ctx?.scope === 'trace' ? traceId : null;
+      const scopedTraceId = ctx?.scope === 'trace'
+        ? (String(ctx?.scopeDataset || '').trim() || traceId)
+        : null;
       const baseTraceId = scopedTraceId || traceId;
       const baseStyle = resolveVennTraceBaseStyle(baseTraceId, fallback);
       return getVennTraceStyle(scopedTraceId, baseStyle);
@@ -4311,7 +4315,11 @@
     })();
     const fallback = options.fallback && typeof options.fallback === 'object' ? options.fallback : {};
     debugLog('upset trace toolbar open requested', { kind, traceId });
-    const getStyle = ctx => getUpSetTraceStyle(kind, ctx?.scope === 'trace' ? traceId : null, fallback);
+    const getStyle = ctx => getUpSetTraceStyle(
+      kind,
+      ctx?.scope === 'trace' ? (String(ctx?.scopeDataset || '').trim() || traceId) : null,
+      fallback
+    );
     symbolToolbar.show({
       document: doc,
       target,

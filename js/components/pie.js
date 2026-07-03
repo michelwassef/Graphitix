@@ -1861,7 +1861,9 @@ let state = {
     if(typeof apply !== 'function'){
       return;
     }
-    pieUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => pieUndoManager.recordStateChange(opts));
+    recorder({
+      manager: pieUndoManager,
       label,
       scope: 'pieGraphPanel',
       from: previous,

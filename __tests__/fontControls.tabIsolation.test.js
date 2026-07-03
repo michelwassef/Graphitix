@@ -58,7 +58,9 @@ describe('fontControls tab-scoped style isolation', () => {
       </div>
     `;
     require('../js/vendor.js');
+    require('../js/shared/undo.js');
     require('../js/shared/fontControls.js');
+    window.Shared.undoManager.clear();
   });
 
   test('same component scope keeps independent styles per active tab', () => {
@@ -168,5 +170,32 @@ describe('fontControls tab-scoped style isolation', () => {
     expect(exported?.graphTitle?.fontSize).toBe('11px');
     expect(exported?.graphTitle?.fontFamily).toBe('Verdana');
     expect(titleTab2.getAttribute('font-size')).toBe('11px');
+  });
+
+  test('undo graph font-size edit restores per-text font-size overrides', () => {
+    const fontControls = window.Shared?.fontControls;
+    const title = createSvgText('Title');
+    const axis = createSvgText('Axis');
+
+    setActiveTab('tab-box-1');
+    fontControls.markText(title, { scopeId: 'box', key: 'graphTitle' });
+    fontControls.markText(axis, { scopeId: 'box', key: 'xTitle' });
+    fontControls.importScopeStyles('box', {
+      graphTitle: { fontSize: '18px', fontFamily: 'Georgia' },
+      xTitle: { fontSize: '12px', fontFamily: 'Arial' }
+    }, { prune: true });
+
+    fontControls.openForElement(title, { scopeId: 'box', key: 'graphTitle' });
+    setToolbarScope('graph');
+    setToolbarFontSize('16');
+
+    expect(title.getAttribute('font-size')).toBe('21.33px');
+    expect(axis.getAttribute('font-size')).toBe('21.33px');
+
+    expect(window.Shared.undoManager.undo()).toBe(true);
+    expect(title.getAttribute('font-size')).toBe('18px');
+    expect(axis.getAttribute('font-size')).toBe('12px');
+    expect(title.getAttribute('font-family')).toBe('Georgia');
+    expect(axis.getAttribute('font-family')).toBe('Arial');
   });
 });

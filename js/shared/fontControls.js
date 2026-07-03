@@ -1,6 +1,9 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.styleUndo && typeof require === 'function'){
+    try{ require('./styleUndo.js'); }catch(err){}
+  }
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -1279,6 +1282,24 @@
     return hasValue ? clone : null;
   }
 
+  function cloneScopeStylesSnapshot(styles){
+    if(!styles || typeof styles !== 'object'){ return null; }
+    try{
+      if(typeof global.structuredClone === 'function'){
+        return global.structuredClone(styles);
+      }
+    }catch(err){}
+    try{
+      return JSON.parse(JSON.stringify(styles));
+    }catch(err){
+      const clone = {};
+      Object.keys(styles).forEach(key => {
+        clone[key] = cloneStyleSnapshot(styles[key]);
+      });
+      return clone;
+    }
+  }
+
   function mergeStyleSnapshots(baseStyle, overrideStyle){
     const merged = {};
     let hasValue = false;
@@ -1439,15 +1460,38 @@
     const prevStoreClone = hasPrevStoreStyle ? cloneStyleSnapshot(meta.prevStoreStyle) : prevClone;
     const nextStoreClone = hasNextStoreStyle ? cloneStyleSnapshot(meta.nextStoreStyle) : nextClone;
     const patchKeys = Array.isArray(meta?.patchKeys) && meta.patchKeys.length ? meta.patchKeys.slice() : STYLE_KEYS;
-    manager.record({
+    const isGraphScopeUndo = isGraphStoreKey(storeContext.storeKey);
+    const prevScopeStyles = isGraphScopeUndo ? cloneScopeStylesSnapshot(meta?.prevScopeStyles) : null;
+    const nextScopeStyles = isGraphScopeUndo ? cloneScopeStylesSnapshot(meta?.nextScopeStyles) : null;
+    const applyScopeStyles = styles => {
+      if(!isGraphScopeUndo || !storeContext.scopeId){
+        return false;
+      }
+      importScopeStyles(storeContext.scopeId, styles || null, {
+        tabId: storeContext.tabId || null,
+        prune: true,
+        broadcast: true
+      });
+      if(node === currentTarget){
+        syncPanelStateFromTarget();
+        updatePreviewFromInputs();
+      }
+      return true;
+    };
+    Shared.styleUndo.recordCommand({
+      manager,
       label,
       scope,
       undo: () => {
-        applyStyleSnapshot(node, prevClone, { storeContext, storeSnapshot: prevStoreClone, patchKeys });
+        if(!applyScopeStyles(prevScopeStyles)){
+          applyStyleSnapshot(node, prevClone, { storeContext, storeSnapshot: prevStoreClone, patchKeys });
+        }
         logDebug('undo applied for style change', { label, scope });
       },
       redo: () => {
-        applyStyleSnapshot(node, nextClone, { storeContext, storeSnapshot: nextStoreClone, patchKeys });
+        if(!applyScopeStyles(nextScopeStyles)){
+          applyStyleSnapshot(node, nextClone, { storeContext, storeSnapshot: nextStoreClone, patchKeys });
+        }
         logDebug('redo applied for style change', { label, scope });
       }
     });
@@ -3955,11 +3999,21 @@
       return applyStylePatchToSnapshot(existingSnapshot, normalizedPatch);
     }
 
+    function captureScopeStylesForUndo(storeContext){
+      if(!storeContext || !isGraphStoreKey(storeContext.storeKey) || !storeContext.scopeId){
+        return null;
+      }
+      return cloneScopeStylesSnapshot(exportScopeStyles(storeContext.scopeId, {
+        tabId: storeContext.tabId || null
+      }));
+    }
+
     function commitFontFamily(rawValue, meta){
       if(!currentTarget){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-family-prev-store' }));
+      const prevScopeStyles = captureScopeStylesForUndo(storeContext);
       const value = (rawValue || '').trim();
       const inlineResult = handleInlineSelectionPatch({ fontFamily: value || null }, {
         source: meta?.source || 'unknown',
@@ -3978,6 +4032,7 @@
       );
       const patchKeys = ['fontFamily'];
       storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
+      const nextScopeStyles = captureScopeStylesForUndo(storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -3990,6 +4045,8 @@
         storeContext,
         prevStoreStyle,
         nextStoreStyle: storePayload,
+        prevScopeStyles,
+        nextScopeStyles,
         patchKeys
       });
       logDebug('font family committed', {
@@ -4045,6 +4102,7 @@
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'fill-prev-store' }));
+      const prevScopeStyles = captureScopeStylesForUndo(storeContext);
       const val = colorInput.value;
       const inlineResult = handleInlineSelectionPatch({ fill: val }, {
         source: 'color-input',
@@ -4063,6 +4121,7 @@
       );
       const patchKeys = ['fill'];
       storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
+      const nextScopeStyles = captureScopeStylesForUndo(storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -4075,6 +4134,8 @@
         storeContext,
         prevStoreStyle,
         nextStoreStyle: storePayload,
+        prevScopeStyles,
+        nextScopeStyles,
         patchKeys
       });
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
@@ -4085,6 +4146,7 @@
       const prevStyle = captureStyleSnapshot(currentTarget);
       const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: 'font-size-prev-store' }));
+      const prevScopeStyles = captureScopeStylesForUndo(storeContext);
       const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta?.source || 'change' });
       sizeInput.value = normalized;
       highlightSizeMenuSelection(normalized);
@@ -4119,6 +4181,7 @@
       );
       const patchKeys = ['fontSize'];
       storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
+      const nextScopeStyles = captureScopeStylesForUndo(storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -4131,6 +4194,8 @@
         storeContext,
         prevStoreStyle,
         nextStoreStyle: storePayload,
+        prevScopeStyles,
+        nextScopeStyles,
         patchKeys
       });
       logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
@@ -4159,6 +4224,7 @@
         const prevStyle = captureStyleSnapshot(currentTarget);
         const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
         const prevStoreStyle = cloneStyleSnapshot(getStoredStyle(storeContext.storeKey, { reason: `${attr}-prev-store` }));
+        const prevScopeStyles = captureScopeStylesForUndo(storeContext);
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
         setToggleState(btn, nextActive);
@@ -4187,6 +4253,7 @@
         );
         const patchKeys = normalizeStylePatchKeys(patch);
         storeStyleForNode(currentTarget, storePayload, { ...storeContext, patchKeys });
+        const nextScopeStyles = captureScopeStylesForUndo(storeContext);
         if(inlineResult.entire && propKey){
           const inlineState = getInlineState(currentTarget);
           if(inlineState && inlineState.baseStyle){
@@ -4199,6 +4266,8 @@
           storeContext,
           prevStoreStyle,
           nextStoreStyle: storePayload,
+          prevScopeStyles,
+          nextScopeStyles,
           patchKeys
         });
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });

@@ -4424,6 +4424,10 @@
         pinnedTopBottom: resolveSelectionOcclusionEdge(
           '.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-floating-top-left, .ag-floating-top-center, .ag-floating-top-right, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top',
           'bottom'
+        ),
+        headerBottom: resolveSelectionOcclusionEdge(
+          '.ag-header, .ag-header-viewport, .ag-pinned-left-header, .ag-pinned-left-header-viewport',
+          'bottom'
         )
       };
     };
@@ -4464,6 +4468,10 @@
         const pinnedTopBottom = visibilityContext.pinnedTopBottom;
         if(Number.isFinite(pinnedTopBottom)){
           clipTop = Math.max(clipTop, pinnedTopBottom);
+        }
+        const headerBottom = visibilityContext.headerBottom;
+        if(Number.isFinite(headerBottom)){
+          clipTop = Math.max(clipTop, headerBottom);
         }
       }
       const left = Number.isFinite(clipLeft) ? Math.max(rect.left, clipLeft) : rect.left;
@@ -4691,6 +4699,13 @@
       if(selectionIncludesPinnedTopRow){
         top = Math.max(top, bounds.top - hostRect.top);
       }
+      const selectionStartsBelowPinnedTop = !!(usePinnedRows
+        && Number.isInteger(normalized.from?.row)
+        && normalized.from.row === pinRowCount
+        && !selectionInsidePinnedTop);
+      if(selectionStartsBelowPinnedTop){
+        top = Math.max(top, bounds.top - hostRect.top);
+      }
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
       if(width <= 0 || height <= 0){
@@ -4871,15 +4886,23 @@
         && !isPinnedSelectionRow
         && visibleCellRect
         && (visibleCellRect.top - cellRect.top) > 1.5);
+      const markerRect = {
+        left: cellRect.right - (handleWidth / 2),
+        top: cellRect.bottom - (handleHeight / 2),
+        right: cellRect.right + (handleWidth / 2),
+        bottom: cellRect.bottom + (handleHeight / 2)
+      };
+      const topOcclusionBottom = Math.max(
+        Number.isFinite(visibilityContext?.headerBottom) ? visibilityContext.headerBottom : Number.NEGATIVE_INFINITY,
+        Number.isFinite(visibilityContext?.pinnedTopBottom) ? visibilityContext.pinnedTopBottom : Number.NEGATIVE_INFINITY
+      );
+      if(!isPinnedSelectionRow && Number.isFinite(topOcclusionBottom) && markerRect.top < (topOcclusionBottom + 0.5)){
+        hideFillHandle();
+        return;
+      }
       const viewport = resolveFillHandleViewport(cell, { preferPinnedTop: isPinnedSelectionRow });
       if(viewport && typeof viewport.getBoundingClientRect === 'function'){
         const viewportRect = viewport.getBoundingClientRect();
-        const markerRect = {
-          left: cellRect.right - (handleWidth / 2),
-          top: cellRect.bottom - (handleHeight / 2),
-          right: cellRect.right + (handleWidth / 2),
-          bottom: cellRect.bottom + (handleHeight / 2)
-        };
         const edgeTolerance = isPinnedSelectionRow ? Math.max(2, handleWidth / 2) : Math.max(0.5, handleWidth / 2);
         const markerInsideViewport = markerRect.left >= (viewportRect.left - edgeTolerance)
           && markerRect.right <= (viewportRect.right + edgeTolerance)
@@ -4917,13 +4940,10 @@
       }
       const isPinnedLeftSelectionCell = !!(cell && typeof cell.closest === 'function'
         && cell.closest('.ag-pinned-left, .ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container, .ag-pinned-left-floating-top'));
-      // Keep handle above pinned top rows only when the selection itself is pinned.
-      // For pinned-left selections, lift it just above the pinned column so the
-      // resize square is not obscured by the adjacent body cell below.
-      // Other body selections keep the lower z-index so pinned-row masks overlap naturally.
-      handle.style.zIndex = isPinnedSelectionRow
+      const fillHandleLayer = isPinnedSelectionRow
         ? '12'
-        : ((isPinnedLeftSelectionCell && !bodySelectionClippedUnderPinnedTop) ? '7' : '2');
+        : (bodySelectionClippedUnderPinnedTop ? '2' : '6');
+      handle.style.zIndex = fillHandleLayer;
       if(handle.dataset){
         if(isPinnedSelectionRow){
           handle.dataset.pinnedSelection = '1';

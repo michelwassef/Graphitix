@@ -1998,7 +1998,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    surfaceUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => surfaceUndoManager.recordStateChange(opts));
+    recorder({
+      manager: surfaceUndoManager,
       label,
       scope: 'surfaceGraphPanel',
       from: previous,

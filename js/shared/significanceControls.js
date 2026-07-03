@@ -1,6 +1,9 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.styleUndo && typeof require === 'function'){
+    try{ require('./styleUndo.js'); }catch(err){}
+  }
   const significanceControls = Shared.significanceControls = Shared.significanceControls || {};
   const SIGNIFICANCE_CONTROLS_DEFAULT_SCOPE = '__global__';
 
@@ -33,11 +36,7 @@
   }
 
   function getUndoManager(){
-    const manager = global.Shared?.undoManager;
-    if(manager && typeof manager.recordStateChange === 'function'){
-      return manager;
-    }
-    return null;
+    return Shared.styleUndo?.getUndoManager?.() || null;
   }
 
   function configsMatch(a, b){
@@ -251,30 +250,26 @@
     const compare = typeof equals === 'function'
       ? equals
       : ((a, b) => (a === b) || (a === null && b === null));
-    if(compare(previousValue, nextValue)){ return; }
     const parts = ['significance'];
     if(config?.scopeId){ parts.push(config.scopeId); }
     if(config?.orientation){ parts.push(config.orientation); }
     parts.push(type);
     const label = parts.filter(Boolean).join(':');
-    manager.recordStateChange({
+    Shared.styleUndo.recordStateChange({
+      manager,
       label,
       scope: getUndoScope(config),
       from: previousValue,
       to: nextValue,
       equals: compare,
-      apply(value){
-        applyingFromUndo = true;
-        try{
-          if(typeof applyFn === 'function'){
-            applyFn(value);
-          }
-        }finally{
-          applyingFromUndo = false;
+      beforeApply(){ applyingFromUndo = true; },
+      afterApply(){ applyingFromUndo = false; },
+      apply: value => {
+        if(typeof applyFn === 'function'){
+          applyFn(value);
         }
-        syncPanelInputsFromConfig(config);
-        return true;
-      }
+      },
+      sync(){ syncPanelInputsFromConfig(config); }
     });
   }
 
@@ -1047,4 +1042,3 @@
   significanceControls.close = closePanel;
   significanceControls.updateOverlayBounds = updateOverlayBounds;
 })(typeof window !== 'undefined' ? window : globalThis);
-

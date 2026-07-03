@@ -1,6 +1,9 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.styleUndo && typeof require === 'function'){
+    try{ require('./styleUndo.js'); }catch(err){}
+  }
   const additionalLineControls = Shared.additionalLineControls = Shared.additionalLineControls || {};
   const ADDITIONAL_LINE_CONTROLS_DEFAULT_SCOPE = '__global__';
 
@@ -40,6 +43,7 @@
   let activeScope = null;
   let hasDocListener = false;
   let applyingFromUndo = false;
+  let pendingColorEdit = null;
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   function logDebug(message, payload){
@@ -49,11 +53,7 @@
   }
 
   function getUndoManager(){
-    const manager = global.Shared?.undoManager;
-    if(manager && typeof manager.recordStateChange === 'function'){
-      return manager;
-    }
-    return null;
+    return Shared.styleUndo?.getUndoManager?.() || null;
   }
 
   function sanitizeThicknessValue(value){
@@ -206,6 +206,86 @@
       scopeDataset: ctx.scopeDataset || null,
       target: ctx.target || activeConfig?.target || null
     };
+  }
+
+  function buildContextFromScopeOption(option){
+    const rawScopeValue = String(option?.value == null ? '' : option.value).trim();
+    const parsedScope = decodeScopedValue(rawScopeValue);
+    const scopeKind = String(parsedScope.kind || option?.dataset?.scopeKind || option?.scopeKind || rawScopeValue || '').trim();
+    const scopeDataset = String(parsedScope.dataset || option?.dataset?.scopeDataset || option?.scopeDataset || '').trim();
+    return {
+      scope: scopeKind || null,
+      scopeValue: parsedScope.raw || rawScopeValue || null,
+      scopeDataset: scopeDataset || null,
+      target: activeConfig?.target || null
+    };
+  }
+
+  function restoreScopeFromSnapshot(snapshot){
+    if(!scopeSelect || !scopeSelect.options || !scopeSelect.options.length){
+      return getContext(snapshot);
+    }
+    const context = snapshotContext(snapshot);
+    const options = Array.from(scopeSelect.options || []);
+    const scope = String(context.scope || '').trim();
+    const dataset = String(context.scopeDataset || '').trim();
+    let index = -1;
+    if(scope && dataset){
+      index = options.findIndex(opt => (
+        !opt.disabled
+        && String(opt.value || '').trim() === scope
+        && String(opt?.dataset?.scopeDataset || '').trim() === dataset
+      ));
+    }
+    if(index < 0 && context.scopeValue){
+      index = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === String(context.scopeValue || '').trim());
+    }
+    if(index >= 0){
+      scopeSelect.selectedIndex = index;
+      activeScope = scopeSelect.value || null;
+      const scopeCfg = activeConfig?.scope;
+      if(scopeCfg && typeof scopeCfg.onChange === 'function'){
+        try{ scopeCfg.onChange(activeScope, getContext()); }catch(err){}
+      }
+      return getContext();
+    }
+    return getContext(context);
+  }
+
+  function readScopedLineValue(config, type, context){
+    if(!config){ return null; }
+    if(type === 'color'){
+      return sanitizeColorValue(config.getColor ? config.getColor(context) : null);
+    }
+    if(type === 'thickness'){
+      return sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
+    }
+    if(type === 'pattern'){
+      return sanitizePatternValue(config.getPattern ? config.getPattern(context) : null);
+    }
+    if(type === 'transparency'){
+      return sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : 0);
+    }
+    return null;
+  }
+
+  function captureScopedLineValues(config, type, context){
+    if(!config || !scopeSelect){
+      return null;
+    }
+    return Shared.styleUndo?.captureScopedValues?.({
+      context,
+      getter: scopedContext => readScopedLineValue(config, type, scopedContext),
+      scopeOptions: Array.from(scopeSelect.options || []),
+      snapshotContext,
+      buildContextFromScopeOption,
+      onScopeContext(scopedContext){
+        if(typeof config?.scope?.onChange !== 'function'){ return; }
+        try{
+          config.scope.onChange(scopedContext.scopeValue || scopedContext.scope, scopedContext);
+        }catch(err){}
+      }
+    }) || null;
   }
 
   function resolveControls(config){
@@ -394,37 +474,40 @@
     updatePanelInputs(activeConfig);
   }
 
-  function recordStyleStateChange(config, type, previousValue, nextValue, applyFn, equals){
+  function clearPendingColorEdit(){
+    pendingColorEdit = null;
+  }
+
+  function recordStyleStateChange(config, type, previousValue, nextValue, applyFn, equals, options){
     const manager = getUndoManager();
     if(!manager){ return; }
     const compare = typeof equals === 'function'
       ? equals
       : ((a, b) => (a === b) || (a === null && b === null));
-    if(compare(previousValue, nextValue)){ return; }
+    const contextSnapshot = snapshotContext(options?.contextSnapshot || getContext());
+    const scopedPrevious = Array.isArray(options?.scopedPrevious)
+      ? options.scopedPrevious
+      : captureScopedLineValues(config, type, contextSnapshot);
     const parts = ['additionalLine'];
     if(config?.scopeId){ parts.push(config.scopeId); }
     if(activeScope){ parts.push(String(activeScope)); }
     if(config?.axis){ parts.push(config.axis); }
     if(Number.isInteger(config?.index)){ parts.push(String(config.index)); }
     parts.push(type);
-    manager.recordStateChange({
+    Shared.styleUndo.recordStateChange({
+      manager,
       label: parts.join(':'),
       scope: getUndoScope(config),
       from: previousValue,
       to: nextValue,
       equals: compare,
-      apply(value){
-        applyingFromUndo = true;
-        try{
-          if(typeof applyFn === 'function'){
-            applyFn(value);
-          }
-        }finally{
-          applyingFromUndo = false;
-        }
-        syncPanelInputsFromConfig(config);
-        return true;
-      }
+      scopedFrom: scopedPrevious,
+      context: contextSnapshot,
+      restoreContext: restoreScopeFromSnapshot,
+      beforeApply(){ applyingFromUndo = true; },
+      afterApply(){ applyingFromUndo = false; },
+      apply: applyFn,
+      sync(){ syncPanelInputsFromConfig(config); }
     });
   }
 
@@ -674,6 +757,7 @@
       const config = activeConfig;
       const context = getContext();
       const controls = resolveControls(config);
+      const scopedPrevious = captureScopedLineValues(config, 'thickness', context);
       const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness(context) : null);
       const requestedRaw = sanitizeThicknessValue(thicknessInput.value);
       const requested = requestedRaw == null ? null : Math.max(controls.thicknessMin, requestedRaw);
@@ -687,11 +771,13 @@
           'thickness',
           previousValue,
           nextValue,
-          value => {
+          (value, applyContext) => {
             const normalizedRaw = sanitizeThicknessValue(value);
             const normalized = normalizedRaw == null ? null : Math.max(controls.thicknessMin, normalizedRaw);
-            config.onThicknessChange(normalized, getContext(scopeSnapshot));
-          }
+            config.onThicknessChange(normalized, applyContext || getContext(scopeSnapshot));
+          },
+          undefined,
+          { contextSnapshot: scopeSnapshot, scopedPrevious }
         );
       }
     };
@@ -780,24 +866,22 @@
       if(!activeConfig || (typeof activeConfig.onColorChange !== 'function' && typeof activeConfig.onColorInput !== 'function')){ return; }
       const config = activeConfig;
       const context = getContext();
-      const previousValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
       const requested = sanitizeColorValue(colorInput.value || null);
+      if(!pendingColorEdit || pendingColorEdit.config !== config){
+        const scopeSnapshot = snapshotContext(context);
+        pendingColorEdit = {
+          config,
+          contextSnapshot: scopeSnapshot,
+          previousValue: sanitizeColorValue(config.getColor ? config.getColor(context) : null),
+          scopedPrevious: captureScopedLineValues(config, 'color', scopeSnapshot)
+        };
+      }
       if(typeof config.onColorInput === 'function'){
         config.onColorInput(requested, context);
       }else{
         config.onColorChange(requested, context);
       }
-      const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
-      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
-      recordStyleStateChange(
-        config,
-        'color',
-        previousValue,
-        nextValue,
-        value => config.onColorChange(sanitizeColorValue(value), getContext(scopeSnapshot)),
-        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
-      );
     });
 
     colorInput.addEventListener('change', () => {
@@ -805,19 +889,29 @@
       if(!activeConfig || typeof activeConfig.onColorChange !== 'function'){ return; }
       const config = activeConfig;
       const context = getContext();
-      const previousValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
       const requested = sanitizeColorValue(colorInput.value || null);
+      const pending = pendingColorEdit && pendingColorEdit.config === config
+        ? pendingColorEdit
+        : null;
+      const scopeSnapshot = pending?.contextSnapshot || snapshotContext(context);
+      const previousValue = pending
+        ? pending.previousValue
+        : sanitizeColorValue(config.getColor ? config.getColor(context) : null);
+      const scopedPrevious = pending
+        ? pending.scopedPrevious
+        : captureScopedLineValues(config, 'color', scopeSnapshot);
+      clearPendingColorEdit();
       config.onColorChange(requested, context);
       const nextValue = sanitizeColorValue(config.getColor ? config.getColor(context) : null);
-      const scopeSnapshot = snapshotContext(context);
       syncPanelInputsFromConfig(config);
       recordStyleStateChange(
         config,
         'color',
         previousValue,
         nextValue,
-        value => config.onColorChange(sanitizeColorValue(value), getContext(scopeSnapshot)),
-        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+        (value, applyContext) => config.onColorChange(sanitizeColorValue(value), applyContext || getContext(scopeSnapshot)),
+        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b),
+        { contextSnapshot: scopeSnapshot, scopedPrevious }
       );
     });
 
@@ -826,6 +920,7 @@
       if(!activeConfig || typeof activeConfig.onPatternChange !== 'function'){ return; }
       const config = activeConfig;
       const context = getContext();
+      const scopedPrevious = captureScopedLineValues(config, 'pattern', context);
       const previousValue = sanitizePatternValue(config.getPattern ? config.getPattern(context) : null);
       const requested = sanitizePatternValue(patternSelect.value);
       config.onPatternChange(requested, context);
@@ -837,7 +932,9 @@
         'pattern',
         previousValue,
         nextValue,
-        value => config.onPatternChange(sanitizePatternValue(value), getContext(scopeSnapshot))
+        (value, applyContext) => config.onPatternChange(sanitizePatternValue(value), applyContext || getContext(scopeSnapshot)),
+        undefined,
+        { contextSnapshot: scopeSnapshot, scopedPrevious }
       );
     });
 
@@ -846,6 +943,7 @@
       if(!activeConfig || typeof activeConfig.onTransparencyChange !== 'function'){ return; }
       const config = activeConfig;
       const context = getContext();
+      const scopedPrevious = captureScopedLineValues(config, 'transparency', context);
       const previousValue = sanitizeTransparencyValue(config.getTransparency ? config.getTransparency(context) : 0);
       const requested = sanitizeTransparencyValue(transparencyInput.value);
       config.onTransparencyChange(requested, context);
@@ -857,7 +955,9 @@
         'transparency',
         previousValue,
         nextValue,
-        value => config.onTransparencyChange(sanitizeTransparencyValue(value), getContext(scopeSnapshot))
+        (value, applyContext) => config.onTransparencyChange(sanitizeTransparencyValue(value), applyContext || getContext(scopeSnapshot)),
+        undefined,
+        { contextSnapshot: scopeSnapshot, scopedPrevious }
       );
     });
 
@@ -990,6 +1090,7 @@
     activeConfig = null;
     activeHost = null;
     activeScope = null;
+    clearPendingColorEdit();
   }
 
   function openPanel(config){
@@ -1011,6 +1112,7 @@
       logDebug('dendrogram close failed',{ error: err?.message || String(err) });
     }
     activeConfig = config;
+    clearPendingColorEdit();
 
     if(scopeSelect){
       scopeSelect.innerHTML = '';
@@ -1117,6 +1219,7 @@
       scopeSelect.value = requested;
     }
     activeScope = scopeSelect.value || null;
+    clearPendingColorEdit();
     if(opts.triggerChange === true){
       const scopeCfg = activeConfig.scope;
       if(scopeCfg && typeof scopeCfg.onChange === 'function'){
@@ -1180,4 +1283,3 @@
   additionalLineControls.refresh = () => syncPanelInputsFromConfig(activeConfig);
   additionalLineControls.setScope = setScope;
 })(typeof window !== 'undefined' ? window : globalThis);
-

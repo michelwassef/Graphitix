@@ -6418,7 +6418,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    pcaUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => pcaUndoManager.recordStateChange(opts));
+    recorder({
+      manager: pcaUndoManager,
       label,
       scope: 'pcaGraphPanel',
       from: previous,

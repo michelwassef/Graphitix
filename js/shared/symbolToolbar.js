@@ -2,6 +2,9 @@
   'use strict';
 
   const Shared = global.Shared = global.Shared || {};
+  if(!Shared.styleUndo && typeof require === 'function'){
+    try{ require('./styleUndo.js'); }catch(err){}
+  }
 
   function isDebugEnabled(){
     try{
@@ -23,11 +26,7 @@
   }
 
   function getUndoManager(){
-    const manager = Shared.undoManager || null;
-    if(manager && typeof manager.recordStateChange === 'function'){
-      return manager;
-    }
-    return null;
+    return Shared.styleUndo?.getUndoManager?.() || null;
   }
 
   function clampNumeric(value, min, fallback){
@@ -444,6 +443,33 @@
         target: snapshot.target || cfg.target || fallback.target || null
       };
     };
+    const buildContextFromScopeOption = option => {
+      const rawScopeValue = String(option?.value == null ? '' : option.value).trim();
+      const parsedScope = Shared.decodeScopeValue(rawScopeValue);
+      const scopeKind = String(parsedScope.kind || option?.scopeKind || rawScopeValue || '').trim();
+      const scopeDataset = String(parsedScope.dataset || option?.scopeDataset || '').trim();
+      return {
+        scope: scopeKind || null,
+        scopeValue: parsedScope.raw || rawScopeValue || null,
+        scopeDataset: scopeDataset || null,
+        target: cfg.target || null
+      };
+    };
+    const captureScopedValues = (context, getter) => Shared.styleUndo?.captureScopedValues?.({
+      context,
+      getter,
+      scopeOptions,
+      snapshotContext,
+      buildContextFromScopeOption,
+      onScopeContext(scopedContext){
+        if(typeof scopeCfg.onChange !== 'function'){ return; }
+        try{
+          scopeCfg.onChange(scopedContext.scopeValue || scopedContext.scope, buildContextFromSnapshot(scopedContext));
+        }catch(err){
+          debugLog('scope onChange failed during scoped undo capture', { message: err?.message || String(err) });
+        }
+      }
+    }) || null;
     const resolveScopeOptionIndex = snapshot => {
       if(!scopeSelect || !scopeSelect.options || !scopeSelect.options.length){
         return -1;
@@ -452,12 +478,6 @@
       const scope = String(snapshot?.scope || '').trim();
       const scopeDataset = String(snapshot?.scopeDataset || '').trim();
       const scopeValue = String(snapshot?.scopeValue || '').trim();
-      if(scopeValue){
-        const rawValueIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === scopeValue);
-        if(rawValueIndex >= 0){
-          return rawValueIndex;
-        }
-      }
       if(scope && scopeDataset){
         const encodedScope = encodeScopeValueInternal(scope, scopeDataset);
         if(encodedScope){
@@ -473,6 +493,12 @@
         ));
         if(exactIndex >= 0){
           return exactIndex;
+        }
+      }
+      if(scopeValue){
+        const rawValueIndex = options.findIndex(opt => !opt.disabled && String(opt.value || '').trim() === scopeValue);
+        if(rawValueIndex >= 0){
+          return rawValueIndex;
         }
       }
       if(scopeValue){
@@ -549,32 +575,27 @@
       }
       const opts = options || {};
       const equals = typeof opts.equals === 'function' ? opts.equals : ((a, b) => a === b);
-      if(equals(previousValue, nextValue)){
-        return;
-      }
       const contextSnapshot = snapshotContext(opts.contextSnapshot || opts.context);
-      undoManager.recordStateChange({
+      const scopedPrevious = Array.isArray(opts.scopedPrevious) ? opts.scopedPrevious : null;
+      Shared.styleUndo.recordStateChange({
+        manager: undoManager,
         label: buildUndoLabel(fieldType, contextSnapshot),
         scope: getUndoScope(),
         from: previousValue,
         to: nextValue,
         equals,
-        apply(value){
-          applyingFromUndo = true;
-          try{
-            const applyContext = restoreScopeFromSnapshot(contextSnapshot);
-            if(typeof applyFn === 'function'){
-              applyFn(value, applyContext);
-            }
-          }finally{
-            applyingFromUndo = false;
-          }
+        scopedFrom: scopedPrevious,
+        context: contextSnapshot,
+        restoreContext: restoreScopeFromSnapshot,
+        beforeApply(){ applyingFromUndo = true; },
+        afterApply(){ applyingFromUndo = false; },
+        apply: applyFn,
+        sync(){
           syncFillChipUi();
           syncBorderChipUi();
           try{
             syncTransparency();
           }catch(err){}
-          return true;
         }
       });
     };
@@ -590,12 +611,49 @@
     let currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : 0, 0, 0);
     let currentBorderWidth = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(getContext()) : 0, 0, 0);
     let currentBorderColor = typeof borderCfg.getColor === 'function' ? borderCfg.getColor(getContext()) : '#000000';
+    const aggregateScopedBaselines = Object.create(null);
+    const readAggregateBaseline = (key, context, getter) => {
+      if(!Shared.styleUndo?.isAggregateScopeContext?.(context)){
+        return null;
+      }
+      if(Array.isArray(aggregateScopedBaselines[key])){
+        return aggregateScopedBaselines[key];
+      }
+      return typeof getter === 'function' ? captureScopedValues(context, getter) : null;
+    };
+    const refreshAggregateScopedBaselines = (context = getContext()) => {
+      if(!Shared.styleUndo?.isAggregateScopeContext?.(context)){
+        return;
+      }
+      aggregateScopedBaselines.fillColor = typeof fillCfg.getColor === 'function'
+        ? captureScopedValues(context, ctx => fillCfg.getColor(ctx))
+        : null;
+      aggregateScopedBaselines.fillShape = typeof fillCfg.getShape === 'function'
+        ? captureScopedValues(context, ctx => fillCfg.getShape(ctx))
+        : null;
+      aggregateScopedBaselines.borderColor = typeof borderCfg.getColor === 'function'
+        ? captureScopedValues(context, ctx => borderCfg.getColor(ctx))
+        : null;
+      aggregateScopedBaselines.borderWidth = typeof borderCfg.getWidth === 'function'
+        ? captureScopedValues(context, ctx => clampNumeric(borderCfg.getWidth(ctx), 0, currentBorderWidth))
+        : null;
+      aggregateScopedBaselines.size = typeof sizeCfg.get === 'function'
+        ? captureScopedValues(context, ctx => clampNumeric(sizeCfg.get(ctx), 0, currentSize))
+        : null;
+      aggregateScopedBaselines.transparency = typeof transparencyCfg.get === 'function'
+        ? captureScopedValues(context, ctx => transparencyCfg.get(ctx))
+        : null;
+    };
+    refreshAggregateScopedBaselines(getContext());
 
     const applySize = (nextValue, options = {}) => {
       if(!sizeEnabled){ return; }
       const opts = options && typeof options === 'object' ? options : {};
       const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
       const previous = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(context) : currentSize, 0, currentSize);
+      const scopedPrevious = typeof sizeCfg.get === 'function'
+        ? readAggregateBaseline('size', context, ctx => clampNumeric(sizeCfg.get(ctx), 0, currentSize))
+        : null;
       const next = clampNumeric(nextValue, 0, 0);
       currentSize = next;
       if(typeof sizeCfg.onChange === 'function'){
@@ -613,7 +671,8 @@
           }
         }, {
           equals: numericEquals,
-          contextSnapshot
+          contextSnapshot,
+          scopedPrevious
         });
       }
       syncFillChipUi();
@@ -623,6 +682,9 @@
       const opts = options && typeof options === 'object' ? options : {};
       const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
       const previous = clampNumeric(typeof borderCfg.getWidth === 'function' ? borderCfg.getWidth(context) : currentBorderWidth, 0, currentBorderWidth);
+      const scopedPrevious = typeof borderCfg.getWidth === 'function'
+        ? readAggregateBaseline('borderWidth', context, ctx => clampNumeric(borderCfg.getWidth(ctx), 0, currentBorderWidth))
+        : null;
       const next = clampNumeric(nextValue, 0, 0);
       currentBorderWidth = next;
       if(typeof borderCfg.onWidthChange === 'function'){
@@ -640,7 +702,8 @@
           }
         }, {
           equals: numericEquals,
-          contextSnapshot
+          contextSnapshot,
+          scopedPrevious
         });
       }
       syncBorderChipUi();
@@ -722,6 +785,9 @@
       const previous = hasPreviousOverride
         ? opts.previousValue
         : (typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null);
+      const scopedPrevious = Array.isArray(opts.scopedPrevious)
+        ? opts.scopedPrevious
+        : (hasPreviousOverride ? null : readAggregateBaseline('fillColor', context, ctx => fillCfg.getColor(ctx)));
       fillCfg.onColorChange(value, context);
       const next = typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : value;
       if(opts.record !== false){
@@ -732,7 +798,8 @@
           }
         }, {
           equals: colorEquals,
-          contextSnapshot
+          contextSnapshot,
+          scopedPrevious
         });
       }
     };
@@ -743,6 +810,7 @@
       const opts = options && typeof options === 'object' ? options : {};
       const context = opts.context && typeof opts.context === 'object' ? opts.context : getContext();
       const previous = typeof fillCfg.getShape === 'function' ? fillCfg.getShape(context) : null;
+      const scopedPrevious = readAggregateBaseline('fillShape', context, ctx => fillCfg.getShape(ctx));
       fillCfg.onShapeChange(value, context);
       const next = typeof fillCfg.getShape === 'function' ? fillCfg.getShape(context) : value;
       if(opts.record !== false){
@@ -753,7 +821,8 @@
           }
         }, {
           equals: textEquals,
-          contextSnapshot
+          contextSnapshot,
+          scopedPrevious
         });
       }
     };
@@ -767,6 +836,9 @@
       const previous = hasPreviousOverride
         ? opts.previousValue
         : (typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : currentBorderColor);
+      const scopedPrevious = Array.isArray(opts.scopedPrevious)
+        ? opts.scopedPrevious
+        : (hasPreviousOverride ? null : readAggregateBaseline('borderColor', context, ctx => borderCfg.getColor(ctx)));
       currentBorderColor = value;
       borderCfg.onColorChange(value, context);
       const next = typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : value;
@@ -780,7 +852,8 @@
           }
         }, {
           equals: colorEquals,
-          contextSnapshot
+          contextSnapshot,
+          scopedPrevious
         });
       }
       syncBorderChipUi();
@@ -802,6 +875,7 @@
               pendingFillColorChange = {
                 key: contextKey,
                 previous: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null,
+                scopedPrevious: typeof fillCfg.getColor === 'function' ? readAggregateBaseline('fillColor', context, ctx => fillCfg.getColor(ctx)) : null,
                 contextSnapshot
               };
             }
@@ -822,6 +896,7 @@
             };
             if(pending){
               applyOptions.previousValue = pending.previous;
+              applyOptions.scopedPrevious = pending.scopedPrevious;
             }
             applyFillColorChange(value, applyOptions);
             pendingFillColorChange = null;
@@ -855,6 +930,7 @@
           pendingFillColorChange = {
             key: contextKey,
             previous: typeof fillCfg.getColor === 'function' ? fillCfg.getColor(context) : null,
+            scopedPrevious: typeof fillCfg.getColor === 'function' ? readAggregateBaseline('fillColor', context, ctx => fillCfg.getColor(ctx)) : null,
             contextSnapshot
           };
         }
@@ -875,6 +951,7 @@
         };
         if(pending){
           applyOptions.previousValue = pending.previous;
+          applyOptions.scopedPrevious = pending.scopedPrevious;
         }
         applyFillColorChange(fallback.value, applyOptions);
         pendingFillColorChange = null;
@@ -967,6 +1044,7 @@
         pendingBorderColorChange = {
           key: contextKey,
           previous: typeof borderCfg.getColor === 'function' ? borderCfg.getColor(context) : currentBorderColor,
+          scopedPrevious: typeof borderCfg.getColor === 'function' ? readAggregateBaseline('borderColor', context, ctx => borderCfg.getColor(ctx)) : null,
           contextSnapshot
         };
       }
@@ -989,6 +1067,7 @@
       };
       if(pending){
         applyOptions.previousValue = pending.previous;
+        applyOptions.scopedPrevious = pending.scopedPrevious;
       }
       applyBorderColorChange(borderInput.value, applyOptions);
       pendingBorderColorChange = null;
@@ -1110,6 +1189,9 @@
       transparencyInput.addEventListener('input', () => {
         const context = getContext();
         const previous = typeof transparencyCfg.get === 'function' ? transparencyCfg.get(context) : 0;
+        const scopedPrevious = typeof transparencyCfg.get === 'function'
+          ? readAggregateBaseline('transparency', context, ctx => transparencyCfg.get(ctx))
+          : null;
         const pct = Number(transparencyInput.value);
         const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
         const scale = typeof transparencyCfg.scale === 'string' ? transparencyCfg.scale.trim().toLowerCase() : '';
@@ -1127,7 +1209,8 @@
           transparencyCfg.onChange(normalized, applyContext || context);
         }, {
           equals: numericEquals,
-          contextSnapshot: snapshotContext(context)
+          contextSnapshot: snapshotContext(context),
+          scopedPrevious
         });
         const display = quantizeTransparencyPercent(bounded);
         transparencyValue.textContent = `${display}%`;
@@ -1145,6 +1228,7 @@
       if(typeof scopeCfg.onChange === 'function'){
         scopeCfg.onChange(scopeSelect.value, getContext());
       }
+      refreshAggregateScopedBaselines(getContext());
       if(sizeEnabled){
         currentSize = clampNumeric(typeof sizeCfg.get === 'function' ? sizeCfg.get(getContext()) : currentSize, 0, currentSize);
       }
@@ -1214,4 +1298,3 @@
     return { host, panel, wrap, scopeSelect };
   };
 })(window);
-

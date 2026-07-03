@@ -11375,6 +11375,24 @@
     };
   }
 
+  function resolveBoxStatsSelectionFallback(record){
+    const sources = [
+      record?.stats?.selectedColumns,
+      record?.results?.selectedColumns,
+      record?.results?.annotationModel?.indices,
+      record?.stats?.annotationModel?.indices,
+      record?.significance?.statsLastAnnotationModel?.indices,
+      record?.significance?.annotationModel?.indices
+    ];
+    for(const source of sources){
+      const selected = normalizeBoxOwnedSetArray(source);
+      if(selected.length){
+        return selected;
+      }
+    }
+    return [];
+  }
+
   function normalizeBoxOwnedRuntimeRecord(record){
     if(!record || typeof record !== 'object'){
       return null;
@@ -11392,6 +11410,9 @@
     record.geometry = cloneBoxPlainObject(record.geometry);
     record.notes = cloneBoxPlainObject(record.notes, () => ({ text: '', open: false }));
     record.selection.selectedCols = normalizeBoxOwnedSetArray(record.selection.selectedCols);
+    if(!record.selection.selectedCols.length){
+      record.selection.selectedCols = resolveBoxStatsSelectionFallback(record);
+    }
     record.selection.colOrder = normalizeBoxOwnedIndexArray(record.selection.colOrder);
     return record;
   }
@@ -14355,7 +14376,9 @@
     if(typeof apply !== 'function'){
       return;
     }
-    boxUndoManager.recordStateChange({
+    const recorder = Shared.styleUndo?.recordStateChange || (opts => boxUndoManager.recordStateChange(opts));
+    recorder({
+      manager: boxUndoManager,
       label,
       scope: 'boxGraphPanel',
       from: previous,
@@ -29603,6 +29626,15 @@ Technical analysis record (advanced)
       console.debug('Debug: box stats signature reconciled',{ previous:state.statsContextSignature, next:nextSignature });
       ctx.signature = nextSignature;
       setBoxStatsContextState(ctx, getActiveBoxSessionForState());
+      const annotationModel = normalizeBoxStatsAnnotationModel(state.statsLastAnnotationModel, {
+        signature: nextSignature,
+        version: state.statsContextVersion,
+        tabId: state.statsContextTabId || resolveBoxExplicitOrBoundTabId() || null
+      });
+      if(annotationModel){
+        annotationModel.signature = nextSignature;
+        setBoxStatsAnnotationModelState(annotationModel, getActiveBoxSessionForState());
+      }
     }
   }
 
@@ -37787,6 +37819,12 @@ Technical analysis record (advanced)
     const activeHot = state.ensureHotForActiveTab?.() || getBoxActiveHotManager();
     if(!activeHot){
       return null;
+    }
+    const payloadStatsContext = getBoxStatsContextState(getActiveBoxSessionForState(), {
+      syncFallbackFromState: true
+    });
+    if(Array.isArray(payloadStatsContext?.traces) && payloadStatsContext.traces.length){
+      reconcileStatsContextSignature(payloadStatsContext.traces);
     }
     const noteControl = notesState.control || null;
     const notesText = noteControl && typeof noteControl.getValue === 'function'
