@@ -4637,7 +4637,7 @@ select {
     appearance:none;
     border:1px solid #d6d6d6;
     border-bottom:none;
-    background:#eef3fa;
+    background:#f5f5f5;
     color:#0f172a;
     font-size:11px;
     line-height:1.2;
@@ -4924,6 +4924,20 @@ input[type=number]::-webkit-inner-spin-button{
 .export-select:disabled{
     opacity:.55;
     cursor:default;
+}
+.export-select--compact-download{
+    width:86px !important;
+    min-width:86px !important;
+    max-width:86px !important;
+    box-sizing:border-box;
+    text-overflow:ellipsis;
+}
+.export-select--compact-copy{
+    width:75px !important;
+    min-width:75px !important;
+    max-width:75px !important;
+    box-sizing:border-box;
+    text-overflow:ellipsis;
 }
 /* Shared dropdown item look across custom menus. */
 .workspace-toolbar__menu-item,

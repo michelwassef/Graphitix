@@ -5597,8 +5597,13 @@
 
     const select = doc.createElement('select');
     select.className = 'export-select';
+    if (action?.key === 'download') {
+      select.classList.add('export-select--compact-download');
+    } else if (action?.key === 'copy') {
+      select.classList.add('export-select--compact-copy');
+    }
     select.setAttribute('aria-label', action.label || 'Export');
-    select.dataset.minSelectWidth = action.minWidth ? String(action.minWidth) : '96';
+    select.dataset.minSelectWidth = action.minWidth !== undefined ? String(action.minWidth) : '96';
     select.appendChild(createPlaceholderOption(action));
 
     const formats = action.formats
@@ -6256,6 +6261,7 @@
       {
         key: 'download',
         label: 'Download',
+        minWidth: 0,
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
@@ -6267,6 +6273,7 @@
       {
         key: 'copy',
         label: 'Copy',
+        minWidth: 0,
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') }
