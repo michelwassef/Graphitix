@@ -9563,7 +9563,7 @@
           console.error('Shared.hot AG refreshCells error', err);
         }
       }
-      scheduleFillHandleUpdate('render');
+      updateFillHandlePosition('render');
       if(formulaReferenceOverlayState.ranges.length){
         scheduleFormulaReferenceOverlayRender('render');
       }

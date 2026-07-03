@@ -1546,7 +1546,7 @@ select {
 }
 .ag-theme-balham .hot-row-header {
     background: #f5f5f5;
-    font-weight: 600;
+    font-weight: 400;
     color: #444;
     text-align: right;
 }
@@ -2743,8 +2743,8 @@ select {
     align-items: stretch;
     gap: 0;
     background: #f8fafc;
-    border-top: 1px solid #cbd5f5;
-    border-right: 1px solid #cbd5f5;
+    border-top: 1px solid #d6d6d6;
+    border-right: 1px solid #d6d6d6;
     border-bottom: 0;
     border-left: 0;
     border-radius: 0;
@@ -2775,7 +2775,7 @@ select {
 }
 
 .workspace-tabs-list::-webkit-scrollbar-thumb {
-    background: #cbd5f5;
+    background: #a3a3a3;
     border-radius: 999px;
 }
 
@@ -2815,7 +2815,7 @@ select {
     transform:translateY(-50%);
     width:1px;
     height:24px;
-    background:#cbd5f5;
+    background:#d6d6d6;
     pointer-events:none;
 }
 
@@ -2871,9 +2871,9 @@ select {
     color: #1e293b;
     border-top-color: #6366f1;
     box-shadow:
-        inset 1px 0 0 #cbd5f5,
-        inset -1px 0 0 #cbd5f5,
-        inset 0 -1px 0 rgba(99, 102, 241, 0.2);
+        inset 1px 0 0 #d6d6d6,
+        inset -1px 0 0 #d6d6d6,
+        inset 0 -1px 0 #d6d6d6;
     border-radius: 0 !important;
     border-top-left-radius: 0 !important;
     border-top-right-radius: 0 !important;
@@ -3015,7 +3015,7 @@ select {
     cursor: pointer;
     transition: background 0.2s ease, color 0.2s ease;
     align-self: stretch;
-    box-shadow: inset 1px 0 0 #cbd5f5, inset -1px 0 0 #cbd5f5;
+    box-shadow: inset 1px 0 0 #d6d6d6, inset -1px 0 0 #d6d6d6;
 }
 
 .workspace-add-tab::after {
@@ -3023,12 +3023,12 @@ select {
 }
 
 .workspace-tabs-list:has(.workspace-tab:last-child.is-active) + .workspace-add-tab {
-    box-shadow: inset -1px 0 0 #cbd5f5;
+    box-shadow: inset -1px 0 0 #d6d6d6;
 }
 
 .workspace-add-tab:hover,
 .workspace-add-tab:focus {
-    background: #cbd5f5;
+    background: #e5e7eb;
     color: #1f2937;
 }
 
