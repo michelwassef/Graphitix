@@ -482,8 +482,8 @@
 
   function resolveScatterDrawableFrame(plotEl){
     const plot = plotEl || getScatterNodeById('scatterPlot');
-    const svgBox = scatterSvgBoxRef
-      || plot?.closest?.('.svgbox')
+    const svgBox = plot?.closest?.('.svgbox')
+      || scatterSvgBoxRef
       || queryScatterRoot('#scatterGraphPanel .svgbox')
       || null;
     const frame = Shared.componentLayout?.resolveDrawableFrame?.({
@@ -12746,43 +12746,13 @@
       const scatterGraphPanel=getScatterNodeById('scatterGraphPanel');
       const scatterPanelResizer=getScatterNodeById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
-      let scatterResizeMarginLock = null;
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
-      const stabilizeScatterMarginForAxisResize = (margin) => {
-        if(!margin || typeof margin !== 'object'){
-          return margin;
-        }
-        const locked = {
-          top: Number(margin.top) || 0,
-          right: Number(margin.right) || 0,
-          bottom: Number(margin.bottom) || 0,
-          left: Number(margin.left) || 0
-        };
-        const dataset = scatterSvgBox?.dataset || null;
-        if(!dataset || dataset.resizerAspectLocked === 'true'){
-          scatterResizeMarginLock = locked;
-          return locked;
-        }
-        const markedAxis = dataset.resizerAxisViewportLockAxis === 'x' || dataset.resizerAxisViewportLockAxis === 'y'
-          ? dataset.resizerAxisViewportLockAxis
-          : null;
-        const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
-        const lockActive = !!markedAxis && Number.isFinite(lockUntil) && Date.now() <= lockUntil;
-        const axis = lockActive
-          ? markedAxis
-          : (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
-            ? dataset.resizerLastAxis
-            : 'both');
-        if(scatterResizeMarginLock && lockActive && (axis === 'x' || axis === 'y')){
-          locked.top = scatterResizeMarginLock.top;
-          locked.right = scatterResizeMarginLock.right;
-          locked.bottom = scatterResizeMarginLock.bottom;
-          locked.left = scatterResizeMarginLock.left;
-        }
-        scatterResizeMarginLock = { ...locked };
-        return locked;
-      };
+      const stabilizeScatterMarginForAxisResize = margin => (
+        typeof chartStyle.stabilizeAxisResizeMargins === 'function'
+          ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: scatterSvgBox, scopeId: 'scatter' })
+          : margin
+      );
 
       const activateScatterDataToolbar = (reason) => {
         const now = Date.now();
@@ -19990,7 +19960,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const yMinManual=parseFloat(yMinControl?.value);
         const yMaxManual=parseFloat(yMaxControl?.value);
         info('scatter manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual});
-        const originMode=originModeControl?.value || 'none';
+        const originMode=originModeControl?.value || 'zero';
         const originXInput=parseFloat(originXControl?.value);
         const originYInput=parseFloat(originYControl?.value);
         info('scatter origin inputs',{originMode,originXInput,originYInput});
@@ -25204,7 +25174,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           token
         });
         registerScatterGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-        ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph', baseViewport: { width: W, height: H } });
+        ensureGraphViewport(svg, {
+          padding: Math.max(fs, 16),
+          debugLabel: 'scatter-graph',
+          baseViewport: { width: W, height: H },
+          horizontalResizeAnchorX: yAxisX
+        });
         if(perfApi && viewportPerf){
           perfApi.end(viewportPerf, { component: 'scatter', token });
         }

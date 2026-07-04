@@ -2292,6 +2292,7 @@
       remeasure = true,
       preserveAspectRatio = null,
       baseViewport = null,
+      horizontalResizeAnchorX = null,
     } = opts;
 
     const raf = typeof global.requestAnimationFrame === 'function'
@@ -2334,9 +2335,12 @@
         const box = svg.closest?.('.svgbox');
         const dataset = box?.dataset || null;
         const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
+        const lockedResizeAxis = dataset && (dataset.resizerAxisViewportLockAxis === 'x' || dataset.resizerAxisViewportLockAxis === 'y')
+          ? dataset.resizerAxisViewportLockAxis
+          : null;
         const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y')
           ? dataset.resizerLastAxis
-          : 'both';
+          : (lockedResizeAxis || 'both');
         const stableViewBox = readStableViewBox(box);
         const stableRenderedSize = readStableRenderedSize(box);
         const lockActive = !aspectLocked && isOrthogonalViewportLockActive(dataset, resizeAxis);
@@ -2390,6 +2394,26 @@
             viewW = Math.max(1, viewW + extra);
           }
         }
+        const anchorX = Number(horizontalResizeAnchorX);
+        if(lockActive && resizeAxis === 'x' && stableViewBox && Number.isFinite(anchorX)){
+          const currentRenderedSize = readSvgRenderedSize(svg);
+          const stableRenderedWidth = Number(stableRenderedSize?.width);
+          const currentRenderedWidth = Number(currentRenderedSize?.width);
+          if(Number.isFinite(stableRenderedWidth) && stableRenderedWidth > 0
+            && Number.isFinite(currentRenderedWidth) && currentRenderedWidth > 0
+            && Number.isFinite(stableViewBox.viewW) && stableViewBox.viewW > 0){
+            const renderedWidthScale = Math.abs(currentRenderedWidth - stableRenderedWidth) <= 1.5
+              ? 1
+              : (currentRenderedWidth / stableRenderedWidth);
+            const scaledStableViewW = stableViewBox.viewW * renderedWidthScale;
+            if(Number.isFinite(scaledStableViewW) && scaledStableViewW > 0){
+              viewW = Math.max(viewW, scaledStableViewW);
+            }
+            const stableAnchorOffsetPx = ((anchorX - stableViewBox.minX) / stableViewBox.viewW) * stableRenderedWidth;
+            minX = anchorX - ((stableAnchorOffsetPx / currentRenderedWidth) * viewW);
+            frozenAxes.x = true;
+          }
+        }
         if (fill) {
           svg.setAttribute('width', '100%');
           svg.setAttribute('height', '100%');
@@ -2415,7 +2439,13 @@
           : (preserveBaseAspect ? 'xMidYMid meet' : 'none');
         svg.setAttribute('preserveAspectRatio', preserve);
         if(dataset){
-          writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
+          const keepResizeAnchorBaseline = lockActive
+            && resizeAxis === 'x'
+            && stableViewBox
+            && Number.isFinite(anchorX);
+          if(!keepResizeAnchorBaseline){
+            writeStableViewBox(box, { minX, minY, viewW, viewH }, debugLabel, readSvgRenderedSize(svg));
+          }
         }
         const parent = svg.parentElement;
         if (parent) parent.style.overflow = 'visible';

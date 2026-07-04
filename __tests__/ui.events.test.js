@@ -763,6 +763,97 @@ describe('UI events and example loaders', () => {
     expect(reloadedPayload?.config?.axis?.additionalTicks?.y?.[0]?.label).toBe('Cutoff');
   }, 20000);
 
+  test('Scatter Plot: horizontal resize frame uses the plot-owned svgbox', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork(20);
+
+    const activeBox = document.querySelector('#scatterGraphPanel .svgbox');
+    expect(activeBox).toBeTruthy();
+    activeBox.getBoundingClientRect = jest.fn(() => ({
+      width: 427,
+      height: 320,
+      top: 0,
+      left: 0,
+      right: 427,
+      bottom: 320
+    }));
+
+    const foreignBox = document.createElement('div');
+    foreignBox.className = 'svgbox';
+    foreignBox.dataset.resizerLastAxis = 'x';
+    foreignBox.dataset.resizerAxisViewportLockAxis = 'x';
+    foreignBox.dataset.resizerAxisViewportLockUntil = String(Date.now() + 10000);
+    foreignBox.getBoundingClientRect = jest.fn(() => ({
+      width: 350,
+      height: 320,
+      top: 0,
+      left: 0,
+      right: 350,
+      bottom: 320
+    }));
+    const foreignPlot = document.createElement('div');
+    foreignPlot.id = 'scatterPlot';
+    foreignBox.appendChild(foreignPlot);
+    document.body.appendChild(foreignBox);
+
+    const frame = window.Components.scatter.__testHooks.resolveDrawableFrame(foreignPlot);
+    expect(frame.svgBox).toBe(foreignBox);
+    expect(frame.width).toBe(350);
+  }, 20000);
+
+  test('Scatter Plot: y-axis stays fixed during horizontal resize with default zero origin', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork(20);
+    document.getElementById('scatterLoadExample')?.click();
+    await flushAsyncWork(60);
+
+    const scatterComponent = window.Components?.scatter;
+    const svgBox = document.querySelector('#scatterGraphPanel .svgbox');
+    const originMode = document.getElementById('scatterOriginMode');
+    expect(scatterComponent).toBeTruthy();
+    expect(svgBox).toBeTruthy();
+    expect(originMode?.value).toBe('zero');
+
+    const setBoxWidth = width => {
+      svgBox.dataset.resizerLastAxis = 'x';
+      svgBox.dataset.resizerAxisViewportLockAxis = 'x';
+      svgBox.dataset.resizerAxisViewportLockUntil = String(Date.now() + 10000);
+      svgBox.getBoundingClientRect = jest.fn(() => ({
+        width,
+        height: 333,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 333
+      }));
+    };
+    const readYAxisX = () => {
+      const svg = document.querySelector('#scatterPlot svg');
+      expect(svg).toBeTruthy();
+      const axisLines = Array.from(svg.querySelectorAll('line[data-axis-control="1"]'));
+      const yAxis = axisLines.find(line => {
+        const x1 = Number(line.getAttribute('x1'));
+        const x2 = Number(line.getAttribute('x2'));
+        const stroke = (line.getAttribute('stroke') || '').toLowerCase();
+        return Number.isFinite(x1) && x1 === x2 && stroke !== 'transparent';
+      });
+      expect(yAxis).toBeTruthy();
+      return Number(yAxis.getAttribute('x1'));
+    };
+
+    setBoxWidth(480);
+    scatterComponent.draw({ reason: 'test-horizontal-resize-wide' });
+    await flushAsyncWork(30);
+    const wideX = readYAxisX();
+
+    setBoxWidth(397);
+    scatterComponent.draw({ reason: 'test-horizontal-resize-narrow' });
+    await flushAsyncWork(30);
+    const narrowX = readYAxisX();
+
+    expect(narrowX).toBeCloseTo(wideX, 6);
+  }, 20000);
+
   test('Scatter Plot: statistics require manual compute', async () => {
     const cleanupJStat = ensureJStatStub();
     try {
