@@ -9128,13 +9128,9 @@
     if(!svg){
       return;
     }
-    const fillParent = options.fillParent !== false;
     const excludeSelector = typeof options.excludeSelector === 'string' && options.excludeSelector.trim()
       ? options.excludeSelector.trim()
       : BOX_VIEWPORT_EXCLUDE_SELECTOR;
-    const excludedNodes = excludeSelector
-      ? Array.from(svg.querySelectorAll(excludeSelector))
-      : [];
     const padding = Number.isFinite(Number(options.padding))
       ? Math.max(0, Number(options.padding))
       : 16;
@@ -9142,98 +9138,15 @@
       ? options.debugLabel.trim()
       : 'box-graph';
     const baseViewport = resolveBoxBaseViewportSize(svg);
-    const restore = [];
-    excludedNodes.forEach(node => {
-      if(!node || !node.style){
-        return;
-      }
-      restore.push({
-        node,
-        hadInlineDisplay: node.style.display
-      });
-      node.style.display = 'none';
+    ensureGraphViewport(svg, {
+      padding,
+      debugLabel,
+      baseViewport,
+      excludeSelector,
+      fill: options.fillParent !== false,
+      preserveBaseAspect: options.preserveBaseAspect !== false,
+      horizontalResizeAnchorX: options.horizontalResizeAnchorX
     });
-    let bbox = null;
-    try{
-      if(typeof svg.getBBox === 'function'){
-        bbox = svg.getBBox();
-      }
-    }finally{
-      restore.forEach(entry => {
-        if(!entry || !entry.node || !entry.node.style){
-          return;
-        }
-        if(entry.hadInlineDisplay){
-          entry.node.style.display = entry.hadInlineDisplay;
-        }else{
-          entry.node.style.removeProperty('display');
-        }
-      });
-    }
-    if(!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){
-      bbox = { x: 0, y: 0, width: baseViewport.width, height: baseViewport.height };
-    }
-    let minX = Math.min(0, bbox.x - padding);
-    let maxX = Math.max(baseViewport.width, bbox.x + bbox.width + padding);
-    let minY = Math.min(0, bbox.y - padding);
-    let maxY = Math.max(baseViewport.height, bbox.y + bbox.height + padding);
-    let viewW = Math.max(1, maxX - minX);
-    let viewH = Math.max(1, maxY - minY);
-    const baseRatio = (Number.isFinite(baseViewport.width) && baseViewport.width > 0 && Number.isFinite(baseViewport.height) && baseViewport.height > 0)
-      ? (baseViewport.width / baseViewport.height)
-      : 1;
-    const preserveBaseAspect = options.preserveBaseAspect !== false;
-    if(preserveBaseAspect && Number.isFinite(baseRatio) && baseRatio > 0 && Number.isFinite(viewW) && Number.isFinite(viewH) && viewW > 0 && viewH > 0){
-      const currentRatio = viewW / viewH;
-      if(currentRatio > baseRatio){
-        const targetHeight = viewW / baseRatio;
-        const extra = Math.max(0, targetHeight - viewH);
-        minY -= extra / 2;
-        maxY += extra / 2;
-      }else if(currentRatio < baseRatio){
-        const targetWidth = viewH * baseRatio;
-        const extra = Math.max(0, targetWidth - viewW);
-        minX -= extra / 2;
-        maxX += extra / 2;
-      }
-      viewW = Math.max(1, maxX - minX);
-      viewH = Math.max(1, maxY - minY);
-    }
-    svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
-    if(fillParent){
-      svg.setAttribute('width', '100%');
-      svg.setAttribute('height', '100%');
-    }
-    if(svg.style){
-      svg.style.overflow = 'visible';
-    }
-    const parent = svg.parentElement;
-    if(parent && parent.style){
-      // Normalize box to the other graph components: the SVG viewBox must contain
-      // all graph content, while the plot host clips any stale/out-of-date SVG
-      // geometry during tab switches or active resizing. The previous box-specific
-      // overflow='visible' path let significance annotations escape the resizable
-      // frame after same-component tab switches.
-      parent.style.overflow = fillParent ? 'hidden' : 'hidden';
-    }
-    const box = svg.closest?.('.svgbox');
-    if(box && box.style){
-      // Do not make the outer resizable frame visible from draw(). Resizer menus
-      // and trays are positioned independently; graph content belongs in the SVG.
-      box.style.removeProperty('overflow');
-    }
-    if(Shared.isDebugEnabled?.()){
-      console.debug('Debug: box viewport locked', {
-        debugLabel,
-        excludedCount: restore.length,
-        selector: excludeSelector,
-        baseWidth: baseViewport.width,
-        baseHeight: baseViewport.height,
-        fillParent,
-        preserveBaseAspect,
-        viewBox: { minX, minY, viewW, viewH }
-      });
-    }
   }
   console.debug('Debug: box component DOM helpers resolved', {
     hasSharedEditable: typeof Shared.makeEditable === 'function',
@@ -37810,7 +37723,8 @@ Technical analysis record (advanced)
       debugLabel: 'box-graph',
       excludeSelector: viewportExcludeSelector,
       fillParent: useFillParentViewport,
-      preserveBaseAspect: !disableViewportAspectNormalization
+      preserveBaseAspect: !disableViewportAspectNormalization,
+      horizontalResizeAnchorX: orientationResult.margin?.left
     });
     ensureBoxExportControlsClearance(svg, {
       reason: drawOpts?.reason || 'draw-layout',

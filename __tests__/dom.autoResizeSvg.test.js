@@ -139,4 +139,44 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(height).toBeCloseTo(400, 5);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
   });
+
+  test('excludes non-layout nodes before measuring the fitted viewport', () => {
+    const { svg } = createSvg({ locked: false });
+    const excluded = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    excluded.setAttribute('data-ignore-fit', '1');
+    svg.appendChild(excluded);
+    svg.getBBox = () => ({
+      x: 0,
+      y: 0,
+      width: excluded.style.display === 'none' ? 120 : 800,
+      height: 100
+    });
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      remeasure: false,
+      excludeSelector: '[data-ignore-fit="1"]'
+    });
+
+    const [, , width, height] = readViewBox(svg);
+    expect(width).toBeCloseTo(120, 5);
+    expect(height).toBeCloseTo(100, 5);
+    expect(excluded.style.display).toBe('');
+  });
+
+  test('can disable base aspect normalization while keeping the base viewport reserve', () => {
+    const { svg } = createSvg({ locked: false });
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      remeasure: false,
+      baseViewport: { width: 600, height: 300 },
+      preserveBaseAspect: false
+    });
+
+    const [, , width, height] = readViewBox(svg);
+    expect(width).toBeCloseTo(600, 5);
+    expect(height).toBeCloseTo(300, 5);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
+  });
 });

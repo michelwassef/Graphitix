@@ -2293,6 +2293,8 @@
       preserveAspectRatio = null,
       baseViewport = null,
       horizontalResizeAnchorX = null,
+      excludeSelector = null,
+      preserveBaseAspect = true,
     } = opts;
 
     const raf = typeof global.requestAnimationFrame === 'function'
@@ -2301,11 +2303,30 @@
 
     const applyResize = () => {
       try {
+        const excludedNodes = typeof excludeSelector === 'string' && excludeSelector.trim()
+          ? Array.from(svg.querySelectorAll(excludeSelector.trim()))
+          : [];
+        const restoreExcluded = [];
+        excludedNodes.forEach(node => {
+          if(!node || !node.style){
+            return;
+          }
+          restoreExcluded.push({ node, display: node.style.display });
+          node.style.display = 'none';
+        });
         let bbox;
         try {
           bbox = typeof svg.getBBox === 'function' ? svg.getBBox() : null;
         } catch (bboxErr) {
           console.error('Shared.autoResizeSvg getBBox error', bboxErr);
+        } finally {
+          restoreExcluded.forEach(entry => {
+            if(entry.display){
+              entry.node.style.display = entry.display;
+            }else{
+              entry.node.style.removeProperty('display');
+            }
+          });
         }
         if (!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) {
           const viewBox = svg.viewBox?.baseVal;
@@ -2376,12 +2397,13 @@
         // Homogenize with box.js: keep the original rendered frame inside the
         // viewBox, then pad only if needed to preserve that frame's aspect ratio.
         // This preserves legend-side reserves even after the legend is dragged.
-        const preserveBaseAspect = !frozenAxes.x && !frozenAxes.y
+        const shouldPreserveBaseAspect = preserveBaseAspect !== false
+          && !frozenAxes.x && !frozenAxes.y
           && Number.isFinite(baseW) && baseW > 0
           && Number.isFinite(baseH) && baseH > 0
           && Number.isFinite(viewW) && viewW > 0
           && Number.isFinite(viewH) && viewH > 0;
-        if (preserveBaseAspect) {
+        if (shouldPreserveBaseAspect) {
           const baseRatio = baseW / baseH;
           const currentRatio = viewW / viewH;
           if (currentRatio > baseRatio) {
@@ -2436,7 +2458,7 @@
         svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
         const preserve = preserveAspectRatio != null
           ? preserveAspectRatio
-          : (preserveBaseAspect ? 'xMidYMid meet' : 'none');
+          : (shouldPreserveBaseAspect ? 'xMidYMid meet' : 'none');
         svg.setAttribute('preserveAspectRatio', preserve);
         if(dataset){
           const keepResizeAnchorBaseline = lockActive
@@ -2465,6 +2487,7 @@
           orthogonalExpansion,
           frozenRenderedSize,
           stableRenderedSize,
+          excludedCount: excludedNodes.length,
           preserveAspectRatio: svg.getAttribute('preserveAspectRatio')
         });
         if (typeof onResize === 'function') {
