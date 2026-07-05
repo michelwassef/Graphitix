@@ -663,8 +663,184 @@
       axisLabelModes: { x: 'auto', y: 'auto', z: 'auto' },
       preserveOverlayToggleState: false,
       significantLabelsUserModified: false,
-      forcedLockRatioPrevious: null
+      forcedLockRatioPrevious: null,
+      resizeMarginLock: null,
+      resizeViewportLock: null
     };
+  }
+
+  function normalizeScatterResizeMarginLock(value){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    return {
+      top: Number(value.top) || 0,
+      right: Number(value.right) || 0,
+      bottom: Number(value.bottom) || 0,
+      left: Number(value.left) || 0
+    };
+  }
+
+  function normalizeScatterResizeViewportLock(value, options = {}){
+    if(!value || typeof value !== 'object'){
+      return null;
+    }
+    const axis = value.axis === 'x' || value.axis === 'y' ? value.axis : null;
+    const until = Number(value.until);
+    const stable = value.stable && typeof value.stable === 'object' ? value.stable : {};
+    const hasStableViewport = [
+      'graphViewportStableMinX',
+      'graphViewportStableMinY',
+      'graphViewportStableWidth',
+      'graphViewportStableHeight',
+      'graphViewportStableRenderedWidth',
+      'graphViewportStableRenderedHeight'
+    ].some(key => stable[key] !== undefined && stable[key] !== null && String(stable[key]) !== '');
+    if(!axis || !Number.isFinite(until)){
+      return null;
+    }
+    if(Date.now() > until && !(options.allowExpiredStable === true && hasStableViewport)){
+      return null;
+    }
+    const normalized = { axis, until, stable: {} };
+    [
+      'graphViewportStableMinX',
+      'graphViewportStableMinY',
+      'graphViewportStableWidth',
+      'graphViewportStableHeight',
+      'graphViewportStableRenderedWidth',
+      'graphViewportStableRenderedHeight',
+      'graphViewportStableReason'
+    ].forEach(key => {
+      if(stable[key] !== undefined && stable[key] !== null && String(stable[key]) !== ''){
+        normalized.stable[key] = String(stable[key]);
+      }
+    });
+    if(options.refreshExpired === true && Date.now() > normalized.until){
+      normalized.until = Date.now() + 2500;
+    }
+    return normalized;
+  }
+
+  function setScatterResizeMarginLock(value){
+    const normalized = normalizeScatterResizeMarginLock(value);
+    scatterResizeMarginLock = normalized;
+    const viewState = getActiveScatterSessionForState()?.state?.view;
+    if(viewState && typeof viewState === 'object'){
+      viewState.resizeMarginLock = normalized ? { ...normalized } : null;
+    }
+    return normalized;
+  }
+
+  function getScatterResizeMarginLock(){
+    const viewState = getActiveScatterSessionForState()?.state?.view;
+    const normalized = normalizeScatterResizeMarginLock(viewState?.resizeMarginLock);
+    if(normalized){
+      scatterResizeMarginLock = { ...normalized };
+      return normalized;
+    }
+    return normalizeScatterResizeMarginLock(scatterResizeMarginLock);
+  }
+
+  function stabilizeScatterMarginForAxisResize(margin){
+    if(!margin || typeof margin !== 'object'){
+      return margin;
+    }
+    const locked = {
+      top: Number(margin.top) || 0,
+      right: Number(margin.right) || 0,
+      bottom: Number(margin.bottom) || 0,
+      left: Number(margin.left) || 0
+    };
+    const svgBox = scatterSvgBoxRef || scatterRefs?.svgBox || null;
+    const dataset = svgBox?.dataset || null;
+    if(!dataset || dataset.resizerAspectLocked === 'true'){
+      setScatterResizeMarginLock(locked);
+      return locked;
+    }
+    const axis = dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y'
+      ? dataset.resizerLastAxis
+      : 'both';
+    const previousLock = getScatterResizeMarginLock();
+    if(previousLock){
+      const markedAxis = dataset.resizerAxisViewportLockAxis;
+      const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
+      const lockActive = (axis === 'x' || axis === 'y')
+        && markedAxis === axis
+        && Number.isFinite(lockUntil)
+        && Date.now() <= lockUntil;
+      if(lockActive){
+        locked.top = previousLock.top;
+        locked.right = previousLock.right;
+        locked.bottom = previousLock.bottom;
+        locked.left = previousLock.left;
+      }
+    }
+    setScatterResizeMarginLock(locked);
+    return locked;
+  }
+
+  function getScatterResizeViewportLockSvgBox(){
+    return scatterRefs?.svgBox || scatterSvgBoxRef || null;
+  }
+
+  function captureScatterResizeViewportLockFromDom(session = null){
+    const svgBox = getScatterResizeViewportLockSvgBox();
+    const dataset = svgBox?.dataset || null;
+    const shaped = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
+    const viewState = shaped?.state?.view || null;
+    if(!dataset || !viewState){
+      return null;
+    }
+    const captured = normalizeScatterResizeViewportLock({
+      axis: dataset.resizerAxisViewportLockAxis,
+      until: Number(dataset.resizerAxisViewportLockUntil),
+      stable: dataset
+    }, { allowExpiredStable: true });
+    if(captured){
+      viewState.resizeViewportLock = captured;
+      return captured;
+    }
+    const existing = normalizeScatterResizeViewportLock(viewState.resizeViewportLock, { allowExpiredStable: true });
+    viewState.resizeViewportLock = existing;
+    return existing;
+  }
+
+  function applyScatterResizeViewportLockToDom(session = null){
+    const svgBox = getScatterResizeViewportLockSvgBox();
+    const dataset = svgBox?.dataset || null;
+    if(!dataset){
+      return;
+    }
+    const shaped = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
+    const viewState = shaped?.state?.view || null;
+    const lock = normalizeScatterResizeViewportLock(viewState?.resizeViewportLock, { allowExpiredStable: true, refreshExpired: true });
+    if(!lock){
+      const activeDomLock = normalizeScatterResizeViewportLock({
+        axis: dataset.resizerAxisViewportLockAxis,
+        until: Number(dataset.resizerAxisViewportLockUntil),
+        stable: dataset
+      }, { allowExpiredStable: false });
+      if(activeDomLock){
+        if(viewState){
+          viewState.resizeViewportLock = activeDomLock;
+        }
+        return;
+      }
+      delete dataset.resizerAxisViewportLockAxis;
+      delete dataset.resizerAxisViewportLockUntil;
+      if(viewState){
+        viewState.resizeViewportLock = null;
+      }
+      return;
+    }
+    dataset.resizerAxisViewportLockAxis = lock.axis;
+    dataset.resizerAxisViewportLockUntil = String(lock.until);
+    dataset.resizerLastAxis = lock.axis;
+    Object.keys(lock.stable || {}).forEach(key => {
+      dataset[key] = lock.stable[key];
+    });
+    viewState.resizeViewportLock = lock;
   }
 
   function normalizeScatterOwnedViewState(value){
@@ -693,6 +869,8 @@
     next.forcedLockRatioPrevious = (next.forcedLockRatioPrevious === true || next.forcedLockRatioPrevious === false)
       ? !!next.forcedLockRatioPrevious
       : null;
+    next.resizeMarginLock = normalizeScatterResizeMarginLock(next.resizeMarginLock);
+    next.resizeViewportLock = normalizeScatterResizeViewportLock(next.resizeViewportLock, { allowExpiredStable: true });
     return next;
   }
 
@@ -1670,6 +1848,13 @@
 
 
   function createScatterOwnedViewStateFromMirrors(){
+    const resizeViewportLock = normalizeScatterResizeViewportLock(
+      getActiveScatterSessionForState()?.state?.view?.resizeViewportLock,
+      { allowExpiredStable: true }
+    );
+    const resizeMarginLock = normalizeScatterResizeMarginLock(
+      getActiveScatterSessionForState()?.state?.view?.resizeMarginLock
+    ) || normalizeScatterResizeMarginLock(scatterResizeMarginLock);
     return normalizeScatterOwnedViewState({
       viewMode: scatterState.viewMode,
       requestedViewMode: scatterState.requestedViewMode,
@@ -1686,7 +1871,9 @@
       axisLabelModes: scatterState.axisLabelModes,
       preserveOverlayToggleState: scatterState.preserveOverlayToggleState,
       significantLabelsUserModified: scatterState.significantLabelsUserModified,
-      forcedLockRatioPrevious: scatterAxesLengthLockRatioPrevious
+      forcedLockRatioPrevious: scatterAxesLengthLockRatioPrevious,
+      resizeMarginLock,
+      resizeViewportLock
     });
   }
 
@@ -1724,6 +1911,7 @@
       scatterAxesLengthLockRatioPrevious = (view.forcedLockRatioPrevious === true || view.forcedLockRatioPrevious === false)
         ? !!view.forcedLockRatioPrevious
         : null;
+      scatterResizeMarginLock = normalizeScatterResizeMarginLock(view.resizeMarginLock);
     }
     return view;
   }
@@ -1776,7 +1964,14 @@
 
   function setScatterSessionViewState(session = null, viewState = null, meta = {}){
     const shaped = ensureScatterSessionOwnershipShape(session || getActiveScatterSessionForState());
+    const previousResizeViewportLock = normalizeScatterResizeViewportLock(
+      shaped?.state?.view?.resizeViewportLock,
+      { allowExpiredStable: true }
+    );
     const view = normalizeScatterOwnedViewState(viewState || createScatterOwnedViewStateFromMirrors());
+    if(!view.resizeViewportLock && previousResizeViewportLock){
+      view.resizeViewportLock = previousResizeViewportLock;
+    }
     if(shaped){
       shaped.state.view = view;
       shaped.updatedAt = Date.now();
@@ -4332,6 +4527,7 @@
   let scatterEqualScaleAxesInput = null;
   let scatterVarianceAxisScaleInput = null;
   let scatterAxesLengthLockRatioPrevious = null;
+  let scatterResizeMarginLock = null;
   let scatterAspectSyncing = false;
   let scatterViewModeInput = null;
   let scatterTooltipEl = null;
@@ -12748,11 +12944,6 @@
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
-      const stabilizeScatterMarginForAxisResize = margin => (
-        typeof chartStyle.stabilizeAxisResizeMargins === 'function'
-          ? chartStyle.stabilizeAxisResizeMargins(margin, { svgBox: scatterSvgBox, scopeId: 'scatter' })
-          : margin
-      );
 
       const activateScatterDataToolbar = (reason) => {
         const now = Date.now();
@@ -13209,6 +13400,7 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            captureScatterResizeViewportLockFromDom(activeScatterSession);
             const isResizeFinalize = resizePhase === 'end'
               || resizePhase === 'reset'
               || resizePhase === 'undo'
@@ -13217,6 +13409,7 @@
               || resizePhase === 'aspect-toggle';
             scheduleScatterViewRefresh('resize', {
               force: true,
+              skipThresholdEvaluation: true,
               resizePhase: resizePhase || null,
               forceCanvasRecompute: isResizeFinalize,
               silentOverlay: true
@@ -19595,21 +19788,72 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         return appended;
       }
 
-      function tryReuseScatterCanvasPointLayerDuringResizeMove(options = {}){
-        if(typeof Shared.resizer?.reuseCanvasLayerDuringResizeMove !== 'function'){
+      function copyScatterCanvasPixels(sourceRoot, targetRoot){
+        const sourceCanvases = Array.from(sourceRoot?.querySelectorAll?.('canvas') || []);
+        const targetCanvases = Array.from(targetRoot?.querySelectorAll?.('canvas') || []);
+        if(!sourceCanvases.length || sourceCanvases.length !== targetCanvases.length){
           return false;
         }
-        return Shared.resizer.reuseCanvasLayerDuringResizeMove({
-          ...options,
-          sourceSelector: 'g[data-layer="points"][data-render-mode="canvas"], g[data-layer="points"][data-render-mode="canvas-resize-reused"]',
-          allowedRenderModes: ['canvas', 'canvas-resize-reused'],
-          metricKeys: {
-            left: 'scatterPlotLeft',
-            top: 'scatterPlotTop',
-            width: 'scatterPlotW',
-            height: 'scatterPlotH'
+        let copied = false;
+        for(let i = 0; i < sourceCanvases.length; i += 1){
+          const source = sourceCanvases[i];
+          const target = targetCanvases[i];
+          const width = Number(source?.width) || 0;
+          const height = Number(source?.height) || 0;
+          if(!source || !target || !(width > 0) || !(height > 0)){
+            return false;
           }
+          target.width = width;
+          target.height = height;
+          target.style.width = source.style.width || target.style.width;
+          target.style.height = source.style.height || target.style.height;
+          const ctx = target.getContext?.('2d');
+          if(!ctx){
+            return false;
+          }
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(source, 0, 0);
+          copied = true;
+        }
+        return copied;
+      }
+
+      function reuseScatterCanvasPointLayerDuringLiveResize(previousSvg, targetLayer, nextMargin, nextPlotW, nextPlotH){
+        if(!previousSvg || !targetLayer || !nextMargin){
+          return false;
+        }
+        const previousLayer = previousSvg.querySelector?.('g[data-layer="points"][data-render-mode="canvas"], g[data-layer="points"][data-render-mode="canvas-resize-reused"]') || null;
+        if(!previousLayer){
+          return false;
+        }
+        const prevLeft = Number(previousSvg.dataset.scatterPlotLeft);
+        const prevTop = Number(previousSvg.dataset.scatterPlotTop);
+        const prevW = Number(previousSvg.dataset.scatterPlotW);
+        const prevH = Number(previousSvg.dataset.scatterPlotH);
+        if(!Number.isFinite(prevLeft) || !Number.isFinite(prevTop) || !(prevW > 0) || !(prevH > 0) || !(nextPlotW > 0) || !(nextPlotH > 0)){
+          return false;
+        }
+        const clone = previousLayer.cloneNode(true);
+        if(!clone || !copyScatterCanvasPixels(previousLayer, clone)){
+          return false;
+        }
+        const scaleX = nextPlotW / prevW;
+        const scaleY = nextPlotH / prevH;
+        const translateX = (Number(nextMargin.left) || 0) - prevLeft * scaleX;
+        const translateY = (Number(nextMargin.top) || 0) - prevTop * scaleY;
+        clone.setAttribute('data-render-mode', 'canvas-resize-reused');
+        clone.setAttribute('data-resize-reused', 'true');
+        clone.setAttribute('transform', `translate(${translateX} ${translateY}) scale(${scaleX} ${scaleY})`);
+        targetLayer.appendChild(clone);
+        targetLayer.setAttribute('data-render-mode', 'canvas-resize-reused');
+        targetLayer.setAttribute('data-resize-reused', 'true');
+        scatterDebug('Debug: scatter canvas point layer reused during live resize', {
+          prevW,
+          prevH,
+          nextPlotW,
+          nextPlotH
         });
+        return true;
       }
 
       function createBubbleRadiusScaler(points, baseRadius){
@@ -19753,8 +19997,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const scatterXMax = getScatterNodeById('scatterXMax', drawTabId) || getScatterNodeById('scatterXMax') || null;
         const scatterYMin = getScatterNodeById('scatterYMin', drawTabId) || getScatterNodeById('scatterYMin') || null;
         const scatterYMax = getScatterNodeById('scatterYMax', drawTabId) || getScatterNodeById('scatterYMax') || null;
+        const resizePhase = drawOptions?.reason === 'resize' ? String(drawOptions?.resizePhase || '') : '';
+        const isResizeLivePhase = resizePhase === 'start' || resizePhase === 'move' || resizePhase === 'end';
         const drawJob = Shared.jobs?.getActiveFor?.({ component: 'scatter', tabId: drawTabId, kind: 'graph' }) || null;
-        const drawYield = Shared.jobs?.createYieldController?.({ signal: drawJob?.signal || null, budgetMs: 10 }) || null;
+        const drawYield = isResizeLivePhase
+          ? null
+          : (Shared.jobs?.createYieldController?.({ signal: drawJob?.signal || null, budgetMs: 10 }) || null);
         const checkpointScatterDraw = async phase => {
           if(!isScatterDrawTokenCurrent(drawSession, token) || drawJob?.signal?.aborted){
             info('scatter draw cancelled', { token, phase });
@@ -22141,13 +22389,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
           return;
         }
-        const previousPlotChildren = Array.from(plotEl.childNodes || []);
-        const previousScatterSvg2d = previousPlotChildren.find(node =>
-          node
-          && String(node.nodeName || '').toLowerCase() === 'svg'
-          && node.getAttribute
-          && node.getAttribute('id') === 'scatterSvg'
-        ) || null;
+        const previousScatterSvg2d = plotEl.querySelector?.('svg#scatterSvg[data-view-mode="2d"], svg#scatterSvg') || null;
+        const keepPreviousScatterFrameUntilCommit = !!(
+          previousScatterSvg2d
+          && isResizeLivePhase
+          && resizePhase !== 'end'
+          && previousScatterSvg2d.querySelector?.('g[data-layer="points"][data-render-mode="canvas"], g[data-layer="points"][data-render-mode="canvas-resize-reused"]')
+        );
+        if(!keepPreviousScatterFrameUntilCommit){
+          while(plotEl.firstChild){
+            plotEl.removeChild(plotEl.firstChild);
+          }
+        }
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
         const W=Math.max(50,Math.floor(drawableFrame.width||50));
@@ -22162,8 +22415,8 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
         svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
         svg.dataset.viewMode='2d';
-        svg.style.visibility='hidden';
-        svg.style.pointerEvents='none';
+        scatter.__resizeLiveRevision = (Number(scatter.__resizeLiveRevision) || 0) + 1;
+        svg.dataset.resizeLiveRevision = String(scatter.__resizeLiveRevision);
         chartStyle.applySvgDefaults(svg);
         svg.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
         if(scatterThemeDark){
@@ -22175,44 +22428,36 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           svg.removeAttribute('data-color-scheme-bg-color');
         }
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
-        plotEl.appendChild(svg);
-        if(previousPlotChildren.length && svg.style){
+        if(keepPreviousScatterFrameUntilCommit){
+          svg.style.visibility = 'hidden';
+          svg.style.pointerEvents = 'none';
           svg.style.position = 'absolute';
           svg.style.left = '0';
           svg.style.top = '0';
           svg.style.zIndex = '1';
         }
-        const removePreviousScatterNodes = () => {
-          if(Array.isArray(previousPlotChildren) && previousPlotChildren.length){
-            for(let i = 0; i < previousPlotChildren.length; i += 1){
-              const node = previousPlotChildren[i];
-              if(!node || node === svg){
-                continue;
-              }
-              if(node.parentNode === plotEl){
-                try{
-                  plotEl.removeChild(node);
-                }catch(err){}
-              }
-            }
+        plotEl.appendChild(svg);
+        if(isResizeLivePhase && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+          try{
+            applyScatterResizeViewportLockToDom(drawSession);
+            Shared.graphViewport.applyLiveResizeLock(svg, { reason: `scatter-draw-start-resize-${resizePhase}` });
+          }catch(err){
+            console.error('scatter graph viewport live lock error', err);
           }
-        };
-        const normalizeCommittedScatterSvg = () => {
-          if(!svg.style){
-            return;
-          }
-          svg.style.removeProperty('position');
-          svg.style.removeProperty('left');
-          svg.style.removeProperty('top');
-          svg.style.removeProperty('z-index');
-        };
+        }
         const commitScatterSvg = () => {
-          if(previousPlotChildren.length){
-            removePreviousScatterNodes();
+          if(keepPreviousScatterFrameUntilCommit){
+            if(previousScatterSvg2d?.parentNode === plotEl){
+              try{ plotEl.removeChild(previousScatterSvg2d); }catch(_err){}
+            }
+            svg.style.visibility = '';
+            svg.style.pointerEvents = 'auto';
+            svg.style.removeProperty('position');
+            svg.style.removeProperty('left');
+            svg.style.removeProperty('top');
+            svg.style.removeProperty('z-index');
           }
-          svg.style.visibility='';
-          svg.style.pointerEvents='auto';
-          normalizeCommittedScatterSvg();
+          return true;
         };
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
@@ -22283,7 +22528,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const yTickMeasureFont = yTickMeasureProfile.fontSpec;
         const xTickFontSize = Number.isFinite(Number(xTickMeasureProfile.fontSizePx)) ? Number(xTickMeasureProfile.fontSizePx) : fs;
         const yTickFontSize = Number.isFinite(Number(yTickMeasureProfile.fontSizePx)) ? Number(yTickMeasureProfile.fontSizePx) : fs;
-        const yTitleSeparation = (axisMetrics.axisTitleGap || Math.max(4, Math.round(fs * 0.75))) + Math.max(2, yTickFontSize * 0.5);
+        const yTitleSeparation = axisMetrics.axisTitleGap + fs * 0.5;
         const tickFont=yTickMeasureFont;
         const hasYTitle = String(scatterLabelsState?.y == null ? '' : scatterLabelsState.y).trim().length > 0;
         const tickLen=axisMetrics.tickLength;
@@ -23384,6 +23629,13 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && errorBarWidthPx > 0;
         const largePointMode = renderLargeDatasetPolicy.useLargePointMode;
         const useCanvasPointRender = largePointMode && !isBubbleView && !showGroupedErrorBars && canUseScatterPointCanvas();
+        const canReuseCanvasOnLiveResize = !!(
+          useCanvasPointRender
+          && isResizeLivePhase
+          && resizePhase !== 'end'
+          && !drawOptions?.forceCanvasRecompute
+          && previousScatterSvg2d
+        );
         const useBatchedCircleRender = largePointMode && !useCanvasPointRender && !isBubbleView && !showGroupedErrorBars;
         const densityColorSteps = (largePointMode && scatterColorModeApplied === 'density')
           ? SCATTER_DENSITY_LARGE_COLOR_STEPS
@@ -23393,22 +23645,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         const indexedCanvasPointBuckets = useCanvasPointRender ? new Map() : null;
         let canvasPointBounds = null;
         const batchedCircleBuckets = useBatchedCircleRender ? new Map() : null;
-        const resizePhase = typeof drawOptions?.resizePhase === 'string' ? drawOptions.resizePhase : '';
-        const isResizeMovePhase = drawOptions?.reason === 'resize' && resizePhase === 'move';
-        const forceCanvasRecompute = !!drawOptions?.forceCanvasRecompute;
-        const canReuseCanvasLayerOnMove = !!(
-          isResizeMovePhase
-          && !forceCanvasRecompute
-          && useCanvasPointRender
-          && previousScatterSvg2d
-          && tryReuseScatterCanvasPointLayerDuringResizeMove({
-            previousSvg: previousScatterSvg2d,
-            nextMargin: margin,
-            nextPlotW: plotW,
-            nextPlotH: plotH,
-            dryRun: true
-          })
-        );
         if(largePointMode){
           debug('Debug: scatter large point render mode', {
             pointCount: points.length,
@@ -23436,7 +23672,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           && dotSizePx > 0
         );
         let pointLayer = null;
-        if(!canReuseCanvasLayerOnMove){
         if(useIndexedCanvasPointRender){
           const markerOpacity = 1 - alpha;
           const strokeValue = borderWidthPx > 0 ? borderColor : '';
@@ -23798,7 +24033,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           pointLayer.setAttribute('pointer-events', 'none');
           hideScatterTooltip('point-interaction-disabled-large-dataset');
         }
-        }
         if(!pointLayer){
           pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
           pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas-pending' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
@@ -23807,32 +24041,16 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             hideScatterTooltip('point-interaction-disabled-large-dataset');
           }
         }
-        let reusedCanvasPointLayerOnMove = false;
-        if(canReuseCanvasLayerOnMove){
-          const reused = tryReuseScatterCanvasPointLayerDuringResizeMove({
-            targetLayer: pointLayer,
-            previousSvg: previousScatterSvg2d,
-            nextMargin: margin,
-            nextPlotW: plotW,
-            nextPlotH: plotH
-          });
-          if(reused){
-            reusedCanvasPointLayerOnMove = true;
-            if(frag.childNodes.length){
-              pointLayer.appendChild(frag);
-            }
-            if(scatter.__lastLargeDatasetRenderSummary){
-              scatter.__lastLargeDatasetRenderSummary.renderMode = pointLayer.getAttribute('data-render-mode') || null;
-            }
-          }
-        }
         const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
           component: 'scatter',
           token,
           points: points.length
         });
         let canvasPointLayerRendered = false;
-        if(useCanvasPointRender && !reusedCanvasPointLayerOnMove){
+        const reusedCanvasPointLayerOnLiveResize = canReuseCanvasOnLiveResize
+          ? reuseScatterCanvasPointLayerDuringLiveResize(previousScatterSvg2d, pointLayer, margin, plotW, plotH)
+          : false;
+        if(useCanvasPointRender && !reusedCanvasPointLayerOnLiveResize){
           if(useIndexedCanvasPointRender){
             canvasPointLayerRendered = await renderScatterPointCanvasIndexedBuckets(pointLayer, indexedCanvasPointBuckets, canvasPointBounds, pointCx, pointCy, {
               doc: global.document,
@@ -23847,6 +24065,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           if(!isScatterDrawTokenCurrent(drawSession, token)){
             if(perfApi && pointAttachPerf){
               perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: false, outcome: 'stale' });
+            }
+            if(keepPreviousScatterFrameUntilCommit && svg?.parentNode === plotEl){
+              try{ plotEl.removeChild(svg); }catch(_err){}
             }
             debug('Debug: scatter canvas point render ignored', { reason: 'stale-token', token, current: getScatterDrawToken(drawSession) });
             return;
@@ -23870,7 +24091,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           pointLayer.appendChild(frag);
         }
         if(perfApi && pointAttachPerf){
-          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: (canvasPointLayerRendered || reusedCanvasPointLayerOnMove) });
+          perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: canvasPointLayerRendered || reusedCanvasPointLayerOnLiveResize });
         }
         if(scatter.__lastLargeDatasetRenderSummary){
           scatter.__lastLargeDatasetRenderSummary.renderMode = pointLayer.getAttribute('data-render-mode') || null;
@@ -25174,11 +25395,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           token
         });
         registerScatterGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
+        applyScatterResizeViewportLockToDom(drawSession);
+        const scatterResizeLockActive = (() => {
+          const data = (scatterSvgBoxRef || scatterRefs?.svgBox)?.dataset || null;
+          const axis = data?.resizerAxisViewportLockAxis;
+          const until = Number(data?.resizerAxisViewportLockUntil);
+          return (axis === 'x' || axis === 'y') && Number.isFinite(until) && Date.now() <= until;
+        })();
         ensureGraphViewport(svg, {
           padding: Math.max(fs, 16),
           debugLabel: 'scatter-graph',
           baseViewport: { width: W, height: H },
-          horizontalResizeAnchorX: yAxisX
+          remeasure: !scatterResizeLockActive
         });
         if(perfApi && viewportPerf){
           perfApi.end(viewportPerf, { component: 'scatter', token });

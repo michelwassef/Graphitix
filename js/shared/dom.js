@@ -148,6 +148,22 @@
     return { width, height };
   };
 
+  const readSvgSlotSize = (svg, svgBox = null) => {
+    const candidates = [svg?.parentElement || null, svgBox || resolveSvgBox(svg)].filter(Boolean);
+    for(const node of candidates){
+      if(typeof node.getBoundingClientRect !== 'function'){
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      const width = parseFiniteNumber(rect?.width);
+      const height = parseFiniteNumber(rect?.height);
+      if(Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0){
+        return { width, height };
+      }
+    }
+    return readSvgRenderedSize(svg);
+  };
+
   const writeStableViewBox = (svgBox, viewBox, reason, renderedSize) => {
     const normalized = normalizeViewBox(viewBox);
     const dataset = svgBox?.dataset || null;
@@ -189,13 +205,17 @@
     }
     const priorStableViewBox = readStableViewBox(svgBox);
     const axis = options.axis === 'x' || options.axis === 'y' ? options.axis : null;
-    if(priorStableViewBox && axis === 'y'){
+    const shouldReuseOrthogonalAxis = !!priorStableViewBox
+      && !!axis
+      && options.reuseOrthogonalAxis !== false
+      && options.reason !== 'pointer-start';
+    if(shouldReuseOrthogonalAxis && axis === 'y'){
       viewBox = {
         ...viewBox,
         minX: priorStableViewBox.minX,
         viewW: priorStableViewBox.viewW
       };
-    }else if(priorStableViewBox && axis === 'x'){
+    }else if(shouldReuseOrthogonalAxis && axis === 'x'){
       viewBox = {
         ...viewBox,
         minY: priorStableViewBox.minY,
@@ -207,11 +227,72 @@
     logDebug('graphViewport stable axes captured', {
       reason: options.reason || null,
       axis,
-      reusedOrthogonalAxis: !!priorStableViewBox && !!axis,
+      reusedOrthogonalAxis: shouldReuseOrthogonalAxis,
       renderedSize,
       viewBox: stored
     });
     return stored;
+  }
+
+  function applyLiveResizeViewportLock(target, options = {}) {
+    const svgBox = resolveSvgBox(target);
+    const svg = options.svg
+      || (target && String(target.tagName || '').toLowerCase() === 'svg' ? target : null)
+      || svgBox?.querySelector?.('svg')
+      || null;
+    const dataset = svgBox?.dataset || null;
+    const axis = options.axis === 'x' || options.axis === 'y'
+      ? options.axis
+      : (dataset?.resizerAxisViewportLockAxis === 'x' || dataset?.resizerAxisViewportLockAxis === 'y'
+        ? dataset.resizerAxisViewportLockAxis
+        : null);
+    if(!svgBox || !svg || !dataset || (axis !== 'x' && axis !== 'y') || dataset.resizerAspectLocked === 'true'){
+      return null;
+    }
+    const stableViewBox = readStableViewBox(svgBox);
+    const stableRenderedSize = readStableRenderedSize(svgBox);
+    const slotSize = readSvgSlotSize(svg, svgBox);
+    const renderedSize = readSvgRenderedSize(svg) || slotSize;
+    if(!stableViewBox || !stableRenderedSize || !slotSize || !renderedSize){
+      return null;
+    }
+    const next = {
+      minX: stableViewBox.minX,
+      minY: stableViewBox.minY,
+      viewW: stableViewBox.viewW,
+      viewH: stableViewBox.viewH
+    };
+    if(axis === 'x'){
+      const scale = slotSize.width / stableRenderedSize.width;
+      if(!Number.isFinite(scale) || scale <= 0){
+        return null;
+      }
+      next.viewW = Math.max(1, stableViewBox.viewW * scale);
+    }else if(axis === 'y'){
+      const scale = slotSize.height / stableRenderedSize.height;
+      if(!Number.isFinite(scale) || scale <= 0){
+        return null;
+      }
+      next.viewH = Math.max(1, stableViewBox.viewH * scale);
+    }
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.width = axis === 'x' ? `${slotSize.width}px` : `${stableRenderedSize.width}px`;
+    svg.style.height = axis === 'y' ? `${slotSize.height}px` : `${stableRenderedSize.height}px`;
+    svg.style.minWidth = '0';
+    svg.style.minHeight = '0';
+    svg.style.display = 'block';
+    svg.setAttribute('viewBox', `${next.minX} ${next.minY} ${next.viewW} ${next.viewH}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    logDebug('graphViewport live resize lock applied', {
+      reason: options.reason || null,
+      axis,
+      slotSize,
+      renderedSize,
+      stableRenderedSize,
+      viewBox: next
+    });
+    return next;
   }
 
   const isOrthogonalViewportLockActive = (dataset, axis) => {
@@ -2368,31 +2449,16 @@
         const frozenAxes = { x: false, y: false };
         const orthogonalExpansion = { x: false, y: false };
         const frozenRenderedSize = { width: false, height: false };
-        const orthogonalExpansionEpsilon = 0.5;
         if(lockActive && resizeAxis === 'y' && stableViewBox){
-          const stableMinX = stableViewBox.minX;
-          const stableMaxX = stableViewBox.minX + stableViewBox.viewW;
-          const candidateMinX = minX;
-          const candidateMaxX = minX + viewW;
-          const nextMinX = candidateMinX < (stableMinX - orthogonalExpansionEpsilon) ? candidateMinX : stableMinX;
-          const nextMaxX = candidateMaxX > (stableMaxX + orthogonalExpansionEpsilon) ? candidateMaxX : stableMaxX;
-          minX = nextMinX;
-          const mergedMaxX = nextMaxX;
-          viewW = Math.max(1, mergedMaxX - minX);
+          minX = stableViewBox.minX;
+          viewW = Math.max(1, stableViewBox.viewW);
           frozenAxes.x = true;
-          orthogonalExpansion.x = minX !== stableMinX || mergedMaxX !== stableMaxX;
+          orthogonalExpansion.x = false;
         }else if(lockActive && resizeAxis === 'x' && stableViewBox){
-          const stableMinY = stableViewBox.minY;
-          const stableMaxY = stableViewBox.minY + stableViewBox.viewH;
-          const candidateMinY = minY;
-          const candidateMaxY = minY + viewH;
-          const nextMinY = candidateMinY < (stableMinY - orthogonalExpansionEpsilon) ? candidateMinY : stableMinY;
-          const nextMaxY = candidateMaxY > (stableMaxY + orthogonalExpansionEpsilon) ? candidateMaxY : stableMaxY;
-          minY = nextMinY;
-          const mergedMaxY = nextMaxY;
-          viewH = Math.max(1, mergedMaxY - minY);
+          minY = stableViewBox.minY;
+          viewH = Math.max(1, stableViewBox.viewH);
           frozenAxes.y = true;
-          orthogonalExpansion.y = minY !== stableMinY || mergedMaxY !== stableMaxY;
+          orthogonalExpansion.y = false;
         }
         // Homogenize with box.js: keep the original rendered frame inside the
         // viewBox, then pad only if needed to preserve that frame's aspect ratio.
@@ -2417,8 +2483,9 @@
           }
         }
         const anchorX = Number(horizontalResizeAnchorX);
+        const currentSlotSize = lockActive ? readSvgSlotSize(svg, box) : null;
         if(lockActive && resizeAxis === 'x' && stableViewBox && Number.isFinite(anchorX)){
-          const currentRenderedSize = readSvgRenderedSize(svg);
+          const currentRenderedSize = currentSlotSize || readSvgRenderedSize(svg);
           const stableRenderedWidth = Number(stableRenderedSize?.width);
           const currentRenderedWidth = Number(currentRenderedSize?.width);
           if(Number.isFinite(stableRenderedWidth) && stableRenderedWidth > 0
@@ -2442,11 +2509,17 @@
           if(lockActive && resizeAxis === 'y' && stableRenderedSize?.width > 0){
             svg.style.width = `${stableRenderedSize.width}px`;
             frozenRenderedSize.width = true;
+          }else if(lockActive && resizeAxis === 'x' && currentSlotSize?.width > 0){
+            svg.style.width = `${currentSlotSize.width}px`;
+            frozenRenderedSize.width = true;
           }else{
             svg.style.width = '100%';
           }
           if(lockActive && resizeAxis === 'x' && stableRenderedSize?.height > 0){
             svg.style.height = `${stableRenderedSize.height}px`;
+            frozenRenderedSize.height = true;
+          }else if(lockActive && resizeAxis === 'y' && currentSlotSize?.height > 0){
+            svg.style.height = `${currentSlotSize.height}px`;
             frozenRenderedSize.height = true;
           }else{
             svg.style.height = '100%';
@@ -2648,6 +2721,7 @@
   Shared.graphViewport.ensure = ensureGraphViewport;
   Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
   Shared.graphViewport.captureStableAxes = captureGraphViewportStableAxes;
+  Shared.graphViewport.applyLiveResizeLock = applyLiveResizeViewportLock;
   Shared.serializeCleanSVG = serializeCleanSVG;
   Shared.DEFAULT_EMPTY_PLOT_NOTICE = DEFAULT_EMPTY_PLOT_NOTICE;
   Shared.getEmptyPlotNoticeMessage = getEmptyPlotNoticeMessage;

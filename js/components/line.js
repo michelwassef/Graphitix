@@ -877,6 +877,17 @@
     const viewState = getLineViewState(session);
     const lock = normalizeLineResizeViewportLock(viewState?.resizeViewportLock, { allowExpiredStable: true, refreshExpired: true });
     if(!lock){
+      const activeDomLock = normalizeLineResizeViewportLock({
+        axis: dataset.resizerAxisViewportLockAxis,
+        until: Number(dataset.resizerAxisViewportLockUntil),
+        stable: dataset
+      }, { allowExpiredStable: false });
+      if(activeDomLock){
+        if(viewState){
+          viewState.resizeViewportLock = activeDomLock;
+        }
+        return;
+      }
       delete dataset.resizerAxisViewportLockAxis;
       delete dataset.resizerAxisViewportLockUntil;
       if(viewState){
@@ -934,12 +945,17 @@
       : 'both';
     const previousLock = getLineResizeMarginLock();
     if(previousLock){
-      if(axis === 'y'){
-        locked.left = previousLock.left;
-        locked.right = previousLock.right;
-      }else if(axis === 'x'){
+      const markedAxis = dataset.resizerAxisViewportLockAxis;
+      const lockUntil = Number(dataset.resizerAxisViewportLockUntil);
+      const lockActive = (axis === 'x' || axis === 'y')
+        && markedAxis === axis
+        && Number.isFinite(lockUntil)
+        && Date.now() <= lockUntil;
+      if(lockActive){
         locked.top = previousLock.top;
+        locked.right = previousLock.right;
         locked.bottom = previousLock.bottom;
+        locked.left = previousLock.left;
       }
     }
     setLineResizeMarginLock(locked);
@@ -13459,6 +13475,8 @@
       svg.setAttribute('height',String(H));
       svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
+      line.__resizeLiveRevision = (Number(line.__resizeLiveRevision) || 0) + 1;
+      svg.dataset.resizeLiveRevision = String(line.__resizeLiveRevision);
       chartStyle.applySvgDefaults(svg);
       const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineThemeState.colorScheme } }) || null;
       const lineThemeDark = lineResolvedTheme2d
@@ -15133,7 +15151,18 @@
       renderLineStatsAdvisor(seriesWithData, statsContext);
       registerLineGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
       applyLineResizeViewportLockToDom(invocation.session);
-      ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph', baseViewport: { width: W, height: H } });
+      const lineResizeLockActive = (() => {
+        const data = (lineSvgBoxRef || refs.svgBox)?.dataset || null;
+        const axis = data?.resizerAxisViewportLockAxis;
+        const until = Number(data?.resizerAxisViewportLockUntil);
+        return (axis === 'x' || axis === 'y') && Number.isFinite(until) && Date.now() <= until;
+      })();
+      ensureGraphViewport(svg, {
+        padding: Math.max(fs, 16),
+        debugLabel: 'line-graph',
+        baseViewport: { width: W, height: H },
+        remeasure: !lineResizeLockActive
+      });
       getActiveLineLayoutManager()?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit

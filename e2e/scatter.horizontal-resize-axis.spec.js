@@ -127,7 +127,13 @@ async function dragWidthDense(page, config, dx, options = {}) {
   samples.push({ phase: 'down', metrics: await page.evaluate(readAxisMetrics, config) });
   for (let step = 1; step <= steps; step += 1) {
     await page.mouse.move(x + (dx * step) / steps, y);
-    await page.waitForTimeout(options.stepDelayMs || 35);
+    if (options.captureImmediate === true) {
+      samples.push({ phase: `move-${step}-live`, metrics: await page.evaluate(readAxisMetrics, config) });
+    }
+    const stepDelayMs = options.stepDelayMs ?? 35;
+    if (stepDelayMs > 0) {
+      await page.waitForTimeout(stepDelayMs);
+    }
     samples.push({ phase: `move-${step}`, metrics: await page.evaluate(readAxisMetrics, config) });
   }
   await page.mouse.up();
@@ -228,7 +234,7 @@ test('scatter pointer horizontal drag keeps y-axis line and y-title stable', asy
   await page.locator('#scatterOriginMode').selectOption('zero');
   await page.waitForTimeout(400);
 
-  const drag = await dragWidthDense(page, scatterAxisConfig, -160);
+  const drag = await dragWidthDense(page, scatterAxisConfig, -160, { captureImmediate: true });
   const summary = summarizeDrift(drag);
 
   await testInfo.attach('scatter-horizontal-pointer-drag-axis.metrics.json', {
