@@ -191,7 +191,7 @@
     const svgBox = resolveSvgBox(target);
     const svg = options.svg
       || (target && String(target.tagName || '').toLowerCase() === 'svg' ? target : null)
-      || svgBox?.querySelector?.('svg')
+      || svgBox?.querySelector?.('svg[data-preview-source="true"], svg[id$="Svg"], [id$="Plot"] svg, svg:not(.resizer-options-icon)')
       || null;
     let viewBox = readSvgViewBox(svg);
     if(!svgBox || !viewBox){
@@ -238,7 +238,7 @@
     const svgBox = resolveSvgBox(target);
     const svg = options.svg
       || (target && String(target.tagName || '').toLowerCase() === 'svg' ? target : null)
-      || svgBox?.querySelector?.('svg')
+      || svgBox?.querySelector?.('svg[data-preview-source="true"], svg[id$="Svg"], [id$="Plot"] svg, svg:not(.resizer-options-icon)')
       || null;
     const dataset = svgBox?.dataset || null;
     const axis = options.axis === 'x' || options.axis === 'y'
@@ -2361,6 +2361,12 @@
   function autoResizeSvg(svg, opts = {}) {
     if (!svg) {
       logDebug('autoResizeSvg skipped (no svg)', { hasSvg: false });
+      return;
+    }
+    const className = String(svg.getAttribute?.('class') || '').toLowerCase();
+    if (className.includes('resizer-options-icon')
+      || svg.closest?.('.resizer-control-tray, .resizer-options-control, .resizer-options-menu, button')) {
+      logDebug('autoResizeSvg skipped (ui svg)', { className });
       return;
     }
     const {
