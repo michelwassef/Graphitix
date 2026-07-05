@@ -13432,7 +13432,8 @@
       scatterSvgBoxRef = scatterSvgBox;
       scatterRefs.svgBox = scatterSvgBox;
       scatterLayout?.setScheduleDraw?.((...args) => scheduleActiveScatterDraw(...args));
-      scatterLayout?.syncPanels?.();
+      scatterSuppressResizeObserveUntil = Date.now() + 750;
+      scatterLayout?.syncPanels?.({ skipSchedule: true, source: 'scatter-setup-layout' });
       ensureScatterResizerControls();
       Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
         tabId: scatter.__boundTabId || null,
@@ -20059,6 +20060,18 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             perfApi.end(drawPerf, meta);
           }
         };
+        let stagedScatterSvgForCleanup = null;
+        let stagedScatterSvgCommitted = false;
+        const cleanupUncommittedScatterSvg = () => {
+          if(stagedScatterSvgCommitted || !stagedScatterSvgForCleanup){
+            return;
+          }
+          const stagedSvg = stagedScatterSvgForCleanup;
+          stagedScatterSvgForCleanup = null;
+          if(stagedSvg.parentNode){
+            try{ stagedSvg.parentNode.removeChild(stagedSvg); }catch(_err){}
+          }
+        };
         info('drawScatter called',{token, viewOnly, reason: drawOptions?.reason || null});
         try{
         let statsContextPayload=null;
@@ -22411,25 +22424,20 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
           return;
         }
+        const previousScatterNodes = Array.from(plotEl.childNodes || []);
         const previousScatterSvg2d = plotEl.querySelector?.('svg#scatterSvg[data-view-mode="2d"], svg#scatterSvg') || null;
-        const keepPreviousScatterFrameUntilCommit = !!(
-          previousScatterSvg2d
-          && isResizeLivePhase
-          && resizePhase !== 'end'
-          && previousScatterSvg2d.querySelector?.('g[data-layer="points"][data-render-mode="canvas"], g[data-layer="points"][data-render-mode="canvas-resize-reused"]')
-        );
-        if(!keepPreviousScatterFrameUntilCommit){
-          while(plotEl.firstChild){
-            plotEl.removeChild(plotEl.firstChild);
-          }
-        }
+        // Scatter rendering is async and may yield while computing point geometry.
+        // Build the replacement SVG invisibly and swap it in only after the
+        // viewport has been finalized so the user never sees an intermediate,
+        // offset frame.
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
         const W=Math.max(50,Math.floor(drawableFrame.width||50));
         const H=Math.max(40,Math.floor(drawableFrame.height||40));
         plotEl.style.position='relative';
         const svg=document.createElementNS(NS,'svg');
-        svg.setAttribute('id','scatterSvg');
+        svg.dataset.scatterStagedSvg = 'true';
+        stagedScatterSvgForCleanup = svg;
         svg.setAttribute('width',String(W));
         svg.setAttribute('height',String(H));
         svg.setAttribute('data-scatter-base-width',String(W));
@@ -22450,14 +22458,12 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           svg.removeAttribute('data-color-scheme-bg-color');
         }
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
-        if(keepPreviousScatterFrameUntilCommit){
-          svg.style.visibility = 'hidden';
-          svg.style.pointerEvents = 'none';
-          svg.style.position = 'absolute';
-          svg.style.left = '0';
-          svg.style.top = '0';
-          svg.style.zIndex = '1';
-        }
+        svg.style.visibility = 'hidden';
+        svg.style.pointerEvents = 'none';
+        svg.style.position = 'absolute';
+        svg.style.left = '0';
+        svg.style.top = '0';
+        svg.style.zIndex = '1';
         plotEl.appendChild(svg);
         if(isResizeLivePhase && Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
           try{
@@ -22468,17 +22474,21 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           }
         }
         const commitScatterSvg = () => {
-          if(keepPreviousScatterFrameUntilCommit){
-            if(previousScatterSvg2d?.parentNode === plotEl){
-              try{ plotEl.removeChild(previousScatterSvg2d); }catch(_err){}
+          previousScatterNodes.forEach(node => {
+            if(node !== svg && node.parentNode === plotEl){
+              try{ plotEl.removeChild(node); }catch(_err){}
             }
-            svg.style.visibility = '';
-            svg.style.pointerEvents = 'auto';
-            svg.style.removeProperty('position');
-            svg.style.removeProperty('left');
-            svg.style.removeProperty('top');
-            svg.style.removeProperty('z-index');
-          }
+          });
+          svg.setAttribute('id','scatterSvg');
+          delete svg.dataset.scatterStagedSvg;
+          svg.style.visibility = '';
+          svg.style.pointerEvents = 'auto';
+          svg.style.removeProperty('position');
+          svg.style.removeProperty('left');
+          svg.style.removeProperty('top');
+          svg.style.removeProperty('z-index');
+          stagedScatterSvgCommitted = true;
+          stagedScatterSvgForCleanup = null;
           return true;
         };
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -24055,14 +24065,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           pointLayer.setAttribute('pointer-events', 'none');
           hideScatterTooltip('point-interaction-disabled-large-dataset');
         }
-        if(!pointLayer){
-          pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
-          pointLayer.setAttribute('data-render-mode', useCanvasPointRender ? 'canvas-pending' : (useBatchedCircleRender ? 'batched-circles' : 'markers'));
-          if(!enablePointInteractivity){
-            pointLayer.setAttribute('pointer-events', 'none');
-            hideScatterTooltip('point-interaction-disabled-large-dataset');
-          }
-        }
         const pointAttachPerf = perfApi?.start('scatter.svg.attach', {
           component: 'scatter',
           token,
@@ -24088,9 +24090,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             if(perfApi && pointAttachPerf){
               perfApi.end(pointAttachPerf, { component: 'scatter', token, points: points.length, canvas: false, outcome: 'stale' });
             }
-            if(keepPreviousScatterFrameUntilCommit && svg?.parentNode === plotEl){
-              try{ plotEl.removeChild(svg); }catch(_err){}
-            }
+            cleanupUncommittedScatterSvg();
             debug('Debug: scatter canvas point render ignored', { reason: 'stale-token', token, current: getScatterDrawToken(drawSession) });
             return;
           }
@@ -25451,6 +25451,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
         info('scatter render complete with enhanced styles');
         } finally {
+          cleanupUncommittedScatterSvg();
           syncScatterSessionDurableStateFromModule(drawSession, 'scatter-draw-final-sync');
           updateScatterDrawRuntime(drawSession, runtime => {
             runtime.lastMeta = {

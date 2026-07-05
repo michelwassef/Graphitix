@@ -2605,35 +2605,65 @@
       });
     }
 
-    const applyThicknessFromInput = (recordUndo) => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig){ return; }
-      const config = activeConfig;
-      const raw = thicknessInput.value;
-      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
-      const requestedValue = sanitizeThicknessValue(raw);
-      logDebug('thickness change',{ raw, numeric: requestedValue, recordUndo: !!recordUndo });
-      if(config.onThicknessChange){
-        config.onThicknessChange(requestedValue);
-      }
-      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
-      syncPanelInputsFromConfig(config);
-      if(recordUndo){
-        recordAxisStateChange(
-          config,
-          'thickness',
-          previousValue,
-          nextValue,
-          value => {
-            if(config.onThicknessChange){
-              config.onThicknessChange(value);
-            }
-          }
-        );
-      }
+    let thicknessInteractionStartValue = null;
+    let thicknessInteractionActive = false;
+
+    const readCurrentThickness = config => sanitizeThicknessValue(
+      config?.getThickness ? config.getThickness() : null
+    );
+    const thicknessValuesEqual = (a, b) => {
+      const left = sanitizeThicknessValue(a);
+      const right = sanitizeThicknessValue(b);
+      return left === right;
     };
-    thicknessInput.addEventListener('input', () => applyThicknessFromInput(false));
-    thicknessInput.addEventListener('change', () => applyThicknessFromInput(true));
+    const applyThicknessValue = (config, value, reason) => {
+      if(!config || typeof config.onThicknessChange !== 'function'){
+        return readCurrentThickness(config);
+      }
+      const currentValue = readCurrentThickness(config);
+      if(thicknessValuesEqual(currentValue, value)){
+        return currentValue;
+      }
+      logDebug('thickness change', { numeric: value, reason });
+      config.onThicknessChange(value);
+      return readCurrentThickness(config);
+    };
+    const ensureThicknessInteraction = config => {
+      if(thicknessInteractionActive){
+        return;
+      }
+      thicknessInteractionStartValue = readCurrentThickness(config);
+      thicknessInteractionActive = true;
+    };
+    const applyThicknessFromInput = () => {
+      if(applyingFromUndo || !activeConfig){ return; }
+      const config = activeConfig;
+      ensureThicknessInteraction(config);
+      const requestedValue = sanitizeThicknessValue(thicknessInput.value);
+      applyThicknessValue(config, requestedValue, 'input');
+      syncPanelInputsFromConfig(config);
+    };
+    const commitThicknessFromInput = () => {
+      if(applyingFromUndo || !activeConfig){ return; }
+      const config = activeConfig;
+      ensureThicknessInteraction(config);
+      const previousValue = thicknessInteractionStartValue;
+      const requestedValue = sanitizeThicknessValue(thicknessInput.value);
+      const nextValue = applyThicknessValue(config, requestedValue, 'commit');
+      syncPanelInputsFromConfig(config);
+      thicknessInteractionActive = false;
+      thicknessInteractionStartValue = null;
+      recordAxisStateChange(
+        config,
+        'thickness',
+        previousValue,
+        nextValue,
+        value => applyThicknessValue(config, sanitizeThicknessValue(value), 'undo'),
+        thicknessValuesEqual
+      );
+    };
+    thicknessInput.addEventListener('input', applyThicknessFromInput);
+    thicknessInput.addEventListener('change', commitThicknessFromInput);
 
     if(styleChipEl){
       styleChipEl.addEventListener('wheel', evt => {

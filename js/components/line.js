@@ -777,6 +777,7 @@
     }
   }
   let lineSvgBoxRef = null;
+  let lineSuppressResizeObserveUntil = 0;
   let lineLockRatioInput = null;
   let lineEqualAxesInput = null;
   let lineEqualScaleAxesInput = null;
@@ -15685,6 +15686,10 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = refs.svgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: line layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            if(resizePhase === 'observe' && Date.now() <= lineSuppressResizeObserveUntil){
+              console.debug('Debug: line resize observe ignored during controlled layout/data load');
+              return;
+            }
             captureLineResizeViewportLockFromDom(activeLineSession);
             scheduleLineNoticeWidth('resize');
             scheduleLineViewRefresh('resize', {
@@ -15701,7 +15706,8 @@
     }
     lineSvgBoxRef = refs.svgBox;
     layoutManager?.setScheduleDraw?.(scheduleLineDraw);
-    layoutManager?.syncPanels?.();
+    lineSuppressResizeObserveUntil = Date.now() + 750;
+    layoutManager?.syncPanels?.({ skipSchedule: true, source: 'line-setup-layout' });
     scheduleLineNoticeWidth('init');
     ensureLineResizerControls();
     Shared.componentLifecycle?.scheduleComponentFrame?.(line, 'line', {
@@ -16216,6 +16222,7 @@
       const is3dMode = getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d' || refs.viewMode?.value === '3d';
       if(is3dMode){
         const example = lineExamples.threeD;
+        lineSuppressResizeObserveUntil = Date.now() + 750;
         markLineOverlayPending('example-data');
         enterLine3dMode({ skipDraw: true });
         const hot = getActiveLineHotManager();
@@ -16226,6 +16233,7 @@
         if(hot && Array.isArray(example?.data)){
           hot.loadData(example.data, {
             source: 'example-load',
+            suppressSchedule: true,
             recordUndo: true,
             undoLabel: 'table:line:example-load'
           });
@@ -16235,12 +16243,13 @@
           });
         }
         console.debug('Debug: line 3d example loaded',{ key: 'threeD', seriesCount: example.seriesCount });
-        scheduleActiveLineDraw();
+        scheduleActiveLineDraw({ force: true, reason: 'line-3d-example-load' });
         return;
       }
       const isGroupedMode = refs.replicateMode?.value === 'grouped';
       const key = isGroupedMode ? 'groupedDoseResponse' : 'standard';
       const example=lineExamples[key]||lineExamples.standard;
+      lineSuppressResizeObserveUntil = Date.now() + 750;
       markLineOverlayPending('example-data');
       applyLineReplicateChange(example.replicates,{
         dataOverride: example.data,
@@ -16254,26 +16263,13 @@
       if(hot && Array.isArray(example?.data)){
         hot.loadData(example.data, {
           source: 'example-load',
+          suppressSchedule: true,
           recordUndo: true,
           undoLabel: 'table:line:example-load'
         });
-        Shared.componentLifecycle?.scheduleComponentTimeout?.(line, 'line', {
-          tabId: line.__boundTabId || null,
-          reason: 'line-example-load-sync'
-        }, () => {
-          try{
-            const syncHot = getActiveLineHotManager();
-            syncHot?.loadData?.(example.data, {
-              source: 'example-load-sync',
-              skipUndo: true
-            });
-          }catch(err){
-            console.error('line example reload failed', err);
-          }
-        }, 0);
       }
       console.debug('Debug: line example loaded',{ key, replicates: example.replicates, mode: isGroupedMode ? 'grouped' : 'single' });
-      scheduleActiveLineDraw();
+      scheduleActiveLineDraw({ force: true, reason: 'line-example-load' });
     });
     bindLineControlHandler(refs.importBtn, 'click', 'import-table', ()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
     bindLineControlHandler(refs.fileInput, 'change', 'import-file', async e=>{
@@ -16734,18 +16730,13 @@
       applyLineCanonicalStateToGlobals(activeLineSession.state, { tabId: targetTabId || line.__boundTabId || null, reason: 'line-setup-state-to-controls' }, { syncControls: true });
       rememberLineSessionEphemera(activeLineSession);
     }
-    if(options.skipInitialDraw !== true){
-      if(targetTabId){
-        scheduleActiveLineDraw({ tabId: targetTabId, reason: 'line-setup-initial-draw' });
-      }else{
-        console.debug('Debug: line setup initial draw skipped (missing tab ownership)', {
-          reason: options.reason || 'setup'
-        });
-      }
+    if(options.forceInitialDraw === true && targetTabId){
+      scheduleActiveLineDraw({ tabId: targetTabId, reason: 'line-setup-initial-draw' });
     }else{
-      console.debug('Debug: line init initial draw skipped', {
+      console.debug('Debug: line setup initial draw skipped until payload/data is ready', {
         reason: options.reason || 'setup',
-        restoreRenderCache: options.restoreRenderCache === true
+        restoreRenderCache: options.restoreRenderCache === true,
+        forceInitialDraw: options.forceInitialDraw === true
       });
     }
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
