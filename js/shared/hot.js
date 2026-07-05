@@ -5927,6 +5927,7 @@
         source: 'loadData',
         recordUndo: false,
         skipUndo: false,
+        suppressSchedule: false,
         undoLabel: null,
         maxUndoCells: loadDataUndoMaxCells
       };
@@ -5945,6 +5946,9 @@
       }
       if(options.skipUndo === true){
         normalized.skipUndo = true;
+      }
+      if(options.suppressSchedule === true){
+        normalized.suppressSchedule = true;
       }
       if(typeof options.undoLabel === 'string' && options.undoLabel.trim()){
         normalized.undoLabel = options.undoLabel.trim();
@@ -6529,7 +6533,7 @@
         firstRow: trimRow(Array.isArray(data[0]) ? data[0] : null)
       });
       fireHook('afterLoadData');
-      if(scheduleOnLoadData){
+      if(scheduleOnLoadData && options.suppressSchedule !== true){
         triggerSchedule('afterLoadData', { source });
       }
       pendingViewportRestore = null;
@@ -9886,9 +9890,13 @@
         if(needsSchedule){
           if(hasIncomingData){
             fireHook('afterLoadData');
-            triggerSchedule('afterLoadData', { source: 'updateSettings' });
+            if(opts.suppressSchedule !== true){
+              triggerSchedule('afterLoadData', { source: 'updateSettings' });
+            }
           }else{
-            triggerSchedule('updateSettings', { source: 'updateSettings' });
+            if(opts.suppressSchedule !== true){
+              triggerSchedule('updateSettings', { source: 'updateSettings' });
+            }
           }
         }
         renderAg(instance.gridApi);
@@ -10178,7 +10186,10 @@
           }
         }
 
-        applyLoadDataMatrix(nextData, { source: options.source });
+        applyLoadDataMatrix(nextData, {
+          source: options.source,
+          suppressSchedule: options.suppressSchedule
+        });
 
         if(!shouldRecordUndo || !beforeSnapshot || beforeSnapshot.kind !== 'full'){
           return;

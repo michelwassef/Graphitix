@@ -2218,12 +2218,21 @@
     }
     if(typeof hot.updateSettings === 'function'){
       if(fullReplace){
-        hot.updateSettings({ data, minRows: targetRows, minCols: targetCols, trimData: allowShrink });
+        hot.updateSettings({
+          data,
+          minRows: targetRows,
+          minCols: targetCols,
+          trimData: allowShrink,
+          suppressSchedule: typeof options.scheduleDraw === 'function'
+        });
       }else{
         hot.updateSettings({ minRows: targetRows, minCols: targetCols });
       }
     }else if(fullReplace && typeof hot.loadData === 'function'){
-      hot.loadData(data);
+      hot.loadData(data, {
+        source: 'tableImport.processRows',
+        suppressSchedule: typeof options.scheduleDraw === 'function'
+      });
     }
     if(typeof options.scheduleDraw === 'function'){
       options.scheduleDraw();

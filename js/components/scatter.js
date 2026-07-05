@@ -4529,6 +4529,7 @@
   let scatterAxesLengthLockRatioPrevious = null;
   let scatterResizeMarginLock = null;
   let scatterAspectSyncing = false;
+  let scatterSuppressResizeObserveUntil = 0;
   let scatterViewModeInput = null;
   let scatterTooltipEl = null;
   let scatterPointContextMenu = null;
@@ -13400,6 +13401,12 @@
             const resizePhase = typeof phase === 'string' ? phase : '';
             const aspectLocked = scatterSvgBox?.dataset?.resizerAspectLocked === 'true';
             console.debug('Debug: scatter layout onResize schedule trigger', { phase: resizePhase || null, aspectLocked });
+            if(resizePhase === 'observe' && Date.now() <= scatterSuppressResizeObserveUntil){
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: scatter resize observe ignored during controlled data load');
+              }
+              return;
+            }
             captureScatterResizeViewportLockFromDom(activeScatterSession);
             const isResizeFinalize = resizePhase === 'end'
               || resizePhase === 'reset'
@@ -13952,41 +13959,47 @@
         }else{
           dataset = scatterExamples[type] || scatterExamples.scatter;
         }
+        scatterSuppressResizeObserveUntil = Date.now() + 750;
         markScatterOverlayPending('example-data');
-        scatterHot.loadData(dataset, {
-          source: 'example-load',
-          recordUndo: true,
-          undoLabel: 'table:scatter:example-load'
-        });
-        if(groupedModeActive){
-          ensureScatterHeaderTitles(scatterHot, {
-            graphType: 'scatter',
-            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-            xReplicatesEnabled: scatterGroupedXReplicates
+        try{
+          scatterHot.loadData(dataset, {
+            source: 'example-load',
+            suppressSchedule: true,
+            recordUndo: true,
+            undoLabel: 'table:scatter:example-load'
           });
-          normalizeScatterGroupedHeaderRow(scatterHot, {
-            graphType: 'scatter',
-            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-            xReplicatesEnabled: scatterGroupedXReplicates,
-            source: 'scatter-grouped-header-normalize'
-          });
-          updateScatterNestedHeaders(scatterHot, {
-            graphType: 'scatter',
-            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-            xReplicatesEnabled: scatterGroupedXReplicates
-          });
-          updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+          if(groupedModeActive){
+            ensureScatterHeaderTitles(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: scatterGroupedXReplicates
+            });
+            normalizeScatterGroupedHeaderRow(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: scatterGroupedXReplicates,
+              source: 'scatter-grouped-header-normalize'
+            });
+            updateScatterNestedHeaders(scatterHot, {
+              graphType: 'scatter',
+              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+              xReplicatesEnabled: scatterGroupedXReplicates
+            });
+            updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+          }
+          const significanceColors = getScatterSignificanceColors(resolveScatterThemeSnapshot({
+            tabId: scatter.__boundTabId || null
+          }));
+          if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
+            scatterFill.value=significanceColors.neutral;
+          }
+          scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
+          syncScatterGraphTypeUI();
+          syncScatterAspectControls('payload');
+          scheduleActiveScatterDraw({ force: true, reason: 'example-load' });
+        }finally{
+          scatterSuppressResizeObserveUntil = Date.now() + 50;
         }
-        const significanceColors = getScatterSignificanceColors(resolveScatterThemeSnapshot({
-          tabId: scatter.__boundTabId || null
-        }));
-        if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()===getScatterPrimaryFillColor()){
-          scatterFill.value=significanceColors.neutral;
-        }
-        scatterLog('scatter example loaded',{type,viewMode,rows:dataset.length});
-        syncScatterGraphTypeUI();
-        syncScatterAspectControls('payload');
-        scheduleActiveScatterDraw({ force: true, reason: 'example-load' });
       });
       const scatterImportBtn=getScatterNodeById('scatterImport');
       const scatterFileInput=getScatterNodeById('scatterFile');
@@ -14093,7 +14106,10 @@
               xReplicatesEnabled: false
             });
             if(scatterHot && typeof scatterHot.loadData === 'function'){
-              scatterHot.loadData(groupedMatrix);
+              scatterHot.loadData(groupedMatrix, {
+                source: 'scatter-prism-grouped',
+                suppressSchedule: true
+              });
               syncScatterActiveDataViewFromHot(scatterHot, 'import-prism-line');
             }
             if(scatterGraphTypeSelect){
@@ -14550,7 +14566,10 @@
           scatterReplicatesInput.value = String(scatterReplicates);
         }
         if(hot && typeof hot.loadData === 'function'){
-          hot.loadData(structure.data);
+          hot.loadData(structure.data, {
+            source: 'scatter-replicate-change',
+            suppressSchedule: !options.skipDraw
+          });
           normalizeScatterGroupedHeaderRow(hot, { forceGrouped: true, source: 'scatter-grouped-header-normalize' });
           updateScatterNestedHeaders(hot, { forceGrouped: true });
           syncScatterActiveDataViewFromHot(hot, 'replicate-change');
@@ -14616,7 +14635,10 @@
             if(scatterReplicatesInput){
               scatterReplicatesInput.value = String(scatterReplicates);
             }
-            hot.loadData(converted.data);
+            hot.loadData(converted.data, {
+              source: 'scatter-table-format-single',
+              suppressSchedule: true
+            });
             hot.updateSettings({ nestedHeaders: false });
             ensureScatterHeaderTitles(hot, { graphType });
             syncScatterActiveDataViewFromHot(hot, 'table-format-single');
