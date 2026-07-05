@@ -125,33 +125,52 @@
       || markup.includes('Large dataset');
   }
 
-  function resolvePreviewSizing(svg) {
+  function parsePreviewViewBox(svg) {
     const viewBoxRaw = svg?.getAttribute ? svg.getAttribute('viewBox') : null;
-    let minX = 0;
-    let minY = 0;
-    let boxW = NaN;
-    let boxH = NaN;
-    if (typeof viewBoxRaw === 'string' && viewBoxRaw.trim()) {
-      const parts = viewBoxRaw.trim().split(/[\s,]+/).map(part => Number.parseFloat(part));
-      if (parts.length === 4 && parts.every(num => Number.isFinite(num))) {
-        [minX, minY, boxW, boxH] = parts;
-      }
+    if (typeof viewBoxRaw !== 'string' || !viewBoxRaw.trim()) {
+      return null;
     }
+    const parts = viewBoxRaw.trim().split(/[\s,]+/).map(part => Number.parseFloat(part));
+    if (parts.length !== 4 || !parts.every(num => Number.isFinite(num)) || parts[2] <= 0 || parts[3] <= 0) {
+      return null;
+    }
+    return { minX: parts[0], minY: parts[1], boxW: parts[2], boxH: parts[3] };
+  }
+
+  function readPreviewSvgBBox(svg) {
+    if (!svg || typeof svg.getBBox !== 'function') {
+      return null;
+    }
+    try {
+      const bbox = svg.getBBox();
+      if (Number.isFinite(bbox?.x)
+        && Number.isFinite(bbox?.y)
+        && Number.isFinite(bbox?.width)
+        && Number.isFinite(bbox?.height)
+        && bbox.width > 0
+        && bbox.height > 0) {
+        return { x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height };
+      }
+    } catch (_err) {
+      // Detached render-cache fragments cannot always be measured; fall back to their viewBox/attributes.
+    }
+    return null;
+  }
+
+  function resolvePreviewSizing(svg) {
+    const parsedViewBox = parsePreviewViewBox(svg);
+    let minX = Number.isFinite(parsedViewBox?.minX) ? parsedViewBox.minX : 0;
+    let minY = Number.isFinite(parsedViewBox?.minY) ? parsedViewBox.minY : 0;
+    let boxW = Number.isFinite(parsedViewBox?.boxW) && parsedViewBox.boxW > 0 ? parsedViewBox.boxW : NaN;
+    let boxH = Number.isFinite(parsedViewBox?.boxH) && parsedViewBox.boxH > 0 ? parsedViewBox.boxH : NaN;
+
     let widthAttr = Number.parseFloat(svg?.getAttribute ? svg.getAttribute('width') : NaN);
     let heightAttr = Number.parseFloat(svg?.getAttribute ? svg.getAttribute('height') : NaN);
     if (!Number.isFinite(widthAttr) || widthAttr <= 0) {
-      if (Number.isFinite(boxW) && boxW > 0) {
-        widthAttr = boxW;
-      } else {
-        widthAttr = TAB_PREVIEW_TARGET_WIDTH;
-      }
+      widthAttr = Number.isFinite(boxW) && boxW > 0 ? boxW : TAB_PREVIEW_TARGET_WIDTH;
     }
     if (!Number.isFinite(heightAttr) || heightAttr <= 0) {
-      if (Number.isFinite(boxH) && boxH > 0) {
-        heightAttr = boxH;
-      } else {
-        heightAttr = widthAttr * 0.68;
-      }
+      heightAttr = Number.isFinite(boxH) && boxH > 0 ? boxH : widthAttr * 0.68;
     }
     if (!Number.isFinite(boxW) || boxW <= 0) {
       boxW = widthAttr;
@@ -159,7 +178,25 @@
     if (!Number.isFinite(boxH) || boxH <= 0) {
       boxH = heightAttr;
     }
-    const ratio = widthAttr > 0 ? Math.max(0.25, Math.min(heightAttr / widthAttr, 3)) : 0.68;
+
+    const bbox = readPreviewSvgBBox(svg);
+    if (bbox) {
+      const padding = 2;
+      const baseMinX = Number.isFinite(minX) ? minX : 0;
+      const baseMinY = Number.isFinite(minY) ? minY : 0;
+      const baseMaxX = baseMinX + (Number.isFinite(boxW) && boxW > 0 ? boxW : widthAttr);
+      const baseMaxY = baseMinY + (Number.isFinite(boxH) && boxH > 0 ? boxH : heightAttr);
+      const bboxMinX = bbox.x - padding;
+      const bboxMinY = bbox.y - padding;
+      const bboxMaxX = bbox.x + bbox.width + padding;
+      const bboxMaxY = bbox.y + bbox.height + padding;
+      minX = Math.min(baseMinX, bboxMinX);
+      minY = Math.min(baseMinY, bboxMinY);
+      boxW = Math.max(1, Math.max(baseMaxX, bboxMaxX) - minX);
+      boxH = Math.max(1, Math.max(baseMaxY, bboxMaxY) - minY);
+    }
+
+    const ratio = boxW > 0 ? Math.max(0.25, Math.min(boxH / boxW, 3)) : 0.68;
     const targetWidth = TAB_PREVIEW_TARGET_WIDTH;
     const targetHeight = Math.round(
       Math.max(TAB_PREVIEW_MIN_HEIGHT, Math.min(targetWidth * ratio, TAB_PREVIEW_MAX_HEIGHT))
@@ -185,7 +222,7 @@
     // Force aspect-preserving thumbnails. Some workspace SVGs intentionally use
     // preserveAspectRatio="none" for live panel fill, which distorts tab previews.
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    if (!svg.hasAttribute('viewBox') && Number.isFinite(sizing.boxW) && Number.isFinite(sizing.boxH)) {
+    if (Number.isFinite(sizing.boxW) && sizing.boxW > 0 && Number.isFinite(sizing.boxH) && sizing.boxH > 0) {
       svg.setAttribute('viewBox', `${Number.isFinite(sizing.minX) ? sizing.minX : 0} ${Number.isFinite(sizing.minY) ? sizing.minY : 0} ${sizing.boxW} ${sizing.boxH}`);
     }
   }
@@ -1432,12 +1469,46 @@
     tooltip.style.padding = '8px';
     tooltip.style.borderRadius = '8px';
     tooltip.style.zIndex = '1200';
-    tooltip.style.maxWidth = `${TAB_PREVIEW_TARGET_WIDTH + 24}px`;
+    tooltip.style.boxSizing = 'border-box';
+    tooltip.style.maxWidth = `${TAB_PREVIEW_TARGET_WIDTH + 18}px`;
+    tooltip.style.maxHeight = `${TAB_PREVIEW_MAX_HEIGHT + 18}px`;
+    tooltip.style.overflow = 'hidden';
     tooltip.style.transition = 'opacity 120ms ease-out';
     document.body.appendChild(tooltip);
     tabPreviewTooltipEl = tooltip;
     console.debug('Debug: preview tooltip element created');
     return tooltip;
+  }
+
+  function readTooltipSvgSize(svg) {
+    const width = Number.parseFloat(svg?.getAttribute?.('width'));
+    const height = Number.parseFloat(svg?.getAttribute?.('height'));
+    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+      return { width, height };
+    }
+    const parsedViewBox = parsePreviewViewBox(svg);
+    if (Number.isFinite(parsedViewBox?.boxW) && parsedViewBox.boxW > 0 && Number.isFinite(parsedViewBox?.boxH) && parsedViewBox.boxH > 0) {
+      return { width: parsedViewBox.boxW, height: parsedViewBox.boxH };
+    }
+    return { width: TAB_PREVIEW_TARGET_WIDTH, height: TAB_PREVIEW_MIN_HEIGHT };
+  }
+
+  function fitTooltipPreviewSvg(svg) {
+    if (!svg || !svg.style) {
+      return;
+    }
+    const size = readTooltipSvgSize(svg);
+    const maxWidth = TAB_PREVIEW_TARGET_WIDTH;
+    const maxHeight = TAB_PREVIEW_MAX_HEIGHT;
+    const scale = Math.min(1, maxWidth / size.width, maxHeight / size.height);
+    const targetWidth = Math.max(1, Math.round(size.width * scale));
+    const targetHeight = Math.max(1, Math.round(size.height * scale));
+    svg.style.display = 'block';
+    svg.style.width = `${targetWidth}px`;
+    svg.style.height = `${targetHeight}px`;
+    svg.style.maxWidth = `${maxWidth}px`;
+    svg.style.maxHeight = `${maxHeight}px`;
+    svg.style.flex = '0 0 auto';
   }
 
   function renderTabPreviewTooltipContent(tooltip, markup) {
@@ -1456,6 +1527,8 @@
       try {
         if (typeof DOMParser !== 'function') {
           tooltip.innerHTML = trimmed;
+          const fallbackSvg = tooltip.querySelector?.('svg') || null;
+          fitTooltipPreviewSvg(fallbackSvg);
           return;
         }
         const parser = new DOMParser();
@@ -1463,6 +1536,7 @@
         const svg = doc?.documentElement;
         if (svg && svg.nodeName && svg.nodeName.toLowerCase() === 'svg') {
           const imported = document.importNode(svg, true);
+          fitTooltipPreviewSvg(imported);
           tooltip.appendChild(imported);
           return;
         }
@@ -1471,6 +1545,8 @@
       }
     }
     tooltip.innerHTML = trimmed;
+    const svg = tooltip.querySelector?.('svg') || null;
+    fitTooltipPreviewSvg(svg);
   }
 
   function hideTabPreviewTooltip(reason = 'hide') {

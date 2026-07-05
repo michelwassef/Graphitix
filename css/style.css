@@ -2913,8 +2913,9 @@ select {
     padding: 8px;
     border-radius: 8px;
     z-index: 1200;
-    max-width: 244px;
-    max-height: 240px;
+    box-sizing: border-box;
+    max-width: 238px;
+    max-height: 238px;
     overflow: hidden;
     display: none;
     opacity: 0;
@@ -2922,8 +2923,10 @@ select {
 
 .workspace-tab__preview-tooltip svg {
     display: block;
-    width: 100%;
+    width: auto;
     height: auto;
+    max-width: 220px;
+    max-height: 220px;
 }
 
 .workspace-tab:focus-visible {
