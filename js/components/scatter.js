@@ -25466,23 +25466,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         }
       }
       const mergeScatterDrawOptions = (prev, next) => {
-        if(!prev){
-          return next ? { ...next } : {};
-        }
-        if(!next){
-          return { ...prev };
-        }
-        const prevView = !!prev.viewOnly;
-        const nextView = !!next.viewOnly;
-        return {
-          ...prev,
-          ...next,
-          force: !!(prev.force || next.force),
-          viewOnly: prevView && nextView,
-          reason: next.reason || prev.reason,
-          resizePhase: next.resizePhase || prev.resizePhase,
-          forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
-        };
+        return Shared.componentLifecycle?.mergeDrawOptions
+          ? Shared.componentLifecycle.mergeDrawOptions(prev, next)
+          : Object.assign({}, prev || {}, next || {});
       };
 
       const runScatterDrawCycle = async (opts = {}) => {
@@ -25715,11 +25701,19 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           const cachedPointCount = Array.isArray(latestRenderRuntime?.cachedCollect?.points)
             ? latestRenderRuntime.cachedCollect.points.length
             : 0;
-          const cooldownMs = nextOpts.viewOnly
-            ? (nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move'
-              ? 0
-              : (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0))
-            : 80;
+          const cooldownMs = Shared.componentLifecycle?.resolveDrawCooldownMs
+            ? Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
+                pointCount: cachedPointCount,
+                pointThreshold: SCATTER_POINT_BATCH_THRESHOLD,
+                largeViewMs: 50,
+                defaultMs: 80,
+                resizeMoveMs: 0
+              })
+            : (nextOpts.viewOnly
+              ? (nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move'
+                ? 0
+                : (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0))
+              : 80);
           const elapsed = now - runtimeForCooldown.lastDrawAt;
           if(cooldownMs > 0 && elapsed < cooldownMs){
             updateScatterDrawRuntime(scheduleSession, runtime => {

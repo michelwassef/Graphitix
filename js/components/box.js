@@ -13743,23 +13743,9 @@
   }
 
   function mergeBoxDrawOptions(prev, next){
-    if(!prev){
-      return next ? { ...next } : {};
-    }
-    if(!next){
-      return { ...prev };
-    }
-    const prevView = !!prev.viewOnly;
-    const nextView = !!next.viewOnly;
-    return {
-      ...prev,
-      ...next,
-      force: !!(prev.force || next.force),
-      viewOnly: prevView && nextView,
-      reason: next.reason || prev.reason,
-      resizePhase: next.resizePhase || prev.resizePhase,
-      forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
-    };
+    return Shared.componentLifecycle?.mergeDrawOptions
+      ? Shared.componentLifecycle.mergeDrawOptions(prev, next)
+      : Object.assign({}, prev || {}, next || {});
   }
 
   function countCachedBoxPoints(){
@@ -29083,6 +29069,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     });
   }
 
+  function tryReuseBoxSummaryGroupDuringResizeMove(options = {}){
+    const traceIndex = options.traceIndex;
+    if(traceIndex == null || typeof Shared.resizer?.reuseLayerDuringResizeMove !== 'function'){
+      return false;
+    }
+    const reused = Shared.resizer.reuseLayerDuringResizeMove({
+      ...options,
+      sourceSelector: `g[data-summary][data-trace="${traceIndex}"]`,
+      metricKeys: {
+        left: 'boxPlotLeft',
+        top: 'boxPlotTop',
+        width: 'boxPlotW',
+        height: 'boxPlotH'
+      }
+    });
+    if(!reused && options.targetGroup?.parentNode){
+      options.targetGroup.parentNode.removeChild(options.targetGroup);
+    }
+    return reused;
+  }
+
   function resolvePreviousBoxCanvasPointGroup(previousSvg, traceIndex){
     if(!previousSvg || traceIndex == null || typeof previousSvg.querySelector !== 'function'){
       return null;
@@ -32235,6 +32242,12 @@ Technical analysis record (advanced)
     }
     const significanceBasePlotHeight = H;
     const significanceBasePlotWidth = W;
+    const previousBoxFrameHasCanvasPoints = !!previousBoxSvg2d?.querySelector?.('g[data-export-layer="box-points"] canvas');
+    const resizeLivePreviewPhase = drawOpts?.resizePhase === 'start' || drawOpts?.resizePhase === 'move';
+    const isResizeMoveCanvasPreview = drawOpts?.reason === 'resize'
+      && resizeLivePreviewPhase
+      && !drawOpts?.forceCanvasRecompute
+      && previousBoxFrameHasCanvasPoints;
     updateBoxSignificanceResultsState(drawSession, next => {
       next.significanceBasePlotHeightPx = significanceBasePlotHeight;
       next.significanceBasePlotWidthPx = significanceBasePlotWidth;
@@ -33575,7 +33588,7 @@ Technical analysis record (advanced)
       const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
       const group = add('g', groupAttributes);
       const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
-      const isResizeMovePhase = drawOpts?.reason === 'resize' && resizePhase === 'move';
+      const isResizeMovePhase = drawOpts?.reason === 'resize' && (resizePhase === 'start' || resizePhase === 'move');
       const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
       if(isResizeMovePhase && !forceCanvasRecompute && previousBoxSvg2d && traceIndex != null){
         const spreadScale = resolveBoxPointResizeSpreadScale(previousBoxSvg2d, orientation, nextPlotW, nextPlotH);
@@ -33625,8 +33638,15 @@ Technical analysis record (advanced)
               scaledEffectiveRadius
             });
           }
+          const reusedSwarm = previousRenderState?.swarm && typeof previousRenderState.swarm === 'object'
+            ? { ...previousRenderState.swarm }
+            : {};
+          reusedSwarm.maxOffsetUsed = scaledMaxOffset;
+          if(Number.isFinite(scaledEffectiveRadius) && scaledEffectiveRadius > 0){
+            reusedSwarm.adjustedRadius = scaledEffectiveRadius;
+          }
           return {
-            swarm: null,
+            swarm: reusedSwarm,
             maxOffsetUsed: scaledMaxOffset,
             effectiveRadius: scaledEffectiveRadius,
             collectPointsByRow
@@ -34316,12 +34336,14 @@ Technical analysis record (advanced)
           traceCount: traces.length
         });
       }
-      const stripAutoSizeProfile = await computeStripAutoSizeRadiusShared({
-        orientation,
-        axisSpacing: localBandForTrace(),
-        coordProjector: value => valueAxis.projectValue(value),
-        minCenterPitch: stripMinCenterPitch
-      });
+      const stripAutoSizeProfile = isResizeMoveCanvasPreview
+        ? null
+        : await computeStripAutoSizeRadiusShared({
+            orientation,
+            axisSpacing: localBandForTrace(),
+            coordProjector: value => valueAxis.projectValue(value),
+            minCenterPitch: stripMinCenterPitch
+          });
       const stripAutoSizeRadiusConstrained = Number.isFinite(Number(stripAutoSizeProfile?.radius))
         ? Number(stripAutoSizeProfile.radius)
         : null;
@@ -34339,6 +34361,9 @@ Technical analysis record (advanced)
           return null;
         }
         if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          return null;
+        }
+        if(isResizeMoveCanvasPreview){
           return null;
         }
         if(hasExplicitPointSize(null)){
@@ -36139,48 +36164,60 @@ Technical analysis record (advanced)
             connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
-            const swarm = swarmResult?.swarm;
-            const summaryRadius = swarmResult?.effectiveRadius != null
-              ? swarmResult.effectiveRadius
-              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const summaryContext = prepareStripIndividualSummaryOverlay({
-              createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
-              onClick: handleBoxSummaryClick,
-              localBand,
-              swarmResult,
-              pointRadius,
-              traceIndex: i,
-              orientation: 'vertical',
-              debugEnabled,
-              getSummaryStyle,
-              fillColor,
-              borderColor,
-              errorBarWidthPx,
-              borderWidthPx,
-              mergeStrokeAttrsOnShape: true
-            });
-            const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
-            const summaryOps = createStripIndividualSummaryOps({
-              orientation: 'vertical',
-              centerCoord: cx,
-              valueToPixel: y2px,
-              summaryCap,
-              summaryRadius,
-              pointRadius,
-              summaryPointHalfSpan,
-              summaryStrokeWidth,
-              summaryIntervalWidth,
-              summaryStrokeAttrs,
-              summaryAdd,
-              pendingBars: pendingIndividualSummaryBars,
-              pendingCaps: pendingIndividualSummaryIntervalCaps,
-              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
-              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
-              traceIndex: i,
-              mode: individualSummaryMode,
-              debugEnabled
-            });
-            applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
+            const reusedSummaryGroup = isResizeMoveCanvasPreview
+              ? tryReuseBoxSummaryGroupDuringResizeMove({
+                  targetGroup: add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
+                  previousSvg: previousBoxSvg2d,
+                  traceIndex: i,
+                  nextMargin: { left: marginLocal.left, top: marginLocal.top },
+                  nextPlotW: plotWLocal,
+                  nextPlotH: plotHLocal
+                })
+              : false;
+            if(!reusedSummaryGroup){
+              const swarm = swarmResult?.swarm;
+              const summaryRadius = swarmResult?.effectiveRadius != null
+                ? swarmResult.effectiveRadius
+                : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+              const summaryContext = prepareStripIndividualSummaryOverlay({
+                createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
+                onClick: handleBoxSummaryClick,
+                localBand,
+                swarmResult,
+                pointRadius,
+                traceIndex: i,
+                orientation: 'vertical',
+                debugEnabled,
+                getSummaryStyle,
+                fillColor,
+                borderColor,
+                errorBarWidthPx,
+                borderWidthPx,
+                mergeStrokeAttrsOnShape: true
+              });
+              const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
+              const summaryOps = createStripIndividualSummaryOps({
+                orientation: 'vertical',
+                centerCoord: cx,
+                valueToPixel: y2px,
+                summaryCap,
+                summaryRadius,
+                pointRadius,
+                summaryPointHalfSpan,
+                summaryStrokeWidth,
+                summaryIntervalWidth,
+                summaryStrokeAttrs,
+                summaryAdd,
+                pendingBars: pendingIndividualSummaryBars,
+                pendingCaps: pendingIndividualSummaryIntervalCaps,
+                getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
+                setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
+                traceIndex: i,
+                mode: individualSummaryMode,
+                debugEnabled
+              });
+              applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
+            }
           }
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
@@ -37063,48 +37100,60 @@ Technical analysis record (advanced)
             connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
-            const swarm = swarmResult?.swarm;
-            const summaryRadius = swarmResult?.effectiveRadius != null
-              ? swarmResult.effectiveRadius
-              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const summaryContext = prepareStripIndividualSummaryOverlay({
-              createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
-              onClick: handleBoxSummaryClick,
-              localBand,
-              swarmResult,
-              pointRadius,
-              traceIndex: i,
-              orientation: 'horizontal',
-              debugEnabled,
-              getSummaryStyle,
-              fillColor,
-              borderColor,
-              errorBarWidthPx,
-              borderWidthPx,
-              mergeStrokeAttrsOnShape: false
-            });
-            const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
-            const summaryOps = createStripIndividualSummaryOps({
-              orientation: 'horizontal',
-              centerCoord: cy,
-              valueToPixel: valueToX,
-              summaryCap,
-              summaryRadius,
-              pointRadius,
-              summaryPointHalfSpan,
-              summaryStrokeWidth,
-              summaryIntervalWidth,
-              summaryStrokeAttrs,
-              summaryAdd,
-              pendingBars: pendingIndividualSummaryBars,
-              pendingCaps: pendingIndividualSummaryIntervalCaps,
-              getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
-              setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
-              traceIndex: i,
-              mode: individualSummaryMode,
-              debugEnabled
-            });
-            applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
+            const reusedSummaryGroup = isResizeMoveCanvasPreview
+              ? tryReuseBoxSummaryGroupDuringResizeMove({
+                  targetGroup: add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
+                  previousSvg: previousBoxSvg2d,
+                  traceIndex: i,
+                  nextMargin: { left: marginLocal.left, top: marginLocal.top },
+                  nextPlotW: plotWLocal,
+                  nextPlotH: plotHLocal
+                })
+              : false;
+            if(!reusedSummaryGroup){
+              const swarm = swarmResult?.swarm;
+              const summaryRadius = swarmResult?.effectiveRadius != null
+                ? swarmResult.effectiveRadius
+                : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+              const summaryContext = prepareStripIndividualSummaryOverlay({
+                createGroup: () => add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
+                onClick: handleBoxSummaryClick,
+                localBand,
+                swarmResult,
+                pointRadius,
+                traceIndex: i,
+                orientation: 'horizontal',
+                debugEnabled,
+                getSummaryStyle,
+                fillColor,
+                borderColor,
+                errorBarWidthPx,
+                borderWidthPx,
+                mergeStrokeAttrsOnShape: false
+              });
+              const { summaryCap, summaryPointHalfSpan, summaryStrokeWidth, summaryIntervalWidth, summaryStrokeAttrs, summaryAdd } = summaryContext;
+              const summaryOps = createStripIndividualSummaryOps({
+                orientation: 'horizontal',
+                centerCoord: cy,
+                valueToPixel: valueToX,
+                summaryCap,
+                summaryRadius,
+                pointRadius,
+                summaryPointHalfSpan,
+                summaryStrokeWidth,
+                summaryIntervalWidth,
+                summaryStrokeAttrs,
+                summaryAdd,
+                pendingBars: pendingIndividualSummaryBars,
+                pendingCaps: pendingIndividualSummaryIntervalCaps,
+                getGlobalHalfSpan: () => globalIndividualSummaryHalfSpan,
+                setGlobalHalfSpan: value => { globalIndividualSummaryHalfSpan = value; },
+                traceIndex: i,
+                mode: individualSummaryMode,
+                debugEnabled
+              });
+              applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
+            }
           }
         }
 
@@ -39520,10 +39569,16 @@ Technical analysis record (advanced)
           ? global.performance.now()
           : Date.now();
         const cachedPointCount = countCachedBoxPoints();
-        const isResizeMoveDraw = nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move';
-        const cooldownMs = nextOpts.viewOnly
-          ? (isResizeMoveDraw ? 0 : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0))
-          : 80;
+        const isResizeMoveDraw = nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move');
+        const cooldownMs = Shared.componentLifecycle?.resolveDrawCooldownMs
+          ? Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
+              pointCount: cachedPointCount,
+              pointThreshold: BOX_POINT_CANVAS_THRESHOLD,
+              largeViewMs: 50,
+              defaultMs: 80,
+              resizeMoveMs: 0
+            })
+          : (nextOpts.viewOnly ? (isResizeMoveDraw ? 0 : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0)) : 80);
         const elapsed = now - drawRuntime.lastDrawAt;
         if(cooldownMs > 0 && elapsed < cooldownMs){
           updateBoxDrawRuntime(scheduleSession, runtime => {
@@ -39580,6 +39635,12 @@ Technical analysis record (advanced)
       const source = typeof layoutOptions?.source === 'string' ? layoutOptions.source : 'layout';
       const phase = typeof layoutOptions?.phase === 'string' ? layoutOptions.phase : null;
       const viewOnly = source === 'resize' || source === 'observer';
+      const isResizeFinalize = phase === 'end'
+        || phase === 'reset'
+        || phase === 'undo'
+        || phase === 'redo'
+        || phase === 'programmatic'
+        || phase === 'aspect-toggle';
       const mutedUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
       if(source === 'observer' && (state.resizeInteractionActive || Date.now() <= mutedUntil)){
         boxDebug('Debug: box layout observer draw suppressed during active resize');
@@ -39588,7 +39649,8 @@ Technical analysis record (advanced)
       scheduleActiveBoxDraw({
         viewOnly,
         reason: viewOnly ? 'resize' : 'layout-sync',
-        resizePhase: phase
+        resizePhase: phase,
+        forceCanvasRecompute: isResizeFinalize
       });
     });
     state.layout?.syncPanels?.();

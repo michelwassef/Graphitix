@@ -1426,6 +1426,33 @@ describe('componentLifecycle — waitForAnimationFrames', () => {
   });
 });
 
+describe('componentLifecycle — draw scheduling helpers', () => {
+  beforeEach(loadFresh);
+
+  test('mergeDrawOptions preserves resize finalize canvas recompute', () => {
+    const merged = lc.mergeDrawOptions(
+      { viewOnly: true, reason: 'resize', resizePhase: 'move' },
+      { viewOnly: true, reason: 'resize', resizePhase: 'end', forceCanvasRecompute: true }
+    );
+
+    expect(merged.viewOnly).toBe(true);
+    expect(merged.reason).toBe('resize');
+    expect(merged.resizePhase).toBe('end');
+    expect(merged.forceCanvasRecompute).toBe(true);
+  });
+
+  test('resolveDrawCooldownMs does not throttle live resize moves', () => {
+    expect(lc.resolveDrawCooldownMs(
+      { viewOnly: true, reason: 'resize', resizePhase: 'move' },
+      { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80 }
+    )).toBe(0);
+    expect(lc.resolveDrawCooldownMs(
+      { viewOnly: true, reason: 'resize', resizePhase: 'end' },
+      { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80 }
+    )).toBe(50);
+  });
+});
+
 
 describe('component runtime ownership adapter cleanup', () => {
   test('scatter selection state is owned runtime, not module-level Maps', () => {

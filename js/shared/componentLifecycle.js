@@ -44,6 +44,45 @@
     return true;
   };
 
+  namespace.mergeDrawOptions = function mergeDrawOptions(prev, next){
+    if(!prev){
+      return next ? { ...next } : {};
+    }
+    if(!next){
+      return { ...prev };
+    }
+    const prevView = !!prev.viewOnly;
+    const nextView = !!next.viewOnly;
+    return {
+      ...prev,
+      ...next,
+      force: !!(prev.force || next.force),
+      viewOnly: prevView && nextView,
+      reason: next.reason || prev.reason,
+      resizePhase: next.resizePhase || prev.resizePhase,
+      forceCanvasRecompute: !!(prev.forceCanvasRecompute || next.forceCanvasRecompute)
+    };
+  };
+
+  namespace.resolveDrawCooldownMs = function resolveDrawCooldownMs(options = {}, config = {}){
+    if(options.force){
+      return 0;
+    }
+    const isResizeLive = options.reason === 'resize' && (options.resizePhase === 'start' || options.resizePhase === 'move');
+    if(options.viewOnly){
+      if(isResizeLive){
+        return Number.isFinite(Number(config.resizeMoveMs)) ? Math.max(0, Number(config.resizeMoveMs)) : 0;
+      }
+      const pointCount = Number(config.pointCount);
+      const threshold = Number(config.pointThreshold);
+      if(Number.isFinite(pointCount) && Number.isFinite(threshold) && pointCount >= threshold){
+        return Number.isFinite(Number(config.largeViewMs)) ? Math.max(0, Number(config.largeViewMs)) : 50;
+      }
+      return Number.isFinite(Number(config.viewMs)) ? Math.max(0, Number(config.viewMs)) : 0;
+    }
+    return Number.isFinite(Number(config.defaultMs)) ? Math.max(0, Number(config.defaultMs)) : 80;
+  };
+
   function timeoutPromise(ms){
     return new Promise(resolve => {
       if(typeof global.setTimeout === 'function'){

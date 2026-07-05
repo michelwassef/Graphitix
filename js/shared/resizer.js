@@ -312,6 +312,100 @@
   const undoManager = Shared.undoManager;
   const resizerNamespace = Shared.resizer = Shared.resizer || {};
 
+  function parseLayerMetric(svg, key){
+    const value = Number(svg?.dataset?.[key]);
+    return Number.isFinite(value) ? value : NaN;
+  }
+
+  function copyCanvasBitmap(sourceRoot, targetRoot){
+    const sourceCanvases = Array.from(sourceRoot?.querySelectorAll?.('canvas') || []);
+    const targetCanvases = Array.from(targetRoot?.querySelectorAll?.('canvas') || []);
+    if(!sourceCanvases.length || sourceCanvases.length !== targetCanvases.length){
+      return false;
+    }
+    let copied = false;
+    for(let i = 0; i < sourceCanvases.length; i += 1){
+      const source = sourceCanvases[i];
+      const target = targetCanvases[i];
+      const width = Number(source?.width) || 0;
+      const height = Number(source?.height) || 0;
+      if(!source || !target || !(width > 0) || !(height > 0)){
+        return false;
+      }
+      target.width = width;
+      target.height = height;
+      target.style.width = source.style.width || target.style.width;
+      target.style.height = source.style.height || target.style.height;
+      const ctx = target?.getContext?.('2d');
+      if(!source || !ctx || typeof ctx.drawImage !== 'function'){
+        return false;
+      }
+      try{
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(source, 0, 0);
+        copied = true;
+      }catch(_err){
+        return false;
+      }
+    }
+    return copied;
+  }
+
+  resizerNamespace.reuseLayerDuringResizeMove = function reuseLayerDuringResizeMove(options = {}){
+    const targetGroup = options.targetGroup || null;
+    const previousSvg = options.previousSvg || null;
+    const sourceSelector = typeof options.sourceSelector === 'string' ? options.sourceSelector : '';
+    if(!targetGroup || !previousSvg || !sourceSelector || typeof previousSvg.querySelector !== 'function'){
+      return false;
+    }
+    const sourceGroup = previousSvg.querySelector(sourceSelector);
+    if(!sourceGroup){
+      return false;
+    }
+    const shouldCopyCanvas = options.copyCanvas === true;
+    if(shouldCopyCanvas && !sourceGroup.querySelector?.('canvas')){
+      return false;
+    }
+    const metricKeys = options.metricKeys || {};
+    const prevLeft = parseLayerMetric(previousSvg, metricKeys.left || 'plotLeft');
+    const prevTop = parseLayerMetric(previousSvg, metricKeys.top || 'plotTop');
+    const prevW = parseLayerMetric(previousSvg, metricKeys.width || 'plotW');
+    const prevH = parseLayerMetric(previousSvg, metricKeys.height || 'plotH');
+    const nextLeft = Number(options.nextMargin?.left);
+    const nextTop = Number(options.nextMargin?.top);
+    const nextW = Number(options.nextPlotW);
+    const nextH = Number(options.nextPlotH);
+    if(![prevLeft, prevTop, prevW, prevH, nextLeft, nextTop, nextW, nextH].every(Number.isFinite)
+      || prevW <= 0 || prevH <= 0 || nextW <= 0 || nextH <= 0){
+      return false;
+    }
+    const clone = sourceGroup.cloneNode(true);
+    if(shouldCopyCanvas && !copyCanvasBitmap(sourceGroup, clone)){
+      return false;
+    }
+    const scaleX = nextW / prevW;
+    const scaleY = nextH / prevH;
+    const translateX = nextLeft - prevLeft * scaleX;
+    const translateY = nextTop - prevTop * scaleY;
+    while(targetGroup.firstChild){
+      targetGroup.removeChild(targetGroup.firstChild);
+    }
+    clone.setAttribute('transform', `translate(${translateX} ${translateY}) scale(${scaleX} ${scaleY})`);
+    clone.setAttribute('data-render-mode', 'canvas-resize-reused');
+    clone.setAttribute('data-resize-reused', 'true');
+    targetGroup.appendChild(clone);
+    targetGroup.setAttribute('data-render-mode', 'canvas-resize-reused');
+    targetGroup.setAttribute('data-resize-reused', 'true');
+    return true;
+  };
+
+  resizerNamespace.reuseCanvasLayerDuringResizeMove = function reuseCanvasLayerDuringResizeMove(options = {}){
+    return resizerNamespace.reuseLayerDuringResizeMove({
+      ...options,
+      copyCanvas: true
+    });
+  };
+
   resizerNamespace.attachPanelDragResizer = function attachPanelDragResizer(opts = {}){
     const {
       panelResizer,
