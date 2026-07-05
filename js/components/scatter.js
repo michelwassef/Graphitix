@@ -25707,10 +25707,10 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
                 pointThreshold: SCATTER_POINT_BATCH_THRESHOLD,
                 largeViewMs: 50,
                 defaultMs: 80,
-                resizeMoveMs: 0
+                resizeLiveMs: 0
               })
             : (nextOpts.viewOnly
-              ? (nextOpts.reason === 'resize' && nextOpts.resizePhase === 'move'
+              ? (nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move')
                 ? 0
                 : (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0))
               : 80);

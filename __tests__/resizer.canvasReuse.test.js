@@ -30,7 +30,7 @@ describe('Shared.resizer canvas reuse', () => {
     previousSvg.appendChild(sourceGroup);
 
     const targetGroup = document.createElementNS(NS, 'g');
-    const reused = window.Shared.resizer.reuseCanvasLayerDuringResizeMove({
+    const reused = window.Shared.resizer.reuseCanvasLayerDuringLiveResize({
       targetGroup,
       previousSvg,
       sourceSelector: 'g[data-export-layer="box-points"][data-trace="0"]',
@@ -47,7 +47,7 @@ describe('Shared.resizer canvas reuse', () => {
 
     expect(reused).toBe(true);
     expect(targetGroup.getAttribute('data-render-mode')).toBe('canvas-resize-reused');
-    expect(targetGroup.getAttribute('transform')).toBe('translate(30 40) scale(1.5 0.5) translate(-20 -30)');
+    expect(targetGroup.querySelector('g')?.getAttribute('transform')).toBe('translate(0 25) scale(1.5 0.5)');
     expect(targetGroup.querySelectorAll('canvas')).toHaveLength(1);
     expect(drawImage).toHaveBeenCalledWith(sourceCanvas, 0, 0);
   });

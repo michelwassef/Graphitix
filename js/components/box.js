@@ -29052,12 +29052,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     return false;
   }
 
-  function tryReuseBoxCanvasPointGroupDuringResizeMove(options = {}){
+  function tryReuseBoxCanvasPointGroupDuringLiveResize(options = {}){
     const traceIndex = options.traceIndex;
-    if(traceIndex == null || typeof Shared.resizer?.reuseCanvasLayerDuringResizeMove !== 'function'){
+    if(traceIndex == null || typeof Shared.resizer?.reuseCanvasLayerDuringLiveResize !== 'function'){
       return false;
     }
-    return Shared.resizer.reuseCanvasLayerDuringResizeMove({
+    return Shared.resizer.reuseCanvasLayerDuringLiveResize({
       ...options,
       sourceSelector: `g[data-export-layer="box-points"][data-trace="${traceIndex}"]`,
       metricKeys: {
@@ -29069,12 +29069,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     });
   }
 
-  function tryReuseBoxSummaryGroupDuringResizeMove(options = {}){
+  function tryReuseBoxSummaryGroupDuringLiveResize(options = {}){
     const traceIndex = options.traceIndex;
-    if(traceIndex == null || typeof Shared.resizer?.reuseLayerDuringResizeMove !== 'function'){
+    if(traceIndex == null || typeof Shared.resizer?.reuseLayerDuringLiveResize !== 'function'){
       return false;
     }
-    const reused = Shared.resizer.reuseLayerDuringResizeMove({
+    const reused = Shared.resizer.reuseLayerDuringLiveResize({
       ...options,
       sourceSelector: `g[data-summary][data-trace="${traceIndex}"]`,
       metricKeys: {
@@ -29088,6 +29088,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       options.targetGroup.parentNode.removeChild(options.targetGroup);
     }
     return reused;
+  }
+
+  function hasReusableBoxSummaryGroup(previousSvg, traceIndex){
+    return !!(previousSvg
+      && traceIndex != null
+      && typeof previousSvg.querySelector === 'function'
+      && previousSvg.querySelector(`g[data-summary][data-trace="${traceIndex}"]`));
   }
 
   function resolvePreviousBoxCanvasPointGroup(previousSvg, traceIndex){
@@ -32244,7 +32251,7 @@ Technical analysis record (advanced)
     const significanceBasePlotWidth = W;
     const previousBoxFrameHasCanvasPoints = !!previousBoxSvg2d?.querySelector?.('g[data-export-layer="box-points"] canvas');
     const resizeLivePreviewPhase = drawOpts?.resizePhase === 'start' || drawOpts?.resizePhase === 'move';
-    const isResizeMoveCanvasPreview = drawOpts?.reason === 'resize'
+    const isResizeLiveCanvasPreview = drawOpts?.reason === 'resize'
       && resizeLivePreviewPhase
       && !drawOpts?.forceCanvasRecompute
       && previousBoxFrameHasCanvasPoints;
@@ -33588,9 +33595,9 @@ Technical analysis record (advanced)
       const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
       const group = add('g', groupAttributes);
       const resizePhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
-      const isResizeMovePhase = drawOpts?.reason === 'resize' && (resizePhase === 'start' || resizePhase === 'move');
+      const isResizeLivePhase = drawOpts?.reason === 'resize' && (resizePhase === 'start' || resizePhase === 'move');
       const forceCanvasRecompute = !!drawOpts?.forceCanvasRecompute;
-      if(isResizeMovePhase && !forceCanvasRecompute && previousBoxSvg2d && traceIndex != null){
+      if(isResizeLivePhase && !forceCanvasRecompute && previousBoxSvg2d && traceIndex != null){
         const spreadScale = resolveBoxPointResizeSpreadScale(previousBoxSvg2d, orientation, nextPlotW, nextPlotH);
         const radiusScale = resolveBoxPointResizeRadiusScale(previousBoxSvg2d, nextPlotW, nextPlotH);
         const reuseSpreadScale = Number.isFinite(spreadScale) && spreadScale > 0 ? spreadScale : 1;
@@ -33598,7 +33605,7 @@ Technical analysis record (advanced)
         const previousGroup = resolvePreviousBoxCanvasPointGroup(previousBoxSvg2d, traceIndex);
         const previousRenderState = previousGroup?.__boxCanvasRenderState || null;
         const previousMeta = previousRenderState?.layoutMeta || null;
-        const reused = tryReuseBoxCanvasPointGroupDuringResizeMove({
+        const reused = tryReuseBoxCanvasPointGroupDuringLiveResize({
           targetGroup: group,
           previousSvg: previousBoxSvg2d,
           traceIndex,
@@ -34336,7 +34343,7 @@ Technical analysis record (advanced)
           traceCount: traces.length
         });
       }
-      const stripAutoSizeProfile = isResizeMoveCanvasPreview
+      const stripAutoSizeProfile = isResizeLiveCanvasPreview
         ? null
         : await computeStripAutoSizeRadiusShared({
             orientation,
@@ -34363,7 +34370,7 @@ Technical analysis record (advanced)
         if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
           return null;
         }
-        if(isResizeMoveCanvasPreview){
+        if(isResizeLiveCanvasPreview){
           return null;
         }
         if(hasExplicitPointSize(null)){
@@ -36164,8 +36171,8 @@ Technical analysis record (advanced)
             connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
-            const reusedSummaryGroup = isResizeMoveCanvasPreview
-              ? tryReuseBoxSummaryGroupDuringResizeMove({
+            const reusedSummaryGroup = isResizeLiveCanvasPreview && hasReusableBoxSummaryGroup(previousBoxSvg2d, i)
+              ? tryReuseBoxSummaryGroupDuringLiveResize({
                   targetGroup: add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfo.colorIndex }),
                   previousSvg: previousBoxSvg2d,
                   traceIndex: i,
@@ -37100,8 +37107,8 @@ Technical analysis record (advanced)
             connectionMapsByTrace[i] = swarmResult.collectPointsByRow;
           }
           if(individualSummaryMode !== 'none'){
-            const reusedSummaryGroup = isResizeMoveCanvasPreview
-              ? tryReuseBoxSummaryGroupDuringResizeMove({
+            const reusedSummaryGroup = isResizeLiveCanvasPreview && hasReusableBoxSummaryGroup(previousBoxSvg2d, i)
+              ? tryReuseBoxSummaryGroupDuringLiveResize({
                   targetGroup: add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode, 'data-color-index': colorInfoH.colorIndex }),
                   previousSvg: previousBoxSvg2d,
                   traceIndex: i,
@@ -39569,16 +39576,19 @@ Technical analysis record (advanced)
           ? global.performance.now()
           : Date.now();
         const cachedPointCount = countCachedBoxPoints();
-        const isResizeMoveDraw = nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move');
         const cooldownMs = Shared.componentLifecycle?.resolveDrawCooldownMs
           ? Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
               pointCount: cachedPointCount,
               pointThreshold: BOX_POINT_CANVAS_THRESHOLD,
               largeViewMs: 50,
               defaultMs: 80,
-              resizeMoveMs: 0
+              resizeLiveMs: 0
             })
-          : (nextOpts.viewOnly ? (isResizeMoveDraw ? 0 : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0)) : 80);
+          : (nextOpts.viewOnly
+            ? (nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move')
+              ? 0
+              : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0))
+            : 80);
         const elapsed = now - drawRuntime.lastDrawAt;
         if(cooldownMs > 0 && elapsed < cooldownMs){
           updateBoxDrawRuntime(scheduleSession, runtime => {

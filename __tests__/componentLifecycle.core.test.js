@@ -1441,10 +1441,14 @@ describe('componentLifecycle — draw scheduling helpers', () => {
     expect(merged.forceCanvasRecompute).toBe(true);
   });
 
-  test('resolveDrawCooldownMs does not throttle live resize moves', () => {
+  test('resolveDrawCooldownMs does not throttle live resize frames', () => {
+    expect(lc.resolveDrawCooldownMs(
+      { viewOnly: true, reason: 'resize', resizePhase: 'start' },
+      { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80, resizeLiveMs: 0 }
+    )).toBe(0);
     expect(lc.resolveDrawCooldownMs(
       { viewOnly: true, reason: 'resize', resizePhase: 'move' },
-      { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80 }
+      { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80, resizeLiveMs: 0 }
     )).toBe(0);
     expect(lc.resolveDrawCooldownMs(
       { viewOnly: true, reason: 'resize', resizePhase: 'end' },

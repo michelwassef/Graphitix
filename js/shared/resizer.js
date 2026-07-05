@@ -351,7 +351,7 @@
     return copied;
   }
 
-  resizerNamespace.reuseLayerDuringResizeMove = function reuseLayerDuringResizeMove(options = {}){
+  resizerNamespace.reuseLayerDuringLiveResize = function reuseLayerDuringLiveResize(options = {}){
     const targetGroup = options.targetGroup || null;
     const previousSvg = options.previousSvg || null;
     const sourceSelector = typeof options.sourceSelector === 'string' ? options.sourceSelector : '';
@@ -399,8 +399,8 @@
     return true;
   };
 
-  resizerNamespace.reuseCanvasLayerDuringResizeMove = function reuseCanvasLayerDuringResizeMove(options = {}){
-    return resizerNamespace.reuseLayerDuringResizeMove({
+  resizerNamespace.reuseCanvasLayerDuringLiveResize = function reuseCanvasLayerDuringLiveResize(options = {}){
+    return resizerNamespace.reuseLayerDuringLiveResize({
       ...options,
       copyCanvas: true
     });

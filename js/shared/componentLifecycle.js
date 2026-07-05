@@ -71,7 +71,7 @@
     const isResizeLive = options.reason === 'resize' && (options.resizePhase === 'start' || options.resizePhase === 'move');
     if(options.viewOnly){
       if(isResizeLive){
-        return Number.isFinite(Number(config.resizeMoveMs)) ? Math.max(0, Number(config.resizeMoveMs)) : 0;
+        return Number.isFinite(Number(config.resizeLiveMs)) ? Math.max(0, Number(config.resizeLiveMs)) : 0;
       }
       const pointCount = Number(config.pointCount);
       const threshold = Number(config.pointThreshold);

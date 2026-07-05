@@ -11,7 +11,7 @@ describe('box stats context and aspect-lock lifecycle contract', () => {
     expect(source).toMatch(/example-load-stats-context/);
     const matrixTraceBuilderCount = (source.match(/buildBoxStatsTracesFromMatrix\(/g) || []).length;
     expect(matrixTraceBuilderCount).toBeGreaterThanOrEqual(3);
-    const hydrateFunction = source.match(/function hydrateBoxStatsSurfaceFromTabPayload[\s\S]*?function tryReuseBoxCanvasPointGroupDuringResizeMove/);
+    const hydrateFunction = source.match(/function hydrateBoxStatsSurfaceFromTabPayload[\s\S]*?function tryReuseBoxCanvasPointGroupDuringLiveResize/);
     expect(hydrateFunction).toBeTruthy();
     expect(hydrateFunction[0]).not.toMatch(/Array\.from\(\{ length: colCount \}/);
   });
