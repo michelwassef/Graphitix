@@ -2382,6 +2382,7 @@
       horizontalResizeAnchorX = null,
       excludeSelector = null,
       preserveBaseAspect = true,
+      ignoreAxisViewportLock = false,
     } = opts;
 
     const raf = typeof global.requestAnimationFrame === 'function'
@@ -2451,7 +2452,9 @@
           : (lockedResizeAxis || 'both');
         const stableViewBox = readStableViewBox(box);
         const stableRenderedSize = readStableRenderedSize(box);
-        const lockActive = !aspectLocked && isOrthogonalViewportLockActive(dataset, resizeAxis);
+        const lockActive = !ignoreAxisViewportLock
+          && !aspectLocked
+          && isOrthogonalViewportLockActive(dataset, resizeAxis);
         const frozenAxes = { x: false, y: false };
         const orthogonalExpansion = { x: false, y: false };
         const frozenRenderedSize = { width: false, height: false };
@@ -2562,6 +2565,7 @@
           aspectLocked,
           resizeAxis,
           lockActive,
+          ignoreAxisViewportLock,
           frozenAxes,
           orthogonalExpansion,
           frozenRenderedSize,
@@ -2612,7 +2616,8 @@
         component: payload.component || null,
         debugLabel: payload.debugLabel || null,
         padding: payload.padding,
-        fill: payload.fill
+        fill: payload.fill,
+        ignoreAxisViewportLock: payload.ignoreAxisViewportLock === true
       });
     } catch (err) {
       console.error('Shared.ensureGraphViewport error', err);

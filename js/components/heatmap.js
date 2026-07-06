@@ -7710,6 +7710,7 @@
     colorScale,
     legendHeightMode,
     layoutAdjust,
+    modelType = null,
     drawSession = null
   }){
     state.isRendering = true;
@@ -7754,6 +7755,11 @@
     const heatmapHeight = rowCount * cellSize;
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
     const aspectLocked = isSvgBoxAspectLocked(svgBox);
+    // The shared axis lock is a transient live-resize aid. Data-values heatmaps
+    // recompute their own unlocked matrix bounds on redraw, so auto-fit must not
+    // turn that temporary lock into the redraw's canonical viewBox.
+    const ignoreAxisViewportLock = modelType === 'values' && !aspectLocked;
+    const viewportOptions = { ignoreAxisViewportLock };
     const baseLabelFontSize = Math.max(6, Math.round(scaledFontSize));
     const parseFontSizePx = value => {
       if(value == null){ return NaN; }
@@ -8332,7 +8338,8 @@
         minHeight: totalHeight,
         preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph-corrected',
-        remeasure: false
+        remeasure: false,
+        ...viewportOptions
       });
       applyTextAspectCorrection({
         svg: state.svg,
@@ -8351,7 +8358,8 @@
         minHeight: totalHeight,
         preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph',
-        remeasure: false
+        remeasure: false,
+        ...viewportOptions
       });
       applyTextAspectCorrection({
         svg: state.svg,
@@ -8543,6 +8551,9 @@
           showValues,
           decimals,
           colorScale,
+          legendHeightMode,
+          modelType,
+          drawSession: ownerSession,
           layoutAdjust: {
             extraLabelColumnWidth: nextExtraColumn,
             extraLabelRowHeight: nextExtraRow,
@@ -8573,7 +8584,8 @@
         minHeight: totalHeight,
         preserveAspectRatio: preserveAspect,
         debugLabel: 'heatmap-graph-final',
-        remeasure: false
+        remeasure: false,
+        ...viewportOptions
       });
     }
     const ensureTitleColumnLabelClearance = () => {
@@ -8669,7 +8681,8 @@
           minHeight: totalHeight,
           preserveAspectRatio: preserveAspect,
           debugLabel: `heatmap-graph-clearance-${pass}`,
-          remeasure: false
+          remeasure: false,
+          ...viewportOptions
         });
       }
       if(adjusted){
@@ -9047,6 +9060,7 @@
         };
       }));
       return {
+        modelType: 'correlation',
         orderedRowLabels: model.orderedRowLabels,
         orderedColumnLabels: model.orderedColumnLabels,
         orderedCells,
@@ -9080,6 +9094,7 @@
         };
       }));
       return {
+        modelType: 'values',
         orderedRowLabels: model.orderedRowLabels,
         orderedColumnLabels: model.orderedColumnLabels,
         orderedCells,
