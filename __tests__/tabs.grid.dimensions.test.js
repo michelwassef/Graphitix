@@ -44,6 +44,7 @@ describe('Workspace tab grid defaults', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -53,6 +54,8 @@ describe('Workspace tab grid defaults', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');

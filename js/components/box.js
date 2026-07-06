@@ -37972,7 +37972,7 @@ Technical analysis record (advanced)
 	          pScientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
 	          pDecimals: sanitizeSignificancePDecimals(significanceStyle.pDecimals)
 	        },
-        errorMode:els.boxErrorMode.value,
+        errorMode: controlSnapshot.errorMode,
         colors:[...state.fillColors],
         borderColors:[...state.borderColors],
         shapeStyles: state.traceShapeStyles || null,
@@ -37981,8 +37981,8 @@ Technical analysis record (advanced)
         pointGlobalStyle: state.pointGlobalStyle || null,
         summaryStyles: state.summaryStyles || null,
         summaryGlobalStyle: state.summaryGlobalStyle || null,
-        yMin:els.boxYMin.value,
-        yMax:els.boxYMax.value,
+        yMin: controlSnapshot.yMin,
+        yMax: controlSnapshot.yMax,
         flipAxes: state.flipAxes,
         tableFormat: state.tableFormat,
         grouped: {
@@ -39571,7 +39571,9 @@ Technical analysis record (advanced)
       };
       const scheduleSession = resolveBoxInvocationSession(nextOpts).session || getActiveBoxSessionForState();
       const drawRuntime = getBoxDrawRuntime(scheduleSession);
-      if(drawRuntime.lastDrawAt){
+      if(drawRuntime.lastDrawAt
+        && typeof Shared.componentLifecycle?.resolveDrawCooldownMs === 'function'
+        && typeof Shared.componentLifecycle?.scheduleDrawWithCooldown === 'function'){
         const cachedPointCount = countCachedBoxPoints();
         const cooldownMs = Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
           pointCount: cachedPointCount,

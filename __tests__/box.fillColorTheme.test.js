@@ -39,14 +39,14 @@ describe('Box theme-aware fill color resolution', () => {
       expect(fillColor.toLowerCase()).toBe('#7a7a7a');
     });
 
-    test('still remaps black (palette[0]) since it is indistinguishable from the seeded default', () => {
-      expect(hooks.isBoxThemeNeutralColorToken('#000000', { schemeId: 'grayscale' })).toBe(true);
+    test('honors explicit black instead of remapping it as a theme default', () => {
+      expect(hooks.isBoxThemeNeutralColorToken('#000000', { schemeId: 'grayscale' })).toBe(false);
       const { fillColor } = hooks.resolveThemeAwareDefaultTraceColors({
         schemeId: 'grayscale',
         colorIndex: 1,
         fillColor: '#000000'
       });
-      expect(fillColor.toLowerCase()).not.toBe('#000000');
+      expect(fillColor.toLowerCase()).toBe('#000000');
     });
 
     test('box-shape white now matches individual-value-point behavior (homogeneity)', () => {
@@ -66,15 +66,15 @@ describe('Box theme-aware fill color resolution', () => {
     });
   });
 
-  describe('dark scheme (unchanged)', () => {
-    test('white is still treated as neutral and remapped to the dark palette', () => {
-      expect(hooks.isBoxThemeNeutralColorToken('#FFFFFF', { schemeId: 'dark' })).toBe(true);
+  describe('dark scheme', () => {
+    test('honors explicit white instead of remapping it as a theme default', () => {
+      expect(hooks.isBoxThemeNeutralColorToken('#FFFFFF', { schemeId: 'dark' })).toBe(false);
       const { fillColor } = hooks.resolveThemeAwareDefaultTraceColors({
         schemeId: 'dark',
         colorIndex: 0,
         fillColor: '#FFFFFF'
       });
-      expect(fillColor.toLowerCase()).not.toBe('#ffffff');
+      expect(fillColor.toLowerCase()).toBe('#ffffff');
     });
   });
 });

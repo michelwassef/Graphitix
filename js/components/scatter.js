@@ -25693,7 +25693,9 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterBase(guarded);
         };
         const runtimeForCooldown = getScatterDrawRuntime(scheduleSession);
-        if(runtimeForCooldown.lastDrawAt){
+        if(runtimeForCooldown.lastDrawAt
+          && typeof Shared.componentLifecycle?.resolveDrawCooldownMs === 'function'
+          && typeof Shared.componentLifecycle?.scheduleDrawWithCooldown === 'function'){
           const latestRenderRuntime = getScatterRenderRuntime(scheduleSession);
           const cachedPointCount = Array.isArray(latestRenderRuntime?.cachedCollect?.points)
             ? latestRenderRuntime.cachedCollect.points.length

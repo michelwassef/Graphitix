@@ -724,7 +724,11 @@ describe('PCA view controls', () => {
     expectViewOnlyRefresh('view-mode-change');
 
     const rotationBefore = { x: state.rotation.x, y: state.rotation.y, z: state.rotation.z };
-    state.rotation.x = rotationBefore.x + 0.2;
+    state.rotation = window.Shared.plot3d.createRotationState({
+      x: rotationBefore.x + 0.2,
+      y: rotationBefore.y,
+      z: rotationBefore.z
+    });
     state.rotationPending = true;
     state.viewDirty = true;
     state.scheduleDraw({ viewOnly: true, reason: 'rotation-test' });

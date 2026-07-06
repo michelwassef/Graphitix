@@ -15357,6 +15357,7 @@
         if(getLineViewState().viewMode === '3d'){
           exitLine3dMode({ skipDraw: true });
         }
+        syncLineRuntimeControlsFromRefs({ reason: 'line-table-format-change' });
         if(requested === 'single'){
           if(lineReplicates > LINE_MIN_REPLICATES){
             lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
@@ -15379,7 +15380,6 @@
             updateLineReplicateModeControls(requested);
           }
         }
-        syncLineRuntimeControlsFromRefs({ reason: 'line-table-format-change' });
         applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-table-format-change' });
       });
     }

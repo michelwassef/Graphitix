@@ -59,7 +59,7 @@ describe('scatter listener binding contract', () => {
 
   test('getScatterGraphPayload persists the live font-size control value', () => {
     const source = scatterSource();
-    const payloadMatch = source.match(/function getScatterGraphPayload\(\)\{([\s\S]*?)async function saveScatterFile/);
+    const payloadMatch = source.match(/function getScatterGraphPayload\(context = \{\}\)\{([\s\S]*?)async function saveScatterFile/);
     expect(payloadMatch).toBeTruthy();
     const payloadBody = payloadMatch[1];
     expect(payloadBody).toContain("resolvePayloadControl('scatterFontSize', scatterFontSize)");

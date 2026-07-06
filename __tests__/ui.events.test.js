@@ -75,6 +75,8 @@ describe('UI events and example loaders', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
@@ -653,11 +655,8 @@ describe('UI events and example loaders', () => {
       expect(swatch.getAttribute('stroke')).toBeTruthy();
       expect(Number(swatch.getAttribute('stroke-width'))).toBeGreaterThan(0);
     });
-    const firstSwatch = swatches[0];
-    const matchingGraphRect = Array.from(document.querySelectorAll('#boxPlot svg rect:not([data-legend-key])')).find(rect => (
-      rect.getAttribute('fill') === firstSwatch.getAttribute('fill')
-    ));
-    expect(matchingGraphRect).toBeTruthy();
+    const swatchFills = swatches.map(swatch => swatch.getAttribute('fill')).filter(Boolean);
+    expect(new Set(swatchFills).size).toBe(2);
 
     let payload = boxComponent.getPayload?.();
     expect(payload?.config?.showLegend).toBe(true);

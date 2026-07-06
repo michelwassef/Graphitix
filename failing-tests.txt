@@ -1,0 +1,98 @@
+Graphitix failing-test triage
+Updated: 2026-07-06
+Scope: Chromium. Firefox intentionally excluded.
+
+Full Jest status
+- npm test -- --runInBand
+  Status: passed on 2026-07-06.
+  Result: 141 suites passed, 1230 tests passed.
+
+Fixed/updated in current working tree
+- __tests__/hot.aggrid.binding.test.js
+  Status: passed targeted.
+  Root cause: tests simulated private AG Grid internals; updated to use public hot.setDataAtCell. Pinned-row scroll assertion was stale because AG Grid owns horizontal sync.
+
+- __tests__/chartStyle.fontResize.test.js
+  Status: passed targeted.
+  Root cause: stale assumption after resize text-distortion fixes; legend layout receives an already-resolved font size and must not apply styleScale again.
+
+- __tests__/pca.view.test.js
+  Status: passed targeted.
+  Root cause: stale test mutated Euler angles while leaving the old quaternion; updated to use Shared.plot3d.createRotationState.
+
+- __tests__/heatmap.tabContext.test.js
+  Status: passed targeted.
+  Root cause: stale harness mutated __getState() copy and waited only for SVG creation. Updated to seed via runtime state and wait for rendered cell layer.
+
+- __tests__/surface.tabContext.test.js
+  Status: passed targeted.
+  Root cause: stale harness mutated singleton state and asserted transient drawPending. Updated to seed via runtime state and assert durable session state only.
+
+- __tests__/box.statsControls.tabIsolation.test.js
+  Status: passed targeted.
+  Root cause: stale stats test tried computing without a real loaded dataset/context. Updated to load example data first.
+
+- __tests__/stats.ui.presentation.branches.test.js
+  Status: passed targeted.
+  Root cause: stale harness missed current shared lifecycle/boxStatsModel bootstrap and contained an invalid grouped UI sub-branch. Direct grouped multiple-comparison coverage remains in stats.extended.coverage.
+
+- __tests__/scatter.statsDefaults.isolation.test.js
+  Status: passed targeted.
+  Root cause: stale harness missed current shared lifecycle bootstrap.
+
+- __tests__/tabs.styleControls.tabIsolation.test.js
+  Status: passed targeted.
+  Root cause: stale harness missed current shared lifecycle bootstrap and compared whole payloads, including volatile publication-style bookkeeping.
+
+- __tests__/heatmap.stats.test.js
+  Status: passed targeted.
+  Root cause: stale test mutated __getState() copy; updated to use runtime-state path with serializable state only.
+
+- __tests__/stats.ui.persistence.restore.test.js
+  Status: passed targeted.
+  Root cause: stale harness missed current lifecycle/boxStatsModel bootstrap and assumed Box always emits a report panel/model for this branch.
+
+- __tests__/format-mixing.test.js
+  Status: passed targeted.
+  Root cause: stale harness missed current shared lifecycle bootstrap.
+
+- __tests__/scatter.listenerBinding.contract.test.js
+  Status: passed targeted.
+  Root cause: stale static regex expected old getScatterGraphPayload signature.
+
+- __tests__/tableImport.paste.aggrid.test.js
+  Status: passed targeted.
+  Root cause: stale expectation that AG Grid paste also schedules through the table constructor callback; current path schedules through the explicit import callback.
+
+- __tests__/exporter.dropdownStacking.test.js
+  Status: passed targeted.
+  Root cause: stale dropdown-menu assertions after exporter controls moved to native select controls.
+
+Previously fixed/reclassified
+- e2e/line.errorbar-toolbar.spec.js
+  Status: fixed and targeted Chromium pass.
+
+- e2e/box.dual-tab.significance-*.spec.js
+  Status: fixed/reclassified; targeted Chromium pass.
+
+- e2e/box.duplicate-computed-*.spec.js
+  Status: fixed; targeted Chromium pass.
+
+- e2e/box.stats-performance.regression-*.spec.js
+  Status: fixed; targeted Chromium pass.
+
+- e2e/component.duplicate-reuse.*venn*.spec.js
+  Status: fixed as stale settled-state wait; targeted Chromium pass.
+
+Deferred
+- e2e/box.column-reorder.undo-*.spec.js
+  Status: deferred/reclassified. Browser drag path still does not reorder in headless Chromium, even through the header drag glyph. Unit coverage validates reorder undo flushing.
+
+- e2e/box.flip-axes.transpose-manual-resize.spec.js
+  Tests:
+  - state-machine flip cycles preserve per-orientation proportions and transpose geometry
+  - flipped significance adds horizontal reserve and grows svg container width without plot distortion
+  - computing significance before flip preserves transposed graph proportions
+  - non-flip significance off-on restores vertical reserve without plot distortion
+  - significance toggle-off after flip-unflip removes top reserve without axis stretch
+  Status: deferred per user instruction.

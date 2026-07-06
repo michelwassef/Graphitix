@@ -13,13 +13,48 @@ async function flushAsyncWork(iterations = 10){
 
 async function waitForBoxSvg(iterations = 80){
   for(let i = 0; i < iterations; i += 1){
-    const svg = document.querySelector('#boxPlot svg');
+    const activeTab = window.Main?.session?.getActiveTab?.() || null;
+    const tabId = activeTab?.type === 'box' ? String(activeTab.id || '') : '';
+    const mountedRoot = tabId && typeof window.Shared?.workspaceTabs?.getMountedRoot === 'function'
+      ? window.Shared.workspaceTabs.getMountedRoot(tabId, 'box')
+      : null;
+    const svg = mountedRoot?.querySelector?.('#boxPlot svg')
+      || (tabId ? document.querySelector(`[data-workspace-tab-id="${tabId}"] #boxPlot svg`) : null)
+      || document.querySelector('#boxPage:not([hidden]) #boxPlot svg')
+      || document.querySelector('#boxPlot svg');
     if(svg){
       return svg;
     }
     await flushAsyncWork(1);
   }
   return null;
+}
+
+async function waitForStatsButtonText(text, iterations = 120){
+  for(let i = 0; i < iterations; i += 1){
+    const button = getBoxStatsButton();
+    if(button?.textContent === text){
+      return button;
+    }
+    await flushAsyncWork(1);
+  }
+  return getBoxStatsButton();
+}
+
+async function loadBoxExampleForActiveTab(iterations = 120){
+  const button = getBoxNodeInActiveTab('#boxLoadExample');
+  expect(button).toBeTruthy();
+  button.click();
+  await flushAsyncWork(30);
+  for(let i = 0; i < iterations; i += 1){
+    const state = window.Components?.box?.__getState?.();
+    const context = state?.statsContext;
+    if(context && Array.isArray(context.traces) && context.traces.length){
+      return true;
+    }
+    await flushAsyncWork(1);
+  }
+  return false;
 }
 
 async function advanceAsyncTime(ms){
@@ -72,8 +107,56 @@ function createSeedPayload(boxComponent){
   return payload;
 }
 
+function loadSeedPayloadForActiveTab(boxComponent, source){
+  const activeTab = window.Main?.session?.getActiveTab?.() || null;
+  expect(activeTab?.type).toBe('box');
+  window.Shared?.workspaceTabs?.activateSession?.(activeTab, 'box', { reason: `${source}-activate-session` });
+  boxComponent.activateTab?.(activeTab, { reason: `${source}-activate-box-tab` });
+  boxComponent.loadFromPayload(createSeedPayload(boxComponent), {
+    source,
+    tabId: activeTab.id,
+    tab: activeTab
+  });
+  boxComponent.draw?.({
+    tabId: activeTab.id,
+    tab: activeTab,
+    reason: `${source}-draw`,
+    force: true
+  });
+}
+
+async function computeBoxStatsForActiveTab(boxComponent){
+  const activeTab = window.Main?.session?.getActiveTab?.() || null;
+  if(activeTab?.id && typeof window.Main?.tabs?.activateTab === 'function'){
+    const result = window.Main.tabs.activateTab(activeTab.id, { reason: 'test-compute-stats-active-tab' });
+    if(result && typeof result.then === 'function'){
+      await result;
+    }
+    await flushAsyncWork(10);
+  }
+  expect(await waitForBoxSvg()).toBeTruthy();
+  const statsButton = getBoxStatsButton();
+  expect(statsButton).toBeTruthy();
+  expect(statsButton.disabled).toBe(false);
+  statsButton.click();
+  await flushAsyncWork(80);
+  expect((await waitForStatsButtonText('Recalculate statistics'))?.textContent).toBe('Recalculate statistics');
+}
+
 function getBoxStatsButton(){
-  return document.getElementById('boxComputeStats');
+  return getBoxNodeInActiveTab('#boxComputeStats');
+}
+
+function getBoxNodeInActiveTab(selector){
+  const activeTab = window.Main?.session?.getActiveTab?.() || null;
+  const tabId = activeTab?.type === 'box' ? String(activeTab.id || '') : '';
+  const mountedRoot = tabId && typeof window.Shared?.workspaceTabs?.getMountedRoot === 'function'
+    ? window.Shared.workspaceTabs.getMountedRoot(tabId, 'box')
+    : null;
+  return mountedRoot?.querySelector?.(selector)
+    || (tabId ? document.querySelector(`[data-workspace-tab-id="${tabId}"] ${selector}`) : null)
+    || document.querySelector(`#boxPage:not([hidden]) ${selector}`)
+    || document.querySelector(selector);
 }
 
 function debugArgsContain(args, text){
@@ -118,6 +201,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -128,6 +212,8 @@ describe('Box stats controls tab isolation with render cache', () => {
     require('../js/shared/formControls.js');
     require('../js/shared/colorSchemes.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
@@ -175,7 +261,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-seed-a' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-seed-a');
     await flushAsyncWork(20);
 
     const tabA = main.session.getActiveTab();
@@ -204,7 +290,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(tabB?.type).toBe('box');
     expect(tabB?.id).not.toBe(tabA?.id);
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-seed-b' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-seed-b');
     await flushAsyncWork(20);
 
     expect(boxComponent.__getState().statsTest).toBe('parametric');
@@ -226,14 +312,11 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-button-seed' });
-    await flushAsyncWork(20);
+    expect(await loadBoxExampleForActiveTab()).toBe(true);
 
     const statsButton = getBoxStatsButton();
     expect(statsButton).toBeTruthy();
-    statsButton.click();
-    await flushAsyncWork(60);
-    expect(statsButton.textContent).toBe('Recalculate statistics');
+    await computeBoxStatsForActiveTab(boxComponent);
 
     main.tabs.handleAddTabClick();
     await flushAsyncWork(10);
@@ -258,7 +341,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-click-a' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-a');
     await flushAsyncWork(25);
     const tabA = main.session.getActiveTab();
 
@@ -274,7 +357,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       await flushAsyncWork(25);
     }
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-click-b' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-stats-click-b');
     await flushAsyncWork(25);
     const tabB = main.session.getActiveTab();
     expect(tabB?.id).not.toBe(tabA?.id);
@@ -312,16 +395,13 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-stats-surface-a' });
-    await flushAsyncWork(25);
+    expect(await loadBoxExampleForActiveTab()).toBe(true);
     const tabA = main.session.getActiveTab();
     expect(tabA?.type).toBe('box');
 
     const statsButton = getBoxStatsButton();
     expect(statsButton).toBeTruthy();
-    statsButton.click();
-    await flushAsyncWork(80);
-    expect(statsButton.textContent).toBe('Recalculate statistics');
+    await computeBoxStatsForActiveTab(boxComponent);
 
     main.tabs.handleAddTabClick();
     await flushAsyncWork(10);
@@ -427,7 +507,7 @@ describe('Box stats controls tab isolation with render cache', () => {
     expect(boxComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-cache-owner-a' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-a');
     await flushAsyncWork(30);
     expect(await waitForBoxSvg()).toBeTruthy();
     const tabA = main.session.getActiveTab();
@@ -445,7 +525,7 @@ describe('Box stats controls tab isolation with render cache', () => {
       await flushAsyncWork(25);
     }
 
-    boxComponent.loadFromPayload(createSeedPayload(boxComponent), { source: 'test-cache-owner-b' });
+    loadSeedPayloadForActiveTab(boxComponent, 'test-cache-owner-b');
     await flushAsyncWork(30);
     const tabB = main.session.getActiveTab();
     expect(tabB?.type).toBe('box');

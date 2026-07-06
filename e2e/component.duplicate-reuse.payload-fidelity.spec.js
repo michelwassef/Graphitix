@@ -189,6 +189,23 @@ for (const component of COMPONENT_MATRIX) {
       const source = state?.tabs?.find(tab => tab?.id === sourceId);
       return !!(source && source.payload && typeof source.payload === 'object');
     }, sourceTabId, { timeout: 20_000 });
+    await page.waitForFunction((sourceId) => {
+      const state = window.Main?.session?.workspaceState;
+      const source = state?.tabs?.find(tab => tab?.id === sourceId);
+      const duplicate = state?.tabs?.find(tab => tab?.id === state?.activeTabId);
+      if (!source?.payload || !duplicate?.payload || source.id === duplicate.id) {
+        return false;
+      }
+      const sourceType = source.payload.type || source.type || null;
+      const duplicateType = duplicate.payload.type || duplicate.type || null;
+      if (sourceType !== duplicateType) {
+        return false;
+      }
+      if (sourceType === 'venn') {
+        return !!duplicate.payload.data && !!duplicate.payload.style && !duplicate.payload.config;
+      }
+      return true;
+    }, sourceTabId, { timeout: 20_000 });
 
     const comparison = await captureDuplicatePayloadComparison(page, sourceTabId);
     await testInfo.attach(`${component.type}.duplicate-reuse.payload-comparison.json`, {

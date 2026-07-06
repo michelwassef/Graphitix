@@ -279,6 +279,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -288,6 +289,8 @@ describe('Cross-tab graph config isolation (all components)', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
@@ -342,7 +345,9 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        const livePayload = (typeof workspace.getPayload === 'function') ? workspace.getPayload() : null;
+        const livePayload = (typeof workspace.getPayload === 'function')
+          ? workspace.getPayload({ tab: tabA, tabId: tabA.id, reason: 'test-config-isolation-live-payload' })
+          : null;
         const emptyPayload = (typeof workspace.createEmptyPayload === 'function') ? workspace.createEmptyPayload() : null;
         const liveTarget = isPlainObject(livePayload?.config) ? livePayload.config : livePayload;
         const emptyTarget = isPlainObject(emptyPayload?.config) ? emptyPayload.config : emptyPayload;
@@ -394,7 +399,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        workspace.loadFromPayload?.(payloadA, { source: 'test-isolation-a' });
+        workspace.loadFromPayload?.(payloadA, { source: 'test-isolation-a', tab: tabA, tabId: tabA.id });
         await flush();
         session.persistActiveTabState(tabA, {
           workspaces: registry,
@@ -402,7 +407,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           reason: `test-isolation-${type}-persist-a`
         });
         await flush();
-        const observedA = workspace.getPayload?.();
+        const observedA = workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a' });
         const observedATarget = targetKey ? observedA?.config : observedA;
         if (!observedATarget || typeof observedATarget !== 'object') {
           failures.push(`${type}: could not capture observed payload A`);
@@ -418,7 +423,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        workspace.loadFromPayload?.(payloadB, { source: 'test-isolation-b' });
+        workspace.loadFromPayload?.(payloadB, { source: 'test-isolation-b', tab: tabB, tabId: tabB.id });
         await flush();
         session.persistActiveTabState(tabB, {
           workspaces: registry,
@@ -426,7 +431,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           reason: `test-isolation-${type}-persist-b`
         });
         await flush();
-        const observedB = workspace.getPayload?.();
+        const observedB = workspace.getPayload?.({ tab: tabB, tabId: tabB.id, reason: 'test-isolation-observed-b' });
         const observedBTarget = targetKey ? observedB?.config : observedB;
         if (!observedBTarget || typeof observedBTarget !== 'object') {
           failures.push(`${type}: could not capture observed payload B`);
@@ -447,7 +452,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
         const snapshotB = capturePathValues(observedBTarget, diffPaths);
 
         await activateTabById(Main, tabA.id, `test-isolation-${type}-switch-a`);
-        const observedA2 = workspace.getPayload?.();
+        const observedA2 = workspace.getPayload?.({ tab: tabA, tabId: tabA.id, reason: 'test-isolation-observed-a2' });
         const observedA2Target = targetKey ? observedA2?.config : observedA2;
         if (!observedA2Target || typeof observedA2Target !== 'object') {
           failures.push(`${type}: could not capture observed payload A after switch`);
@@ -506,6 +511,11 @@ describe('Cross-tab graph config isolation (all components)', () => {
           await flush();
         }
         await handleGraphSelection(Main, type);
+        const activeTab = Main.tabs.getActiveTab();
+        if (!activeTab || activeTab.type !== type) {
+          failures.push(`${type}: failed to activate tab for default factory check`);
+          continue;
+        }
 
         const baseline = workspace.createEmptyPayload();
         const contaminated = deepClone(baseline);
@@ -520,7 +530,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           continue;
         }
 
-        workspace.loadFromPayload?.(contaminated, { source: 'test-default-factory-contamination' });
+        workspace.loadFromPayload?.(contaminated, { source: 'test-default-factory-contamination', tab: activeTab, tabId: activeTab.id });
         await flush();
 
         const afterLiveMutation = workspace.createEmptyPayload();
@@ -578,7 +588,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
           mutationPaths.push(['connectPointsAcrossDatasets']);
         }
 
-        workspace.loadFromPayload?.(contaminated, { source: 'test-new-empty-contaminated' });
+        workspace.loadFromPayload?.(contaminated, { source: 'test-new-empty-contaminated', tab: tabA, tabId: tabA.id });
         await flush();
         Main.session.persistActiveTabState(tabA, {
           workspaces: registry,
@@ -655,7 +665,7 @@ describe('Cross-tab graph config isolation (all components)', () => {
       }
     };
 
-    workspace.loadFromPayload?.(densityPayload, { source: 'test-hist-density-fit' });
+    workspace.loadFromPayload?.(densityPayload, { source: 'test-hist-density-fit', tab: tabA, tabId: tabA.id });
     await flush();
     window.Components?.hist?.draw?.();
     await flush();

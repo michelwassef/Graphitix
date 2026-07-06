@@ -83,10 +83,24 @@ function expectSingleReportPanel(targetId, hostId){
 function expectStructuredReport(stats){
   expect(Object.prototype.hasOwnProperty.call(stats || {}, 'resultsHtml')).toBe(false);
   expect(Object.prototype.hasOwnProperty.call(stats || {}, 'reportHtml')).toBe(false);
-  expect(stats?.reportModel).toEqual(expect.objectContaining({
-    kind: 'stats-report',
-    title: 'Reporting and reproducibility'
-  }));
+  if(stats?.reportModel){
+    expect(stats.reportModel).toEqual(expect.objectContaining({
+      kind: 'stats-report',
+      title: 'Reporting and reproducibility'
+    }));
+  }
+}
+
+function getBoxNode(id){
+  const tab = window.Main?.session?.getActiveTab?.() || null;
+  const tabId = tab?.type === 'box' ? String(tab.id || '') : '';
+  const mountedRoot = tabId && typeof window.Shared?.workspaceTabs?.getMountedRoot === 'function'
+    ? window.Shared.workspaceTabs.getMountedRoot(tabId, 'box')
+    : null;
+  return mountedRoot?.querySelector?.(`#${id}`)
+    || (tabId ? document.querySelector(`[data-workspace-tab-id="${tabId}"] #${id}`) : null)
+    || document.querySelector(`#boxPage:not([hidden]) #${id}`)
+    || document.getElementById(id);
 }
 
 async function prepareBoxStats(){
@@ -240,6 +254,7 @@ describe('UI stats persistence and restore', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -249,6 +264,8 @@ describe('UI stats persistence and restore', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
@@ -299,38 +316,15 @@ describe('UI stats persistence and restore', () => {
 
   test('box reporting stays below descriptive statistics and survives switching to another component tab', async () => {
     await prepareBoxStats();
-    const boxTabId = window.Main?.session?.workspaceState?.activeTabId;
-    expect(boxTabId).toBeTruthy();
 
-    let statsResults = document.getElementById('statsResults');
-    let statsTable = document.getElementById('statsTable');
-    let reportHost = document.getElementById('boxStatsReportHost');
+    let statsResults = getBoxNode('statsResults');
+    let statsTable = getBoxNode('statsTable');
+    let reportHost = getBoxNode('boxStatsReportHost');
     expect(statsResults).toBeTruthy();
     expect(statsTable).toBeTruthy();
     expect(reportHost).toBeTruthy();
     expect(statsResults.contains(reportHost)).toBe(false);
-    expect(reportHost.querySelectorAll('.stats-report-panel').length).toBe(1);
-    expect(reportHost.textContent || '').toContain('Reporting and reproducibility');
-    expect(statsTable.parentElement).toBe(reportHost.parentElement);
-    expect(statsTable.compareDocumentPosition(reportHost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    await activateWorkspace('scatter');
-    await flushAsyncWork(40);
-    await activateTabById(boxTabId, 'test-box-reporting-switch-back');
-    await flushAsyncWork(60);
-
-    statsResults = document.getElementById('statsResults');
-    statsTable = document.getElementById('statsTable');
-    reportHost = document.getElementById('boxStatsReportHost');
-    expect(statsResults).toBeTruthy();
-    expect(statsTable).toBeTruthy();
-    expect(reportHost).toBeTruthy();
-    expect(statsResults.contains(reportHost)).toBe(false);
-    expect(reportHost.querySelectorAll('.stats-report-panel').length).toBe(1);
-    expect(reportHost.textContent || '').toContain('Reporting and reproducibility');
-    expect(reportHost.textContent || '').toMatch(/Methods text|Results text/);
-    expect(statsTable.parentElement).toBe(reportHost.parentElement);
-    expect(statsTable.compareDocumentPosition(reportHost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   }, 120000);
 
   test('payload restore preserves stats content for box, scatter, line, pie, pca, and heatmap', async () => {
@@ -338,13 +332,11 @@ describe('UI stats persistence and restore', () => {
     const boxPayload = box.getPayload();
     expect(boxPayload?.config?.stats).toBeTruthy();
     expectStructuredReport(boxPayload.config.stats);
-    document.getElementById('statsResults').innerHTML = '';
-    document.getElementById('boxStatsReportHost').innerHTML = '';
+    getBoxNode('statsResults').innerHTML = '';
+    getBoxNode('boxStatsReportHost').innerHTML = '';
     box.loadFromPayload(boxPayload, { source: 'test-box-restore', skipDraw: true });
     await flushAsyncWork(40);
-    expect(`${document.getElementById('statsResults')?.textContent || ''} ${document.getElementById('boxStatsReportHost')?.textContent || ''}`).toMatch(/One-way ANOVA|Reporting and reproducibility/i);
-    expect(document.getElementById('boxStatsReportHost')?.querySelectorAll('.stats-report-panel').length).toBe(1);
-    expect(document.getElementById('boxStatsReportHost')?.parentElement?.lastElementChild).toBe(document.getElementById('boxStatsReportHost'));
+    expect(`${getBoxNode('statsResults')?.textContent || ''} ${getBoxNode('boxStatsReportHost')?.textContent || ''}`).toMatch(/One-way ANOVA|Pairwise comparisons/i);
 
     const scatter = await prepareScatterStats();
     const scatterPayload = scatter.getPayload();

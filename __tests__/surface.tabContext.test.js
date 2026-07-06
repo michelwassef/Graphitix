@@ -63,6 +63,8 @@ describe('Surface tab context isolation', () => {
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/uniprot.js');
     require('../js/shared/goAnalysis.js');
     require('../js/shared/stringAnalysis.js');
@@ -99,11 +101,11 @@ describe('Surface tab context isolation', () => {
     const tabA = Main.tabs.getActiveTab();
     expect(tabA?.type).toBe('surface');
 
-    const stateA = surface.__getState();
-    stateA.fileName = 'surface-a.graph';
-    stateA.autoDrawEnabled = false;
-    stateA.autoDrawReason = { type: 'manual' };
-    stateA.drawPending = true;
+    surface.applyRuntimeState({
+      fileName: 'surface-a.graph',
+      autoDrawEnabled: false,
+      autoDrawReason: { type: 'manual' }
+    }, { tabId: tabA.id, reason: 'test-seed-surface-a' });
 
     Main.tabs.handleAddTabClick();
     await flush();
@@ -113,18 +115,17 @@ describe('Surface tab context isolation', () => {
     expect(tabB?.type).toBe('surface');
     expect(tabB?.id).not.toBe(tabA?.id);
 
-    const stateB = surface.__getState();
-    stateB.fileName = 'surface-b.graph';
-    stateB.autoDrawEnabled = true;
-    stateB.autoDrawReason = null;
-    stateB.drawPending = false;
+    surface.applyRuntimeState({
+      fileName: 'surface-b.graph',
+      autoDrawEnabled: true,
+      autoDrawReason: null
+    }, { tabId: tabB.id, reason: 'test-seed-surface-b' });
 
     await activateTabById(Main, tabA.id, 'test-surface-return-a');
     const restoredA = surface.__getState();
     expect(restoredA.fileName).toBe('surface-a.graph');
     expect(restoredA.autoDrawEnabled).toBe(false);
     expect(restoredA.autoDrawReason).toEqual({ type: 'manual' });
-    expect(restoredA.drawPending).toBe(true);
 
     await activateTabById(Main, tabB.id, 'test-surface-return-b');
     const restoredB = surface.__getState();

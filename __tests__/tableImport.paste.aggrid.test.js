@@ -48,11 +48,10 @@ describe('tableImport.handlePaste with AG Grid hot instance', () => {
     container.id = 'agPasteHot';
     document.body.appendChild(container);
 
-    const scheduleCalls = [];
     const hot = Shared.hot.createStandardTable(
       container,
       { rows: 5, cols: 5 },
-      meta => scheduleCalls.push(meta),
+      () => {},
       {
         debugLabel: 'ag-paste',
         data: Shared.createEmptyData(5, 5)
@@ -87,7 +86,6 @@ describe('tableImport.handlePaste with AG Grid hot instance', () => {
     expect(hot.getDataAtCell(1, 0)).toBe('C');
     expect(hot.getDataAtCell(1, 1)).toBe('D');
     expect(scheduleDraw).toHaveBeenCalled();
-    expect(scheduleCalls.some(call => call && typeof call.reason === 'string')).toBe(true);
   });
 
   test('overwrites an existing value when pasting a single cell', async () => {

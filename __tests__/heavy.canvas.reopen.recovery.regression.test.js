@@ -90,14 +90,21 @@ describe('heavy canvas reopen/recovery regression guards', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    const activeTab = { id: 'workspace-scatter-a', type: 'scatter' };
     window.Main = window.Main || {};
     window.Main.session = {
-      workspaceState: { tabs: [], activeTabId: 'workspace-scatter-a' },
-      getActiveTab: () => ({ id: 'workspace-scatter-a', type: 'scatter' })
+      workspaceState: { tabs: [activeTab], activeTabId: activeTab.id },
+      getActiveTab: () => activeTab
     };
     ensureWorkspaceRootResolver();
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
+    require('../js/shared/hot.js');
+    require('../js/shared/chartStyle.js');
+    window.Shared.workspaceTabs.activateSession(activeTab, 'scatter', { reason: 'unit-heavy-setup' });
     require('../js/components/scatter.js');
     require('../js/components/box.js');
+    window.Components.scatter.activateTab(activeTab, { reason: 'unit-heavy-setup' });
   });
 
   afterEach(() => {
@@ -229,16 +236,12 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     }
   });
 
-  // ─── drawScheduled flag / isIdleForSnapshot race regression ─────────────────
-  test('scatter isIdleForSnapshot returns false while a debounced draw is pending', () => {
-    // isIdleForSnapshot must account for drawScheduled so that warmTabRenderCaches
-    // does not capture intermediate state after re-activating the scatter tab.
+  test('scatter isIdleForSnapshot returns false while a scheduled draw is pending', async () => {
     const scatter = window.Components?.scatter;
     expect(scatter).toBeTruthy();
     if (!scatter.__testGetState || !scatter.__testTriggerSchedule) {
       return; // hooks not exposed; skip
     }
-    // Reset to a clean state.
     const state = scatter.__testGetState();
     state.drawScheduled = false;
     state.drawInProgress = false;
@@ -246,11 +249,15 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     state.statsComputationPending = false;
     state.rotationPending = false;
     expect(scatter.isIdleForSnapshot()).toBe(true);
-    // Simulate a debounced-but-not-yet-fired draw tick.
-    state.drawScheduled = true;
+
+    scatter.__testTriggerSchedule({
+      tabId: 'workspace-scatter-a',
+      reason: 'unit-snapshot-pending-draw',
+      viewOnly: true
+    });
     expect(scatter.isIdleForSnapshot()).toBe(false);
-    // Once the draw cycle starts it clears the flag.
-    state.drawScheduled = false;
+
+    await window.Shared.componentLifecycle.waitForAnimationFrames(2);
     expect(scatter.isIdleForSnapshot()).toBe(true);
   });
 

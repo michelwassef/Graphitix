@@ -131,9 +131,10 @@ describe('Heatmap stats formatting', () => {
     viewSelect.value = 'values';
     viewSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(8);
-    const state = heatmap.__getState();
-    state.valueScale = { min: null, max: 30 };
-    state.legendHeightMode = 'fixed';
+    heatmap.applyRuntimeState({
+      valueScale: { min: null, max: 30 },
+      legendHeightMode: 'fixed'
+    }, { tabId: window.Main?.tabs?.getActiveTab?.()?.id || null, reason: 'test-value-scale-override' });
     heatmap.draw();
     await flushAsyncWork(10);
 

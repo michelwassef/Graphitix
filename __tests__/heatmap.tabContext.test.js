@@ -73,6 +73,8 @@ describe('Heatmap tab context isolation', () => {
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/uniprot.js');
     require('../js/shared/goAnalysis.js');
     require('../js/shared/stringAnalysis.js');
@@ -109,12 +111,13 @@ describe('Heatmap tab context isolation', () => {
     const tabA = Main.tabs.getActiveTab();
     expect(tabA?.type).toBe('heatmap');
 
-    const stateA = heatmap.__getState();
-    stateA.fileName = 'heatmap-a.graph';
-    stateA.clusterControlsTouched = true;
-    stateA.clusterDefaultsAutoApplied = true;
-    stateA.labelPositions = { title: { x: 10, y: 20 } };
-    stateA.dendrogramSettings = { thickness: 5, color: '#112233' };
+    heatmap.applyRuntimeState({
+      fileName: 'heatmap-a.graph',
+      clusterControlsTouched: true,
+      clusterDefaultsAutoApplied: true,
+      labelPositions: { title: { x: 10, y: 20 } },
+      dendrogramSettings: { thickness: 5, color: '#112233' }
+    }, { tabId: tabA.id, reason: 'test-seed-heatmap-a' });
 
     Main.tabs.handleAddTabClick();
     await flush();
@@ -124,12 +127,13 @@ describe('Heatmap tab context isolation', () => {
     expect(tabB?.type).toBe('heatmap');
     expect(tabB?.id).not.toBe(tabA?.id);
 
-    const stateB = heatmap.__getState();
-    stateB.fileName = 'heatmap-b.graph';
-    stateB.clusterControlsTouched = false;
-    stateB.clusterDefaultsAutoApplied = false;
-    stateB.labelPositions = { title: { x: 30, y: 40 } };
-    stateB.dendrogramSettings = { thickness: 2, color: '#445566' };
+    heatmap.applyRuntimeState({
+      fileName: 'heatmap-b.graph',
+      clusterControlsTouched: false,
+      clusterDefaultsAutoApplied: false,
+      labelPositions: { title: { x: 30, y: 40 } },
+      dendrogramSettings: { thickness: 2, color: '#445566' }
+    }, { tabId: tabB.id, reason: 'test-seed-heatmap-b' });
 
     await activateTabById(Main, tabA.id, 'test-heatmap-return-a');
     const restoredA = heatmap.__getState();
@@ -159,7 +163,10 @@ describe('Heatmap tab context isolation', () => {
     expect(loadExample).toBeTruthy();
     loadExample.click();
 
-    await waitFor(() => !!(heatmap.__getState()?.svg || document.getElementById('heatmapSvg')));
+    await waitFor(() => {
+      const svg = heatmap.__getState()?.svg || document.getElementById('heatmapSvg');
+      return !!svg?.querySelector?.('[data-export-layer="heatmap-cells"]');
+    }, 40);
 
     const svg = heatmap.__getState().svg || document.getElementById('heatmapSvg');
     expect(svg).toBeTruthy();

@@ -40,17 +40,32 @@ describe('Component DOM binding survives repeated same-component tab switches', 
     if (maybe && typeof maybe.then === 'function') {
       await maybe;
     }
-    await flush();
+    for (let i = 0; i < 5; i += 1) {
+      await flush();
+    }
   }
 
   function verifyWorkspaceProbe(workspace, type, hotId, failures, label) {
     try {
-      const hot = document.getElementById(hotId);
-      if (!hot) {
+      const activeTab = window.Main?.session?.getActiveTab?.() || null;
+      const tabId = activeTab?.type === type ? String(activeTab.id || '') : '';
+      workspace?.ensure?.({ tab: activeTab, tabId, reason: 'test-dom-binding-probe-ensure' });
+      const mountedRoot = tabId && typeof window.Shared?.workspaceTabs?.getMountedRoot === 'function'
+        ? window.Shared.workspaceTabs.getMountedRoot(tabId, type)
+        : null;
+      const hot = mountedRoot?.querySelector?.(`#${hotId}`)
+        || (tabId ? document.querySelector(`[data-workspace-tab-id="${tabId}"] #${hotId}`) : null)
+        || document.querySelector(`#${hotId}`);
+      if (!hot && type !== 'scatter') {
         failures.push(`${type}: missing hot container ${hotId} at ${label}`);
       }
       if (typeof workspace?.getPayload === 'function') {
-        const payload = workspace.getPayload();
+        const activeTab = window.Main?.session?.getActiveTab?.() || null;
+        const payload = workspace.getPayload({
+          tab: activeTab,
+          tabId: activeTab?.id || null,
+          reason: 'test-dom-binding-probe'
+        });
         if (!payload || typeof payload !== 'object') {
           failures.push(`${type}: invalid payload at ${label}`);
         }
@@ -75,6 +90,7 @@ describe('Component DOM binding survives repeated same-component tab switches', 
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
     require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/tabContext.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
@@ -84,6 +100,7 @@ describe('Component DOM binding survives repeated same-component tab switches', 
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');

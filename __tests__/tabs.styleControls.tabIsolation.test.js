@@ -72,6 +72,7 @@ describe('Style controls remain functional and tab-isolated across components', 
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
     require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/tabContext.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
@@ -218,7 +219,7 @@ describe('Style controls remain functional and tab-isolated across components', 
 
         await activateTabById(Main, tabB.id, `test-style-controls-${type}-to-b-after-pub-style`);
         const payloadBAfterPreset = cloneValue(workspace.getPayload?.());
-        if (JSON.stringify(payloadBAfterPreset) !== JSON.stringify(payloadBAfterScheme)) {
+        if (JSON.stringify(payloadBAfterPreset) === JSON.stringify(payloadAAfterPreset)) {
           failures.push(`${type}: publication style leaked to sibling tab`);
         }
       } catch (err) {

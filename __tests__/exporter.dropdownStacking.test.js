@@ -32,54 +32,28 @@ describe('exporter graph dropdown stacking', () => {
       getSvg: () => document.getElementById('testSvg')
     });
 
-    const dropdown = document.querySelector('.export-dropdown[data-action-key="download"]');
-    const trigger = dropdown?.querySelector('.export-trigger');
-    const menu = dropdown?.querySelector('.export-menu');
-
-    trigger.getBoundingClientRect = () => rect({ top: 400, bottom: 432, height: 32 });
-    menu.getBoundingClientRect = () => rect({ top: 438, bottom: 598, height: 160 });
+    const wrapper = document.querySelector('.export-select-wrapper[data-action-key="download"]');
+    const select = wrapper?.querySelector('select.export-select');
+    if(select){
+      select.getBoundingClientRect = () => rect({ top: 400, bottom: 432, height: 32 });
+    }
 
     return {
-      dropdown,
-      trigger,
-      menu,
+      wrapper,
+      select,
       graphPanel: document.getElementById('testGraphPanel')
     };
   }
 
-  test('promotes the open graph export menu without changing graph panel scrolling', () => {
-    const { dropdown, trigger, menu, graphPanel } = mountGraphExportControls();
-    const originalMenuParent = menu.parentNode;
+  test('mounts graph export selects without changing graph panel scrolling', () => {
+    const { wrapper, select, graphPanel } = mountGraphExportControls();
 
-    expect(originalMenuParent).toBe(dropdown);
+    expect(wrapper).toBeTruthy();
+    expect(select).toBeTruthy();
     expect(graphPanel.classList.contains('export-dropdown-scope-open')).toBe(false);
 
-    trigger.click();
-
-    expect(menu.hidden).toBe(false);
-    expect(menu.parentNode).toBe(document.body);
-    expect(menu.classList.contains('export-dropdown-layer')).toBe(true);
-    expect(dropdown.dataset.menuDirection).toBeUndefined();
-    expect(menu.style.position).toBe('');
-    expect(menu.style.top).toBe('438px');
-    expect(menu.style.left).toBe('0px');
     expect(graphPanel.style.overflow).toBe('');
     expect(graphPanel.classList.contains('export-dropdown-scope-open')).toBe(false);
-
-    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-    expect(menu.hidden).toBe(true);
-    expect(menu.parentNode).toBe(dropdown);
-    expect(menu.classList.contains('export-dropdown-layer')).toBe(false);
-    expect(graphPanel.classList.contains('export-dropdown-scope-open')).toBe(false);
-  });
-
-  test('top-layer menu CSS has enough specificity to override the base absolute menu rule', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const css = fs.readFileSync(path.resolve(__dirname, '../css/style.css'), 'utf8');
-
-    expect(css).toContain('.export-menu.export-dropdown-layer{position:fixed');
   });
 
 });

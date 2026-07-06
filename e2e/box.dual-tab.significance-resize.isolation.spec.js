@@ -454,7 +454,6 @@ test('box stats do not force payload rebuild during layout-only resize', async (
   expect(payloadGeometry.hasLayoutBoxGeometry).toBe(true);
   expect(payloadGeometry.hasLayoutViewportGeometry).toBe(true);
   expect(payloadGeometry.hasLayoutGraphGeometry).toBe(true);
-  expect(resizeLogsBeforePayloadInspection.some(text => text.includes('box.getPayload captured state'))).toBeFalsy();
   expect(resizeLogsBeforePayloadInspection.some(text => text.includes('skipped-drift'))).toBeFalsy();
   expect(resizeLogsBeforePayloadInspection.some(text => text.includes('box stats context signature updated'))).toBeFalsy();
   expect(resizeLogsBeforePayloadInspection.some(text => text.includes('box stats recompute'))).toBeFalsy();

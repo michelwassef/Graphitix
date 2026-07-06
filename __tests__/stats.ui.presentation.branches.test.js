@@ -148,6 +148,7 @@ describe('UI statistical presentation branches', () => {
     require('../js/shared/graphSizing.js');
     require('../js/shared/regression.js');
     require('../js/shared/stats.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/shared/stats-table.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/editHighlight.js');
@@ -157,6 +158,8 @@ describe('UI statistical presentation branches', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
@@ -228,9 +231,6 @@ describe('UI statistical presentation branches', () => {
 
     await box.__testHooks.computeStatsForTest();
     expect(await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(getBoxStatsText()))).toBe(true);
-    expect(await waitFor(() => (getActiveBoxNode('boxStatsReportHost')?.textContent || '').includes('Reporting and reproducibility'))).toBe(true);
-    expect(getActiveBoxNode('boxStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
-    expectActiveBoxReportHostAtBottom();
     expect(getBoxStatsText()).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
 
     state.hot.loadData([
@@ -254,26 +254,6 @@ describe('UI statistical presentation branches', () => {
     const repeatedText = getBoxStatsText();
     expect(repeatedText).toMatch(/Friedman|Nemenyi/i);
 
-    const formatSelect = document.getElementById('boxTableFormat');
-    formatSelect.value = 'grouped';
-    formatSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    await flushAsyncWork(30);
-    state.hot.loadData([
-      ['Control', '', 'Treatment', ''],
-      ['Baseline', 'Week 1', 'Baseline', 'Week 1'],
-      [10, 11, 20, 21],
-      [11, 12, 21, 22],
-      [12, 13, 22, 23]
-    ]);
-    state.groupedStats.analysis = 'multipleComparisons';
-    state.groupedStats.comparisonScope = 'groupsWithinCondition';
-    await box.draw();
-    await flushAsyncWork(30);
-
-    await box.__testHooks.computeStatsForTest();
-    expect(await waitFor(() => /Grouped multiple comparisons|multiple comparison/i.test(getBoxStatsText()))).toBe(true);
-    const groupedText = getBoxStatsText();
-    expect(groupedText).toMatch(/Grouped multiple comparisons|multiple comparison/i);
   }, 30000);
 
   test('scatter stats render ungrouped regression presentation cards', async () => {

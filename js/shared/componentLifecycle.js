@@ -3315,21 +3315,33 @@
     workspace[hookName] = function lifecycleStateWrappedHook(...args){
       const lastArg = args.length ? args[args.length - 1] : null;
       const meta = lastArg && typeof lastArg === 'object' && !Array.isArray(lastArg) ? lastArg : {};
+      const fallbackTabId = resolveExplicitTabIdFromMeta(meta)
+        || descriptor?.component?.__boundTabId
+        || workspace.__boundTabId
+        || workspace.__workspaceTabId
+        || workspace.__graphitixTabId
+        || null;
+      const lifecycleMeta = {
+        componentKey: descriptor?.componentKey || descriptor?.type || null,
+        type: descriptor?.type || descriptor?.componentKey || null,
+        ...(fallbackTabId ? { tabId: fallbackTabId } : {}),
+        ...meta
+      };
       const stateModel = descriptor.stateModel || workspace.__stateModel || null;
       if(mode === 'apply'){
-        rememberStateBucket(stateModel, bucket, args[0], meta);
+        rememberStateBucket(stateModel, bucket, args[0], lifecycleMeta);
       }
       const result = original.apply(this, args);
       if(result && typeof result.then === 'function'){
         return result.then(value => {
           if(mode !== 'apply'){
-            rememberStateBucket(stateModel, bucket, value, meta);
+            rememberStateBucket(stateModel, bucket, value, lifecycleMeta);
           }
           return value;
         });
       }
       if(mode !== 'apply'){
-        rememberStateBucket(stateModel, bucket, result, meta);
+        rememberStateBucket(stateModel, bucket, result, lifecycleMeta);
       }
       return result;
     };
