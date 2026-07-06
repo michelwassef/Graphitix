@@ -743,6 +743,7 @@
    * @property {HTMLElement|null} stringNetwork - Container for STRING network SVG content.
    * @property {HTMLElement|null} analysisPanelGo - Panel wrapping GO analysis outputs.
    * @property {HTMLElement|null} analysisPanelString - Panel wrapping STRING analysis outputs.
+   * @property {SVGSVGElement|null} goChart - SVG renderer for GO enrichment bars.
    * @property {HTMLElement|null} goChartExport - Export controls wrapper for GO charts.
    * @property {HTMLElement|null} stringNetworkExport - Export controls wrapper for STRING SVG.
    * @property {HTMLElement|null} tooltip - Shared tooltip element for contextual hints.
@@ -776,7 +777,6 @@
 
   /**
    * @typedef {Object} VennStateAnalysis
-   * @property {import('chart.js').Chart|null} goChart - Active Chart.js instance for GO data.
    * @property {string|null} lastStringSVG - Cached STRING network SVG markup.
    * @property {Object} stringOverlay - Tab-owned custom edge overlay model for STRING SVGs.
    * @property {Object|null} lastRegions - Cached region-to-gene map from last draw.
@@ -784,6 +784,7 @@
    * @property {string|null} lastDrawMode - Indicator of whether list or numeric draw was last used.
    * @property {Array|null} lastGOResult - Cached GO API response entries.
    * @property {string[]} lastGOFormatted - Cached formatted genes submitted to GO.
+   * @property {number} goDisplayLimit - Number of GO terms projected in the SVG chart.
    * @property {string} lastGOOrganism - Organism code used for the last GO request.
    * @property {boolean} goPerformed - Whether GO analysis has been run for the current state.
    * @property {boolean} stringPerformed - Whether STRING analysis has been run for the current state.
@@ -845,6 +846,7 @@
         stringNetwork: null,
         analysisPanelGo: null,
         analysisPanelString: null,
+        goChart: null,
         goChartExport: null,
         stringNetworkExport: null,
         tooltip: null,
@@ -885,8 +887,6 @@
         lockRatioPrevious: null,
       },
       analysis: {
-        goChart: null,
-        goChartLocaleApplied: false,
         lastStringSVG: null,
         lastStringEnrichment: null,
         stringOverlay: normalizeStringOverlayModel(),
@@ -899,6 +899,7 @@
         lastUpSetIntersections: null,
         lastGOResult: null,
         lastGOFormatted: [],
+        goDisplayLimit: 5,
         lastGOOrganism: 'hsapiens',
         goPerformed: false,
         stringPerformed: false,
@@ -1268,6 +1269,7 @@
       stringNetwork: null,
       analysisPanelGo: null,
       analysisPanelString: null,
+      goChart: null,
       goChartExport: null,
       stringNetworkExport: null,
       tooltip: null,
@@ -1336,8 +1338,7 @@
       managers: {
         hot: null,
         layout: null,
-        fileHandle: null,
-        goChart: null
+        fileHandle: null
       },
       notes: createDefaultVennNotesState(source.notes || durableSource.notes || {}),
       createdAt: Date.now(),
@@ -1375,7 +1376,6 @@
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'layout')){ session.managers.layout = null; }
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'fileHandle')){ session.managers.fileHandle = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.managers, 'goChart')){ session.managers.goChart = null; }
     session.notes = createDefaultVennNotesState(session.notes || session.state?.notes || {});
     return session;
   }
@@ -1577,6 +1577,7 @@
       stringNetwork: state.ui.stringNetwork || null,
       analysisPanelGo: state.ui.analysisPanelGo || null,
       analysisPanelString: state.ui.analysisPanelString || null,
+      goChart: state.ui.goChart || null,
       goChartExport: state.ui.goChartExport || null,
       stringNetworkExport: state.ui.stringNetworkExport || null,
       tooltip: state.ui.tooltip || null,
@@ -1625,7 +1626,6 @@
     shaped.managers.hot = state.ui.hot || shaped.managers.hot || null;
     shaped.managers.layout = state.ui.layout || shaped.managers.layout || null;
     shaped.managers.fileHandle = state.persistence.fileHandle || shaped.managers.fileHandle || null;
-    shaped.managers.goChart = state.analysis.goChart || shaped.managers.goChart || null;
     shaped.timers.scheduleDraw = state.ui.scheduleDraw || shaped.timers.scheduleDraw || null;
     shaped.timers.pendingSpeciesDetection = state.analysis.speciesDetection?.pendingTimeoutId || null;
     shaped.updatedAt = Date.now();
@@ -5185,18 +5185,16 @@
     if (state.ui.goResults) state.ui.goResults.innerHTML = '';
     if (state.ui.stringResults) state.ui.stringResults.innerHTML = '';
     if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
-    destroyGoChartInstance();
+    clearGoChartSvg();
     state.analysis.lastGOResult = null;
     state.analysis.lastGOFormatted = [];
+    state.analysis.goDisplayLimit = 5;
     state.analysis.lastStringSVG = null;
     state.analysis.lastStringEnrichment = null;
     state.analysis.stringOverlay = preservedStringOverlay;
     syncStringOverlayControls();
     state.analysis.goPerformed = false;
     state.analysis.stringPerformed = false;
-    const canvas = getVennNodeById('goChart');
-    if (canvas) canvas.style.display = 'none';
-    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     if(!isProjectingVennSession()){
       clearVennSessionAnalysisResults('venn-analysis-clear', preserveStringOverlay ? { stringOverlay: preservedStringOverlay } : {});
@@ -5208,15 +5206,34 @@
     return String(tabName || '').trim().toLowerCase() === 'string' ? 'string' : 'go';
   }
 
-  function destroyGoChartInstance() {
-    if (!state.analysis.goChart) return false;
-    try {
-      state.analysis.goChart.destroy();
-    } catch (err) {
-      console.warn('venn GO chart destroy failed', err);
+  function getGoChartSvg() {
+    const cached = state.ui.goChart;
+    if (cached && String(cached.tagName || '').toLowerCase() === 'svg') {
+      return cached;
     }
-    state.analysis.goChart = null;
-    syncVennSessionManagersFromActive();
+    const node = getVennNodeById('goChart');
+    return node && String(node.tagName || '').toLowerCase() === 'svg' ? node : null;
+  }
+
+  function setGoChartExportVisible(visible) {
+    if (state.ui.goChartExport) {
+      state.ui.goChartExport.style.display = visible ? 'flex' : 'none';
+    }
+  }
+
+  function clearGoChartSvg() {
+    const svg = getGoChartSvg();
+    if (svg) {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      svg.style.display = 'none';
+      svg.removeAttribute('viewBox');
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+      delete svg.dataset.goChartSignature;
+      delete svg.dataset.goChartRenderWidth;
+      delete svg.dataset.goChartRenderHeight;
+    }
+    setGoChartExportVisible(false);
     return true;
   }
 
@@ -5224,40 +5241,78 @@
     return Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length > 0;
   }
 
+  const GO_CHART_SVG_CONFIG = Object.freeze({
+    defaultWidth: 900,
+    minWidth: 640,
+    maxWidth: 1400,
+    minHeight: 300,
+    top: 18,
+    right: 34,
+    bottom: 54,
+    labelGap: 14,
+    leftMin: 150,
+    leftMax: 380,
+    leftFraction: 0.46,
+    labelFontPx: 16,
+    axisFontPx: 16,
+    axisTitleFontPx: 16,
+    barFill: '#808080',
+    textColor: '#222222',
+    labelColor: '#666666',
+    axisColor: '#111111',
+    axisStrokeWidth: 1.25,
+    tickLength: 5
+  });
+
   function resolveGoChartBarHeight(limit) {
     const resolvedLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 5;
-    return resolvedLimit > 5 ? 18 : 25;
+    return resolvedLimit > 5 ? 18 : 30;
   }
 
   function computeGoChartHeight(limit, itemCount = state.analysis.lastGOResult?.length || 0) {
     const resolvedLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 5;
     const visibleCount = Math.max(0, Math.min(itemCount, resolvedLimit));
-    return Math.max(300, resolveGoChartBarHeight(resolvedLimit) * visibleCount);
+    if (!visibleCount) return GO_CHART_SVG_CONFIG.minHeight;
+    const rowPitch = resolvedLimit > 5 ? 28 : 48;
+    return Math.max(
+      GO_CHART_SVG_CONFIG.minHeight,
+      GO_CHART_SVG_CONFIG.top + GO_CHART_SVG_CONFIG.bottom + visibleCount * rowPitch
+    );
   }
 
-  function resolveGoChartDisplayWidth(canvas) {
-    if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return 0;
-    const rectWidth = Number(canvas.getBoundingClientRect().width);
+  function resolveGoChartDisplayWidth(svg) {
+    if (!svg || typeof svg.getBoundingClientRect !== 'function') return 0;
+    const rectWidth = Number(svg.getBoundingClientRect().width);
     if (Number.isFinite(rectWidth) && rectWidth > 0) return Math.round(rectWidth);
-    const offsetWidth = Number(canvas.offsetWidth);
+    const offsetWidth = Number(svg.offsetWidth);
     if (Number.isFinite(offsetWidth) && offsetWidth > 0) return Math.round(offsetWidth);
-    const clientWidth = Number(canvas.clientWidth);
+    const clientWidth = Number(svg.clientWidth);
     if (Number.isFinite(clientWidth) && clientWidth > 0) return Math.round(clientWidth);
     return 0;
   }
 
-  function isGoChartCanvasInSync(canvas) {
-    const chart = state.analysis.goChart;
-    if (!canvas || !chart) return false;
-    const displayWidth = resolveGoChartDisplayWidth(canvas);
-    if (!displayWidth) return false;
-    const chartWidth = Number(chart.width);
-    const chartHeight = Number(chart.height);
-    const renderedWidth = Number.isFinite(chartWidth) && chartWidth > 0 ? Math.round(chartWidth) : Number(canvas.width);
-    const renderedHeight = Number.isFinite(chartHeight) && chartHeight > 0 ? Math.round(chartHeight) : Number(canvas.height);
-    const expectedHeight = computeGoChartHeight(state.analysis.goDisplayLimit || 5);
-    return Math.abs(renderedWidth - displayWidth) <= 1
-      && Math.abs(renderedHeight - expectedHeight) <= 1;
+  function resolveGoChartLayoutWidth(svg) {
+    const displayWidth = resolveGoChartDisplayWidth(svg);
+    if (displayWidth > 0) return Math.max(GO_CHART_SVG_CONFIG.minWidth, Math.min(GO_CHART_SVG_CONFIG.maxWidth, displayWidth));
+    const hosts = [svg?.parentElement, state.ui.analysisPanelGo, state.ui.analysisResults].filter(Boolean);
+    for (const host of hosts) {
+      if (typeof host.getBoundingClientRect !== 'function') continue;
+      const width = Number(host.getBoundingClientRect().width || host.clientWidth || host.offsetWidth);
+      if (Number.isFinite(width) && width > 0) {
+        return Math.max(GO_CHART_SVG_CONFIG.minWidth, Math.min(GO_CHART_SVG_CONFIG.maxWidth, Math.round(width)));
+      }
+    }
+    return GO_CHART_SVG_CONFIG.defaultWidth;
+  }
+
+  function isGoChartSvgInSync(svg) {
+    if (!svg || !hasGoChartData()) return false;
+    const existingSignature = svg.dataset?.goChartSignature || '';
+    if (!existingSignature) return false;
+    const displayWidth = resolveGoChartDisplayWidth(svg);
+    if (!displayWidth) return true;
+    const renderedWidth = Number(svg.dataset.goChartRenderWidth);
+    return Number.isFinite(renderedWidth) && Math.abs(renderedWidth - displayWidth) <= 2;
   }
 
   function scheduleVisibleGoChartReflow(reason = 'venn-go-chart-visible-reflow') {
@@ -5273,8 +5328,8 @@
         owner.updatedAt = Date.now();
         return;
       }
-      const canvas = getVennNodeById('goChart');
-      if (!isGoChartCanvasInSync(canvas)) {
+      const svg = getGoChartSvg();
+      if (!isGoChartSvgInSync(svg)) {
         renderGOChart(state.analysis.goDisplayLimit || 5, { reason });
       }
     };
@@ -6400,154 +6455,293 @@
     }
   }
 
-  function applyGoChartDefaults(ChartCtor) {
-    if (!ChartCtor || !ChartCtor.defaults) {
-      debugLog('goChart.defaults.skip', { hasDefaults: !!ChartCtor?.defaults }); // Debug: Chart defaults missing
-      return;
+  function normalizeGoChartLimit(limit) {
+    const numeric = Number(limit);
+    if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric);
+    return 5;
+  }
+
+  function buildGoChartRows(limit = 5) {
+    if (!hasGoChartData()) return [];
+    const rows = state.analysis.lastGOResult.slice(0, normalizeGoChartLimit(limit)).map((entry, index) => {
+      const rawPValue = Number(entry?.p_value);
+      const finitePValue = Number.isFinite(rawPValue) && rawPValue > 0 ? rawPValue : null;
+      return {
+        index,
+        label: String(entry?.term_name || entry?.name || 'Unknown term'),
+        source: String(entry?.source || 'unknown source'),
+        pValue: finitePValue,
+        value: finitePValue ? -Math.log10(finitePValue) : Number.POSITIVE_INFINITY
+      };
+    });
+    const finiteValues = rows.map(row => row.value).filter(Number.isFinite);
+    const finiteMax = finiteValues.length ? Math.max(...finiteValues) : 0;
+    const fallbackInfinityValue = Math.max(1, finiteMax > 0 ? finiteMax * 1.08 : 1);
+    rows.forEach(row => {
+      if (!Number.isFinite(row.value)) row.value = fallbackInfinityValue;
+    });
+    return rows;
+  }
+
+  function formatGoChartNumber(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '';
+    if (chartStyle && typeof chartStyle.formatScientific === 'function') {
+      return chartStyle.formatScientific(numeric, { maxDecimals: 2 });
     }
-    if (state.analysis.goChartLocaleApplied) {
-      return;
+    if (Math.abs(numeric) >= 1000 || (Math.abs(numeric) > 0 && Math.abs(numeric) < 0.01)) {
+      return numeric.toExponential(2).replace(/\.00e/, 'e');
     }
+    return numeric.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+  }
+
+  function measureGoChartText(text, fontPx = GO_CHART_SVG_CONFIG.labelFontPx) {
+    const value = String(text || '');
+    if (!value) return 0;
     try {
-      ChartCtor.defaults.locale = 'en-US';
-      state.analysis.goChartLocaleApplied = true;
-      debugLog('goChart.defaults.applied', { locale: 'en-US' }); // Debug: locale configured once
+      const canvas = measureGoChartText.canvas || (measureGoChartText.canvas = global.document?.createElement?.('canvas'));
+      const ctx = canvas?.getContext?.('2d');
+      if (ctx) {
+        ctx.font = `${fontPx}px Arial, Helvetica, sans-serif`;
+        return ctx.measureText(value).width;
+      }
     } catch (err) {
-      console.warn('venn goChart locale apply failed', err);
+      // Fall through to a deterministic approximation when canvas is unavailable.
     }
+    return value.length * fontPx * 0.55;
+  }
+
+  function truncateGoChartLabel(label, maxWidth, fontPx = GO_CHART_SVG_CONFIG.labelFontPx) {
+    const text = String(label || '');
+    if (!text || measureGoChartText(text, fontPx) <= maxWidth) return text;
+    const ellipsis = '…';
+    let low = 0;
+    let high = text.length;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      const candidate = text.slice(0, mid).trimEnd() + ellipsis;
+      if (measureGoChartText(candidate, fontPx) <= maxWidth) low = mid;
+      else high = mid - 1;
+    }
+    return text.slice(0, Math.max(1, low)).trimEnd() + ellipsis;
+  }
+
+  function niceGoChartNumber(value, round) {
+    const numeric = Math.max(0, Number(value) || 0);
+    if (numeric <= 0) return 1;
+    const exponent = Math.floor(Math.log10(numeric));
+    const fraction = numeric / Math.pow(10, exponent);
+    let niceFraction;
+    if (round) {
+      if (fraction < 1.5) niceFraction = 1;
+      else if (fraction < 3) niceFraction = 2;
+      else if (fraction < 7) niceFraction = 5;
+      else niceFraction = 10;
+    } else if (fraction <= 1) niceFraction = 1;
+    else if (fraction <= 2) niceFraction = 2;
+    else if (fraction <= 5) niceFraction = 5;
+    else niceFraction = 10;
+    return niceFraction * Math.pow(10, exponent);
+  }
+
+  function buildGoChartTicks(maxValue, desiredCount = 5) {
+    const safeMax = Math.max(1, Number(maxValue) || 1);
+    const count = Math.max(2, Math.min(8, Math.floor(desiredCount) || 5));
+    const range = niceGoChartNumber(safeMax, false);
+    const step = niceGoChartNumber(range / (count - 1), true);
+    const tickMax = Math.max(step, Math.ceil(safeMax / step) * step);
+    const ticks = [];
+    for (let value = 0, guard = 0; value <= tickMax + step * 0.5 && guard < 20; value += step, guard += 1) {
+      ticks.push(Number(value.toFixed(12)));
+    }
+    if (ticks[ticks.length - 1] < safeMax) ticks.push(tickMax);
+    return { ticks, tickMax };
+  }
+
+  function createSvgNode(tagName, attrs = {}, text = null) {
+    const node = global.document.createElementNS(NS, tagName);
+    Object.entries(attrs || {}).forEach(([key, value]) => {
+      if (value === null || typeof value === 'undefined') return;
+      node.setAttribute(key, String(value));
+    });
+    if (text !== null && typeof text !== 'undefined') node.textContent = String(text);
+    return node;
   }
 
   function renderGOChart(limit = 5, options = {}) {
-    if (!state.ui.goResults) return;
+    const svg = getGoChartSvg();
+    if (!svg) return false;
     if (!hasGoChartData()) {
-      const canvas = getVennNodeById('goChart');
-      if (canvas) canvas.style.display = 'none';
-      if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-      destroyGoChartInstance();
-      return;
+      clearGoChartSvg();
+      return false;
     }
-    state.analysis.goDisplayLimit = limit;
-    const data = state.analysis.lastGOResult.slice(0, limit);
-    const labels = data.map(r => r.term_name || r.name || '');
-    const values = data.map(r => -Math.log10(r.p_value));
-    const barColor = '#64b5f6';
-    const canvas = getVennNodeById('goChart');
-    if (!canvas) return;
-    canvas.style.display = 'block';
-    const chartHeight = computeGoChartHeight(limit, labels.length);
-    const barHeight = resolveGoChartBarHeight(limit);
-    canvas.style.height = chartHeight + 'px';
-    let displayWidth = resolveGoChartDisplayWidth(canvas);
-    if (!displayWidth) {
-      // Hidden-panel redraws must not produce a fallback-sized canvas. Chart.js renders a
-      // bitmap; drawing it while the GO panel is hidden would later stretch that bitmap when
-      // the panel becomes visible. The live session keeps the data, and visibility changes
-      // schedule a tab-owned reflow that draws only after the canvas has a real width.
-      debugLog('goChart.defer.hidden', { reason: options.reason || 'hidden-panel', limit });
-      destroyGoChartInstance();
-      if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-      return;
+    const rows = buildGoChartRows(limit);
+    if (!rows.length) {
+      clearGoChartSvg();
+      return false;
     }
-    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'flex';
-    canvas.style.width = '100%';
-    canvas.width = displayWidth;
-    canvas.height = chartHeight;
-    const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
-    if(!ctx || typeof ctx.setTransform !== 'function'){
-      debugLog('goChart.skipped', { reason: 'canvas-context-unavailable' });
-      if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-      return;
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const config = {
-      type: 'bar',
-      data: { labels, datasets: [{ label: '-log10(p)', data: values, backgroundColor: barColor, barThickness: barHeight - 5 }] },
-      options: {
-        indexAxis: 'y',
-        responsive: false,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: {
-            title: { display: true, text: '-log10(p)' },
-            grid: { display: false },
-            ticks: { callback: v => chartStyle.formatScientific(v, { maxDecimals: 2 }) }
-          },
-          y: { grid: { display: false }, ticks: { autoSkip: false } }
-        }
-      },
-      locale: 'en-US'
+    state.analysis.goDisplayLimit = normalizeGoChartLimit(limit);
+    const config = GO_CHART_SVG_CONFIG;
+    const width = resolveGoChartLayoutWidth(svg);
+    const height = computeGoChartHeight(state.analysis.goDisplayLimit, rows.length);
+    const maxLabelWidth = rows.reduce((max, row) => Math.max(max, measureGoChartText(row.label, config.labelFontPx)), 0);
+    const leftLimit = Math.min(config.leftMax, Math.max(config.leftMin, width * config.leftFraction));
+    const labelWidth = Math.max(config.leftMin - config.labelGap, Math.min(maxLabelWidth, leftLimit - config.labelGap));
+    const plotLeft = Math.round(Math.max(config.leftMin, labelWidth + config.labelGap));
+    const plotRight = Math.max(plotLeft + 60, width - config.right);
+    const plotTop = config.top;
+    const plotBottom = height - config.bottom;
+    const plotWidth = Math.max(1, plotRight - plotLeft);
+    const plotHeight = Math.max(1, plotBottom - plotTop);
+    const rowBand = plotHeight / rows.length;
+    const barHeight = Math.max(8, Math.min(resolveGoChartBarHeight(state.analysis.goDisplayLimit), rowBand * 0.62));
+    const maxValue = Math.max(...rows.map(row => row.value), 1);
+    const { ticks, tickMax } = buildGoChartTicks(maxValue, 5);
+    const valueToX = value => plotLeft + (Math.max(0, Number(value) || 0) / tickMax) * plotWidth;
+    const signature = [
+      state.analysis.goDisplayLimit,
+      rows.length,
+      Math.round(width),
+      Math.round(height),
+      rows.map(row => `${row.label}:${row.value.toFixed(6)}`).join('|')
+    ].join('::');
+
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.style.display = 'block';
+    svg.style.width = '100%';
+    svg.style.height = 'auto';
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+    svg.setAttribute('aria-label', 'GO enrichment bar plot');
+    svg.dataset.goChartSignature = signature;
+    svg.dataset.goChartRenderWidth = String(width);
+    svg.dataset.goChartRenderHeight = String(height);
+
+    svg.appendChild(createSvgNode('title', {}, 'GO enrichment bar plot'));
+    const plotGroup = createSvgNode('g', { 'data-go-chart-layer': 'plot' });
+    svg.appendChild(plotGroup);
+
+    rows.forEach((row, index) => {
+      const centerY = plotTop + rowBand * (index + 0.5);
+      const barTop = centerY - barHeight / 2;
+      const barEnd = valueToX(row.value);
+      const visibleLabel = truncateGoChartLabel(row.label, labelWidth, config.labelFontPx);
+      const labelNode = createSvgNode('text', {
+        x: plotLeft - config.labelGap,
+        y: centerY,
+        'font-family': 'Arial, Helvetica, sans-serif',
+        'font-size': config.labelFontPx,
+        fill: config.labelColor,
+        'text-anchor': 'end',
+        'dominant-baseline': 'middle'
+      }, visibleLabel);
+      if (visibleLabel !== row.label) labelNode.appendChild(createSvgNode('title', {}, row.label));
+      plotGroup.appendChild(labelNode);
+      const bar = createSvgNode('rect', {
+        x: plotLeft,
+        y: barTop,
+        width: Math.max(0, barEnd - plotLeft),
+        height: barHeight,
+        fill: config.barFill,
+        'shape-rendering': 'crispEdges',
+        'data-go-term-index': row.index
+      });
+      bar.appendChild(createSvgNode('title', {}, `${row.label}\n${row.source}\np=${row.pValue == null ? '0' : formatSharedPValue(row.pValue)}\n-log10(p)=${formatGoChartNumber(row.value)}`));
+      plotGroup.appendChild(bar);
+    });
+
+    const axisAttrs = {
+      stroke: config.axisColor,
+      'stroke-width': config.axisStrokeWidth,
+      'vector-effect': 'non-scaling-stroke',
+      'shape-rendering': 'crispEdges'
     };
-    const instantiateChart = (ChartCtor) => {
-      if (!ChartCtor) {
-        console.error('venn GO chart missing Chart constructor');
-        if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-        return;
-      }
-      const currentDisplayWidth = resolveGoChartDisplayWidth(canvas);
-      if (!currentDisplayWidth) {
-        debugLog('goChart.defer.hidden', { reason: 'chart-constructor-resolved-while-hidden', limit });
-        destroyGoChartInstance();
-        if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-        return;
-      }
-      if (Math.abs(currentDisplayWidth - displayWidth) > 1) {
-        displayWidth = currentDisplayWidth;
-        canvas.width = displayWidth;
-        canvas.height = chartHeight;
-      }
-      applyGoChartDefaults(ChartCtor);
-      const canvasChart = typeof ChartCtor.getChart === 'function'
-        ? ChartCtor.getChart(canvas)
-        : null;
-      if (canvasChart && canvasChart !== state.analysis.goChart) {
-        canvasChart.destroy();
-      }
-      destroyGoChartInstance();
-      state.analysis.goChart = new ChartCtor(ctx, config);
-      syncVennSessionManagersFromActive();
-      debugLog('goChart.rendered', { bars: labels.length, limit, width: displayWidth, height: chartHeight }); // Debug: chart instantiated
-    };
+    plotGroup.appendChild(createSvgNode('line', { ...axisAttrs, x1: plotLeft, y1: plotTop, x2: plotLeft, y2: plotBottom }));
+    plotGroup.appendChild(createSvgNode('line', { ...axisAttrs, x1: plotLeft, y1: plotBottom, x2: plotRight, y2: plotBottom }));
 
-    if (typeof Shared.lazyChart === 'function') {
-      Shared.lazyChart()
-        .then(chartLib => {
-          const ChartCtor = chartLib?.Chart || chartLib || global.Chart;
-          instantiateChart(ChartCtor);
-        })
-        .catch(err => {
-          console.error('venn GO chart failed to load Chart.js', err);
-          if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-        });
-      return;
-    }
+    ticks.forEach(tick => {
+      const x = valueToX(tick);
+      plotGroup.appendChild(createSvgNode('line', {
+        ...axisAttrs,
+        x1: x,
+        y1: plotBottom,
+        x2: x,
+        y2: plotBottom + config.tickLength
+      }));
+      plotGroup.appendChild(createSvgNode('text', {
+        x,
+        y: plotBottom + config.tickLength + config.axisFontPx,
+        'font-family': 'Arial, Helvetica, sans-serif',
+        'font-size': config.axisFontPx,
+        fill: config.textColor,
+        'text-anchor': 'middle'
+      }, formatGoChartNumber(tick)));
+    });
 
-    if (global.Chart) {
-      instantiateChart(global.Chart);
-      return;
-    }
+    plotGroup.appendChild(createSvgNode('text', {
+      x: plotLeft + plotWidth / 2,
+      y: height - 8,
+      'font-family': 'Arial, Helvetica, sans-serif',
+      'font-size': config.axisTitleFontPx,
+      fill: config.textColor,
+      'text-anchor': 'middle'
+    }, '-log10(p)'));
 
-    console.warn('Chart.js unavailable for GO chart rendering');
-    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+    setGoChartExportVisible(true);
+    debugLog('goChart.svg.rendered', {
+      bars: rows.length,
+      limit: state.analysis.goDisplayLimit,
+      width,
+      height,
+      reason: options.reason || 'go-chart-render'
+    });
+    return true;
   }
 
   function renderGOResults(limit = 5) {
     if (!state.ui.goResults) return;
+    const doc = state.ui.goResults.ownerDocument || global.document;
+    state.ui.goResults.textContent = '';
     if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
-      state.ui.goResults.innerHTML = '<div>No GO results</div>';
+      const empty = doc.createElement('div');
+      empty.textContent = 'No GO results';
+      state.ui.goResults.appendChild(empty);
+      clearGoChartSvg();
       return;
     }
-    const items = state.analysis.lastGOResult.slice(0, limit).map(r => {
-      const term = r.term_name || r.name || 'unknown term';
-      const src = r.source || 'unknown source';
-      return `<div>${term} [${src}] (p=${formatSharedPValue(r.p_value)})</div>`;
-    }).join('');
-    const fullUrl = `https://biit.cs.ut.ee/gprofiler/gost?organism=${state.analysis.lastGOOrganism}&query=${encodeURIComponent(state.analysis.lastGOFormatted.join('\n'))}`;
-    const link = `<div><a href="${fullUrl}" target="_blank" rel="noopener">View full GO analysis</a>${
-      state.analysis.lastGOResult.length > 5 ? ` | <button class="btn" id="toggleGoResults" data-state="${limit === 5 ? 'top5' : 'all'}">${
-        limit === 5 ? 'Show all results' : 'Show top 5'}</button>` : ''}</div>`;
-    state.ui.goResults.innerHTML = `<strong>${limit === 5 ? 'Top 5 GO terms' : 'All GO terms'}</strong>` + items + link;
-    renderGOChart(limit);
+    const normalizedLimit = normalizeGoChartLimit(limit);
+    const title = doc.createElement('strong');
+    title.textContent = normalizedLimit === 5 ? 'Top 5 GO terms' : 'All GO terms';
+    state.ui.goResults.appendChild(title);
+    state.analysis.lastGOResult.slice(0, normalizedLimit).forEach(result => {
+      const row = doc.createElement('div');
+      const term = result?.term_name || result?.name || 'unknown term';
+      const source = result?.source || 'unknown source';
+      row.textContent = `${term} [${source}] (p=${formatSharedPValue(result?.p_value)})`;
+      state.ui.goResults.appendChild(row);
+    });
+    const actions = doc.createElement('div');
+    const fullUrl = `https://biit.cs.ut.ee/gprofiler/gost?organism=${encodeURIComponent(state.analysis.lastGOOrganism || 'hsapiens')}&query=${encodeURIComponent(state.analysis.lastGOFormatted.join('\n'))}`;
+    const link = doc.createElement('a');
+    link.href = fullUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'View full GO analysis';
+    actions.appendChild(link);
+    if (state.analysis.lastGOResult.length > 5) {
+      actions.appendChild(doc.createTextNode(' | '));
+      const toggle = doc.createElement('button');
+      toggle.className = 'btn';
+      toggle.id = 'toggleGoResults';
+      toggle.type = 'button';
+      toggle.dataset.state = normalizedLimit === 5 ? 'top5' : 'all';
+      toggle.textContent = normalizedLimit === 5 ? 'Show all results' : 'Show top 5';
+      actions.appendChild(toggle);
+    }
+    state.ui.goResults.appendChild(actions);
+    renderGOChart(normalizedLimit);
   }
 
   function positionTooltip(x, y) {
@@ -7141,53 +7335,30 @@
   }
 
   function buildGoChartSvgString() {
-    if (!state.analysis.goChart) {
-      debugLog('buildGoChartSvgString skipped', { reason: 'no chart' });
-      return '';
+    const svg = getGoChartSvg();
+    if (!svg || !svg.firstChild) {
+      if (hasGoChartData()) {
+        renderGOChart(state.analysis.goDisplayLimit || 5, { reason: 'go-chart-export-render' });
+      }
     }
-    const canvas = getVennNodeById('goChart');
-    if (!canvas) {
-      debugLog('buildGoChartSvgString skipped', { reason: 'no canvas' });
+    const currentSvg = getGoChartSvg();
+    if (!currentSvg || !currentSvg.firstChild) {
+      debugLog('buildGoChartSvgString skipped', { reason: 'no svg content' });
       return '';
     }
     try {
-      const { labels } = state.analysis.goChart.data;
-      const values = state.analysis.goChart.data.datasets[0].data;
-      const color = state.analysis.goChart.data.datasets[0].backgroundColor;
-      const width = canvas.width;
-      const height = canvas.height;
-      const measureCtx = document.createElement('canvas').getContext('2d');
-      measureCtx.font = '12px sans-serif';
-      const labelWidths = labels.map(l => measureCtx.measureText(l).width);
-      const maxLabelWidth = Math.ceil(Math.max(...labelWidths));
-      const padding = { left: maxLabelWidth + 12, right: 20, top: 10, bottom: 30 };
-      const chartWidth = width - padding.left - padding.right;
-      const chartHeight = height - padding.top - padding.bottom;
-      const barHeight = chartHeight / labels.length;
-      const maxVal = Math.max(...values);
-      let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
-      svg += `<rect width="${width}" height="${height}" fill="none"/>`;
-      for (let i = 0; i < labels.length; i++) {
-        const y = padding.top + i * barHeight;
-        const barWidth = (values[i] / maxVal) * chartWidth;
-        svg += `<text x="4" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${labels[i]}</text>`;
-        svg += `<rect x="${padding.left}" y="${y + barHeight * 0.1}" width="${barWidth}" height="${barHeight * 0.8}" fill="${color}"/>`;
-        svg += `<text x="${padding.left + barWidth + 4}" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${values[i].toFixed(2)}</text>`;
-      }
-      const axisY = padding.top + chartHeight;
-      svg += `<line x1="${padding.left}" y1="${axisY}" x2="${width - padding.right}" y2="${axisY}" stroke="black"/>`;
-      svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${axisY}" stroke="black"/>`;
-      const ticks = 5;
-      for (let t = 0; t <= ticks; t++) {
-        const v = (maxVal / ticks) * t;
-        const x = padding.left + (v / maxVal) * chartWidth;
-        svg += `<line x1="${x}" y1="${axisY}" x2="${x}" y2="${axisY + 5}" stroke="black"/>`;
-        svg += `<text x="${x}" y="${axisY + 15}" font-size="12" text-anchor="middle">${v.toFixed(2)}</text>`;
-      }
-      svg += `<text x="${padding.left + chartWidth / 2}" y="${height - 5}" font-size="12" text-anchor="middle">-log10(p)</text>`;
-      svg += '</svg>';
-      debugLog('buildGoChartSvgString complete', { width, height, barCount: labels.length });
-      return svg;
+      const clone = currentSvg.cloneNode(true);
+      const width = clone.getAttribute('width') || currentSvg.getAttribute('width') || '900';
+      const height = clone.getAttribute('height') || currentSvg.getAttribute('height') || '300';
+      clone.setAttribute('xmlns', NS);
+      clone.setAttribute('width', width);
+      clone.setAttribute('height', height);
+      clone.style.display = 'block';
+      clone.style.width = `${width}px`;
+      clone.style.height = `${height}px`;
+      const serialized = new XMLSerializer().serializeToString(clone);
+      debugLog('buildGoChartSvgString complete', { width, height });
+      return serialized;
     } catch (err) {
       console.error('buildGoChartSvgString error', err);
       return '';
@@ -7195,24 +7366,23 @@
   }
 
   async function exportGoChart(format) {
-    if (!state.analysis.goChart) return;
     const exporter = Shared.exporter;
     if (!exporter) {
       console.warn('exportGoChart missing exporter');
       return;
     }
+    const svgString = buildGoChartSvgString();
+    if (!svgString) return;
     if (format === 'png') {
-      const canvas = getVennNodeById('goChart');
-      if (!canvas) return;
-      const blob = await new Promise(resolve => {
-        canvas.toBlob(resolve, 'image/png');
-      });
+      if (typeof exporter.svgStringToPngBlob !== 'function') {
+        console.warn('exportGoChart missing SVG-to-PNG helper');
+        return;
+      }
+      const blob = await exporter.svgStringToPngBlob(svgString, { contextLabel: 'go-chart' });
       if (!blob) return;
       exporter.downloadBlob(blob, 'go_chart.png', 'go-chart');
     } else if (format === 'svg') {
-      const svg = buildGoChartSvgString();
-      if (!svg) return;
-      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
       exporter.downloadBlob(blob, 'go_chart.svg', 'go-chart');
     }
     debugLog('exportGoChart', { format });
@@ -10299,6 +10469,7 @@
     state.ui.analysisPanelGo = $root('#analysisPanelGo');
     state.ui.analysisPanelString = $root('#analysisPanelString');
     state.ui.vennExportControls = $root('#vennExportControls');
+    state.ui.goChart = $root('#goChart');
     state.ui.goChartExport = $root('#goChartExport');
     state.ui.stringNetworkExport = $root('#stringNetworkExport');
     state.ui.tooltip = $root('#tooltip');
@@ -10509,11 +10680,6 @@
     if (typeof state.ui.syncPanels === 'function') {
       debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
       state.ui.syncPanels({ skipSchedule: true });
-    }
-    if (global.Chart && global.Chart.defaults) {
-      applyGoChartDefaults(global.Chart);
-    } else {
-      debugLog('goChart.defaults.defer', { hasChart: !!global.Chart }); // Debug: defer locale until lazy load
     }
     bindUiToRoot(mountedRoot);
     mountVennExportControls();
@@ -10873,13 +11039,12 @@
     }else{
       debug('Debug: venn export controls unavailable', { hasExporter: true, hasHost: !!exportHost });
     }
-    if(typeof exporter.mountCanvasControls === 'function' && goChartExport){
-      exporter.mountCanvasControls({
+    if(typeof exporter.mountSvgControls === 'function' && goChartExport){
+      exporter.mountSvgControls({
         container: goChartExport,
-        getCanvas: () => root.querySelector('#goChart'),
+        getSvg: () => state.ui.goChart || root.querySelector('#goChart'),
         fileName: 'go_chart',
-        contextLabel: 'go-chart',
-        getSvgString: () => buildGoChartSvgString()
+        contextLabel: 'go-chart'
       });
       debug('Debug: go chart export controls mounted', { hasExporter: true });
     }else{
