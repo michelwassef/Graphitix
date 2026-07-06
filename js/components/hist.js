@@ -7495,16 +7495,17 @@
         }
         scheduleHistBase(nextOpts);
       };
-      const shouldDelayForOverlay = histOverlayController?.isActive?.() && !suppressOverlay;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          histDebug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame?.(hist, 'hist', {
-          tabId: nextOpts.tabId || getHistActiveTabId() || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: hist,
+        componentKey: 'hist',
+        options: nextOpts,
+        tabId: nextOpts.tabId || getHistActiveTabId() || null,
+        reason: overlayReason,
+        overlayController: histOverlayController,
+        delayForOverlay: !suppressOverlay,
+        debugLog: histDebug,
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();

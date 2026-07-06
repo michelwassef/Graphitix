@@ -83,6 +83,111 @@
     return Number.isFinite(Number(config.defaultMs)) ? Math.max(0, Number(config.defaultMs)) : 80;
   };
 
+  namespace.nowMs = function nowMs(){
+    return (global.performance && typeof global.performance.now === 'function')
+      ? global.performance.now()
+      : Date.now();
+  };
+
+  namespace.scheduleDrawWithCooldown = function scheduleDrawWithCooldown(config = {}){
+    const options = config.options && typeof config.options === 'object' ? config.options : {};
+    const runtime = config.runtime && typeof config.runtime === 'object' ? config.runtime : {};
+    const lastDrawAt = Number(runtime.lastDrawAt) || 0;
+    const cooldownMs = Math.max(0, Number(config.cooldownMs) || 0);
+    if(options.force || !lastDrawAt || cooldownMs <= 0){
+      return false;
+    }
+    const elapsed = namespace.nowMs() - lastDrawAt;
+    if(elapsed >= cooldownMs){
+      return false;
+    }
+    const updateRuntime = typeof config.updateRuntime === 'function' ? config.updateRuntime : null;
+    const getRuntime = typeof config.getRuntime === 'function' ? config.getRuntime : () => runtime;
+    const run = typeof config.run === 'function' ? config.run : null;
+    const scheduleTimeout = typeof config.scheduleTimeout === 'function' ? config.scheduleTimeout : null;
+    if(!updateRuntime || !run || !scheduleTimeout){
+      return false;
+    }
+    const mergeOptions = typeof config.mergeOptions === 'function' ? config.mergeOptions : namespace.mergeDrawOptions;
+    updateRuntime(nextRuntime => {
+      nextRuntime.pendingOptions = mergeOptions(nextRuntime.pendingOptions, options);
+    });
+    const latestRuntime = getRuntime() || runtime;
+    if(latestRuntime.cooldownTimer == null || latestRuntime.cooldownTimer === false){
+      const wait = Math.max(0, cooldownMs - elapsed);
+      const timeoutLabel = config.timeoutLabel || 'draw-cooldown';
+      const timer = scheduleTimeout(timeoutLabel, () => {
+        let pending = null;
+        let shouldRun = true;
+        updateRuntime(nextRuntime => {
+          nextRuntime.cooldownTimer = null;
+          if(typeof config.isCurrent === 'function' && !config.isCurrent(nextRuntime)){
+            nextRuntime.pendingOptions = null;
+            shouldRun = false;
+            return;
+          }
+          pending = nextRuntime.pendingOptions;
+          nextRuntime.pendingOptions = null;
+        });
+        if(shouldRun){
+          run(pending || options);
+        }
+      }, wait, options);
+      if(timer == null || timer === false){
+        let pending = null;
+        updateRuntime(nextRuntime => {
+          pending = nextRuntime.pendingOptions;
+          nextRuntime.pendingOptions = null;
+          nextRuntime.cooldownTimer = null;
+        });
+        run(pending || options);
+        return true;
+      }
+      updateRuntime(nextRuntime => {
+        nextRuntime.cooldownTimer = timer;
+      });
+    }
+    return true;
+  };
+
+  namespace.runDrawWithOverlayPaintGate = function runDrawWithOverlayPaintGate(config = {}){
+    const run = typeof config.run === 'function' ? config.run : null;
+    if(!run){
+      return false;
+    }
+    const overlayController = config.overlayController || null;
+    const shouldDelay = !!(config.delayForOverlay && overlayController?.isActive?.());
+    if(!shouldDelay){
+      run();
+      return true;
+    }
+    const component = config.component || null;
+    const componentKey = String(config.componentKey || 'component');
+    const reason = config.reason || config.options?.reason || 'draw';
+    const tabId = config.tabId || config.options?.tabId || null;
+    const debugLog = typeof config.debugLog === 'function' ? config.debugLog : null;
+    const runAfterFrame = () => {
+      debugLog?.(`Debug: ${componentKey} autoDraw deferred for overlay`, { reason });
+      if(config.extraAnimationFrame === true){
+        const raf = typeof global.requestAnimationFrame === 'function'
+          ? global.requestAnimationFrame.bind(global)
+          : cb => global.setTimeout(cb, 0);
+        raf(run);
+      }else{
+        run();
+      }
+    };
+    const scheduleFrame = typeof config.scheduleFrame === 'function'
+      ? config.scheduleFrame
+      : callback => namespace.scheduleComponentFrame?.(component, componentKey, { tabId, reason }, callback);
+    const scheduled = scheduleFrame(runAfterFrame);
+    if(scheduled == null || scheduled === false){
+      debugLog?.(`Debug: ${componentKey} overlay defer fallback executed`, { reason, tabId });
+      run();
+    }
+    return true;
+  };
+
   function timeoutPromise(ms){
     return new Promise(resolve => {
       if(typeof global.setTimeout === 'function'){

@@ -5433,16 +5433,17 @@
         queueRocOverlay(overlayReason);
       }
       const runSchedule = () => scheduleRocDrawBase(nextOpts);
-      const shouldDelayForOverlay = rocOverlayController?.isActive?.() && !suppressOverlay;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          console.debug('Debug: roc autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame?.(roc, 'roc', {
-          tabId: nextOpts.tabId || roc.__boundTabId || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: roc,
+        componentKey: 'roc',
+        options: nextOpts,
+        tabId: nextOpts.tabId || roc.__boundTabId || null,
+        reason: overlayReason,
+        overlayController: rocOverlayController,
+        delayForOverlay: !suppressOverlay,
+        debugLog: console.debug,
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();

@@ -10020,23 +10020,17 @@
         queueHeatmapOverlay(overlayReason);
       }
       const runSchedule = () => scheduleHeatmapBase(nextOpts);
-      const shouldDelayForOverlay = heatmapOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          debugLog('Debug: heatmap draw deferred for overlay', { reason: overlayReason });
-          runSchedule();
-        };
-        const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(heatmap, 'heatmap', {
-          tabId: nextOpts.tabId || heatmap.__boundTabId || resolveHeatmapAsyncTabId(nextOpts, state.hot) || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
-        if(!scheduled){
-          debugLog('Debug: heatmap overlay defer fallback executed', {
-            reason: overlayReason,
-            tabId: nextOpts.tabId || heatmap.__boundTabId || null
-          });
-          runSchedule();
-        }
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: heatmap,
+        componentKey: 'heatmap',
+        options: nextOpts,
+        tabId: nextOpts.tabId || heatmap.__boundTabId || resolveHeatmapAsyncTabId(nextOpts, state.hot) || null,
+        reason: overlayReason,
+        overlayController: heatmapOverlayController,
+        delayForOverlay: !nextOpts.viewOnly,
+        debugLog,
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();

@@ -1559,7 +1559,6 @@
     }
 
     if(type === 'line'){
-      cfg.fill = (scientificDefaults && scientificDefaults.fill) || categorical[0] || cfg.fill;
       cfg.border = (scientificDefaults && scientificDefaults.border) || tokens.borderColor || cfg.border;
       const names = inferLineSeriesNames(next.data);
       const lineKeys = uniqueStrings(Object.keys(ensureMap(cfg.labelColors)).concat(names));
@@ -1958,7 +1957,6 @@
         }
         break;
       case 'line':
-        assignIfPresent(out, 'fill', projectColorScalar(cfg, 'fill', refCfg));
         assignIfPresent(out, 'border', projectColorScalar(cfg, 'border', refCfg));
         assignIfPresent(out, 'labelColors', extractColorMap(cfg.labelColors, refCfg.labelColors));
         assignIfPresent(out, 'seriesStyles', extractStyleMapColorFields(cfg.seriesStyles, refCfg.seriesStyles));

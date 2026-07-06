@@ -456,6 +456,13 @@
     return (typeof value === 'string' && value.trim()) ? value.trim() : fallback;
   }
 
+  function getLineDefaultSchemeId(){
+    const fromShared = Shared.colorSchemes?.getDefaultSchemeId?.('line');
+    return (typeof fromShared === 'string' && fromShared.trim())
+      ? fromShared.trim().toLowerCase()
+      : 'scientific';
+  }
+
   function getLineLabelsState(session = null){
     const target = resolveLineStateSession(session);
     if(target?.state){
@@ -719,11 +726,26 @@
 
   function applyLineThemeConfig(config, session = null, meta = {}){
     const cfg = config && typeof config === 'object' ? config : {};
-    const resolved = Shared.colorSchemes?.resolveThemeState?.('line', { config: cfg }) || null;
+    const tabId = meta?.tabId || session?.tabId || line.__boundTabId || null;
+    const payloadConfig = getLineTabPayloadConfig(tabId) || {};
+    const payloadScheme = (typeof payloadConfig.colorScheme === 'string' && payloadConfig.colorScheme.trim())
+      ? payloadConfig.colorScheme.trim().toLowerCase()
+      : '';
+    const requestedScheme = (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim())
+      ? cfg.colorScheme.trim().toLowerCase()
+      : '';
+    const resolvedSchemeId = requestedScheme || payloadScheme || getLineDefaultSchemeId();
+    const resolved = Shared.colorSchemes?.resolveThemeState?.('line', {
+      config: {
+        ...payloadConfig,
+        ...cfg,
+        colorScheme: resolvedSchemeId
+      }
+    }) || null;
     const schemeId = resolved?.schemeId
       || (typeof cfg.colorScheme === 'string' && cfg.colorScheme.trim()
         ? cfg.colorScheme.trim().toLowerCase()
-        : lineColorSchemeId);
+        : resolvedSchemeId);
     const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
     setLineThemeState(session || getLineActiveSessionForState(), {
       colorScheme: schemeId || 'scientific',
@@ -1536,6 +1558,20 @@
     return '';
   }
 
+  function getLineTabPayloadConfig(tabLike){
+    const tabId = String((tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || '').trim();
+    const session = global.Main?.session || null;
+    const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+    const tab = tabId
+      ? (tabs.find(item => item && String(item.id || '') === tabId) || null)
+      : (typeof session?.getActiveTab === 'function' ? session.getActiveTab() : null);
+    if(!tab || tab.type !== 'line'){
+      return null;
+    }
+    const cfg = tab?.payload?.config;
+    return cfg && typeof cfg === 'object' ? cfg : null;
+  }
+
   function cloneLinePlainObject(value, fallbackFactory){
     const cloned = cloneSimple(value);
     if(cloned && typeof cloned === 'object' && !Array.isArray(cloned)){
@@ -1731,7 +1767,7 @@
     const defaults = createDefaultLineThemeState();
     const input = value && typeof value === 'object' ? value : {};
     return {
-      colorScheme: typeof input.colorScheme === 'string' && input.colorScheme.trim() ? input.colorScheme.trim() : defaults.colorScheme,
+      colorScheme: typeof input.colorScheme === 'string' && input.colorScheme.trim() ? input.colorScheme.trim().toLowerCase() : defaults.colorScheme,
       textColor: normalizeLineThemeColor(input.textColor, defaults.textColor),
       backgroundColor: normalizeLineThemeColor(input.backgroundColor, defaults.backgroundColor)
     };
@@ -3988,7 +4024,6 @@
       viewMode: '2d',
       tableFormat: 'single',
       dotSize: '',
-      fill: '',
       border: '',
       borderWidth: '',
       errorBarWidth: '',
@@ -4024,7 +4059,6 @@
       viewMode: String(src.viewMode != null ? src.viewMode : defaults.viewMode).toLowerCase() === '3d' ? '3d' : '2d',
       tableFormat: String(src.tableFormat || defaults.tableFormat).toLowerCase() === 'grouped' ? 'grouped' : (String(src.tableFormat || '').toLowerCase() === '3d' ? '3d' : 'single'),
       dotSize: src.dotSize != null ? String(src.dotSize) : defaults.dotSize,
-      fill: src.fill != null ? String(src.fill) : defaults.fill,
       border: src.border != null ? String(src.border) : defaults.border,
       borderWidth: src.borderWidth != null ? String(src.borderWidth) : defaults.borderWidth,
       errorBarWidth: src.errorBarWidth != null ? String(src.errorBarWidth) : defaults.errorBarWidth,
@@ -5317,7 +5351,6 @@
       viewMode: lineRefs.viewMode?.value || getLineViewState().viewMode || currentControls.viewMode,
       tableFormat: lineRefs.replicateMode?.value || currentControls.tableFormat,
       dotSize: lineRefs.dotSize?.value ?? currentControls.dotSize,
-      fill: lineRefs.fill?.value ?? currentControls.fill,
       border: lineRefs.border?.value ?? currentControls.border,
       borderWidth: lineRefs.borderWidth?.value ?? currentControls.borderWidth,
       errorBarWidth: lineRefs.errorBarWidth?.value ?? currentControls.errorBarWidth,
@@ -5442,7 +5475,6 @@
     refs.replicatesInput = byId('lineReplicates');
     refs.groupedList = byId('lineGroupedList');
     refs.viewMode = byId('lineViewMode');
-    refs.fill = byId('lineFill');
     refs.border = byId('lineBorder');
     refs.borderWidth = byId('lineBorderWidth');
     refs.errorBarWidth = byId('lineErrorBarWidth');
@@ -6399,7 +6431,6 @@
     try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls({ force: true }); }catch(e){}
     if(Shared.symbolToolbar && typeof Shared.symbolToolbar.show === 'function'){
       const dotSizeInput = getLineNodeById('lineDotSize');
-      const fillInput = getLineNodeById('lineFill');
       const strokeInput = getLineNodeById('lineBorder');
       const strokeWidthInput = getLineNodeById('lineBorderWidth');
       const alphaInput = getLineNodeById('lineAlpha');
@@ -6526,9 +6557,9 @@
         const scopedSeriesKey = resolveScopedSeriesKey(ctx);
         const style = resolveSeriesStyle(scopedSeriesKey);
         if(scopedSeriesKey){
-          return style?.markerFill || style?.fill || lineLabelColors[scopedSeriesKey] || fillInput?.value || '#0000ff';
+          return style?.markerFill || style?.fill || lineLabelColors[scopedSeriesKey] || '#0000ff';
         }
-        return fillInput?.value || '#0000ff';
+        return '#0000ff';
       };
       const getMarkerBorderColor = ctx => {
         const scopedSeriesKey = resolveScopedSeriesKey(ctx);
@@ -11154,7 +11185,6 @@
         groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
         groupShapes: Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [],
         dotSize:controls.dotSize,
-        fill:controls.fill,
         colorScheme: lineColorSchemeId,
         textColor: lineTextColor,
         backgroundColor: lineBackgroundColor,
@@ -11572,7 +11602,6 @@
       }
     }
     if(payloadRefs.dotSize && c.dotSize!=null) payloadRefs.dotSize.value=c.dotSize;
-    if(payloadRefs.fill && c.fill) payloadRefs.fill.value=c.fill;
     if(payloadRefs.border && c.border) payloadRefs.border.value=c.border;
     if(payloadRefs.borderWidth && c.borderWidth!=null) payloadRefs.borderWidth.value=c.borderWidth;
     if(payloadRefs.errorBarWidth){
@@ -12016,7 +12045,6 @@
       const lineThemeState = getLineThemeState(invocation.session);
       const lineStylesState = getLineStylesState(invocation.session);
       let lineGroupedState = getLineGroupedState(invocation.session);
-      const fill = controls.fill;
       const alpha = Number(controls.alpha) || 0;
       const borderWidthRaw = Number(controls.borderWidth);
       const borderColor = controls.border;
@@ -12727,7 +12755,6 @@
         const seriesMarkerFill = (typeof styleOverride.markerFill === 'string' && styleOverride.markerFill)
           || (typeof styleOverride.fill === 'string' && styleOverride.fill)
           || lineLabelsState.colors?.[s.name]
-          || fill
           || color;
         let pathStr = '';
         let started = false;
@@ -12967,7 +12994,6 @@
         refs.plot.style.aspectRatio = '';
         refs.plot.style.padding = '';
       }
-      const fill=controls.fill;
       const alpha=Number(controls.alpha)||0;
       const borderWidthRaw=Number(controls.borderWidth);
       const errorBarWidthInput=Number(controls.errorBarWidth);
@@ -14643,7 +14669,6 @@
         const seriesMarkerFill = (typeof styleOverride.markerFill === 'string' && styleOverride.markerFill)
           || (typeof styleOverride.fill === 'string' && styleOverride.fill)
           || lineLabelsState.colors?.[s.name]
-          || fill
           || color;
         const confidenceStyle = getLineOverlayStyle('confidence', s.name);
         const predictionStyle = getLineOverlayStyle('prediction', s.name);
@@ -16407,7 +16432,6 @@
 
     syncLineRuntimeControlsFromRefs();
     syncLineRuntimeControlsFromState(getActiveLineRuntimeControls({ reason: 'line-init-controls' }));
-    refs.fill?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-fill-change'); });
     refs.border?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-change'); });
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineViewRefresh('line-border-width-change'); });
     refs.errorBarWidth?.addEventListener('input',()=>{
@@ -16661,16 +16685,17 @@
         queueLineOverlay(overlayReason);
       }
       const runSchedule = () => scheduleLineBase(nextOpts);
-      const shouldDelayForOverlay = lineOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          lineDebug('Debug: line autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame?.(line, 'line', {
-          tabId: nextOpts.tabId || line.__boundTabId || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: line,
+        componentKey: 'line',
+        options: nextOpts,
+        tabId: nextOpts.tabId || line.__boundTabId || null,
+        reason: overlayReason,
+        overlayController: lineOverlayController,
+        delayForOverlay: !nextOpts.viewOnly,
+        debugLog: lineDebug,
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();
@@ -17533,7 +17558,6 @@
     }
 
     setValue(refs.dotSize, 'dotSize');
-    setValue(refs.fill, 'fill');
     setValue(refs.border, 'border');
     setValue(refs.borderWidth, 'borderWidth');
     setValue(refs.errorBarWidth, 'errorBarWidth');

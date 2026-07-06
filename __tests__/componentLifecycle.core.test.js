@@ -1455,6 +1455,115 @@ describe('componentLifecycle — draw scheduling helpers', () => {
       { pointCount: 100000, pointThreshold: 1200, largeViewMs: 50, defaultMs: 80 }
     )).toBe(50);
   });
+
+  test('scheduleDrawWithCooldown coalesces pending options through session runtime callbacks', () => {
+    let runtime = { lastDrawAt: lc.nowMs(), pendingOptions: null, cooldownTimer: null };
+    let scheduledCallback = null;
+    const run = jest.fn();
+    const updateRuntime = mutator => {
+      mutator(runtime);
+    };
+    const scheduled = lc.scheduleDrawWithCooldown({
+      options: { viewOnly: true, reason: 'resize', resizePhase: 'end' },
+      runtime,
+      cooldownMs: 50,
+      updateRuntime,
+      getRuntime: () => runtime,
+      scheduleTimeout: (_label, callback) => {
+        scheduledCallback = callback;
+        return 'timer-1';
+      },
+      run
+    });
+
+    expect(scheduled).toBe(true);
+    expect(runtime.cooldownTimer).toBe('timer-1');
+    expect(runtime.pendingOptions.reason).toBe('resize');
+    scheduledCallback();
+    expect(runtime.cooldownTimer).toBeNull();
+    expect(runtime.pendingOptions).toBeNull();
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ resizePhase: 'end' }));
+  });
+
+  test('scheduleDrawWithCooldown runs immediately when timeout scheduling fails', () => {
+    let runtime = { lastDrawAt: lc.nowMs(), pendingOptions: null, cooldownTimer: null };
+    const run = jest.fn();
+    const updateRuntime = mutator => {
+      mutator(runtime);
+    };
+    const scheduled = lc.scheduleDrawWithCooldown({
+      options: { viewOnly: true, reason: 'resize', resizePhase: 'end' },
+      runtime,
+      cooldownMs: 50,
+      updateRuntime,
+      getRuntime: () => runtime,
+      scheduleTimeout: () => null,
+      run
+    });
+
+    expect(scheduled).toBe(true);
+    expect(runtime.cooldownTimer).toBeNull();
+    expect(runtime.pendingOptions).toBeNull();
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ resizePhase: 'end' }));
+  });
+
+  test('scheduleDrawWithCooldown treats numeric zero as an existing timer handle', () => {
+    let runtime = { lastDrawAt: lc.nowMs(), pendingOptions: null, cooldownTimer: 0 };
+    const run = jest.fn();
+    const scheduleTimeout = jest.fn();
+    const updateRuntime = mutator => {
+      mutator(runtime);
+    };
+    const scheduled = lc.scheduleDrawWithCooldown({
+      options: { viewOnly: true, reason: 'resize', resizePhase: 'end' },
+      runtime,
+      cooldownMs: 50,
+      updateRuntime,
+      getRuntime: () => runtime,
+      scheduleTimeout,
+      run
+    });
+
+    expect(scheduled).toBe(true);
+    expect(runtime.cooldownTimer).toBe(0);
+    expect(scheduleTimeout).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  test('runDrawWithOverlayPaintGate treats numeric zero as a valid frame handle', () => {
+    const run = jest.fn();
+    const handled = lc.runDrawWithOverlayPaintGate({
+      componentKey: 'test',
+      reason: 'manual-render',
+      overlayController: { isActive: () => true },
+      delayForOverlay: true,
+      scheduleFrame: () => 0,
+      run
+    });
+
+    expect(handled).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  test('runDrawWithOverlayPaintGate uses owner-scoped frame when overlay is active', () => {
+    const run = jest.fn();
+    const frame = jest.fn(callback => {
+      callback();
+      return 'raf-1';
+    });
+    const handled = lc.runDrawWithOverlayPaintGate({
+      componentKey: 'test',
+      reason: 'manual-render',
+      overlayController: { isActive: () => true },
+      delayForOverlay: true,
+      scheduleFrame: frame,
+      run
+    });
+
+    expect(handled).toBe(true);
+    expect(frame).toHaveBeenCalled();
+    expect(run).toHaveBeenCalled();
+  });
 });
 
 

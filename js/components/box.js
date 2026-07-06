@@ -39571,58 +39571,40 @@ Technical analysis record (advanced)
       };
       const scheduleSession = resolveBoxInvocationSession(nextOpts).session || getActiveBoxSessionForState();
       const drawRuntime = getBoxDrawRuntime(scheduleSession);
-      if(!nextOpts.force && drawRuntime.lastDrawAt){
-        const now = (global.performance && typeof global.performance.now === 'function')
-          ? global.performance.now()
-          : Date.now();
+      if(drawRuntime.lastDrawAt){
         const cachedPointCount = countCachedBoxPoints();
-        const cooldownMs = Shared.componentLifecycle?.resolveDrawCooldownMs
-          ? Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
-              pointCount: cachedPointCount,
-              pointThreshold: BOX_POINT_CANVAS_THRESHOLD,
-              largeViewMs: 50,
-              defaultMs: 80,
-              resizeLiveMs: 0
-            })
-          : (nextOpts.viewOnly
-            ? (nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move')
-              ? 0
-              : (cachedPointCount >= BOX_POINT_CANVAS_THRESHOLD ? 50 : 0))
-            : 80);
-        const elapsed = now - drawRuntime.lastDrawAt;
-        if(cooldownMs > 0 && elapsed < cooldownMs){
-          updateBoxDrawRuntime(scheduleSession, runtime => {
-            runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, nextOpts);
-          });
-          const latestRuntime = getBoxDrawRuntime(scheduleSession);
-          if(!latestRuntime.cooldownTimer){
-            const wait = Math.max(0, cooldownMs - elapsed);
-            const cooldownTimer = scheduleBoxAsyncTimeout('box-draw-cooldown', () => {
-              let pending = null;
-              updateBoxDrawRuntime(scheduleSession, runtime => {
-                runtime.cooldownTimer = null;
-                pending = runtime.pendingOptions;
-                runtime.pendingOptions = null;
-              });
-              runSchedule(pending || nextOpts);
-            }, wait, nextOpts);
-            updateBoxDrawRuntime(scheduleSession, runtime => {
-              runtime.cooldownTimer = cooldownTimer;
-            });
-          }
+        const cooldownMs = Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
+          pointCount: cachedPointCount,
+          pointThreshold: BOX_POINT_CANVAS_THRESHOLD,
+          largeViewMs: 50,
+          defaultMs: 80,
+          resizeLiveMs: 0
+        });
+        if(Shared.componentLifecycle.scheduleDrawWithCooldown({
+          options: nextOpts,
+          runtime: drawRuntime,
+          cooldownMs,
+          updateRuntime: mutator => updateBoxDrawRuntime(scheduleSession, mutator),
+          getRuntime: () => getBoxDrawRuntime(scheduleSession),
+          mergeOptions: mergeBoxDrawOptions,
+          scheduleTimeout: scheduleBoxAsyncTimeout,
+          timeoutLabel: 'box-draw-cooldown',
+          run: runSchedule
+        })){
           return;
         }
       }
-      const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !suppressOverlay;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          boxDebug('Debug: box draw deferred for overlay',{ reason: overlayReason });
-          runSchedule(nextOpts);
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame?.(box, 'box', {
-          tabId: nextOpts.tabId || box.__boundTabId || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: box,
+        componentKey: 'box',
+        options: nextOpts,
+        tabId: nextOpts.tabId || box.__boundTabId || null,
+        reason: overlayReason,
+        overlayController: boxOverlayController,
+        delayForOverlay: !suppressOverlay,
+        debugLog: boxDebug,
+        run: () => runSchedule(nextOpts)
+      })){
         return;
       }
       runSchedule(nextOpts);

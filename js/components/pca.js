@@ -13851,16 +13851,21 @@
         queuePcaOverlay(overlayReason);
       }
       const runSchedule = () => schedulePcaBase(nextOpts);
-      const shouldDelayForOverlay = pcaOverlayController?.isActive?.() && !suppressOverlay && nextOpts.force !== true;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          debugLog('Debug: pca autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        schedulePcaScopedFrame({
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: pca,
+        componentKey: 'pca',
+        options: nextOpts,
+        tabId: nextOpts.tabId || resolvePcaAsyncTabId(nextOpts) || pca.__boundTabId || null,
+        reason: overlayReason,
+        overlayController: pcaOverlayController,
+        delayForOverlay: !suppressOverlay && nextOpts.force !== true,
+        debugLog,
+        scheduleFrame: callback => schedulePcaScopedFrame({
           ...(nextOpts || {}),
           reason: `${overlayReason}-overlay-frame`
-        }, scheduleAfterPaint);
+        }, callback),
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();

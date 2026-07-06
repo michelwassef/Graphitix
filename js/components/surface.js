@@ -4053,16 +4053,17 @@
         queueSurfaceOverlay(overlayReason);
       }
       const runSchedule = () => scheduleSurfaceDrawBase(nextOpts);
-      const shouldDelayForOverlay = surfaceOverlayController?.isActive?.() && !suppressOverlay;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          debugLog('Debug: surface autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame?.(surface, 'surface', {
-          tabId: nextOpts.tabId || surface.__boundTabId || null,
-          reason: overlayReason
-        }, scheduleAfterPaint);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: surface,
+        componentKey: 'surface',
+        options: nextOpts,
+        tabId: nextOpts.tabId || surface.__boundTabId || null,
+        reason: overlayReason,
+        overlayController: surfaceOverlayController,
+        delayForOverlay: !suppressOverlay,
+        debugLog,
+        run: runSchedule
+      })){
         return;
       }
       runSchedule();

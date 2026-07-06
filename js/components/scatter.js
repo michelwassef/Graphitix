@@ -25693,78 +25693,59 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
           scheduleScatterBase(guarded);
         };
         const runtimeForCooldown = getScatterDrawRuntime(scheduleSession);
-        if(!nextOpts.force && runtimeForCooldown.lastDrawAt){
-          const now = (global.performance && typeof global.performance.now === 'function')
-            ? global.performance.now()
-            : Date.now();
+        if(runtimeForCooldown.lastDrawAt){
           const latestRenderRuntime = getScatterRenderRuntime(scheduleSession);
           const cachedPointCount = Array.isArray(latestRenderRuntime?.cachedCollect?.points)
             ? latestRenderRuntime.cachedCollect.points.length
             : 0;
-          const cooldownMs = Shared.componentLifecycle?.resolveDrawCooldownMs
-            ? Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
-                pointCount: cachedPointCount,
-                pointThreshold: SCATTER_POINT_BATCH_THRESHOLD,
-                largeViewMs: 50,
-                defaultMs: 80,
-                resizeLiveMs: 0
-              })
-            : (nextOpts.viewOnly
-              ? (nextOpts.reason === 'resize' && (nextOpts.resizePhase === 'start' || nextOpts.resizePhase === 'move')
-                ? 0
-                : (cachedPointCount >= SCATTER_POINT_BATCH_THRESHOLD ? 50 : 0))
-              : 80);
-          const elapsed = now - runtimeForCooldown.lastDrawAt;
-          if(cooldownMs > 0 && elapsed < cooldownMs){
-            updateScatterDrawRuntime(scheduleSession, runtime => {
-              runtime.pendingOptions = mergeScatterDrawOptions(runtime.pendingOptions, nextOpts);
-            });
-            const latestRuntime = getScatterDrawRuntime(scheduleSession);
-            if(!latestRuntime.cooldownTimer){
-              const wait = Math.max(0, cooldownMs - elapsed);
-              const cooldownTimer = scheduleScatterAsyncTimeout('scatter-draw-cooldown', () => {
-                let pending = null;
-                updateScatterDrawRuntime(scheduleSession, runtime => {
-                  runtime.cooldownTimer = null;
-                  if(drawQueueEpoch !== (Number(runtime.queueEpoch) || 0)){
-                    runtime.pendingOptions = null;
-                    scatterDebug('Debug: scatter draw cooldown skipped (stale draw queue epoch)', {
-                      reason: nextOpts.reason || null,
-                      queuedEpoch: drawQueueEpoch,
-                      currentEpoch: runtime.queueEpoch || 0
-                    });
-                    return;
-                  }
-                  pending = runtime.pendingOptions;
-                  runtime.pendingOptions = null;
+          const cooldownMs = Shared.componentLifecycle.resolveDrawCooldownMs(nextOpts, {
+            pointCount: cachedPointCount,
+            pointThreshold: SCATTER_POINT_BATCH_THRESHOLD,
+            largeViewMs: 50,
+            defaultMs: 80,
+            resizeLiveMs: 0
+          });
+          if(Shared.componentLifecycle.scheduleDrawWithCooldown({
+            options: nextOpts,
+            runtime: runtimeForCooldown,
+            cooldownMs,
+            updateRuntime: mutator => updateScatterDrawRuntime(scheduleSession, mutator),
+            getRuntime: () => getScatterDrawRuntime(scheduleSession),
+            mergeOptions: mergeScatterDrawOptions,
+            scheduleTimeout: scheduleScatterAsyncTimeout,
+            timeoutLabel: 'scatter-draw-cooldown',
+            isCurrent: runtime => {
+              const current = drawQueueEpoch === (Number(runtime.queueEpoch) || 0);
+              if(!current){
+                scatterDebug('Debug: scatter draw cooldown skipped (stale draw queue epoch)', {
+                  reason: nextOpts.reason || null,
+                  queuedEpoch: drawQueueEpoch,
+                  currentEpoch: runtime.queueEpoch || 0
                 });
-                if(drawQueueEpoch !== (Number(getScatterDrawRuntime(scheduleSession)?.queueEpoch) || 0)){
-                  return;
-                }
-                runSchedule(pending || nextOpts);
-              }, wait, nextOpts);
-              updateScatterDrawRuntime(scheduleSession, runtime => {
-                runtime.cooldownTimer = cooldownTimer;
-              });
+              }
+              return current;
+            },
+            run: runOpts => {
+              if(drawQueueEpoch === (Number(getScatterDrawRuntime(scheduleSession)?.queueEpoch) || 0)){
+                runSchedule(runOpts);
+              }
             }
+          })){
             return;
           }
         }
-        const shouldDelayForOverlay = scatterOverlayController?.isActive?.() && !nextOpts.viewOnly;
-        if(shouldDelayForOverlay){
-          const raf = typeof global.requestAnimationFrame === 'function'
-            ? global.requestAnimationFrame.bind(global)
-            : cb => global.setTimeout(cb, 0);
-          const scheduleAfterPaint = () => {
-            raf(() => {
-              scatterDebug('Debug: scatter autoDraw deferred for overlay paint',{ reason: overlayReason });
-              runSchedule(nextOpts);
-            });
-          };
-          Shared.componentLifecycle?.scheduleComponentFrame?.(scatter, 'scatter', {
-            tabId: nextOpts.tabId || scatter.__boundTabId || null,
-            reason: overlayReason
-          }, scheduleAfterPaint);
+        if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+          component: scatter,
+          componentKey: 'scatter',
+          options: nextOpts,
+          tabId: nextOpts.tabId || scatter.__boundTabId || null,
+          reason: overlayReason,
+          overlayController: scatterOverlayController,
+          delayForOverlay: !nextOpts.viewOnly,
+          extraAnimationFrame: true,
+          debugLog: scatterDebug,
+          run: () => runSchedule(nextOpts)
+        })){
           return;
         }
         runSchedule(nextOpts);
