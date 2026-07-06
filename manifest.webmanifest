@@ -1,0 +1,18 @@
+{
+  "name": "Graphitix",
+  "short_name": "Graphitix",
+  "description": "Browser-based scientific plotting and statistics for publication-ready figures.",
+  "start_url": "/Graphitix/",
+  "scope": "/Graphitix/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1e88e5",
+  "icons": [
+    {
+      "src": "assets/graphitix-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

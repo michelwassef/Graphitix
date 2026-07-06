@@ -2062,8 +2062,25 @@ select {
     position: relative;
 }
 
-.welcome-screen:not([data-welcome-ready="true"]) {
-    visibility: hidden;
+
+.welcome-noscript {
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    padding: 18px;
+    color: #0f172a;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.welcome-noscript h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+}
+
+.welcome-noscript p {
+    margin: 0;
+    color: #475569;
+    font-size: 13.5px;
+    line-height: 1.45;
 }
 
 .welcome-container {

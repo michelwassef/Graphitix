@@ -3,11 +3,137 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Graphitix</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2064%2064%22%3E%3Crect%20width=%2264%22%20height=%2264%22%20rx=%2212%22%20ry=%2212%22%20fill=%22%231e88e5%22/%3E%3Ctext%20x=%2250%25%22%20y=%2256%25%22%20font-family=%22Arial,%20sans-serif%22%20font-size=%2236%22%20text-anchor=%22middle%22%20fill=%22white%22%3EG%3C/text%3E%3C/svg%3E" />
+  <title>Graphitix | Scientific graphing, statistics, and publication-ready figures</title>
+  <meta name="description" content="Graphitix is a browser-based scientific plotting and statistics application for publication-ready graphs, statistical reports, and reusable multi-tab workspaces." />
+  <meta name="keywords" content="Graphitix, scientific graphing, statistics software, publication-ready figures, data visualization, box plot, scatter plot, heatmap, PCA, ROC curve, survival analysis, Venn diagram, UpSet plot" />
+  <meta name="author" content="Graphitix" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="application-name" content="Graphitix" />
+  <meta name="theme-color" content="#1e88e5" />
+  <meta name="color-scheme" content="light" />
+  <link rel="canonical" href="https://michelwassef.github.io/Graphitix/" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="assets/graphitix-icon.svg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Graphitix" />
+  <meta property="og:title" content="Graphitix | Scientific graphing and statistics" />
+  <meta property="og:description" content="Create publication-ready scientific graphs, statistical reports, and reusable multi-tab workspaces directly in the browser." />
+  <meta property="og:url" content="https://michelwassef.github.io/Graphitix/" />
+  <meta property="og:image" content="https://michelwassef.github.io/Graphitix/assets/graphitix-preview.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Graphitix | Scientific graphing and statistics" />
+  <meta name="twitter:description" content="Create publication-ready scientific graphs, statistical reports, and reusable multi-tab workspaces directly in the browser." />
+  <meta name="twitter:image" content="https://michelwassef.github.io/Graphitix/assets/graphitix-preview.png" />
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-grid.css">
-  <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-theme-balham.css">
+  <link rel="preload" href="node_modules/ag-grid-community/styles/ag-grid.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" href="node_modules/ag-grid-community/styles/ag-theme-balham.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript>
+    <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-grid.css" />
+    <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-theme-balham.css" />
+  </noscript>
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Graphitix",
+  "url": "https://michelwassef.github.io/Graphitix/",
+  "description": "Graphitix is a browser-based scientific plotting and statistics application for publication-ready graphs, statistical reports, and reusable multi-tab workspaces.",
+  "applicationCategory": "Scientific graphing and statistics software",
+  "operatingSystem": "Any modern web browser",
+  "browserRequirements": "Requires JavaScript and a modern browser with SVG support.",
+  "isAccessibleForFree": true,
+  "license": "https://opensource.org/licenses/MIT",
+  "featureList": [
+    "Publication-ready scientific graphs",
+    "Box plots, scatter plots, line charts, histograms, heatmaps, PCA, ROC, survival, pie, Venn, UpSet, and 3D surface plots",
+    "Built-in statistical analyses and reports",
+    "CSV, TSV, Excel, ODS, Prism/PZFX, and Graphitix archive import",
+    "SVG and PNG export",
+    "Reusable multi-tab .graph workspaces"
+  ]
+}
+  </script>
+  <script defer src="node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+  <script defer src="node_modules/jstat/dist/jstat.min.js"></script>
+  <script defer src="js/vendor.js"></script>
+  <script defer src="js/shared/loaders.js"></script>
+  <script defer src="js/shared/palette.js"></script>
+  <script defer src="js/shared/theme/themeCatalog.js"></script>
+  <script defer src="js/shared/theme/themeCompiler.js"></script>
+  <script defer src="js/shared/theme/themeRuntime.js"></script>
+  <script defer src="js/shared/theme/themeAdapters.js"></script>
+  <script defer src="js/shared/colorSchemes.js"></script>
+  <script defer src="js/shared/publicationStyles.js"></script>
+  <script defer src="js/shared/fileIO.js"></script>
+  <script defer src="js/shared/graphArchiveSchema.js"></script>
+  <script defer src="js/shared/graphArchive.js"></script>
+  <script defer src="js/shared/debounce.js"></script>
+  <script defer src="js/shared/performance.js"></script>
+  <script defer src="js/shared/workers.js"></script>
+  <script defer src="js/shared/jobs.js"></script>
+  <script defer src="js/shared/dataPipeline.js"></script>
+  <script defer src="js/shared/dataTransforms.js"></script>
+  <script defer src="js/shared/dataViews.js"></script>
+  <script defer src="js/shared/workspaceTabs.js"></script>
+  <script defer src="js/shared/tabContext.js"></script>
+  <script defer src="js/shared/componentLifecycle.js"></script>
+  <script defer src="js/shared/selection.js"></script>
+  <script defer src="js/shared/undo.js"></script>
+  <script defer src="js/shared/resizer.js"></script>
+  <script defer src="js/shared/dom.js"></script>
+  <script defer src="js/shared/notes.js"></script>
+  <script defer src="js/shared/exporter.js"></script>
+  <script defer src="js/shared/chartStyle.js"></script>
+  <script defer src="js/shared/plot3d.js"></script>
+  <script defer src="js/shared/graphSizing.js"></script>
+  <script defer src="js/shared/regression.js"></script>
+  <script defer src="js/shared/stats.js"></script>
+  <script defer src="js/shared/boxStatsModel.js"></script>
+  <script defer src="js/shared/stats-table.js"></script>
+  <script defer src="js/shared/colorPicker.js"></script>
+  <script defer src="js/shared/workspaceToolbarAccess.js"></script>
+  <script defer src="js/shared/workspaceToolbar.js"></script>
+  <script defer src="js/shared/styleUndo.js"></script>
+  <script defer src="js/shared/symbolToolbar.js"></script>
+  <script defer src="js/shared/editHighlight.js"></script>
+  <script defer src="js/shared/axisControls.js"></script>
+  <script defer src="js/shared/additionalLineControls.js"></script>
+  <script defer src="js/shared/gridControls.js"></script>
+  <script defer src="js/shared/dendrogramControls.js"></script>
+  <script defer src="js/shared/significanceControls.js"></script>
+  <script defer src="js/shared/fontControls.js"></script>
+  <script defer src="js/shared/formControls.js"></script>
+  <script defer src="js/shared/agGridAdapter.js"></script>
+  <script defer src="js/shared/hot.js"></script>
+  <script defer src="js/shared/formulaEngine.js"></script>
+  <script defer src="js/shared/componentLayout.js"></script>
+  <script defer src="js/shared/loadingOverlay.js"></script>
+  <script defer src="js/shared/tableImport.js"></script>
+  <script defer src="js/shared/uniprot.js"></script>
+  <script defer src="js/shared/goAnalysis.js"></script>
+  <script defer src="js/shared/stringAnalysis.js"></script>
+  <script defer src="js/main/components.js"></script>
+  <script defer src="js/main/session.js"></script>
+  <script defer src="js/main/snapshotPolicy.js"></script>
+  <script defer src="js/main/domControls.js"></script>
+  <script defer src="js/main/sessionActions.js"></script>
+  <script defer src="js/main/documentState.js"></script>
+  <script defer src="js/main/desktopCommands.js"></script>
+  <script defer src="js/main/styleSync.js"></script>
+  <script defer src="js/main/graphVariants.js"></script>
+  <script defer src="js/main/tabDrag.js"></script>
+  <script defer src="js/main/previews.js"></script>
+  <script defer src="js/main/bootstrap.js"></script>
+  <script defer src="js/main/tabs/render.js"></script>
+  <script defer src="js/main/tabs/unsavedPrompt.js"></script>
+  <script defer src="js/main/tabs/duplicatePrompt.js"></script>
+  <script defer src="js/main/tabs.js"></script>
+  <script defer src="js/main.js"></script>
 </head>
 <body>
   <div id="appShell">
@@ -15,7 +141,7 @@
       <section id="welcomeScreen" class="welcome-screen" aria-label="Visualization selection">
         <div class="welcome-container">
           <div class="welcome-hero">
-            <h2 class="welcome-hero__title">Graphitix — Create publication-ready visualizations and statistical analyses</h2>
+            <h1 class="welcome-hero__title">Graphitix — Create publication-ready visualizations and statistical analyses</h1>
             <p class="welcome-hero__subtitle">Start with a blank graph, load an example instantly, or open a file.</p>
             <div class="welcome-hero__actions">
               <button type="button" class="welcome-hero__action welcome-hero__action--primary" id="welcomeOpenButton" aria-label="Open file">
@@ -51,8 +177,260 @@
             </div>
           </div>
           <div id="graphSelectionGrid" class="selection-grid" role="list" data-categorized="true">
-            <!-- Graph cards are dynamically generated by JavaScript from js/main/bootstrap.js -->
+              <article class="graph-card" role="listitem" data-graph-type="box">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <g class="welcome-icon__primary" style="stroke-width:0.85; stroke-linecap:butt; stroke-linejoin:miter; shape-rendering:crispEdges;">
+        <path d="M16 16V34 M13.5 16H18.5 M13.5 34H18.5" />
+        <rect class="welcome-icon__box" x="13.5" y="22" width="5" height="8" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M13.5 26H18.5" stroke="#ffffff" />
+
+        <path d="M25 13V34 M22.5 13H27.5 M22.5 34H27.5" />
+        <rect class="welcome-icon__box" x="22.5" y="19" width="5" height="10" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M22.5 24H27.5" stroke="#ffffff" />
+
+        <path d="M34 19V34 M31.5 19H36.5 M31.5 34H36.5" />
+        <rect class="welcome-icon__box" x="31.5" y="24" width="5" height="7" fill="#6d28d9" style="stroke-width:0.85; stroke-linejoin:miter; shape-rendering:crispEdges;" />
+        <path d="M31.5 27.5H36.5" stroke="#ffffff" />
+      </g>
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Group comparisons</span>
+                    <h3 class="graph-card__title">Distribution Charts</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Distribution Charts">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Distribution Charts">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="scatter">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__guide" d="M14.5 32L37.5 15" />
+      <g class="welcome-icon__points">
+        <circle cx="16.8" cy="30.9" r="1.55" />
+        <circle cx="20.2" cy="28.0" r="1.55" />
+        <circle cx="23.8" cy="24.0" r="1.55" />
+        <circle cx="27.8" cy="20.4" r="1.55" />
+        <circle cx="32.4" cy="16.6" r="1.55" />
+        <circle cx="19.0" cy="31.8" r="1.55" />
+        <circle cx="24.8" cy="27.8" r="1.55" />
+        <circle cx="29.8" cy="24.6" r="1.55" />
+        <circle cx="34.8" cy="22.1" r="1.55" />
+      </g>
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Correlation &amp; expression</span>
+                    <h3 class="graph-card__title">XY Plots</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New XY Plots">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example XY Plots">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="line">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__area" d="M11 35L17 30L23 27L29 20L35 17L40 12V38H11Z" />
+      <path class="welcome-icon__primary" d="M11 35L17 30L23 27L29 20L35 17L40 12" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Trends &amp; forecasting</span>
+                    <h3 class="graph-card__title">Line &amp; Area Charts</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Line &amp; Area Charts">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Line &amp; Area Charts">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="hist">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <g class="welcome-icon__bars">
+        <rect x="14" y="28.5" width="4" height="9.5" />
+        <rect x="19" y="22.5" width="4" height="15.5" />
+        <rect x="24" y="17" width="4" height="21" />
+        <rect x="29" y="20" width="4" height="18" />
+        <rect x="34" y="26.5" width="4" height="11.5" />
+      </g>
+      <path class="welcome-icon__density" d="M13.5 31.5C17.2 24.5 21.2 18 26 18C30.8 18 34.2 24 38.5 31.5" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Frequency distribution</span>
+                    <h3 class="graph-card__title">Histogram / Density Plot</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Summarize univariate distributions with adjustable binning, density plots, PDF/CDF overlays, and distribution fits.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Histogram / Density Plot">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Histogram / Density Plot">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="heatmap">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__dendrogram" d="M10 23.5H13 M13 17V30 M13 17H18 M13 30H18 M18 14V20 M18 27V33 M18 14H23 M18 20H23 M18 27H23 M18 33H23" />
+      <g class="welcome-icon__heatmap-grid">
+        <rect class="welcome-icon__heat-1" x="25" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-2" x="31" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="37" y="11.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-2" x="25" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="31" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="37" y="17.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-3" x="25" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="31" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-5" x="37" y="23.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-4" x="25" y="29.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-5" x="31" y="29.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-6" x="37" y="29.5" width="4.5" height="4.5" />
+      </g>
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Matrix view</span>
+                    <h3 class="graph-card__title">Heatmap &amp; Clustering</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Visualize data values or correlation matrices with hierarchical clustering and dendrograms.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Heatmap &amp; Clustering">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Heatmap &amp; Clustering">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="pca">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <ellipse class="welcome-icon__cluster-a" cx="20.5" cy="29" rx="7.2" ry="4.7" transform="rotate(-22 20.5 29)" />
+      <ellipse class="welcome-icon__cluster-b" cx="33.2" cy="19" rx="6.3" ry="4.3" transform="rotate(18 33.2 19)" />
+      <g class="welcome-icon__points">
+        <circle cx="16.8" cy="31.2" r="1.4" />
+        <circle cx="20.6" cy="27.6" r="1.4" />
+        <circle cx="24.1" cy="30.1" r="1.4" />
+        <circle cx="30.3" cy="18.8" r="1.4" />
+        <circle cx="34.4" cy="17.2" r="1.4" />
+        <circle cx="35.8" cy="22.2" r="1.4" />
+      </g>
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">PCA / MDS / t-SNE / UMAP</span>
+                    <h3 class="graph-card__title">Dimensionality Reduction</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Dimensionality Reduction">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Dimensionality Reduction">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="pie">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <circle class="welcome-icon__donut-track" cx="24" cy="24" r="13" />
+      <circle class="welcome-icon__donut-a" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-b" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-c" cx="24" cy="24" r="13" pathLength="100" />
+      <circle class="welcome-icon__donut-hole" cx="24" cy="24" r="6" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Category proportions</span>
+                    <h3 class="graph-card__title">Pie, Donut &amp; Stacked Bar</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Visualize category proportions as pie charts, donuts, or stacked bars with Chi-square tests.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Pie, Donut &amp; Stacked Bar">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Pie, Donut &amp; Stacked Bar">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="roc">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__diagonal" d="M10 38.5L40 10" />
+      <path class="welcome-icon__primary" d="M10 38.5C12 31 16 23 23 18C29 13.5 35 12 40 11" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">ROC &amp; precision-recall</span>
+                    <h3 class="graph-card__title">Classification Curves</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Classification Curves">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Classification Curves">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="survival">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
+      <path class="welcome-icon__survival-a" d="M12 13H22V17H29V22H35V31H39" />
+      <path class="welcome-icon__survival-b" d="M12 15H16V20H19V24H23V29H26V34H30V38H33" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Time-to-event analysis</span>
+                    <h3 class="graph-card__title">Survival Analysis</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Build Kaplan-Meier curves with confidence intervals, log-rank tests, and Cox regression.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Survival Analysis">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Survival Analysis">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="venn">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <circle class="welcome-icon__venn-a" cx="21" cy="24" r="10" />
+      <circle class="welcome-icon__venn-b" cx="29" cy="24" r="10" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">Set comparisons</span>
+                    <h3 class="graph-card__title">Venn Diagram / UpSet Plot</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Visualize set overlaps as Venn diagrams or UpSet plots with region statistics, GO enrichment, and STRING network analysis.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New Venn Diagram / UpSet Plot">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example Venn Diagram / UpSet Plot">Load example</button>
+                </div>
+              </article>
+              <article class="graph-card" role="listitem" data-graph-type="surface">
+                <div class="graph-card__main">
+                  <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+      <path class="welcome-icon__surface-back" d="M10.5 29.5L20 21L35 24.5L40.5 17" />
+      <path class="welcome-icon__surface-grid" d="M10.5 29.5L18 37L33 33.5L40.5 25.5 M20 21L18 37 M27.5 22.8L25.5 35.2 M35 24.5L33 33.5 M40.5 17L40.5 25.5" />
+      <path class="welcome-icon__surface-grid" d="M14.2 26.3L22.2 32.4L37 29 M17.2 23.7L25.4 29.1L40 24.8" />
+      <path class="welcome-icon__surface-ridge" d="M10.5 29.5C15.4 24.1 20 21.6 25.8 23.6C31.2 25.5 35.8 22.9 40.5 17" />
+    </svg></div>
+                  <div class="graph-card__content">
+                    <span class="graph-card__hint">3D visualization</span>
+                    <h3 class="graph-card__title">3D Surface Plot</h3>
+                  </div>
+                </div>
+                <p class="graph-card__description">Render 3D surfaces from X/Y/Z data with rotation, grid interpolation, and color ramps.</p>
+                <div class="graph-card__actions">
+                  <button type="button" class="graph-card__action graph-card__action--new" data-welcome-action="new" aria-label="New 3D Surface Plot">New</button>
+                  <button type="button" class="graph-card__action graph-card__action--example" data-welcome-action="example" aria-label="Load example 3D Surface Plot">Load example</button>
+                </div>
+              </article>
           </div>
+          <noscript>
+            <section class="welcome-noscript" aria-label="Graphitix overview">
+              <h2>Graphitix requires JavaScript</h2>
+              <p>Graphitix is a browser-based scientific plotting and statistics application. Enable JavaScript to create publication-ready graphs, run analyses, import data files, export SVG or PNG figures, and save reusable .graph workspaces.</p>
+            </section>
+          </noscript>
         </div>
       </section>
       <section id="workspacePages" class="workspace-pages">
@@ -2098,83 +2476,5 @@
       </div>
     </div>
   </div>
-
-  <!-- Scripts -->
-  <script src="node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
-  <script src="node_modules/jstat/dist/jstat.min.js"></script>
-  <script src="js/vendor.js"></script>
-  <script src="js/shared/loaders.js"></script>
-  <script src="js/shared/palette.js"></script>
-  <script src="js/shared/theme/themeCatalog.js"></script>
-  <script src="js/shared/theme/themeCompiler.js"></script>
-  <script src="js/shared/theme/themeRuntime.js"></script>
-  <script src="js/shared/theme/themeAdapters.js"></script>
-  <script src="js/shared/colorSchemes.js"></script>
-  <script src="js/shared/publicationStyles.js"></script>
-  <script src="js/shared/fileIO.js"></script>
-  <script src="js/shared/graphArchiveSchema.js"></script>
-  <script src="js/shared/graphArchive.js"></script>
-  <script src="js/shared/debounce.js"></script>
-  <script src="js/shared/performance.js"></script>
-  <script src="js/shared/workers.js"></script>
-  <script src="js/shared/jobs.js"></script>
-  <script src="js/shared/dataPipeline.js"></script>
-  <script src="js/shared/dataTransforms.js"></script>
-  <script src="js/shared/dataViews.js"></script>
-  <script src="js/shared/workspaceTabs.js"></script>
-  <script src="js/shared/tabContext.js"></script>
-  <script src="js/shared/componentLifecycle.js"></script>
-  <script src="js/shared/selection.js"></script>
-  <script src="js/shared/undo.js"></script>
-  <script src="js/shared/resizer.js"></script>
-  <script src="js/shared/dom.js"></script>
-  <script src="js/shared/notes.js"></script>
-  <script src="js/shared/exporter.js"></script>
-  <script src="js/shared/chartStyle.js"></script>
-  <script src="js/shared/plot3d.js"></script>
-  <script src="js/shared/graphSizing.js"></script>
-  <script src="js/shared/regression.js"></script>
-  <script src="js/shared/stats.js"></script>
-  <script src="js/shared/boxStatsModel.js"></script>
-  <script src="js/shared/stats-table.js"></script>
-  <script src="js/shared/colorPicker.js"></script>
-  <script src="js/shared/workspaceToolbarAccess.js"></script>
-  <script src="js/shared/workspaceToolbar.js"></script>
-  <script src="js/shared/styleUndo.js"></script>
-  <script src="js/shared/symbolToolbar.js"></script>
-  <script src="js/shared/editHighlight.js"></script>
-  <script src="js/shared/axisControls.js"></script>
-  <script src="js/shared/additionalLineControls.js"></script>
-  <script src="js/shared/gridControls.js"></script>
-  <script src="js/shared/dendrogramControls.js"></script>
-  <script src="js/shared/significanceControls.js"></script>
-  <script src="js/shared/fontControls.js"></script>
-  <script src="js/shared/formControls.js"></script>
-  <script src="js/shared/agGridAdapter.js"></script>
-  <script src="js/shared/hot.js"></script>
-  <script src="js/shared/formulaEngine.js"></script>
-  <script src="js/shared/componentLayout.js"></script>
-  <script src="js/shared/loadingOverlay.js"></script>
-  <script src="js/shared/tableImport.js"></script>
-  <script src="js/shared/uniprot.js"></script>
-  <script src="js/shared/goAnalysis.js"></script>
-  <script src="js/shared/stringAnalysis.js"></script>
-  <script src="js/main/components.js"></script>
-  <script src="js/main/session.js"></script>
-  <script src="js/main/snapshotPolicy.js"></script>
-  <script src="js/main/domControls.js"></script>
-  <script src="js/main/sessionActions.js"></script>
-  <script src="js/main/documentState.js"></script>
-  <script src="js/main/desktopCommands.js"></script>
-  <script src="js/main/styleSync.js"></script>
-  <script src="js/main/graphVariants.js"></script>
-  <script src="js/main/tabDrag.js"></script>
-  <script src="js/main/previews.js"></script>
-  <script src="js/main/bootstrap.js"></script>
-  <script src="js/main/tabs/render.js"></script>
-  <script src="js/main/tabs/unsavedPrompt.js"></script>
-  <script src="js/main/tabs/duplicatePrompt.js"></script>
-  <script src="js/main/tabs.js"></script>
-  <script src="js/main.js"></script>
 </body>
 </html>

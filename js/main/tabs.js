@@ -871,12 +871,64 @@
       console.debug('Debug: add tab invoked', { newTabId: newTab.id, duplicateSource: candidateSource });
     }
 
+    function setTextIfDifferent(element, value) {
+      if (element && element.textContent !== value) {
+        element.textContent = value;
+      }
+    }
+
+    function syncGraphCardContent(card, info) {
+      if (!card || !info) return;
+      const icon = card.querySelector('.graph-card__icon');
+      if (icon && !icon.querySelector('.welcome-graph-icon')) {
+        icon.innerHTML = info.icon || DEFAULT_GRAPH_CARD_ICON;
+      }
+      setTextIfDifferent(card.querySelector('.graph-card__hint'), info.hint || 'Workspace');
+      setTextIfDifferent(card.querySelector('.graph-card__title'), info.label || info.type);
+      setTextIfDifferent(card.querySelector('.graph-card__description'), info.description || '');
+    }
+
+    function bindGraphCardActions(card, info) {
+      if (!card || !info?.type || card.dataset.welcomeCardHydrated === 'true') {
+        return false;
+      }
+      card.setAttribute('role', 'listitem');
+      card.dataset.graphType = info.type;
+      syncGraphCardContent(card, info);
+      bindWelcomeGraphPreload(card, info.type, 'welcome-card');
+
+      const newButton = card.querySelector('[data-welcome-action="new"], .graph-card__action--new');
+      if (newButton) {
+        newButton.type = 'button';
+        newButton.dataset.welcomeAction = 'new';
+        newButton.setAttribute('aria-label', `New ${info.label}`);
+        newButton.addEventListener('click', event => {
+          event.preventDefault();
+          console.debug('Debug: welcome new graph requested', { type: info.type });
+          void launchWelcomeGraph(info.type, { reason: 'welcome-card-new' });
+        });
+      }
+
+      const exampleButton = card.querySelector('[data-welcome-action="example"], .graph-card__action--example');
+      if (exampleButton) {
+        exampleButton.type = 'button';
+        exampleButton.dataset.welcomeAction = 'example';
+        exampleButton.setAttribute('aria-label', `Load example ${info.label}`);
+        exampleButton.addEventListener('click', event => {
+          event.preventDefault();
+          console.debug('Debug: welcome example graph requested', { type: info.type });
+          void launchWelcomeGraph(info.type, { loadExample: true, reason: 'welcome-card-load-example' });
+        });
+      }
+
+      card.dataset.welcomeCardHydrated = 'true';
+      return true;
+    }
+
     function createGraphCard(info) {
       const card = document.createElement('article');
       card.className = 'graph-card';
-      card.setAttribute('role', 'listitem');
       card.dataset.graphType = info.type;
-      bindWelcomeGraphPreload(card, info.type, 'welcome-card');
 
       const main = document.createElement('div');
       main.className = 'graph-card__main';
@@ -912,42 +964,54 @@
       actions.className = 'graph-card__actions';
 
       const newButton = document.createElement('button');
-      newButton.type = 'button';
       newButton.className = 'graph-card__action graph-card__action--new';
       newButton.textContent = 'New';
-      newButton.setAttribute('aria-label', `New ${info.label}`);
-      newButton.addEventListener('click', event => {
-        event.preventDefault();
-        console.debug('Debug: welcome new graph requested', { type: info.type });
-        void launchWelcomeGraph(info.type, { reason: 'welcome-card-new' });
-      });
+      newButton.dataset.welcomeAction = 'new';
       actions.appendChild(newButton);
 
       const exampleButton = document.createElement('button');
-      exampleButton.type = 'button';
       exampleButton.className = 'graph-card__action graph-card__action--example';
       exampleButton.textContent = 'Load example';
-      exampleButton.setAttribute('aria-label', `Load example ${info.label}`);
-      exampleButton.addEventListener('click', event => {
-        event.preventDefault();
-        console.debug('Debug: welcome example graph requested', { type: info.type });
-        void launchWelcomeGraph(info.type, { loadExample: true, reason: 'welcome-card-load-example' });
-      });
+      exampleButton.dataset.welcomeAction = 'example';
       actions.appendChild(exampleButton);
 
       card.appendChild(actions);
+      bindGraphCardActions(card, info);
       return card;
     }
 
     function createSelectionCards() {
       if (!dom.selectionGrid) return false;
+      const existingCards = Array.from(dom.selectionGrid.querySelectorAll('.graph-card[data-graph-type]'));
+      const existingByType = new Map(existingCards.map(card => [card.dataset.graphType, card]));
       const fragment = document.createDocumentFragment();
+      let created = 0;
+      let hydrated = 0;
+
       graphTypes.forEach(info => {
+        const existing = existingByType.get(info.type);
+        if (existing) {
+          hydrated += bindGraphCardActions(existing, info) ? 1 : 0;
+          existingByType.delete(info.type);
+          return;
+        }
         fragment.appendChild(createGraphCard(info));
+        created += 1;
       });
-      dom.selectionGrid.innerHTML = '';
-      dom.selectionGrid.appendChild(fragment);
-      console.debug('Debug: selection cards generated', { count: graphTypes.length });
+
+      const removedStale = existingByType.size;
+      existingByType.forEach(card => card.remove());
+      if (fragment.childNodes.length) {
+        dom.selectionGrid.appendChild(fragment);
+      }
+
+      console.debug('Debug: selection cards hydrated', {
+        total: graphTypes.length,
+        preRendered: graphTypes.length - created,
+        hydrated,
+        created,
+        removedStale
+      });
       return true;
     }
 

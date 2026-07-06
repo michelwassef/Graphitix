@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://michelwassef.github.io/Graphitix/sitemap.xml
