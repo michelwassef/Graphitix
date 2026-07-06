@@ -72,9 +72,6 @@ describe('App initialization', () => {
     const overlays = Array.from(document.querySelectorAll('body > .shared-color-picker'));
     expect(overlays.length).toBeGreaterThanOrEqual(1);
 
-    // Chart defaults should be set by main.js
-    expect(global.Chart.defaults.locale).toBe('en-US');
-
     const getConstructedIds = () => (global.__GRID_CALLS__ || [])
       .filter(c => c.type === 'construct')
       .map(c => c.containerId);

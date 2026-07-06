@@ -96,12 +96,6 @@
     };
   }
 
-  Shared.lazyChart = Shared.lazyChart || createScriptLoader({
-    name: 'chart',
-    url: 'https://cdn.jsdelivr.net/npm/chart.js',
-    globalKey: 'Chart'
-  });
-
   Shared.lazySvd = Shared.lazySvd || createScriptLoader({
     name: 'svd',
     url: 'https://cdn.jsdelivr.net/npm/svd-js@1.1.1/build-umd/svd-js.min.js',

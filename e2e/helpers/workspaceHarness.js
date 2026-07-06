@@ -39,11 +39,6 @@ const CDN_OVERRIDE_ENTRIES = [
     match: /\/(?:npm\/)?svd-js@1\.1\.1\/build-umd\/svd-js\.min\.js$/i,
     localPath: path.resolve(__dirname, '../../node_modules/svd-js/build-umd/svd-js.min.js'),
     contentType: 'text/javascript; charset=utf-8'
-  },
-  {
-    match: /\/npm\/chart\.js(?:@[^/]+)?\/?$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/chart.js/dist/chart.umd.js'),
-    contentType: 'text/javascript; charset=utf-8'
   }
 ];
 

@@ -53,15 +53,6 @@ const vendorEntries = [
       ['svd-js', 'build-umd', 'svd-js.min.js'],
       ['svd-js', 'build-umd', 'svd-js.js']
     ]
-  },
-  {
-    id: 'chart.umd.js',
-    target: 'vendor/chart.umd.js',
-    candidates: [
-      ['chart.js', 'dist', 'chart.umd.js'],
-      ['chart.js', 'dist', 'chart.umd.min.js'],
-      ['chart.js', 'dist', 'chart.js']
-    ]
   }
 ];
 const patches = [
@@ -88,12 +79,6 @@ const patches = [
     label: 'index.jstatScript',
     pattern: /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/jstat@[^"]*\/dist\/jstat\.min\.js"[^>]*><\/script>/g,
     replacement: '<script src="vendor/jstat.min.js"></script>'
-  },
-  {
-    file: 'js/shared/loaders.js',
-    label: 'loaders.chart',
-    pattern: /url:\s*'https:\/\/cdn\.jsdelivr\.net\/npm\/chart\.js[^']*'/g,
-    replacement: "url: 'vendor/chart.umd.js'"
   },
   {
     file: 'js/shared/loaders.js',

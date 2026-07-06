@@ -55,7 +55,6 @@
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "ag-grid-community": "^32.3.3",
-    "chart.js": "^4.4.7",
     "jest": "^30.1.3",
     "jest-environment-jsdom": "^30.1.2",
     "jstat": "^1.9.5",

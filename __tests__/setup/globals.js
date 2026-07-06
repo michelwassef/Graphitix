@@ -163,16 +163,6 @@ if(global.HTMLCanvasElement){
   };
 }
 
-// Minimal Chart.js stub to satisfy Chart.defaults and new Chart(...)
-const ChartStub = function Chart(ctx, config) {
-  this.ctx = ctx;
-  this.config = config;
-  this.data = config?.data || {};
-  this.destroy = () => {};
-};
-ChartStub.defaults = { locale: 'en-US' }; // will be reassigned by main.js
-global.Chart = ChartStub;
-
 // Minimal XLSX namespace stub (only accessed dynamically; keep soft)
 global.XLSX = undefined; // main.js loads it dynamically when needed
 
