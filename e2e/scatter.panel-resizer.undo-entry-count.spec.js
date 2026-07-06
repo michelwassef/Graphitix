@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceHarness');
 
 async function dragPanelResizerOnce(page) {
   const handle = page.locator('#scatterPage:not([hidden]) .panel-resizer').first();
@@ -10,7 +10,7 @@ async function dragPanelResizerOnce(page) {
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x + 120, y, { steps: 10 });
+  await page.mouse.move(x - 90, y, { steps: 10 });
   await page.mouse.up();
   await page.waitForTimeout(700);
 }
@@ -22,9 +22,8 @@ test('scatter panel drag records exactly one undo entry per drag', async ({ page
 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
-  await page.locator('#graphSelectionGrid [data-graph-type="scatter"]').first().click({ force: true });
-  await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });
-  await page.locator('#scatterLoadExample').click({ force: true });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await clickExampleButtonIfPresent(page, 'scatterLoadExample');
   await page.waitForTimeout(600);
 
   const activeTabId = await page.evaluate(() => window.Main?.session?.workspaceState?.activeTabId || null);
@@ -41,4 +40,3 @@ test('scatter panel drag records exactly one undo entry per drag', async ({ page
 
   expect(issues.critical).toEqual([]);
 });
-

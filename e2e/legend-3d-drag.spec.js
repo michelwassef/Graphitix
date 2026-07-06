@@ -10,7 +10,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides, registerIssueCollectors } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides, registerIssueCollectors, openComponentFromWelcome, clickExampleButtonIfPresent } = require('./helpers/workspaceHarness');
 
 // Simulate dragging a legend starting from a child element (closest to real user behavior)
 async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX = 70, deltaY = 35 }) {
@@ -75,6 +75,7 @@ async function dragLegendFromChild(page, { svgId, startFromChild = true, deltaX 
 
 test.describe('3D legend drag', () => {
   test('PCA 3D: legend drags from child element and position persists after re-render', async ({ page }) => {
+    test.setTimeout(120_000);
     installLocalCdnOverrides(page);
     const errors = [];
     registerIssueCollectors(page, errors);
@@ -85,10 +86,8 @@ test.describe('3D legend drag', () => {
     });
 
     await page.goto('/index.html');
-    await page.locator('#graphSelectionGrid [data-graph-type="pca"]').click();
-    await expect(page.locator('#pcaPage')).toBeVisible();
-    await page.waitForSelector('#pcaLoadExample', { timeout: 10000 });
-    await page.click('#pcaLoadExample');
+    await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true, loadExample: true });
+    await clickExampleButtonIfPresent(page, 'pcaLoadExample');
     await page.waitForTimeout(2000);
     await page.selectOption('#pcaViewMode', '3d');
     await page.waitForTimeout(3000);
@@ -128,14 +127,13 @@ test.describe('3D legend drag', () => {
   });
 
   test('PCA 2D: legend drag still works after 3D fixes', async ({ page }) => {
+    test.setTimeout(120_000);
     installLocalCdnOverrides(page);
     registerIssueCollectors(page, []);
 
     await page.goto('/index.html');
-    await page.locator('#graphSelectionGrid [data-graph-type="pca"]').click();
-    await expect(page.locator('#pcaPage')).toBeVisible();
-    await page.waitForSelector('#pcaLoadExample', { timeout: 10000 });
-    await page.click('#pcaLoadExample');
+    await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true, loadExample: true });
+    await clickExampleButtonIfPresent(page, 'pcaLoadExample');
     await page.waitForTimeout(2000);
 
     // Stay in 2D mode (default)

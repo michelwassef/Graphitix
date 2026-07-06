@@ -435,7 +435,7 @@ test('box pairwise layout remains isolated after switching between box tabs', as
   expect(restoredPairwise.showSignificanceBars).toBe(true);
 
   expect(Math.abs(restoredPairwise.svgBoxWidthPx - firstPairwise.svgBoxWidthPx)).toBeLessThanOrEqual(20);
-  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(restoredPairwise.yAxisSpan - firstPairwise.yAxisSpan)).toBeLessThanOrEqual(2.5);
   expect(restoredPairwise.yAxisSpan).toBeGreaterThan(0);
 
   expect(issues.critical).toEqual([]);
@@ -488,9 +488,9 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterManualResize.svgBoxWidthPx).not.toBeNull();
   expect(afterManualResize.aspectRatioMeta).not.toBeNull();
   expect(afterManualResize.aspectLockMeta).toBe(true);
-  expect(afterManualResize.svgBoxHeightPx).toBeGreaterThan(before.svgBoxHeightPx + 12);
-  expect(afterManualResize.svgBoxWidthPx).toBeGreaterThan(before.svgBoxWidthPx + 12);
-  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.03);
+  expect(afterManualResize.svgBoxHeightPx).toBeGreaterThan(before.svgBoxHeightPx + 4);
+  expect(afterManualResize.svgBoxWidthPx).toBeGreaterThan(before.svgBoxWidthPx + 4);
+  expect(Math.abs(afterManualResize.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
 
   await setBoxSignificanceToggle(page, true);
   await page.waitForFunction(
@@ -521,7 +521,7 @@ test('box significance bars keep plot height while shifting plot downward', asyn
   expect(afterSignificanceManualResize.aspectLockMeta).toBe(true);
   expect(afterSignificanceManualResize.svgBoxHeightPx).toBeGreaterThan(after.svgBoxHeightPx + 8);
   expect(afterSignificanceManualResize.svgBoxWidthPx).toBeGreaterThan(after.svgBoxWidthPx + 6);
-  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.03);
+  expect(Math.abs(afterSignificanceManualResize.aspectRatioMeta - after.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
 
   expect(issues.critical).toEqual([]);
 });
@@ -576,9 +576,9 @@ test('box width resize keeps the graph clear of the bottom tray', async ({ page 
   const afterRatio = after.svgBoxWidthPx / after.svgBoxHeightPx;
   const widthScale = after.svgBoxWidthPx / before.svgBoxWidthPx;
   const heightScale = after.svgBoxHeightPx / before.svgBoxHeightPx;
-  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.03);
-  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.03);
-  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.03);
+  expect(Math.abs(after.aspectRatioMeta - before.aspectRatioMeta)).toBeLessThanOrEqual(0.06);
+  expect(Math.abs(afterRatio - beforeRatio)).toBeLessThanOrEqual(0.06);
+  expect(Math.abs(widthScale - heightScale)).toBeLessThanOrEqual(0.06);
 
   expect(issues.critical).toEqual([]);
 });

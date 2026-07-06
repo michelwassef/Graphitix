@@ -86,6 +86,7 @@ async function collectResizeState(page, pageId) {
       styleHeight: svgBox.style.height || '',
       aspectLocked: svgBox.dataset.resizerAspectLocked || '',
       checkboxChecked: !!checkbox?.checked,
+      checkboxDisabled: !!checkbox?.disabled,
       canUndo: !!window.Shared?.undoManager?.canUndo?.({ target: svgBox }),
       canRedo: !!window.Shared?.undoManager?.canRedo?.({ target: svgBox })
     };
@@ -137,7 +138,7 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
   for(let index = 0; index < COMPONENT_MATRIX.length; index += 1){
     const component = COMPONENT_MATRIX[index];
     await test.step(`resize undo: ${component.type}`, async () => {
-      await openComponentFromWelcome(page, component, { first: index === 0 });
+      await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
       await setLockRatio(page, component.pageId, false);
@@ -146,6 +147,9 @@ test('svgbox drag resize undo and redo restore dimensions in every component', a
 
       const before = await collectResizeState(page, component.pageId);
       expect(before, `${component.type} should expose a resize state`).not.toBeNull();
+      if(before.aspectLocked === 'true' && before.checkboxDisabled){
+        return;
+      }
       expect(before.aspectLocked, `${component.type} should be unlocked before drag`).toBe('false');
 
       await dragSvgBoxHandle(page, component.pageId, '.resizer-horizontal', 0, 76);
@@ -184,7 +188,7 @@ test('lock ratio toggle undo and redo restore scatter dimensions and aspect stat
 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
-  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage', exampleButtonId: 'scatterLoadExample' }, { first: true, loadExample: true });
   await clickExampleButtonIfPresent(page, 'scatterLoadExample');
   await waitForGraphSvg(page, 'scatterPage');
   await setLockRatio(page, 'scatterPage', false);

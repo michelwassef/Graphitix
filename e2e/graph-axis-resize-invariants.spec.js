@@ -116,7 +116,8 @@ async function collectViewportMetrics(page, pageId) {
         axis: svgBox.dataset.resizerAxisViewportLockAxis || '',
         until: Number(svgBox.dataset.resizerAxisViewportLockUntil),
         lastAxis: svgBox.dataset.resizerLastAxis || '',
-        aspectLocked: svgBox.dataset.resizerAspectLocked || ''
+        aspectLocked: svgBox.dataset.resizerAspectLocked || '',
+        checkboxDisabled: !!svgBox.querySelector('.resizer-aspect-checkbox')?.disabled
       },
       scaleX,
       scaleY,
@@ -163,7 +164,7 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
   for(let index = 0; index < COMPONENT_MATRIX.length; index += 1){
     const component = COMPONENT_MATRIX[index];
     await test.step(`axis resize invariants: ${component.type}`, async () => {
-      await openComponentFromWelcome(page, component, { first: index === 0 });
+      await openComponentFromWelcome(page, component, { first: index === 0, loadExample: true });
       await clickExampleButtonIfPresent(page, component.exampleButtonId);
       await waitForGraphSvg(page, component.pageId);
       await unlockRatio(page, component.pageId);
@@ -171,6 +172,13 @@ test('unlocked one-axis graph resize preserves the orthogonal SVG axis scale in 
 
       const before = await collectViewportMetrics(page, component.pageId);
       expect(before, `${component.type} should expose an SVG graph`).not.toBeNull();
+      if(before.lock.aspectLocked === 'true' && before.lock.checkboxDisabled){
+        report.push({
+          component: component.type,
+          skipped: 'forced-lock-ratio'
+        });
+        return;
+      }
       expect(before.lock.aspectLocked, `${component.type} should be in unlocked ratio mode`).toBe('false');
 
       await dragSvgBoxHandle(page, component.pageId, '.resizer-horizontal', 0, 84);

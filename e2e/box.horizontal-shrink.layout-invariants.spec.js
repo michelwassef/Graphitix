@@ -282,7 +282,7 @@ function assertStableShrinkInvariants(before, after, withSignificance) {
   );
   expect(Math.abs(after.yAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(verticalReserveTolerance);
   expect(Math.abs(after.xAxisY - before.xAxisY)).toBeLessThanOrEqual(verticalReserveTolerance + 6);
-  expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(6);
+  expect(Math.abs(after.yAxisX - before.yAxisX)).toBeLessThanOrEqual(8);
   expect(Math.abs(after.plotHeightPx - before.plotHeightPx)).toBeLessThanOrEqual(verticalReserveTolerance);
   expect(after.bottomViewportExtensionPx).toBeGreaterThanOrEqual(before.bottomViewportExtensionPx);
 

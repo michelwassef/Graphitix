@@ -58,7 +58,7 @@ test('box initial strip draw preserves non-significance bottom reserve', async (
 
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible();
-  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true, loadExample: true });
   await expect(page.locator('#boxLoadExample')).toBeVisible({ timeout: 20_000 });
 
   await page.locator('#boxLoadExample').click();
@@ -78,7 +78,7 @@ test('box initial strip draw preserves non-significance bottom reserve', async (
   expect(metrics.showSignificanceBars).toBe(false);
   expect(metrics.significanceExtensionPx).toBe(0);
   expect(metrics.bottomExtensionPx).toBeGreaterThan(0);
-  expect(metrics.preserveAspectRatio).toBe('xMidYMid meet');
+  expect(metrics.preserveAspectRatio).toBe('none');
   expect(metrics.axisToViewBottomPx).toBeGreaterThan(metrics.axisToBaseBottomPx + 6);
 
   expect(issues.critical).toEqual([]);

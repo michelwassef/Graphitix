@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { installLocalCdnOverrides } = require('./helpers/workspaceHarness');
+const { installLocalCdnOverrides, openComponentFromWelcome } = require('./helpers/workspaceHarness');
 
 async function getWorkspaceTabIds(page) {
   return page.evaluate(() =>
@@ -11,10 +11,7 @@ async function getWorkspaceTabIds(page) {
 
 async function openScatterTab(page, { first = false } = {}) {
   if (first) {
-    const card = page.locator('#graphSelectionGrid [data-graph-type="scatter"]').first();
-    await expect(card).toBeVisible();
-    await card.click({ force: true });
-    await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });
+    await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
     return;
   }
   await page.evaluate(async () => {
@@ -110,4 +107,3 @@ test('debug scatter second-tab undo path', async ({ page }) => {
   await page.waitForTimeout(500);
   await readState(page, 'after-second-undo');
 });
-

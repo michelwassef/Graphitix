@@ -49,7 +49,7 @@ test('line error bar thickness lives in line toolbar and is grouped-only', async
   await page.waitForTimeout(250);
   await clickSeriesPath(page);
   await page.waitForTimeout(250);
-  await expect(toolbarPanel).toHaveCount(0);
+  await expect(toolbarPanel).toBeHidden();
 
   await page.locator('#lineTableFormat').selectOption('grouped');
   await page.waitForTimeout(500);
@@ -68,7 +68,7 @@ test('line error bar thickness lives in line toolbar and is grouped-only', async
 
   await page.locator('#lineTableFormat').selectOption('single');
   await page.waitForTimeout(350);
-  await expect(toolbarPanel).toHaveCount(0);
+  await expect(toolbarPanel).toBeHidden();
 
   expect(issues.critical).toEqual([]);
 });

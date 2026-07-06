@@ -1,7 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
-  registerIssueCollectors
+  registerIssueCollectors,
+  openComponentFromWelcome
 } = require('./helpers/workspaceHarness');
 
 async function getWorkspaceTabIds(page) {
@@ -19,10 +20,7 @@ async function activateTabById(page, tabId) {
 
 async function openScatterTab(page, { first = false } = {}) {
   if (first) {
-    const card = page.locator('#graphSelectionGrid [data-graph-type="scatter"]').first();
-    await expect(card).toBeVisible();
-    await card.click({ force: true });
-    await page.waitForSelector('#scatterPage:not([hidden])', { timeout: 20_000 });
+    await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
     return;
   }
   await page.evaluate(async () => {
