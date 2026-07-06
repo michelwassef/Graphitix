@@ -5185,7 +5185,7 @@
     if (state.ui.goResults) state.ui.goResults.innerHTML = '';
     if (state.ui.stringResults) state.ui.stringResults.innerHTML = '';
     if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
-    if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; syncVennSessionManagersFromActive(); }
+    destroyGoChartInstance();
     state.analysis.lastGOResult = null;
     state.analysis.lastGOFormatted = [];
     state.analysis.lastStringSVG = null;
@@ -5206,6 +5206,86 @@
 
   function normalizeAnalysisResultsTab(tabName) {
     return String(tabName || '').trim().toLowerCase() === 'string' ? 'string' : 'go';
+  }
+
+  function destroyGoChartInstance() {
+    if (!state.analysis.goChart) return false;
+    try {
+      state.analysis.goChart.destroy();
+    } catch (err) {
+      console.warn('venn GO chart destroy failed', err);
+    }
+    state.analysis.goChart = null;
+    syncVennSessionManagersFromActive();
+    return true;
+  }
+
+  function hasGoChartData() {
+    return Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length > 0;
+  }
+
+  function resolveGoChartBarHeight(limit) {
+    const resolvedLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 5;
+    return resolvedLimit > 5 ? 18 : 25;
+  }
+
+  function computeGoChartHeight(limit, itemCount = state.analysis.lastGOResult?.length || 0) {
+    const resolvedLimit = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Number(limit) : 5;
+    const visibleCount = Math.max(0, Math.min(itemCount, resolvedLimit));
+    return Math.max(300, resolveGoChartBarHeight(resolvedLimit) * visibleCount);
+  }
+
+  function resolveGoChartDisplayWidth(canvas) {
+    if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return 0;
+    const rectWidth = Number(canvas.getBoundingClientRect().width);
+    if (Number.isFinite(rectWidth) && rectWidth > 0) return Math.round(rectWidth);
+    const offsetWidth = Number(canvas.offsetWidth);
+    if (Number.isFinite(offsetWidth) && offsetWidth > 0) return Math.round(offsetWidth);
+    const clientWidth = Number(canvas.clientWidth);
+    if (Number.isFinite(clientWidth) && clientWidth > 0) return Math.round(clientWidth);
+    return 0;
+  }
+
+  function isGoChartCanvasInSync(canvas) {
+    const chart = state.analysis.goChart;
+    if (!canvas || !chart) return false;
+    const displayWidth = resolveGoChartDisplayWidth(canvas);
+    if (!displayWidth) return false;
+    const chartWidth = Number(chart.width);
+    const chartHeight = Number(chart.height);
+    const renderedWidth = Number.isFinite(chartWidth) && chartWidth > 0 ? Math.round(chartWidth) : Number(canvas.width);
+    const renderedHeight = Number.isFinite(chartHeight) && chartHeight > 0 ? Math.round(chartHeight) : Number(canvas.height);
+    const expectedHeight = computeGoChartHeight(state.analysis.goDisplayLimit || 5);
+    return Math.abs(renderedWidth - displayWidth) <= 1
+      && Math.abs(renderedHeight - expectedHeight) <= 1;
+  }
+
+  function scheduleVisibleGoChartReflow(reason = 'venn-go-chart-visible-reflow') {
+    if (!hasGoChartData()) return false;
+    const ownerTabId = activeVennSession?.tabId || venn.__boundTabId || null;
+    const runOwnerReflow = () => {
+      const owner = ownerTabId
+        ? getVennSession(ownerTabId, { tabId: ownerTabId, reason }, { create: false })
+        : getActiveVennSessionForState();
+      if (owner && !isVennSessionActiveForModuleState(owner)) {
+        owner.timers.pendingDrawOptions = cloneSimple({ tabId: owner.tabId, reason }) || {};
+        owner.state.drawPending = true;
+        owner.updatedAt = Date.now();
+        return;
+      }
+      const canvas = getVennNodeById('goChart');
+      if (!isGoChartCanvasInSync(canvas)) {
+        renderGOChart(state.analysis.goDisplayLimit || 5, { reason });
+      }
+    };
+    if (Shared.componentLifecycle?.scheduleComponentFrame) {
+      Shared.componentLifecycle.scheduleComponentFrame(venn, 'venn', { tabId: ownerTabId, reason }, runOwnerReflow);
+    } else if (typeof global.requestAnimationFrame === 'function') {
+      global.requestAnimationFrame(runOwnerReflow);
+    } else {
+      setTimeout(runOwnerReflow, 0);
+    }
+    return true;
   }
 
   function updateAnalysisResultsVisibility() {
@@ -5244,35 +5324,8 @@
       state.ui.analysisTabString.setAttribute('aria-selected', showTabs && visibleTab === 'string' ? 'true' : 'false');
       state.ui.analysisTabString.tabIndex = showTabs && visibleTab === 'string' ? 0 : -1;
     }
-    // The GO chart canvas is sized from its layout width, so a chart drawn while the GO
-    // panel was hidden (0-width) or only restored as a bitmap must be re-rendered from data
-    // once the panel is visible. Reopen restores lastGOResult, so this also rebuilds the
-    // chart after a file reopen/recovery.
-    if (showGoPanel && Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length) {
-      const goCanvas = getVennNodeById('goChart');
-      if (!state.analysis.goChart || !goCanvas || !goCanvas.width) {
-        const renderGoChartReflow = () => {
-          if (Array.isArray(state.analysis.lastGOResult) && state.analysis.lastGOResult.length) {
-            renderGOChart(state.analysis.goDisplayLimit || 5);
-          }
-        };
-        const ownerTabId = activeVennSession?.tabId || venn.__boundTabId || null;
-        const runOwnerReflow = () => {
-          const owner = ownerTabId ? getVennSession(ownerTabId, { tabId: ownerTabId, reason: 'venn-go-chart-reflow' }, { create: false }) : getActiveVennSessionForState();
-          if(owner && !isVennSessionActiveForModuleState(owner)){
-            owner.timers.pendingDrawOptions = cloneSimple({ tabId: owner.tabId, reason: 'venn-go-chart-reflow' }) || {};
-            owner.state.drawPending = true;
-            owner.updatedAt = Date.now();
-            return;
-          }
-          renderGoChartReflow();
-        };
-        Shared.componentLifecycle?.scheduleComponentFrame
-          ? Shared.componentLifecycle.scheduleComponentFrame(venn, 'venn', { tabId: ownerTabId, reason: 'venn-go-chart-reflow' }, runOwnerReflow)
-          : (typeof global.requestAnimationFrame === 'function'
-            ? global.requestAnimationFrame(runOwnerReflow)
-            : setTimeout(runOwnerReflow, 0));
-      }
+    if (showGoPanel) {
+      scheduleVisibleGoChartReflow('venn-go-chart-visible-tab');
     }
     return { hasGo, hasString, showTabs, visibleTab };
   }
@@ -6364,13 +6417,13 @@
     }
   }
 
-  function renderGOChart(limit = 5) {
+  function renderGOChart(limit = 5, options = {}) {
     if (!state.ui.goResults) return;
-    if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
+    if (!hasGoChartData()) {
       const canvas = getVennNodeById('goChart');
       if (canvas) canvas.style.display = 'none';
       if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
-      if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; syncVennSessionManagersFromActive(); }
+      destroyGoChartInstance();
       return;
     }
     state.analysis.goDisplayLimit = limit;
@@ -6378,22 +6431,27 @@
     const labels = data.map(r => r.term_name || r.name || '');
     const values = data.map(r => -Math.log10(r.p_value));
     const barColor = '#64b5f6';
-    if (state.analysis.goChart) { state.analysis.goChart.destroy(); }
     const canvas = getVennNodeById('goChart');
     if (!canvas) return;
     canvas.style.display = 'block';
-    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'flex';
-    const isAll = limit > 5;
-    const baseBarHeight = 25;
-    const minBarHeight = 18;
-    const barHeight = isAll ? minBarHeight : baseBarHeight;
-    const chartHeight = Math.max(300, barHeight * labels.length);
+    const chartHeight = computeGoChartHeight(limit, labels.length);
+    const barHeight = resolveGoChartBarHeight(limit);
     canvas.style.height = chartHeight + 'px';
+    let displayWidth = resolveGoChartDisplayWidth(canvas);
+    if (!displayWidth) {
+      // Hidden-panel redraws must not produce a fallback-sized canvas. Chart.js renders a
+      // bitmap; drawing it while the GO panel is hidden would later stretch that bitmap when
+      // the panel becomes visible. The live session keeps the data, and visibility changes
+      // schedule a tab-owned reflow that draws only after the canvas has a real width.
+      debugLog('goChart.defer.hidden', { reason: options.reason || 'hidden-panel', limit });
+      destroyGoChartInstance();
+      if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+      return;
+    }
+    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'flex';
+    canvas.style.width = '100%';
+    canvas.width = displayWidth;
     canvas.height = chartHeight;
-    // The GO tab may be hidden when this runs (e.g. a re-render triggered while the STRING
-    // tab is active), where offsetWidth is 0 and would produce a blank 0-width chart. Fall
-    // back to the surrounding layout width so the chart is always drawable.
-    canvas.width = canvas.offsetWidth || canvas.clientWidth || canvas.parentElement?.clientWidth || 600;
     const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
     if(!ctx || typeof ctx.setTransform !== 'function'){
       debugLog('goChart.skipped', { reason: 'canvas-context-unavailable' });
@@ -6426,20 +6484,29 @@
         if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
         return;
       }
+      const currentDisplayWidth = resolveGoChartDisplayWidth(canvas);
+      if (!currentDisplayWidth) {
+        debugLog('goChart.defer.hidden', { reason: 'chart-constructor-resolved-while-hidden', limit });
+        destroyGoChartInstance();
+        if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+        return;
+      }
+      if (Math.abs(currentDisplayWidth - displayWidth) > 1) {
+        displayWidth = currentDisplayWidth;
+        canvas.width = displayWidth;
+        canvas.height = chartHeight;
+      }
       applyGoChartDefaults(ChartCtor);
       const canvasChart = typeof ChartCtor.getChart === 'function'
         ? ChartCtor.getChart(canvas)
         : null;
-      if (canvasChart) {
+      if (canvasChart && canvasChart !== state.analysis.goChart) {
         canvasChart.destroy();
       }
-      if (state.analysis.goChart && state.analysis.goChart !== canvasChart) {
-        state.analysis.goChart.destroy();
-      }
-      state.analysis.goChart = null;
+      destroyGoChartInstance();
       state.analysis.goChart = new ChartCtor(ctx, config);
       syncVennSessionManagersFromActive();
-      debugLog('goChart.rendered', { bars: labels.length, limit }); // Debug: chart instantiated
+      debugLog('goChart.rendered', { bars: labels.length, limit, width: displayWidth, height: chartHeight }); // Debug: chart instantiated
     };
 
     if (typeof Shared.lazyChart === 'function') {
