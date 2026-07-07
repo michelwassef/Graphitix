@@ -4921,25 +4921,25 @@
     const persistedState = runtime?.lineSessionState && typeof runtime.lineSessionState === 'object'
       ? runtime.lineSessionState
       : null;
-    const legacyOwnedRecord = !persistedState && !session
+    const ownedRuntimeRecord = !persistedState && !session
       ? getLineOwnedRuntimeRecord(tabLike || tabId, { ...(meta || {}), tabId, reason: 'line-session-migrate-owned-runtime' })
       : null;
-    const migratedState = legacyOwnedRecord ? normalizeLineCanonicalState({
-      displayMode: legacyOwnedRecord.displayMode,
-      last2d: legacyOwnedRecord.last2d,
-      logPlusOne: legacyOwnedRecord.logPlusOne,
-      labels: legacyOwnedRecord.labels,
-      theme: legacyOwnedRecord.theme,
-      styles: legacyOwnedRecord.styles,
-      grouped: legacyOwnedRecord.grouped,
-      forecast: legacyOwnedRecord.forecast,
-      axisSettings: legacyOwnedRecord.axisSettings,
-      gridStyle: legacyOwnedRecord.gridStyle,
-      stats: { regressionSummaries: legacyOwnedRecord.regressionSummaries || [] },
-      viewState: legacyOwnedRecord.viewState,
-      autoDrawState: legacyOwnedRecord.autoDrawState,
-      statsState: legacyOwnedRecord.statsState,
-      modeCache: legacyOwnedRecord.modeCache
+    const migratedState = ownedRuntimeRecord ? normalizeLineCanonicalState({
+      displayMode: ownedRuntimeRecord.displayMode,
+      last2d: ownedRuntimeRecord.last2d,
+      logPlusOne: ownedRuntimeRecord.logPlusOne,
+      labels: ownedRuntimeRecord.labels,
+      theme: ownedRuntimeRecord.theme,
+      styles: ownedRuntimeRecord.styles,
+      grouped: ownedRuntimeRecord.grouped,
+      forecast: ownedRuntimeRecord.forecast,
+      axisSettings: ownedRuntimeRecord.axisSettings,
+      gridStyle: ownedRuntimeRecord.gridStyle,
+      stats: { regressionSummaries: ownedRuntimeRecord.regressionSummaries || [] },
+      viewState: ownedRuntimeRecord.viewState,
+      autoDrawState: ownedRuntimeRecord.autoDrawState,
+      statsState: ownedRuntimeRecord.statsState,
+      modeCache: ownedRuntimeRecord.modeCache
     }, tabId) : null;
     let stateChanged = false;
     if(!session && options.create !== false){
@@ -9433,7 +9433,7 @@
     const datasetRow = isNewFormat && Array.isArray(matrix[LINE_3D_DATASET_HEADER_ROW_INDEX])
       ? matrix[LINE_3D_DATASET_HEADER_ROW_INDEX]
       : [];
-    const legacyHeader = !isNewFormat && Array.isArray(matrix?.[0]) ? matrix[0] : [];
+    const firstRowHeader = !isNewFormat && Array.isArray(matrix?.[0]) ? matrix[0] : [];
     for(let s = 0; s < count; s += 1){
       const fallback = `Series ${s + 1}`;
       const stored = storedLabels[s] != null ? String(storedLabels[s]).trim() : '';
@@ -9443,7 +9443,7 @@
         fromTable = datasetRow[startCol] != null ? String(datasetRow[startCol]).trim() : '';
       }else{
         const yCol = 1 + s * 2;
-        fromTable = legacyHeader[yCol] != null ? inferSeriesBaseName(legacyHeader[yCol], fallback) : '';
+        fromTable = firstRowHeader[yCol] != null ? inferSeriesBaseName(firstRowHeader[yCol], fallback) : '';
       }
       const preferTableLabels = options.preferTableLabels !== undefined
         ? options.preferTableLabels === true
@@ -9460,7 +9460,7 @@
     const axisRow = isLine3dDatasetHeaderMatrix(source)
       ? (Array.isArray(source[LINE_3D_AXIS_HEADER_ROW_INDEX]) ? source[LINE_3D_AXIS_HEADER_ROW_INDEX] : [])
       : (Array.isArray(source[0]) ? source[0] : []);
-    const legacyXIndex = !isLine3dDatasetHeaderMatrix(source)
+    const xHeaderIndex = !isLine3dDatasetHeaderMatrix(source)
       ? Math.max(0, axisRow.findIndex(h => String(h).trim().toLowerCase() === 'x'))
       : 0;
     const getAxis = (offset, fallback) => {
@@ -9468,8 +9468,8 @@
       return value || fallback;
     };
     return {
-      xIndex: legacyXIndex,
-      xLabel: getAxis(isLine3dDatasetHeaderMatrix(source) ? 0 : legacyXIndex, 'X'),
+      xIndex: xHeaderIndex,
+      xLabel: getAxis(isLine3dDatasetHeaderMatrix(source) ? 0 : xHeaderIndex, 'X'),
       yLabel: getAxis(isLine3dDatasetHeaderMatrix(source) ? 1 : 1, 'Y'),
       zLabel: getAxis(isLine3dDatasetHeaderMatrix(source) ? 2 : 2, 'Z')
     };
@@ -12836,7 +12836,7 @@
             absoluteLegendX = margin3.left + plotW3 + legendPos.relX * legendGapFor3d;
             absoluteLegendY = margin3.top + legendPos.relY * plotH3;
           } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            // Use absolute positioning (backward compatibility)
+            // Use saved absolute positioning when no relative anchor is present
             absoluteLegendX = legendPos.x;
             absoluteLegendY = legendPos.y;
           }
@@ -12892,7 +12892,7 @@
           absoluteTitleX = margin3.left + titlePos.relX * plotW3;
           absoluteTitleY = margin3.top + titlePos.relY * plotH3;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
-          // Use absolute positioning (backward compatibility)
+          // Use saved absolute positioning when no relative anchor is present
           absoluteTitleX = titlePos.x;
           absoluteTitleY = titlePos.y;
         }
@@ -14938,7 +14938,7 @@
             absoluteLegendX = margin.left + plotW + legendPos.relX * legendLayout.legendGapPx;
             absoluteLegendY = margin.top + legendPos.relY * plotH;
           } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-            // Use absolute positioning (backward compatibility)
+            // Use saved absolute positioning when no relative anchor is present
             absoluteLegendX = legendPos.x;
             absoluteLegendY = legendPos.y;
           }
@@ -14991,7 +14991,7 @@
           absoluteXLabelX = margin.left + xLabelPos.relX * plotW;
           absoluteXLabelY = xAxisBase + xLabelPos.relY * (plotH + margin.top);
         } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
-          // Use absolute positioning (backward compatibility)
+          // Use saved absolute positioning when no relative anchor is present
           absoluteXLabelX = xLabelPos.x;
           absoluteXLabelY = xLabelPos.y;
         }
@@ -15071,7 +15071,7 @@
           absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
           absoluteYTextY = margin.top + yLabelPos.relY * plotH;
         } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
-          // Use absolute positioning (backward compatibility)
+          // Use saved absolute positioning when no relative anchor is present
           absoluteYTextX = yLabelPos.x;
           absoluteYTextY = yLabelPos.y;
         }
@@ -15129,7 +15129,7 @@
           absoluteTitleX = margin.left + titlePos.relX * plotW;
           absoluteTitleY = margin.top + titlePos.relY * plotH;
         } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
-          // Use absolute positioning (backward compatibility)
+          // Use saved absolute positioning when no relative anchor is present
           absoluteTitleX = titlePos.x;
           absoluteTitleY = titlePos.y;
         }
@@ -15649,10 +15649,6 @@
     lineAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachLineSelectAutoSize(select, 'line');
     });
-    if(typeof global.lineStatType === 'undefined') global.lineStatType = refs.statType; // legacy compatibility (guarded)
-    if(typeof global.lineStatsResults === 'undefined') global.lineStatsResults = refs.statsResults; // legacy compatibility (guarded)
-    if(typeof global.lineRegressionMode === 'undefined') global.lineRegressionMode = refs.regressionMode; // legacy compatibility (guarded)
-
     if(refs.forecastHorizon){
       refs.forecastHorizon.addEventListener('change',()=>{
         resolveForecastOptions({ session: getLineActiveSessionForState(), reason: 'line-forecast-horizon-change' });

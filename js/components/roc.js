@@ -339,7 +339,7 @@
       });
       return;
     }
-    console.debug('Debug: roc additional line controls unavailable; legacy fallback removed');
+    console.debug('Debug: roc additional line controls unavailable');
   }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const gridControls = Shared.gridControls = Shared.gridControls || {};
@@ -518,6 +518,9 @@
         || key === 'hot'
         || key === 'manager'
         || key === 'dataViews'
+        || key === 'notesControl'
+        || key === 'legendControl'
+        || key === 'controller'
         || key === 'scheduler'){
         return;
       }
@@ -2302,21 +2305,7 @@
       pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
-        stretchH: 'all',
-        afterChange(changes, source){
-        },
-        afterCreateRow(){
-        },
-        afterCreateCol(){
-        },
-        afterRemoveRow(){
-        },
-        afterRemoveCol(){
-        },
-        afterUndo(){
-        },
-        afterRedo(){
-        }
+        stretchH: 'all'
       }
     });
     return instance;
@@ -4298,7 +4287,7 @@
         absoluteXLabelX = margin.left + xLabelPos.relX * plotWidth;
         absoluteXLabelY = margin.top + plotHeight + xLabelPos.relY * bottomLayout.titleOffset;
       } else if (xLabelPos.x !== undefined && xLabelPos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
+        // Use saved absolute positioning when no relative anchor is present
         absoluteXLabelX = xLabelPos.x;
         absoluteXLabelY = xLabelPos.y;
       }
@@ -4343,7 +4332,7 @@
         absoluteYTextX = margin.left + yLabelPos.relX * yLabelOffsetSpan;
         absoluteYTextY = margin.top + yLabelPos.relY * plotHeight;
       } else if (yLabelPos.x !== undefined && yLabelPos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
+        // Use saved absolute positioning when no relative anchor is present
         absoluteYTextX = yLabelPos.x;
         absoluteYTextY = yLabelPos.y;
       }
@@ -4391,7 +4380,7 @@
         absoluteTitleX = margin.left + titlePos.relX * plotWidth;
         absoluteTitleY = titlePos.relY * plotHeight;
       } else if (titlePos.x !== undefined && titlePos.y !== undefined) {
-        // Use absolute positioning (backward compatibility)
+        // Use saved absolute positioning when no relative anchor is present
         absoluteTitleX = titlePos.x;
         absoluteTitleY = titlePos.y;
       }
@@ -4580,7 +4569,7 @@
           absoluteLegendX = margin.left + plotWidth + legendPos.relX * legendLayout.legendGapPx;
           absoluteLegendY = margin.top + legendPos.relY * plotHeight;
         } else if (legendPos.x !== undefined && legendPos.y !== undefined) {
-          // Use absolute positioning (backward compatibility)
+          // Use saved absolute positioning when no relative anchor is present
           absoluteLegendX = legendPos.x;
           absoluteLegendY = legendPos.y;
         }
@@ -4879,54 +4868,23 @@
       console.debug('Debug: roc runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
-    if(snapshot.state && typeof snapshot.state === 'object'){
-      const nextState = snapshot.state;
-      state.borderWidth = Number.isFinite(Number(nextState.borderWidth)) ? Number(nextState.borderWidth) : state.borderWidth;
-      state.labelColors = cloneSimple(nextState.labelColors) || state.labelColors || {};
-      state.labelStrokeWidth = cloneSimple(nextState.labelStrokeWidth) || state.labelStrokeWidth || {};
-      state.labelOpacity = cloneSimple(nextState.labelOpacity) || state.labelOpacity || {};
-      state.labelLinePattern = cloneSimple(nextState.labelLinePattern) || state.labelLinePattern || {};
-      state.diffMethod = typeof nextState.diffMethod === 'string' ? nextState.diffMethod : state.diffMethod;
-      state.compareSelection = Object.prototype.hasOwnProperty.call(nextState, 'compareSelection') ? (nextState.compareSelection || null) : (state.compareSelection || null);
-      state.compareResultModel = normalizeRocCompareResultModel(nextState.compareResult || null);
-      state.minSvgWidth = Number.isFinite(Number(nextState.minSvgWidth)) ? Number(nextState.minSvgWidth) : state.minSvgWidth;
-      state.fileName = typeof nextState.fileName === 'string' && nextState.fileName.trim() ? nextState.fileName : state.fileName;
-      state.titleText = typeof nextState.titleText === 'string' ? nextState.titleText : state.titleText;
-      state.axisSettings = cloneSimple(nextState.axisSettings) || state.axisSettings;
-      if(Object.prototype.hasOwnProperty.call(nextState, 'gridStyle')){ state.gridStyle = cloneSimple(nextState.gridStyle); }
-      state.autoDrawEnabled = !!nextState.autoDrawEnabled;
-      state.autoDrawReason = nextState.autoDrawReason || null;
-      state.autoDrawLockedByThreshold = !!nextState.autoDrawLockedByThreshold;
-      state.drawPending = false;
-      state.lastDataShape = cloneSimple(nextState.lastDataShape) || state.lastDataShape;
-      if(Object.prototype.hasOwnProperty.call(nextState, 'lastAutoDrawEvaluation')){ state.lastAutoDrawEvaluation = cloneSimple(nextState.lastAutoDrawEvaluation); }
-      state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
-      if(Object.prototype.hasOwnProperty.call(nextState, 'statsPanel') || Object.prototype.hasOwnProperty.call(nextState, 'statsPanelModel')){
-        state.statsPanelModel = normalizeRocStatsPanelModel(nextState.statsPanelModel || nextState.statsPanel);
-        restoreRocStatsPanelModel(state.statsPanelModel);
-      }
-    }
-    if(snapshot.advisor && typeof snapshot.advisor === 'object'){
-      setRocAdvisorState(snapshot.advisor, getActiveRocSessionForState());
-    }
-    syncRocRuntimeControlsFromState(snapshot.state?.controls || {});
-    if(snapshot.notes && typeof snapshot.notes === 'object'){
-      notesState.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
-      notesState.open = !!snapshot.notes.open;
-      if(canUseRocNotesControl(notesState.control)){
-        notesState.control.setValue(notesState.text);
-        notesState.control.setOpen(notesState.open);
-      }
-    }
-    const appliedSession = setRocSessionStateFromRuntimeRecord(snapshot, {
+    const runtimeSession = setRocSessionStateFromRuntimeRecord(snapshot, {
       ...(meta || {}),
       reason: meta?.reason || 'roc-runtime-apply-session'
     });
-    if(appliedSession){
-      applyRocSessionStateToActive(appliedSession, { syncUi: true });
-      syncRocSessionManagersFromActive(appliedSession);
+    if(!runtimeSession){
+      console.debug('Debug: roc runtime snapshot apply skipped', {
+        tabId: meta?.tabId || roc.__boundTabId || null,
+        reason: 'missing-session'
+      });
+      return false;
     }
-    rememberRocOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+    const isActiveOwner = isRocSessionActiveOrActivating(runtimeSession);
+    if(isActiveOwner){
+      applyRocSessionStateToActive(runtimeSession, { syncUi: true });
+      syncRocSessionManagersFromActive(runtimeSession);
+    }
+    rememberRocOwnedRuntimeRecord(meta?.tab || meta?.tabId || runtimeSession.tabId || null, snapshot, {
       ...(meta || {}),
       reason: meta?.reason || 'roc-runtime-apply'
     });
@@ -4934,9 +4892,12 @@
       ...(meta || {}),
       reason: meta?.reason || 'roc-runtime-apply'
     });
-    console.debug('Debug: roc runtime snapshot applied', {
-      tabId: meta?.tabId || roc.__boundTabId || null,
-      compareSelection: state.compareSelection || null,
+    console.debug(isActiveOwner
+      ? 'Debug: roc runtime snapshot applied through session pipeline'
+      : 'Debug: roc inactive runtime snapshot stored without active projection', {
+      tabId: runtimeSession.tabId || meta?.tabId || roc.__boundTabId || null,
+      activeTabId: getRocWorkspaceActiveTabId() || roc.__boundTabId || null,
+      compareSelection: runtimeSession.state?.compareSelection || runtimeSession.results?.compareSelection || null,
       reason: meta?.reason || 'roc-runtime-apply'
     });
     return true;

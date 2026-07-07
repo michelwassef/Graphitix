@@ -1,6 +1,7 @@
 GRAPHITIX TAB-ISOLATION AND REOPEN-FIDELITY REFACTOR ROADMAP
 Architecture-contract rewrite
 Last rewritten: 2026-06-27
+Last stabilization update: 2026-07-06
 Baseline package: graphitix-priority0c-active-owner-regression-cleanup
 
 ======================================================================
@@ -16,19 +17,25 @@ This file is now the source of truth for the refactor. Future code changes must
 be judged against the contract below, not against whether a single local test can
 be made to pass.
 
-Current evidence from the latest Windows validation:
+Current evidence from the latest available Windows validation:
   - Scatter/PCA focused gate passed: 8/8.
   - Priority 0C gate passed: 9/10.
   - Heatmap/Surface/Venn batch passed: 5/7.
-  - ROC graph-type, scheduled/manual redraw, and ROC DataViews gates are now green.
-  - Venn UpSet/numeric/species reopen fidelity is green again.
-  - Remaining active failures are concentrated in:
-      * Histogram density distribution-selection projection after reopen/switch:
-        payload/session can retain normal + lognormal while visible checkboxes
-        project only normal.
-      * Heatmap view/model synchronization when switching from correlation view
-        back to values: the visible dropdown can say Data values while the cached
-        render model remains correlation.
+  - ROC graph-type, scheduled/manual redraw, and ROC DataViews gates are green in
+    the last reported browser run.
+  - Venn UpSet/numeric/species reopen fidelity is green in the last reported
+    browser run.
+  - This package removes the remaining legacy Histogram/ROC active-owner
+    `applyRuntimeState` field mapping. Runtime apply now follows one path:
+    `setSessionStateFromRuntimeRecord -> applySessionStateToActive` for active
+    owners, and inactive owners are stored without projection.
+  - This package also fixes Heatmap deferred hidden draw option merging so the
+    sanitized owner-scoped options object is used consistently.
+  - Browser validation is still required for the current package because the
+    uploaded archive does not include the npm/package test harness.
+  - Remaining active failures to re-check after this package:
+      * Histogram density distribution-selection projection after reopen/switch.
+      * Heatmap correlation-to-values view/model synchronization.
       * Venn GO/STRING async result ownership remains parked as a dedicated
         blocker, separate from Venn UpSet/numeric/species reopen fidelity.
 
@@ -327,6 +334,28 @@ ROC graph-type reopen:
 
 3.2 Open stabilization failures
 -------------------------------
+
+Current stabilization package, 2026-07-06:
+  - Heatmap now matches the Histogram/ROC inactive-capture rule: if the target
+    session is not the active owner, runtime/session capture returns the stored
+    owner session and does not read active DOM, refs, render mirrors, or managers.
+  - Heatmap same-component session binding now captures the previous active
+    session before switching and only mirrors refs/managers/render/runtime state
+    when the bound session is the workspace-active owner.
+  - Heatmap runtime snapshot apply now stores inactive owner snapshots without
+    projecting them into active module state.
+  - Histogram runtime snapshot capture now uses the requested owner session for
+    inactive tabs instead of reading active DOM controls/notes. Histogram runtime
+    snapshot apply now stores inactive snapshots without active projection.
+  - ROC runtime snapshot apply now stores inactive snapshots without active
+    projection. Redundant empty HOT callbacks were removed from ROC table setup.
+  - Histogram and Heatmap scheduled draw options are sanitized to plain serializable
+    metadata before storing pending work or passing it into tab-scoped schedulers.
+
+Validation status:
+  - Local syntax gate passed with `node --check` across all files in `js/`.
+  - Browser/E2E gates still need Windows validation because this package was
+    prepared from a zip without package.json/playwright dependencies.
 
 Histogram density PDF/CDF projection:
   - Addressed in current stabilization package by normalizing PDF/CDF legality
@@ -630,6 +659,22 @@ criterion is dynamic browser behavior:
   - DataViews/notes/control manager owner lookup;
   - no console critical errors.
 
+2026-07-06 - Legacy runtime-apply cleanup:
+- Histogram: deleted the duplicate field-by-field active-owner `applyRuntimeState`
+  mapping. Runtime snapshots now hydrate the owner session first; only the active
+  owner is projected through `applyHistSessionStateToActive()`. Inactive owners
+  are recorded without reading or mutating active DOM/module mirrors.
+- ROC: deleted the duplicate field-by-field active-owner `applyRuntimeState`
+  mapping. Runtime snapshots now hydrate the owner session first; only the active
+  owner is projected through `applyRocSessionStateToActive()`. Inactive owners
+  are recorded without reading or mutating active DOM/module mirrors.
+- Heatmap: fixed deferred hidden draw option merging to use the sanitized
+  owner-scoped options object, and stopped inactive runtime apply from clearing
+  active hidden-draw handles or pending draw options.
+- Line: removed obsolete global DOM aliases for stats/regression controls and
+  cleaned stale compatibility labels in the touched Line paths.
+- `root/issues.txt` has no open legacy-runtime-apply item after this cleanup.
+
 ======================================================================
 7. PARKED BLOCKERS
 ======================================================================
@@ -711,17 +756,20 @@ The refactor is done only when all of the following hold:
 
 Do not touch new components.
 
-Recommended next package name:
-  graphitix-priority0-stabilize-roc-hist-heatmap.zip
+Current package name:
+  graphitix-priority0-stabilize-roc-hist-heatmap-legacy-cleanup.zip
 
-Scope:
-  1. Audit Line.js selectively and record safe/unsafe reference patterns.
-  2. Normalize ROC scheduled/manual/DataViews ownership to the target contract.
-  3. Normalize Histogram density/frequency/PDF/CDF control projection to the
-     target contract.
-  4. Re-evaluate Heatmap view/model failure and fix either test wait or component
-     model invalidation based on the test contract checklist.
-  5. Leave Venn GO/STRING parked.
+Scope completed in this package:
+  1. ROC runtime apply now uses the session pipeline only; duplicate active-owner
+     field mapping has been deleted.
+  2. Histogram runtime apply now uses the session pipeline only; duplicate
+     active-owner field mapping has been deleted.
+  3. Heatmap deferred hidden draw options are sanitized/owner-scoped correctly.
+  4. Heatmap inactive runtime apply no longer clears active hidden-draw or pending
+     draw runtime.
+  5. Line.js no longer exports obsolete global DOM aliases for stats/regression
+     controls; the component keeps using scoped refs/session state.
+  6. Venn GO/STRING remains parked.
 
 Minimum acceptance before moving on:
 

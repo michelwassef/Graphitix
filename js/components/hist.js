@@ -54,6 +54,57 @@
     }
   }
 
+  function isHistSerializableDomLike(value){
+    return !!value && typeof value === 'object' && (
+      value.nodeType === 1
+      || value.nodeType === 9
+      || value === global
+      || value === global.document
+      || value === global.window
+      || (typeof value.addEventListener === 'function' && typeof value.dispatchEvent === 'function')
+    );
+  }
+
+  function cloneHistSerializable(value, seen = new WeakSet(), depth = 0){
+    if(value == null){ return value; }
+    const type = typeof value;
+    if(type === 'string' || type === 'number' || type === 'boolean'){ return value; }
+    if(type === 'function' || type === 'symbol' || type === 'bigint'){ return undefined; }
+    if(depth > 8 || isHistSerializableDomLike(value)){ return undefined; }
+    if(seen.has(value)){ return undefined; }
+    seen.add(value);
+    if(Array.isArray(value)){
+      return value
+        .map(item => cloneHistSerializable(item, seen, depth + 1))
+        .filter(item => item !== undefined);
+    }
+    const copy = {};
+    Object.entries(value).forEach(([key, entry]) => {
+      if(key === 'event'
+        || key === 'target'
+        || key === 'currentTarget'
+        || key === 'srcElement'
+        || key === 'session'
+        || key === 'root'
+        || key === 'hot'
+        || key === 'manager'
+        || key === 'dataViews'
+        || key === 'scheduler'){
+        return;
+      }
+      const cloned = cloneHistSerializable(entry, seen, depth + 1);
+      if(cloned !== undefined){
+        copy[key] = cloned;
+      }
+    });
+    return copy;
+  }
+
+  function sanitizeHistDrawOptions(options = {}){
+    const sanitized = cloneHistSerializable(options);
+    return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized : {};
+  }
+
   function ensureEmptyPayloadTemplate(){
     const session = getActiveHistSessionForState();
     if(emptyPayloadTemplate){
@@ -213,7 +264,7 @@
       histDebug('Debug: hist component dataViews helper require failed', { message: err?.message || String(err) });
     }
   }
-  hist.__installed = true; // signal to legacy code to skip
+  hist.__installed = true;
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
@@ -1220,21 +1271,21 @@
       });
       return false;
     }
-    const sourceOptions = options && typeof options === 'object' ? options : {};
-    const scheduleOptions = {
+    const sourceOptions = options && typeof options === 'object' ? sanitizeHistDrawOptions(options) : {};
+    const scheduleOptions = sanitizeHistDrawOptions({
       ...sourceOptions,
       tabId: tabId || undefined,
       reason: sourceOptions.reason || 'hist-owner-draw'
-    };
+    });
     if(session?.timers){
-      session.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+      session.timers.pendingDrawOptions = scheduleOptions;
       session.updatedAt = Date.now();
     }
     const scheduler = session?.timers?.scheduleDraw || state.scheduleDraw;
     if(typeof scheduler !== 'function'){
       return false;
     }
-    scheduler(scheduleOptions);
+    scheduler(sanitizeHistDrawOptions(scheduleOptions));
     return true;
   }
 
@@ -3687,7 +3738,7 @@
       }
       return;
     }
-    histDebug('Debug: hist symbol toolbar unavailable; legacy fallback removed');
+    histDebug('Debug: hist symbol toolbar unavailable');
   }
 
   // Format toolbar for overlay (pdf/cdf) paths
@@ -3901,7 +3952,7 @@
       });
       return;
     }
-    histDebug('Debug: hist additional line controls unavailable; legacy fallback removed');
+    histDebug('Debug: hist additional line controls unavailable');
   }
 
   function clampUnit(value){
@@ -4838,12 +4889,12 @@
       const config = payload.config || {};
       importFontStyles('hist', config.fontStyles || null);
       const loadedPlotMode = normalizeHistPlotMode(config.plotMode);
-      const legacyFrequencyFallback = config.frequency
+      const payloadFrequencySettings = config.frequency
         ? config.frequency
         : ((config.bins !== undefined && config.bins !== null)
           ? { binningMode: HIST_BINNING_MODE.count }
           : createDefaultHistFrequencySettings());
-      state.frequencySettings = sanitizeHistFrequencySettings(legacyFrequencyFallback);
+      state.frequencySettings = sanitizeHistFrequencySettings(payloadFrequencySettings);
       applyHistPlotMode(loadedPlotMode, { schedule: false, syncDefaults: false });
       state.titleText = config.title || getHistDefaultTitle(loadedPlotMode);
       state.titleAuto = state.titleText === getHistDefaultTitle(loadedPlotMode);
@@ -4979,59 +5030,62 @@
       hist.applyUiState = tableUiHooks ? tableUiHooks.apply : () => false;
     }
     hist.captureRuntimeState = function captureHistRuntimeState(meta = {}){
-      syncHistRuntimeControlsFromDom();
-      const notesSnapshot = captureHistNotesMirror();
-      const notesText = notesSnapshot.text || '';
-      const notesOpen = !!notesSnapshot.open;
+      const requestedSession = getHistSession(meta?.tab || meta?.tabId || null, meta, { create: false, fallbackActive: true })
+        || getActiveHistSessionForState();
+      const activeSession = getActiveHistSessionForState();
+      const session = requestedSession === activeSession
+        ? captureHistSessionStateFromActive(requestedSession, {
+            ...(meta || {}),
+            reason: meta?.reason || 'hist-runtime-capture',
+            syncControls: true,
+            captureStatsPanel: true
+          })
+        : ensureHistSessionOwnershipShape(requestedSession);
+      const sessionState = createDefaultHistDurableState(session?.state || state);
+      const sessionResults = createDefaultHistResultsState(session?.results || {
+        statsPanelModel: sessionState.statsPanelModel
+      });
+      const sessionNotes = createDefaultHistNotesState(session?.notes || state.notes);
+      const snapshotDistributionOptions = cloneSimple(sessionState.distributionOptions) || [];
+      const snapshotDistributionSettings = {
+        ...createDefaultDistributionSettings(),
+        ...(cloneSimple(sessionState.distributionSettings) || {})
+      };
+      snapshotDistributionSettings.selections = mergeDistributionSelections(
+        snapshotDistributionSettings.selections || {},
+        snapshotDistributionOptions
+      );
+      const snapshotFrequencySettings = sanitizeHistFrequencySettings(sessionState.frequencySettings || {});
+      if(sessionState.plotMode === HIST_PLOT_MODE_DENSITY){
+        snapshotDistributionSettings.showCdf = false;
+      }else if(snapshotFrequencySettings.createMode === HIST_FREQUENCY_CREATE_MODE.cumulative){
+        snapshotDistributionSettings.showPdf = false;
+      }
       const snapshot = {
-        plotMode: state.plotMode,
-        labels: {
-          title: state.titleText,
-          titleAuto: !!state.titleAuto,
-          x: state.xLabelText,
-          y: state.yLabelText,
-          yAuto: !!state.yLabelAuto,
-          positions: cloneSimple(state.labelPositions) || {}
-        },
-        showLegend: state.showLegend !== false,
-        colors: {
-          series: cloneSimple(state.seriesColors) || {},
-          densityLines: cloneSimple(state.densityLineColors) || {},
-          fill: state.barFill,
-          border: state.barBorder,
-          borderWidth: state.barBorderWidth
-        },
-        axisSettings: cloneSimple(state.axisSettings) || null,
-        gridStyle: cloneSimple(state.gridStyle) || null,
-        frequencySettings: cloneSimple(state.frequencySettings) || null,
-        distributionSettings: cloneSimple(state.distributionSettings) || null,
-        distributionOptions: cloneSimple(state.distributionOptions) || [],
-        statsSettings: cloneSimple(state.statsSettings) || null,
-        statsPanel: captureHistStatsPanelModel(),
-        runtimeControls: cloneSimple(state.runtimeControls) || createDefaultHistRuntimeControls(),
-        notes: { text: notesText, open: notesOpen },
-        autoDraw: {
-          autoDrawEnabled: !!state.autoDrawEnabled,
-          autoDrawReason: state.autoDrawReason || null,
-          autoDrawLockedByThreshold: !!state.autoDrawLockedByThreshold,
-          drawPending: false,
-          lastDataShape: cloneSimple(state.lastDataShape) || { rows: 0, cols: 0 },
-          lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation) || null
-        },
+        plotMode: sessionState.plotMode,
+        labels: cloneSimple(sessionState.labels) || createDefaultHistLabelsState(),
+        showLegend: sessionState.showLegend !== false,
+        colors: cloneSimple(sessionState.colors) || createDefaultHistColorState(),
+        axisSettings: cloneSimple(sessionState.axisSettings) || null,
+        gridStyle: cloneSimple(sessionState.gridStyle) || null,
+        frequencySettings: cloneSimple(snapshotFrequencySettings) || null,
+        distributionSettings: snapshotDistributionSettings,
+        distributionOptions: snapshotDistributionOptions,
+        statsSettings: cloneSimple(sessionState.statsSettings) || null,
+        statsPanel: createDefaultHistStatsPanelModel(sessionResults.statsPanelModel || sessionState.statsPanelModel || {}),
+        runtimeControls: normalizeHistRuntimeControls(sessionState.runtimeControls || {}),
+        notes: sessionNotes,
+        autoDraw: createDefaultHistAutoDrawState(sessionState.autoDraw || {}),
         reason: meta?.reason || 'hist-runtime-capture'
       };
       histDebug('Debug: hist runtime snapshot captured', {
-        tabId: meta?.tabId || hist.__boundTabId || null,
+        tabId: session?.tabId || meta?.tabId || hist.__boundTabId || null,
         plotMode: snapshot.plotMode,
-        notesOpen,
+        notesOpen: sessionNotes.open,
+        fromActive: requestedSession === activeSession,
         reason: snapshot.reason
       });
-      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
-        reason: snapshot.reason || meta?.reason || 'hist-runtime-capture',
-        syncControls: false,
-        captureStatsPanel: false
-      });
-      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || session?.tabId || null, snapshot, {
         ...(meta || {}),
         reason: snapshot.reason || meta?.reason || 'hist-runtime-capture'
       });
@@ -5049,58 +5103,22 @@
         histDebug('Debug: hist runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
         return false;
       }
-      if(snapshot.plotMode){
-        state.plotMode = normalizeHistPlotMode(snapshot.plotMode);
+      const appliedSession = setHistSessionStateFromRuntimeRecord(snapshot, {
+        ...(meta || {}),
+        reason: meta?.reason || 'hist-runtime-apply-session'
+      });
+      if(!appliedSession){
+        histDebug('Debug: hist runtime snapshot apply skipped', {
+          tabId: meta?.tabId || hist.__boundTabId || null,
+          reason: 'missing-session'
+        });
+        return false;
       }
-      if(snapshot.labels && typeof snapshot.labels === 'object'){
-        state.titleText = typeof snapshot.labels.title === 'string' ? snapshot.labels.title : state.titleText;
-        state.titleAuto = !!snapshot.labels.titleAuto;
-        state.xLabelText = typeof snapshot.labels.x === 'string' ? snapshot.labels.x : state.xLabelText;
-        state.yLabelText = typeof snapshot.labels.y === 'string' ? snapshot.labels.y : state.yLabelText;
-        state.yLabelAuto = !!snapshot.labels.yAuto;
-        state.labelPositions = cloneSimple(snapshot.labels.positions) || state.labelPositions || {};
+      const isActiveOwner = isHistSessionActiveOrActivating(appliedSession);
+      if(isActiveOwner){
+        applyHistSessionStateToActive(appliedSession, { syncUi: true });
       }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'showLegend')){
-        state.showLegend = snapshot.showLegend !== false;
-      }
-      if(snapshot.colors && typeof snapshot.colors === 'object'){
-        state.seriesColors = cloneSimple(snapshot.colors.series) || state.seriesColors || {};
-        state.densityLineColors = cloneSimple(snapshot.colors.densityLines) || state.densityLineColors || {};
-        state.barFill = typeof snapshot.colors.fill === 'string' ? snapshot.colors.fill : state.barFill;
-        state.barBorder = typeof snapshot.colors.border === 'string' ? snapshot.colors.border : state.barBorder;
-        state.barBorderWidth = Number.isFinite(Number(snapshot.colors.borderWidth)) ? Number(snapshot.colors.borderWidth) : state.barBorderWidth;
-      }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'axisSettings')){ state.axisSettings = cloneSimple(snapshot.axisSettings) || state.axisSettings; }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'gridStyle')){ state.gridStyle = cloneSimple(snapshot.gridStyle); }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'frequencySettings')){ state.frequencySettings = cloneSimple(snapshot.frequencySettings) || state.frequencySettings; }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionSettings')){ state.distributionSettings = cloneSimple(snapshot.distributionSettings) || state.distributionSettings; }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'distributionOptions')){ state.distributionOptions = cloneSimple(snapshot.distributionOptions) || []; }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'statsSettings')){ state.statsSettings = cloneSimple(snapshot.statsSettings) || state.statsSettings; }
-      if(Object.prototype.hasOwnProperty.call(snapshot, 'statsPanel')){
-        state.lastStatsPanelModel = normalizeHistStatsPanelModel(snapshot.statsPanel);
-        restoreHistStatsPanelModel(state.lastStatsPanelModel);
-      }
-      state.runtimeControls = Object.prototype.hasOwnProperty.call(snapshot, 'runtimeControls')
-        ? normalizeHistRuntimeControls(cloneSimple(snapshot.runtimeControls) || {})
-        : normalizeHistRuntimeControls(state.runtimeControls || {});
-      if(snapshot.notes && typeof snapshot.notes === 'object'){
-        state.notes.text = snapshot.notes.text == null ? '' : String(snapshot.notes.text);
-        state.notes.open = !!snapshot.notes.open;
-        if(canUseHistNotesControl(state.notes.control)){
-          state.notes.control.setValue(state.notes.text);
-          state.notes.control.setOpen(state.notes.open);
-        }
-      }
-      if(snapshot.autoDraw && typeof snapshot.autoDraw === 'object'){
-        state.autoDrawEnabled = !!snapshot.autoDraw.autoDrawEnabled;
-        state.autoDrawReason = snapshot.autoDraw.autoDrawReason || null;
-        state.autoDrawLockedByThreshold = !!snapshot.autoDraw.autoDrawLockedByThreshold;
-        state.drawPending = false;
-        state.lastDataShape = cloneSimple(snapshot.autoDraw.lastDataShape) || state.lastDataShape;
-        state.lastAutoDrawEvaluation = cloneSimple(snapshot.autoDraw.lastAutoDrawEvaluation) || state.lastAutoDrawEvaluation;
-      }
-      syncHistRuntimeControlsFromState();
-      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, snapshot, {
+      rememberHistOwnedRuntimeRecord(meta?.tab || meta?.tabId || appliedSession.tabId || null, snapshot, {
         ...(meta || {}),
         reason: meta?.reason || 'hist-runtime-apply'
       });
@@ -5108,9 +5126,12 @@
         ...(meta || {}),
         reason: meta?.reason || 'hist-runtime-apply'
       });
-      histDebug('Debug: hist runtime snapshot applied', {
-        tabId: meta?.tabId || hist.__boundTabId || null,
-        plotMode: state.plotMode,
+      histDebug(isActiveOwner
+        ? 'Debug: hist runtime snapshot applied through session pipeline'
+        : 'Debug: hist inactive runtime snapshot stored without active projection', {
+        tabId: appliedSession.tabId || meta?.tabId || hist.__boundTabId || null,
+        activeTabId: getHistActiveTabId() || null,
+        plotMode: appliedSession.state?.plotMode || null,
         reason: meta?.reason || 'hist-runtime-apply'
       });
       return true;
@@ -7477,7 +7498,7 @@
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(hist, 'hist', options => runHistDrawCycle(options || {}), { reason: 'hist-draw-frame' })
       : runHistDrawCycle;
     const scheduleHistInstrumented = (opts) => {
-      const nextOpts = { ...(opts || {}) };
+      const nextOpts = sanitizeHistDrawOptions(opts || {});
       nextOpts.tabId = nextOpts.tabId || getHistActiveTabId() || undefined;
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
       const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
@@ -7490,10 +7511,10 @@
       const runSchedule = () => {
         const ownerSession = getHistSessionForDrawOptions(nextOpts, { reason: overlayReason, create: false });
         if(ownerSession?.timers){
-          ownerSession.timers.pendingDrawOptions = cloneSimple(nextOpts) || null;
+          ownerSession.timers.pendingDrawOptions = sanitizeHistDrawOptions(nextOpts);
           ownerSession.updatedAt = Date.now();
         }
-        scheduleHistBase(nextOpts);
+        scheduleHistBase(sanitizeHistDrawOptions(nextOpts));
       };
       if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
         component: hist,
