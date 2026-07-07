@@ -3875,7 +3875,13 @@
         tabId: normalized.tabId || tabId || null
       });
     }
-    return normalized;
+    const safe = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(normalized, { tabId: normalized.tabId || tabId || null, reason: normalized.reason || 'pca-draw' })
+      : normalized;
+    if(normalized.__workspaceSessionMeta && safe && typeof safe === 'object'){
+      safe.__workspaceSessionMeta = normalized.__workspaceSessionMeta;
+    }
+    return safe;
   }
   function updateAutoDrawUi(meta = {}){
     if(pcaRenderRowEl && pcaRenderRowEl.hidden !== true){
@@ -5153,13 +5159,12 @@
     if(!shaped){
       return false;
     }
-    const scheduleOptions = {
-      ...(options || {}),
-      tabId: shaped.tabId || options.tabId || undefined,
-      reason: options.reason || 'pca-session-draw'
-    };
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'pca-session-draw' })
+      : { ...sourceOptions, tabId: shaped.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'pca-session-draw' };
     updatePcaDrawRuntime(shaped, runtime => {
-      runtime.pendingDrawOptions = cloneSimple(scheduleOptions) || {};
+      runtime.pendingDrawOptions = scheduleOptions;
     }, { mirrorActive: isPcaSessionActiveForModuleState(shaped) });
     if(!isPcaSessionActiveForModuleState(shaped)){
       shaped.state.drawPending = true;

@@ -92,11 +92,30 @@ async function waitForScatterCanvas(page) {
   }, null, { timeout: 120_000 });
 }
 
-async function waitForScatterIdle(page) {
-  // Wait for scatter to finish drawing and stats computation
+async function waitForScatterSnapshotReady(page) {
+  await waitForScatterRender(page);
+
   await page.waitForFunction(() => {
-    if (typeof window.Components?.scatter?.isIdleForSnapshot !== 'function') return true;
-    return window.Components.scatter.isIdleForSnapshot();
+    const root = document.querySelector('#scatterPage:not([hidden])');
+    const layer = root?.querySelector('#scatterPlot svg [data-layer="points"]');
+    if (!layer) return false;
+
+    const mode = layer.getAttribute('data-render-mode');
+    if (!mode || mode === 'canvas-pending') return false;
+
+    const hasRenderedPoints = mode === 'canvas' || mode === 'canvas-resize-reused'
+      ? !!layer.querySelector('foreignObject[data-point-renderer] canvas')
+      : layer.childElementCount > 0;
+    if (!hasRenderedPoints) return false;
+
+    const scatter = window.Components?.scatter;
+    const hot = scatter?.__getActiveHot?.() || scatter?.getHandsontableInstance?.();
+    const data = typeof hot?.getData === 'function' ? hot.getData() : null;
+    if (!Array.isArray(data) || data.length < 2) return false;
+
+    return data.some((row, index) => index > 0
+      && Array.isArray(row)
+      && row.some(cell => String(cell ?? '').trim() !== ''));
   }, null, { timeout: 60_000 });
 }
 
@@ -228,9 +247,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   await page.setInputFiles('#scatterFile', CSV_PATH);
 
   // Wait for render to complete (canvas mode for ≥12000 pts, batched-circles/markers otherwise)
-  await waitForScatterRender(page);
-  // Wait for stats/trendline computation to complete (prevents race on save)
-  await waitForScatterIdle(page);
+  await waitForScatterSnapshotReady(page);
 
   const beforeSave = await page.evaluate(() => {
     const tabId = window.Main?.session?.workspaceState?.activeTabId || null;
@@ -265,9 +282,8 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
 
   // ── Step 4: Activate scatter tab again to let warmup / render cache settle ──
   await activateTab(page, beforeSave.tabId);
-  await waitForScatterRender(page);
-  await waitForScatterIdle(page);
-  // Extra settle time for async stats callback to finish and render cache to be captured
+  await waitForScatterSnapshotReady(page);
+  // Extra settle time for async render-cache capture after switching back to Scatter
   await page.waitForTimeout(2_000);
 
   // ── Step 5: Save (capture workspace archive) ────────────────────────────────

@@ -966,13 +966,12 @@ let state = {
     if(!shaped){
       return false;
     }
-    const scheduleOptions = {
-      ...(options || {}),
-      tabId: shaped.tabId || options?.tabId || undefined,
-      reason: options?.reason || 'pie-session-draw'
-    };
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'pie-session-draw' })
+      : { ...sourceOptions, tabId: shaped.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'pie-session-draw' };
     if(shaped.timers){
-      shaped.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+      shaped.timers.pendingDrawOptions = scheduleOptions;
     }
     if(!isPieSessionActiveOrActivating(shaped)){
       shaped.state.drawPending = true;

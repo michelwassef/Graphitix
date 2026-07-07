@@ -976,7 +976,25 @@
         });
         return false;
       }
-      scheduleRaw.call(this, guardedOptions);
+      const safeOptions = global.Shared?.componentLifecycle?.sanitizeDrawOptions
+        ? global.Shared.componentLifecycle.sanitizeDrawOptions(guardedOptions, {
+          tabId: meta.tabId || guardedOptions.tabId || null,
+          sessionGeneration: meta.sessionGeneration || guardedOptions.sessionGeneration || 0,
+          reason: guardedOptions.reason || guardedOptions.source || `${componentKey}-tab-scoped-schedule`
+        })
+        : guardedOptions;
+      if(meta && safeOptions && typeof safeOptions === 'object'){
+        safeOptions.__workspaceSessionMeta = {
+          tabId: meta.tabId || null,
+          sessionGeneration: meta.sessionGeneration || 0,
+          componentKey: meta.componentKey || componentKey,
+          payloadSignature: meta.payloadSignature ?? null,
+          layoutSignature: meta.layoutSignature ?? null,
+          requirePayloadSignature: meta.requirePayloadSignature === true,
+          requireLayoutSignature: meta.requireLayoutSignature === true
+        };
+      }
+      scheduleRaw.call(this, safeOptions);
       return true;
     };
 

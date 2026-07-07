@@ -11639,11 +11639,11 @@
 
   function withBoxSessionDrawOptions(session = null, options = {}){
     const shaped = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState());
-    const nextOptions = { ...(options || {}) };
-    if(shaped?.tabId){
-      nextOptions.tabId = nextOptions.tabId || shaped.tabId;
-    }
-    const sessionMeta = nextOptions.__boxSessionMeta || buildBoxSessionMeta(nextOptions);
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const nextOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped?.tabId || sourceOptions.tabId || null, reason: 'box-session-draw' })
+      : { ...sourceOptions, tabId: shaped?.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'box-session-draw' };
+    const sessionMeta = sourceOptions.__boxSessionMeta || nextOptions.__boxSessionMeta || buildBoxSessionMeta(nextOptions);
     return { ...nextOptions, __boxSessionMeta: sessionMeta };
   }
 

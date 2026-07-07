@@ -691,7 +691,7 @@
         groups.traceStyles = payload => pickPaths(payload || {}, traceStylePaths);
       }
       if (!groups.legends) {
-        groups.legends = payload => pickPaths(payload || {}, ['config.showLegend', 'config.labelPositions.legend', 'config.legendPosition']);
+        groups.legends = payload => pickPaths(payload || {}, ['config.showLegend', 'config.labelPositions.legend']);
       }
       if (!groups.freeText) {
         groups.freeText = payload => pickPaths(payload || {}, ['config.notes']);

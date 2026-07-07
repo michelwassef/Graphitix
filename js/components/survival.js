@@ -935,13 +935,12 @@
     if(!shaped){
       return false;
     }
-    const scheduleOptions = {
-      ...(options || {}),
-      tabId: shaped.tabId || options?.tabId || undefined,
-      reason: options?.reason || 'survival-session-draw'
-    };
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'survival-session-draw' })
+      : { ...sourceOptions, tabId: shaped.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'survival-session-draw' };
     if(shaped.timers){
-      shaped.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+      shaped.timers.pendingDrawOptions = scheduleOptions;
     }
     if(!isSurvivalSessionActiveOrActivating(shaped)){
       shaped.state.drawPending = true;

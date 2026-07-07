@@ -617,69 +617,71 @@ async function loadCrossZeroData(page, component) {
 test('line and scatter y-axis stay equally stable during live horizontal resize', async ({ browser }, testInfo) => {
   test.setTimeout(120_000);
   const results = {};
-  await Promise.all(Object.entries(COMPONENTS).map(async ([key, component]) => {
+  for (const [key, component] of Object.entries(COMPONENTS)) {
     const deviceScaleFactor = Number(process.env.GRAPHITIX_RESIZE_DSF);
     const page = await browser.newPage(Number.isFinite(deviceScaleFactor) && deviceScaleFactor > 0
       ? { viewport: { width: 1280, height: 900 }, deviceScaleFactor }
       : undefined);
-    await installLocalCdnOverrides(page);
-    const issues = registerIssueCollectors(page);
-    await page.goto('/index.html');
-    await openComponent(page, component);
-    await loadCrossZeroData(page, component);
-    const before = await page.evaluate(readAxisMetrics, component);
-    const slowSamples = await dragWidthWhileSampling(page, component, -160, { steps: 48, delayMs: 16, paintEvery: 4 });
-    const fastSamples = await dragWidthWhileSampling(page, component, 160, { steps: 64, delayMs: 0, paintEvery: 8 });
-    const oscillatingSamples = await dragWidthWhileSampling(page, component, 0, {
-      offsets: buildOscillatingOffsets(),
-      delayMs: 8,
-      paintEvery: 6
-    });
-    const after = await page.evaluate(readAxisMetrics, component);
-    results[key] = {
-      before,
-      after,
-      summary: summarize([
+    try {
+      await installLocalCdnOverrides(page);
+      const issues = registerIssueCollectors(page);
+      await page.goto('/index.html');
+      await openComponent(page, component);
+      await loadCrossZeroData(page, component);
+      const before = await page.evaluate(readAxisMetrics, component);
+      const slowSamples = await dragWidthWhileSampling(page, component, -160, { steps: 48, delayMs: 16, paintEvery: 4 });
+      const fastSamples = await dragWidthWhileSampling(page, component, 160, { steps: 64, delayMs: 0, paintEvery: 8 });
+      const oscillatingSamples = await dragWidthWhileSampling(page, component, 0, {
+        offsets: buildOscillatingOffsets(),
+        delayMs: 8,
+        paintEvery: 6
+      });
+      const after = await page.evaluate(readAxisMetrics, component);
+      results[key] = {
         before,
-        ...slowSamples.raf.map(sample => sample.metrics),
-        ...slowSamples.immediate.map(sample => sample.metrics),
-        ...slowSamples.mutation.map(sample => sample.metrics),
-        ...fastSamples.raf.map(sample => sample.metrics),
-        ...fastSamples.immediate.map(sample => sample.metrics),
-        ...fastSamples.mutation.map(sample => sample.metrics),
-        ...oscillatingSamples.raf.map(sample => sample.metrics),
-        ...oscillatingSamples.immediate.map(sample => sample.metrics),
-        ...oscillatingSamples.mutation.map(sample => sample.metrics),
-        after
-      ]),
-      rafSummary: summarize([...slowSamples.raf, ...fastSamples.raf, ...oscillatingSamples.raf]),
-      immediateSummary: summarize([...slowSamples.immediate, ...fastSamples.immediate, ...oscillatingSamples.immediate]),
-      mutationSummary: summarize([...slowSamples.mutation, ...fastSamples.mutation, ...oscillatingSamples.mutation]),
-      paintSummary: summarizePaint([...slowSamples.paint, ...fastSamples.paint, ...oscillatingSamples.paint]),
-      slowSummary: {
-        raf: summarize(slowSamples.raf),
-        immediate: summarize(slowSamples.immediate),
-        mutation: summarize(slowSamples.mutation)
-        ,
-        paint: summarizePaint(slowSamples.paint)
-      },
-      fastSummary: {
-        raf: summarize(fastSamples.raf),
-        immediate: summarize(fastSamples.immediate),
-        mutation: summarize(fastSamples.mutation),
-        paint: summarizePaint(fastSamples.paint)
-      },
-      oscillatingSummary: {
-        raf: summarize(oscillatingSamples.raf),
-        immediate: summarize(oscillatingSamples.immediate),
-        mutation: summarize(oscillatingSamples.mutation),
-        paint: summarizePaint(oscillatingSamples.paint)
-      },
-      samples: { slow: slowSamples, fast: fastSamples, oscillating: oscillatingSamples },
-      issues: issues.all
-    };
-    await page.close();
-  }));
+        after,
+        summary: summarize([
+          before,
+          ...slowSamples.raf.map(sample => sample.metrics),
+          ...slowSamples.immediate.map(sample => sample.metrics),
+          ...slowSamples.mutation.map(sample => sample.metrics),
+          ...fastSamples.raf.map(sample => sample.metrics),
+          ...fastSamples.immediate.map(sample => sample.metrics),
+          ...fastSamples.mutation.map(sample => sample.metrics),
+          ...oscillatingSamples.raf.map(sample => sample.metrics),
+          ...oscillatingSamples.immediate.map(sample => sample.metrics),
+          ...oscillatingSamples.mutation.map(sample => sample.metrics),
+          after
+        ]),
+        rafSummary: summarize([...slowSamples.raf, ...fastSamples.raf, ...oscillatingSamples.raf]),
+        immediateSummary: summarize([...slowSamples.immediate, ...fastSamples.immediate, ...oscillatingSamples.immediate]),
+        mutationSummary: summarize([...slowSamples.mutation, ...fastSamples.mutation, ...oscillatingSamples.mutation]),
+        paintSummary: summarizePaint([...slowSamples.paint, ...fastSamples.paint, ...oscillatingSamples.paint]),
+        slowSummary: {
+          raf: summarize(slowSamples.raf),
+          immediate: summarize(slowSamples.immediate),
+          mutation: summarize(slowSamples.mutation),
+          paint: summarizePaint(slowSamples.paint)
+        },
+        fastSummary: {
+          raf: summarize(fastSamples.raf),
+          immediate: summarize(fastSamples.immediate),
+          mutation: summarize(fastSamples.mutation),
+          paint: summarizePaint(fastSamples.paint)
+        },
+        oscillatingSummary: {
+          raf: summarize(oscillatingSamples.raf),
+          immediate: summarize(oscillatingSamples.immediate),
+          mutation: summarize(oscillatingSamples.mutation),
+          paint: summarizePaint(oscillatingSamples.paint)
+        },
+        samples: { slow: slowSamples, fast: fastSamples, oscillating: oscillatingSamples },
+        issues: issues.all
+      };
+    } finally {
+      await page.close();
+    }
+  }
 
   await testInfo.attach('line-scatter-live-horizontal-resize-comparison.json', {
     body: Buffer.from(JSON.stringify(results, null, 2), 'utf8'),

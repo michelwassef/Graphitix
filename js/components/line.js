@@ -4558,15 +4558,24 @@
     if(typeof scheduler !== 'function'){
       return undefined;
     }
-    return scheduler(options);
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: target?.tabId || sourceOptions.tabId || null, reason: 'line-session-draw' })
+      : { ...sourceOptions, tabId: target?.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'line-session-draw' };
+    return scheduler(scheduleOptions);
   }
 
   function scheduleLineDrawRaw(options = {}){
-    const scheduler = getLineSessionDrawScheduler(getLineActiveSessionForState(), { raw: true });
+    const target = getLineActiveSessionForState();
+    const scheduler = getLineSessionDrawScheduler(target, { raw: true });
     if(typeof scheduler !== 'function'){
       return undefined;
     }
-    return scheduler(options);
+    const sourceOptions = options && typeof options === 'object' ? options : {};
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: target?.tabId || sourceOptions.tabId || null, reason: 'line-session-draw-raw' })
+      : { ...sourceOptions, tabId: target?.tabId || sourceOptions.tabId || undefined, reason: sourceOptions.reason || 'line-session-draw-raw' };
+    return scheduler(scheduleOptions);
   }
 
   function scheduleLineDraw(options = {}){

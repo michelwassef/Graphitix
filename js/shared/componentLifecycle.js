@@ -64,6 +64,105 @@
     };
   };
 
+  function isPlainDrawObject(value){
+    if(!value || typeof value !== 'object'){
+      return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === Object.prototype || proto === null;
+  }
+
+  function isLiveDrawObject(value){
+    if(!value || typeof value !== 'object'){
+      return false;
+    }
+    if(typeof Node !== 'undefined' && value instanceof Node){
+      return true;
+    }
+    if(typeof Event !== 'undefined' && value instanceof Event){
+      return true;
+    }
+    if(typeof value.nodeType === 'number' || typeof value.addEventListener === 'function'){
+      return true;
+    }
+    if(typeof value.preventDefault === 'function' || typeof value.stopPropagation === 'function'){
+      return true;
+    }
+    if(value.window === value || value.document === value || value.ownerDocument){
+      return true;
+    }
+    return false;
+  }
+
+  function sanitizeDrawValue(value, seen, depth){
+    if(value == null){
+      return value;
+    }
+    const type = typeof value;
+    if(type === 'string' || type === 'number' || type === 'boolean'){
+      return Number.isNaN(value) ? undefined : value;
+    }
+    if(type === 'bigint'){
+      return value.toString();
+    }
+    if(type === 'function' || type === 'symbol' || type === 'undefined'){
+      return undefined;
+    }
+    if(isLiveDrawObject(value)){
+      return undefined;
+    }
+    if(depth > 8){
+      return undefined;
+    }
+    if(seen.has(value)){
+      return undefined;
+    }
+    seen.add(value);
+    if(Array.isArray(value)){
+      const arr = value
+        .map(item => sanitizeDrawValue(item, seen, depth + 1))
+        .filter(item => item !== undefined);
+      seen.delete(value);
+      return arr;
+    }
+    if(!isPlainDrawObject(value)){
+      seen.delete(value);
+      return undefined;
+    }
+    const out = {};
+    Object.keys(value).forEach(key => {
+      if(key === 'tab' || key === 'target' || key === 'currentTarget' || key === 'srcElement' || key === 'ownerDocument'){
+        return;
+      }
+      const sanitized = sanitizeDrawValue(value[key], seen, depth + 1);
+      if(sanitized !== undefined){
+        out[key] = sanitized;
+      }
+    });
+    seen.delete(value);
+    return out;
+  }
+
+  namespace.sanitizeDrawOptions = function sanitizeDrawOptions(options = {}, owner = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    const sanitized = sanitizeDrawValue(source, new WeakSet(), 0);
+    const out = sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized : {};
+    const ownerTabId = String(owner?.tabId || source.tabId || source.workspaceTabId || '').trim();
+    if(ownerTabId){
+      out.tabId = ownerTabId;
+    }else{
+      delete out.tabId;
+    }
+    delete out.workspaceTabId;
+    const ownerGeneration = Number(owner?.sessionGeneration ?? owner?.generation ?? source.sessionGeneration ?? source.generation);
+    if(Number.isFinite(ownerGeneration) && ownerGeneration > 0){
+      out.sessionGeneration = ownerGeneration;
+    }
+    const reason = String(source.reason || owner?.reason || out.reason || 'component-draw').trim();
+    out.reason = reason || 'component-draw';
+    return out;
+  };
+
   namespace.resolveDrawCooldownMs = function resolveDrawCooldownMs(options = {}, config = {}){
     if(options.force){
       return 0;

@@ -217,7 +217,6 @@
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
-    legendPosition: null, // Legacy field, kept for backward compatibility
     labelPositions: { title: null, legend: null },
     _listeners: [],
     _hotHooks: [],
@@ -282,8 +281,7 @@
       lastStats: cloneSimple(src.lastStats) || null,
       statsPanelModel: normalizeSurfaceStatsPanelModel(src.statsPanelModel || {}),
       axisMap: Object.assign({}, defaults.axisMap, cloneSimple(src.axisMap) || {}),
-      legendPosition: cloneSimple(src.legendPosition) || null,
-      labelPositions: cloneSimple(src.labelPositions) || cloneSimple(defaults.labelPositions),
+      labelPositions: normalizeSurfaceLabelPositions(src.labelPositions, src.legendPosition),
       settings: Object.assign(createDefaultSurfaceSettings(), cloneSimple(src.settings) || {}),
       gridStyle: sanitizeGridStyle(src.gridStyle, src.settings?.axisStroke ?? defaults.settings.axisStroke),
       labels: Object.assign(createDefaultSurfaceLabels(), cloneSimple(src.labels) || {}),
@@ -554,12 +552,10 @@
       return false;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
-    const scheduleOptions = {
-      ...sourceOptions,
-      tabId: shaped.tabId || undefined,
-      reason: sourceOptions.reason || 'surface-session-draw'
-    };
-    shaped.timers.pendingDrawOptions = cloneSimple(scheduleOptions) || null;
+    const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
+      ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'surface-session-draw' })
+      : { ...sourceOptions, tabId: shaped.tabId || undefined, reason: sourceOptions.reason || 'surface-session-draw' };
+    shaped.timers.pendingDrawOptions = scheduleOptions;
     shaped.updatedAt = Date.now();
     if(!isSurfaceSessionActiveOrActivating(shaped)){
       shaped.state.drawPending = true;
@@ -595,8 +591,30 @@
   }
 
 
-  function normalizeSurfaceLabelPositions(value){
-    return cloneSimple(value) || { title: null, legend: null };
+  function normalizeSurfacePosition(value){
+    const source = value && typeof value === 'object' ? value : null;
+    if(!source){
+      return null;
+    }
+    const x = Number(source.x);
+    const y = Number(source.y);
+    if(!Number.isFinite(x) || !Number.isFinite(y)){
+      return null;
+    }
+    const out = { x, y };
+    const relX = Number(source.relX);
+    const relY = Number(source.relY);
+    if(Number.isFinite(relX)){ out.relX = relX; }
+    if(Number.isFinite(relY)){ out.relY = relY; }
+    return out;
+  }
+
+  function normalizeSurfaceLabelPositions(value, migratedLegend = null){
+    const source = value && typeof value === 'object' ? value : {};
+    return {
+      title: normalizeSurfacePosition(source.title),
+      legend: normalizeSurfacePosition(source.legend) || normalizeSurfacePosition(migratedLegend)
+    };
   }
 
   function patchSurfaceVisualState(session = null, patch = {}, meta = {}){
@@ -611,7 +629,6 @@
       if(hasLabels){ owner.state.labels = nextLabels; }
       if(hasPositions){
         owner.state.labelPositions = nextPositions;
-        owner.state.legendPosition = nextPositions.legend || null;
       }
       owner.updatedAt = Date.now();
       debugLog('Debug: surface visual state patched to owner session', {
@@ -625,7 +642,6 @@
       if(hasLabels){ state.labels = nextLabels; }
       if(hasPositions){
         state.labelPositions = nextPositions;
-        state.legendPosition = nextPositions.legend || null;
       }
     }
     return { labels: nextLabels, labelPositions: nextPositions };
@@ -1107,7 +1123,6 @@
       lastStats: null,
       statsPanelModel: { resultsModel: null, reportModel: null },
       axisMap: { x: 0, y: 1, z: 2 },
-      legendPosition: null,
       labelPositions: { title: null, legend: null },
       settings: createDefaultSurfaceSettings(),
       gridStyle: createDefaultGridStyle(DEFAULT_SURFACE_SETTINGS.axisStroke),
@@ -1234,8 +1249,7 @@
       lastStats: cloneSimple(state.lastStats),
       statsPanelModel: captureSurfaceStatsPanelModel(),
       axisMap: cloneSimple(state.axisMap) || { ...defaults.axisMap },
-      legendPosition: cloneSimple(state.legendPosition),
-      labelPositions: cloneSimple(state.labelPositions) || cloneSimple(defaults.labelPositions),
+      labelPositions: normalizeSurfaceLabelPositions(state.labelPositions),
       settings: Object.assign(createDefaultSurfaceSettings(), cloneSimple(state.settings) || {}),
       gridStyle: sanitizeGridStyle(state.gridStyle, state.settings?.axisStroke ?? defaults.settings.axisStroke),
       labels: Object.assign(createDefaultSurfaceLabels(), cloneSimple(state.labels) || {}),
@@ -1258,8 +1272,7 @@
     state.lastStats = cloneSimple(source.lastStats) || null;
     state.statsPanelModel = normalizeSurfaceStatsPanelModel(source.statsPanelModel || {});
     state.axisMap = Object.assign({}, defaults.axisMap, cloneSimple(source.axisMap) || {});
-    state.legendPosition = cloneSimple(source.legendPosition) || null;
-    state.labelPositions = cloneSimple(source.labelPositions) || cloneSimple(defaults.labelPositions);
+    state.labelPositions = normalizeSurfaceLabelPositions(source.labelPositions, source.legendPosition);
     state.settings = Object.assign(createDefaultSurfaceSettings(), cloneSimple(source.settings) || {});
     setGridStyle(source.gridStyle, state.settings?.axisStroke ?? defaults.settings.axisStroke);
     state.labels = Object.assign(createDefaultSurfaceLabels(), cloneSimple(source.labels) || {});
@@ -2925,7 +2938,7 @@
 
     const defaultLegendX = metrics.width - metrics.marginRight + legendRightPad;
     const defaultLegendY = metrics.marginTop;
-    const position = options.position || state.labelPositions?.legend || state.legendPosition || null;
+    const position = options.position || state.labelPositions?.legend || null;
     let absoluteLegendX = defaultLegendX;
     let absoluteLegendY = defaultLegendY;
     if(position){
@@ -3818,7 +3831,7 @@
       }
     }
     if(canShowLegend){
-      const legendPosition = state.labelPositions.legend || state.legendPosition;
+      const legendPosition = state.labelPositions.legend || null;
       renderLegend(svg, {
         min: parsed.stats.zMin,
         max: parsed.stats.zMax,
@@ -4038,11 +4051,14 @@
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(surface, 'surface', runSurfaceDrawCycle, { reason: 'surface-draw-frame' })
       : runSurfaceDrawCycle;
     const scheduleSurfaceDrawInstrumented = (opts) => {
-      const nextOpts = { ...(opts || {}) };
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      const ownerSession = getSurfaceSessionForDrawOptions(nextOpts, { reason: overlayReason, create: false });
+      const sourceOpts = opts && typeof opts === 'object' ? opts : {};
+      const overlayReason = sourceOpts.reason || (sourceOpts.force ? 'manual-render' : 'schedule');
+      const ownerSession = getSurfaceSessionForDrawOptions(sourceOpts, { reason: overlayReason, create: false });
+      const nextOpts = Shared.componentLifecycle?.sanitizeDrawOptions
+        ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOpts, { tabId: ownerSession?.tabId || sourceOpts.tabId || surface.__boundTabId || null, reason: overlayReason })
+        : { ...sourceOpts, tabId: ownerSession?.tabId || sourceOpts.tabId || undefined, reason: overlayReason };
       if(ownerSession?.timers){
-        ownerSession.timers.pendingDrawOptions = cloneSimple(nextOpts) || null;
+        ownerSession.timers.pendingDrawOptions = nextOpts;
         ownerSession.updatedAt = Date.now();
       }
       const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
@@ -4459,30 +4475,7 @@
     if(config.labels && typeof config.labels === 'object'){
       state.labels = Object.assign({}, state.labels, config.labels);
     }
-    // Handle legacy legendPosition field for backward compatibility
-    if(Object.prototype.hasOwnProperty.call(config, 'legendPosition')){
-      const pos = config.legendPosition;
-      const x = Number(pos?.x);
-      const y = Number(pos?.y);
-      const relX = Number(pos?.relX);
-      const relY = Number(pos?.relY);
-      if(Number.isFinite(x) && Number.isFinite(y)) {
-        state.labelPositions.legend = { 
-          x, 
-          y,
-          relX: Number.isFinite(relX) ? relX : undefined,
-          relY: Number.isFinite(relY) ? relY : undefined
-        };
-        // Also set legacy field for backward compatibility
-        state.legendPosition = state.labelPositions.legend;
-      }
-    }
-    if(config.labelPositions && typeof config.labelPositions === 'object'){
-      const titlePos = config.labelPositions.title;
-      const x = Number(titlePos?.x);
-      const y = Number(titlePos?.y);
-      state.labelPositions.title = (Number.isFinite(x) && Number.isFinite(y)) ? { x, y } : null;
-    }
+    state.labelPositions = normalizeSurfaceLabelPositions(config.labelPositions, config.legendPosition);
     ensureHeaderRowFromConfig(config);
     if(config.rotation && typeof plot3d.createRotationState === 'function'){
       const restored = plot3d.createRotationState(config.rotation);
@@ -4550,15 +4543,14 @@
         settings: Object.assign({}, state.settings),
         gridStyle: getGridStyle(state.settings?.axisStroke),
         labels: Object.assign({}, state.labels),
-        // Also save legacy field for backward compatibility
-        legendPosition: state.legendPosition ? { 
-          x: state.legendPosition.x, 
-          y: state.legendPosition.y,
-          relX: state.legendPosition.relX,
-          relY: state.legendPosition.relY
-        } : null,
         labelPositions: {
-          title: state.labelPositions?.title ? { x: state.labelPositions.title.x, y: state.labelPositions.title.y } : null
+          title: state.labelPositions?.title ? { x: state.labelPositions.title.x, y: state.labelPositions.title.y } : null,
+          legend: state.labelPositions?.legend ? {
+            x: state.labelPositions.legend.x,
+            y: state.labelPositions.legend.y,
+            relX: state.labelPositions.legend.relX,
+            relY: state.labelPositions.legend.relY
+          } : null
         },
         rotation: {
           x: state.rotation.x,
