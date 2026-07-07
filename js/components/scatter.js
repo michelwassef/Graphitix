@@ -286,9 +286,6 @@
     statsContextVersion: 0,
     statsLastRunVersion: 0,
     statsComputationPending: false,
-    statsComputationContextVersion: 0,
-    statsComputationTabId: null,
-    statsComputationStartedAt: 0,
     statsContextBootstrapPending: false,
     statsContextBootstrapAttemptId: 0,
     statsNonVisualDrawSuppression: null,
@@ -1590,9 +1587,6 @@
   const scatterStatsRuntimeFallback = createDefaultScatterStatsRuntime({
     context: scatterState.statsContext,
     computationPending: scatterState.statsComputationPending,
-    computationContextVersion: scatterState.statsComputationContextVersion,
-    computationTabId: scatterState.statsComputationTabId,
-    computationStartedAt: scatterState.statsComputationStartedAt,
     contextBootstrapPending: scatterState.statsContextBootstrapPending,
     contextBootstrapAttemptId: scatterState.statsContextBootstrapAttemptId,
     nonVisualDrawSuppression: scatterState.statsNonVisualDrawSuppression,
@@ -2015,15 +2009,8 @@
     return shaped;
   }
 
-  function sanitizeScatterDrawOptions(options = null, session = null, reason = 'scatter-session-draw'){
-    const source = options && typeof options === 'object' ? options : {};
-    return Shared.componentLifecycle?.sanitizeDrawOptions
-      ? Shared.componentLifecycle.sanitizeDrawOptions(source, { tabId: session?.tabId || source.tabId || null, reason })
-      : { ...source, tabId: session?.tabId || source.tabId || undefined, reason: source.reason || reason };
-  }
-
   function cloneScatterDrawOptions(options = null){
-    return sanitizeScatterDrawOptions(options, null, 'scatter-runtime-draw');
+    return options && typeof options === 'object' ? { ...options } : null;
   }
 
   function normalizeScatterDrawReasonSet(value){
@@ -2241,9 +2228,6 @@
     return {
       context: source.context || null,
       computationPending: !!source.computationPending,
-      computationContextVersion: Number(source.computationContextVersion) || 0,
-      computationTabId: source.computationTabId || null,
-      computationStartedAt: Number(source.computationStartedAt) || 0,
       contextBootstrapPending: !!source.contextBootstrapPending,
       contextBootstrapAttemptId: Number(source.contextBootstrapAttemptId) || 0,
       nonVisualDrawSuppression: cloneSimple(source.nonVisualDrawSuppression) || null,
@@ -2267,9 +2251,6 @@
     if(shouldMirror){
       scatterState.statsContext = runtime.context || null;
       scatterState.statsComputationPending = !!runtime.computationPending;
-      scatterState.statsComputationContextVersion = Number(runtime.computationContextVersion) || 0;
-      scatterState.statsComputationTabId = runtime.computationTabId || null;
-      scatterState.statsComputationStartedAt = Number(runtime.computationStartedAt) || 0;
       scatterState.statsContextBootstrapPending = !!runtime.contextBootstrapPending;
       scatterState.statsContextBootstrapAttemptId = Number(runtime.contextBootstrapAttemptId) || 0;
       scatterState.statsNonVisualDrawSuppression = runtime.nonVisualDrawSuppression || null;
@@ -2291,9 +2272,6 @@
         shaped.cache.statsRuntime = createDefaultScatterStatsRuntime({
           context: scatterState.statsContext,
           computationPending: scatterState.statsComputationPending,
-      computationContextVersion: scatterState.statsComputationContextVersion,
-      computationTabId: scatterState.statsComputationTabId,
-      computationStartedAt: scatterState.statsComputationStartedAt,
           contextBootstrapPending: scatterState.statsContextBootstrapPending,
           contextBootstrapAttemptId: scatterState.statsContextBootstrapAttemptId,
           nonVisualDrawSuppression: scatterState.statsNonVisualDrawSuppression,
@@ -2308,9 +2286,6 @@
       Object.assign(scatterStatsRuntimeFallback, createDefaultScatterStatsRuntime({
         context: scatterState.statsContext,
         computationPending: scatterState.statsComputationPending,
-      computationContextVersion: scatterState.statsComputationContextVersion,
-      computationTabId: scatterState.statsComputationTabId,
-      computationStartedAt: scatterState.statsComputationStartedAt,
         contextBootstrapPending: scatterState.statsContextBootstrapPending,
         contextBootstrapAttemptId: scatterState.statsContextBootstrapAttemptId,
         nonVisualDrawSuppression: scatterState.statsNonVisualDrawSuppression,
@@ -2334,55 +2309,6 @@
       shaped.updatedAt = Date.now();
     }
     return syncScatterStatsRuntimeMirror(runtime, shaped);
-  }
-
-  function resolveScatterStatsContextVersion(context){
-    return Number(context?.version) || 0;
-  }
-
-  function beginScatterStatsComputationRuntime(session = null, context = null, meta = {}){
-    const contextVersion = resolveScatterStatsContextVersion(context);
-    const tabId = meta?.tabId || meta?.__workspaceSessionMeta?.tabId || session?.tabId || scatter.__boundTabId || null;
-    updateScatterStatsRuntime(session, runtime => {
-      runtime.computationPending = true;
-      runtime.computationContextVersion = contextVersion;
-      runtime.computationTabId = tabId || null;
-      runtime.computationStartedAt = Date.now();
-    });
-  }
-
-  function scatterStatsComputationRuntimeMatches(runtime, context = null, meta = {}){
-    if(!runtime?.computationPending){
-      return false;
-    }
-    const pendingVersion = Number(runtime.computationContextVersion) || 0;
-    const contextVersion = resolveScatterStatsContextVersion(context);
-    const pendingTabId = String(runtime.computationTabId || '').trim();
-    const metaTabId = String(meta?.tabId || meta?.__workspaceSessionMeta?.tabId || '').trim();
-    if(pendingVersion > 0 && contextVersion > 0 && pendingVersion !== contextVersion){
-      return false;
-    }
-    if(pendingTabId && metaTabId && pendingTabId !== metaTabId){
-      return false;
-    }
-    return true;
-  }
-
-  function clearScatterStatsComputationRuntime(session = null, context = null, meta = {}, options = {}){
-    const runtime = getScatterStatsRuntime(session, { syncFallbackFromState: !session });
-    if(!runtime?.computationPending){
-      return false;
-    }
-    if(options.force !== true && !scatterStatsComputationRuntimeMatches(runtime, context, meta)){
-      return false;
-    }
-    updateScatterStatsRuntime(session, nextRuntime => {
-      nextRuntime.computationPending = false;
-      nextRuntime.computationContextVersion = 0;
-      nextRuntime.computationTabId = null;
-      nextRuntime.computationStartedAt = 0;
-    });
-    return true;
   }
 
   function setScatterSessionStatsState(session = null, statsState = null, meta = {}){
@@ -2439,9 +2365,6 @@
     const statsRuntimeSource = {
       context: scatterState.statsContext || null,
       computationPending: scatterState.statsComputationPending,
-      computationContextVersion: scatterState.statsComputationContextVersion,
-      computationTabId: scatterState.statsComputationTabId,
-      computationStartedAt: scatterState.statsComputationStartedAt,
       contextBootstrapPending: scatterState.statsContextBootstrapPending,
       contextBootstrapAttemptId: scatterState.statsContextBootstrapAttemptId,
       nonVisualDrawSuppression: scatterState.statsNonVisualDrawSuppression,
@@ -4016,17 +3939,20 @@
     if(!shaped){
       return false;
     }
-    const scheduleOptions = sanitizeScatterDrawOptions(options || {}, shaped, 'scatter-session-draw');
     if(!isScatterSessionActiveForModuleState(shaped)){
       updateScatterDrawRuntime(shaped, runtime => {
-        runtime.pendingOptions = scheduleOptions;
+        runtime.pendingOptions = cloneScatterDrawOptions(options || {}) || {};
       });
       return false;
     }
     if(typeof scheduleDrawScatter !== 'function'){
       return false;
     }
-    scheduleDrawScatter(scheduleOptions);
+    scheduleDrawScatter({
+      ...(options || {}),
+      tabId: shaped.tabId || options.tabId || undefined,
+      reason: options.reason || 'scatter-session-draw'
+    });
     return true;
   }
 
@@ -4396,9 +4322,6 @@
     updateScatterStatsRuntime(applyDrawSession, statsRuntime => {
       statsRuntime.context = null;
       statsRuntime.computationPending = false;
-      statsRuntime.computationContextVersion = 0;
-      statsRuntime.computationTabId = null;
-      statsRuntime.computationStartedAt = 0;
       statsRuntime.contextBootstrapPending = false;
     });
     updateScatterDrawRuntime(applyDrawSession, drawRuntime => {
@@ -9261,7 +9184,7 @@
       }
       return;
     }
-    scatterDebug('Debug: scatter symbol toolbar unavailable');
+    console.debug('Debug: scatter symbol toolbar unavailable; legacy fallback removed');
   }
 
   function attachScatterSelectAutoSize(select, label){
@@ -10379,6 +10302,7 @@
     }
     ensureScatterAxisSettings();
     ensureScatterGridStyle(getScatterAxisStrokeWidth());
+    const legacyDollar = global.$;
     const $ = (selector) => {
       if(typeof selector !== 'string'){
         return null;
@@ -10390,7 +10314,14 @@
       if(trimmed.startsWith('#') && /^#[A-Za-z0-9_-]+$/.test(trimmed)){
         return getScatterNodeById(trimmed.slice(1));
       }
-      return queryScatterRoot(trimmed);
+      const scopedNode = queryScatterRoot(trimmed);
+      if(scopedNode){
+        return scopedNode;
+      }
+      if(typeof legacyDollar === 'function'){
+        return legacyDollar(trimmed);
+      }
+      return null;
     };
     const document = global.document;
     let scatterHot = null;
@@ -14805,9 +14736,6 @@
         updateScatterStatsRuntime(statsSession, statsRuntime => {
           statsRuntime.context = null;
           statsRuntime.computationPending = false;
-          statsRuntime.computationContextVersion = 0;
-          statsRuntime.computationTabId = null;
-          statsRuntime.computationStartedAt = 0;
           statsRuntime.contextBootstrapPending = false;
           statsRuntime.contextBootstrapAttemptId = 0;
           statsRuntime.nonVisualDrawSuppression = null;
@@ -15970,7 +15898,9 @@
         if(statsRequiresGraphRedraw){
           clearScatterScheduledDraw('scatter-stats-compute-start');
         }
-        beginScatterStatsComputationRuntime(statsSession, context, sessionMeta);
+        updateScatterStatsRuntime(statsSession, runtime => {
+          runtime.computationPending = true;
+        });
         updateScatterStatsButtonState({ disabled:true, label:'Calculating…' });
         setScatterStatsStatus('Calculating statistics…');
         runScatterStatsComputation(context)
@@ -16009,17 +15939,15 @@
             const asyncCurrent = !statsAsyncScope || (statsAsyncMeta && statsAsyncScope.isCurrent(statsAsyncMeta));
             const finalCurrent = asyncCurrent && isCurrentScatterSessionMeta(sessionMeta) && scatterState.statsContext === context && scatterState.statsContextVersion === context.version;
             if(!finalCurrent){
-              if(!statsRequiresGraphRedraw && nonVisualStatsSuppressionToken != null){
-                endScatterNonVisualStatsDrawSuppression(nonVisualStatsSuppressionToken, 'scatter-stats-stale-finalized-no-redraw');
+              if(asyncCurrent){
+                if(!statsRequiresGraphRedraw && nonVisualStatsSuppressionToken != null){
+                  endScatterNonVisualStatsDrawSuppression(nonVisualStatsSuppressionToken, 'scatter-stats-stale-finalized-no-redraw');
+                }
+                updateScatterStatsRuntime(statsSession, runtime => {
+                  runtime.computationPending = false;
+                });
               }
-              const pendingCleared = clearScatterStatsComputationRuntime(statsSession, context, sessionMeta);
-              scatterDebug('Debug: scatter stats finalization skipped',{
-                reason:'stale-session',
-                asyncCurrent,
-                pendingCleared,
-                contextVersion: context.version,
-                current: scatterState.statsContextVersion
-              });
+              scatterDebug('Debug: scatter stats finalization skipped',{ reason:'stale-session', contextVersion: context.version, current: scatterState.statsContextVersion });
               return;
             }
             syncScatterRegressionOptionVisibility();
@@ -16041,7 +15969,9 @@
               if(!statsRequiresGraphRedraw && nonVisualStatsSuppressionToken != null){
                 endScatterNonVisualStatsDrawSuppression(nonVisualStatsSuppressionToken, 'scatter-stats-finalized-no-redraw');
               }
-              clearScatterStatsComputationRuntime(statsSession, context, sessionMeta, { force: true });
+              updateScatterStatsRuntime(statsSession, runtime => {
+                runtime.computationPending = false;
+              });
             }
           });
       }
@@ -26651,9 +26581,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
             updateScatterStatsRuntime(restoreStatsSession, statsRuntime => {
               statsRuntime.context = null;
               statsRuntime.computationPending = false;
-              statsRuntime.computationContextVersion = 0;
-              statsRuntime.computationTabId = null;
-              statsRuntime.computationStartedAt = 0;
               statsRuntime.contextBootstrapPending = false;
             });
             const hasResults = !!savedPrecomputedStats || scatterStatsPanelHasRenderedResults();
@@ -27211,9 +27138,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
       });
       updateScatterStatsRuntime(session, statsRuntime => {
         statsRuntime.computationPending = false;
-        statsRuntime.computationContextVersion = 0;
-        statsRuntime.computationTabId = null;
-        statsRuntime.computationStartedAt = 0;
         statsRuntime.contextBootstrapPending = false;
       });
       scatterState.rotationPending = false;
@@ -27237,9 +27161,6 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
     });
     updateScatterStatsRuntime(session, statsRuntime => {
       statsRuntime.computationPending = false;
-      statsRuntime.computationContextVersion = 0;
-      statsRuntime.computationTabId = null;
-      statsRuntime.computationStartedAt = 0;
       statsRuntime.contextBootstrapPending = false;
     });
     scatterState.rotationPending = false;
@@ -28276,7 +28197,7 @@ Technical analysis record (advanced)\n${JSON.stringify(analysisSpec, null, 2)}` 
         get: () => scatterState,
         excludeKeys: [
           'hot', 'root', 'cachedDrawInput', 'statsContext', 'statsCacheBySignature',
-          'statsComputationPending', 'statsComputationContextVersion', 'statsComputationTabId', 'statsComputationStartedAt', 'statsRestorePending', 'statsNonVisualDrawSuppression',
+          'statsComputationPending', 'statsRestorePending', 'statsNonVisualDrawSuppression',
           'statsDrawSuppressionToken', 'pendingDrawOpts',
           'pendingDrawReasons', 'activeDrawReasons', 'drawScheduled', 'drawCooldownTimer',
           'drawQueueEpoch', 'drawInProgress', 'rotationPending', 'rotationPendingLogged', 'skipNextDraw',
