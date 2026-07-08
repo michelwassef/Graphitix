@@ -29031,9 +29031,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         axisLabels: Array.isArray(state.cachedDrawInput?.axisLabels) ? state.cachedDrawInput.axisLabels.slice() : [],
         significance: { enabled: !!state.showSignificanceBars }
       }, {
+        tabId: tab?.id || null,
         viewOnly: true,
         reason: restoreReason || 'hydrate-cache-stats-context'
       });
+      restoreBoxStatsControlSurfaceFromTraces(cachedTraces, {
+        tabId: tab?.id || null,
+        reason: `${restoreReason || 'hydrate-cache-stats-context'}-controls`
+      });
+    }else{
+      renderStatsControls([]);
+      ensureBoxStatsActionRowPlacement();
     }
     console.debug('Debug: box stats surface reset from tab payload', {
       tabId: tab?.id || null,
@@ -29408,6 +29416,30 @@ Technical analysis record (advanced)
     return null;
   }
 
+  function restoreBoxStatsControlSurfaceFromTraces(traces, options = {}){
+    if(!Array.isArray(traces) || !traces.length){
+      return false;
+    }
+    const targetTabId = resolveBoxTabId(options.tabId || null);
+    const activeTabId = resolveBoxExplicitOrBoundTabId(options) || resolveBoxTabId(box.__boundTabId || null);
+    if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
+      console.debug('Debug: box stats controls restore skipped for inactive tab', {
+        reason: options.reason || 'stats-controls-restore',
+        targetTabId,
+        activeTabId
+      });
+      return false;
+    }
+    renderStatsControls(traces);
+    ensureBoxStatsActionRowPlacement();
+    console.debug('Debug: box stats controls restored from tab data', {
+      reason: options.reason || 'stats-controls-restore',
+      tabId: targetTabId || activeTabId || null,
+      traceCount: traces.length
+    });
+    return true;
+  }
+
   function primeBoxStatsContextFromMatrix(matrix, options = {}){
     const traces = buildBoxStatsTracesFromMatrix(matrix, options);
     if(!traces.length){
@@ -29425,6 +29457,12 @@ Technical analysis record (advanced)
       viewOnly: options.viewOnly !== false,
       reason: options.reason || 'matrix-stats-context'
     });
+    if(options.renderControls === true){
+      restoreBoxStatsControlSurfaceFromTraces(traces, {
+        tabId: tabId || null,
+        reason: options.controlsReason || options.reason || 'matrix-stats-context-controls'
+      });
+    }
     return true;
   }
 
@@ -39116,12 +39154,20 @@ Technical analysis record (advanced)
         }
         if(!restoredComputedStats){
           resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
-          if(primeBoxStatsContextFromMatrix(obj.data, {
+          const shouldRestoreStatsControlsNow = authoritativeRenderRestore || suppressDraw;
+          const primedStatsContext = primeBoxStatsContextFromMatrix(obj.data, {
             tabId: resolveBoxExplicitOrBoundTabId() || null,
             svg: els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null,
             viewOnly: true,
+            renderControls: shouldRestoreStatsControlsNow,
+            controlsReason: authoritativeRenderRestore ? 'payload-load-authoritative-stats-controls' : 'payload-load-stats-controls',
             reason: authoritativeRenderRestore ? 'payload-load-authoritative-stats-context' : 'payload-load-stats-context'
-          }) && authoritativeRenderRestore){
+          });
+          if(!primedStatsContext && shouldRestoreStatsControlsNow){
+            renderStatsControls([]);
+            ensureBoxStatsActionRowPlacement();
+          }
+          if(primedStatsContext && authoritativeRenderRestore){
             activateAuthoritativeBoxRenderRestore('payload-load-stats-context');
           }
         }
