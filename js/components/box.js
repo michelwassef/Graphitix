@@ -17822,50 +17822,40 @@
     return value === 'resize' || value === 'layout-sync';
   }
 
-  function activateAuthoritativeBoxRenderRestore(reason){
-    state.authoritativeRenderRestoreActive = true;
-    state.authoritativeRenderRestoreSuppressUntil = Date.now() + 2500;
-    state.authoritativeRenderRestoreSuppressCount = Math.max(Number(state.authoritativeRenderRestoreSuppressCount) || 0, 12);
-    updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
-      next.suppressNextStatsSvgReapply = true;
-    });
-    console.debug('Debug: box authoritative render restore activated', { reason: reason || 'unknown' });
-  }
-
-  function releaseAuthoritativeBoxRenderRestore(reason){
-    if(!state.authoritativeRenderRestoreActive){
-      return false;
-    }
+  function clearBoxRenderRestoreDrawGates(reason){
+    const wasActive = !!state.authoritativeRenderRestoreActive
+      || (Number(state.authoritativeRenderRestoreSuppressUntil) || 0) > 0
+      || (Number(state.authoritativeRenderRestoreSuppressCount) || 0) > 0;
     state.authoritativeRenderRestoreActive = false;
     state.authoritativeRenderRestoreSuppressUntil = 0;
     state.authoritativeRenderRestoreSuppressCount = 0;
     updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
       next.suppressNextStatsSvgReapply = false;
     });
-    console.debug('Debug: box authoritative render restore released', { reason: reason || 'unknown' });
-    return true;
+    if(wasActive){
+      console.debug('Debug: box render-restore draw gate cleared', { reason: reason || 'unknown' });
+    }
+    return wasActive;
+  }
+
+  function activateAuthoritativeBoxRenderRestore(reason){
+    // Render-cache restoration is now governed centrally by domControls: restore,
+    // validate, then fallback to a normal draw if invalid. Component-local timed draw
+    // suppression made recovered/reopened graphs behave differently from live graphs.
+    clearBoxRenderRestoreDrawGates(reason || 'authoritative-render-restore');
+    console.debug('Debug: box render-cache restore uses central workspace contract', { reason: reason || 'unknown' });
+    return false;
+  }
+
+  function releaseAuthoritativeBoxRenderRestore(reason){
+    return clearBoxRenderRestoreDrawGates(reason || 'release-authoritative-render-restore');
   }
 
   function consumeAuthoritativeBoxRestoreSuppression(reason, force){
-    if(force || isAuthoritativeRestoreReleaseReason(reason)){
-      releaseAuthoritativeBoxRenderRestore(reason || 'force-release');
-      return false;
+    if(state.authoritativeRenderRestoreActive){
+      clearBoxRenderRestoreDrawGates(reason || (force ? 'force-release' : 'restore-suppression-release'));
     }
-    const active = state.authoritativeRenderRestoreActive
-      && (
-        (Number(state.authoritativeRenderRestoreSuppressCount) || 0) > 0
-        || (Number(state.authoritativeRenderRestoreSuppressUntil) || 0) > Date.now()
-      );
-    if(!active){
-      releaseAuthoritativeBoxRenderRestore(reason || 'expired');
-      return false;
-    }
-    if(!shouldSuppressAuthoritativeBoxRestoreDraw(reason)){
-      releaseAuthoritativeBoxRenderRestore(reason || 'non-suppressed');
-      return false;
-    }
-    state.authoritativeRenderRestoreSuppressCount = Math.max(0, (Number(state.authoritativeRenderRestoreSuppressCount) || 0) - 1);
-    return true;
+    return false;
   }
 
   function resolveBoxRefreshOwnerSession(options = {}, reason){
@@ -39077,7 +39067,7 @@ Technical analysis record (advanced)
       }else{
         const authoritativeRenderRestore = meta?.authoritativeRenderRestore === true;
         if(!authoritativeRenderRestore){
-          state.authoritativeRenderRestoreActive = false;
+          clearBoxRenderRestoreDrawGates('payload-load-non-authoritative');
         }
         let restoredComputedStats = false;
         if(c.stats && typeof c.stats === 'object'){
@@ -39831,8 +39821,6 @@ Technical analysis record (advanced)
       if(!parent || !doc || typeof doc.createElement !== 'function'){
         return;
       }
-      const canvas = doc.createElement('canvas');
-      canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
       const width = parseBoxCanvasBitmapDimension(
         image,
         'width',
@@ -39843,55 +39831,160 @@ Technical analysis record (advanced)
         'height',
         Number.parseFloat(String(image?.style?.height || '').trim())
       );
-      canvas.width = width;
-      canvas.height = height;
-      canvas.setAttribute('width', String(width));
-      canvas.setAttribute('height', String(height));
-      canvas.style.display = image?.style?.display || 'block';
-      canvas.style.width = image?.style?.width || `${width}px`;
-      canvas.style.height = image?.style?.height || `${height}px`;
-      canvas.style.background = image?.style?.background || 'transparent';
-      canvas.style.pointerEvents = 'none';
-      const className = image?.getAttribute?.('class') || '';
-      if(className){
-        canvas.setAttribute('class', className);
-      }
-      const resolutionScale = image?.getAttribute?.('data-resolution-scale') || '';
-      if(resolutionScale){
-        canvas.setAttribute('data-resolution-scale', resolutionScale);
-      }
-      canvas.setAttribute('data-graphitix-render-cache-canvas-restored', 'true');
-      parent.replaceChild(canvas, image);
-      const ctx = canvas.getContext?.('2d');
-      const drawFromSource = source => {
-        if(!ctx || !source || typeof ctx.drawImage !== 'function'){
+      const createCanvas = () => {
+        const canvas = doc.createElement('canvas');
+        canvas.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.setAttribute('width', String(width));
+        canvas.setAttribute('height', String(height));
+        canvas.style.display = image?.style?.display || 'block';
+        canvas.style.width = image?.style?.width || `${width}px`;
+        canvas.style.height = image?.style?.height || `${height}px`;
+        canvas.style.background = image?.style?.background || 'transparent';
+        canvas.style.pointerEvents = 'none';
+        const className = image?.getAttribute?.('class') || '';
+        if(className){
+          canvas.setAttribute('class', className);
+        }
+        const resolutionScale = image?.getAttribute?.('data-resolution-scale') || '';
+        if(resolutionScale){
+          canvas.setAttribute('data-resolution-scale', resolutionScale);
+        }
+        canvas.setAttribute('data-graphitix-render-cache-canvas-restored', 'true');
+        return canvas;
+      };
+      const isDecodedImage = source => {
+        if(!source){
+          return false;
+        }
+        const tagName = String(source.tagName || '').toLowerCase();
+        if(tagName !== 'img'){
+          return true;
+        }
+        return source.complete !== false && (Number(source.naturalWidth) || 0) > 0 && (Number(source.naturalHeight) || 0) > 0;
+      };
+      const replaceWithCanvasFromSource = source => {
+        if(!parent || image.parentNode !== parent || !isDecodedImage(source)){
+          return false;
+        }
+        const canvas = createCanvas();
+        const ctx = canvas.getContext?.('2d');
+        if(!ctx || typeof ctx.drawImage !== 'function'){
           return false;
         }
         try{
           ctx.clearRect?.(0, 0, width, height);
           ctx.drawImage(source, 0, 0, width, height);
+          parent.replaceChild(canvas, image);
           return true;
         }catch(_err){
           return false;
         }
       };
-      let drew = drawFromSource(image);
-      if(!drew){
-        const src = String(image?.getAttribute?.('src') || '').trim();
-        const ImageCtor = global.Image;
-        if(src && typeof ImageCtor === 'function'){
-          try{
-            const loader = new ImageCtor();
-            loader.onload = () => { drawFromSource(loader); };
-            loader.src = src;
-          }catch(_err){
-            // Keep blank canvas on decode failure; restore path stays deterministic.
-          }
+      if(replaceWithCanvasFromSource(image)){
+        hydrated += 1;
+        return;
+      }
+      image.setAttribute('data-graphitix-render-cache-canvas-pending-hydration', 'true');
+      const src = String(image?.getAttribute?.('src') || '').trim();
+      const ImageCtor = global.Image;
+      if(src && typeof ImageCtor === 'function'){
+        try{
+          const loader = new ImageCtor();
+          loader.onload = () => {
+            if(replaceWithCanvasFromSource(loader)){
+              hydrated += 1;
+            }
+          };
+          loader.src = src;
+        }catch(_err){
+          // Keep the image bitmap visible on decode failure.
         }
       }
-      hydrated += 1;
     });
     return hydrated;
+  }
+
+  function isBoxDecodedBitmapImage(image){
+    if(!image){
+      return false;
+    }
+    const src = String(image.getAttribute?.('src') || '').trim();
+    return !!src
+      && image.complete !== false
+      && (Number(image.naturalWidth) || 0) > 0
+      && (Number(image.naturalHeight) || 0) > 0;
+  }
+
+  function readBoxPositiveBitmapNumber(value){
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : NaN;
+  }
+
+  function readBoxPositiveBitmapCssPx(value){
+    const raw = typeof value === 'string' ? value.trim() : '';
+    if(!raw || raw.endsWith('%')){
+      return NaN;
+    }
+    const num = Number.parseFloat(raw);
+    return Number.isFinite(num) && num > 0 ? num : NaN;
+  }
+
+  function isBoxRestorableBitmapImage(image){
+    if(isBoxDecodedBitmapImage(image)){
+      return true;
+    }
+    if(!image){
+      return false;
+    }
+    const src = String(image.getAttribute?.('src') || '').trim();
+    if(!src || !/^data:image\//i.test(src)){
+      return false;
+    }
+    const attrWidth = readBoxPositiveBitmapNumber(image.getAttribute?.('width'));
+    const attrHeight = readBoxPositiveBitmapNumber(image.getAttribute?.('height'));
+    const styleWidth = readBoxPositiveBitmapCssPx(image.style?.width || '');
+    const styleHeight = readBoxPositiveBitmapCssPx(image.style?.height || '');
+    const rect = image.getBoundingClientRect?.();
+    const width = attrWidth || styleWidth || (Number.isFinite(rect?.width) && rect.width > 0 ? rect.width : NaN);
+    const height = attrHeight || styleHeight || (Number.isFinite(rect?.height) && rect.height > 0 ? rect.height : NaN);
+    return Number.isFinite(width) && width > 1 && Number.isFinite(height) && height > 1;
+  }
+
+  function isBoxPaintedCanvas(canvas){
+    if(!canvas || !canvas.width || !canvas.height){
+      return false;
+    }
+    const ctx = canvas.getContext?.('2d', { willReadFrequently: true });
+    if(!ctx || typeof ctx.getImageData !== 'function'){
+      return false;
+    }
+    try{
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      for(let idx = 3; idx < data.length; idx += 4){
+        if(data[idx] !== 0){
+          return true;
+        }
+      }
+    }catch(_err){
+      return false;
+    }
+    return false;
+  }
+
+  function isBoxRestoredRenderCacheVisuallyReady(root){
+    const svg = root?.querySelector?.('#boxSvg') || root?.querySelector?.('svg') || null;
+    if(!svg){
+      return false;
+    }
+    const canvases = Array.from(svg.querySelectorAll?.('foreignObject canvas, foreignobject canvas') || []);
+    const bitmapImages = Array.from(svg.querySelectorAll?.('foreignObject img[data-graphitix-render-cache-canvas-bitmap="true"], foreignobject img[data-graphitix-render-cache-canvas-bitmap="true"]') || []);
+    if(canvases.length || bitmapImages.length){
+      return canvases.some(isBoxPaintedCanvas) || bitmapImages.some(isBoxRestorableBitmapImage);
+    }
+    const dataLayer = svg.querySelector?.('[data-export-layer="box-points"], [data-box-plot-body="true"], .box-plot-body') || null;
+    return !!(dataLayer && dataLayer.childElementCount > 0);
   }
 
   function buildApproximateBoxPreviewPathData(renderState){
@@ -40051,7 +40144,18 @@ Technical analysis record (advanced)
     if(restored){
       hydratedBitmaps += rehydrateBoxCanvasBitmapImages(els.plotDiv);
     }
-    if(restored && els.plotDiv?.dataset){
+    const visuallyReady = restored && isBoxRestoredRenderCacheVisuallyReady(els.plotDiv);
+    if(!visuallyReady){
+      console.debug('Debug: box render cache restore rejected after visual validation', {
+        restored,
+        plot: !!cache.plot,
+        hydratedBitmaps,
+        tabId: meta?.tabId || null,
+        reason: meta?.reason || 'render-cache-restore'
+      });
+      return false;
+    }
+    if(els.plotDiv?.dataset){
       const restoredTabId = meta?.tabId || getBoxRenderCacheMetadata(cache)?.tabId || null;
       if(restoredTabId){
         els.plotDiv.dataset.boxRenderedTabId = restoredTabId;
@@ -40066,9 +40170,10 @@ Technical analysis record (advanced)
     console.debug('Debug: box render cache restored', {
       restored,
       plot: !!cache.plot,
-      hydratedBitmaps
+      hydratedBitmaps,
+      visuallyReady
     });
-    if(restored && meta?.temporaryRestore !== true){
+    if(meta?.temporaryRestore !== true){
       activateAuthoritativeBoxRenderRestore('render-cache-restore');
       hydrateBoxStatsSurfaceFromTabPayload(meta?.tab || meta?.tabId || null, 'render-cache-restore', meta || {});
     }

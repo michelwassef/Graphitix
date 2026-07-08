@@ -1871,6 +1871,12 @@
             reason: 'render-cache-restore-fallback'
           });
         }
+        if (canRestoreRender && renderCacheIsArchiveBacked && typeof session?.clearTabArchiveRenderCache === 'function') {
+          session.clearTabArchiveRenderCache(tab, { reason: 'render-cache-restore-fallback' });
+        }
+        if (canRestoreRender && typeof session?.clearTabRenderCache === 'function') {
+          session.clearTabRenderCache(tab, { reason: 'render-cache-restore-fallback' });
+        }
         try {
           if (typeof config.draw === 'function') {
             if (canRestoreRender && typeof endRestoreTransaction === 'function') {
@@ -1878,7 +1884,7 @@
               Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, { tabId: tab.id, reason: 'render-cache-restore-fallback-before-draw' });
             }
             Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: 'draw-executed', reason: drawMeta.reason || 'workspace-draw-fallback', details: { via: 'domControls-fallback' } });
-            config.draw({ ...drawMeta, forceDraw: true, reason: drawMeta.reason || 'workspace-draw-fallback' });
+            config.draw({ ...drawMeta, force: true, forceDraw: true, reason: drawMeta.reason || 'workspace-draw-fallback' });
           }
         } catch (err) {
           console.error('workspace draw error', { type: tab.type, err });
