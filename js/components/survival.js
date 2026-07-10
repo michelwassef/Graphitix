@@ -145,6 +145,11 @@
 
   function showSurvivalStrokeFormatControls(target){
     if(target && additionalLineControls && typeof additionalLineControls.show === 'function'){
+      const ownerSession = getSurvivalSessionForEvent(null, {
+        target,
+        reason: 'survival-curve-format-owner'
+      }, { create: true });
+      const ownerTabId = ownerSession?.tabId || getSurvivalProjectionTabId() || null;
       let seriesKey = target.getAttribute('data-group') || null;
       const knownSeriesKeys = () => {
         const keys = new Set();
@@ -283,8 +288,8 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
-          scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-input', tabId: survival.__boundTabId || null });
+          syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
+          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-color-input', tabId: ownerTabId });
         },
         onColorChange: (value, ctx) => {
           const scopeValue = ctx?.scope === 'series' ? 'series' : 'global';
@@ -298,8 +303,8 @@
               if(key){ state.labelColors[key] = value; }
             });
           }
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
-          scheduleActiveSurvivalDraw({ reason: 'survival-curve-color-change', tabId: survival.__boundTabId || null });
+          syncSurvivalStateToSession(ownerSession, { labelColors: state.labelColors });
+          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-color-change', tabId: ownerTabId });
         },
         onThicknessChange: (value, ctx) => {
           const next = Number(value);
@@ -315,8 +320,8 @@
               if(key){ state.labelStrokeWidth[key] = next; }
             });
           }
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelStrokeWidth: state.labelStrokeWidth });
-          scheduleActiveSurvivalDraw({ reason: 'survival-curve-thickness-change', tabId: survival.__boundTabId || null });
+          syncSurvivalStateToSession(ownerSession, { labelStrokeWidth: state.labelStrokeWidth });
+          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-thickness-change', tabId: ownerTabId });
         },
         onPatternChange: (value, ctx) => {
           const pattern = sanitizeSurvivalLinePattern(value);
@@ -331,8 +336,8 @@
               if(key){ state.labelLinePattern[key] = pattern; }
             });
           }
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelLinePattern: state.labelLinePattern });
-          scheduleActiveSurvivalDraw({ reason: 'survival-curve-pattern-change', tabId: survival.__boundTabId || null });
+          syncSurvivalStateToSession(ownerSession, { labelLinePattern: state.labelLinePattern });
+          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-pattern-change', tabId: ownerTabId });
         },
         onTransparencyChange: (value, ctx) => {
           const pct = Number(value);
@@ -349,8 +354,8 @@
               if(key){ state.labelOpacity[key] = opacity; }
             });
           }
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelOpacity: state.labelOpacity });
-          scheduleActiveSurvivalDraw({ reason: 'survival-curve-opacity-change', tabId: survival.__boundTabId || null });
+          syncSurvivalStateToSession(ownerSession, { labelOpacity: state.labelOpacity });
+          scheduleSurvivalDrawForSession(ownerSession, { reason: 'survival-curve-opacity-change', tabId: ownerTabId });
         }
       });
       return;
@@ -660,7 +665,13 @@
 
 
   const survivalSessionsByTabId = new Map();
-  let activeSurvivalSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedSurvivalSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getSurvivalProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(survival, projectedSurvivalSession) || String(survival.__boundTabId || projectedSurvivalSession?.tabId || '').trim();
+  }
 
   function createDefaultSurvivalStatsPanelModels(source = {}){
     const src = source && typeof source === 'object' ? source : {};
@@ -861,7 +872,7 @@
   function getSurvivalSession(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeSurvivalSessionTabId(tabLike, meta);
     if(!tabId){
-      return options.fallbackActive === true ? ensureSurvivalSessionOwnershipShape(activeSurvivalSession) : null;
+      return options.fallbackActive === true ? ensureSurvivalSessionOwnershipShape(projectedSurvivalSession) : null;
     }
     let session = survivalSessionsByTabId.get(tabId) || null;
     if(!session && options.create !== false){
@@ -872,25 +883,19 @@
   }
 
   function getActiveSurvivalSessionForState(){
-    if(activeSurvivalSession && (!survival.__boundTabId || String(activeSurvivalSession.tabId || '') === String(survival.__boundTabId || ''))){
-      return ensureSurvivalSessionOwnershipShape(activeSurvivalSession);
-    }
-    const tabId = normalizeSurvivalSessionTabId(null, {});
-    return tabId ? getSurvivalSession(tabId, { tabId, reason: 'active-survival-session' }, { create: true }) : null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'survival',
+      component: survival,
+      projectedSession: projectedSurvivalSession,
+      getSession: getSurvivalSession,
+      ensureSession: ensureSurvivalSessionOwnershipShape,
+      create: true,
+      reason: 'active-survival-session'
+    }) || null;
   }
 
   function getSurvivalTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function getSurvivalSessionForEvent(event = null, meta = {}, options = {}){
@@ -906,7 +911,7 @@
     if(session?.tabId && !isSurvivalSessionActiveOrActivating(session)){
       survivalDebug('Debug: survival control callback skipped for inactive owner', {
         tabId: session.tabId || null,
-        activeTabId: survival.__boundTabId || activeSurvivalSession?.tabId || null,
+        activeTabId: getSurvivalProjectionTabId() || null,
         reason: reason || 'survival-control-owner'
       });
       return undefined;
@@ -919,7 +924,7 @@
     if(!shaped?.tabId){
       return false;
     }
-    return String(shaped.tabId) === String(survival.__boundTabId || activeSurvivalSession?.tabId || '');
+    return String(shaped.tabId) === String(getSurvivalProjectionTabId());
   }
 
   function isSurvivalSessionActiveOrActivating(session = null){
@@ -965,7 +970,7 @@
 
   function getSurvivalSessionForDrawOptions(options = {}, meta = {}){
     const source = options && typeof options === 'object' ? options : {};
-    const tabId = source.tabId || source.tab?.id || meta?.tabId || survival.__boundTabId || null;
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || getSurvivalProjectionTabId() || null;
     return tabId
       ? getSurvivalSession(tabId, {
           ...(meta || {}),
@@ -980,50 +985,26 @@
   }
 
   function resolveSurvivalHotOwnerTabId(hotInstance){
-    const hot = hotInstance || null;
     return normalizeSurvivalOwnerTabId(
-      hot?.__survivalTabId
-      || hot?.__workspaceTabId
-      || hot?.__graphitixTabId
-      || hot?.__ownerTabId
-      || hot?.rootElement?.dataset?.workspaceTabId
-      || hot?.rootElement?.dataset?.tabId
-      || hot?.container?.dataset?.workspaceTabId
-      || hot?.container?.dataset?.tabId
-      || hot?.__survivalHostContainer?.dataset?.workspaceTabId
-      || hot?.__survivalHostContainer?.dataset?.tabId
-      || ''
+      Shared.componentLifecycle?.resolveOwnedObjectTabId?.(hotInstance, 'survival') || ''
     );
   }
 
-  function survivalHotBelongsToSession(hotInstance, session){
-    const tabId = normalizeSurvivalOwnerTabId(session?.tabId);
-    if(!hotInstance || !tabId){
-      return false;
-    }
-    const ownerTabId = resolveSurvivalHotOwnerTabId(hotInstance);
-    return !!ownerTabId && ownerTabId === tabId;
-  }
+  const survivalHotBelongsToSession = (hotInstance, session) => (
+    Shared.componentLifecycle?.ownedHotBelongsToSession?.(hotInstance, session, 'survival') === true
+  );
 
   function resolveSurvivalDataViewsManagerOwnerTabId(manager){
     return normalizeSurvivalOwnerTabId(
-      manager?.__survivalTabId
-      || manager?.__workspaceTabId
-      || manager?.__ownerTabId
-      || manager?.hot?.__survivalTabId
-      || manager?.hot?.__workspaceTabId
-      || ''
+      Shared.componentLifecycle?.resolveOwnedObjectTabId?.(manager, 'survival') || ''
     );
   }
 
-  function survivalDataViewsManagerBelongsToSession(manager, session){
-    const tabId = normalizeSurvivalOwnerTabId(session?.tabId);
-    if(!manager || !tabId){
-      return false;
-    }
-    const ownerTabId = resolveSurvivalDataViewsManagerOwnerTabId(manager);
-    return !!ownerTabId && ownerTabId === tabId;
-  }
+  const survivalDataViewsManagerBelongsToSession = (manager = null, session = null) => (
+    Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'survival', {
+      ensureSession: ensureSurvivalSessionOwnershipShape
+    }) === true
+  );
 
   function syncSurvivalStateToSession(session = null, overrides = {}){
     const shaped = ensureSurvivalSessionOwnershipShape(session || getActiveSurvivalSessionForState());
@@ -1060,7 +1041,7 @@
   }
 
   function syncSurvivalSessionRefsFromActive(session = null){
-    const shaped = ensureSurvivalSessionOwnershipShape(session || activeSurvivalSession || getActiveSurvivalSessionForState());
+    const shaped = ensureSurvivalSessionOwnershipShape(session || projectedSurvivalSession || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
     if(shaped.tabId && !isSurvivalSessionActiveOrActivating(shaped)){
       return shaped;
@@ -1075,7 +1056,7 @@
   }
 
   function syncSurvivalSessionManagersFromActive(session = null){
-    const shaped = ensureSurvivalSessionOwnershipShape(session || activeSurvivalSession || getActiveSurvivalSessionForState());
+    const shaped = ensureSurvivalSessionOwnershipShape(session || projectedSurvivalSession || getActiveSurvivalSessionForState());
     if(!shaped){ return null; }
     const sessionIsActive = !shaped.tabId || isSurvivalSessionActiveOrActivating(shaped);
     const activeHot = state.hot || null;
@@ -1098,7 +1079,7 @@
 
   function canUseSurvivalNotesControl(noteControl){
     if(!noteControl){ return false; }
-    const root = refs.root || resolveSurvivalRoot(survival.__boundTabId || null);
+    const root = refs.root || resolveSurvivalRoot(getSurvivalProjectionTabId() || null);
     const controlRoot = noteControl.root || null;
     if(controlRoot){
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
@@ -1238,8 +1219,8 @@
   function bindSurvivalSessionForTab(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeSurvivalSessionTabId(tabLike, meta);
     if(!tabId){ return null; }
-    if(activeSurvivalSession && activeSurvivalSession.tabId && activeSurvivalSession.tabId !== tabId){
-      captureSurvivalSessionStateFromActive(activeSurvivalSession, {
+    if(projectedSurvivalSession && projectedSurvivalSession.tabId && projectedSurvivalSession.tabId !== tabId){
+      captureSurvivalSessionStateFromActive(projectedSurvivalSession, {
         reason: meta?.reason || 'survival-session-switch-capture',
         captureStatsPanels: true
       });
@@ -1249,7 +1230,7 @@
     const root = meta?.root || resolveSurvivalRoot(tabLike || tabId || null) || session.root || null;
     session.root = root || session.root || null;
     session.refs.root = root || session.refs.root || null;
-    activeSurvivalSession = session;
+    projectedSurvivalSession = session;
     survival.__survivalSessionTabId = session.tabId;
     if(!survival.__boundTabId){
       survival.__boundTabId = session.tabId;
@@ -1282,11 +1263,11 @@
 
   function scheduleSurvivalViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
-    const ownerTabId = normalizeSurvivalOwnerTabId(options.tabId || options.workspaceTabId || options.tab?.id || survival.__boundTabId || null);
+    const ownerTabId = normalizeSurvivalOwnerTabId(options.tabId || options.workspaceTabId || options.tab?.id || getSurvivalProjectionTabId() || null);
     const ownerSession = ownerTabId
       ? getSurvivalSession(ownerTabId, { tabId: ownerTabId, reason: reason || options.reason || 'survival-view-refresh' }, { create: false })
       : getActiveSurvivalSessionForState();
-    const activeTabId = normalizeSurvivalOwnerTabId(survival.__boundTabId || null);
+    const activeTabId = normalizeSurvivalOwnerTabId(getSurvivalProjectionTabId() || null);
     if(!ownerSession || !ownerTabId || ownerTabId === activeTabId){
       syncSurvivalRuntimeControlsFromDom(ownerSession || getActiveSurvivalSessionForState());
       syncSurvivalStateToSession(ownerSession || getActiveSurvivalSessionForState());
@@ -1302,15 +1283,15 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: ownerTabId || survival.__boundTabId || null,
+      tabId: ownerTabId || getSurvivalProjectionTabId() || null,
       reason: nextReason,
       source: 'survival-view-refresh',
       forceDraw: options.force === true,
       userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
     };
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', lifecycleMeta)){
-      survivalDebug('Debug: survival view refresh suppressed by lifecycle', { reason: nextReason, tabId: survival.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: survival.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival-view-refresh' } });
+      survivalDebug('Debug: survival view refresh suppressed by lifecycle', { reason: nextReason, tabId: getSurvivalProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: getSurvivalProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival-view-refresh' } });
       return;
     }
     const scheduleOptions = Object.assign({}, options, {
@@ -1454,7 +1435,7 @@
     }
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisMinorTicksEnabled(axis){
@@ -1473,7 +1454,7 @@
     settings[axis].minorTicks = nextValue;
     logDebug('axis minor ticks updated',{ axis, enabled: nextValue });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisMinorTickSubdivisions(axis){
@@ -1492,7 +1473,7 @@
     settings[axis].minorTickSubdivisions = nextValue;
     logDebug('axis minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisStrokeWidthBase(){
@@ -1509,7 +1490,7 @@
     }
     logDebug('axis stroke width updated',{ strokeWidth: settings.strokeWidth });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: getSurvivalProjectionTabId() || null });
   }
 
   function getAxisColor(){
@@ -1521,7 +1502,7 @@
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     logDebug('axis color updated',{ color: settings.color });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
-    scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: getSurvivalProjectionTabId() || null });
   }
 
   function registerSurvivalGridControlTarget(target, options){
@@ -1539,12 +1520,12 @@
         }
         syncSurvivalRuntimeControlsFromDom();
         syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
-        scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: survival.__boundTabId || null });
+        scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: getSurvivalProjectionTabId() || null });
       },
       getStyle: () => getGridStyle(fallbackThickness),
       onStyleChange: style => {
         setGridStyle(style, fallbackThickness);
-        scheduleActiveSurvivalDraw({ reason: 'grid-style-change', tabId: survival.__boundTabId || null });
+        scheduleActiveSurvivalDraw({ reason: 'grid-style-change', tabId: getSurvivalProjectionTabId() || null });
       },
       defaults: createDefaultGridStyle(fallbackThickness)
     });
@@ -1919,7 +1900,7 @@
       logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
       return Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
         logDebug('table scheduled redraw');
-        scheduleActiveSurvivalDraw({ reason: 'survival-table-change', tabId: survival.__boundTabId || null });
+        scheduleActiveSurvivalDraw({ reason: 'survival-table-change', tabId: getSurvivalProjectionTabId() || null });
       }, {
         debugLabel: 'survival',
         data: baseData,
@@ -1997,28 +1978,28 @@
   }
 
   function ensureSurvivalDataViewsForHot(hotInstance, options = {}){
-    if(!hotInstance || typeof hotInstance.getData !== 'function'){
-      return null;
-    }
-    if(typeof Shared.dataViews?.createManager !== 'function'){
-      return null;
-    }
     const ownerTabId = normalizeSurvivalOwnerTabId(
       options.tabId
-      || hotInstance.__survivalTabId
-      || hotInstance.__workspaceTabId
+      || resolveSurvivalHotOwnerTabId(hotInstance)
+      || hotInstance?.__survivalTabId
+      || hotInstance?.__workspaceTabId
       || survival.__boundTabId
       || ''
     );
-    if(ownerTabId){
-      hotInstance.__survivalTabId = ownerTabId;
-      hotInstance.__workspaceTabId = hotInstance.__workspaceTabId || ownerTabId;
-    }
-    if(!hotInstance.__survivalDataViewsManager){
-      hotInstance.__survivalDataViewsManager = Shared.dataViews.createManager({
+    const hostWrapper = options.wrapper || $('#survivalHotWrapper');
+    const hostContainer = options.container || hotInstance?.__survivalHostContainer || refs.hotContainer || $('#survivalHot');
+    const manager = Shared.componentLifecycle?.ensureOwnedDataViewsManager?.({
+      hotInstance,
+      componentKey: 'survival',
+      managerField: '__survivalDataViewsManager',
+      ownerTabId,
+      hostContainerField: '__survivalHostContainer',
+      wrapper: hostWrapper,
+      container: hostContainer,
+      createOptions: {
         componentKey: 'survival',
         maxViews: SURVIVAL_DATA_VIEW_MAX,
-        initialData: hotInstance.getData() || [],
+        initialData: hotInstance?.getData?.() || [],
         onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
@@ -2031,12 +2012,12 @@
           if(view.filters){
             hotInstance.applyFilters?.(view.filters, { schedule: false });
           }
-          const scheduledTabId = resolveSurvivalHotOwnerTabId(hotInstance) || ownerTabId || survival.__boundTabId || null;
+          const scheduledTabId = resolveSurvivalHotOwnerTabId(hotInstance) || ownerTabId || getSurvivalProjectionTabId() || null;
           const scheduledSession = getSurvivalSession(scheduledTabId, {
             tabId: scheduledTabId,
             reason: 'survival-data-view-switch'
           }, { create: false, fallbackActive: true });
-          const activeTabId = normalizeSurvivalOwnerTabId(survival.__boundTabId || null);
+          const activeTabId = normalizeSurvivalOwnerTabId(getSurvivalProjectionTabId() || null);
           const scheduler = scheduledSession?.timers?.scheduleDraw
             || (!scheduledTabId || scheduledTabId === activeTabId ? state.scheduleDraw : null);
           scheduler?.({
@@ -2048,23 +2029,15 @@
         onInteraction(){
           Shared.workspaceToolbar?.activateSection?.('survival', 'Data');
         }
-      });
-      logDebug('data views manager created');
+      },
+      onCreated(){
+        logDebug('data views manager created');
+      }
+    });
+    if(!manager){
+      return null;
     }
-    const manager = hotInstance.__survivalDataViewsManager;
-    if(manager && ownerTabId){
-      manager.__survivalTabId = ownerTabId;
-      manager.__workspaceTabId = manager.__workspaceTabId || ownerTabId;
-      manager.__ownerTabId = manager.__ownerTabId || ownerTabId;
-      manager.hot = manager.hot || hotInstance;
-    }
-    const hostWrapper = options.wrapper || $('#survivalHotWrapper');
-    const hostContainer = options.container || hotInstance.__survivalHostContainer || refs.hotContainer || $('#survivalHot');
-    if(hostWrapper && hostContainer){
-      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
-      manager.refresh?.();
-    }
-    const managerSession = getSurvivalSession(hotInstance.__survivalTabId || hotInstance.__workspaceTabId || survival.__boundTabId || null, {
+    const managerSession = getSurvivalSession(resolveSurvivalHotOwnerTabId(hotInstance) || ownerTabId || getSurvivalProjectionTabId() || null, {
       reason: 'survival-data-views-manager'
     }, { create: true }) || getActiveSurvivalSessionForState();
     if(managerSession?.managers){
@@ -2084,21 +2057,21 @@
     const ownerSession = ownerTabId
       ? getSurvivalSession(ownerTabId, { tabId: ownerTabId, reason: reason || 'survival-active-data-view-sync' }, { create: false, fallbackActive: true })
       : null;
-    let manager = hot.__survivalDataViewsManager || null;
-    if(!survivalDataViewsManagerBelongsToSession(manager, ownerSession)){
-      manager = survivalDataViewsManagerBelongsToSession(ownerSession?.managers?.dataViews || null, ownerSession)
+    const attachedManager = hot.__survivalDataViewsManager || null;
+    const manager = survivalDataViewsManagerBelongsToSession(attachedManager, ownerSession)
+      ? attachedManager
+      : (survivalDataViewsManagerBelongsToSession(ownerSession?.managers?.dataViews || null, ownerSession)
         ? ownerSession.managers.dataViews
-        : null;
-    }
-    if(!manager){
-      return;
-    }
-    manager.updateActiveData(hot.getData() || []);
-    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
-    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
-    if(reason === 'afterLoadData'){
-      manager.refresh?.();
-    }
+        : null);
+    Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+      hotInstance: hot,
+      componentKey: 'survival',
+      managerField: '__survivalDataViewsManager',
+      manager,
+      session: ownerSession,
+      belongsToSession: survivalDataViewsManagerBelongsToSession,
+      reason
+    });
   }
 
   function buildSurvivalAdvisorContext(summary, overrides){
@@ -2379,7 +2352,7 @@
             fitCoxModel: recommendation.fitCoxModel,
             answers: { ...answers }
           });
-          scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+          scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
           renderSurvivalStatsAdvisor(null, advisorState.context);
         },
         onReset: ()=>{
@@ -2522,7 +2495,7 @@
           fitCoxModel: recommendation.fitCoxModel,
           answers: { ...answers }
         });
-        scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: survival.__boundTabId || null });
+        scheduleActiveSurvivalDraw({ reason: 'survival-advisor-apply', tabId: getSurvivalProjectionTabId() || null });
         renderSurvivalStatsAdvisor(null, advisorState.context);
       });
       actions.appendChild(applyBtn);
@@ -2615,7 +2588,7 @@
       forced: force
     });
     syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
-    scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: getSurvivalProjectionTabId() || null });
     return true;
   }
 
@@ -4355,7 +4328,7 @@
       if(panel){
         Shared.statsReporting.setPanelPValueFormatScientific(panel, getSurvivalStatsPValueScientificPreference(), {
           source: 'survival',
-          tabId: survival.__boundTabId || null
+          tabId: getSurvivalProjectionTabId() || null
         });
       }
     });
@@ -4588,7 +4561,7 @@
       drawSession.updatedAt = Date.now();
       return false;
     }
-    const drawTabId = drawSession?.tabId || options?.tabId || survival.__boundTabId || null;
+    const drawTabId = drawSession?.tabId || options?.tabId || getSurvivalProjectionTabId() || null;
     const plotDiv = getSurvivalNodeById('survivalPlot', drawTabId) || refs.plotDiv || getSurvivalNodeById('survivalPlot');
     if(!plotDiv){
       if(drawSession){
@@ -5060,7 +5033,7 @@
         xTitle.textContent = nextValue;
       }
       syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
-      scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: survival.__boundTabId || null });
+      scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(xTitle, txt => {
       const previous = state.controls?.xLabel != null ? String(state.controls.xLabel) : 'Time';
@@ -5131,7 +5104,7 @@
         yTitle.textContent = nextValue;
       }
       syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
-      scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: survival.__boundTabId || null });
+      scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(yTitle, txt => {
       const previous = state.controls?.yLabel != null ? String(state.controls.yLabel) : 'Survival Probability';
@@ -5197,7 +5170,7 @@
         titleText.textContent = nextValue;
       }
       syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { titleText: state.titleText });
-      scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: survival.__boundTabId || null });
+      scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(titleText, txt => {
       const previous = state.titleText != null ? String(state.titleText) : '';
@@ -5896,7 +5869,7 @@
       survivalDebug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
-    const payloadTabId = payloadSession?.tabId || meta?.tabId || survival.__boundTabId || null;
+    const payloadTabId = payloadSession?.tabId || meta?.tabId || getSurvivalProjectionTabId() || null;
     let activeManager = usingActiveModuleState
       ? ensureSurvivalDataViewsForHot(activeHot, {
           wrapper: $('#survivalHotWrapper'),
@@ -6091,11 +6064,11 @@
     setSurvivalSessionStateFromRuntimeRecord(snapshot, {
       ...(meta || {}),
       tab: meta?.tab || null,
-      tabId: meta?.tabId || session?.tabId || survival.__boundTabId || null,
+      tabId: meta?.tabId || session?.tabId || getSurvivalProjectionTabId() || null,
       reason: snapshot.reason
     });
     survivalDebug('Debug: survival runtime snapshot captured', {
-      tabId: meta?.tabId || session?.tabId || survival.__boundTabId || null,
+      tabId: meta?.tabId || session?.tabId || getSurvivalProjectionTabId() || null,
       title: snapshot.state.titleText,
       notesOpen: snapshot.notes.open,
       reason: snapshot.reason
@@ -6118,13 +6091,13 @@
       survivalDebug('Debug: survival runtime snapshot apply skipped', { tabId: meta?.tabId || null, reason: 'missing-snapshot' });
       return false;
     }
-    const applySession = bindSurvivalSessionForTab(meta?.tab || meta?.tabId || snapshot.tabId || survival.__boundTabId || null, {
+    const applySession = bindSurvivalSessionForTab(meta?.tab || meta?.tabId || snapshot.tabId || getSurvivalProjectionTabId() || null, {
       ...(meta || {}),
       reason: meta?.reason || 'survival-runtime-apply-bind'
     }, { apply: false });
     setSurvivalSessionStateFromRuntimeRecord(snapshot, {
       ...(meta || {}),
-      tabId: applySession?.tabId || meta?.tabId || survival.__boundTabId || null,
+      tabId: applySession?.tabId || meta?.tabId || getSurvivalProjectionTabId() || null,
       reason: meta?.reason || 'survival-runtime-apply-state'
     });
     if(snapshot.state && typeof snapshot.state === 'object'){
@@ -6181,7 +6154,7 @@
       captureStatsPanels: true
     });
     survivalDebug('Debug: survival runtime snapshot applied', {
-      tabId: meta?.tabId || survival.__boundTabId || null,
+      tabId: meta?.tabId || getSurvivalProjectionTabId() || null,
       title: state.titleText,
       reason: meta?.reason || 'survival-runtime-apply'
     });
@@ -6201,7 +6174,7 @@
     return true;
   };
   survival.deactivateTab = function deactivateSurvivalTabWithSessionCapture(tab, meta = {}){
-    const tabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || survival.__boundTabId || null;
+    const tabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || getSurvivalProjectionTabId() || null;
     const session = getSurvivalSession(tab || tabId || null, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-deactivate-session' }, { create: false })
       || getActiveSurvivalSessionForState();
     const activeSession = getActiveSurvivalSessionForState();
@@ -6241,7 +6214,7 @@
   survival.createEmptyPayload = function createEmptySurvivalPayload(){
     console.debug('Debug: survival.createEmptyPayload pure factory invoked', {
       ready: !!survival.ready,
-      boundTabId: survival.__boundTabId || null
+      boundTabId: getSurvivalProjectionTabId() || null
     });
     const payload = { type: 'survival', config: {} };
     payload.type = 'survival';
@@ -6269,7 +6242,7 @@
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
-    const scheduleTargetTab = meta?.tab || meta?.tabId || survival.__boundTabId || null;
+    const scheduleTargetTab = meta?.tab || meta?.tabId || getSurvivalProjectionTabId() || null;
     const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
     const scheduleTargetSession = scheduleTargetTab
       ? getSurvivalSession(scheduleTargetTab, { ...(meta || {}), reason: 'survival-payload-scheduler-owner' }, { create: false, fallbackActive: false })
@@ -6340,7 +6313,7 @@
       restoreSurvivalStatsPanelModels(state.statsPanelModels);
     }
     if(!skipDraw){
-      scheduleActiveSurvivalDraw({ reason: 'survival-payload-applied', tabId: survival.__boundTabId || null });
+      scheduleActiveSurvivalDraw({ reason: 'survival-payload-applied', tabId: getSurvivalProjectionTabId() || null });
     }
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
@@ -6696,26 +6669,21 @@
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('survival notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(canUseSurvivalNotesControl(notesState.control)){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'survival',
+      ownerTabId: getSurvivalProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'survival-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'survival',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      canUseControl: canUseSurvivalNotesControl,
+      unavailableMessage: 'survival notes helper unavailable',
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
         const session = getActiveSurvivalSessionForState();
@@ -6732,7 +6700,7 @@
           session.updatedAt = Date.now();
         }
       }
-    });
+    }) || notesState.control || null;
   }
 
   function bindSurvivalControlHandler(node, eventName, key, handler){
@@ -6915,14 +6883,14 @@
   }
 
   function init(options = {}){
-    const targetTabId = options?.tabId || survival.__boundTabId || null;
+    const targetTabId = options?.tabId || getSurvivalProjectionTabId() || null;
     const targetRoot = options?.root || resolveSurvivalRoot(targetTabId || null) || refs.root || null;
     if(survival.ready && (!targetTabId || survival.__boundTabId === targetTabId) && (!targetRoot || refs.root === targetRoot)){
-      logDebug('init skipped', { tabId: survival.__boundTabId || null });
+      logDebug('init skipped', { tabId: getSurvivalProjectionTabId() || null });
       return;
     }
     if(survival.ready){
-      logDebug('init rebinding', { previousTabId: survival.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      logDebug('init rebinding', { previousTabId: getSurvivalProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       survival.ready = false;
     }
     survival.__boundTabId = targetTabId || null;
@@ -6954,7 +6922,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'survival',
           debugLabel: 'survival',
-          getTabId: () => survival.__boundTabId || null,
+          getTabId: () => getSurvivalProjectionTabId() || null,
           scheduleRaw: scheduleSurvivalBase
         })
       : scheduleSurvivalBase;
@@ -7005,7 +6973,7 @@
     syncSurvivalSessionRefsFromActive(session);
     syncSurvivalSessionManagersFromActive(session);
     Shared.componentLifecycle?.scheduleComponentFrame?.(survival, 'survival', {
-      tabId: survival.__boundTabId || null,
+      tabId: getSurvivalProjectionTabId() || null,
       reason: 'survival-legend-placement'
     }, () => ensureSurvivalLegendControlPlacement());
     initHot();
@@ -7028,7 +6996,7 @@
       reason: options?.reason || 'survival-init-complete',
       captureStatsPanels: false
     });
-    scheduleActiveSurvivalDraw({ reason: options?.reason || 'survival-init-complete', tabId: survival.__boundTabId || null });
+    scheduleActiveSurvivalDraw({ reason: options?.reason || 'survival-init-complete', tabId: getSurvivalProjectionTabId() || null });
     logDebug('component initialized', { ready: survival.ready });
     global.scheduleDrawSurvival = options => scheduleActiveSurvivalDraw(options && typeof options === 'object' ? options : {});
   }
@@ -7047,7 +7015,7 @@
           const nextTabId = info?.tab?.id || info?.tabId || options.tabId || null;
           refs.root = info?.root || resolveSurvivalRoot(info?.tab || null) || refs.root || null;
           if(options?.liveDomFastPath === true || options?.liveDomReuse === true || options?.passiveControls === true){
-            survival.__boundTabId = nextTabId || survival.__boundTabId || null;
+            survival.__boundTabId = nextTabId || getSurvivalProjectionTabId() || null;
             bindSurvivalSessionForTab(info?.tab || nextTabId || null, {
               ...(options || {}),
               root: refs.root || null,
@@ -7058,7 +7026,7 @@
             syncSurvivalSessionManagersFromActive();
             survival.__domSentinel = info?.mountedSentinel || getSurvivalNodeById('survivalHot');
             survival.ready = true;
-            survivalDebug('Debug: survival passive DOM rebind', { tabId: survival.__boundTabId || null });
+            survivalDebug('Debug: survival passive DOM rebind', { tabId: getSurvivalProjectionTabId() || null });
             return;
           }
           survival.ready = false;
@@ -7093,7 +7061,7 @@
         rebind: info => {
           refs.root = info?.root || resolveSurvivalRoot(tabLike || null) || refs.root || null;
           if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-            survival.__boundTabId = targetTabId || survival.__boundTabId || null;
+            survival.__boundTabId = targetTabId || getSurvivalProjectionTabId() || null;
             bindSurvivalSessionForTab(tabLike || targetTabId || null, {
               ...(meta || {}),
               root: refs.root || null,
@@ -7104,7 +7072,7 @@
             syncSurvivalSessionManagersFromActive();
             survival.__domSentinel = info?.mountedSentinel || getSurvivalNodeById('survivalHot');
             survival.ready = true;
-            survivalDebug('Debug: survival passive DOM rebind', { tabId: survival.__boundTabId || null });
+            survivalDebug('Debug: survival passive DOM rebind', { tabId: getSurvivalProjectionTabId() || null });
             return;
           }
           survival.ready = false;
@@ -7131,7 +7099,7 @@
     getSentinel: () => getSurvivalNodeById('survivalHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    survival.__boundTabId = targetTabId || survival.__boundTabId || null;
+    survival.__boundTabId = targetTabId || getSurvivalProjectionTabId() || null;
     refs.root = resolveSurvivalRoot(tab || targetTabId || null);
     if(!survival.ready){ init({ root: refs.root || undefined, tabId: targetTabId || undefined, reason: meta?.reason || 'activate-tab' }); return; }
     const session = bindSurvivalSessionForTab(tab || targetTabId || null, {
@@ -7181,7 +7149,7 @@
         survivalDebug('Debug: survival render cache skipped for inactive owner', {
           reason,
           ownerTabId: session.tabId || null,
-          activeTabId: survival.__boundTabId || activeSurvivalSession?.tabId || null
+          activeTabId: getSurvivalProjectionTabId() || null
         });
       }
       return null;
@@ -7279,12 +7247,12 @@
   };
   survival.draw = function drawSurvivalPublic(options = {}){
     const nextReason = options?.reason || 'survival-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...(options || {}), tabId: options?.tabId || survival.__boundTabId || null, reason: nextReason })){
-      survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || survival.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || survival.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival.draw' } });
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...(options || {}), tabId: options?.tabId || getSurvivalProjectionTabId() || null, reason: nextReason })){
+      survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getSurvivalProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || getSurvivalProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'survival.draw' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || survival.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'survival', tabId: options?.tabId || getSurvivalProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'survival.draw' } });
     const drawSession = ensureSurvivalSessionOwnershipShape(getSurvivalSessionForDrawOptions(options, { reason: nextReason }));
     if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
       drawSession.state.drawPending = true;

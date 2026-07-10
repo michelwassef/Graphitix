@@ -54,56 +54,9 @@
     }
   }
 
-  function isHistSerializableDomLike(value){
-    return !!value && typeof value === 'object' && (
-      value.nodeType === 1
-      || value.nodeType === 9
-      || value === global
-      || value === global.document
-      || value === global.window
-      || (typeof value.addEventListener === 'function' && typeof value.dispatchEvent === 'function')
-    );
-  }
-
-  function cloneHistSerializable(value, seen = new WeakSet(), depth = 0){
-    if(value == null){ return value; }
-    const type = typeof value;
-    if(type === 'string' || type === 'number' || type === 'boolean'){ return value; }
-    if(type === 'function' || type === 'symbol' || type === 'bigint'){ return undefined; }
-    if(depth > 8 || isHistSerializableDomLike(value)){ return undefined; }
-    if(seen.has(value)){ return undefined; }
-    seen.add(value);
-    if(Array.isArray(value)){
-      return value
-        .map(item => cloneHistSerializable(item, seen, depth + 1))
-        .filter(item => item !== undefined);
-    }
-    const copy = {};
-    Object.entries(value).forEach(([key, entry]) => {
-      if(key === 'event'
-        || key === 'target'
-        || key === 'currentTarget'
-        || key === 'srcElement'
-        || key === 'session'
-        || key === 'root'
-        || key === 'hot'
-        || key === 'manager'
-        || key === 'dataViews'
-        || key === 'scheduler'){
-        return;
-      }
-      const cloned = cloneHistSerializable(entry, seen, depth + 1);
-      if(cloned !== undefined){
-        copy[key] = cloned;
-      }
-    });
-    return copy;
-  }
-
-  function sanitizeHistDrawOptions(options = {}){
-    const sanitized = cloneHistSerializable(options);
-    return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized : {};
-  }
+  const sanitizeHistDrawOptions = (options = {}, owner = {}) => (
+    Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('hist', options, owner) || {}
+  );
 
   function ensureEmptyPayloadTemplate(){
     const session = getActiveHistSessionForState();
@@ -722,7 +675,13 @@
 
 
   const histSessionsByTabId = new Map();
-  let activeHistSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedHistSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getHistProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(hist, projectedHistSession) || String(hist.__boundTabId || projectedHistSession?.tabId || '').trim();
+  }
 
   function normalizeHistSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
@@ -1057,7 +1016,7 @@
   function getHistSession(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeHistSessionTabId(tabLike, meta);
     if(!tabId){
-      return options.fallbackActive === true ? ensureHistSessionOwnershipShape(activeHistSession) : null;
+      return options.fallbackActive === true ? ensureHistSessionOwnershipShape(projectedHistSession) : null;
     }
     let session = histSessionsByTabId.get(tabId) || null;
     if(!session && options.create !== false){
@@ -1068,45 +1027,23 @@
   }
 
   function getHistWorkspaceActiveTabId(){
-    const workspaceInfo = Shared.workspaceTabs?.getActiveSessionInfo?.('hist') || null;
-    if(workspaceInfo?.tabId){
-      return String(workspaceInfo.tabId).trim();
-    }
-    const workspace = global.Main?.session?.workspaceState || null;
-    const activeId = workspace?.activeTabId || null;
-    if(activeId && Array.isArray(workspace?.tabs)){
-      const activeTab = workspace.tabs.find(tab => tab && String(tab.id || '') === String(activeId));
-      if(activeTab?.type === 'hist'){
-        return String(activeId).trim();
-      }
-    }
-    return '';
+    return String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('hist') || '').trim();
   }
 
   function getActiveHistSessionForState(){
-    const workspaceActiveTabId = getHistWorkspaceActiveTabId();
-    if(workspaceActiveTabId){
-      return getHistSession(workspaceActiveTabId, { tabId: workspaceActiveTabId, reason: 'active-hist-session-workspace' }, { create: true });
-    }
-    if(activeHistSession && (!hist.__boundTabId || String(activeHistSession.tabId || '') === String(hist.__boundTabId || ''))){
-      return ensureHistSessionOwnershipShape(activeHistSession);
-    }
-    const tabId = normalizeHistSessionTabId(null, {});
-    return tabId ? getHistSession(tabId, { tabId, reason: 'active-hist-session' }, { create: true }) : null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'hist',
+      component: hist,
+      projectedSession: projectedHistSession,
+      getSession: getHistSession,
+      ensureSession: ensureHistSessionOwnershipShape,
+      create: true,
+      reason: 'active-hist-session'
+    }) || null;
   }
 
   function getHistTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function isHistSessionActiveForModuleState(session){
@@ -1121,17 +1058,11 @@
   }
 
   function getHistActiveTabId(){
-    return String(getHistWorkspaceActiveTabId() || hist.__boundTabId || '').trim();
+    return String(Shared.componentLifecycle?.resolveActiveComponentTabId?.('hist', hist, projectedHistSession) || '').trim();
   }
 
   function getHistHotOwnerTabId(hotInstance){
-    return String(
-      hotInstance?.__histTabId
-      || hotInstance?.__workspaceTabId
-      || hotInstance?.__graphitixTabId
-      || hotInstance?.__hotWorkspaceTabId
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveOwnedObjectTabId?.(hotInstance, 'hist') || '').trim();
   }
 
   function getHistCallbackOwner(meta = {}){
@@ -1144,18 +1075,11 @@
     };
   }
 
-  function histDataViewsManagerBelongsToSession(manager = null, session = null){
-    const shaped = ensureHistSessionOwnershipShape(session);
-    if(!manager || !shaped?.tabId){ return false; }
-    const ownerTabId = String(
-      manager.__histTabId
-      || manager.__workspaceTabId
-      || manager.__graphitixTabId
-      || manager.__ownerTabId
-      || ''
-    ).trim();
-    return !!ownerTabId && ownerTabId === String(shaped.tabId);
-  }
+  const histDataViewsManagerBelongsToSession = (manager = null, session = null) => (
+    Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'hist', {
+      ensureSession: ensureHistSessionOwnershipShape
+    }) === true
+  );
 
   function isHistCallbackOwnerActive(owner){
     const ownerTabId = String(owner?.tabId || '').trim();
@@ -1222,15 +1146,18 @@
       const hotOwner = getHistHotOwnerTabId(hot);
       if(!session.tabId || !hotOwner || hotOwner === session.tabId){
         session.managers.hot = hot;
-        const manager = hot.__histDataViewsManager || session.managers.dataViews || null;
-        if(manager && (!hot.__histDataViewsManager || manager === hot.__histDataViewsManager) && histDataViewsManagerBelongsToSession(manager, session)){
+        const manager = Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+          hotInstance: hot,
+          componentKey: 'hist',
+          managerField: '__histDataViewsManager',
+          manager: hot.__histDataViewsManager || session.managers.dataViews || null,
+          session,
+          belongsToSession: histDataViewsManagerBelongsToSession,
+          reason: meta?.reason || 'hist-owner-hot-commit',
+          refresh: meta.refreshDataViews === true
+        });
+        if(manager){
           session.managers.dataViews = manager;
-          try{ manager.updateActiveData?.(hot.getData() || []); }catch(_err){}
-          try{ manager.updateActiveExclusions?.(hot.exportExclusions?.() || null); }catch(_err){}
-          try{ manager.updateActiveFilters?.(hot.exportFilters?.() || null); }catch(_err){}
-          if(meta.refreshDataViews === true){
-            try{ manager.refresh?.(); }catch(_err){}
-          }
         }
       }else{
         histDebug('Debug: hist owner HOT commit skipped for mismatched tab', {
@@ -1298,7 +1225,7 @@
 
   function getHistSessionForDrawOptions(options = {}, meta = {}){
     const source = options && typeof options === 'object' ? options : {};
-    const tabId = source.tabId || source.tab?.id || meta?.tabId || hist.__boundTabId || null;
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || getHistProjectionTabId() || null;
     return tabId
       ? getHistSession(tabId, {
           ...(meta || {}),
@@ -1358,7 +1285,7 @@
   function getHistDeactivationSession(tab, meta = {}){
     const tabId = getHistDeactivationTabId(tab, meta);
     const activeSession = getActiveHistSessionForState();
-    const activeTabId = hist.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getHistProjectionTabId() || activeSession?.tabId || null;
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       return getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-deactivate-target-session' }, { create: false });
     }
@@ -1368,7 +1295,7 @@
   function captureHistSessionForDeactivation(tab, meta = {}){
     const tabId = getHistDeactivationTabId(tab, meta);
     const activeSession = getActiveHistSessionForState();
-    const activeTabId = hist.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getHistProjectionTabId() || activeSession?.tabId || null;
     const targetSession = getHistDeactivationSession(tab, meta);
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       if(targetSession){
@@ -1392,7 +1319,7 @@
   }
 
   function syncHistSessionRefsFromActive(session = null){
-    const shaped = ensureHistSessionOwnershipShape(session || activeHistSession || getActiveHistSessionForState());
+    const shaped = ensureHistSessionOwnershipShape(session || projectedHistSession || getActiveHistSessionForState());
     if(!shaped){ return null; }
     if(shaped.tabId && !isHistSessionActiveOrActivating(shaped)){
       return shaped;
@@ -1433,7 +1360,7 @@
   }
 
   function syncHistSessionManagersFromActive(session = null){
-    const shaped = ensureHistSessionOwnershipShape(session || activeHistSession || getActiveHistSessionForState());
+    const shaped = ensureHistSessionOwnershipShape(session || projectedHistSession || getActiveHistSessionForState());
     if(!shaped){ return null; }
     const sessionIsActive = !shaped.tabId || isHistSessionActiveOrActivating(shaped);
     const stateHotTabId = getHistHotOwnerTabId(state.hot);
@@ -1460,7 +1387,7 @@
 
   function canUseHistNotesControl(noteControl){
     if(!noteControl){ return false; }
-    const root = state.root || resolveHistRoot(hist.__boundTabId || null);
+    const root = state.root || resolveHistRoot(getHistProjectionTabId() || null);
     const controlRoot = noteControl.root || null;
     if(controlRoot){
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
@@ -1650,8 +1577,8 @@
   function bindHistSessionForTab(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeHistSessionTabId(tabLike, meta);
     if(!tabId){ return null; }
-    if(activeHistSession && activeHistSession.tabId && activeHistSession.tabId !== tabId){
-      captureHistSessionStateFromActive(activeHistSession, {
+    if(projectedHistSession && projectedHistSession.tabId && projectedHistSession.tabId !== tabId){
+      captureHistSessionStateFromActive(projectedHistSession, {
         reason: meta?.reason || 'hist-session-switch-capture',
         captureStatsPanel: true
       });
@@ -1661,7 +1588,7 @@
     const root = meta?.root || resolveHistRoot(tabLike || tabId || null) || session.root || null;
     session.root = root || session.root || null;
     session.refs.root = root || session.refs.root || null;
-    activeHistSession = session;
+    projectedHistSession = session;
     hist.__histSessionTabId = session.tabId;
     if(options.passiveBound !== false){
       hist.__boundTabId = session.tabId;
@@ -1723,7 +1650,7 @@
   }
 
   function resolveHistRoot(tabLike = null){
-    const activeTabId = tabLike || hist.__boundTabId || null;
+    const activeTabId = tabLike || getHistProjectionTabId() || null;
     return Shared.workspaceTabs?.resolveComponentRoot?.({
       tabLike: activeTabId,
       componentKey: 'hist',
@@ -1970,7 +1897,7 @@
       rowThreshold: 5000,
       cellThreshold: 5000
     }),
-    getTabId: () => hist.__boundTabId || null,
+    getTabId: () => getHistProjectionTabId() || null,
     getHost: () => (
       state.svgBox
       || queryHistRoot('#histGraphPanel .svgbox')
@@ -2489,22 +2416,26 @@
   }
 
   function ensureHistDataViewsForHot(hotInstance, options = {}){
-    if(!hotInstance || typeof hotInstance.getData !== 'function'){
-      return null;
-    }
-    if(typeof Shared.dataViews?.createManager !== 'function'){
-      return null;
-    }
     const owner = getHistCallbackOwner({
       hot: hotInstance,
       tabId: options.tabId || getHistHotOwnerTabId(hotInstance) || getHistActiveTabId() || null,
       reason: options.reason || 'hist-dataviews-manager'
     });
-    if(!hotInstance.__histDataViewsManager){
-      hotInstance.__histDataViewsManager = Shared.dataViews.createManager({
+    const ownerTabId = owner.session?.tabId || owner.tabId || getHistHotOwnerTabId(hotInstance) || getHistProjectionTabId() || null;
+    const hostWrapper = options.wrapper || getHistNodeById('histHotWrapper');
+    const hostContainer = options.container || hotInstance?.__histHostContainer || getHistNodeById('histHot');
+    const manager = Shared.componentLifecycle?.ensureOwnedDataViewsManager?.({
+      hotInstance,
+      componentKey: 'hist',
+      managerField: '__histDataViewsManager',
+      ownerTabId,
+      hostContainerField: '__histHostContainer',
+      wrapper: hostWrapper,
+      container: hostContainer,
+      createOptions: {
         componentKey: 'hist',
         maxViews: HIST_DATA_VIEW_MAX,
-        initialData: hotInstance.getData() || [],
+        initialData: hotInstance?.getData?.() || [],
         onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
@@ -2555,24 +2486,15 @@
         onInteraction(){
           runHistOwnedCallback(owner, () => activateHistDataToolbar('data-tab-interaction'), { reason: 'data-tab-interaction' });
         }
-      });
-      const ownerTabId = owner.session?.tabId || owner.tabId || getHistHotOwnerTabId(hotInstance) || hist.__boundTabId || null;
-      hotInstance.__histDataViewsManager.__histTabId = ownerTabId;
-      hotInstance.__histDataViewsManager.__workspaceTabId = ownerTabId;
-      hotInstance.__histDataViewsManager.__ownerTabId = ownerTabId;
-      histDebug('Debug: hist data views manager created', {
-        tabId: hotInstance.__histTabId || null
-      });
-    }
-    const manager = hotInstance.__histDataViewsManager;
-    const hostWrapper = options.wrapper || getHistNodeById('histHotWrapper');
-    const hostContainer = options.container || hotInstance.__histHostContainer || getHistNodeById('histHot');
-    if(hostWrapper && hostContainer){
-      manager.mount({
-        wrapper: hostWrapper,
-        tableContainer: hostContainer
-      });
-      manager.refresh?.();
+      },
+      onCreated(managerInstance){
+        histDebug('Debug: hist data views manager created', {
+          tabId: getHistHotOwnerTabId(hotInstance) || managerInstance?.__histTabId || null
+        });
+      }
+    });
+    if(!manager){
+      return null;
     }
     const session = owner.session || getActiveHistSessionForState();
     if(session){
@@ -2594,16 +2516,12 @@
       histDebug('Debug: hist active DataView sync skipped for inactive HOT owner', { hotOwner, activeTabId, reason: reason || null });
       return;
     }
-    const manager = hot.__histDataViewsManager || null;
-    if(!manager){
-      return;
-    }
-    manager.updateActiveData(hot.getData() || []);
-    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
-    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
-    if(reason === 'afterLoadData'){
-      manager.refresh?.();
-    }
+    Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+      hotInstance: hot,
+      componentKey: 'hist',
+      managerField: '__histDataViewsManager',
+      reason
+    });
   }
 
   function isHistFrequencyTableDataView(view){
@@ -4823,7 +4741,7 @@
       const skipDraw = meta?.skipDraw === true;
       const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
       const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
-      const scheduleTargetTab = meta?.tab || meta?.tabId || hist.__boundTabId || null;
+      const scheduleTargetTab = meta?.tab || meta?.tabId || getHistProjectionTabId() || null;
       const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
       const scheduleTargetSession = scheduleTargetTab
         ? getHistSession(scheduleTargetTab, { ...(meta || {}), reason: 'hist-payload-scheduler-owner' }, { create: false, fallbackActive: false })
@@ -5079,7 +4997,7 @@
         reason: meta?.reason || 'hist-runtime-capture'
       };
       histDebug('Debug: hist runtime snapshot captured', {
-        tabId: session?.tabId || meta?.tabId || hist.__boundTabId || null,
+        tabId: session?.tabId || meta?.tabId || getHistProjectionTabId() || null,
         plotMode: snapshot.plotMode,
         notesOpen: sessionNotes.open,
         fromActive: requestedSession === activeSession,
@@ -5109,7 +5027,7 @@
       });
       if(!appliedSession){
         histDebug('Debug: hist runtime snapshot apply skipped', {
-          tabId: meta?.tabId || hist.__boundTabId || null,
+          tabId: meta?.tabId || getHistProjectionTabId() || null,
           reason: 'missing-session'
         });
         return false;
@@ -5129,7 +5047,7 @@
       histDebug(isActiveOwner
         ? 'Debug: hist runtime snapshot applied through session pipeline'
         : 'Debug: hist inactive runtime snapshot stored without active projection', {
-        tabId: appliedSession.tabId || meta?.tabId || hist.__boundTabId || null,
+        tabId: appliedSession.tabId || meta?.tabId || getHistProjectionTabId() || null,
         activeTabId: getHistActiveTabId() || null,
         plotMode: appliedSession.state?.plotMode || null,
         reason: meta?.reason || 'hist-runtime-apply'
@@ -5183,7 +5101,7 @@
   hist.createEmptyPayload = function createEmptyHistPayload(){
       console.debug('Debug: hist.createEmptyPayload pure factory invoked', {
         ready: !!hist.ready,
-        boundTabId: hist.__boundTabId || null
+        boundTabId: getHistProjectionTabId() || null
       });
       return createImmutableHistDefaultPayload();
     };
@@ -5333,26 +5251,22 @@
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('hist notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(canUseHistNotesControl(state.notes?.control)){
-      state.notes.control.setValue(state.notes.text || '');
-      state.notes.control.setOpen(!!state.notes.open);
-      return;
-    }
-    state.notes.control = helper.mountFoldable({
+    state.notes.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'hist',
+      ownerTabId: getHistProjectionTabId() || null,
       container: stack,
+      notesState: state.notes,
+      control: state.notes?.control,
       id: 'hist-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'hist',
       fontKey: 'notes',
-      value: state.notes.text || '',
-      open: !!state.notes.open,
+      canUseControl: canUseHistNotesControl,
+      unavailableMessage: 'hist notes helper unavailable',
+      debugLog: histDebug,
+      applyToControl: control => {
+        control.setValue(state.notes.text || '');
+        control.setOpen(!!state.notes.open);
+      },
       onChange: value => {
         state.notes.text = value == null ? '' : String(value);
         const session = getActiveHistSessionForState();
@@ -5371,14 +5285,16 @@
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           histDebug('Debug: hist notes toggled', { open: state.notes.open });
         }
+      },
+      onReady: control => {
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          histDebug('Debug: hist notes initialized', {
+            mounted: !!control,
+            open: !!state.notes.open
+          });
+        }
       }
-    });
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      histDebug('Debug: hist notes initialized', {
-        mounted: !!state.notes.control,
-        open: !!state.notes.open
-      });
-    }
+    }) || state.notes.control || null;
   }
 
   // Compute and render histogram summary statistics
@@ -5403,7 +5319,7 @@
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getHistNodeById('histStatsResults'),
-      tabId: hist.__boundTabId || null
+      tabId: getHistProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(num, { scientific, forceScientific: scientific });
@@ -7299,12 +7215,12 @@
   // Public API
   hist.draw = function drawHistPublic(options = {}){
     const nextReason = options?.reason || 'hist-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', { ...(options || {}), tabId: options?.tabId || hist.__boundTabId || null, reason: nextReason })){
-      histDebug('Debug: hist draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || hist.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist.draw' } });
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', { ...(options || {}), tabId: options?.tabId || getHistProjectionTabId() || null, reason: nextReason })){
+      histDebug('Debug: hist draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getHistProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || getHistProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'hist.draw' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || hist.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'hist', tabId: options?.tabId || getHistProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'hist.draw' } });
     const drawSession = ensureHistSessionOwnershipShape(getHistSessionForDrawOptions(options, { reason: nextReason }));
     if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
       markHistOwnerDrawPending(drawSession, {
@@ -7322,7 +7238,7 @@
     return result;
   };
   hist.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
-    const tabId = meta?.tabId || hist.__boundTabId || null;
+    const tabId = meta?.tabId || getHistProjectionTabId() || null;
     try{ hist.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'hist-draw-cancel'); }catch(_err){}
     resolveHistOverlay(meta?.reason || 'cancelled');
     Shared.componentLifecycle?.emitLifecycleEvent?.({
@@ -7352,13 +7268,13 @@
           || global.document;
         bindHistSessionForTab(nextTabId || info?.tab || null, { root: state.root || null, reason: meta?.reason || 'workspace-dom-rebind' }, { apply: true, syncUi: false });
         if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-          hist.__boundTabId = nextTabId || hist.__boundTabId || null;
+          hist.__boundTabId = nextTabId || getHistProjectionTabId() || null;
           state.svgBox = state.root?.querySelector?.('#histGraphPanel .svgbox') || state.svgBox || null;
           syncHistSessionRefsFromActive();
           syncHistSessionManagersFromActive();
           hist.__domSentinel = info?.mountedSentinel || getHistNodeById('histHot');
           hist.ready = true;
-          histDebug('Debug: Components.hist passive DOM rebind', { tabId: hist.__boundTabId || null });
+          histDebug('Debug: Components.hist passive DOM rebind', { tabId: getHistProjectionTabId() || null });
           return;
         }
         hist.ready = false;
@@ -7369,18 +7285,18 @@
   }
 
   hist.init = function init(options = {}){
-    const targetTabId = options?.tabId || hist.__boundTabId || null;
+    const targetTabId = options?.tabId || getHistProjectionTabId() || null;
     const targetRoot = options?.root || Shared.workspaceTabs?.getMountedRoot?.(targetTabId || null, 'hist') || state.root || resolveHistRoot(targetTabId || null) || global.document;
     if(hist.ready && (!targetTabId || hist.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
-      histDebug('Debug: Components.hist.init skipped (already ready)', { tabId: hist.__boundTabId || null });
+      histDebug('Debug: Components.hist.init skipped (already ready)', { tabId: getHistProjectionTabId() || null });
       return;
     }
     if(hist.ready){
-      histDebug('Debug: Components.hist.init rebinding', { previousTabId: hist.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      histDebug('Debug: Components.hist.init rebinding', { previousTabId: getHistProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       hist.ready = false;
     }
     hist.__boundTabId = targetTabId || null;
-    histDebug('Debug: Components.hist.init', { tabId: hist.__boundTabId || null });
+    histDebug('Debug: Components.hist.init', { tabId: getHistProjectionTabId() || null });
     state.root = targetRoot;
     bindHistSessionForTab(targetTabId || null, { root: state.root || null, reason: options?.reason || 'hist-init' }, { apply: true, syncUi: false });
     // Placeholder to avoid early resizer callbacks failing
@@ -7535,7 +7451,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'hist',
           debugLabel: 'hist',
-          getTabId: () => hist.__boundTabId || null,
+          getTabId: () => getHistProjectionTabId() || null,
           scheduleRaw: scheduleHistInstrumented
         })
       : scheduleHistInstrumented;
@@ -7621,7 +7537,7 @@
     getSentinel: () => getHistNodeById('histHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    hist.__boundTabId = targetTabId || hist.__boundTabId || null;
+    hist.__boundTabId = targetTabId || getHistProjectionTabId() || null;
     state.root = Shared.workspaceTabs?.getMountedRoot?.(tab || targetTabId || null, 'hist')
       || state.root
       || resolveHistRoot()

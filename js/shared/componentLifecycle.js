@@ -131,7 +131,19 @@
     }
     const out = {};
     Object.keys(value).forEach(key => {
-      if(key === 'tab' || key === 'target' || key === 'currentTarget' || key === 'srcElement' || key === 'ownerDocument'){
+      if(key === 'tab'
+        || key === 'event'
+        || key === 'target'
+        || key === 'currentTarget'
+        || key === 'srcElement'
+        || key === 'ownerDocument'
+        || key === 'session'
+        || key === 'root'
+        || key === 'hot'
+        || key === 'hotInstance'
+        || key === 'manager'
+        || key === 'dataViews'
+        || key === 'scheduler'){
         return;
       }
       const sanitized = sanitizeDrawValue(value[key], seen, depth + 1);
@@ -161,6 +173,472 @@
     const reason = String(source.reason || owner?.reason || out.reason || 'component-draw').trim();
     out.reason = reason || 'component-draw';
     return out;
+  };
+
+
+  namespace.sanitizeComponentDrawOptions = function sanitizeComponentDrawOptions(componentKey = '', options = {}, owner = {}){
+    const key = normalizeLifecycleTabId(componentKey) || 'component';
+    const source = options && typeof options === 'object' ? options : {};
+    const ownerMeta = owner && typeof owner === 'object' ? owner : {};
+    return namespace.sanitizeDrawOptions(source, {
+      tabId: ownerMeta.tabId || source.tabId || source.workspaceTabId || null,
+      sessionGeneration: ownerMeta.sessionGeneration || ownerMeta.generation || source.sessionGeneration || source.generation || null,
+      reason: ownerMeta.reason || source.reason || `${key}-draw`
+    });
+  };
+
+  function resolveLifecycleSession(session = null, options = {}){
+    if(typeof options.ensureSession === 'function'){
+      return options.ensureSession(session || options.fallbackSession || null);
+    }
+    return session || options.fallbackSession || null;
+  }
+
+  namespace.ownedDataViewsManagerBelongsToSession = function ownedDataViewsManagerBelongsToSession(manager = null, session = null, componentKey = '', options = {}){
+    const shaped = resolveLifecycleSession(session, options);
+    return !!(manager && shaped && namespace.ownedObjectBelongsToSession(manager, shaped, componentKey, options));
+  };
+
+  namespace.ownedHotBelongsToSession = function ownedHotBelongsToSession(hotInstance = null, session = null, componentKey = '', options = {}){
+    const shaped = resolveLifecycleSession(session, options);
+    if(!hotInstance || !shaped){
+      return false;
+    }
+    const tabId = normalizeLifecycleTabId(shaped.tabId || options.tabId || '');
+    const ownerTabId = namespace.resolveOwnedObjectTabId(hotInstance, componentKey, options);
+    if(!tabId){
+      return !!(options.allowMissingSessionTabId && ownerTabId);
+    }
+    return !!ownerTabId && ownerTabId === tabId;
+  };
+
+
+  function normalizeLifecycleTabId(value){
+    return String(value || '').trim();
+  }
+
+  namespace.resolveOwnedObjectTabId = function resolveOwnedObjectTabId(owner = null, componentKey = '', options = {}){
+    if(!owner || typeof owner !== 'object'){
+      return '';
+    }
+    const key = normalizeLifecycleTabId(componentKey);
+    const componentField = key ? `__${key}TabId` : '';
+    const candidates = [];
+    if(componentField){
+      candidates.push(owner[componentField]);
+    }
+    candidates.push(
+      owner.__workspaceTabId,
+      owner.__graphitixTabId,
+      owner.__ownerTabId,
+      owner.__hotWorkspaceTabId,
+      owner.tabId,
+      owner.id
+    );
+    const nestedOwners = Array.isArray(options.nestedOwners)
+      ? options.nestedOwners
+      : ['hot', 'manager', 'dataViews'];
+    nestedOwners.forEach(name => {
+      const nested = owner?.[name];
+      if(!nested || typeof nested !== 'object' || nested === owner){
+        return;
+      }
+      if(componentField){
+        candidates.push(nested[componentField]);
+      }
+      candidates.push(
+        nested.__workspaceTabId,
+        nested.__graphitixTabId,
+        nested.__ownerTabId,
+        nested.__hotWorkspaceTabId,
+        nested.tabId,
+        nested.id
+      );
+    });
+    [owner.rootElement, owner.container, owner.__hostContainer, owner[`__${key}HostContainer`]].forEach(node => {
+      if(!node || typeof node !== 'object'){
+        return;
+      }
+      candidates.push(
+        node.dataset?.workspaceTabId,
+        node.dataset?.tabId,
+        node.getAttribute?.('data-workspace-tab-id'),
+        node.getAttribute?.('data-tab-id')
+      );
+    });
+    for(const candidate of candidates){
+      const tabId = normalizeLifecycleTabId(candidate);
+      if(tabId){
+        return tabId;
+      }
+    }
+    return '';
+  };
+
+
+  namespace.resolveTabIdFromTarget = function resolveTabIdFromTarget(target = null, options = {}){
+    const selector = String(options?.selector || '[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]').trim();
+    const readCandidate = node => {
+      if(!node || typeof node !== 'object'){
+        return '';
+      }
+      return normalizeLifecycleTabId(
+        node.dataset?.workspaceTabId
+        || node.dataset?.tabId
+        || node.getAttribute?.('data-workspace-tab-id')
+        || node.getAttribute?.('data-tab-id')
+        || ''
+      );
+    };
+    if(target && typeof target.closest === 'function' && selector){
+      const owner = target.closest(selector);
+      const ownerTabId = readCandidate(owner);
+      if(ownerTabId){
+        return ownerTabId;
+      }
+    }
+    let cursor = target || null;
+    const doc = global.document || null;
+    while(cursor && cursor !== doc){
+      const tabId = readCandidate(cursor);
+      if(tabId){
+        return tabId;
+      }
+      cursor = cursor.parentElement || cursor.parentNode || null;
+    }
+    return '';
+  };
+
+
+  namespace.resolveWorkspaceActiveTabId = function resolveWorkspaceActiveTabId(componentKey = ''){
+    const key = normalizeLifecycleTabId(componentKey);
+    if(!key){
+      return '';
+    }
+    const workspaceInfo = global.Shared?.workspaceTabs?.getActiveSessionInfo?.(key) || null;
+    const workspaceInfoTabId = normalizeLifecycleTabId(workspaceInfo?.tabId || '');
+    if(workspaceInfoTabId){
+      return workspaceInfoTabId;
+    }
+    const workspace = global.Main?.session?.workspaceState || null;
+    const activeId = normalizeLifecycleTabId(workspace?.activeTabId || '');
+    if(activeId && Array.isArray(workspace?.tabs)){
+      const activeTab = workspace.tabs.find(tab => tab && normalizeLifecycleTabId(tab.id || '') === activeId) || null;
+      if(activeTab?.type === key){
+        return activeId;
+      }
+    }
+    return '';
+  };
+
+  namespace.resolveActiveComponentTabId = function resolveActiveComponentTabId(componentKey = '', component = null, activeSession = null, options = {}){
+    const explicit = normalizeLifecycleTabId(
+      options?.tabId
+      || options?.workspaceTabId
+      || options?.tab?.id
+      || options?.tab
+      || ''
+    );
+    if(explicit){
+      return explicit;
+    }
+    const key = normalizeLifecycleTabId(componentKey || component?.__componentKey || options?.componentKey || '');
+    const workspaceTabId = key
+      ? normalizeLifecycleTabId(global.Shared?.workspaceTabs?.getActiveSessionInfo?.(key)?.tabId || '')
+      : '';
+    if(workspaceTabId){
+      return workspaceTabId;
+    }
+    const boundTabId = normalizeLifecycleTabId(component?.__boundTabId || '');
+    if(boundTabId){
+      return boundTabId;
+    }
+    const activeTabId = normalizeLifecycleTabId(activeSession?.tabId || '');
+    if(activeTabId){
+      return activeTabId;
+    }
+    return normalizeLifecycleTabId(namespace.resolveOwnedObjectTabId(options?.owner || null, key, options) || '');
+  };
+
+
+  namespace.resolveProjectionTabId = function resolveProjectionTabId(component = null, projectedSession = null){
+    return normalizeLifecycleTabId(component?.__boundTabId || projectedSession?.tabId || '');
+  };
+
+
+  namespace.resolveActiveSessionForComponent = function resolveActiveSessionForComponent(config = {}){
+    const key = normalizeLifecycleTabId(config?.componentKey || config?.component?.__componentKey || '');
+    const getSession = typeof config?.getSession === 'function' ? config.getSession : null;
+    const ensureSession = typeof config?.ensureSession === 'function' ? config.ensureSession : value => value || null;
+    if(!key || !getSession){
+      return ensureSession(config?.projectedSession || config?.activeSession || null);
+    }
+    const component = config?.component || null;
+    const meta = config?.meta && typeof config.meta === 'object' ? config.meta : {};
+    const projectedSession = ensureSession(config?.projectedSession || config?.activeSession || null);
+    const projectedTabId = normalizeLifecycleTabId(projectedSession?.tabId || '');
+    const explicitTabId = normalizeLifecycleTabId(
+      config?.tabId
+      || config?.workspaceTabId
+      || config?.tab?.id
+      || meta?.tabId
+      || meta?.workspaceTabId
+      || meta?.tab?.id
+      || meta?.tab
+      || ''
+    );
+    const workspaceTabId = namespace.resolveWorkspaceActiveTabId(key);
+    const boundTabId = normalizeLifecycleTabId(component?.__boundTabId || '');
+    const ownerTabId = normalizeLifecycleTabId(namespace.resolveOwnedObjectTabId(config?.owner || null, key, config?.ownerOptions || {}) || '');
+    const projectedMatchesBound = !!projectedTabId && (!boundTabId || projectedTabId === boundTabId);
+    const projectedMatchesWorkspace = !!projectedTabId && (!workspaceTabId || projectedTabId === workspaceTabId);
+    const tabId = explicitTabId
+      || workspaceTabId
+      || (projectedMatchesBound && projectedMatchesWorkspace ? projectedTabId : '')
+      || boundTabId
+      || ownerTabId;
+    if(tabId){
+      const nextMeta = {
+        ...(meta || {}),
+        tabId,
+        reason: meta.reason || config?.reason || `${key}-active-session`
+      };
+      return ensureSession(getSession(tabId, nextMeta, { create: config?.create !== false }));
+    }
+    if(projectedSession && projectedMatchesWorkspace){
+      return projectedSession;
+    }
+    return null;
+  };
+
+  namespace.isOwnerActiveForComponent = function isOwnerActiveForComponent(owner = null, componentKey = '', component = null, activeSession = null, options = {}){
+    const key = normalizeLifecycleTabId(componentKey || component?.__componentKey || options?.componentKey || '');
+    const ownerTabId = normalizeLifecycleTabId(
+      owner?.tabId
+      || owner?.session?.tabId
+      || namespace.resolveOwnedObjectTabId(owner, key, options)
+      || ''
+    );
+    if(!ownerTabId){
+      return options.allowMissingOwner !== false;
+    }
+    const activeTabId = namespace.resolveActiveComponentTabId(key, component, activeSession, options);
+    return !!activeTabId && ownerTabId === activeTabId;
+  };
+
+  namespace.ownedObjectBelongsToSession = function ownedObjectBelongsToSession(owner = null, session = null, componentKey = '', options = {}){
+    const tabId = normalizeLifecycleTabId(session?.tabId || options.tabId || '');
+    if(!owner || !tabId){
+      return false;
+    }
+    const ownerTabId = namespace.resolveOwnedObjectTabId(owner, componentKey, options);
+    return !!ownerTabId && ownerTabId === tabId;
+  };
+
+  namespace.markOwnedObject = function markOwnedObject(owner = null, componentKey = '', tabLike = null, options = {}){
+    if(!owner || typeof owner !== 'object'){
+      return owner;
+    }
+    const tabId = normalizeLifecycleTabId(tabLike?.id || tabLike || options.tabId || '');
+    if(!tabId){
+      return owner;
+    }
+    const key = normalizeLifecycleTabId(componentKey);
+    if(key){
+      owner[`__${key}TabId`] = tabId;
+    }
+    owner.__workspaceTabId = tabId;
+    owner.__ownerTabId = tabId;
+    if(options.graphitix !== false){
+      owner.__graphitixTabId = tabId;
+    }
+    return owner;
+  };
+
+
+  namespace.ensureOwnedDataViewsManager = function ensureOwnedDataViewsManager(config = {}){
+    const hotInstance = config?.hotInstance || null;
+    const componentKey = normalizeLifecycleTabId(config?.componentKey || '');
+    if(!hotInstance || typeof hotInstance.getData !== 'function' || !componentKey){
+      return null;
+    }
+    if(typeof global.Shared?.dataViews?.createManager !== 'function'){
+      return null;
+    }
+    const managerField = String(config?.managerField || `__${componentKey}DataViewsManager`).trim();
+    if(!managerField){
+      return null;
+    }
+    const ownerTabId = normalizeLifecycleTabId(config?.ownerTabId || namespace.resolveOwnedObjectTabId(hotInstance, componentKey) || '');
+    if(ownerTabId){
+      namespace.markOwnedObject(hotInstance, componentKey, ownerTabId);
+    }
+    const runtimeKey = config?.runtimeKey == null ? '' : String(config.runtimeKey);
+    const runtimeKeyField = String(config?.runtimeKeyField || (runtimeKey ? `__${componentKey}RuntimeKey` : '')).trim();
+    const existingManager = hotInstance[managerField] || null;
+    if(existingManager && runtimeKey && runtimeKeyField && existingManager[runtimeKeyField] !== runtimeKey){
+      existingManager.unmount?.();
+      hotInstance[managerField] = null;
+    }
+    let created = false;
+    if(!hotInstance[managerField]){
+      const createOptions = config?.createOptions && typeof config.createOptions === 'object'
+        ? { ...config.createOptions }
+        : {};
+      if(!createOptions.componentKey){
+        createOptions.componentKey = componentKey;
+      }
+      if(!Object.prototype.hasOwnProperty.call(createOptions, 'initialData')){
+        createOptions.initialData = hotInstance.getData() || [];
+      }
+      hotInstance[managerField] = global.Shared.dataViews.createManager(createOptions);
+      created = true;
+    }
+    const manager = hotInstance[managerField] || null;
+    if(!manager){
+      return null;
+    }
+    if(ownerTabId){
+      namespace.markOwnedObject(manager, componentKey, ownerTabId);
+    }
+    manager.hot = manager.hot || hotInstance;
+    if(runtimeKey && runtimeKeyField){
+      manager[runtimeKeyField] = runtimeKey;
+    }
+    if(config?.hostContainerField && config?.container){
+      hotInstance[config.hostContainerField] = config.container;
+    }
+    if(created && typeof config?.onCreated === 'function'){
+      config.onCreated(manager, { hotInstance, componentKey, ownerTabId });
+    }
+    const wrapper = config?.wrapper || null;
+    const tableContainer = config?.container || null;
+    if(wrapper && tableContainer){
+      manager.mount?.({ wrapper, tableContainer });
+      manager.refresh?.();
+      if(config?.markWrapperOwner !== false){
+        wrapper.__dataViewsOwner = manager;
+      }
+    }
+    if(typeof config?.onReady === 'function'){
+      config.onReady(manager, { hotInstance, componentKey, ownerTabId, created });
+    }
+    return manager;
+  };
+
+
+  namespace.refreshOwnedDataViewsManagerFromHot = function refreshOwnedDataViewsManagerFromHot(config = {}){
+    const hotInstance = config?.hotInstance || null;
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      return null;
+    }
+    const componentKey = normalizeLifecycleTabId(config?.componentKey || '');
+    const managerField = String(config?.managerField || (componentKey ? `__${componentKey}DataViewsManager` : '')).trim();
+    let manager = config?.manager || (managerField ? hotInstance[managerField] : null) || null;
+    const session = config?.session || null;
+    if(manager && session && typeof config?.belongsToSession === 'function' && !config.belongsToSession(manager, session)){
+      manager = null;
+    }
+    if(!manager){
+      return null;
+    }
+    manager.updateActiveData?.(hotInstance.getData() || []);
+    manager.updateActiveExclusions?.(hotInstance.exportExclusions?.() || null);
+    manager.updateActiveFilters?.(hotInstance.exportFilters?.() || null);
+    if(config?.refresh === true || config?.reason === 'afterLoadData'){
+      manager.refresh?.();
+    }
+    return manager;
+  };
+
+
+  function defaultNotesControlIsUsable(control = null){
+    return !!(control
+      && typeof control === 'object'
+      && control.root
+      && control.root.isConnected
+      && typeof control.setValue === 'function'
+      && typeof control.setOpen === 'function');
+  }
+
+  function markOwnedNotesControl(control = null, componentKey = '', ownerTabId = ''){
+    if(!control || typeof control !== 'object' || !ownerTabId){
+      return control;
+    }
+    namespace.markOwnedObject(control, componentKey, ownerTabId);
+    namespace.markOwnedObject(control.root, componentKey, ownerTabId);
+    namespace.markOwnedObject(control.details, componentKey, ownerTabId);
+    namespace.markOwnedObject(control.editor, componentKey, ownerTabId);
+    return control;
+  }
+
+  namespace.ensureOwnedNotesControl = function ensureOwnedNotesControl(config = {}){
+    const componentKey = normalizeLifecycleTabId(config?.componentKey || '');
+    const container = config?.container || null;
+    const notesState = config?.notesState && typeof config.notesState === 'object' ? config.notesState : null;
+    const currentControl = config?.control || notesState?.control || null;
+    const ownerTabId = normalizeLifecycleTabId(config?.ownerTabId || config?.session?.tabId || '');
+    const debugLog = typeof config?.debugLog === 'function' ? config.debugLog : null;
+
+    if(!container){
+      debugLog?.(config?.missingContainerMessage || `Debug: ${componentKey || 'component'} notes mount skipped`, { reason: 'missing-container' });
+      return null;
+    }
+
+    const helper = global.Shared?.notes || null;
+    if(!helper || typeof helper.mountFoldable !== 'function'){
+      console.warn(config?.unavailableMessage || `${componentKey || 'component'} notes helper unavailable`, { hasSharedNotes: !!helper });
+      return null;
+    }
+
+    const canUseControl = typeof config?.canUseControl === 'function'
+      ? config.canUseControl
+      : defaultNotesControlIsUsable;
+    if(canUseControl(currentControl)){
+      markOwnedNotesControl(currentControl, componentKey, ownerTabId);
+      if(typeof config?.applyToControl === 'function'){
+        config.applyToControl(currentControl, notesState);
+      }else{
+        currentControl.setValue?.(notesState?.text || '');
+        currentControl.setOpen?.(!!notesState?.open);
+      }
+      if(notesState){
+        notesState.control = currentControl;
+      }
+      return currentControl;
+    }
+
+    const mountOptions = {
+      container,
+      id: config?.id || (componentKey ? `${componentKey}-notes` : 'component-notes'),
+      title: config?.title || 'Notes',
+      placeholder: config?.placeholder || 'Write notes about the data being analyzed...',
+      richText: config?.richText !== false,
+      scopeId: config?.scopeId || componentKey || null,
+      fontKey: config?.fontKey || 'notes',
+      value: config?.value == null ? (notesState?.text || '') : String(config.value),
+      open: config?.open == null ? !!notesState?.open : !!config.open,
+      onChange: value => {
+        if(typeof config?.onChange === 'function'){
+          config.onChange(value);
+        }
+      },
+      onToggle: open => {
+        if(typeof config?.onToggle === 'function'){
+          config.onToggle(!!open);
+        }
+      }
+    };
+
+    const control = helper.mountFoldable(mountOptions);
+    markOwnedNotesControl(control, componentKey, ownerTabId);
+    if(notesState){
+      notesState.control = control || null;
+    }
+    if(typeof config?.onReady === 'function'){
+      config.onReady(control, { componentKey, ownerTabId, container });
+    }
+    return control;
   };
 
   namespace.resolveDrawCooldownMs = function resolveDrawCooldownMs(options = {}, config = {}){
@@ -548,7 +1026,6 @@
       suppressStatsRecompute: meta.suppressStatsRecompute === true || meta.suppressDraw === true,
       suppressAutosize: meta.suppressAutosize !== false,
       passiveControls: meta.passiveControls !== false,
-      authoritativeRenderRestore: meta.authoritativeRenderRestore === true
     };
     restoreTransactionStack.push(token);
     debug('Debug: lifecycle restore transaction started', token);
@@ -777,7 +1254,7 @@
       suppressResizeDraw: meta.suppressResizeDraw === true || meta.suppressDraw === true,
       suppressStatsRecompute: meta.suppressStatsRecompute === true || meta.suppressDraw === true,
       passiveControls: meta.passiveControls !== false,
-      authoritativeRenderRestore: meta.authoritativeRenderRestore === true,
+      allowPostSuppress: meta.allowPostSuppress === true,
       allowExplicitUserDraw: meta.allowExplicitUserDraw === true,
       postSuppressMs: Number.isFinite(Number(meta.postSuppressMs)) ? Math.max(0, Number(meta.postSuppressMs)) : 1400,
       postSuppressCount: Number.isFinite(Number(meta.postSuppressCount)) ? Math.max(0, Math.floor(Number(meta.postSuppressCount))) : 16
@@ -790,7 +1267,7 @@
     if(!tabId){
       return function endMissingRenderCacheRestoreTransaction(){ return false; };
     }
-    const flags = normalizeTransactionFlags({ suppressDraw: true, suppressAutoDraw: true, suppressResizeDraw: true, suppressStatsRecompute: true, authoritativeRenderRestore: true, ...meta });
+    const flags = normalizeTransactionFlags({ suppressDraw: true, suppressAutoDraw: true, suppressResizeDraw: true, suppressStatsRecompute: true, ...meta });
     const token = {
       componentKey: key,
       tabId,
@@ -806,14 +1283,14 @@
       closed = true;
       const idx = renderRestoreTransactionStack.lastIndexOf(token);
       if(idx >= 0){ renderRestoreTransactionStack.splice(idx, 1); }
-      if(extra.cancelPostSuppress !== true && token.suppressDraw === true){
+      if(extra.cancelPostSuppress !== true && token.allowPostSuppress === true && token.suppressDraw === true){
         markPostRestoreDrawSuppression(key, tabId, {
           delayMs: token.postSuppressMs,
           count: token.postSuppressCount,
           reason: extra.reason || token.reason || 'render-cache-restore-transaction-end'
         });
       }
-      namespace.emitLifecycleEvent({ componentKey: key, tabId, action: 'render-cache-restore-transaction-end', reason: extra.reason || token.reason, details: { elapsedMs: Date.now() - token.startedAt, postSuppress: extra.cancelPostSuppress !== true } });
+      namespace.emitLifecycleEvent({ componentKey: key, tabId, action: 'render-cache-restore-transaction-end', reason: extra.reason || token.reason, details: { elapsedMs: Date.now() - token.startedAt, postSuppress: extra.cancelPostSuppress !== true && token.allowPostSuppress === true } });
       return true;
     };
   };
@@ -912,8 +1389,7 @@
       return false;
     }
     return !!(
-      tab.authoritativeRenderRestore
-      || tab.renderCache
+      tab.renderCache
       || tab.renderCacheSignature
       || tab.archiveRenderCache
       || tab.archiveRenderCacheSignature
@@ -985,9 +1461,6 @@
       }
       if(tab && typeof session?.clearTabArchiveRenderCache === 'function'){
         session.clearTabArchiveRenderCache(tab, { reason: meta.reason || 'graph-edit' });
-      }
-      if(tab && typeof session?.markTabAuthoritativeRenderRestore === 'function'){
-        session.markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'graph-edit' });
       }
     }catch(err){
       warn('Debug: graph edit cache invalidation failed', {

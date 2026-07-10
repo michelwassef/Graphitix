@@ -662,7 +662,13 @@ let state = {
 
 
   const pieSessionsByTabId = new Map();
-  let activePieSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedPieSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getPieProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(pie, projectedPieSession) || String(pie.__boundTabId || projectedPieSession?.tabId || '').trim();
+  }
 
   function normalizePieSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
@@ -860,25 +866,19 @@ let state = {
   }
 
   function getActivePieSessionForState(){
-    if(activePieSession && (!pie.__boundTabId || String(activePieSession.tabId || '') === String(pie.__boundTabId || ''))){
-      return ensurePieSessionOwnershipShape(activePieSession);
-    }
-    const tabId = pie.__boundTabId || normalizePieSessionTabId(null, {}) || null;
-    return tabId ? getPieSession(tabId, { tabId, reason: 'active-pie-session' }, { create: true }) : null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'pie',
+      component: pie,
+      projectedSession: projectedPieSession,
+      getSession: getPieSession,
+      ensureSession: ensurePieSessionOwnershipShape,
+      create: true,
+      reason: 'active-pie-session'
+    }) || null;
   }
 
   function getPieTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function getPieSessionForEvent(event = null, meta = {}, options = {}){
@@ -894,7 +894,7 @@ let state = {
     if(session?.tabId && !isPieSessionActiveOrActivating(session)){
       pieDebug('Debug: pie control callback skipped for inactive owner', {
         tabId: session.tabId || null,
-        activeTabId: pie.__boundTabId || activePieSession?.tabId || null,
+        activeTabId: getPieProjectionTabId() || null,
         reason: reason || 'pie-control-owner'
       });
       return undefined;
@@ -904,7 +904,7 @@ let state = {
 
   function getPieSessionForDrawOptions(options = {}, meta = {}){
     const source = options && typeof options === 'object' ? options : {};
-    const tabId = source.tabId || source.tab?.id || meta?.tabId || pie.__boundTabId || null;
+    const tabId = source.tabId || source.tab?.id || meta?.tabId || getPieProjectionTabId() || null;
     return tabId
       ? getPieSession(tabId, {
           ...(meta || {}),
@@ -915,13 +915,7 @@ let state = {
   }
 
   function getPieHotOwnerTabId(hotInstance = null){
-    return String(
-      hotInstance?.__pieTabId
-      || hotInstance?.__workspaceTabId
-      || hotInstance?.__graphitixTabId
-      || hotInstance?.__hotWorkspaceTabId
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveOwnedObjectTabId?.(hotInstance, 'pie') || '').trim();
   }
 
   function getPieSessionForHot(hotInstance = null, meta = {}, options = {}){
@@ -932,25 +926,18 @@ let state = {
     return options.fallbackActive === false ? null : getActivePieSessionForState();
   }
 
-  function pieDataViewsManagerBelongsToSession(manager = null, session = null){
-    const shaped = ensurePieSessionOwnershipShape(session);
-    if(!manager || !shaped?.tabId){ return false; }
-    const ownerTabId = String(
-      manager.__pieTabId
-      || manager.__workspaceTabId
-      || manager.__graphitixTabId
-      || manager.__ownerTabId
-      || ''
-    ).trim();
-    return !!ownerTabId && ownerTabId === String(shaped.tabId);
-  }
+  const pieDataViewsManagerBelongsToSession = (manager = null, session = null) => (
+    Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'pie', {
+      ensureSession: ensurePieSessionOwnershipShape
+    }) === true
+  );
 
   function isPieSessionActive(session = null){
     const shaped = ensurePieSessionOwnershipShape(session);
     if(!shaped?.tabId){
       return false;
     }
-    return String(shaped.tabId) === String(pie.__boundTabId || activePieSession?.tabId || '');
+    return String(shaped.tabId) === String(getPieProjectionTabId());
   }
 
   function isPieSessionActiveOrActivating(session = null){
@@ -1039,7 +1026,7 @@ let state = {
   function getPieDeactivationSession(tab, meta = {}){
     const tabId = getPieDeactivationTabId(tab, meta);
     const activeSession = getActivePieSessionForState();
-    const activeTabId = pie.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getPieProjectionTabId() || activeSession?.tabId || null;
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       return getPieSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'pie-deactivate-target-session' }, { create: false });
     }
@@ -1047,26 +1034,7 @@ let state = {
   }
 
   function resolvePieTabIdFromNode(node){
-    let cursor = node && typeof node.closest === 'function'
-      ? node.closest('[data-workspace-tab-id], [data-tab-id], [data-graphitix-tab-id]')
-      : null;
-    if(!cursor && node && typeof node.parentElement !== 'undefined'){
-      cursor = node.parentElement;
-    }
-    while(cursor){
-      const tabId = cursor.dataset?.workspaceTabId
-        || cursor.dataset?.tabId
-        || cursor.dataset?.graphitixTabId
-        || cursor.getAttribute?.('data-workspace-tab-id')
-        || cursor.getAttribute?.('data-tab-id')
-        || cursor.getAttribute?.('data-graphitix-tab-id')
-        || null;
-      if(tabId){
-        return String(tabId);
-      }
-      cursor = cursor.parentElement || null;
-    }
-    return null;
+    return Shared.componentLifecycle?.resolveTabIdFromTarget?.(node) || null;
   }
 
   function bindPieStatsEventTarget(target, reason){
@@ -1096,7 +1064,7 @@ let state = {
   function capturePieSessionForDeactivation(tab, meta = {}){
     const tabId = getPieDeactivationTabId(tab, meta);
     const activeSession = getActivePieSessionForState();
-    const activeTabId = pie.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getPieProjectionTabId() || activeSession?.tabId || null;
     const targetSession = getPieDeactivationSession(tab, meta);
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       clearPieResizeSessionState(targetSession);
@@ -1118,7 +1086,7 @@ let state = {
   }
 
   function syncPieSessionRefsFromActive(session = null){
-    const shaped = ensurePieSessionOwnershipShape(session || activePieSession || getActivePieSessionForState());
+    const shaped = ensurePieSessionOwnershipShape(session || projectedPieSession || getActivePieSessionForState());
     if(!shaped){ return null; }
     if(shaped.tabId && !isPieSessionActiveOrActivating(shaped)){
       return shaped;
@@ -1157,7 +1125,7 @@ let state = {
   }
 
   function syncPieSessionManagersFromActive(session = null){
-    const shaped = ensurePieSessionOwnershipShape(session || activePieSession || getActivePieSessionForState());
+    const shaped = ensurePieSessionOwnershipShape(session || projectedPieSession || getActivePieSessionForState());
     if(!shaped){ return null; }
     const sessionIsActive = !shaped.tabId || isPieSessionActiveOrActivating(shaped);
     const stateHotTabId = String(
@@ -1185,7 +1153,7 @@ let state = {
 
   function canUsePieNotesControl(noteControl){
     if(!noteControl){ return false; }
-    const root = state.root || resolvePieRoot(pie.__boundTabId || null);
+    const root = state.root || resolvePieRoot(getPieProjectionTabId() || null);
     const controlRoot = noteControl.root || null;
     if(controlRoot){
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
@@ -1333,8 +1301,8 @@ let state = {
   function bindPieSessionForTab(tabLike = null, meta = {}, options = {}){
     const tabId = normalizePieSessionTabId(tabLike, meta);
     if(!tabId){ return null; }
-    if(activePieSession && activePieSession.tabId && activePieSession.tabId !== tabId){
-      capturePieSessionStateFromActive(activePieSession, {
+    if(projectedPieSession && projectedPieSession.tabId && projectedPieSession.tabId !== tabId){
+      capturePieSessionStateFromActive(projectedPieSession, {
         reason: meta?.reason || 'pie-session-switch-capture',
         captureStats: true
       });
@@ -1344,7 +1312,7 @@ let state = {
     const root = meta?.root || resolvePieRoot(tabLike || tabId || null) || session.root || null;
     session.root = root || session.root || null;
     session.refs.root = root || session.refs.root || null;
-    activePieSession = session;
+    projectedPieSession = session;
     pie.__pieSessionTabId = session.tabId;
     if(!pie.__boundTabId){
       pie.__boundTabId = session.tabId;
@@ -1361,7 +1329,7 @@ let state = {
     if(!record || typeof record !== 'object'){
       return null;
     }
-    const session = getPieSession(meta?.tab || meta?.tabId || pie.__boundTabId || null, meta, { create: true });
+    const session = getPieSession(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta, { create: true });
     if(!session){
       return null;
     }
@@ -1514,11 +1482,11 @@ let state = {
   function schedulePieViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'pie-view-refresh';
-    const ownerTabId = normalizePieSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || pie.__boundTabId || null, {});
+    const ownerTabId = normalizePieSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || getPieProjectionTabId() || null, {});
     const ownerSession = ownerTabId
       ? getPieSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
       : getActivePieSessionForState();
-    const activeTabId = normalizePieSessionTabId(pie.__boundTabId || null, {});
+    const activeTabId = normalizePieSessionTabId(getPieProjectionTabId() || null, {});
     if(!ownerTabId || ownerTabId === activeTabId){
       syncPieRuntimeControlsFromDom(ownerSession || getActivePieSessionForState());
       capturePieSessionStateFromActive(ownerSession || getActivePieSessionForState(), {
@@ -1540,7 +1508,7 @@ let state = {
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: ownerTabId || pie.__boundTabId || null,
+      tabId: ownerTabId || getPieProjectionTabId() || null,
       reason: nextReason,
       source: 'pie-view-refresh',
       forceDraw: options.force === true || options.forceDraw === true,
@@ -2331,7 +2299,7 @@ let state = {
   }
 
   function getPieSavedAspectLockPreference(){
-    const activeTabId = normalizePieSessionTabId(pie.__boundTabId || null, { reason: 'pie-aspect-lock-preference' });
+    const activeTabId = normalizePieSessionTabId(getPieProjectionTabId() || null, { reason: 'pie-aspect-lock-preference' });
     const tab = activeTabId ? global.Main?.session?.workspaceState?.tabs?.find?.(item => String(item?.id || '') === String(activeTabId)) : null;
     const layoutValue = tab?.layoutState?.svgBox?.dataset?.resizerAspectLocked;
     if(layoutValue === 'true' || layoutValue === 'false'){
@@ -2533,7 +2501,7 @@ let state = {
     }
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getPieNodeById('pieStatsResults'),
-      tabId: pie.__boundTabId || null
+      tabId: getPieProjectionTabId() || null
     }) === true;
     if(typeof Shared.formatPValue === 'function'){
       return Shared.formatPValue(numeric, { scientific, forceScientific: scientific });
@@ -4706,19 +4674,23 @@ let state = {
   }
 
   function ensurePieDataViewsForHot(hotInstance, options = {}){
-    if(!hotInstance || typeof hotInstance.getData !== 'function'){
-      return null;
-    }
-    if(typeof Shared.dataViews?.createManager !== 'function'){
-      return null;
-    }
     const ownerSession = getPieSessionForHot(hotInstance, { reason: 'pie-dataviews-owner' }, { create: true })
       || getActivePieSessionForState();
-    if(!hotInstance.__pieDataViewsManager){
-      hotInstance.__pieDataViewsManager = Shared.dataViews.createManager({
+    const ownerTabId = ownerSession?.tabId || getPieHotOwnerTabId(hotInstance) || getPieProjectionTabId() || null;
+    const hostWrapper = options.wrapper || getPieNodeById('pieHotWrapper');
+    const hostContainer = options.container || hotInstance?.__pieHostContainer || getPieNodeById('pieHot');
+    const manager = Shared.componentLifecycle?.ensureOwnedDataViewsManager?.({
+      hotInstance,
+      componentKey: 'pie',
+      managerField: '__pieDataViewsManager',
+      ownerTabId,
+      hostContainerField: '__pieHostContainer',
+      wrapper: hostWrapper,
+      container: hostContainer,
+      createOptions: {
         componentKey: 'pie',
         maxViews: PIE_DATA_VIEW_MAX,
-        initialData: hotInstance.getData() || [],
+        initialData: hotInstance?.getData?.() || [],
         onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
@@ -4736,8 +4708,8 @@ let state = {
             || getActivePieSessionForState();
           if(session){
             session.managers.hot = hotInstance;
-            const manager = hotInstance.__pieDataViewsManager || null;
-            session.managers.dataViews = pieDataViewsManagerBelongsToSession(manager, session) ? manager : session.managers.dataViews || null;
+            const currentManager = hotInstance.__pieDataViewsManager || null;
+            session.managers.dataViews = pieDataViewsManagerBelongsToSession(currentManager, session) ? currentManager : session.managers.dataViews || null;
             session.updatedAt = Date.now();
           }
           if(isPieSessionActiveOrActivating(session)){
@@ -4757,19 +4729,13 @@ let state = {
             Shared.workspaceToolbar?.activateSection?.('pie', 'Data');
           }
         }
-      });
-      const ownerTabId = ownerSession?.tabId || getPieHotOwnerTabId(hotInstance) || pie.__boundTabId || null;
-      hotInstance.__pieDataViewsManager.__pieTabId = ownerTabId;
-      hotInstance.__pieDataViewsManager.__workspaceTabId = ownerTabId;
-      hotInstance.__pieDataViewsManager.__ownerTabId = ownerTabId;
-      pieDebug('Debug: pie data views manager created');
-    }
-    const manager = hotInstance.__pieDataViewsManager;
-    const hostWrapper = options.wrapper || getPieNodeById('pieHotWrapper');
-    const hostContainer = options.container || hotInstance.__pieHostContainer || getPieNodeById('pieHot');
-    if(hostWrapper && hostContainer){
-      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
-      manager.refresh?.();
+      },
+      onCreated(){
+        pieDebug('Debug: pie data views manager created');
+      }
+    });
+    if(!manager){
+      return null;
     }
     const currentOwnerSession = getPieSessionForHot(hotInstance, { reason: 'pie-dataviews-owner-refresh' }, { create: true })
       || ownerSession;
@@ -4793,24 +4759,19 @@ let state = {
     if(ownerSession && !isPieSessionActiveOrActivating(ownerSession)){
       pieDebug('Debug: pie active DataView sync skipped for inactive HOT owner', {
         ownerTabId: ownerSession.tabId || null,
-        activeTabId: pie.__boundTabId || null,
+        activeTabId: getPieProjectionTabId() || null,
         reason: reason || null
       });
       return;
     }
-    const manager = hot.__pieDataViewsManager || null;
-    if(ownerSession && !pieDataViewsManagerBelongsToSession(manager, ownerSession)){
-      return;
-    }
-    if(!manager){
-      return;
-    }
-    manager.updateActiveData(hot.getData() || []);
-    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
-    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
-    if(reason === 'afterLoadData'){
-      manager.refresh?.();
-    }
+    Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+      hotInstance: hot,
+      componentKey: 'pie',
+      managerField: '__pieDataViewsManager',
+      session: ownerSession,
+      belongsToSession: pieDataViewsManagerBelongsToSession,
+      reason
+    });
   }
 
   function initControls(){
@@ -4970,7 +4931,7 @@ let state = {
             if(fontColor){
               graphStyle.fill = fontColor;
             }
-            importFontStyles('pie', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || pie.__boundTabId || null });
+            importFontStyles('pie', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || getPieProjectionTabId() || null });
           }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             pieDebug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
@@ -5117,7 +5078,7 @@ let state = {
     }
 
     pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
-      const targetTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || pie.__boundTabId || null, meta);
+      const targetTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
       const activeTabId = pie.__boundTabId || getActivePieSessionForState()?.tabId || null;
       if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
         const targetSession = getPieSession(targetTabId, {
@@ -5190,7 +5151,7 @@ let state = {
         reason: meta?.reason || 'pie-runtime-capture'
       };
       pieDebug('Debug: pie runtime snapshot captured', {
-        tabId: meta?.tabId || pie.__boundTabId || null,
+        tabId: meta?.tabId || getPieProjectionTabId() || null,
         title: snapshot.state.titleText,
         notesOpen,
         reason: snapshot.reason
@@ -5212,7 +5173,7 @@ let state = {
     };
 
     pie.applyRuntimeState = function applyPieRuntimeState(snapshot, meta = {}){
-      bindPieSessionForTab(meta?.tab || meta?.tabId || pie.__boundTabId || null, meta, { apply: false });
+      bindPieSessionForTab(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta, { apply: false });
       snapshot = resolvePieOwnedRuntimeSnapshot(snapshot, meta)
         || Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(pie, snapshot, meta)
         || snapshot;
@@ -5280,7 +5241,7 @@ let state = {
         reason: meta?.reason || 'pie-runtime-apply'
       });
       pieDebug('Debug: pie runtime snapshot applied', {
-        tabId: meta?.tabId || pie.__boundTabId || null,
+        tabId: meta?.tabId || getPieProjectionTabId() || null,
         title: state.titleText,
         reason: meta?.reason || 'pie-runtime-apply'
       });
@@ -5339,7 +5300,7 @@ let state = {
   pie.createEmptyPayload = function createEmptyPiePayload(){
       console.debug('Debug: pie.createEmptyPayload pure factory invoked', {
         ready: !!pie.ready,
-        boundTabId: pie.__boundTabId || null
+        boundTabId: getPieProjectionTabId() || null
       });
       const payload = { type: 'pie', config: createImmutablePieDefaultConfig() };
       payload.type = 'pie';
@@ -5359,7 +5320,7 @@ let state = {
         console.warn('pie payload rejected', { source, hasType: !!payload?.type });
         return false;
       }
-      const payloadTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || pie.__boundTabId || null, meta || {});
+      const payloadTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta || {});
       const payloadSession = payloadTabId
         ? bindPieSessionForTab(payloadTabId, {
             ...(meta || {}),
@@ -5374,7 +5335,7 @@ let state = {
       const skipDraw = meta?.skipDraw === true;
       const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
       const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
-      const scheduleTargetTab = meta?.tab || meta?.tabId || pie.__boundTabId || null;
+      const scheduleTargetTab = meta?.tab || meta?.tabId || getPieProjectionTabId() || null;
       const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
       const scheduleTargetSession = scheduleTargetTab
         ? getPieSession(scheduleTargetTab, { ...(meta || {}), reason: 'pie-payload-scheduler-owner' }, { create: false, fallbackActive: false })
@@ -5731,7 +5692,7 @@ let state = {
         if(!isFinite(val)) return String(val);
         const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
           target: out,
-          tabId: pie.__boundTabId || null
+          tabId: getPieProjectionTabId() || null
         }) === true;
         if(typeof Shared?.formatPValue === 'function'){
           return Shared.formatPValue(val, { scientific, forceScientific: scientific });
@@ -5825,11 +5786,11 @@ let state = {
       drawSession.updatedAt = Date.now();
       return false;
     }
-    bindPieSessionForTab(drawSession?.tabId || drawOptions?.tab || drawOptions?.tabId || pie.__boundTabId || null, {
+    bindPieSessionForTab(drawSession?.tabId || drawOptions?.tab || drawOptions?.tabId || getPieProjectionTabId() || null, {
       ...(drawOptions || {}),
       reason: drawOptions?.reason || 'pie-draw-bind'
     }, { apply: false });
-    const drawTabId = drawSession?.tabId || drawOptions?.tabId || pie.__boundTabId || null;
+    const drawTabId = drawSession?.tabId || drawOptions?.tabId || getPieProjectionTabId() || null;
     const plotEl = getPieNodeById('piePlot', drawTabId) || getPieNodeById('piePlot');
     if(!plotEl){
       if(drawSession){
@@ -6748,12 +6709,12 @@ let state = {
       drawSession.updatedAt = Date.now();
       return;
     }
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('pie', { ...(options || {}), tabId: options?.tabId || pie.__boundTabId || null, reason: nextReason })){
-      pieDebug('Debug: pie draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || pie.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || pie.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'pie.draw' } });
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('pie', { ...(options || {}), tabId: options?.tabId || getPieProjectionTabId() || null, reason: nextReason })){
+      pieDebug('Debug: pie draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getPieProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || getPieProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'pie.draw' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || pie.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'pie.draw' } });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || getPieProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'pie.draw' } });
     const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
     capturePieSessionStateFromActive(getActivePieSessionForState(), {
       reason: nextReason,
@@ -6782,13 +6743,13 @@ let state = {
           reason: meta?.reason || 'workspace-dom-rebind'
         }, { apply: false });
         if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-          pie.__boundTabId = nextTabId || pie.__boundTabId || null;
+          pie.__boundTabId = nextTabId || getPieProjectionTabId() || null;
           state.svgBox = state.root?.querySelector?.('#pieGraphPanel .svgbox') || state.svgBox || null;
           syncPieSessionRefsFromActive();
           syncPieSessionManagersFromActive();
           pie.__domSentinel = info?.mountedSentinel || getPieNodeById('pieHot');
           pie.ready = true;
-          pieDebug('Debug: pie passive DOM rebind', { tabId: pie.__boundTabId || null });
+          pieDebug('Debug: pie passive DOM rebind', { tabId: getPieProjectionTabId() || null });
           return;
         }
         pie.ready = false;
@@ -6829,26 +6790,21 @@ let state = {
     if(misplaced && misplaced.parentElement !== stack){
       misplaced.remove();
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('pie notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(canUsePieNotesControl(notesState.control)){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'pie',
+      ownerTabId: getPieProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'pie-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'pie',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      canUseControl: canUsePieNotesControl,
+      unavailableMessage: 'pie notes helper unavailable',
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
         capturePieSessionStateFromActive(getActivePieSessionForState(), {
@@ -6865,11 +6821,11 @@ let state = {
           syncControls: false
         });
       }
-    });
+    }) || notesState.control || null;
     syncPieSessionRefsFromActive();
   }
   pie.init = function init(options = {}){
-    const targetTabId = options?.tabId || pie.__boundTabId || null;
+    const targetTabId = options?.tabId || getPieProjectionTabId() || null;
     const targetRoot = options?.root || resolvePieRoot(targetTabId || null) || state.root || null;
     bindPieSessionForTab(targetTabId || options?.tab || null, {
       ...(options || {}),
@@ -6878,19 +6834,19 @@ let state = {
       reason: options?.reason || 'pie-init'
     }, { apply: false });
     if(pie.ready && (!targetTabId || pie.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
-      pieDebug('Debug: Components.pie.init skipped (already ready)', { tabId: pie.__boundTabId || null });
+      pieDebug('Debug: Components.pie.init skipped (already ready)', { tabId: getPieProjectionTabId() || null });
       return;
     }
     if(pie.ready){
-      pieDebug('Debug: Components.pie.init rebinding', { previousTabId: pie.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      pieDebug('Debug: Components.pie.init rebinding', { previousTabId: getPieProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       pie.ready = false;
     }
     pie.__boundTabId = targetTabId || null;
-    pieDebug('Debug: Components.pie.init', { tabId: pie.__boundTabId || null });
+    pieDebug('Debug: Components.pie.init', { tabId: getPieProjectionTabId() || null });
     state.root = targetRoot || resolvePieRoot();
-    if(activePieSession){
-      activePieSession.root = state.root || activePieSession.root || null;
-      activePieSession.refs.root = state.root || activePieSession.refs.root || null;
+    if(projectedPieSession){
+      projectedPieSession.root = state.root || projectedPieSession.root || null;
+      projectedPieSession.refs.root = state.root || projectedPieSession.refs.root || null;
     }
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
@@ -6964,7 +6920,7 @@ let state = {
     state.layout?.syncPanels?.();
     ensurePieLegendControlPlacement();
     Shared.componentLifecycle?.scheduleComponentFrame?.(pie, 'pie', {
-      tabId: pie.__boundTabId || null,
+      tabId: getPieProjectionTabId() || null,
       reason: 'pie-legend-placement'
     }, () => ensurePieLegendControlPlacement());
     initHot();
@@ -6978,7 +6934,7 @@ let state = {
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'pie',
           debugLabel: 'pie',
-          getTabId: () => pie.__boundTabId || null,
+          getTabId: () => getPieProjectionTabId() || null,
           scheduleRaw: schedulePieBase
         })
       : schedulePieBase;
@@ -7026,7 +6982,7 @@ let state = {
     getSentinel: () => getPieNodeById('pieHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    pie.__boundTabId = targetTabId || pie.__boundTabId || null;
+    pie.__boundTabId = targetTabId || getPieProjectionTabId() || null;
     state.root = resolvePieRoot(tab || targetTabId || null);
     bindPieSessionForTab(tab || targetTabId || null, {
       ...(meta || {}),
@@ -7120,7 +7076,7 @@ let state = {
         pieDebug('Debug: pie render cache skipped for inactive owner', {
           reason,
           ownerTabId: session.tabId || null,
-          activeTabId: pie.__boundTabId || activePieSession?.tabId || null
+          activeTabId: getPieProjectionTabId() || null
         });
       }
       return null;
@@ -7146,7 +7102,7 @@ let state = {
     if(!plot || !piePlotHasMeaningfulGraph(plot)){
       pieDebug('Debug: pie render cache capture skipped', {
         reason: !plot ? 'missing-plot-host' : 'empty-graph',
-        tabId: pie.__boundTabId || null
+        tabId: getPieProjectionTabId() || null
       });
       return null;
     }
@@ -7155,7 +7111,7 @@ let state = {
       restoreChildren(plot, plotCache);
       pieDebug('Debug: pie render cache capture skipped', {
         reason: 'empty-runtime-cache',
-        tabId: pie.__boundTabId || null
+        tabId: getPieProjectionTabId() || null
       });
       return null;
     }
@@ -7241,6 +7197,8 @@ let state = {
     return restored;
   };
   function resolvePiePreviewSourceSvg(tab){
+    // Read-only preview source: this may reuse an inactive tab's cache DOM,
+    // but restore policy and cache invalidation remain owned by domControls/session.
     const tabId = normalizePieSessionTabId(tab || null, {
       reason: 'pie-preview-source'
     }) || null;
@@ -7305,7 +7263,7 @@ let state = {
     componentKey: 'pie',
     targets: [
       { key: 'state', get: () => state, excludeKeys: ['hot', 'root', 'svg', 'svgBox', 'resizeState'] },
-      { key: 'activePieSession', get: () => activePieSession, excludeKeys: ['root', 'refs', 'listeners', 'timers', 'workers', 'managers'] },
+      { key: 'projectedPieSession', get: () => projectedPieSession, excludeKeys: ['root', 'refs', 'listeners', 'timers', 'workers', 'managers'] },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }
     ]
   });

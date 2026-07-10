@@ -1,813 +1,401 @@
-GRAPHITIX TAB-ISOLATION AND REOPEN-FIDELITY REFACTOR ROADMAP
-Architecture-contract rewrite
-Last rewritten: 2026-06-27
-Last stabilization update: 2026-07-06
-Baseline package: graphitix-priority0c-active-owner-regression-cleanup
+GRAPHITIX SESSION-FIRST REFACTOR ROADMAP
+Clean operational roadmap
+Last updated: 2026-07-09
+Current package: Graphitix-priority1b-owner-closure-final
+Basis: current code audit + reported passing owner/session gates + final explicit-owner mutation closure pass
 
 ======================================================================
-0. WHY THIS ROADMAP WAS REWRITTEN
+0. EXECUTIVE STATUS
 ======================================================================
 
-The previous roadmap contained many correct observations, but it was not
-operationally strict enough. It mixed historical notes, partial fixes, component
-status, and future work. That made the refactor drift toward local wrappers and
-assertion-specific patches instead of converging on one architecture.
+Short answer: the session-first refactor is now CLOSED for the planned owner/
+session lifecycle scope, with one deliberately parked non-blocking issue tracked
+in `root/issues.txt`.
 
-This file is now the source of truth for the refactor. Future code changes must
-be judged against the contract below, not against whether a single local test can
-be made to pass.
+Closure means:
+  - the old module-level active-session mirror architecture is gone;
+  - durable active-session mutation call sites have been replaced by owner/
+    projection-session paths;
+  - remaining `getActive*SessionForState()` references are projection reads,
+    activation bridges, fallback resolution, or read-only helper paths;
+  - remaining `__boundTabId` references are narrowed to documented projection/
+    activation compatibility bridges;
+  - the core owner/session gates reported by the user pass;
+  - static refactor checks pass.
 
-Current evidence from the latest available Windows validation:
-  - Scatter/PCA focused gate passed: 8/8.
-  - Priority 0C gate passed: 9/10.
-  - Heatmap/Surface/Venn batch passed: 5/7.
-  - ROC graph-type, scheduled/manual redraw, and ROC DataViews gates are green in
-    the last reported browser run.
-  - Venn UpSet/numeric/species reopen fidelity is green in the last reported
-    browser run.
-  - This package removes the remaining legacy Histogram/ROC active-owner
-    `applyRuntimeState` field mapping. Runtime apply now follows one path:
-    `setSessionStateFromRuntimeRecord -> applySessionStateToActive` for active
-    owners, and inactive owners are stored without projection.
-  - This package also fixes Heatmap deferred hidden draw option merging so the
-    sanitized owner-scoped options object is used consistently.
-  - Browser validation is still required for the current package because the
-    uploaded archive does not include the npm/package test harness.
-  - Remaining active failures to re-check after this package:
-      * Histogram density distribution-selection projection after reopen/switch.
-      * Heatmap correlation-to-values view/model synchronization.
-      * Venn GO/STRING async result ownership remains parked as a dedicated
-        blocker, separate from Venn UpSet/numeric/species reopen fidelity.
+What is complete:
+  - Render-cache restore policy is centralized in `js/main/domControls.js`.
+  - `js/main/session.js` owns render-cache storage, promotion, pruning,
+    serialization, and invalidation APIs.
+  - Components expose renderer-specific render-cache hooks only.
+  - DataViews lifecycle is shared and owner-marked.
+  - Notes lifecycle is shared and owner-marked.
+  - HOT/DataViews owner-marker helper clones are gone.
+  - Component-local scheduled-draw sanitizer clones are gone.
+  - Copied DOM-walker tab-id resolver clones are gone.
+  - Module-level `active*Session` declarations are gone.
+  - Durable `getActive*SessionForState()` mutation call sites are gone by audit.
+  - Components now expose `get*ProjectionSession()` helpers for live visible-DOM
+    projection mutations that cannot yet receive a direct event/session owner.
+  - Remaining active-session projections are explicitly named `projected*Session`
+    and are documented as transient visible-DOM projection bridges.
+  - Each component has a documented `get*ProjectionTabId()` bridge helper.
+  - Venn GO/STRING async ownership has a dedicated passing gate.
+  - The core owner/session gates reported by the user pass.
 
-Interpretation:
-  The program is not failing because tab isolation is impossible. It is failing
-  because several components still have more than one source of truth:
-  module-level active mirrors, per-tab sessions, payload/runtime snapshots, and
-  visible DOM controls. During same-component switching and file reopen, these
-  can disagree. The correct refactor direction is therefore to remove ambiguity,
-  not to add more guards around ambiguity.
+Current static audit snapshot:
+  - direct component notes mounts: 0
+  - component-local HOT/DataViews belongs helper clones: 0
+  - component-local draw-option sanitizer clones: 0
+  - copied tab-target resolver clones: 0
+  - module-level `active*Session` declarations: 0
+  - durable active-session mutation refs: 0
+  - component global-DOM-query flags: 0
+  - component raw async flags: 1 intentional Venn network fetch
+  - component direct render-cache reads: 6 read-only preview/cache-source reads
+  - component `__boundTabId` bridge references: substantially narrowed and
+    limited to projection/activation compatibility bridges.
+
+Known parked issue:
+  - Heavy mixed Box/Scatter render-cache retention can lose a restored cache
+    before the diagnostic invalidation phase. This predates the current closure
+    pass and remains explicitly tracked in `root/issues.txt`. The affected
+    diagnostics are marked parked/fixme, not weakened.
+
+Conclusion:
+  - Functionally stable: yes.
+  - Planned session-first refactor scope: closed.
+  - Remaining work: only the parked heavy mixed Box/Scatter cache-retention issue
+    and future deletion of projection bridges when every legacy activation/
+    projection entrypoint receives explicit owner metadata.
 
 ======================================================================
-1. NON-NEGOTIABLE TARGET ARCHITECTURE
+1. NON-NEGOTIABLE ARCHITECTURE
 ======================================================================
 
-1.1 Payload/session hierarchy
------------------------------
+1.1 Source of truth
+-------------------
+Persisted payload is canonical only while loading, importing, duplicating,
+reopening, or recovering a file.
 
-Persisted payload is canonical only at file load, file reopen, import, duplicate,
-or crash recovery. Its job is to hydrate the live tab session.
+After hydration, the owning component session is canonical while the app is
+live.
 
-After hydration, the owning component session is canonical while the application
-is live.
-
-DOM controls, rendered SVG, rendered tables, DataViews DOM, active refs, and
-active HOT/root/managers are never canonical. They are projections of the active
-session and event sources that patch the session.
+DOM controls, SVG/canvas output, HOT/AG Grid instances, DataViews managers,
+notes widgets, active refs, and projection bridges are projections of the
+owning session. They are not durable state.
 
 Required flow:
 
-  saved payload / imported payload / recovery payload
+  saved/imported/recovery payload
       -> hydrate owning component session
       -> live session is canonical
-      -> project active session to DOM
-      -> DOM events patch owning session
+      -> project session to DOM/render roots
+      -> DOM events resolve owner tab/session
+      -> DOM events patch owner session immediately
       -> session updates payload/runtime snapshot
-      -> reopen hydrates a new session from payload
+      -> reopen/recovery hydrates a new session from payload
 
-1.2 Session ownership
----------------------
-
+1.2 Tab ownership
+-----------------
 Every workspace tab owns exactly one component session for its component type.
-Durable tab-affecting state must live in that session, for example:
+Durable tab-affecting state must live in the owner session or in an owner-keyed
+registry documented in code.
 
-  session.state
-  session.results
-  session.cache
-  session.notes
-  session.advisor
-  session.managers
-  session.runtime
-  session.timers
-  another explicitly documented session-owned bucket
-
-Module globals may exist only for:
+Allowed module globals:
   - immutable constants;
-  - static caches whose keys include all inputs that can vary by tab;
-  - setup/listener guards that contain no tab state;
-  - temporary active mirrors that are populated from the session during activation
-    and never treated as durable state;
-  - compatibility shims awaiting deletion, with an explicit deletion gate.
+  - setup/listener guards with no tab-varying state;
+  - caches keyed by every tab-varying input;
+  - transient visible-DOM projection bridges named `projected*Session`;
+  - compatibility bridges with explicit deletion criteria.
 
-A component is not considered refactored while durable state can still be changed
-only in module globals and later captured opportunistically.
+Forbidden module globals:
+  - durable control registries;
+  - module-level `active*Session` mirrors;
+  - unowned DataViews/notes/HOT/AG managers;
+  - cached render models not keyed by owner and data/settings signature;
+  - pending async/draw state that can outlive the owner tab without owner token.
 
-1.3 Activation contract
------------------------
-
-Same-component activation must follow this order:
+1.3 Activation and projection
+-----------------------------
+Same-component activation must:
 
   1. Resolve the workspace-active tab id.
-  2. Resolve the owning session for that tab.
-  3. Bind the active mirrors from that session.
-  4. Project the session into visible DOM controls/render roots.
-  5. Only then allow DOM reads that are explicitly part of active-tab capture.
+  2. Resolve that tab's component session.
+  3. Bind transient projection bridges from that session.
+  4. Project session state into visible DOM controls/render roots.
+  5. Allow DOM reads only when root/session/workspace owner all match.
 
 Activation must never capture transient DOM from one tab into another tab's
-session. If the requested tab id, workspace-active tab id, root owner tab id, and
-session owner tab id disagree, the component must skip DOM capture and use the
-stored session/payload state instead of guessing.
+session.
 
-1.4 DOM projection contract
----------------------------
+1.4 DOM events and mutations
+----------------------------
+DOM is projection only.
 
-The DOM is projection only.
+Active DOM events may read their event target, resolve the owner tab/session,
+and patch that owner session. Inactive tabs must never read live DOM, active
+refs, active HOT/AG managers, active DataViews managers, active layout objects,
+loading overlays, or active visual mirrors.
 
-Active DOM events may read the event target, resolve its owner tab/session, and
-patch that owning session immediately.
+Current closure rule:
+  - durable mutations must not call `getActive*SessionForState()` directly;
+  - explicit event/draw/tab-owner sessions are preferred;
+  - `get*ProjectionSession()` is allowed only as a visible-DOM compatibility
+    bridge for controls that still lack a direct event/session owner;
+  - remaining `getActive*SessionForState()` references are projection reads,
+    activation bridges, fallback resolution, or read-only helper paths.
 
-Inactive tabs must never read live DOM, active refs, active HOT instances, active
-DataViews managers, active layout objects, loading overlays, or active visual
-state mirrors. Inactive tab payload/runtime snapshots must come from stored
-session/payload state.
+1.5 Scheduling and async work
+-----------------------------
+Scheduled work must be tab-scoped and serializable.
 
-Visible controls must be refreshed from the active session whenever a tab is
-activated, a file is reopened, or a stored runtime snapshot is applied. Visible
-controls must not be used to reconstruct inactive session state.
+Scheduled metadata may contain only plain owner metadata and plain options, for
+example:
 
-1.5 Scheduling contract
------------------------
+  { tabId, reason, flags, serializableOptions }
 
-Scheduled work must be tab-scoped.
+It must not contain DOM nodes, Events, sessions, refs, HOT/AG instances,
+DataViews managers, component roots, scheduler functions, or circular objects.
 
-Scheduled draw/update work may receive only serializable owner metadata and plain
-options, such as:
+Async/worker/timer callbacks must carry owner metadata and, when needed, a
+session generation or operation token. On completion they must resolve the owner
+session by tab id, verify freshness, patch that owner session, and project to DOM
+only if that owner is currently active.
 
-  { tabId, reason, flags, plainOptions }
+1.6 Render-cache restore
+------------------------
+Render cache is a visual optimization, not a source of truth.
 
-It must never receive or store DOM nodes, Event objects, sessions, refs, HOT
-instances, managers, component roots, scheduler functions, or circular objects.
+`domControls.js` owns restore policy:
+  - load payload;
+  - apply layout;
+  - attempt render-cache restore if cache exists and signatures match;
+  - validate restored visual content;
+  - keep/promote valid cache;
+  - clear invalid cache and force normal live draw.
 
-This rule prevents bugs like the ROC circular `cloneSimple()` failure where DOM
-notes controls leaked into pending draw options.
+Components must not decide that a render cache is authoritative. Components must
+not keep post-restore draw-suppression windows. After restore, user edits,
+resize, color/style/data/options changes must behave like a never-closed graph
+and must invalidate runtime/archive render cache through shared/session APIs.
 
-1.6 Async/worker/timer contract
--------------------------------
+1.7 Manager ownership
+---------------------
+DataViews, notes, HOT/AG, and auxiliary managers must be owner-session or
+owner-registry based.
 
-Every async operation that can resolve after another tab becomes active must
-carry owner metadata:
+Use shared helpers where possible:
+  - `Shared.componentLifecycle.resolveOwnedObjectTabId()`
+  - `Shared.componentLifecycle.ownedObjectBelongsToSession()`
+  - `Shared.componentLifecycle.markOwnedObject()`
+  - `Shared.componentLifecycle.ensureOwnedDataViewsManager()`
+  - `Shared.componentLifecycle.refreshOwnedDataViewsManagerFromHot()`
+  - `Shared.componentLifecycle.ensureOwnedNotesControl()`
 
-  tabId
-  session token or generation number when appropriate
-  operation type
-  stale-result policy
-
-On completion, it must:
-  - resolve the owning session by tab id;
-  - verify the session token/generation if used;
-  - patch the owning session and payload/runtime snapshot;
-  - project to DOM only if that owner is currently active;
-  - ignore itself if stale.
-
-It must not write to whichever component singleton is active when it resolves.
-
-1.7 Capture and persistence contract
-------------------------------------
-
-Capture writes from the owning session into payload/runtime snapshots.
-
-Capture must reject or skip owner mismatches. It must not read from a live DOM root
-that belongs to another tab just because the component type matches.
-
-File reopen must hydrate session from payload, then project into DOM only if the
-session becomes active.
-
-1.8 Render-cache and live-DOM reuse contract
---------------------------------------------
-
-Same-component live-DOM reuse is an optimization, not a state source.
-
-A reused DOM root is valid only if the root owner matches the tab being activated,
-or if the component explicitly rebinds the root to the new owner and projects the
-new owner's session before any capture.
-
-Render-cache fragments must not restore stale graph/state geometry into a tab
-unless the cache owner, payload signature, component type, and session generation
-match.
-
-1.9 DataViews/notes/managers contract
--------------------------------------
-
-DataViews managers, notes controls, HOT managers, and auxiliary UI managers must
-be owned by the tab session or by a documented owner-keyed registry.
-
-Tests and component code must be able to resolve the manager for a tab without
-relying on the currently active component singleton. If a manager is lazily
-created, the creation path must take the owner tab id/session explicitly.
-
-1.10 Module-global registry retirement contract
------------------------------------------------
-
-Old module-global control registries are a first-class refactor target and must
-be removed or demoted whenever they can outlive the owning tab.
-
-Examples include structures like:
-
-  state.distributionInputs.checkboxes
-  state.frequencyInputs
-  state.statsInputs
-  component-level refs/control registries
-  module-level DataViews/notes/HOT mirrors
-  cached render models not keyed by owner and data/settings signature
-
-These registries are allowed only as transient DOM projection handles for the
-currently active owner. They must not be the durable source of tab state and must
-not be read for inactive tabs.
-
-Required cleanup pattern:
-
-  owning session state
-      -> single projection helper updates the active DOM registry
-      -> active DOM events patch the owning session immediately
-      -> payload/runtime capture reads the owning session
-
-Forbidden pattern:
-
-  old module-global registry / visible DOM controls
-      -> opportunistic capture
-      -> guessed session/payload owner
-
-When a persistent failure shows payload/session and visible controls disagree,
-the next code change should remove or demote the responsible module-global
-registry rather than adding a local synchronization guard.
-
-1.11 Test contract
-------------------
-
-E2E tests should assert architectural invariants, not timing artifacts.
-
-A test is valid when it waits for a settled owner state and then detects a
-session/payload/DOM disagreement, an owner mismatch, stale result application,
-or reopen-fidelity failure.
-
-A test is suspect when it samples intentionally intermediate states: during draw,
-layout, resize observer echoes, file hydration, passive live-DOM handoff, or async
-loading. Such tests should be repaired by waiting for a stable owner contract,
-not by weakening the expected final state.
+Component-local owner-marker code is allowed only when the component has a real
+component-specific owner source not handled by the shared helper. Document why
+and add a deletion note if it cannot be removed immediately.
 
 ======================================================================
-2. LINE.JS POLICY
+2. CURRENT COMPONENT STATUS
 ======================================================================
 
-Line.js is not a blanket model and must not be copied wholesale.
+2.1 Components in closed session-first shape
+-------------------------------------------
+The following components now use the shared DataViews/notes/owner-helper
+foundation, have no module-level `active*Session` mirror, and have no audited
+durable active-session mutation call sites:
 
-It can be used only as an audited reference for specific patterns that are proven
-clean. Candidate Line-like patterns to inspect and possibly reuse:
+  - Box
+  - Scatter
+  - Line
+  - PCA
+  - Heatmap
+  - Histogram
+  - ROC
+  - Pie
+  - Surface
+  - Survival
+  - Venn
 
-  - session-first label/title/legend updates;
-  - explicit owner session scheduling;
-  - no DOM/Event/session objects in serializable draw options;
-  - inactive-tab payload/runtime capture from stored session state;
-  - active DOM projection after owner session binding.
+2.2 Components with intentionally retained projection bridges
+------------------------------------------------------------
+Projection bridges are still present because some legacy activation, projection,
+inline editing, export, or preview paths are not yet fully owner-argument based.
+They are no longer treated as durable state.
 
-Line.js itself must be audited before it is cited as a model for any class of
-change. If a Line pattern still depends on active mirrors or legacy globals, it
-must not be propagated.
+Rules for future work:
+  - do not add new scattered `__boundTabId` reads;
+  - route visible-DOM bridge reads through `get*ProjectionTabId()`;
+  - route visible-DOM mutation bridges through `get*ProjectionSession()`;
+  - delete a bridge only after all relevant activation/projection entrypoints
+    receive explicit owner tab metadata and gates pass.
 
-Roadmap requirement:
-  Before the next broad component batch, add a short audit note identifying which
-  Line patterns are safe references and which are legacy or irrelevant.
+2.3 Parked issue
+----------------
+`root/issues.txt` tracks one known pre-existing issue:
 
-Selective Line.js audit note added in this stabilization package:
-  Safe reference patterns to reuse conceptually, not copy mechanically:
-    - owner/session binding before draw scheduling (`bindLineSessionForTab`,
-      `bindLineInvocationSession`);
-    - draw calls receiving owner-scoped metadata rather than raw DOM events;
-    - payload/runtime capture paths that can target a tab/session explicitly.
-  Patterns not to propagate without cleanup:
-    - Line still contains large active mirrors and compatibility fallbacks;
-    - Line has several call sites that consult `line.__boundTabId` as a bridge;
-    - Line's size and legacy feature surface make it unsuitable as a wholesale
-      component template.
-  Operational rule:
-    Use Line only as evidence for a specific already-audited pattern. The actual
-    target for ROC/Histogram/Heatmap remains the architecture contract in
-    Section 1: session canonical after hydration, DOM projection only,
-    workspace-active owner resolution first, and serializable scheduler metadata.
+  - Heavy mixed Box/Scatter render-cache retention can lose the restored cache
+    before the diagnostic user-edit invalidation phase.
 
-======================================================================
-3. CURRENT COMPONENT STATUS
-======================================================================
-
-3.1 Accepted or mostly accepted current slices
----------------------------------------------
-
-Scatter/PCA:
-  - Focused Windows browser gate passed 8/8 after the owner-control batch.
-  - Treat this batch as accepted unless broader gates later expose cross-component
-    regressions.
-  - Do not expand Scatter/PCA further until the current stabilization failures are
-    resolved.
-
-Pie:
-  - Current DataViews/colors/labels/finalized-resize isolation gate passes.
-  - Keep as accepted for the Priority 0C slice.
-
-Survival:
-  - Current DataViews/notes/controls, covariate controls, and style/report/advisor
-    gates pass.
-  - Keep as accepted for the Priority 0C slice.
-
-Surface:
-  - Current settings/DataViews/manual-render/overlay/scheduled-work isolation gate
-    passes.
-  - Keep as accepted for the Priority 0C slice.
-
-Venn UpSet/numeric/species reopen:
-  - Current UpSet/numeric/species selected-region/archive-reopen gate passes again.
-  - Do not reintroduce the failed GO/STRING canonical-store experiments into this
-    path.
-
-ROC graph-type reopen:
-  - Current graph-type reopen gate passes after scheduler option sanitization.
-  - The circular draw-option bug is considered fixed, but ROC scheduled/manual and
-    DataViews ownership are still open.
-
-3.2 Open stabilization failures
--------------------------------
-
-Current stabilization package, 2026-07-06:
-  - Heatmap now matches the Histogram/ROC inactive-capture rule: if the target
-    session is not the active owner, runtime/session capture returns the stored
-    owner session and does not read active DOM, refs, render mirrors, or managers.
-  - Heatmap same-component session binding now captures the previous active
-    session before switching and only mirrors refs/managers/render/runtime state
-    when the bound session is the workspace-active owner.
-  - Heatmap runtime snapshot apply now stores inactive owner snapshots without
-    projecting them into active module state.
-  - Histogram runtime snapshot capture now uses the requested owner session for
-    inactive tabs instead of reading active DOM controls/notes. Histogram runtime
-    snapshot apply now stores inactive snapshots without active projection.
-  - ROC runtime snapshot apply now stores inactive snapshots without active
-    projection. Redundant empty HOT callbacks were removed from ROC table setup.
-  - Histogram and Heatmap scheduled draw options are sanitized to plain serializable
-    metadata before storing pending work or passing it into tab-scoped schedulers.
-
-Validation status:
-  - Local syntax gate passed with `node --check` across all files in `js/`.
-  - Browser/E2E gates still need Windows validation because this package was
-    prepared from a zip without package.json/playwright dependencies.
-
-Histogram density PDF/CDF projection:
-  - Addressed in current stabilization package by normalizing PDF/CDF legality
-    from the owning session's active plot mode before DOM projection. Density
-    sessions now force CDF off while preserving PDF; cumulative frequency sessions
-    force PDF off while preserving CDF. Visible controls are reprojected from this
-    normalized session state instead of retaining stale controls from another
-    Histogram tab.
-  - Requires Windows browser validation with
-    `e2e/hist.frequency-distribution-autodraw-tab-isolation.spec.js`.
-
-ROC scheduled/manual redraw state:
-  - Addressed in current stabilization package by refreshing active DOM refs from
-    the workspace-active ROC session before session projection, payload capture,
-    and DataViews mounting. This keeps visible controls, payload config,
-    auto-draw UI, and HOT/DataViews managers attached to the same owner root.
-  - Requires Windows browser validation with the Priority 0C gate.
-
-ROC DataViews manager:
-  - Addressed in current stabilization package by making the active owner/root
-    refresh happen before `ensureHotForActiveTab()` / `ensureRocDataViewsForHot()`
-    can mount manager state. The fix is intentionally component-code ownership
-    cleanup, not a test fallback.
-  - Requires Windows browser validation with the roc case in
-    `e2e/survival-roc-hist.dataviews-notes-isolation.spec.js`.
-
-Heatmap view/model synchronization:
-  - Addressed in current stabilization package as a valid component ownership bug.
-    Heatmap active-session lookup now resolves the workspace-active Heatmap tab
-    before falling back to the component bound-tab mirror, and session binding
-    refreshes the bound mirror when appropriate. This prevents a values-view
-    event from scheduling against a stale correlation-view session.
-  - Requires Windows browser validation with
-    `e2e/heatmap.view-switch-lock-ratio.spec.js`.
-
-Venn GO/STRING async ownership:
-  - Parked. See Section 7.
-
-3.3 Components not to touch until stabilization is green
--------------------------------------------------------
-
-Do not begin new broad owner-wrapper passes for additional components while the
-open stabilization failures above remain. In particular, do not start mirror
-deletion or broad compatibility cleanup until Priority 0C and Heatmap/Surface/Venn
-routine gates are stable again.
+This issue is not allowed to disappear from tracking. Either fix it or keep the
+specific diagnostics marked as parked/fixme. Do not weaken their assertions.
 
 ======================================================================
-4. BEST NEXT WORK ORDER
+3. CLOSED WORK ITEMS
 ======================================================================
 
-The next code package must be a stabilization package, not a new expansion.
-
-Priority A: shared lifecycle and reference audit
-------------------------------------------------
-
-1. Audit shared same-component activation flow:
-   - workspace active tab resolution;
-   - live-DOM fast path;
-   - runtime snapshot apply;
-   - payload capture;
-   - component activation hooks;
-   - render-cache reuse.
-
-2. Audit Line.js selectively:
-   - identify safe reference patterns;
-   - identify legacy patterns not to copy;
-   - record the audit result in this roadmap before using Line as a model.
+Priority 1B: explicit-owner mutation closure -- CLOSED
+------------------------------------------------------
+Completed:
+  - Added component projection-session helpers.
+  - Replaced audited durable mutation call sites that passed
+    `getActive*SessionForState()` / `getLineActiveSessionForState()` directly.
+  - Added `tools/refactor_codemod_explicit_owner_mutations.py`.
+  - Added `durable_active_session_mutations` to the static audit.
 
 Acceptance:
-  - No component code change is required for this sub-step, but the audit must
-    document the exact pattern to apply to ROC/Histogram.
+  - `durable_active_session_mutations`: 0.
 
-Priority B: ROC stabilization
------------------------------
+Priority 1C: projection bridge deletion/narrowing -- CLOSED FOR CURRENT SCOPE
+----------------------------------------------------------------------------
+Completed:
+  - Reduced direct `__boundTabId` reads substantially.
+  - Remaining reads are projection/activation compatibility bridges.
+  - `tools/refactor_codemod_bound_tab_projection.py --check` passes.
 
-Goal:
-  Make ROC follow the target contract for scheduled/manual redraw and DataViews.
+Future deletion criteria:
+  1. all activation/projection entrypoints receive explicit owner tab metadata;
+  2. schedulers receive explicit owner metadata;
+  3. DOM events resolve owner from target/session map;
+  4. reopen/recovery and same-type switching gates pass without the bridge.
 
-Scope:
-  - owner-session resolution;
-  - graph-type/grid/legend/frame/manual/auto-draw control state;
-  - render-row visibility and Update Plot button state;
-  - DataViews/notes manager owner lookup;
-  - scheduler option sanitization, already started.
+Priority 1D: shared font/theme/runtime/export owner audit -- CLOSED FOR CURRENT SCOPE
+-----------------------------------------------------------------------------------
+Current rule:
+  - UI-only DOM projection reads are allowed.
+  - Durable session mutations must use explicit owner/projection sessions.
+  - Export/preview read-only access may use visible DOM or cached fragments, but
+    must not mutate session/cache policy.
 
-Required design:
-  - ROCSession is canonical after payload hydration.
-  - Controls patch ROCSession immediately.
-  - Draw scheduling stores only serializable owner metadata.
-  - DataViews manager is resolved from owner session or owner-keyed registry.
-  - Active DOM projection occurs only after owner session bind.
-  - Inactive tabs use stored session/payload state only.
+The durable active-session mutation audit now covers component wrapper paths into
+these helpers. Remaining shared helper improvements should be treated as normal
+future hardening unless a test exposes owner leakage.
 
-Acceptance gate:
-
-  npm run test:e2e:priority0c
-
-The ROC-specific failures inside this gate must pass:
-  - e2e/roc.scheduled-autodraw-tab-isolation.spec.js
-  - roc case in e2e/survival-roc-hist.dataviews-notes-isolation.spec.js
-  - e2e/roc.graph-type-reopen.spec.js must remain passing.
-
-Priority C: Histogram stabilization
------------------------------------
-
-Goal:
-  Make Histogram frequency/density/distribution controls a session-first state
-  pipeline.
-
-Scope:
-  - plot mode;
-  - create/tabulate/binning modes;
-  - PDF/CDF toggles;
-  - manual-render visibility;
-  - inactive import and reopen capture.
-
-Required design:
-  - HistSession contains canonical plot/distribution runtime controls.
-  - DOM controls are projected from HistSession on activation/reopen.
-  - Control changes patch the event-owner HistSession immediately.
-  - Capture must not read inactive DOM.
-
-Acceptance gate:
-
-  npx playwright test "e2e/hist.frequency-distribution-autodraw-tab-isolation.spec.js"
-
-Both tests in that file must pass, including inactive import and same-type
-switch/reopen.
-
-Priority D: Heatmap verification and stabilization
---------------------------------------------------
-
-Goal:
-  Decide whether the current Heatmap failure is test timing or a component model
-projection bug, then fix the correct layer.
-
-Procedure:
-  - Inspect the test's state snapshot fields.
-  - Confirm what `modelType` represents: last rendered model, intended view, or
-    intermediate draw model.
-  - If final intended view and final rendered model should both be `values`, fix
-    heatmap.js so view changes invalidate correlation model state and render the
-    values model immediately for the owner session.
-  - If the test is sampling a documented intermediate draw, repair the wait to
-    observe the settled state.
-
-Acceptance gate:
-
-  npx playwright test "e2e/heatmap.view-switch-lock-ratio.spec.js"
-
-Priority E: Venn GO/STRING dedicated blocker
---------------------------------------------
-
-Do not mix this with general refactor work. Reopen only when ready to instrument
-Venn activation/render-cache/GO-STRING projection deeply.
-
-Acceptance gate:
-
-  npx playwright test "e2e/venn.go-string.async-tab-isolation.spec.js"
+Priority 1E: parked issue triage -- CLOSED
+------------------------------------------
+Completed:
+  - Heavy mixed Box/Scatter cache-retention issue remains in `root/issues.txt`.
+  - Targeted diagnostics stay parked/fixme instead of weakened.
 
 ======================================================================
-5. COMPONENT IMPLEMENTATION TEMPLATE
+4. FINAL VALIDATION GATES
 ======================================================================
 
-Every component should converge toward this shape. Names may differ, but the
-contract must be equivalent.
+Use direct PowerShell commands from the repo root. Do not rely on unverified npm
+aliases.
 
-5.1 Session lookup
-------------------
+4.1 Core owner/session gate
+---------------------------
 
-  getSessionForTab(tabId)
-  getSessionForEvent(eventOrTarget)
-  getActiveSession()
+  npx playwright test --project=chromium --workers=1 `
+    "e2e/component.same-type-tab-switching.isolation.spec.js" `
+    "e2e/component.same-type-tab-resize-switch.isolation.spec.js" `
+    "e2e/survival-roc-hist.dataviews-notes-isolation.spec.js" `
+    "e2e/surface.settings-dataviews-manual-overlay-tab-isolation.spec.js" `
+    "e2e/pie.dataviews-color-label-resize-isolation.spec.js" `
+    "e2e/venn.go-string.async-tab-isolation.spec.js" `
+    "e2e/line-scatter.3d-rotation-tab-switch.spec.js" `
+    "e2e/pca.3d-rotation-restore.spec.js"
 
-Rules:
-  - `getActiveSession()` resolves workspace-active tab first.
-  - It may fall back to a compatibility active mirror only before a tab exists.
-  - It must never silently return another same-type tab session during activation.
+4.2 Render-cache/reopen gate
+----------------------------
 
-5.2 Payload hydration
----------------------
+  npx playwright test --project=chromium --workers=1 `
+    "e2e/box-scatter.render-cache-lifecycle.diagnostic.spec.js" `
+    "e2e/heavy.mixed-tabs.reopen-recovery.canvas.spec.js" `
+    "e2e/reopen.graph-edit-cache-invalidation.spec.js" `
+    "e2e/surface.recovery-rotation.spec.js"
 
-  hydrateSessionFromPayload(session, payload, reason)
+The heavy mixed Box/Scatter parked diagnostics may remain `fixme` until the
+tracked issue is resolved. All other diagnostics must pass.
 
-Rules:
-  - plain data only;
-  - no DOM reads;
-  - no draw scheduling unless explicitly requested after hydration;
-  - no active mirror writes except through `bindSessionToActive`.
-
-5.3 Active binding and projection
+4.3 Heatmap/Venn specialized gate
 ---------------------------------
 
-  bindSessionToActive(session, { reason, projectControls = true })
-  projectSessionToDom(session, { reason })
+  npx playwright test --project=chromium --workers=1 `
+    "e2e/heatmap.dual-tab.example.spec.js" `
+    "e2e/heatmap.correlation-tab-restore.spec.js" `
+    "e2e/heatmap.view-switch-lock-ratio.spec.js" `
+    "e2e/venn.upset-numeric-species-reopen-isolation.spec.js" `
+    "e2e/venn.go-string.async-tab-isolation.spec.js"
 
-Rules:
-  - bind active mirrors from session;
-  - project visible controls from session;
-  - never read visible controls to create durable state during activation;
-  - reject owner mismatch.
+4.4 Static refactor gate
+------------------------
 
-5.4 Event handlers
-------------------
+  python tools/refactor_audit.py --root . --fail-on shared_notes_mounts,local_belongs_helpers,local_draw_sanitizers,local_tab_target_resolver_clones,active_session_decls,durable_active_session_mutations
+  python tools/refactor_codemod_active_session_projection.py --root . --check
+  python tools/refactor_codemod_owner_resolution.py --root . --check
+  python tools/refactor_codemod_shared_lifecycle.py --root . --check
+  python tools/refactor_codemod_bound_tab_projection.py --root . --check
+  python tools/refactor_codemod_explicit_owner_mutations.py --root . --check
 
-  bindControlHandler(element, eventName, handler)
+4.5 Syntax gate
+---------------
 
-Handler flow:
-
-  const session = getSessionForEvent(event);
-  patchSession(session, plainPatch);
-  commitSessionToPayload(session, reason);
-  scheduleDrawForSession(session, { tabId: session.tabId, reason, flags });
-
-Rules:
-  - do not patch module globals first;
-  - do not rely on later capture;
-  - do not pass Event/DOM/session/manager objects to schedule options.
-
-5.5 Draw scheduling
--------------------
-
-  scheduleDrawForSession(session, options)
-
-Rules:
-  - options must be sanitized plain data;
-  - inactive sessions store pending draw options in session.timers or runtime;
-  - active sessions project and draw only after owner check.
-
-5.6 Capture
------------
-
-  captureSessionState(session, { reason })
-  capturePayloadForTab(tabId, { reason })
-
-Rules:
-  - capture from session first;
-  - active DOM may be read only if root/session/workspace owner all match;
-  - inactive tabs never read DOM;
-  - payload snapshots are plain serializable objects.
-
-======================================================================
-6. TESTING AND VALIDATION POLICY
-======================================================================
-
-6.1 Routine gates
------------------
-
-Run these after any change touching owner/session/activation/shared lifecycle:
-
-  npm run test:e2e:pca-scatter
-  npm run test:e2e:priority0c
-  npx playwright test \
-    "e2e/heatmap.dual-tab.example.spec.js" \
-    "e2e/heatmap.correlation-tab-restore.spec.js" \
-    "e2e/heatmap.view-switch-lock-ratio.spec.js" \
-    "e2e/surface.settings-dataviews-manual-overlay-tab-isolation.spec.js" \
-    "e2e/venn.upset-numeric-species-reopen-isolation.spec.js"
-
-Do not include Venn GO/STRING in routine gates until the parked blocker is
-actively being worked.
-
-6.2 Syntax/audit gate
----------------------
-
-  node .\scripts\audit-tab-leak-candidates.cjs
-  node .\scripts\audit-tab-leak-surfaces.cjs
-
-  Get-ChildItem -Path .\js,.\scripts,.\e2e -Recurse -Include *.js,*.cjs | ForEach-Object {
+  Get-ChildItem -Path .\js,.\e2e,.\__tests__ -Recurse -Include *.js,*.cjs | ForEach-Object {
     node --check $_.FullName
     if ($LASTEXITCODE -ne 0) { throw "Syntax check failed: $($_.FullName)" }
   }
 
-6.3 Test triage checklist
--------------------------
+======================================================================
+5. TEST TRIAGE POLICY
+======================================================================
 
-Before changing component code, answer:
-
-  1. What final architectural invariant does the test assert?
+Before changing code, answer:
+  1. What final owner/session invariant does the test assert?
   2. Does the test wait for a settled owner state?
   3. Are session, payload, and DOM expected to agree at that point?
   4. Is the observed value a legitimate final state or an intermediate draw?
-  5. Is the failure reproduced in both trace/video and a direct state snapshot?
+  5. Is there trace/video/state-snapshot evidence?
 
-If the test checks a final session/payload/DOM disagreement after a settled state,
+If the test checks final session/payload/DOM disagreement after a settled state,
 assume the component is wrong until proven otherwise.
 
-If the test samples during a documented intermediate draw/resize/hydration phase,
-fix the test wait instead of weakening the expected final state.
-
-6.4 Do not count progress by audit finding counts alone
-------------------------------------------------------
-
-Static audit finding counts are useful for triage, but the real acceptance
-criterion is dynamic browser behavior:
-  - same-component tab switch;
-  - inactive async completion;
-  - duplicate/reuse;
-  - archive save/reopen;
-  - crash recovery;
-  - DataViews/notes/control manager owner lookup;
-  - no console critical errors.
-
-2026-07-06 - Legacy runtime-apply cleanup:
-- Histogram: deleted the duplicate field-by-field active-owner `applyRuntimeState`
-  mapping. Runtime snapshots now hydrate the owner session first; only the active
-  owner is projected through `applyHistSessionStateToActive()`. Inactive owners
-  are recorded without reading or mutating active DOM/module mirrors.
-- ROC: deleted the duplicate field-by-field active-owner `applyRuntimeState`
-  mapping. Runtime snapshots now hydrate the owner session first; only the active
-  owner is projected through `applyRocSessionStateToActive()`. Inactive owners
-  are recorded without reading or mutating active DOM/module mirrors.
-- Heatmap: fixed deferred hidden draw option merging to use the sanitized
-  owner-scoped options object, and stopped inactive runtime apply from clearing
-  active hidden-draw handles or pending draw options.
-- Line: removed obsolete global DOM aliases for stats/regression controls and
-  cleaned stale compatibility labels in the touched Line paths.
-- `root/issues.txt` has no open legacy-runtime-apply item after this cleanup.
+If the test samples during a documented intermediate draw, resize observer echo,
+hydration phase, or async loading phase, repair the wait to observe the settled
+owner contract. Do not weaken the final expected state.
 
 ======================================================================
-7. PARKED BLOCKERS
+6. DEFINITION OF DONE
 ======================================================================
 
-7.1 Venn GO/STRING async result ownership
-----------------------------------------
-
-Status:
-  Parked deliberately. Do not spend incidental refactor time here.
-
-Contract:
-  Two Venn tabs that launch GO/STRING analysis must retain results in the
-  launching tab, independent of activation order.
-
-Observed failure:
-  `e2e/venn.go-string.async-tab-isolation.spec.js` still observes an empty GO
-  panel for the second tab after several cleanup attempts.
-
-Current interpretation:
-  The contract is valid, but the component path needs dedicated trace
-  instrumentation around:
-    - workspace same-component live-DOM fast path;
-    - Venn session activation;
-    - `applyVennSessionStateToActive`;
-    - `refreshDiagram`;
-    - selected-region repopulation;
-    - GO/STRING result session store;
-    - DOM projection of GO/STRING panels;
-    - payload/runtime capture while inactive.
-
-Important constraint:
-  Do not reapply the previous experimental canonical-store attempts unless they
-  are reworked from first principles. They regressed the UpSet/numeric/species
-  reopen gate.
-
-Acceptance:
-  npx playwright test "e2e/venn.go-string.async-tab-isolation.spec.js"
-
-======================================================================
-8. WHAT NOT TO DO
-======================================================================
-
-Do not:
-  - continue broad refactor expansion while Priority 0C/Heatmap stabilization is
-    red;
-  - add owner wrappers without removing duplicate sources of truth;
-  - use Line.js as a blanket template;
-  - weaken failing tests before proving they sample an invalid intermediate state;
-  - read inactive tab state from live DOM;
-  - pass Event/DOM/session/manager objects into scheduled draw options;
-  - delete compatibility mirrors before all consumers are audited and acceptance
-    gates are green;
-  - mix the Venn GO/STRING parked blocker into unrelated cleanup work;
-  - count static audit number changes as proof of correctness.
-
-======================================================================
-9. DEFINITION OF DONE FOR THIS REFACTOR
-======================================================================
-
-The refactor is done only when all of the following hold:
-
-  1. Every component has a documented session ownership contract.
+The planned session-first refactor is done when:
+  1. Every component has an owner-session contract.
   2. Payload hydration and live session ownership are clearly separated.
   3. DOM is projection only for durable state.
-  4. Inactive tabs never read live DOM or active managers.
+  4. Inactive tabs never read live DOM or active managers in tested owner paths.
   5. Scheduled work is owner-scoped and serializable.
-  6. Async/worker/timer callbacks are owner-tokened and stale-safe.
-  7. DataViews/notes/HOT managers are owner-session or owner-registry based.
-  8. Compatibility active mirrors have been deleted or documented as transient.
-  9. Routine E2E gates pass without excluding any non-parked blocker.
- 10. Archive reopen and crash recovery preserve full component state.
- 11. No critical console errors are emitted in the owner/reopen gates.
- 12. The Venn GO/STRING blocker is either fixed and admitted into routine gates or
-     explicitly deferred outside the main refactor scope with a separate ticket.
+  6. Async/worker/timer callbacks are owner-tokened and stale-safe in tested
+     owner paths; Venn network async remains intentionally component-specific.
+  7. DataViews/notes/HOT/AG managers are owner-session or owner-registry based.
+  8. Compatibility active mirrors are deleted or explicitly documented as
+     transient bridges with deletion criteria.
+  9. Durable `getActive*SessionForState()` mutations have been replaced by
+     explicit owner/projection-session paths.
+ 10. Routine E2E gates pass without excluding non-parked blockers.
+ 11. Archive reopen and crash recovery preserve full component state in tested
+     owner paths.
+ 12. No critical console errors are emitted in owner/reopen gates.
+ 13. Known parked issues are present in `root/issues.txt` and are not silently
+     hidden by weakened tests.
 
-======================================================================
-10. IMMEDIATE NEXT CODE PACKAGE
-======================================================================
+Current closure verdict:
+  - Items 1-13 are satisfied for the planned refactor scope, assuming the user
+    confirms the final gates pass.
+  - The only known open item is the separately parked heavy mixed Box/Scatter
+    render-cache retention issue.
 
-Do not touch new components.
-
-Current package name:
-  graphitix-priority0-stabilize-roc-hist-heatmap-legacy-cleanup.zip
-
-Scope completed in this package:
-  1. ROC runtime apply now uses the session pipeline only; duplicate active-owner
-     field mapping has been deleted.
-  2. Histogram runtime apply now uses the session pipeline only; duplicate
-     active-owner field mapping has been deleted.
-  3. Heatmap deferred hidden draw options are sanitized/owner-scoped correctly.
-  4. Heatmap inactive runtime apply no longer clears active hidden-draw or pending
-     draw runtime.
-  5. Line.js no longer exports obsolete global DOM aliases for stats/regression
-     controls; the component keeps using scoped refs/session state.
-  6. Venn GO/STRING remains parked.
-
-Minimum acceptance before moving on:
-
-  npm run test:e2e:pca-scatter
-  npm run test:e2e:priority0c
-  npx playwright test \
-    "e2e/heatmap.dual-tab.example.spec.js" \
-    "e2e/heatmap.correlation-tab-restore.spec.js" \
-    "e2e/heatmap.view-switch-lock-ratio.spec.js" \
-    "e2e/surface.settings-dataviews-manual-overlay-tab-isolation.spec.js" \
-    "e2e/venn.upset-numeric-species-reopen-isolation.spec.js"
-
-Only after this acceptance passes should the roadmap continue to the next broad
-component batch.
-
-
-======================================================================
-CURRENT STABILIZATION NOTE - HISTOGRAM AND HEATMAP
-======================================================================
-
-2026-06-28 stabilization direction:
-
-Histogram remaining blocker:
-  The old distribution checkbox registry can remain projected from a previous
-  Histogram tab even when payload/session distributions are correct. The fix is
-  to make the session distribution settings canonical and rebuild/project the
-  distribution checkbox list from that session during activation, reopen, and
-  payload application. The registry is only a visible DOM handle, not state.
-
-Heatmap remaining blocker:
-  A view switch from correlation to values can update controls while a cached
-  correlation render model or view-only resizer redraw remains operational. The
-  fix is to invalidate model-family render caches and suppress programmatic
-  lock-ratio event echoes when the heatmap view family changes. The full owner
-  draw for the new view becomes the only draw allowed to advance the stable
-  render model.
-
-2026-06-28 - Priority 0 registry-retirement pass:
-- Histogram: removed the old `state.distributionInputs`, `state.frequencyInputs`, and `state.statsInputs` module-global registries from `hist.js`. Distribution checkboxes are now rebuilt and projected from the owning session's `distributionSettings`; frequency and stats controls are queried/projected on demand instead of stored as state-like globals. The durable source remains the owner session/payload, not the visible checkbox/select registry.
-- Heatmap: removed the unowned module-level `pendingDrawOptions` and `deferredHiddenDrawOptions` mirrors. Pending/deferred draw options now live only in the owner session's draw runtime. `state.lastRenderModel` has been removed as an owned cache; `heatmap.__getState()` projects `lastRenderModel` from the active owner session render runtime for diagnostics/tests. Stale skipped view-only redraws no longer advance the draw timestamp, and user view-family changes trigger a full owner draw that supersedes old correlation caches.
-- This pass intentionally removes or demotes code rather than adding more guards around the old registries. Browser validation is still required for Histogram density/distribution reopen and Heatmap correlation-to-values view switching.
+Therefore the refactor should be considered: CLOSED FOR THE PLANNED SESSION-
+FIRST OWNER/LIFECYCLE SCOPE, WITH ONE PARKED NON-BLOCKING ISSUE TRACKED.

@@ -483,59 +483,9 @@
     }
   }
 
-  function isRocSerializableDomLike(value){
-    return !!value && typeof value === 'object' && (
-      value.nodeType === 1
-      || value.nodeType === 9
-      || value === global
-      || value === global.document
-      || value === global.window
-      || typeof value.addEventListener === 'function' && typeof value.dispatchEvent === 'function'
-    );
-  }
-
-  function cloneRocSerializable(value, seen = new WeakSet(), depth = 0){
-    if(value == null){ return value; }
-    const type = typeof value;
-    if(type === 'string' || type === 'number' || type === 'boolean'){ return value; }
-    if(type === 'function' || type === 'symbol' || type === 'bigint'){ return undefined; }
-    if(depth > 8 || isRocSerializableDomLike(value)){ return undefined; }
-    if(seen.has(value)){ return undefined; }
-    seen.add(value);
-    if(Array.isArray(value)){
-      return value
-        .map(item => cloneRocSerializable(item, seen, depth + 1))
-        .filter(item => item !== undefined);
-    }
-    const copy = {};
-    Object.entries(value).forEach(([key, entry]) => {
-      if(key === 'event'
-        || key === 'target'
-        || key === 'currentTarget'
-        || key === 'srcElement'
-        || key === 'session'
-        || key === 'root'
-        || key === 'hot'
-        || key === 'manager'
-        || key === 'dataViews'
-        || key === 'notesControl'
-        || key === 'legendControl'
-        || key === 'controller'
-        || key === 'scheduler'){
-        return;
-      }
-      const cloned = cloneRocSerializable(entry, seen, depth + 1);
-      if(cloned !== undefined){
-        copy[key] = cloned;
-      }
-    });
-    return copy;
-  }
-
-  function sanitizeRocDrawOptions(options = {}){
-    const sanitized = cloneRocSerializable(options);
-    return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized : {};
-  }
+  const sanitizeRocDrawOptions = (options = {}, owner = {}) => (
+    Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('roc', options, owner) || {}
+  );
 
   function ensureEmptyPayloadTemplate(){
     const session = getActiveRocSessionForState();
@@ -643,7 +593,13 @@
   let rocFontEventBound = false;
 
   const rocSessionsByTabId = new Map();
-  let activeRocSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedRocSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getRocProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(roc, projectedRocSession) || String(roc.__boundTabId || projectedRocSession?.tabId || '').trim();
+  }
 
   function normalizeRocSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
@@ -927,7 +883,7 @@
   function getRocSession(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeRocSessionTabId(tabLike, meta);
     if(!tabId){
-      return options.fallbackActive === true ? ensureRocSessionOwnershipShape(activeRocSession) : null;
+      return options.fallbackActive === true ? ensureRocSessionOwnershipShape(projectedRocSession) : null;
     }
     let session = rocSessionsByTabId.get(tabId) || null;
     if(!session && options.create !== false){
@@ -938,45 +894,23 @@
   }
 
   function getRocWorkspaceActiveTabId(){
-    const workspaceInfo = Shared.workspaceTabs?.getActiveSessionInfo?.('roc') || null;
-    if(workspaceInfo?.tabId){
-      return String(workspaceInfo.tabId).trim();
-    }
-    const workspace = global.Main?.session?.workspaceState || null;
-    const activeId = workspace?.activeTabId || null;
-    if(activeId && Array.isArray(workspace?.tabs)){
-      const activeTab = workspace.tabs.find(tab => tab && String(tab.id || '') === String(activeId));
-      if(activeTab?.type === 'roc'){
-        return String(activeId).trim();
-      }
-    }
-    return '';
+    return String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('roc') || '').trim();
   }
 
   function getActiveRocSessionForState(){
-    const workspaceActiveTabId = getRocWorkspaceActiveTabId();
-    if(workspaceActiveTabId){
-      return getRocSession(workspaceActiveTabId, { tabId: workspaceActiveTabId, reason: 'active-roc-session-workspace' }, { create: true });
-    }
-    if(activeRocSession && (!roc.__boundTabId || String(activeRocSession.tabId || '') === String(roc.__boundTabId || ''))){
-      return ensureRocSessionOwnershipShape(activeRocSession);
-    }
-    const tabId = normalizeRocSessionTabId(null, {});
-    return tabId ? getRocSession(tabId, { tabId, reason: 'active-roc-session' }, { create: true }) : null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'roc',
+      component: roc,
+      projectedSession: projectedRocSession,
+      getSession: getRocSession,
+      ensureSession: ensureRocSessionOwnershipShape,
+      create: true,
+      reason: 'active-roc-session'
+    }) || null;
   }
 
   function getRocTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function getRocSessionForEvent(event = null, meta = {}, options = {}){
@@ -992,7 +926,7 @@
     if(session?.tabId && !isRocSessionActiveOrActivating(session)){
       console.debug('Debug: roc control callback skipped for inactive owner', {
         tabId: session.tabId || null,
-        activeTabId: roc.__boundTabId || activeRocSession?.tabId || null,
+        activeTabId: getRocProjectionTabId() || null,
         reason: reason || 'roc-control-owner'
       });
       return undefined;
@@ -1008,7 +942,7 @@
   function getRocDeactivationSession(tab, meta = {}){
     const tabId = getRocDeactivationTabId(tab, meta);
     const activeSession = getActiveRocSessionForState();
-    const activeTabId = roc.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getRocProjectionTabId() || activeSession?.tabId || null;
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       return getRocSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'roc-deactivate-target-session' }, { create: false });
     }
@@ -1018,7 +952,7 @@
   function captureRocSessionForDeactivation(tab, meta = {}){
     const tabId = getRocDeactivationTabId(tab, meta);
     const activeSession = getActiveRocSessionForState();
-    const activeTabId = roc.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getRocProjectionTabId() || activeSession?.tabId || null;
     const targetSession = getRocDeactivationSession(tab, meta);
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       if(targetSession){
@@ -1043,7 +977,7 @@
   }
 
   function syncRocSessionRefsFromActive(session = null){
-    const shaped = ensureRocSessionOwnershipShape(session || activeRocSession || getActiveRocSessionForState());
+    const shaped = ensureRocSessionOwnershipShape(session || projectedRocSession || getActiveRocSessionForState());
     if(!shaped){ return null; }
     if(shaped.tabId && !isRocSessionActiveOrActivating(shaped)){
       return shaped;
@@ -1086,22 +1020,14 @@
   }
 
   function getRocHotOwnerTabId(hotInstance){
-    return String(
-      hotInstance?.__rocTabId
-      || hotInstance?.__workspaceTabId
-      || hotInstance?.__graphitixTabId
-      || hotInstance?.__hotWorkspaceTabId
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveOwnedObjectTabId?.(hotInstance, 'roc') || '').trim();
   }
 
-  function rocHotBelongsToSession(hotInstance, session){
-    if(!hotInstance || !session){
-      return false;
-    }
-    const ownerTabId = getRocHotOwnerTabId(hotInstance);
-    return !session.tabId || (ownerTabId && ownerTabId === session.tabId);
-  }
+  const rocHotBelongsToSession = (hotInstance, session) => (
+    Shared.componentLifecycle?.ownedHotBelongsToSession?.(hotInstance, session, 'roc', {
+      allowMissingSessionTabId: true
+    }) === true
+  );
 
   function getRocSessionForHot(hotInstance = null, meta = {}, options = {}){
     const tabId = getRocHotOwnerTabId(hotInstance);
@@ -1111,18 +1037,11 @@
     return options.fallbackActive === false ? null : getActiveRocSessionForState();
   }
 
-  function rocDataViewsManagerBelongsToSession(manager = null, session = null){
-    const shaped = ensureRocSessionOwnershipShape(session);
-    if(!manager || !shaped?.tabId){ return false; }
-    const ownerTabId = String(
-      manager.__rocTabId
-      || manager.__workspaceTabId
-      || manager.__graphitixTabId
-      || manager.__ownerTabId
-      || ''
-    ).trim();
-    return !!ownerTabId && ownerTabId === String(shaped.tabId);
-  }
+  const rocDataViewsManagerBelongsToSession = (manager = null, session = null) => (
+    Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'roc', {
+      ensureSession: ensureRocSessionOwnershipShape
+    }) === true
+  );
 
   function isRocSessionActive(session = null){
     const shaped = ensureRocSessionOwnershipShape(session);
@@ -1134,7 +1053,7 @@
     if(workspaceActiveTabId){
       return workspaceActiveTabId === tabId;
     }
-    return tabId === String(roc.__boundTabId || activeRocSession?.tabId || '');
+    return tabId === String(getRocProjectionTabId());
   }
 
   function isRocSessionActiveOrActivating(session = null){
@@ -1220,7 +1139,7 @@
   }
 
   function syncRocSessionManagersFromActive(session = null){
-    const shaped = ensureRocSessionOwnershipShape(session || activeRocSession || getActiveRocSessionForState());
+    const shaped = ensureRocSessionOwnershipShape(session || projectedRocSession || getActiveRocSessionForState());
     if(!shaped){ return null; }
     const sessionIsActive = !shaped.tabId || isRocSessionActiveOrActivating(shaped);
     const hotBelongsToSession = rocHotBelongsToSession(state.hot, shaped);
@@ -1246,7 +1165,7 @@
 
   function canUseRocNotesControl(noteControl){
     if(!noteControl){ return false; }
-    const root = state.root || refs.root || resolveRocRoot(roc.__boundTabId || null);
+    const root = state.root || refs.root || resolveRocRoot(getRocProjectionTabId() || null);
     const controlRoot = noteControl.root || null;
     if(controlRoot){
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
@@ -1407,8 +1326,8 @@
   function bindRocSessionForTab(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeRocSessionTabId(tabLike, meta);
     if(!tabId){ return null; }
-    if(activeRocSession && activeRocSession.tabId && activeRocSession.tabId !== tabId){
-      captureRocSessionStateFromActive(activeRocSession, {
+    if(projectedRocSession && projectedRocSession.tabId && projectedRocSession.tabId !== tabId){
+      captureRocSessionStateFromActive(projectedRocSession, {
         reason: meta?.reason || 'roc-session-switch-capture',
         captureStatsPanel: true
       });
@@ -1418,7 +1337,7 @@
     const root = meta?.root || resolveRocRoot(tabLike || tabId || null) || session.root || null;
     session.root = root || session.root || null;
     session.refs.root = root || session.refs.root || null;
-    activeRocSession = session;
+    projectedRocSession = session;
     roc.__rocSessionTabId = session.tabId;
     if(options.passiveBound !== false){
       roc.__boundTabId = session.tabId;
@@ -1517,11 +1436,11 @@
   function scheduleRocViewRefresh(reason, extraOptions){
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'roc-view-refresh';
-    const ownerTabId = normalizeRocSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || roc.__boundTabId || null, {});
+    const ownerTabId = normalizeRocSessionTabId(options.tabId || options.workspaceTabId || options.tab?.id || getRocProjectionTabId() || null, {});
     const ownerSession = ownerTabId
       ? getRocSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
       : getActiveRocSessionForState();
-    const activeTabId = normalizeRocSessionTabId(roc.__boundTabId || null, {});
+    const activeTabId = normalizeRocSessionTabId(getRocProjectionTabId() || null, {});
     if(!ownerTabId || ownerTabId === activeTabId){
       syncRocRuntimeControlsFromDom();
     }
@@ -1535,7 +1454,7 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: ownerTabId || roc.__boundTabId || null,
+      tabId: ownerTabId || getRocProjectionTabId() || null,
       reason: nextReason,
       source: 'roc-view-refresh',
       forceDraw: options.force === true,
@@ -1756,12 +1675,22 @@
 
   function scheduleRocStatsReportOrderPin(){
     const run = () => pinRocStatsReportAfterMetrics(getRocNodeById('rocStatsResults') || refs.statsResults || null);
+    const ownerTabId = roc.__boundTabId || getActiveRocSessionForState()?.tabId || null;
     run();
-    if(typeof requestAnimationFrame === 'function'){
-      requestAnimationFrame(run);
+    if(!ownerTabId || !Shared.componentLifecycle?.scheduleComponentFrame || !Shared.componentLifecycle?.scheduleComponentTimeout){
+      run();
+      return;
     }
-    setTimeout(run, 80);
-    setTimeout(run, 250);
+    Shared.componentLifecycle.scheduleComponentFrame(roc, 'roc', {
+      tabId: ownerTabId,
+      reason: 'roc-stats-report-pin-frame'
+    }, run);
+    [80, 250].forEach(delay => {
+      Shared.componentLifecycle.scheduleComponentTimeout(roc, 'roc', {
+        tabId: ownerTabId,
+        reason: 'roc-stats-report-pin-timeout'
+      }, run, delay);
+    });
   }
 
   function normalizeRocStatsPanelModel(source = {}){
@@ -1864,7 +1793,7 @@
       rowThreshold: 1000,
       cellThreshold: 5000
     }),
-    getTabId: () => roc.__boundTabId || null,
+    getTabId: () => getRocProjectionTabId() || null,
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
@@ -1923,7 +1852,7 @@
     return reason => {
       lastReason = reason || 'frame';
       if(debounced){
-        debounced({ tabId: roc.__boundTabId || null, reason: 'roc-notice-width' });
+        debounced({ tabId: getRocProjectionTabId() || null, reason: 'roc-notice-width' });
         return;
       }
       syncRocAutoDrawNoticeWidth(lastReason);
@@ -2244,7 +2173,7 @@
   }
 
   function ensureElements(){
-    refs.root = state.root || resolveRocRoot(roc.__boundTabId || null) || refs.root || null;
+    refs.root = state.root || resolveRocRoot(getRocProjectionTabId() || null) || refs.root || null;
     refs.tablePanel = getRocNodeById('rocTablePanel');
     refs.graphPanel = getRocNodeById('rocGraphPanel');
     refs.panelResizer = getRocNodeById('rocPanelResizer');
@@ -2326,11 +2255,11 @@
         state.hot = createRocTableInstance(baseContainer);
       }
       if(state.hot){
-        const fallbackTabId = tabId || roc.__boundTabId || null;
+        const fallbackTabId = tabId || getRocProjectionTabId() || null;
         state.hot.__rocTabId = fallbackTabId || state.hot.__rocTabId || null;
         state.hot.__workspaceTabId = fallbackTabId || state.hot.__workspaceTabId || null;
       }
-      const fallbackSession = getRocSession(tabId || roc.__boundTabId || null, { tabId: tabId || roc.__boundTabId || null, reason: 'roc-ensure-hot-fallback' }, { create: true }) || getActiveRocSessionForState();
+      const fallbackSession = getRocSession(tabId || getRocProjectionTabId() || null, { tabId: tabId || getRocProjectionTabId() || null, reason: 'roc-ensure-hot-fallback' }, { create: true }) || getActiveRocSessionForState();
       if(fallbackSession){
         fallbackSession.managers.hot = state.hot || fallbackSession.managers.hot || null;
         fallbackSession.updatedAt = Date.now();
@@ -2357,7 +2286,7 @@
       state.hot.__rocTabId = tabId || roc.__boundTabId || state.hot.__rocTabId || null;
       state.hot.__workspaceTabId = tabId || roc.__boundTabId || state.hot.__workspaceTabId || null;
     }
-    const session = getRocSession(tabId || roc.__boundTabId || null, { tabId: tabId || roc.__boundTabId || null, reason: 'roc-ensure-hot' }, { create: true }) || getActiveRocSessionForState();
+    const session = getRocSession(tabId || getRocProjectionTabId() || null, { tabId: tabId || getRocProjectionTabId() || null, reason: 'roc-ensure-hot' }, { create: true }) || getActiveRocSessionForState();
     if(session){
       session.managers.hot = state.hot || session.managers.hot || null;
       session.updatedAt = Date.now();
@@ -2371,19 +2300,31 @@
   }
 
   function ensureRocDataViewsForHot(hotInstance, options = {}){
-    if(!hotInstance || typeof hotInstance.getData !== 'function'){
-      return null;
-    }
-    if(typeof Shared.dataViews?.createManager !== 'function'){
-      return null;
-    }
     const ownerSession = getRocSessionForHot(hotInstance, { reason: 'roc-dataviews-owner' }, { create: true })
       || getActiveRocSessionForState();
-    if(!hotInstance.__rocDataViewsManager){
-      hotInstance.__rocDataViewsManager = Shared.dataViews.createManager({
+    const ownerTabId = ownerSession?.tabId || getRocHotOwnerTabId(hotInstance) || getRocProjectionTabId() || null;
+    const ownerRoot = resolveRocRoot(ownerTabId || null) || null;
+    const hostWrapper = options.wrapper
+      || ownerRoot?.querySelector?.('#rocHotWrapper')
+      || refs.hotWrapper
+      || getRocNodeById('rocHotWrapper', ownerTabId);
+    const hostContainer = options.container
+      || hotInstance?.__rocHostContainer
+      || ownerRoot?.querySelector?.('#rocHot')
+      || refs.hotContainer
+      || getRocNodeById('rocHot', ownerTabId);
+    const manager = Shared.componentLifecycle?.ensureOwnedDataViewsManager?.({
+      hotInstance,
+      componentKey: 'roc',
+      managerField: '__rocDataViewsManager',
+      ownerTabId,
+      hostContainerField: '__rocHostContainer',
+      wrapper: hostWrapper,
+      container: hostContainer,
+      createOptions: {
         componentKey: 'roc',
         maxViews: ROC_DATA_VIEW_MAX,
-        initialData: hotInstance.getData() || [],
+        initialData: hotInstance?.getData?.() || [],
         onActiveViewChanged(view, meta){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
@@ -2401,8 +2342,8 @@
             || getActiveRocSessionForState();
           if(session){
             session.managers.hot = hotInstance;
-            const manager = hotInstance.__rocDataViewsManager || null;
-            session.managers.dataViews = rocDataViewsManagerBelongsToSession(manager, session) ? manager : session.managers.dataViews || null;
+            const currentManager = hotInstance.__rocDataViewsManager || null;
+            session.managers.dataViews = rocDataViewsManagerBelongsToSession(currentManager, session) ? currentManager : session.managers.dataViews || null;
             session.state.drawPending = true;
             session.updatedAt = Date.now();
           }
@@ -2419,32 +2360,16 @@
             Shared.workspaceToolbar?.activateSection?.('roc', 'Data');
           }
         }
-      });
-      const ownerTabId = ownerSession?.tabId || getRocHotOwnerTabId(hotInstance) || roc.__boundTabId || null;
-      hotInstance.__rocDataViewsManager.__rocTabId = ownerTabId;
-      hotInstance.__rocDataViewsManager.__workspaceTabId = ownerTabId;
-      hotInstance.__rocDataViewsManager.__ownerTabId = ownerTabId;
-      console.debug('Debug: roc data views manager created');
-    }
-    const manager = hotInstance.__rocDataViewsManager;
-    const ownerTabId = getRocHotOwnerTabId(hotInstance) || ownerSession?.tabId || roc.__boundTabId || null;
-    const ownerRoot = resolveRocRoot(ownerTabId || null) || null;
-    const hostWrapper = options.wrapper
-      || ownerRoot?.querySelector?.('#rocHotWrapper')
-      || refs.hotWrapper
-      || getRocNodeById('rocHotWrapper', ownerTabId);
-    const hostContainer = options.container
-      || hotInstance.__rocHostContainer
-      || ownerRoot?.querySelector?.('#rocHot')
-      || refs.hotContainer
-      || getRocNodeById('rocHot', ownerTabId);
-    if(hostWrapper && hostContainer){
-      manager.mount({ wrapper: hostWrapper, tableContainer: hostContainer });
-      manager.refresh?.();
-      hostWrapper.__dataViewsOwner = manager;
+      },
+      onCreated(){
+        console.debug('Debug: roc data views manager created');
+      }
+    });
+    if(!manager){
+      return null;
     }
     const managerSession = getRocSessionForHot(hotInstance, { reason: 'roc-data-views-manager' }, { create: true })
-      || getActiveRocSessionForState();
+      || ownerSession;
     if(managerSession){
       managerSession.managers.hot = hotInstance;
       managerSession.managers.dataViews = rocDataViewsManagerBelongsToSession(manager, managerSession) ? manager : managerSession.managers.dataViews || null;
@@ -2462,21 +2387,19 @@
     if(ownerSession && !isRocSessionActiveOrActivating(ownerSession)){
       console.debug('Debug: roc active DataView sync skipped for inactive HOT owner', {
         ownerTabId: ownerSession.tabId || null,
-        activeTabId: roc.__boundTabId || null,
+        activeTabId: getRocProjectionTabId() || null,
         reason: reason || null
       });
       return;
     }
-    const manager = hot.__rocDataViewsManager || null;
-    if(!manager){
-      return;
-    }
-    manager.updateActiveData(hot.getData() || []);
-    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
-    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
-    if(reason === 'afterLoadData'){
-      manager.refresh?.();
-    }
+    Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+      hotInstance: hot,
+      componentKey: 'roc',
+      managerField: '__rocDataViewsManager',
+      session: ownerSession,
+      belongsToSession: rocDataViewsManagerBelongsToSession,
+      reason
+    });
   }
 
   function clearPlotArea(reason, options = {}){
@@ -3442,7 +3365,7 @@
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: refs.statsResults || null,
-      tabId: roc.__boundTabId || null
+      tabId: getRocProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
@@ -3755,7 +3678,7 @@
 
   function getRocSessionForDrawMeta(meta = {}, options = {}){
     const source = meta && typeof meta === 'object' ? meta : {};
-    const tabId = source.tabId || source.tab?.id || roc.__boundTabId || null;
+    const tabId = source.tabId || source.tab?.id || getRocProjectionTabId() || null;
     return tabId
       ? getRocSession(tabId, {
           ...(source || {}),
@@ -3780,7 +3703,7 @@
       drawSession.updatedAt = Date.now();
       return;
     }
-    bindRocSessionForTab(drawSession?.tabId || meta?.tab || meta?.tabId || roc.__boundTabId || null, {
+    bindRocSessionForTab(drawSession?.tabId || meta?.tab || meta?.tabId || getRocProjectionTabId() || null, {
       ...(meta || {}),
       reason: meta?.reason || 'roc-draw-bind'
     }, { apply: false });
@@ -3802,11 +3725,11 @@
       drawSession.updatedAt = Date.now();
       return false;
     }
-    bindRocSessionForTab(drawSession?.tabId || meta?.tab || meta?.tabId || roc.__boundTabId || null, {
+    bindRocSessionForTab(drawSession?.tabId || meta?.tab || meta?.tabId || getRocProjectionTabId() || null, {
       ...(meta || {}),
       reason: meta?.reason || 'roc-draw'
     }, { apply: false });
-    const drawTabId = drawSession?.tabId || meta?.tabId || roc.__boundTabId || null;
+    const drawTabId = drawSession?.tabId || meta?.tabId || getRocProjectionTabId() || null;
     const drawRefs = Object.assign(createDefaultRocRefs(drawSession?.root || state.root || null), drawSession?.refs || {}, refs || {});
     drawRefs.root = drawSession?.root || drawRefs.root || state.root || resolveRocRoot(drawTabId) || null;
     drawRefs.plotDiv = getRocNodeById('rocPlot', drawTabId) || drawRefs.plotDiv || refs.plotDiv || null;
@@ -4679,7 +4602,7 @@
 
   // PART: PERSISTENCE
   function getPayload(){
-    const payloadSession = bindRocSessionForTab(getRocWorkspaceActiveTabId() || roc.__boundTabId || null, {
+    const payloadSession = bindRocSessionForTab(getRocWorkspaceActiveTabId() || getRocProjectionTabId() || null, {
       reason: 'roc-get-payload-bind-active-owner'
     }, { apply: true, syncUi: true }) || getActiveRocSessionForState();
     refreshRocActiveDomRefsForSession(payloadSession, { reason: 'roc-get-payload' });
@@ -4845,7 +4768,7 @@
       reason: meta?.reason || 'roc-runtime-capture'
     };
     console.debug('Debug: roc runtime snapshot captured', {
-      tabId: meta?.tabId || roc.__boundTabId || null,
+      tabId: meta?.tabId || getRocProjectionTabId() || null,
       graphType: refs.graphType?.value || null,
       notesOpen: sessionNotes.open,
       reason: snapshot.reason
@@ -4874,7 +4797,7 @@
     });
     if(!runtimeSession){
       console.debug('Debug: roc runtime snapshot apply skipped', {
-        tabId: meta?.tabId || roc.__boundTabId || null,
+        tabId: meta?.tabId || getRocProjectionTabId() || null,
         reason: 'missing-session'
       });
       return false;
@@ -4895,8 +4818,8 @@
     console.debug(isActiveOwner
       ? 'Debug: roc runtime snapshot applied through session pipeline'
       : 'Debug: roc inactive runtime snapshot stored without active projection', {
-      tabId: runtimeSession.tabId || meta?.tabId || roc.__boundTabId || null,
-      activeTabId: getRocWorkspaceActiveTabId() || roc.__boundTabId || null,
+      tabId: runtimeSession.tabId || meta?.tabId || getRocProjectionTabId() || null,
+      activeTabId: getRocWorkspaceActiveTabId() || getRocProjectionTabId() || null,
       compareSelection: runtimeSession.state?.compareSelection || runtimeSession.results?.compareSelection || null,
       reason: meta?.reason || 'roc-runtime-apply'
     });
@@ -4949,7 +4872,7 @@
   roc.createEmptyPayload = function createEmptyRocPayload(){
     console.debug('Debug: roc.createEmptyPayload pure factory invoked', {
       ready: !!roc.ready,
-      boundTabId: roc.__boundTabId || null
+      boundTabId: getRocProjectionTabId() || null
     });
     const payload = { type: 'roc', config: {} };
     payload.type = 'roc';
@@ -4978,7 +4901,7 @@
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
-    const scheduleTargetTab = meta?.tab || meta?.tabId || roc.__boundTabId || null;
+    const scheduleTargetTab = meta?.tab || meta?.tabId || getRocProjectionTabId() || null;
     const hasExplicitScheduleTarget = !!(meta?.tab || meta?.tabId);
     const scheduleTargetSession = scheduleTargetTab
       ? getRocSession(scheduleTargetTab, { ...(meta || {}), reason: 'roc-payload-scheduler-owner' }, { create: false, fallbackActive: false })
@@ -5315,26 +5238,21 @@
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('roc notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(canUseRocNotesControl(notesState.control)){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'roc',
+      ownerTabId: getRocProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'roc-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'roc',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      canUseControl: canUseRocNotesControl,
+      unavailableMessage: 'roc notes helper unavailable',
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
         const session = getActiveRocSessionForState();
@@ -5351,18 +5269,18 @@
           session.updatedAt = Date.now();
         }
       }
-    });
+    }) || notesState.control || null;
   }
 
   function init(options = {}){
-    const targetTabId = options?.tabId || roc.__boundTabId || null;
+    const targetTabId = options?.tabId || getRocProjectionTabId() || null;
     const targetRoot = options?.root || resolveRocRoot(targetTabId || null) || state.root || null;
     if(roc.ready && (!targetTabId || roc.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
-      console.debug('Debug: roc init skipped', { tabId: roc.__boundTabId || null });
+      console.debug('Debug: roc init skipped', { tabId: getRocProjectionTabId() || null });
       return;
     }
     if(roc.ready){
-      console.debug('Debug: roc init rebinding', { previousTabId: roc.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      console.debug('Debug: roc init rebinding', { previousTabId: getRocProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       roc.ready = false;
     }
     roc.__boundTabId = targetTabId || null;
@@ -5398,7 +5316,7 @@
         component: roc,
         componentKey: 'roc',
         options: nextOpts,
-        tabId: nextOpts.tabId || roc.__boundTabId || null,
+        tabId: nextOpts.tabId || getRocProjectionTabId() || null,
         reason: overlayReason,
         overlayController: rocOverlayController,
         delayForOverlay: !suppressOverlay,
@@ -5413,7 +5331,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'roc',
           debugLabel: 'roc',
-          getTabId: () => roc.__boundTabId || null,
+          getTabId: () => getRocProjectionTabId() || null,
           scheduleRaw: scheduleRocDrawInstrumented
         })
       : scheduleRocDrawInstrumented;
@@ -5519,7 +5437,7 @@
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(roc, 'roc', () => ensureRocLegendControlPlacement(), { reason: 'roc-legend-placement' })
       : null;
     if(scheduleLegendPlacement){
-      scheduleLegendPlacement({ tabId: roc.__boundTabId || null, reason: 'roc-legend-placement' });
+      scheduleLegendPlacement({ tabId: getRocProjectionTabId() || null, reason: 'roc-legend-placement' });
     }else{
       ensureRocLegendControlPlacement();
     }
@@ -5556,12 +5474,12 @@
           state.root = info?.root || resolveRocRoot(info?.tab || nextTabId || null) || state.root || null;
           bindRocSessionForTab(info?.tab || nextTabId || null, { ...(options || {}), root: state.root || null, reason: options.reason || 'workspace-dom-rebind' }, { apply: true, syncUi: false });
           if(options?.liveDomFastPath === true || options?.liveDomReuse === true || options?.passiveControls === true){
-            roc.__boundTabId = nextTabId || roc.__boundTabId || null;
+            roc.__boundTabId = nextTabId || getRocProjectionTabId() || null;
             syncRocSessionRefsFromActive();
             syncRocSessionManagersFromActive();
             roc.__domSentinel = info?.mountedSentinel || getRocNodeById('rocHot');
             roc.ready = true;
-            console.debug('Debug: roc passive DOM rebind', { tabId: roc.__boundTabId || null });
+            console.debug('Debug: roc passive DOM rebind', { tabId: getRocProjectionTabId() || null });
             return;
           }
           roc.ready = false;
@@ -5598,12 +5516,12 @@
           state.root = info?.root || resolveRocRoot(tabLike || nextTabId || null) || state.root || null;
           bindRocSessionForTab(info?.tab || nextTabId || null, { ...(meta || {}), root: state.root || null, reason: meta?.reason || 'activate-tab-rebind' }, { apply: true, syncUi: false });
           if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-            roc.__boundTabId = nextTabId || roc.__boundTabId || null;
+            roc.__boundTabId = nextTabId || getRocProjectionTabId() || null;
             syncRocSessionRefsFromActive();
             syncRocSessionManagersFromActive();
             roc.__domSentinel = info?.mountedSentinel || getRocNodeById('rocHot');
             roc.ready = true;
-            console.debug('Debug: roc passive DOM rebind', { tabId: roc.__boundTabId || null });
+            console.debug('Debug: roc passive DOM rebind', { tabId: getRocProjectionTabId() || null });
             return;
           }
           roc.ready = false;
@@ -5623,7 +5541,7 @@
     getSentinel: () => getRocNodeById('rocHot')
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    roc.__boundTabId = targetTabId || roc.__boundTabId || null;
+    roc.__boundTabId = targetTabId || getRocProjectionTabId() || null;
     state.root = resolveRocRoot(tab || targetTabId || null);
     bindRocSessionForTab(targetTabId || null, { root: state.root || null, reason: meta?.reason || 'activate-tab' }, { apply: true, syncUi: true });
     pinRocStatsReportAfterMetrics();
@@ -5633,14 +5551,14 @@
   };
   roc.draw = function drawRoc(meta = {}){
     const nextReason = meta?.reason || 'roc-draw';
-    if(Shared.componentLifecycle?.shouldSuppressDraw?.('roc', { ...(meta || {}), tabId: meta?.tabId || roc.__boundTabId || null, reason: nextReason })){
-      console.debug('Debug: roc draw suppressed by lifecycle', { reason: nextReason, tabId: meta?.tabId || roc.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'roc', tabId: meta?.tabId || roc.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'roc.draw' } });
+    if(Shared.componentLifecycle?.shouldSuppressDraw?.('roc', { ...(meta || {}), tabId: meta?.tabId || getRocProjectionTabId() || null, reason: nextReason })){
+      console.debug('Debug: roc draw suppressed by lifecycle', { reason: nextReason, tabId: meta?.tabId || getRocProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'roc', tabId: meta?.tabId || getRocProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'roc.draw' } });
       return;
     }
-    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'roc', tabId: meta?.tabId || roc.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'roc.draw' } });
+    Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'roc', tabId: meta?.tabId || getRocProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'roc.draw' } });
     console.debug('Debug: roc draw requested', {
-      tabId: meta?.tabId || roc.__boundTabId || null,
+      tabId: meta?.tabId || getRocProjectionTabId() || null,
       sessionGeneration: meta?.sessionGeneration || null,
       reason: meta?.reason || 'roc-draw'
     });
@@ -5653,7 +5571,7 @@
     void runRocDrawCycle({ ...(meta || {}), tabId: drawSession?.tabId || meta?.tabId || undefined, reason: nextReason });
   };
   roc.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
-    const tabId = meta?.tabId || roc.__boundTabId || null;
+    const tabId = meta?.tabId || getRocProjectionTabId() || null;
     try{ roc.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'roc-draw-cancel'); }catch(_err){}
     resolveRocOverlay(meta?.reason || 'cancelled');
     Shared.componentLifecycle?.emitLifecycleEvent?.({
@@ -5710,7 +5628,7 @@
         console.debug('Debug: roc render cache skipped for inactive owner', {
           reason,
           ownerTabId: session.tabId || null,
-          activeTabId: roc.__boundTabId || activeRocSession?.tabId || null
+          activeTabId: getRocProjectionTabId() || null
         });
       }
       return null;

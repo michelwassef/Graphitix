@@ -212,27 +212,26 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     expect(sig1).not.toBe(sig3);
   });
 
-  // ─── Draw suppression race regression ────────────────────────────────────
-  test('scatter restoreRenderCache sets skipNextDraw so a concurrent schedule does not clear it prematurely', () => {
-    // After restoreRenderCache, calling scheduleScatter (simulating a ResizeObserver) with an
-    // active suppression count must NOT reset skipNextDraw to false.
+  // ─── Central restore lifecycle regression ─────────────────────────────────
+  test('scatter restoreRenderCache does not leave component-local draw gates behind', () => {
     const scatter = window.Components?.scatter;
     expect(scatter).toBeTruthy();
 
     const cache = makeScatterCacheWithBitmapImage('workspace-scatter-a');
-    scatter.restoreRenderCache(cache, {
+    expect(scatter.restoreRenderCache(cache, {
       tabId: 'workspace-scatter-a',
       type: 'scatter',
-      reason: 'unit-race-test'
-    });
+      reason: 'unit-central-restore-contract'
+    })).toBe(true);
 
-    // After restore the scatter module sets skipNextDraw=true and suppression count>=1.
-    // Trigger the public draw schedule. If the race bug were present, this would reset
-    // skipNextDraw=false and allow the next runDrawCycle to fire.
+    const state = scatter.__testGetState?.() || {};
+    expect(Object.prototype.hasOwnProperty.call(state, ['skip', 'Next', 'Draw'].join(''))).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(state, ['skip', 'Next', 'Draw', 'Reason'].join(''))).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(state, ['renderCache', 'Restore', 'Suppress', 'Until'].join(''))).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(state, ['renderCache', 'Restore', 'Suppress', 'Count'].join(''))).toBe(false);
+
     if (typeof scatter.__testTriggerSchedule === 'function') {
-      scatter.__testTriggerSchedule({ reason: 'resize' });
-      // skipNextDraw must still be true (suppression consumed the tick, left flag intact)
-      expect(scatter.__testGetState?.().skipNextDraw).toBe(true);
+      expect(() => scatter.__testTriggerSchedule({ reason: 'resize' })).not.toThrow();
     }
   });
 

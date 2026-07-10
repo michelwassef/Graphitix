@@ -347,7 +347,6 @@
     // replay pre-change visuals over post-change controls/data/layout.
     clearTabRenderCache(tab, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
     clearTabArchiveRenderCache(tab, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
-    markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || tab.lastUserModifiedReason || 'user-modified' });
     if (meta.markSessionDirty !== false) {
       markSessionDirty(tab.lastUserModifiedReason, {
         tabId: tab.id,
@@ -1523,25 +1522,6 @@
     return serializeRenderCacheValue(cache);
   }
 
-
-  function markTabAuthoritativeRenderRestore(tab, isActive, meta = {}) {
-    if (!tab) {
-      return false;
-    }
-    const next = !!isActive;
-    const previous = !!tab.authoritativeRenderRestore;
-    tab.authoritativeRenderRestore = next;
-    if (previous !== next) {
-      console.debug('Debug: authoritative render restore flag updated', {
-        tabId: tab.id,
-        type: tab.type || null,
-        active: next,
-        reason: meta.reason || 'authoritative-render-restore'
-      });
-    }
-    return next;
-  }
-
   function clearTabRenderCache(tab, meta = {}) {
     if (!tab) {
       return false;
@@ -1693,7 +1673,6 @@
       tab.previewMeta = null;
       clearTabRenderCache(tab, { reason: meta.reason || 'payload-null' });
       clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-null' });
-      markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-null' });
       notifyPreviewIndicator(tab);
       console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
     }
@@ -1722,7 +1701,6 @@
         });
       }
       clearTabArchiveRenderCache(tab, { reason: meta.reason || 'payload-changed' });
-      markTabAuthoritativeRenderRestore(tab, false, { reason: meta.reason || 'payload-changed' });
     }
     try{
       const statsTest = payload && payload.config && payload.config.stats ? payload.config.stats.test : null;
@@ -2592,7 +2570,6 @@
               origin: options.origin || null
             });
           }
-          markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed-skip' });
         }
       } else {
         console.warn('persistActiveTabState kept previous layout because exact tab layout capture failed', {
@@ -2659,7 +2636,6 @@
                 if (changed) {
                   clearTabRenderCache(tab, { reason: `${reason}:skipped-drift-promote` });
                   clearTabArchiveRenderCache(tab, { reason: `${reason}:skipped-drift-promote` });
-                  markTabAuthoritativeRenderRestore(tab, false, { reason: `${reason}:skipped-drift-promote` });
                   driftHealed = true;
                   console.debug('Debug: persistActiveTabState skipped-path drift observed and promoted', driftLog);
                 }
@@ -2840,7 +2816,6 @@
             origin: options.origin || null
           });
         }
-        markTabAuthoritativeRenderRestore(tab, false, { reason: options.reason || 'layout-changed' });
       }
       const previewNeedsCapture = options.forcePreviewCapture === true
         || changed
@@ -3382,7 +3357,6 @@
   namespace.serializeRenderCacheForArchive = serializeRenderCacheForArchive;
   namespace.rehomeTabScopedState = rehomeTabScopedState;
   namespace.remapRuntimeWorkspaceString = remapRuntimeWorkspaceString;
-  namespace.markTabAuthoritativeRenderRestore = markTabAuthoritativeRenderRestore;
   namespace.pruneWarmRenderCaches = pruneWarmRenderCaches;
   namespace.setRenderCachePruneSuspended = setRenderCachePruneSuspended;
   namespace.isRenderCachePruneSuspended = isRenderCachePruneSuspended;

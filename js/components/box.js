@@ -937,7 +937,7 @@
   }
 
   function captureBoxRenderCacheMetadata(meta = {}){
-    const tab = meta?.tab || resolveBoxWorkspaceTab(meta?.tabId || box.__boundTabId || null) || null;
+    const tab = meta?.tab || resolveBoxWorkspaceTab(meta?.tabId || getBoxProjectionTabId() || null) || null;
     const payload = meta?.payload || tab?.payload || null;
     const svg = resolveBoxPlotSvgRoot();
     const backgroundRect = svg?.querySelector?.('[data-color-scheme-background="1"]') || null;
@@ -1094,7 +1094,7 @@
     const previousFormat = normalizeBoxTableFormat(options.previousFormat || nextFormat);
     const previousDefaultScheme = getBoxDefaultColorSchemeId(previousFormat);
     const currentScheme = getBoxSelectedColorSchemeId();
-    const activeTab = options.tab || resolveBoxWorkspaceTab(options.tabId || box.__boundTabId || null) || null;
+    const activeTab = options.tab || resolveBoxWorkspaceTab(options.tabId || getBoxProjectionTabId() || null) || null;
     const explicitScheme = activeTab?.type === 'box' && typeof activeTab?.payload?.config?.colorScheme === 'string'
       ? activeTab.payload.config.colorScheme.trim().toLowerCase()
       : '';
@@ -2587,7 +2587,7 @@
   }
 
   const runBoxGlobalOpacityApply = (meta = {}) => {
-    const tabId = meta?.tabId || meta?.workspaceTabId || box.__boundTabId || null;
+    const tabId = meta?.tabId || meta?.workspaceTabId || getBoxProjectionTabId() || null;
     const session = tabId
       ? getBoxSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'box-global-opacity-apply' }, { create: false })
       : getActiveBoxSessionForState();
@@ -10787,7 +10787,7 @@
     return flag ? 'horizontal' : 'vertical';
   }
   // PART: STATE
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsOmnibusParametricVariant: 'classic', statsPairwiseParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsComputeAfterContextReady: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, storedSignificanceLayoutReapplyPending: false, suppressNextStatsSvgReapply: false, authoritativeRenderRestoreActive: false, authoritativeRenderRestoreSuppressUntil: 0, authoritativeRenderRestoreSuppressCount: 0, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, leftViewportExtensionPx: 0, rightViewportExtensionPx: 0, significanceBasePlotHeightPx: null, significanceBasePlotWidthPx: null, horizontalSignificancePlotWidthTargetPx: null, horizontalSignificanceBaseFrameWidthPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, graphGeometry: null, viewportExtensionResizeInProgress: false, resizeObserveDrawMutedUntil: 0, lastViewportExtensionRedrawSignature: null, applyingPayload: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: getDefaultBoxGraphTitle('strip'), yLabelText: 'Value', lastDefaultFill: '#0072B2', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsOneSampleValue: 0, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsAlpha: ASSUMPTION_ALPHA, statsAdvancedOpen: false, statsCiLevel: 0.95, statsAlternative: 'two-sided', statsNormalityMethod: 'shapiro-wilk', statsVarianceMethod: 'brown-forsythe', statsDistributionDiagnostic: 'normality-only', statsTrendTest: false, statsSeed: 1337, statsResamplingMode: 'auto', statsMonteCarloIterations: 10000, statsOutlierMode: 'none', statsOutlierAlpha: 0.05, statsOutlierQ: 0.01, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', statsOmnibusParametricVariant: 'classic', statsPairwiseParametricVariant: 'classic', statsNonParametricVariant: 'mannWhitney', statsReportPScientific: false, statsResultsTab: 'overall', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3 }, groupedStats: { analysis: 'twoWayAnova', comparisonScope: 'groupsWithinCondition', multiplicityFamily: 'within-scope' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, barSummary: BAR_SUMMARY_DEFAULT, graphTypeBorderWidths: {}, lastAxisLabels: [], showSignificanceBars: false, pendingAutoShowSignificance: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE, pScientific: DEFAULT_SIGNIFICANCE_P_SCIENTIFIC, pDecimals: DEFAULT_SIGNIFICANCE_P_DECIMALS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), gridStyle: null, groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, xTickRotateVertical: false, statsContext: null, statsContextTabId: null, statsContextVersion: 0, statsComputationPending: false, statsComputationOwnerTabId: null, statsComputeAfterContextReady: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, statsLastAnnotationModel: null, statsRestoredNeedsSignificanceReapply: false, storedSignificanceLayoutReapplyPending: false, suppressNextStatsSvgReapply: false, significanceMaxLevel: null, significanceViewportExtensionPx: 0, bottomViewportExtensionPx: 0, leftViewportExtensionPx: 0, rightViewportExtensionPx: 0, significanceBasePlotHeightPx: null, significanceBasePlotWidthPx: null, horizontalSignificancePlotWidthTargetPx: null, horizontalSignificanceBaseFrameWidthPx: null, restoredSignificanceGeometryLock: false, restoredSignificanceGeometry: null, resizeInteractionActive: false, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { size: 5 }, summaryStyles: {}, summaryGlobalStyle: null, connectPointsAcrossDatasets: false, connectionLineStyle: null, graphGeometry: null, viewportExtensionResizeInProgress: false, resizeObserveDrawMutedUntil: 0, lastViewportExtensionRedrawSignature: null, applyingPayload: false };
   state.dataDirty = true;
   state.cachedDrawInput = null;
   state.drawInProgress = false;
@@ -11334,7 +11334,13 @@
   }
 
   const boxSessionsByTabId = new Map();
-  let activeBoxSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedBoxSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getBoxProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(box, projectedBoxSession) || String(box.__boundTabId || projectedBoxSession?.tabId || '').trim();
+  }
   const boxRefsFallback = {};
   const boxDrawRuntimeFallback = createDefaultBoxDrawRuntime({
     token: state.drawToken,
@@ -11614,7 +11620,7 @@
       };
     }
     const drawOptions = sessionOrOptions && typeof sessionOrOptions === 'object' ? sessionOrOptions : {};
-    const tabLike = drawOptions.tab || drawOptions.tabId || box.__boundTabId || activeBoxSession?.tabId || null;
+    const tabLike = drawOptions.tab || drawOptions.tabId || getBoxProjectionTabId() || null;
     const session = getBoxSession(tabLike, { ...(drawOptions || {}), reason: drawOptions.reason || 'box-session-invocation' }, { create: false })
       || getActiveBoxSessionForState();
     return { session: ensureBoxSessionOwnershipShape(session), options: drawOptions };
@@ -11625,7 +11631,7 @@
     if(!shaped || !shaped.tabId){
       return null;
     }
-    if(activeBoxSession !== shaped || String(box.__boundTabId || '') !== String(shaped.tabId || '')){
+    if(projectedBoxSession !== shaped || String(box.__boundTabId || '') !== String(shaped.tabId || '')){
       bindBoxSessionForTab(shaped.tabId, {
         tabId: shaped.tabId,
         reason: reason || options.reason || 'box-explicit-session-bind'
@@ -11975,13 +11981,15 @@
   }
 
   function getActiveBoxSessionForState(){
-    if(activeBoxSession && (!box.__boundTabId || String(activeBoxSession.tabId || '') === String(box.__boundTabId || ''))){
-      return activeBoxSession;
-    }
-    if(box.__boundTabId){
-      return boxSessionsByTabId.get(String(box.__boundTabId)) || null;
-    }
-    return null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'box',
+      component: box,
+      projectedSession: projectedBoxSession,
+      getSession: getBoxSession,
+      ensureSession: ensureBoxSessionOwnershipShape,
+      create: false,
+      reason: 'active-box-session'
+    }) || null;
   }
 
   function getBoxSession(tabLike = null, meta = {}, options = {}){
@@ -12560,7 +12568,7 @@
       || resolveBoxTabIdFromNode(state.hot?.__boxHostContainer || null)
       || resolveBoxTabIdFromNode(boxRoot)
       || box.__boundTabId
-      || activeBoxSession?.tabId
+      || projectedBoxSession?.tabId
       || ''
     ).trim() || null;
   }
@@ -12603,7 +12611,7 @@
     return normalizeBoxSessionState(record, normalizedTabId);
   }
 
-  function captureBoxSessionState(session = activeBoxSession, meta = {}, options = {}){
+  function captureBoxSessionState(session = projectedBoxSession, meta = {}, options = {}){
     const shaped = ensureBoxSessionOwnershipShape(session);
     if(!shaped){
       return null;
@@ -12723,7 +12731,7 @@
     return shaped?.timers || null;
   }
 
-  function rememberBoxSessionEphemera(session = activeBoxSession, meta = {}){
+  function rememberBoxSessionEphemera(session = projectedBoxSession, meta = {}){
     const shaped = ensureBoxSessionOwnershipShape(session);
     if(!shaped){
       return null;
@@ -12780,7 +12788,7 @@
     return shaped;
   }
 
-  function applyBoxSessionEphemera(session = activeBoxSession, meta = {}){
+  function applyBoxSessionEphemera(session = projectedBoxSession, meta = {}){
     const shaped = ensureBoxSessionOwnershipShape(session);
     if(!shaped){
       return null;
@@ -12808,8 +12816,8 @@
     if(!tabId){
       return null;
     }
-    if(activeBoxSession && String(activeBoxSession.tabId || '') !== String(tabId) && options.preserveCurrent !== false){
-      rememberBoxSessionEphemera(activeBoxSession, {
+    if(projectedBoxSession && String(projectedBoxSession.tabId || '') !== String(tabId) && options.preserveCurrent !== false){
+      rememberBoxSessionEphemera(projectedBoxSession, {
         reason: 'box-session-switch-preserve-current',
         captureState: true
       });
@@ -12819,7 +12827,7 @@
       return null;
     }
     session.root = meta?.root || resolveBoxRoot(tabId) || session.root || null;
-    activeBoxSession = session;
+    projectedBoxSession = session;
     if(options.applyEphemera !== false){
       applyBoxSessionEphemera(session, meta);
     }
@@ -13419,27 +13427,7 @@
   }
 
   function resolveBoxTabIdFromNode(node){
-    let cursor = node || null;
-    const doc = global.document || null;
-    while(cursor && cursor !== doc){
-      const dataset = cursor.dataset || null;
-      const candidate = String(dataset?.workspaceTabId || dataset?.tabId || '').trim();
-      if(candidate){
-        return candidate;
-      }
-      if(typeof cursor.getAttribute === 'function'){
-        const attrCandidate = String(
-          cursor.getAttribute('data-workspace-tab-id')
-          || cursor.getAttribute('data-tab-id')
-          || ''
-        ).trim();
-        if(attrCandidate){
-          return attrCandidate;
-        }
-      }
-      cursor = cursor.parentElement || cursor.parentNode || null;
-    }
-    return null;
+    return Shared.componentLifecycle?.resolveTabIdFromTarget?.(node) || null;
   }
 
   function resolveBoxTabId(tabLike = null){
@@ -13527,7 +13515,7 @@
   }
 
   function resolveActiveBoxSvg(tabLike = null){
-    const tabId = resolveBoxTabId(tabLike || box.__boundTabId || null);
+    const tabId = resolveBoxTabId(tabLike || getBoxProjectionTabId() || null);
     const root = resolveBoxRoot(tabLike || tabId || null) || boxRoot || null;
     const scopedSvg = queryBoxNode('#boxPlot svg', { root, tabLike: tabId });
     if(scopedSvg){
@@ -13695,9 +13683,6 @@
     setBoxSignificanceResultsState(statsRuntime || null, runtimeSession);
     clearBoxStatsRuntimeState(runtimeSession, 'apply-runtime-state');
     state.pendingAutoShowSignificance = false;
-    if(!state.authoritativeRenderRestoreActive){
-      state.authoritativeRenderRestoreActive = false;
-    }
     if(statsRuntime){
       if(statsRuntime.flipTransition && typeof statsRuntime.flipTransition === 'object'){
         state.flipTransition = cloneSimple(statsRuntime.flipTransition) || createDefaultBoxFlipTransitionState();
@@ -13780,7 +13765,7 @@
       node.removeEventListener(eventKey, previous);
     }
     const wrappedHandler = event => {
-      const ownerTabId = resolveBoxTabIdFromNode(event?.currentTarget || node) || resolveBoxTabIdFromNode(event?.target || null) || box.__boundTabId || null;
+      const ownerTabId = resolveBoxTabIdFromNode(event?.currentTarget || node) || resolveBoxTabIdFromNode(event?.target || null) || getBoxProjectionTabId() || null;
       if(ownerTabId){
         const ownerSession = getBoxSession(ownerTabId, { tabId: ownerTabId, reason: `box-control-${String(key || 'handler')}` }, { create: false });
         if(ownerSession && !isBoxSessionActiveForModuleState(ownerSession)){
@@ -15641,7 +15626,7 @@
       rowThreshold: 1000,
       cellThreshold: 5000
     }),
-    getTabId: () => box.__boundTabId || null,
+    getTabId: () => getBoxProjectionTabId() || null,
     getHost: () => (
       els.svgBox
       || els.graphPanel?.querySelector?.('.svgbox')
@@ -16131,7 +16116,7 @@
     if(boxDebugEnabled()){
       console.debug('Debug: box graph geometry updated', {
         reason: options.reason || null,
-        tabId: owner?.tabId || box.__boundTabId || null,
+        tabId: owner?.tabId || getBoxProjectionTabId() || null,
         frame: next.frame,
         reserves: next.reserves,
         plot: next.plot,
@@ -16437,7 +16422,7 @@
         [horizontal ? 'targetWidth' : 'targetHeight']: targetSize,
         [horizontal ? 'currentHeight' : 'currentWidth']: crossSize,
         resizeResult,
-        tabId: box.__boundTabId || null
+        tabId: getBoxProjectionTabId() || null
       });
     }
     if(hasFrameAuthority && !horizontal && options.commitFrameLayout === true){
@@ -16620,7 +16605,7 @@
         targetWidth,
         targetHeight,
         resizeResult,
-        tabId: box.__boundTabId || null
+        tabId: getBoxProjectionTabId() || null
       });
     }
     return {
@@ -16720,7 +16705,7 @@
         containerResizeApplied: !!resizeResult?.applied,
         resizeResult,
         reason: options.reason || null,
-        tabId: owner?.tabId || box.__boundTabId || null
+        tabId: owner?.tabId || getBoxProjectionTabId() || null
       });
     }
     return {
@@ -16756,7 +16741,7 @@
       console.debug('Debug: box export controls clearance skipped because controls are no longer a sizing authority', {
         reason: options.reason || null,
         resizePhase: options.resizePhase || null,
-        tabId: box.__boundTabId || null
+        tabId: getBoxProjectionTabId() || null
       });
     }
     return false;
@@ -17766,7 +17751,7 @@
     const run = (runOptions = {}) => {
       const ownerOptions = { ...(options || {}), ...(runOptions || {}) };
       const refreshSession = resolveBoxRefreshOwnerSession(ownerOptions, scheduleReason);
-      const refreshTabId = refreshSession?.tabId || ownerOptions.tabId || box.__boundTabId || null;
+      const refreshTabId = refreshSession?.tabId || ownerOptions.tabId || getBoxProjectionTabId() || null;
       if(refreshSession && !isBoxSessionActiveForModuleState(refreshSession)){
         updateBoxDrawRuntime(refreshSession, runtime => {
           runtime.pendingOptions = mergeBoxDrawOptions(runtime.pendingOptions, { viewOnly: true, reason: scheduleReason, tabId: refreshTabId });
@@ -17793,69 +17778,12 @@
     }
     if(boxSignificanceFontRefreshDebounced){
       boxSignificanceFontRefreshDebounced({
-        tabId: options.tabId || options.workspaceTabId || options.detail?.tabId || options.detail?.workspaceTabId || options.detail?.tabToken || box.__boundTabId || null,
+        tabId: options.tabId || options.workspaceTabId || options.detail?.tabId || options.detail?.workspaceTabId || options.detail?.tabToken || getBoxProjectionTabId() || null,
         reason: scheduleReason
       });
       return;
     }
     run();
-  }
-
-  function shouldSuppressAuthoritativeBoxRestoreDraw(reason){
-    const value = String(reason || '').trim().toLowerCase();
-    if(!value){
-      return true;
-    }
-    return value === 'schedule'
-      || value.includes('restore')
-      || value.includes('reapply')
-      || value.includes('payload')
-      || value.includes('viewport')
-      || value.includes('programmatic')
-      || value.includes('render-cache')
-      || value.includes('resize')
-      || value.includes('layout');
-  }
-
-  function isAuthoritativeRestoreReleaseReason(reason){
-    const value = String(reason || '').trim().toLowerCase();
-    return value === 'resize' || value === 'layout-sync';
-  }
-
-  function clearBoxRenderRestoreDrawGates(reason){
-    const wasActive = !!state.authoritativeRenderRestoreActive
-      || (Number(state.authoritativeRenderRestoreSuppressUntil) || 0) > 0
-      || (Number(state.authoritativeRenderRestoreSuppressCount) || 0) > 0;
-    state.authoritativeRenderRestoreActive = false;
-    state.authoritativeRenderRestoreSuppressUntil = 0;
-    state.authoritativeRenderRestoreSuppressCount = 0;
-    updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
-      next.suppressNextStatsSvgReapply = false;
-    });
-    if(wasActive){
-      console.debug('Debug: box render-restore draw gate cleared', { reason: reason || 'unknown' });
-    }
-    return wasActive;
-  }
-
-  function activateAuthoritativeBoxRenderRestore(reason){
-    // Render-cache restoration is now governed centrally by domControls: restore,
-    // validate, then fallback to a normal draw if invalid. Component-local timed draw
-    // suppression made recovered/reopened graphs behave differently from live graphs.
-    clearBoxRenderRestoreDrawGates(reason || 'authoritative-render-restore');
-    console.debug('Debug: box render-cache restore uses central workspace contract', { reason: reason || 'unknown' });
-    return false;
-  }
-
-  function releaseAuthoritativeBoxRenderRestore(reason){
-    return clearBoxRenderRestoreDrawGates(reason || 'release-authoritative-render-restore');
-  }
-
-  function consumeAuthoritativeBoxRestoreSuppression(reason, force){
-    if(state.authoritativeRenderRestoreActive){
-      clearBoxRenderRestoreDrawGates(reason || (force ? 'force-release' : 'restore-suppression-release'));
-    }
-    return false;
   }
 
   function resolveBoxRefreshOwnerSession(options = {}, reason){
@@ -17896,7 +17824,7 @@
     const userInitiatedRefresh = options.userInitiated === true
       || (options.userInitiated !== false && !passiveReason);
     const refreshSession = resolveBoxRefreshOwnerSession(options, nextReason);
-    const refreshTabId = refreshSession?.tabId || box.__boundTabId || null;
+    const refreshTabId = refreshSession?.tabId || getBoxProjectionTabId() || null;
     const lifecycleMeta = {
       tabId: refreshTabId,
       reason: nextReason,
@@ -17915,14 +17843,8 @@
     }
     const preservesRestoredGeometry = normalizedReason === 'show-significance-change'
       || normalizedReason === 'significance-toggle';
-    if(nextReason && !preservesRestoredGeometry && !shouldSuppressAuthoritativeBoxRestoreDraw(nextReason)){
+    if(nextReason && !preservesRestoredGeometry){
       clearRestoredBoxSignificanceGeometryLock(nextReason, refreshSession);
-    }
-    if(state.authoritativeRenderRestoreActive){
-      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, options.force === true)){
-        console.debug('Debug: box draw suppressed during authoritative restore', { reason: nextReason });
-        return;
-      }
     }
     const scheduleOptions = Object.assign({}, options, {
       tabId: refreshTabId || options.tabId || null,
@@ -18767,7 +18689,7 @@
     if(typeof config.tableFormat === 'string' && config.tableFormat.trim()){
       return normalizeBoxTableFormat(config.tableFormat);
     }
-    const tabId = resolveBoxTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || hotInstance?.__boxTabId || box.__boundTabId || null);
+    const tabId = resolveBoxTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || hotInstance?.__boxTabId || getBoxProjectionTabId() || null);
     const session = tabId
       ? getBoxSession(tabId, { ...(meta || {}), tabId, reason: 'box-payload-table-format-session' }, { create: false })
       : null;
@@ -19639,7 +19561,7 @@
     applyTableFormatToHot(hot);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       console.debug('Debug: box active table format synced', {
-        tabId: box.__boundTabId || null,
+        tabId: getBoxProjectionTabId() || null,
         tableFormat: state.tableFormat,
         reason: reason || 'unspecified'
       });
@@ -19736,12 +19658,6 @@
       const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
       if(invalidate === 'data'){
         markBoxDrawDataDirty('hot-after-change');
-      }
-      if(consumeAuthoritativeBoxRestoreSuppression(meta.reason || meta.source || 'payload', !!meta.force)){
-        console.debug('Debug: box table draw suppressed during authoritative restore', {
-          reason: meta.reason || meta.source || null
-        });
-        return;
       }
       const ownerHot = meta.hot || meta.hotInstance || state.hot || null;
       const ownerSession = getBoxSessionForHot(ownerHot, meta, { create: false }) || getActiveBoxSessionForState();
@@ -21472,7 +21388,7 @@
     if(panel && Shared.statsReporting && typeof Shared.statsReporting.setPanelPValueFormatScientific === 'function'){
       Shared.statsReporting.setPanelPValueFormatScientific(panel, getStatsPValueScientificPreference(), {
         source: 'box',
-        tabId: box.__boundTabId || null
+        tabId: getBoxProjectionTabId() || null
       });
     }
     return panel;
@@ -29340,7 +29256,7 @@ Technical analysis record (advanced)
   }
 
   function updateStatsButtonState(config){
-    const activeButton = getBoxNodeById('boxComputeStats', { root: boxRoot, tabLike: box.__boundTabId || null }) || els.statsButton || null;
+    const activeButton = getBoxNodeById('boxComputeStats', { root: boxRoot, tabLike: getBoxProjectionTabId() || null }) || els.statsButton || null;
     if(activeButton && els.statsButton !== activeButton){
       els.statsButton = activeButton;
     }
@@ -29353,7 +29269,7 @@ Technical analysis record (advanced)
     if(config && typeof config.label === 'string' && config.label){
       els.statsButton.textContent = config.label;
     }
-    const scopeRoot = resolveBoxRoot(box.__boundTabId || null) || boxRoot || null;
+    const scopeRoot = resolveBoxRoot(getBoxProjectionTabId() || null) || boxRoot || null;
     const mirrors = scopeRoot?.querySelectorAll?.('#boxComputeStats') || [];
     mirrors.forEach(button => {
       if(button === els.statsButton){
@@ -29421,7 +29337,7 @@ Technical analysis record (advanced)
       return false;
     }
     const targetTabId = resolveBoxTabId(options.tabId || null);
-    const activeTabId = resolveBoxExplicitOrBoundTabId(options) || resolveBoxTabId(box.__boundTabId || null);
+    const activeTabId = resolveBoxExplicitOrBoundTabId(options) || resolveBoxTabId(getBoxProjectionTabId() || null);
     if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
       console.debug('Debug: box stats controls restore skipped for inactive tab', {
         reason: options.reason || 'stats-controls-restore',
@@ -29825,7 +29741,6 @@ Technical analysis record (advanced)
       && !!state.statsLastAnnotationModel
       && !hasLiveSignificanceAnnotations
       && !statsPending
-      && !state.authoritativeRenderRestoreActive
       && state.statsLastRunVersion === version
       && hasResults;
     const needsViewRedrawAnnotationReapply = !svgChanged
@@ -29834,7 +29749,6 @@ Technical analysis record (advanced)
       && !!state.showSignificanceBars
       && !!state.statsLastAnnotationModel
       && !statsPending
-      && !state.authoritativeRenderRestoreActive
       && (
         requestedReason === 'resize'
         || requestedReason === 'show-significance-change'
@@ -29848,8 +29762,6 @@ Technical analysis record (advanced)
         significance: state.showSignificanceBars,
         version
       });
-    }else if(svgChanged && state.authoritativeRenderRestoreActive){
-      console.debug('Debug: box stats svg reapply skipped during authoritative restore',{ significance: state.showSignificanceBars, version });
     }else if(svgChanged && suppressSvgReapply){
       updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
         next.suppressNextStatsSvgReapply = false;
@@ -29900,7 +29812,7 @@ Technical analysis record (advanced)
     }
     consumeBoxStatsComputeAfterContextReady(primedContext);
     const refreshedSignificanceState = getBoxSignificanceResultsState(getActiveBoxSessionForState());
-    if(!state.authoritativeRenderRestoreActive && refreshedSignificanceState.statsRestoredNeedsSignificanceReapply && state.showSignificanceBars && !statsPending){
+    if(refreshedSignificanceState.statsRestoredNeedsSignificanceReapply && state.showSignificanceBars && !statsPending){
       updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
         next.statsRestoredNeedsSignificanceReapply = false;
       });
@@ -30591,7 +30503,7 @@ Technical analysis record (advanced)
   function commitBoxSignificanceDisplayToggle(enabled, reason){
     const nextEnabled = !!enabled;
     captureBoxHorizontalSignificancePlotSpanTarget(reason || 'significance-display-toggle');
-    const activeSvg = resolveActiveBoxSvg(getActiveBoxWorkspaceTabId() || box.__boundTabId || null);
+    const activeSvg = resolveActiveBoxSvg(getActiveBoxWorkspaceTabId() || getBoxProjectionTabId() || null);
     if(activeSvg){
       clearBoxSignificanceAnnotations(activeSvg);
     }
@@ -30706,12 +30618,6 @@ Technical analysis record (advanced)
   }
 
   function tryApplyStoredBoxStatsAnnotations(context, options = {}){
-    if(state.authoritativeRenderRestoreActive){
-      console.debug('Debug: box stored significance annotation restore skipped during authoritative restore', {
-        reason: options.reason || 'unknown'
-      });
-      return false;
-    }
     const contextTabId = context?.tabId || state.statsContextTabId || resolveBoxExplicitOrBoundTabId() || null;
     const model = normalizeBoxStatsAnnotationModel(state.statsLastAnnotationModel, {
       signature: state.statsContextSignature,
@@ -30894,7 +30800,7 @@ Technical analysis record (advanced)
   }
 
   function consumeBoxStatsComputeAfterContextReady(context){
-    const session = ensureBoxSessionOwnershipShape(getBoxSession(context?.tabId || state.statsContextTabId || box.__boundTabId || null, { reason: 'box-stats-context-ready-session' }, { create: false }) || getActiveBoxSessionForState());
+    const session = ensureBoxSessionOwnershipShape(getBoxSession(context?.tabId || state.statsContextTabId || getBoxProjectionTabId() || null, { reason: 'box-stats-context-ready-session' }, { create: false }) || getActiveBoxSessionForState());
     const statsRuntime = getBoxStatsRuntimeState(session);
     if(statsRuntime.computeAfterContextReady !== true || statsRuntime.pending){
       return false;
@@ -30915,7 +30821,7 @@ Technical analysis record (advanced)
   }
 
   function handleStatsComputeClick(evt){
-    const session = getBoxSession(getActiveBoxWorkspaceTabId() || box.__boundTabId || null, { reason: 'box-stats-compute-entrypoint' }, { create: false }) || getActiveBoxSessionForState();
+    const session = getBoxSession(getActiveBoxWorkspaceTabId() || getBoxProjectionTabId() || null, { reason: 'box-stats-compute-entrypoint' }, { create: false }) || getActiveBoxSessionForState();
     return handleStatsComputeClickForSession(session, evt);
   }
 
@@ -30944,16 +30850,8 @@ Technical analysis record (advanced)
     updateBoxStatsRuntimeState(statsSession, runtime => {
       runtime.autoSvgReapplyPending = false;
     });
-    if(state.authoritativeRenderRestoreActive && !userInitiated){
-      console.debug('Debug: box stats compute skipped during authoritative restore', {
-        autoSvgReapply,
-        reason: 'authoritative-render-restore'
-      });
-      return;
-    }
     if(userInitiated){
       clearRestoredBoxSignificanceGeometryLock('stats-compute-user', statsSession);
-      releaseAuthoritativeBoxRenderRestore('stats-compute-user');
     }
     const canShowSignificance = isPairwiseSignificanceSupported();
     const shouldAutoEnableSignificance = userInitiated && canShowSignificance && !state.showSignificanceBars;
@@ -31390,7 +31288,7 @@ Technical analysis record (advanced)
 
   // PART: DRAW
 
-  async function drawBoxSession(session = activeBoxSession, options = {}){
+  async function drawBoxSession(session = projectedBoxSession, options = {}){
     const shaped = bindBoxInvocationSession(session || getActiveBoxSessionForState(), options.reason || 'box-draw-session', {
       preserveCurrent: options.preserveCurrent !== false,
       applyEphemera: true
@@ -38227,7 +38125,7 @@ Technical analysis record (advanced)
   box.createEmptyPayload = function createEmptyBoxPayload(){
     console.debug('Debug: box.createEmptyPayload pure factory invoked', {
       ready: !!box.ready,
-      boundTabId: box.__boundTabId || null
+      boundTabId: getBoxProjectionTabId() || null
     });
     const payload = { type: 'box', config: {} };
     payload.type = 'box';
@@ -38367,7 +38265,7 @@ Technical analysis record (advanced)
     console.debug('Debug: box.open result', result);
   };
   function applyBoxPayload(obj, meta = {}){
-    bumpBoxDrawToken(getBoxSession(meta?.tab || meta?.tabId || box.__boundTabId || null, meta, { create: false }) || getActiveBoxSessionForState());
+    bumpBoxDrawToken(getBoxSession(meta?.tab || meta?.tabId || getBoxProjectionTabId() || null, meta, { create: false }) || getActiveBoxSessionForState());
     const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
     const overlayMessage = meta?.overlayMessage || (meta?.source === 'file' ? 'Loading saved box graph...' : 'Loading box data...');
     const overlayEnabled = meta?.flagOverlay === true;
@@ -39103,10 +39001,7 @@ Technical analysis record (advanced)
           });
         }
       }else{
-        const authoritativeRenderRestore = meta?.authoritativeRenderRestore === true;
-        if(!authoritativeRenderRestore){
-          clearBoxRenderRestoreDrawGates('payload-load-non-authoritative');
-        }
+        const passiveRestore = meta?.suppressDraw === true || meta?.restoreRenderCache === true || meta?.skipInitialDraw === true;
         let restoredComputedStats = false;
         if(c.stats && typeof c.stats === 'object'){
           const savedVersionRaw = Number(c.stats.lastRunVersion);
@@ -39136,7 +39031,7 @@ Technical analysis record (advanced)
             setBoxGraphGeometryState(cloneSimple(savedGraphGeometry) || createDefaultBoxGraphGeometry(), getActiveBoxSessionForState(), 'payload-graph-geometry');
           }
           if(savedViewportGeometry){
-            restoreBoxSignificanceGeometryFromSaved(savedViewportGeometry, authoritativeRenderRestore ? 'payload-load-authoritative' : 'payload-load', getActiveBoxSessionForState());
+            restoreBoxSignificanceGeometryFromSaved(savedViewportGeometry, passiveRestore ? 'payload-load-passive' : 'payload-load', getActiveBoxSessionForState());
           }
           const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
           if(savedVersion > 0 && restoredResults && hasResults){
@@ -39146,29 +39041,23 @@ Technical analysis record (advanced)
             updateBoxSignificanceResultsState(getActiveBoxSessionForState(), next => {
               next.statsRestoredNeedsSignificanceReapply = false;
             });
-            if(authoritativeRenderRestore){
-              activateAuthoritativeBoxRenderRestore('payload-load');
-            }
             restoredComputedStats = true;
           }
         }
         if(!restoredComputedStats){
           resetStatsComputationState({ placeholder: 'Statistics will appear after calculation.' });
-          const shouldRestoreStatsControlsNow = authoritativeRenderRestore || suppressDraw;
+          const shouldRestoreStatsControlsNow = passiveRestore || suppressDraw;
           const primedStatsContext = primeBoxStatsContextFromMatrix(obj.data, {
             tabId: resolveBoxExplicitOrBoundTabId() || null,
             svg: els.plotDiv?.querySelector?.('svg') || getBoxNodeById('boxSvg') || null,
             viewOnly: true,
             renderControls: shouldRestoreStatsControlsNow,
-            controlsReason: authoritativeRenderRestore ? 'payload-load-authoritative-stats-controls' : 'payload-load-stats-controls',
-            reason: authoritativeRenderRestore ? 'payload-load-authoritative-stats-context' : 'payload-load-stats-context'
+            controlsReason: passiveRestore ? 'payload-load-passive-stats-controls' : 'payload-load-stats-controls',
+            reason: passiveRestore ? 'payload-load-passive-stats-context' : 'payload-load-stats-context'
           });
           if(!primedStatsContext && shouldRestoreStatsControlsNow){
             renderStatsControls([]);
             ensureBoxStatsActionRowPlacement();
-          }
-          if(primedStatsContext && authoritativeRenderRestore){
-            activateAuthoritativeBoxRenderRestore('payload-load-stats-context');
           }
         }
       }
@@ -39215,25 +39104,33 @@ Technical analysis record (advanced)
     const payloadReason = String(meta?.reason || meta?.source || '').toLowerCase();
     if(!suppressDraw && payloadReason.includes('publication-style')){
       const scheduledTabId = box.__boundTabId || meta?.tabId || null;
-      [60, 180].forEach(delay => {
-        global.setTimeout(() => {
-          if(scheduledTabId && box.__boundTabId && box.__boundTabId !== scheduledTabId){
-            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              console.debug('Debug: box publication-style resize redraw skipped for inactive tab', {
-                scheduledTabId,
-                activeTabId: box.__boundTabId || null
-              });
-            }
-            return;
+      const runPublicationStyleRedraw = () => {
+        if(scheduledTabId && box.__boundTabId && box.__boundTabId !== scheduledTabId){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box publication-style resize redraw skipped for inactive tab', {
+              scheduledTabId,
+              activeTabId: getBoxProjectionTabId() || null
+            });
           }
-          scheduleBoxViewRefresh('resize', {
-            force: true,
-            silentOverlay: true,
-            resizePhase: 'programmatic',
-            forceCanvasRecompute: true,
-            userInitiated: false
-          });
-        }, delay);
+          return;
+        }
+        scheduleBoxViewRefresh('resize', {
+          force: true,
+          silentOverlay: true,
+          resizePhase: 'programmatic',
+          forceCanvasRecompute: true,
+          userInitiated: false
+        });
+      };
+      [60, 180].forEach(delay => {
+        if(scheduledTabId && Shared.componentLifecycle?.scheduleComponentTimeout){
+          Shared.componentLifecycle.scheduleComponentTimeout(box, 'box', {
+            tabId: scheduledTabId,
+            reason: 'box-publication-style-redraw'
+          }, runPublicationStyleRedraw, delay);
+        }else{
+          runPublicationStyleRedraw();
+        }
       });
     }
     console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
@@ -39272,14 +39169,6 @@ Technical analysis record (advanced)
       return false;
     }
     guardedOptions.__boxSessionMeta = sessionMeta;
-    if(state.authoritativeRenderRestoreActive){
-      const nextReason = guardedOptions.reason || 'schedule';
-      if(consumeAuthoritativeBoxRestoreSuppression(nextReason, !!guardedOptions.force)){
-        console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: nextReason });
-        resolveBoxLoading('skipped');
-        return false;
-      }
-    }
     const drawRuntime = getBoxDrawRuntime(drawSession);
     if(drawRuntime.inProgress){
       updateBoxDrawRuntime(drawSession, runtime => {
@@ -39293,13 +39182,6 @@ Technical analysis record (advanced)
       return false;
     }
     const drawReason = typeof guardedOptions?.reason === 'string' ? guardedOptions.reason : '';
-    if(state.authoritativeRenderRestoreActive){
-      if(consumeAuthoritativeBoxRestoreSuppression(drawReason, !!guardedOptions.force)){
-        console.debug('Debug: box draw cycle suppressed during authoritative restore', { reason: drawReason || null });
-        resolveBoxLoading('authoritative-render-restore');
-        return false;
-      }
-    }
     updateBoxDrawRuntime(drawSession, runtime => {
       runtime.inProgress = true;
     });
@@ -39385,33 +39267,27 @@ Technical analysis record (advanced)
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('box notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(notesState.control?.root && notesState.control.root.isConnected){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'box',
+      ownerTabId: getBoxProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'box-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'box',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      unavailableMessage: 'box notes helper unavailable',
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
       },
       onToggle: open => {
         notesState.open = !!open;
       }
-    });
+    }) || notesState.control || null;
   }
 
   box.init = function init(options = {}){
@@ -39423,7 +39299,7 @@ Technical analysis record (advanced)
     }
     if(box.ready){
       console.debug('Debug: Components.box.init rebinding', {
-        previousTabId: box.__boundTabId || null,
+        previousTabId: getBoxProjectionTabId() || null,
         targetTabId: targetTabId || null,
         reason: options.reason || 'init'
       });
@@ -39446,9 +39322,6 @@ Technical analysis record (advanced)
       reason: options.reason || 'box-init-table-format'
     });
     console.debug('Debug: Components.box.init');
-    if(options.restoreRenderCache === true || options.skipInitialDraw === true){
-      activateAuthoritativeBoxRenderRestore(options.reason || 'init-render-cache-restore');
-    }
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls({ root: boxRoot, tabId: targetTabId });
@@ -39570,13 +39443,6 @@ Technical analysis record (advanced)
         return;
       }
       nextOpts.__boxSessionMeta = sessionMeta;
-      if(state.authoritativeRenderRestoreActive){
-        const nextReason = nextOpts.reason || '';
-        if(consumeAuthoritativeBoxRestoreSuppression(nextReason, !!nextOpts.force)){
-          console.debug('Debug: box scheduled draw suppressed during authoritative restore', { reason: nextReason || null });
-          return;
-        }
-      }
       if(
         !nextOpts.force
         && state.resizeInteractionActive
@@ -39636,7 +39502,7 @@ Technical analysis record (advanced)
         component: box,
         componentKey: 'box',
         options: nextOpts,
-        tabId: nextOpts.tabId || box.__boundTabId || null,
+        tabId: nextOpts.tabId || getBoxProjectionTabId() || null,
         reason: overlayReason,
         overlayController: boxOverlayController,
         delayForOverlay: !suppressOverlay,
@@ -39702,7 +39568,7 @@ Technical analysis record (advanced)
   };
 
   box.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
-    const tabId = meta?.tabId || box.__boundTabId || null;
+    const tabId = meta?.tabId || getBoxProjectionTabId() || null;
     const cancelSession = getBoxSession(tabId || null, meta, { create: false }) || getActiveBoxSessionForState();
     const cancelToken = bumpBoxDrawToken(cancelSession);
     clearBoxScheduledDraw(meta?.reason || 'box-draw-cancel', cancelSession);
@@ -39722,12 +39588,12 @@ Technical analysis record (advanced)
     try{
       const nextOptions = options || {};
       const nextReason = nextOptions.reason || 'box-draw';
-      if(Shared.componentLifecycle?.shouldSuppressDraw?.('box', { ...nextOptions, tabId: nextOptions.tabId || box.__boundTabId || null, reason: nextReason })){
-        boxDebug('Debug: box draw suppressed by lifecycle', { reason: nextReason, tabId: nextOptions.tabId || box.__boundTabId || null });
-        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'box', tabId: nextOptions.tabId || box.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'box.draw' } });
+      if(Shared.componentLifecycle?.shouldSuppressDraw?.('box', { ...nextOptions, tabId: nextOptions.tabId || getBoxProjectionTabId() || null, reason: nextReason })){
+        boxDebug('Debug: box draw suppressed by lifecycle', { reason: nextReason, tabId: nextOptions.tabId || getBoxProjectionTabId() || null });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'box', tabId: nextOptions.tabId || getBoxProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'box.draw' } });
         return;
       }
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'box', tabId: nextOptions.tabId || box.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'box.draw' } });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'box', tabId: nextOptions.tabId || getBoxProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'box.draw' } });
       box.ensure(nextOptions);
       const invocation = resolveBoxInvocationSession(nextOptions);
       const drawSession = bindBoxInvocationSession(invocation.session, nextReason, {
@@ -39808,6 +39674,8 @@ Technical analysis record (advanced)
   }
 
   function resolveBoxPreviewSourceSvg(tab){
+    // Read-only preview source: this may reuse an inactive tab's cache DOM,
+    // but restore policy and cache invalidation remain owned by domControls/session.
     const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
     const targetTabId = tab?.id || null;
     const useRenderCache = !!(
@@ -40220,7 +40088,6 @@ Technical analysis record (advanced)
       visuallyReady
     });
     if(meta?.temporaryRestore !== true){
-      activateAuthoritativeBoxRenderRestore('render-cache-restore');
       hydrateBoxStatsSurfaceFromTabPayload(meta?.tab || meta?.tabId || null, 'render-cache-restore', meta || {});
     }
     const targetPayload = meta?.payload || meta?.tab?.payload || null;
@@ -40401,10 +40268,10 @@ Technical analysis record (advanced)
   box.captureRuntimeState = function captureRuntimeState(meta = {}){
     const effectiveMeta = {
       ...(meta || {}),
-      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || box.__boundTabId || null,
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || getBoxProjectionTabId() || null,
       reason: meta.reason || 'capture-runtime-state'
     };
-    rememberBoxSessionEphemera(getBoxSession(effectiveMeta.tabId || null, effectiveMeta, { create: false }) || activeBoxSession, {
+    rememberBoxSessionEphemera(getBoxSession(effectiveMeta.tabId || null, effectiveMeta, { create: false }) || projectedBoxSession, {
       ...effectiveMeta,
       reason: effectiveMeta.reason || 'capture-runtime-state-session-ephemera'
     });
@@ -40415,7 +40282,7 @@ Technical analysis record (advanced)
   box.applyRuntimeState = function applyRuntimeState(snapshot, meta = {}){
     const effectiveMeta = {
       ...(meta || {}),
-      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || box.__boundTabId || null,
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || getBoxProjectionTabId() || null,
       reason: meta.reason || 'apply-runtime-state'
     };
     const resolvedSnapshot = Shared.componentLifecycle?.resolveComponentRuntimeSnapshot?.(box, snapshot, effectiveMeta) || (!Shared.componentLifecycle ? snapshot : null);
@@ -40432,7 +40299,7 @@ Technical analysis record (advanced)
     component: box,
     componentKey: 'box',
     cancel: (_tab, meta = {}) => {
-      const deactivationSession = getBoxSession(_tab || meta?.tabId || box.__boundTabId || null, meta, { create: false }) || getActiveBoxSessionForState();
+      const deactivationSession = getBoxSession(_tab || meta?.tabId || getBoxProjectionTabId() || null, meta, { create: false }) || getActiveBoxSessionForState();
       const deactivationToken = bumpBoxDrawToken(deactivationSession);
       clearBoxScheduledDraw(meta.reason || 'box-deactivate', deactivationSession);
       state.resizeInteractionActive = false;
@@ -40445,7 +40312,7 @@ Technical analysis record (advanced)
         });
       }
       rememberBoxOwnedRuntimeRecord(_tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'box-deactivate-remember-owned-runtime' });
-      rememberBoxSessionEphemera(getBoxSession(_tab || meta?.tabId || null, { ...(meta || {}), reason: 'box-deactivate-session-ephemera' }, { create: false }) || activeBoxSession, {
+      rememberBoxSessionEphemera(getBoxSession(_tab || meta?.tabId || null, { ...(meta || {}), reason: 'box-deactivate-session-ephemera' }, { create: false }) || projectedBoxSession, {
         ...(meta || {}),
         reason: meta.reason || 'box-deactivate-session-ephemera'
       });
@@ -40458,7 +40325,7 @@ Technical analysis record (advanced)
       }
     }
   }) || function deactivateTab(_tab, meta = {}){
-    const deactivationSession = getBoxSession(_tab || meta?.tabId || box.__boundTabId || null, meta, { create: false }) || getActiveBoxSessionForState();
+    const deactivationSession = getBoxSession(_tab || meta?.tabId || getBoxProjectionTabId() || null, meta, { create: false }) || getActiveBoxSessionForState();
     const deactivationToken = bumpBoxDrawToken(deactivationSession);
     clearBoxScheduledDraw(meta.reason || 'box-deactivate', deactivationSession);
     state.resizeInteractionActive = false;
@@ -40471,7 +40338,7 @@ Technical analysis record (advanced)
       });
     }
     rememberBoxOwnedRuntimeRecord(_tab || meta?.tabId || null, { ...(meta || {}), reason: meta.reason || 'box-deactivate-remember-owned-runtime' });
-    rememberBoxSessionEphemera(getBoxSession(_tab || meta?.tabId || null, { ...(meta || {}), reason: 'box-deactivate-session-ephemera' }, { create: false }) || activeBoxSession, {
+    rememberBoxSessionEphemera(getBoxSession(_tab || meta?.tabId || null, { ...(meta || {}), reason: 'box-deactivate-session-ephemera' }, { create: false }) || projectedBoxSession, {
       ...(meta || {}),
       reason: meta.reason || 'box-deactivate-session-ephemera'
     });
@@ -40589,7 +40456,7 @@ Technical analysis record (advanced)
       analyzeGroupedMultipleComparisons:data=>analyzeGroupedMultipleComparisons(data),
       analyzeRowRandomMixedModel:data=>analyzeRowRandomMixedModel(data),
       computeStatsForTest: async () => {
-        const tabId = getActiveBoxWorkspaceTabId() || box.__boundTabId || null;
+        const tabId = getActiveBoxWorkspaceTabId() || getBoxProjectionTabId() || null;
         ensureBoxStatsContextForActiveData(tabId, 'test-compute-stats');
         let context = getBoxStatsContextState(getActiveBoxSessionForState(), { syncFallbackFromState: true });
         if(!context || !Array.isArray(context.traces) || !context.traces.length){
@@ -40728,8 +40595,7 @@ Technical analysis record (advanced)
           'hot', 'scheduleDraw', 'fileHandle', 'layout', 'cachedDrawInput',
           'drawToken', 'statsContext', 'statsContextTabId', 'statsComputationPending',
           'statsComputationOwnerTabId', 'pendingAutoShowSignificance',
-          'authoritativeRenderRestoreActive', 'authoritativeRenderRestoreSuppressUntil',
-          'authoritativeRenderRestoreSuppressCount', 'resizeInteractionActive',
+          'resizeInteractionActive',
           'resizeObserveDrawMutedUntil', 'viewportExtensionResizeInProgress',
           'viewportExtensionResizeGuardToken', 'viewportExtensionResizeGuardTimer',
           'lastViewportExtensionRedrawSignature', 'drawInProgress', 'lastDrawAt',

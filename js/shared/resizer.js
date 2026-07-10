@@ -211,12 +211,6 @@
           reason
         }) || invalidated;
       }
-      if(typeof session.markTabAuthoritativeRenderRestore === 'function'){
-        session.markTabAuthoritativeRenderRestore(tab, false, {
-          tabId: tab.id || null,
-          reason
-        });
-      }
       if(invalidated){
         console.debug('Debug: resizer start cache invalidation applied', {
           tabId: tab.id || null,

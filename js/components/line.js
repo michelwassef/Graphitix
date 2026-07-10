@@ -245,7 +245,7 @@
   const lineDataToolbarLastActivationByTabId = new Map();
   function scheduleLineViewRefresh(reason, extraOptions){
     syncLineRuntimeControlsFromRefs();
-    rememberLineSessionState(line.__boundTabId || null, { reason: reason || 'line-view-refresh-state' }, { readControls: false });
+    rememberLineSessionState(getLineProjectionTabId() || null, { reason: reason || 'line-view-refresh-state' }, { readControls: false });
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'line-view-refresh';
     const normalizedReason = String(nextReason || '').toLowerCase();
@@ -258,15 +258,18 @@
       || normalizedReason.includes('layout')
       || normalizedReason.includes('sync');
     const lifecycleMeta = {
-      tabId: line.__boundTabId || null,
+      tabId: getLineProjectionTabId() || null,
       reason: nextReason,
       source: 'line-view-refresh',
       forceDraw: options.force === true,
       userInitiated: options.userInitiated === true || (options.userInitiated !== false && !passiveReason)
     };
+    if(lifecycleMeta.userInitiated === true){
+      markLineViewMutation(lifecycleMeta.tabId || getLineProjectionTabId() || null, nextReason);
+    }
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('line', lifecycleMeta)){
-      console.debug('Debug: line view refresh suppressed by lifecycle', { reason: nextReason, tabId: line.__boundTabId || null });
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: line.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'line-view-refresh' } });
+      console.debug('Debug: line view refresh suppressed by lifecycle', { reason: nextReason, tabId: getLineProjectionTabId() || null });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: getLineProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'line-view-refresh' } });
       return;
     }
     if(!canScheduleActiveLineDraw()){
@@ -281,6 +284,31 @@
       userInitiated: lifecycleMeta.userInitiated === true
     });
     scheduleActiveLineDraw(scheduleOptions);
+  }
+
+  function markLineViewMutation(tabLike, reason){
+    const tabId = typeof tabLike === 'string' ? tabLike.trim() : String(tabLike?.id || '').trim();
+    const sessionApi = (global.Main && global.Main.session) ? global.Main.session : null;
+    const reasonText = reason || 'line-view-change';
+    try{
+      if(tabId && typeof sessionApi?.markTabUserModified === 'function'){
+        return !!sessionApi.markTabUserModified(tabId, reasonText, {
+          origin: 'user',
+          source: 'line-view-refresh',
+          affectsPayload: true
+        });
+      }
+      if(typeof sessionApi?.markActiveTabUserModified === 'function'){
+        return !!sessionApi.markActiveTabUserModified(reasonText, {
+          origin: 'user',
+          source: 'line-view-refresh',
+          affectsPayload: true
+        });
+      }
+    }catch(err){
+      lineDebug('Debug: line view mutation mark failed', { reason: reasonText, tabId: tabId || null, message: err?.message || String(err) });
+    }
+    return false;
   }
 
   function invalidateLineRenderCacheForTab(tabLike, reason){
@@ -347,9 +375,7 @@
       equalScaleAxes: false,
       forcedLockRatioPrevious: null,
       resizeMarginLock: null,
-      resizeViewportLock: null,
-      renderCacheRestoreSuppressUntil: 0,
-      renderCacheRestoreSuppressCount: 0
+      resizeViewportLock: null
     };
     if(typeof plot3d.normalizeRotation === 'function'){
       plot3d.normalizeRotation(viewState.rotation);
@@ -409,7 +435,7 @@
     }
     lineDebug('Debug: line rotation state committed', {
       reason,
-      tabId: target?.tabId || line.__boundTabId || null,
+      tabId: target?.tabId || getLineProjectionTabId() || null,
       rotation: {
         x: viewState.rotation?.x,
         y: viewState.rotation?.y,
@@ -421,7 +447,7 @@
 
   function persistLineRotationState(session = null, reason = 'line-rotation-state'){
     const target = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
-    const tabId = target?.tabId || line.__boundTabId || null;
+    const tabId = target?.tabId || getLineProjectionTabId() || null;
     if(!tabId){
       return null;
     }
@@ -726,7 +752,7 @@
 
   function applyLineThemeConfig(config, session = null, meta = {}){
     const cfg = config && typeof config === 'object' ? config : {};
-    const tabId = meta?.tabId || session?.tabId || line.__boundTabId || null;
+    const tabId = meta?.tabId || session?.tabId || getLineProjectionTabId() || null;
     const payloadConfig = getLineTabPayloadConfig(tabId) || {};
     const payloadScheme = (typeof payloadConfig.colorScheme === 'string' && payloadConfig.colorScheme.trim())
       ? payloadConfig.colorScheme.trim().toLowerCase()
@@ -1519,36 +1545,16 @@
   let lineAdvisorState = createDefaultLineAdvisorState();
 
   function resolveLineTabIdFromNode(node){
-    let cursor = node || null;
-    const doc = global.document || null;
-    while(cursor && cursor !== doc){
-      const dataset = cursor.dataset || null;
-      const candidate = String(dataset?.workspaceTabId || dataset?.tabId || '').trim();
-      if(candidate){
-        return candidate;
-      }
-      if(typeof cursor.getAttribute === 'function'){
-        const attrCandidate = String(
-          cursor.getAttribute('data-workspace-tab-id')
-          || cursor.getAttribute('data-tab-id')
-          || ''
-        ).trim();
-        if(attrCandidate){
-          return attrCandidate;
-        }
-      }
-      cursor = cursor.parentElement || cursor.parentNode || null;
-    }
-    return null;
+    return Shared.componentLifecycle?.resolveTabIdFromTarget?.(node) || null;
   }
 
   function resolveLineOwnedRuntimeTabId(tabLike = null, meta = {}){
-    const activeHot = getActiveLineHotManager({ allowFallback: true });
     const direct = (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike)
       || meta?.tabId
       || meta?.workspaceTabId
       || meta?.tab?.id
-      || activeHot?.__lineTabId
+      || projectedLineSession?.managers?.hot?.__lineTabId
+      || lineFallbackHotManager?.__lineTabId
       || resolveLineTabIdFromNode(refs?.root || null)
       || line.__boundTabId
       || null;
@@ -1644,8 +1650,6 @@
       : null;
     next.resizeMarginLock = normalizeLineResizeMarginLock(next.resizeMarginLock);
     next.resizeViewportLock = normalizeLineResizeViewportLock(next.resizeViewportLock, { allowExpiredStable: true });
-    next.renderCacheRestoreSuppressUntil = 0;
-    next.renderCacheRestoreSuppressCount = 0;
     if(typeof plot3d.normalizeRotation === 'function'){
       try{ plot3d.normalizeRotation(next.rotation); }catch(_err){}
     }
@@ -1983,8 +1987,8 @@
       setLineAdvisorState(record.advisorState, boundSession);
       setLineSessionModeCache(boundSession, record.modeCache);
       boundSession.state = buildLineCanonicalStateFromGlobals(record.tabId, { ...(meta || {}), tabId: record.tabId }, { readControls: false });
-      if(activeLineSession && activeLineSession.tabId === record.tabId){
-        activeLineSession = boundSession;
+      if(projectedLineSession && projectedLineSession.tabId === record.tabId){
+        projectedLineSession = boundSession;
       }
     }else{
       setLineViewState(record.viewState);
@@ -2018,8 +2022,6 @@
     const modeCache = getLineSessionModeCache(record.tabId, { ...(meta || {}), tabId: record.tabId, reason: 'line-owned-runtime-mode-cache' });
     getLineViewState().rotationPending = false;
     getLineViewState().rotationPendingLogged = false;
-    getLineViewState().renderCacheRestoreSuppressUntil = 0;
-    getLineViewState().renderCacheRestoreSuppressCount = 0;
     getLineAutoDrawState().drawPending = false;
     getLineStatsState(record.tabId).computationPending = false;
     getLineStatsState(record.tabId).restorePending = null;
@@ -2773,7 +2775,7 @@
       const replicateModeValue = refs.replicateMode?.value;
       const is3dView = String(viewModeValue).toLowerCase() === '3d' || String(replicateModeValue).toLowerCase() === '3d';
       const reasonText = String(reason || '').toLowerCase();
-      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: line.__boundTabId || null, reason });
+      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: getLineProjectionTabId() || null, reason });
       const restoreContext = lifecycleRestoreContext
         || reasonText === 'payload'
         || reasonText.includes('restore')
@@ -3309,7 +3311,7 @@
   }
 
   function updateLineRegressionOverlayControlState(statsReady = lineHasComputedStats(), options = {}){
-    const tabLike = options.tab || options.tabId || line.__boundTabId || null;
+    const tabLike = options.tab || options.tabId || getLineProjectionTabId() || null;
     const session = resolveLineRefsSession(tabLike, options);
     const lineRefs = resolveLineRefsContext(session, options);
     const controls = resolveLineOverlayControls(tabLike, { ...options, session, refs: lineRefs });
@@ -3339,9 +3341,9 @@
   }
 
   function syncLineLast2dControlStateFromRefs(tabLike = null, options = {}){
-    const session = resolveLineRefsSession(tabLike || options.tab || options.tabId || line.__boundTabId || null, options);
+    const session = resolveLineRefsSession(tabLike || options.tab || options.tabId || getLineProjectionTabId() || null, options);
     const lineRefs = resolveLineRefsContext(session, options);
-    const activeTabId = tabLike || options.tab || options.tabId || session?.tabId || line.__boundTabId || null;
+    const activeTabId = tabLike || options.tab || options.tabId || session?.tabId || getLineProjectionTabId() || null;
     const replicateModeControl = getLineNodeById('lineTableFormat', activeTabId) || lineRefs.replicateMode || null;
     if(getLineViewState().viewMode === '3d' || replicateModeControl?.value === '3d'){
       return;
@@ -3511,7 +3513,7 @@
     if(getLineViewState(session).viewMode === '3d' || lineRefs.replicateMode?.value === '3d'){
       return false;
     }
-    const controls = resolveLineOverlayControls(session?.tabId || line.__boundTabId || null, { session, refs: lineRefs });
+    const controls = resolveLineOverlayControls(session?.tabId || getLineProjectionTabId() || null, { session, refs: lineRefs });
     if(!!controls.showTrendLine?.checked){
       return true;
     }
@@ -3615,7 +3617,7 @@
         const stillCurrent = statsState.context === context && statsState.signature === context.signature;
         const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
         if(stillCurrent && statsState.lastRunVersion === context.version){
-          rememberLineSessionState(session.tabId || line.__boundTabId || null, { reason: 'line-stats-computed-remember-session' }, { readControls: true });
+          rememberLineSessionState(session.tabId || getLineProjectionTabId() || null, { reason: 'line-stats-computed-remember-session' }, { readControls: true });
           if(sess && typeof sess.persistUserModifiedTabState === 'function'){
             sess.persistUserModifiedTabState(undefined, { reason: 'stats-computed' });
           }else if(sess && typeof sess.persistActiveTabState === 'function'){
@@ -4094,16 +4096,24 @@
   let lineFallbackRuntimeControls = createDefaultLineRuntimeControls();
 
   const lineSessionsByTabId = new Map();
-  let activeLineSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedLineSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getLineProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(line, projectedLineSession) || String(line.__boundTabId || projectedLineSession?.tabId || '').trim();
+  }
 
   function getLineActiveSessionForState(){
-    if(activeLineSession && (!line.__boundTabId || String(activeLineSession.tabId || '') === String(line.__boundTabId))){
-      return activeLineSession;
+    if(projectedLineSession && (!line.__boundTabId || String(projectedLineSession.tabId || '') === String(line.__boundTabId || ''))){
+      return ensureLineSessionOwnershipShape(projectedLineSession);
     }
-    if(line.__boundTabId){
-      return lineSessionsByTabId.get(String(line.__boundTabId)) || null;
+    const boundTabId = String(line.__boundTabId || '').trim();
+    if(boundTabId){
+      return ensureLineSessionOwnershipShape(lineSessionsByTabId.get(boundTabId) || null);
     }
-    return null;
+    const workspaceTabId = String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('line') || '').trim();
+    return workspaceTabId ? ensureLineSessionOwnershipShape(lineSessionsByTabId.get(workspaceTabId) || null) : null;
   }
 
   function getActiveLineLayoutManager(){
@@ -4196,7 +4206,7 @@
       return false;
     }
     const tabId = String(shaped.tabId || '').trim();
-    const boundTabId = String(line.__boundTabId || activeLineSession?.tabId || '').trim();
+    const boundTabId = String(getLineProjectionTabId()).trim();
     const activeTabId = String(Shared.workspaceTabs?.getActiveSessionInfo?.('line')?.tabId || '').trim();
     return !!tabId && (boundTabId === tabId || activeTabId === tabId);
   }
@@ -4406,7 +4416,7 @@
       }
       stampLineSessionState(target);
     }
-    if(!target || String(target.tabId || '') === String(line.__boundTabId || activeLineSession?.tabId || '')){
+    if(!target || String(target.tabId || '') === String(getLineProjectionTabId())){
       lineLastRegressionSummaries = summaries.slice();
     }
     return summaries;
@@ -4431,7 +4441,7 @@
       target.state.statsAdvisor = next;
       stampLineSessionState(target);
     }
-    if(!target || String(target.tabId || '') === String(line.__boundTabId || activeLineSession?.tabId || '')){
+    if(!target || String(target.tabId || '') === String(getLineProjectionTabId())){
       lineAdvisorState = next;
     }
     return next;
@@ -4450,7 +4460,7 @@
       return { session: ensureLineSessionOwnershipShape(sessionOrOptions), options: options && typeof options === 'object' ? options : {} };
     }
     const drawOptions = sessionOrOptions && typeof sessionOrOptions === 'object' ? sessionOrOptions : {};
-    const tabLike = drawOptions.tab || drawOptions.tabId || line.__boundTabId || activeLineSession?.tabId || null;
+    const tabLike = drawOptions.tab || drawOptions.tabId || getLineProjectionTabId() || null;
     const session = getLineSession(tabLike, { ...(drawOptions || {}), reason: drawOptions.reason || 'line-session-invocation' }, { create: false })
       || getLineActiveSessionForState();
     return { session: ensureLineSessionOwnershipShape(session), options: drawOptions };
@@ -4461,7 +4471,7 @@
     if(!session || !session.tabId){
       return null;
     }
-    if(activeLineSession !== session || String(line.__boundTabId || '') !== String(session.tabId || '')){
+    if(projectedLineSession !== session || String(line.__boundTabId || '') !== String(session.tabId || '')){
       bindLineSessionForTab(session.tabId, {
         tabId: session.tabId,
         reason: reason || options.reason || 'line-explicit-session-bind'
@@ -4487,7 +4497,7 @@
       session.state.updatedAt = Date.now();
       session.updatedAt = Date.now();
     }
-    if(!session || String(session.tabId || '') === String(line.__boundTabId || activeLineSession?.tabId || '')){
+    if(!session || String(session.tabId || '') === String(getLineProjectionTabId())){
       lineFallbackRuntimeControls = controls;
     }
     return controls;
@@ -4698,7 +4708,7 @@
     if(explicitSession){
       return explicitSession;
     }
-    const candidateTab = options.tab || options.tabId || tabLike || line.__boundTabId || activeLineSession?.tabId || null;
+    const candidateTab = options.tab || options.tabId || tabLike || getLineProjectionTabId() || null;
     const tabId = candidateTab
       ? resolveLineOwnedRuntimeTabId(candidateTab, { reason: options.reason || 'line-refs-session-resolve' })
       : null;
@@ -4732,12 +4742,12 @@
   }
 
   function getLineSessionModeCache(tabLike = null, meta = {}, options = {}){
-    const tabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || line.__boundTabId || null, meta);
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || getLineProjectionTabId() || null, meta);
     if(!tabId){
       return createDefaultLineModeCache();
     }
-    let session = activeLineSession && String(activeLineSession.tabId || '') === String(tabId)
-      ? activeLineSession
+    let session = projectedLineSession && String(projectedLineSession.tabId || '') === String(tabId)
+      ? projectedLineSession
       : (lineSessionsByTabId.get(tabId) || null);
     if(!session && options.create !== false){
       session = getLineSession(tabId, {
@@ -4750,13 +4760,13 @@
   }
 
   function getActiveLineModeCache(meta = {}){
-    const modeCache = getLineSessionModeCache(line.__boundTabId || activeLineSession?.tabId || null, {
+    const modeCache = getLineSessionModeCache(getLineProjectionTabId() || null, {
       ...(meta || {}),
-      tabId: line.__boundTabId || activeLineSession?.tabId || null,
+      tabId: getLineProjectionTabId() || null,
       reason: meta?.reason || 'line-mode-cache-active-session'
     }, { create: true });
-    if(!activeLineSession && line.__boundTabId){
-      activeLineSession = lineSessionsByTabId.get(line.__boundTabId) || activeLineSession;
+    if(!projectedLineSession && line.__boundTabId){
+      projectedLineSession = lineSessionsByTabId.get(line.__boundTabId) || projectedLineSession;
     }
     return modeCache;
   }
@@ -5053,7 +5063,7 @@
   }
 
   function buildLineCanonicalStateFromGlobals(tabLike = null, meta = {}, options = {}){
-    const tabId = resolveLineOwnedRuntimeTabId(tabLike || line.__boundTabId || null, meta) || '';
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike || getLineProjectionTabId() || null, meta) || '';
     const canonicalSession = tabId
       ? getLineSession(tabId, { ...(meta || {}), tabId, reason: 'line-canonical-owner-session' }, { create: false })
       : getLineActiveSessionForState();
@@ -5083,7 +5093,7 @@
     statsStateSnapshot.regressionSummaries = getLineRegressionSummariesState(canonicalSession).slice();
     statsStateSnapshot.computationPending = false;
     statsStateSnapshot.restorePending = null;
-    const modeCacheSnapshot = getLineSessionModeCache(tabId || line.__boundTabId || null, { ...(meta || {}), tabId, reason: 'line-canonical-mode-cache' });
+    const modeCacheSnapshot = getLineSessionModeCache(tabId || getLineProjectionTabId() || null, { ...(meta || {}), tabId, reason: 'line-canonical-mode-cache' });
     const labelsSnapshot = cloneLineRuntimeValue(getLineLabelsState(canonicalSession), createDefaultLineLabelsState());
     const themeSnapshot = cloneLineRuntimeValue(getLineThemeState(canonicalSession), createDefaultLineThemeState());
     const stylesSnapshot = cloneLineRuntimeValue(getLineStylesState(canonicalSession), createDefaultLineStyleState());
@@ -5091,7 +5101,7 @@
     const forecastSnapshot = cloneLineRuntimeValue(getLineForecastState(canonicalSession), createDefaultLineForecastState());
     const axisSettingsSnapshot = cloneLineRuntimeValue(getLineAxisSettingsState(canonicalSession), createLineAxisSettings());
     const gridStyleSnapshot = cloneLineRuntimeValue(getLineGridStyleState(canonicalSession, axisSettingsSnapshot?.strokeWidth), null);
-    captureLineResizeViewportLockFromDom(activeLineSession && String(activeLineSession.tabId || '') === String(tabId || '') ? activeLineSession : null);
+    captureLineResizeViewportLockFromDom(projectedLineSession && String(projectedLineSession.tabId || '') === String(tabId || '') ? projectedLineSession : null);
     return normalizeLineCanonicalState({
       tabId,
       notes: { text: notesText, open: notesOpen },
@@ -5137,7 +5147,7 @@
 
   function canUseLineNotesControl(noteControl){
     if(!noteControl){ return false; }
-    const root = refs.root || resolveLineRoot(line.__boundTabId || null);
+    const root = refs.root || resolveLineRoot(getLineProjectionTabId() || null);
     const controlRoot = noteControl.root || null;
     if(controlRoot){
       return !!controlRoot.isConnected && (!root || root === controlRoot || root.contains?.(controlRoot));
@@ -5163,8 +5173,8 @@
     lineLast2dShowPredictionIntervals = !!canonical.last2d.showPredictionIntervals;
     lineLogPlusOneX = !!canonical.logPlusOne.x;
     lineLogPlusOneY = !!canonical.logPlusOne.y;
-    const canonicalOwnerSession = activeLineSession && String(activeLineSession.tabId || '') === String(canonical.tabId || meta?.tabId || '')
-      ? activeLineSession
+    const canonicalOwnerSession = projectedLineSession && String(projectedLineSession.tabId || '') === String(canonical.tabId || meta?.tabId || '')
+      ? projectedLineSession
       : getLineSession(canonical.tabId || meta?.tabId || null, { ...(meta || {}), tabId: canonical.tabId || meta?.tabId || null, reason: 'line-apply-canonical-axis-session' }, { create: !!(canonical.tabId || meta?.tabId) });
     setLineLabelsState(canonicalOwnerSession, canonical.labels, { ...(meta || {}), reason: 'line-apply-canonical-labels' });
     setLineThemeState(canonicalOwnerSession, canonical.theme, { ...(meta || {}), reason: 'line-apply-canonical-theme' });
@@ -5180,7 +5190,7 @@
     setLineAdvisorState(canonical.advisorState, canonicalOwnerSession);
     setLineViewState(normalizeLineOwnedViewState(canonical.viewState));
     if(options.syncControls === true){
-      applyLineResizeViewportLockToDom(activeLineSession && String(activeLineSession.tabId || '') === String(canonical.tabId || meta?.tabId || '') ? activeLineSession : null);
+      applyLineResizeViewportLockToDom(projectedLineSession && String(projectedLineSession.tabId || '') === String(canonical.tabId || meta?.tabId || '') ? projectedLineSession : null);
     }
     setLineAutoDrawState(normalizeLineOwnedAutoDrawState(canonical.autoDrawState || canonical.autoDraw));
     getLineAutoDrawState().drawPending = false;
@@ -5205,7 +5215,7 @@
       canonicalStatsState.restorePending = null;
     }
     canonicalStatsState.computationPending = false;
-    const modeSession = activeLineSession || getLineSession(canonical.tabId || meta?.tabId || null, { ...(meta || {}), tabId: canonical.tabId || meta?.tabId || null, reason: 'line-apply-canonical-mode-cache' }, { create: !!(canonical.tabId || meta?.tabId) });
+    const modeSession = projectedLineSession || getLineSession(canonical.tabId || meta?.tabId || null, { ...(meta || {}), tabId: canonical.tabId || meta?.tabId || null, reason: 'line-apply-canonical-mode-cache' }, { create: !!(canonical.tabId || meta?.tabId) });
     setLineSessionModeCache(modeSession, canonical.modeCache);
     const autoDrawManager = getActiveLineAutoDrawManager();
     if(autoDrawManager && autoDrawManager.state !== getLineAutoDrawState()){
@@ -5291,7 +5301,7 @@
   }
 
   function rememberLineSessionState(tabLike = null, meta = {}, options = {}){
-    const session = getLineSession(tabLike || line.__boundTabId || null, meta, { create: true });
+    const session = getLineSession(tabLike || getLineProjectionTabId() || null, meta, { create: true });
     if(!session){
       return null;
     }
@@ -5323,14 +5333,14 @@
     if(!targetTabId){
       return null;
     }
-    if(activeLineSession && activeLineSession.tabId && activeLineSession.tabId !== targetTabId && options.preserveCurrent !== false){
-      rememberLineSessionState(activeLineSession.tabId, { reason: 'line-session-switch-preserve-current' }, { readControls: line.ready === true });
+    if(projectedLineSession && projectedLineSession.tabId && projectedLineSession.tabId !== targetTabId && options.preserveCurrent !== false){
+      rememberLineSessionState(projectedLineSession.tabId, { reason: 'line-session-switch-preserve-current' }, { readControls: line.ready === true });
     }
     const session = getLineSession(targetTabId, { ...(meta || {}), tabId: targetTabId }, { create: true });
     if(!session){
       return null;
     }
-    activeLineSession = session;
+    projectedLineSession = session;
     line.__lineSessionTabId = targetTabId;
     applyLineSessionEphemera(session);
     applyLineCanonicalStateToGlobals(session.state, { ...(meta || {}), tabId: targetTabId }, { syncControls: options.syncControls === true && line.ready === true });
@@ -5338,7 +5348,7 @@
   }
 
   function captureLineCanonicalSnapshot(tabLike = null, meta = {}, options = {}){
-    const tabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || line.__boundTabId || null, meta);
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || getLineProjectionTabId() || null, meta);
     if(!tabId){
       return null;
     }
@@ -5351,9 +5361,9 @@
   }
 
   function syncLineRuntimeControlsFromRefs(options = {}){
-    const session = resolveLineRefsSession(options.tab || options.tabId || line.__boundTabId || null, options);
+    const session = resolveLineRefsSession(options.tab || options.tabId || getLineProjectionTabId() || null, options);
     const lineRefs = resolveLineRefsContext(session, options);
-    const overlayControls = resolveLineOverlayControls(options.tab || options.tabId || session?.tabId || line.__boundTabId || null, { ...options, session, refs: lineRefs });
+    const overlayControls = resolveLineOverlayControls(options.tab || options.tabId || session?.tabId || getLineProjectionTabId() || null, { ...options, session, refs: lineRefs });
     const currentControls = getLineRuntimeControlsForSession(session, lineFallbackRuntimeControls);
     const controls = normalizeLineRuntimeControls({
       ...currentControls,
@@ -5539,9 +5549,9 @@
   }
 
   function resolveLineOverlayControls(tabLike = null, options = {}){
-    const session = resolveLineRefsSession(tabLike || options.tab || options.tabId || line.__boundTabId || null, options);
+    const session = resolveLineRefsSession(tabLike || options.tab || options.tabId || getLineProjectionTabId() || null, options);
     const lineRefs = resolveLineRefsContext(session, options);
-    const activeTabId = resolveLineOwnedRuntimeTabId(tabLike || options.tab || options.tabId || session?.tabId || line.__boundTabId || null, {
+    const activeTabId = resolveLineOwnedRuntimeTabId(tabLike || options.tab || options.tabId || session?.tabId || getLineProjectionTabId() || null, {
       reason: options.reason || 'line-overlay-controls-resolve'
     }) || null;
     return {
@@ -5653,7 +5663,7 @@
       rowThreshold: 1000,
       cellThreshold: 5000
     }),
-    getTabId: () => line.__boundTabId || null,
+    getTabId: () => getLineProjectionTabId() || null,
     getHost: () => (
       refs.svgBox
       || refs.graphPanel?.querySelector?.('.svgbox')
@@ -5715,7 +5725,7 @@
     return reason => {
       lastReason = reason || 'frame';
       if(debounced){
-        debounced({ tabId: line.__boundTabId || null, reason: 'line-notice-width' });
+        debounced({ tabId: getLineProjectionTabId() || null, reason: 'line-notice-width' });
         return;
       }
       syncLineAutoDrawNoticeWidth(lastReason);
@@ -6988,7 +6998,7 @@
               activeSet.add(normalized);
             }
           };
-          const activeRegressionSummaries = getLineRegressionSummariesState(activeLineSession || line.__boundTabId || null);
+          const activeRegressionSummaries = getLineRegressionSummariesState(projectedLineSession || getLineProjectionTabId() || null);
           if(Array.isArray(activeRegressionSummaries)){
             activeRegressionSummaries.forEach(entry => addActive(entry?.name));
           }
@@ -7019,7 +7029,7 @@
           Array.from(activeSet).forEach(pushOrdered);
           return ordered;
         })();
-        const overlayState = readLineOverlayControlState(line.__boundTabId || null);
+        const overlayState = readLineOverlayControlState(getLineProjectionTabId() || null);
         const overlayTrendEnabled = !!overlayState.showTrendLine;
         const overlayConfidenceEnabled = !!overlayState.showIntervals;
         const overlayPredictionEnabled = !!overlayState.showPredictionIntervals;
@@ -7388,7 +7398,7 @@
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: getActiveLineRefs().statsResults || null,
-      tabId: line.__boundTabId || null
+      tabId: getLineProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(p, { scientific, forceScientific: scientific });
@@ -9683,7 +9693,7 @@
     return reason => {
       lastReason = reason || 'frame';
       if(debounced){
-        debounced({ tabId: line.__boundTabId || null, reason: 'line-3d-dataset-sync' });
+        debounced({ tabId: getLineProjectionTabId() || null, reason: 'line-3d-dataset-sync' });
         return;
       }
       syncLine3dDatasetsFromTable(lastReason);
@@ -9985,7 +9995,7 @@
         modeCache.twoD = { ...snapshot, tableFormat: previous2dFormat };
         modeCache.lastTwoDFormat = previous2dFormat;
       }
-      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
+      syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
     }
     getLineViewState().viewMode = '3d';
     if(refs.viewMode){
@@ -10065,7 +10075,7 @@
     updateLine3dNestedHeaders();
     syncLineAspectControls('enter-3d');
     if(!skipDraw){
-      invalidateLineRenderCacheForTab(line.__boundTabId || null, 'line-view-mode-change');
+      invalidateLineRenderCacheForTab(getLineProjectionTabId() || null, 'line-view-mode-change');
       scheduleLineViewRefresh('line-view-mode-change', {
         force: true,
         skipThresholdEvaluation: true
@@ -10175,7 +10185,7 @@
     applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-exit-3d' });
     syncLineAspectControls('exit-3d');
     if(!skipDraw){
-      invalidateLineRenderCacheForTab(line.__boundTabId || null, 'line-view-mode-change');
+      invalidateLineRenderCacheForTab(getLineProjectionTabId() || null, 'line-view-mode-change');
       scheduleLineViewRefresh('line-view-mode-change', {
         force: true,
         skipThresholdEvaluation: true
@@ -11140,8 +11150,8 @@
     const axisSettings = ensureLineAxisSettings();
     const fontStyles = exportFontStyles('line');
     const controls = syncLineRuntimeControlsFromRefs();
-    const payloadSession = getLineSession(line.__boundTabId || null, { reason: 'line-payload-session' }, { create: true }) || getLineActiveSessionForState();
-    rememberLineSessionState(line.__boundTabId || null, { reason: 'line-payload-capture' }, { readControls: false });
+    const payloadSession = getLineSession(getLineProjectionTabId() || null, { reason: 'line-payload-session' }, { create: true }) || getLineActiveSessionForState();
+    rememberLineSessionState(getLineProjectionTabId() || null, { reason: 'line-payload-capture' }, { readControls: false });
     const payloadForecast = getLineForecastState(payloadSession);
     const viewMode = getLineViewState().viewMode === '3d' ? '3d' : '2d';
     const noteControl = canUseLineNotesControl(notesState.control) ? notesState.control : null;
@@ -11323,7 +11333,7 @@
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
-    const payloadTabLike = meta?.tab || meta?.tabId || line.__boundTabId || null;
+    const payloadTabLike = meta?.tab || meta?.tabId || getLineProjectionTabId() || null;
     const payloadSession = bindLineSessionForTab(payloadTabLike, { ...(meta || {}), reason: meta?.reason || 'line-payload-bind-session' }, { syncControls: false });
     const payloadStateSession = payloadSession
       || getLineSession(payloadTabLike, {
@@ -11337,11 +11347,11 @@
     let mutedDrawScheduler = null;
     if(skipDraw){
       mutedDrawScheduler = () => {};
-      const activePayloadSession = payloadSession || getLineActiveSessionForState();
+      const ownerPayloadSession = payloadSession || getLineActiveSessionForState();
       scheduleBackup = getLineFallbackDrawScheduler();
-      sessionScheduleBackup = getLineSessionDrawScheduler(activePayloadSession, { allowFallback: false });
-      if(activePayloadSession){
-        setLineSessionDrawSchedulers(activePayloadSession, { drawScheduler: mutedDrawScheduler }, { mirrorFallback: false });
+      sessionScheduleBackup = getLineSessionDrawScheduler(ownerPayloadSession, { allowFallback: false });
+      if(ownerPayloadSession){
+        setLineSessionDrawSchedulers(ownerPayloadSession, { drawScheduler: mutedDrawScheduler }, { mirrorFallback: false });
       }else if(!line.__boundTabId){
         lineFallbackDrawScheduler = mutedDrawScheduler;
       }
@@ -11656,12 +11666,12 @@
     lineLogPlusOneX=!!c.logPlusOneX;
     lineLogPlusOneY=!!c.logPlusOneY;
     if(wants3d){
-      const overlayControls = resolveLineOverlayControls(meta?.tab || meta?.tabId || line.__boundTabId || null);
+      const overlayControls = resolveLineOverlayControls(meta?.tab || meta?.tabId || getLineProjectionTabId() || null);
       if(overlayControls.showTrendLine){ overlayControls.showTrendLine.checked = false; }
       if(overlayControls.showIntervals){ overlayControls.showIntervals.checked = false; }
       if(overlayControls.showPredictionIntervals){ overlayControls.showPredictionIntervals.checked = false; }
     }else{
-      applyLineLast2dOverlayControls(meta?.tab || meta?.tabId || line.__boundTabId || null);
+      applyLineLast2dOverlayControls(meta?.tab || meta?.tabId || getLineProjectionTabId() || null);
     }
     if(payloadRefs.xMin) payloadRefs.xMin.value=c.xMin||'';
     if(payloadRefs.xMax) payloadRefs.xMax.value=c.xMax||'';
@@ -11902,7 +11912,7 @@
     ensureLineResizerControls();
     syncLineAspectControls('payload');
     syncLineRuntimeControlsFromRefs();
-    rememberLineSessionState(meta?.tab || meta?.tabId || line.__boundTabId || null, { ...(meta || {}), reason: meta?.reason || 'line-payload-state-store' }, { readControls: false });
+    rememberLineSessionState(meta?.tab || meta?.tabId || getLineProjectionTabId() || null, { ...(meta || {}), reason: meta?.reason || 'line-payload-state-store' }, { readControls: false });
     if(!skipDraw){
       const drawReason = meta?.reason || meta?.source || (styleOnly ? 'line-style-payload' : 'line-payload');
       if(styleOnly){
@@ -11912,14 +11922,14 @@
       }
     }
     if(scheduleBackup || sessionScheduleBackup){
-      const activePayloadSession = payloadSession || getLineActiveSessionForState();
-      if(activePayloadSession){
+      const ownerPayloadSession = payloadSession || getLineActiveSessionForState();
+      if(ownerPayloadSession){
         const restoreScheduler = typeof sessionScheduleBackup === 'function'
           ? sessionScheduleBackup
           : (typeof scheduleBackup === 'function' ? scheduleBackup : null);
-        const currentSessionScheduler = getLineSessionDrawScheduler(activePayloadSession, { allowFallback: false });
+        const currentSessionScheduler = getLineSessionDrawScheduler(ownerPayloadSession, { allowFallback: false });
         if(restoreScheduler && currentSessionScheduler === mutedDrawScheduler){
-          setLineSessionDrawSchedulers(activePayloadSession, { drawScheduler: restoreScheduler }, { mirrorFallback: false });
+          setLineSessionDrawSchedulers(ownerPayloadSession, { drawScheduler: restoreScheduler }, { mirrorFallback: false });
         }
       }else if(!line.__boundTabId && typeof scheduleBackup === 'function' && lineFallbackDrawScheduler === mutedDrawScheduler){
         lineFallbackDrawScheduler = scheduleBackup;
@@ -12382,7 +12392,7 @@
       plotEl.style.display = 'block';
       plotEl.style.position = 'relative';
       const line3dDrawReason = drawOpts?.reason || 'line-3d-draw';
-      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: line.__boundTabId || null, reason: line3dDrawReason });
+      const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: getLineProjectionTabId() || null, reason: line3dDrawReason });
       if(lifecycleRestoreContext){
         plotEl.style.removeProperty('aspect-ratio');
         lineDebug('Debug: line 3D plot aspect-ratio write suppressed during restore transaction', { W3, H3, reason: line3dDrawReason });
@@ -15217,33 +15227,28 @@
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('line notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(canUseLineNotesControl(notesState.control)){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'line',
+      ownerTabId: getLineProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'line-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'line',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      canUseControl: canUseLineNotesControl,
+      unavailableMessage: 'line notes helper unavailable',
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
       },
       onToggle: open => {
         notesState.open = !!open;
       }
-    });
+    }) || notesState.control || null;
   }
 
   function bindLineControlHandler(node, eventName, key, handler){
@@ -15272,15 +15277,15 @@
       bindLineSessionForTab(targetTabId, { ...(options || {}), tabId: targetTabId, reason: options?.reason || 'line-setup-bind-session' }, { syncControls: false });
     }
     if(line.ready && (!targetTabId || line.__boundTabId === targetTabId)){
-      console.debug('Debug: Components.line.setup skipped', { tabId: line.__boundTabId || null });
+      console.debug('Debug: Components.line.setup skipped', { tabId: getLineProjectionTabId() || null });
       return;
     }
     if(line.ready){
-      console.debug('Debug: Components.line.setup rebinding', { previousTabId: line.__boundTabId || null, targetTabId, reason: options?.reason || 'setup' });
+      console.debug('Debug: Components.line.setup rebinding', { previousTabId: getLineProjectionTabId() || null, targetTabId, reason: options?.reason || 'setup' });
       line.ready = false;
     }
     line.__boundTabId = targetTabId || null;
-    console.debug('Debug: Components.line.setup start', { tabId: line.__boundTabId || null }); // Debug: setup entry
+    console.debug('Debug: Components.line.setup start', { tabId: getLineProjectionTabId() || null }); // Debug: setup entry
     const document = global.document;
     if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
       console.error('Line component dependencies missing');
@@ -15293,14 +15298,6 @@
     bindLineDomRefs(activeRoot, targetTabId);
     ensureLineAxisSettings();
     ensureLineGridStyle(getLineAxisStrokeWidth());
-    if(options?.restoreRenderCache === true || options?.skipInitialDraw === true){
-      suppressLineRestoreDraws(options.reason || 'init-render-cache-restore', {
-        session: activeLineSession || null,
-        tabId: options.tabId || line.__boundTabId || null,
-        delayMs: 5000,
-        count: 24
-      });
-    }
     if(refs.plot && !refs.plot.__lineAxesLengthCloseHandler){
       const onPlotPointerDown = () => {
         closeLineAxesLengthMenu('plot-pointer');
@@ -15720,7 +15717,7 @@
               console.debug('Debug: line resize observe ignored during controlled layout/data load');
               return;
             }
-            captureLineResizeViewportLockFromDom(activeLineSession);
+            captureLineResizeViewportLockFromDom(projectedLineSession);
             scheduleLineNoticeWidth('resize');
             scheduleLineViewRefresh('resize', {
               force: true,
@@ -15741,7 +15738,7 @@
     scheduleLineNoticeWidth('init');
     ensureLineResizerControls();
     Shared.componentLifecycle?.scheduleComponentFrame?.(line, 'line', {
-      tabId: line.__boundTabId || null,
+      tabId: getLineProjectionTabId() || null,
       reason: 'line-resizer-controls'
     }, () => ensureLineResizerControls());
     if(layoutManager && typeof layoutManager.updateSvgBox === 'function'){
@@ -15771,11 +15768,8 @@
       }
       // Forward the hot factory's schedule payload (reason / invalidate / source /
       // userInitiated) instead of dropping it — matching the other components'
-      // proxies (e.g. scatter/pca). The previous `scheduleActiveLineDraw()` with no args
-      // scheduled an anonymous 'schedule' draw that line's restore-draw guard
-      // (shouldSuppressLineRestoreDraw) swallowed after a file reopen, so a table
-      // edit didn't show until a forced redraw. Carrying the real reason
-      // ('afterChange', etc.) lets the genuine user edit through.
+      // proxies (e.g. scatter/pca). This preserves the shared lifecycle reason so
+      // user edits invalidate cache and draw normally after reopen/recovery.
       const meta = payload && typeof payload === 'object'
         ? payload
         : (typeof payload === 'string' ? { reason: payload } : {});
@@ -16164,9 +16158,9 @@
     };
     setActiveLineHotManager(ensureLineHotForActiveTab());
     line.__ensureHotForActiveTab = ensureLineHotForActiveTab;
-    if(activeLineSession){
-      ensureLineSessionOwnershipShape(activeLineSession);
-      rememberLineSessionEphemera(activeLineSession);
+    if(projectedLineSession){
+      ensureLineSessionOwnershipShape(projectedLineSession);
+      rememberLineSessionEphemera(projectedLineSession);
     }
     bindLineDataToolbar();
     if(typeof global.DEBUG_LINE === 'undefined') global.DEBUG_LINE = false;
@@ -16573,8 +16567,8 @@
       const statsReady = lineHasComputedStats();
       if(!statsReady){
         e.target.checked = false;
-        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-trend-blocked' });
+        syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+        rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-trend-blocked' });
         updateLineRegressionOverlayControlState(false);
         console.debug('Debug: line showTrendLine blocked until stats are calculated');
         return;
@@ -16588,42 +16582,42 @@
           }
         }catch(err){}
       }
-      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-trend-change' });
+      syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+      rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-trend-change' });
       updateLineRegressionOverlayControlState(true);
       scheduleLineViewRefresh('line-show-trend-change', { force: true, skipThresholdEvaluation: true });
     });
     refs.showIntervals?.addEventListener('change',e=>{
       const statsReady = lineHasComputedStats();
-      const controls = resolveLineOverlayControls(line.__boundTabId || null);
+      const controls = resolveLineOverlayControls(getLineProjectionTabId() || null);
       if(!statsReady || !controls.showTrendLine?.checked){
         e.target.checked = false;
-        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-intervals-blocked' });
+        syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+        rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-intervals-blocked' });
         updateLineRegressionOverlayControlState(statsReady);
         console.debug('Debug: line showIntervals blocked', { statsReady, showTrendLine: !!controls.showTrendLine?.checked });
         return;
       }
       console.debug('Debug: line showIntervals change',{checked:e.target.checked});
-      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-intervals-change' });
+      syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+      rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-intervals-change' });
       requestLineStatsContextRefresh('intervals-toggle');
       scheduleLineViewRefresh('line-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
     refs.showPredictionIntervals?.addEventListener('change',e=>{
       const statsReady = lineHasComputedStats();
-      const controls = resolveLineOverlayControls(line.__boundTabId || null);
+      const controls = resolveLineOverlayControls(getLineProjectionTabId() || null);
       if(!statsReady || !controls.showTrendLine?.checked){
         e.target.checked = false;
-        syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-        rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-prediction-intervals-blocked' });
+        syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+        rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-prediction-intervals-blocked' });
         updateLineRegressionOverlayControlState(statsReady);
         console.debug('Debug: line showPredictionIntervals blocked', { statsReady, showTrendLine: !!controls.showTrendLine?.checked });
         return;
       }
       console.debug('Debug: line showPredictionIntervals change',{checked:e.target.checked});
-      syncLineLast2dControlStateFromRefs(line.__boundTabId || null);
-      rememberLineOwnedRuntimeRecord(line.__boundTabId || null, { reason: 'line-show-prediction-intervals-change' });
+      syncLineLast2dControlStateFromRefs(getLineProjectionTabId() || null);
+      rememberLineOwnedRuntimeRecord(getLineProjectionTabId() || null, { reason: 'line-show-prediction-intervals-change' });
       requestLineStatsContextRefresh('prediction-intervals-toggle');
       scheduleLineViewRefresh('line-prediction-intervals-toggle', { force: true, skipThresholdEvaluation: true });
     });
@@ -16661,7 +16655,7 @@
     const runLineDrawCycle = (drawOpts = {}) => {
       let status = 'complete';
       try{
-        drawLine(activeLineSession || getLineActiveSessionForState(), drawOpts);
+        drawLine(projectedLineSession || getLineActiveSessionForState(), drawOpts);
       }catch(err){
         status = 'error';
         throw err;
@@ -16675,13 +16669,6 @@
     const scheduleLineInstrumented = (opts) => {
       const nextOpts = opts || {};
       const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      if(consumeLineRestoreDrawSuppression(overlayReason, !!nextOpts.force, {
-        session: activeLineSession || null,
-        tabId: nextOpts.tabId || line.__boundTabId || null
-      })){
-        resolveLineOverlay('skipped');
-        return;
-      }
       const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
       if(nextOpts.force && !suppressOverlay){
         markLineOverlayPending(overlayReason);
@@ -16694,7 +16681,7 @@
         component: line,
         componentKey: 'line',
         options: nextOpts,
-        tabId: nextOpts.tabId || line.__boundTabId || null,
+        tabId: nextOpts.tabId || getLineProjectionTabId() || null,
         reason: overlayReason,
         overlayController: lineOverlayController,
         delayForOverlay: !nextOpts.viewOnly,
@@ -16709,11 +16696,11 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'line',
           debugLabel: 'line',
-          getTabId: () => line.__boundTabId || null,
+          getTabId: () => getLineProjectionTabId() || null,
           scheduleRaw: scheduleLineInstrumented
         })
       : scheduleLineInstrumented;
-    const schedulerSession = activeLineSession || getLineActiveSessionForState();
+    const schedulerSession = projectedLineSession || getLineActiveSessionForState();
     const autoDrawManager = getLineSessionAutoDrawManager(schedulerSession) || getActiveLineAutoDrawManager();
     let lineDrawScheduler = lineRawDrawScheduler;
     if(autoDrawManager){
@@ -16738,17 +16725,17 @@
     lineFallbackRawDrawScheduler = lineRawDrawScheduler;
     lineFallbackDrawScheduler = lineDrawScheduler;
     getActiveLineLayoutManager()?.setScheduleDraw?.(lineDrawScheduler);
-    if(activeLineSession){
-      ensureLineSessionOwnershipShape(activeLineSession);
-      activeLineSession.managers.autoDraw = getActiveLineAutoDrawManager() || null;
-      activeLineSession.managers.layout = getActiveLineLayoutManager() || null;
-      setLineSessionDrawSchedulers(activeLineSession, {
+    if(projectedLineSession){
+      ensureLineSessionOwnershipShape(projectedLineSession);
+      projectedLineSession.managers.autoDraw = getActiveLineAutoDrawManager() || null;
+      projectedLineSession.managers.layout = getActiveLineLayoutManager() || null;
+      setLineSessionDrawSchedulers(projectedLineSession, {
         drawScheduler: lineDrawScheduler,
         rawDrawScheduler: lineRawDrawScheduler
       });
-      activeLineSession.state = buildLineCanonicalStateFromGlobals(activeLineSession.tabId, { reason: 'line-setup-session-ephemera' }, { readControls: false });
-      rememberLineSessionEphemera(activeLineSession);
-      persistLineSessionState(activeLineSession, { reason: 'line-setup-session-ephemera' });
+      projectedLineSession.state = buildLineCanonicalStateFromGlobals(projectedLineSession.tabId, { reason: 'line-setup-session-ephemera' }, { readControls: false });
+      rememberLineSessionEphemera(projectedLineSession);
+      persistLineSessionState(projectedLineSession, { reason: 'line-setup-session-ephemera' });
     }
     ensureLineFontEventListener();
     console.debug('Debug: line scheduleLineDraw configured via tab-scoped lifecycle frame', { guarded: !!getActiveLineAutoDrawManager() }); // Debug: scheduler setup
@@ -16756,9 +16743,9 @@
     ensureEmptyPayloadTemplate();
     line.__domSentinel = refs.hotContainer || refs.root?.querySelector?.('#lineHot') || getLineNodeById('lineHot') || null;
     line.ready = true;
-    if(activeLineSession){
-      applyLineCanonicalStateToGlobals(activeLineSession.state, { tabId: targetTabId || line.__boundTabId || null, reason: 'line-setup-state-to-controls' }, { syncControls: true });
-      rememberLineSessionEphemera(activeLineSession);
+    if(projectedLineSession){
+      applyLineCanonicalStateToGlobals(projectedLineSession.state, { tabId: targetTabId || getLineProjectionTabId() || null, reason: 'line-setup-state-to-controls' }, { syncControls: true });
+      rememberLineSessionEphemera(projectedLineSession);
     }
     if(options.forceInitialDraw === true && targetTabId){
       scheduleActiveLineDraw({ tabId: targetTabId, reason: 'line-setup-initial-draw' });
@@ -16772,65 +16759,8 @@
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
   }
 
-  function shouldSuppressLineRestoreDraw(reason){
-    const value = String(reason || '').trim().toLowerCase();
-    if(!value){
-      return true;
-    }
-    return value === 'schedule'
-      || value.includes('restore')
-      || value.includes('payload')
-      || value.includes('programmatic')
-      || value.includes('render-cache')
-      || value.includes('resize')
-      || value.includes('layout');
-  }
-
   function resolveLineRenderCacheSession(options = {}){
-    return resolveLineStateSession(options.session || options.tab || options.tabId || line.__boundTabId || null);
-  }
-
-  function suppressLineRestoreDraws(reason, options = {}){
-    const session = resolveLineRenderCacheSession(options);
-    const viewState = getLineViewState(session);
-    viewState.renderCacheRestoreSuppressUntil = Date.now() + (Number.isFinite(options.delayMs) ? Math.max(0, Number(options.delayMs)) : 2500);
-    viewState.renderCacheRestoreSuppressCount = Math.max(
-      Number(viewState.renderCacheRestoreSuppressCount) || 0,
-      Number.isFinite(options.count) ? Math.max(0, Math.floor(options.count)) : 12
-    );
-    lineDebug('Debug: line restore draw suppression activated', {
-      reason: reason || null,
-      tabId: session?.tabId || null,
-      count: viewState.renderCacheRestoreSuppressCount
-    });
-  }
-
-  function consumeLineRestoreDrawSuppression(reason, force, options = {}){
-    const session = resolveLineRenderCacheSession(options);
-    const viewState = getLineViewState(session);
-    if(force){
-      viewState.renderCacheRestoreSuppressUntil = 0;
-      viewState.renderCacheRestoreSuppressCount = 0;
-      return false;
-    }
-    const now = Date.now();
-    const active = (Number(viewState.renderCacheRestoreSuppressCount) || 0) > 0
-      || (Number(viewState.renderCacheRestoreSuppressUntil) || 0) > now;
-    if(!active){
-      return false;
-    }
-    if(!shouldSuppressLineRestoreDraw(reason)){
-      viewState.renderCacheRestoreSuppressUntil = 0;
-      viewState.renderCacheRestoreSuppressCount = 0;
-      return false;
-    }
-    viewState.renderCacheRestoreSuppressCount = Math.max(0, (Number(viewState.renderCacheRestoreSuppressCount) || 0) - 1);
-    lineDebug('Debug: line draw suppressed during render cache restore', {
-      reason: reason || null,
-      tabId: session?.tabId || null,
-      remaining: viewState.renderCacheRestoreSuppressCount
-    });
-    return true;
+    return resolveLineStateSession(options.session || options.tab || options.tabId || getLineProjectionTabId() || null);
   }
 
   function bindLinePassiveDomForTab(tabLike = null, meta = {}){
@@ -16918,13 +16848,13 @@
     if(ensureLineDomBindings(options.tab || options.tabId || null, options || {})){
       return;
     }
-    if(!line.ready) setup({ ...options, tabId: options.tabId || options.tab?.id || line.__boundTabId || null, reason: options.reason || 'ensure-ready' });
+    if(!line.ready) setup({ ...options, tabId: options.tabId || options.tab?.id || getLineProjectionTabId() || null, reason: options.reason || 'ensure-ready' });
   }
 
   line.init = setup;
   line.ensure = ensureReady;
   function syncLineActivationControlsFromPayload(tabLike = null){
-    const tabId = resolveLineOwnedRuntimeTabId(tabLike || line.__boundTabId || null, {
+    const tabId = resolveLineOwnedRuntimeTabId(tabLike || getLineProjectionTabId() || null, {
       reason: 'line-activation-controls-tab'
     }) || null;
     const tab = Shared.workspaceTabs?.resolveTab?.(tabLike || tabId || null)
@@ -16952,7 +16882,7 @@
     syncLineLast2dControlStateFromRefs(tabId);
   }
   function syncLineActivationState(tabLike = null, meta = {}){
-    const targetTabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || line.__boundTabId || null, meta) || line.__boundTabId || null;
+    const targetTabId = resolveLineOwnedRuntimeTabId(tabLike || meta?.tab || meta?.tabId || getLineProjectionTabId() || null, meta) || getLineProjectionTabId() || null;
     const passive = isLinePassiveActivationMeta({
       ...(meta || {}),
       tabId: targetTabId || meta?.tabId || null
@@ -16978,10 +16908,10 @@
     if(activeHotForFormat){
       applyLineTableFormatToHot(activeHotForFormat, { reason: meta?.reason || 'line-activation-table-format' });
     }
-    if(activeLineSession){
-      applyLineCanonicalStateToGlobals(activeLineSession.state, { ...(meta || {}), tabId: targetTabId || line.__boundTabId || null, reason: meta?.reason || 'line-activation-state-to-controls' }, { syncControls: !passive });
+    if(projectedLineSession){
+      applyLineCanonicalStateToGlobals(projectedLineSession.state, { ...(meta || {}), tabId: targetTabId || getLineProjectionTabId() || null, reason: meta?.reason || 'line-activation-state-to-controls' }, { syncControls: !passive });
     }else if(!passive){
-      syncLineActivationControlsFromPayload(line.__boundTabId || null);
+      syncLineActivationControlsFromPayload(getLineProjectionTabId() || null);
     }
     if(!passive){
       bindActiveLine3dRotationControls('line-3d-activate');
@@ -16993,7 +16923,7 @@
     component: line,
     componentKey: 'line',
     resolveRoot: tabLike => Shared.workspaceTabs?.getMountedRoot?.(tabLike || null, 'line')
-      || resolveLineRoot(tabLike || line.__boundTabId || null)
+      || resolveLineRoot(tabLike || getLineProjectionTabId() || null)
       || getLineNodeById('linePage')
       || global.document,
     setRoot: root => { refs.root = root || refs.root || null; },
@@ -17150,6 +17080,8 @@
   }
 
   function resolveLinePreviewSourceSvg(tab){
+    // Read-only preview source: this may reuse an inactive tab's cache DOM,
+    // but restore policy and cache invalidation remain owned by domControls/session.
     const tabId = tab?.id || null;
     const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
     const cachePayload = resolveLineGraphCachePayload(tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null);
@@ -17326,12 +17258,12 @@
     if(!clone.getAttribute('viewBox') && Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0){
       clone.setAttribute('viewBox', `0 0 ${formatLinePreviewNumber(width)} ${formatLinePreviewNumber(height)}`);
     }
-    compactLinePreviewSvg(clone, tab?.id || line.__boundTabId || null);
+    compactLinePreviewSvg(clone, tab?.id || getLineProjectionTabId() || null);
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       try{
         const length = new XMLSerializer().serializeToString(clone).length;
         lineDebug('Debug: line preview svg compacted', {
-          tabId: tab?.id || line.__boundTabId || null,
+          tabId: tab?.id || getLineProjectionTabId() || null,
           length
         });
       }catch(_err){}
@@ -17355,7 +17287,7 @@
     if(!plot || !svg || !lineSvgHasMeaningfulContent(svg)){
       console.debug('Debug: line render cache capture skipped', {
         reason: !plot ? 'missing-plot-host' : (!svg ? 'missing-svg' : 'empty-svg'),
-        tabId: meta?.tabId || line.__boundTabId || null
+        tabId: meta?.tabId || getLineProjectionTabId() || null
       });
       return null;
     }
@@ -17371,7 +17303,7 @@
       restoreChildren(plot, plotCache);
       console.debug('Debug: line render cache capture skipped', {
         reason: 'empty-runtime-cache',
-        tabId: meta?.tabId || line.__boundTabId || null
+        tabId: meta?.tabId || getLineProjectionTabId() || null
       });
       return null;
     }
@@ -17406,7 +17338,6 @@
   line.restoreRenderCache = function restoreRenderCache(cache, meta = {}){
     if(!cache){ return false; }
     if(!canRestoreLineRenderCache(cache, meta)){
-      consumeLineRestoreDrawSuppression('invalid-render-cache', true, meta);
       return false;
     }
     const graphCachePayload = resolveLineGraphCachePayload(cache);
@@ -17432,7 +17363,6 @@
     }
     const hasGraph = linePlotHasMeaningfulGraph(plot);
     if(!restoredPlot || !hasGraph){
-      consumeLineRestoreDrawSuppression('empty-restored-graph', true, meta);
       console.debug('Debug: line render cache restore rejected after restore', {
         reason: !restoredPlot ? 'plot-not-restored' : 'empty-restored-graph',
         plot: restoredPlot,
@@ -17440,7 +17370,6 @@
       });
       return false;
     }
-    suppressLineRestoreDraws('render-cache-restore', { ...meta, delayMs: 2500, count: 12 });
     const renderCacheViewState = getLineViewState(resolveLineRenderCacheSession(meta));
     renderCacheViewState.rotationPending = false;
     renderCacheViewState.rotationPendingLogged = false;
@@ -17458,11 +17387,11 @@
   };
   line.draw = function draw(options = {}){
     const nextReason = options?.reason || 'component-draw';
-    const targetSession = getLineSession(options?.tab || options?.tabId || line.__boundTabId || null, {
+    const targetSession = getLineSession(options?.tab || options?.tabId || getLineProjectionTabId() || null, {
       ...(options || {}),
       reason: nextReason || 'line-draw-session'
     }, { create: true });
-    const targetTabId = targetSession?.tabId || options?.tabId || line.__boundTabId || null;
+    const targetTabId = targetSession?.tabId || options?.tabId || getLineProjectionTabId() || null;
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('line', { ...(options || {}), tabId: targetTabId, reason: nextReason })){
       console.debug('Debug: line draw suppressed by lifecycle', { reason: nextReason, tabId: targetTabId });
       Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'line', tabId: targetTabId, action: 'draw-suppressed', reason: nextReason, details: { source: 'line.draw' } });
@@ -17494,7 +17423,7 @@
     }
   };
   line.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
-    const tabId = meta?.tabId || line.__boundTabId || null;
+    const tabId = meta?.tabId || getLineProjectionTabId() || null;
     try{ line.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'line-draw-cancel'); }catch(_err){}
     resolveLineOverlay(meta?.reason || 'cancelled');
     Shared.componentLifecycle?.emitLifecycleEvent?.({
@@ -17647,7 +17576,7 @@
   }
 
   line.captureRuntimeState = function captureLineRuntimeState(meta = {}){
-    const targetTabId = resolveLineOwnedRuntimeTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || line.__boundTabId || null, meta) || line.__boundTabId || null;
+    const targetTabId = resolveLineOwnedRuntimeTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || getLineProjectionTabId() || null, meta) || getLineProjectionTabId() || null;
     const isActive = !!(targetTabId && String(targetTabId) === String(line.__boundTabId || '') && line.ready === true);
     let snapshot = null;
     if(isActive){
@@ -17656,7 +17585,7 @@
       snapshot = captureLineCanonicalSnapshot(targetTabId, meta, { readActiveControls: false });
     }
     if(!snapshot){
-      snapshot = buildLineCanonicalStateFromGlobals(targetTabId || line.__boundTabId || null, meta, { readControls: isActive });
+      snapshot = buildLineCanonicalStateFromGlobals(targetTabId || getLineProjectionTabId() || null, meta, { readControls: isActive });
     }
     snapshot = ensureLineCanonicalState(snapshot, targetTabId || snapshot.tabId || '');
     snapshot.reason = meta?.reason || 'line-runtime-capture';
@@ -17682,7 +17611,7 @@
   line.applyRuntimeState = function applyLineRuntimeState(snapshot, meta = {}){
     const effectiveMeta = {
       ...(meta || {}),
-      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || line.__boundTabId || null,
+      tabId: meta.tabId || meta.workspaceTabId || meta.tab?.id || getLineProjectionTabId() || null,
       reason: meta?.reason || 'line-runtime-apply'
     };
     const passive = isLinePassiveActivationMeta(effectiveMeta);
@@ -17692,7 +17621,7 @@
       if(session?.state){
         const isActiveSession = String(session.tabId || '') === String(line.__boundTabId || '') && line.ready === true;
         if(isActiveSession){
-          activeLineSession = session;
+          projectedLineSession = session;
           if(passive){
             applyLineSessionEphemera(session);
             applyLineCanonicalStateToRuntimeGlobals(session.state, session);
@@ -17728,7 +17657,7 @@
         const session = getLineSession(targetTabId, { ...effectiveMeta, tabId: targetTabId, reason: 'line-runtime-passive-bind-session' }, { create: true })
           || getLineActiveSessionForState();
         if(session){
-          activeLineSession = session;
+          projectedLineSession = session;
           line.__lineSessionTabId = targetTabId;
           session.state = canonical;
           applyLineSessionEphemera(session);
@@ -17737,9 +17666,9 @@
       }else{
         bindLineSessionForTab(targetTabId, { ...effectiveMeta, tabId: targetTabId, reason: 'line-runtime-apply-bind-session' }, { syncControls: false, preserveCurrent: false });
         applyLineCanonicalStateToGlobals(canonical, { ...effectiveMeta, tabId: targetTabId }, { syncControls: true });
-        if(activeLineSession){
-          activeLineSession.state = canonical;
-          rememberLineSessionEphemera(activeLineSession);
+        if(projectedLineSession){
+          projectedLineSession.state = canonical;
+          rememberLineSessionEphemera(projectedLineSession);
         }
         bindActiveLine3dRotationControls('line-3d-runtime');
       }
@@ -17762,14 +17691,14 @@
     component: line,
     componentKey: 'line',
     cancel: (tab, meta = {}) => {
-      const tabLike = tab || meta?.tabId || line.__boundTabId || null;
+      const tabLike = tab || meta?.tabId || getLineProjectionTabId() || null;
       getLineStatsState(tabLike).computationPending = false;
       getLineAutoDrawState(tabLike).drawPending = false;
       rememberLineSessionState(tabLike, { ...(meta || {}), reason: meta?.reason || 'line-deactivate-remember-session' }, { readControls: true });
       rememberLineOwnedRuntimeRecord(tabLike, { ...(meta || {}), reason: meta?.reason || 'line-deactivate-remember-owned-runtime' });
     }
   }) || function deactivateLineTab(tab, meta = {}){
-    const tabLike = tab || meta?.tabId || line.__boundTabId || null;
+    const tabLike = tab || meta?.tabId || getLineProjectionTabId() || null;
     getLineStatsState(tabLike).computationPending = false;
     getLineAutoDrawState(tabLike).drawPending = false;
     rememberLineSessionState(tabLike, { ...(meta || {}), reason: meta?.reason || 'line-deactivate-remember-session' }, { readControls: true });
@@ -17799,7 +17728,7 @@
   line.createEmptyPayload = function createEmptyLinePayload(){
     console.debug('Debug: line.createEmptyPayload pure factory invoked', {
       ready: !!line.ready,
-      boundTabId: line.__boundTabId || null
+      boundTabId: getLineProjectionTabId() || null
     });
     const payload = { type: 'line', config: {} };
     payload.type = 'line';
@@ -17864,11 +17793,11 @@
       minSvgWidth: lineMinSvgWidth,
       labelColors: { ...lineLabelColors },
       displayMode: lineDisplayMode,
-      session: activeLineSession ? {
-        tabId: activeLineSession.tabId || null,
-        stateTabId: activeLineSession.state?.tabId || null,
-        hasHot: !!activeLineSession.managers?.hot,
-        hasRefs: !!activeLineSession.refs
+      session: projectedLineSession ? {
+        tabId: projectedLineSession.tabId || null,
+        stateTabId: projectedLineSession.state?.tabId || null,
+        hasHot: !!projectedLineSession.managers?.hot,
+        hasRefs: !!projectedLineSession.refs
       } : null,
       scheduleDraw: scheduleLineDraw
     };
@@ -17893,9 +17822,9 @@
     applyLine3dHeaderRow,
     inferLine3dSeriesCount,
     isLine3dDatasetHeaderMatrix,
-    getActiveSession: () => activeLineSession,
+    getActiveSession: () => projectedLineSession,
     getSessionForTab: tabId => getLineSession(tabId, { tabId, reason: 'test-session-read' }, { create: false }),
-    captureCanonicalState: (tabId, options = {}) => captureLineCanonicalSnapshot(tabId || line.__boundTabId || null, { tabId, reason: 'test-canonical-capture' }, { readActiveControls: options.readActiveControls !== false })
+    captureCanonicalState: (tabId, options = {}) => captureLineCanonicalSnapshot(tabId || getLineProjectionTabId() || null, { tabId, reason: 'test-canonical-capture' }, { readActiveControls: options.readActiveControls !== false })
   });
 
 
@@ -17904,7 +17833,7 @@
     componentKey: 'line',
     targets: [
       { key: 'getLineAutoDrawState()', get: () => getLineAutoDrawState(), excludeKeys: ['drawPending'] },
-      { key: 'getLineViewState()', get: () => getLineViewState(), excludeKeys: ['rotationPending', 'rotationPendingLogged', 'renderCacheRestoreSuppressUntil', 'renderCacheRestoreSuppressCount'] },
+      { key: 'getLineViewState()', get: () => getLineViewState(), excludeKeys: ['rotationPending', 'rotationPendingLogged'] },
       { key: 'getLineStatsState()', get: () => getLineStatsState(), excludeKeys: ['context', 'computationPending', 'restorePending'] },
       { key: 'lineAdvisorState', get: () => lineAdvisorState },
       { key: 'notesState', get: () => notesState, excludeKeys: ['control'] }

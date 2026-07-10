@@ -350,8 +350,7 @@ describe('domControls default payload cache isolation', () => {
         target.renderCacheTabId = renderCache.tabId;
         return renderCache;
       }),
-      clearTabRenderCache: jest.fn(),
-      markTabAuthoritativeRenderRestore: jest.fn()
+      clearTabRenderCache: jest.fn()
     };
     const workspaceState = {
       loadedWorkspaces: {},

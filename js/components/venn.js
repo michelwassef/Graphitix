@@ -231,7 +231,7 @@
     const formatter = Shared.formatters?.formatPValue || Shared.formatPValue;
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: state.ui.significanceResults || global.document?.getElementById?.('significanceResults') || null,
-      tabId: venn.__boundTabId || null
+      tabId: getVennProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
@@ -352,7 +352,7 @@
   }
 
   function getVennSavedAspectLockPreference() {
-    const activeTabId = normalizeVennTabId(venn.__boundTabId || null);
+    const activeTabId = normalizeVennTabId(getVennProjectionTabId() || null);
     const tab = activeTabId ? global.Main?.session?.workspaceState?.tabs?.find?.(item => String(item?.id || '') === String(activeTabId)) : null;
     const layoutValue = tab?.layoutState?.svgBox?.dataset?.resizerAspectLocked;
     if (layoutValue === 'true' || layoutValue === 'false') {
@@ -550,7 +550,7 @@
     if (detection.pendingTimeoutId) {
       Shared.componentLifecycle?.clearComponentTimeout?.(venn, detection.pendingTimeoutId);
     }
-    const tabId = venn.__boundTabId || null;
+    const tabId = getVennProjectionTabId() || null;
     if (!tabId || typeof Shared.componentLifecycle?.createAsyncScope !== 'function') {
       console.warn('venn species detection scheduling skipped without explicit tab async scope', { reason, tabId });
       return;
@@ -940,7 +940,13 @@
 
   const state = createInitialState();
   const vennSessionsByTabId = new Map();
-  let activeVennSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedVennSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getVennProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(venn, projectedVennSession) || String(venn.__boundTabId || projectedVennSession?.tabId || '').trim();
+  }
 
   function normalizeVennSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
@@ -1398,49 +1404,27 @@
   }
 
   function getVennWorkspaceActiveTabId(){
-    const workspaceInfo = Shared.workspaceTabs?.getActiveSessionInfo?.('venn') || null;
-    if(workspaceInfo?.tabId){
-      return String(workspaceInfo.tabId).trim();
-    }
-    const workspace = global.Main?.session?.workspaceState || null;
-    const activeId = workspace?.activeTabId || null;
-    if(activeId && Array.isArray(workspace?.tabs)){
-      const activeTab = workspace.tabs.find(tab => tab && String(tab.id || '') === String(activeId));
-      if(activeTab?.type === 'venn'){
-        return String(activeId).trim();
-      }
-    }
-    return '';
+    return String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('venn') || '').trim();
   }
 
   function getActiveVennSessionForState(){
-    const workspaceActiveTabId = getVennWorkspaceActiveTabId();
-    if(workspaceActiveTabId){
-      return getVennSession(workspaceActiveTabId, { tabId: workspaceActiveTabId, reason: 'active-venn-session-workspace' }, { create: true });
-    }
-    if(activeVennSession && (!venn.__boundTabId || String(activeVennSession.tabId || '') === String(venn.__boundTabId || ''))){
-      return ensureVennSessionOwnershipShape(activeVennSession);
-    }
-    const tabId = venn.__boundTabId || normalizeVennSessionTabId(null, {}) || null;
-    return tabId ? getVennSession(tabId, { tabId, reason: 'active-venn-session' }, { create: true }) : null;
+    return Shared.componentLifecycle?.resolveActiveSessionForComponent?.({
+      componentKey: 'venn',
+      component: venn,
+      projectedSession: projectedVennSession,
+      getSession: getVennSession,
+      ensureSession: ensureVennSessionOwnershipShape,
+      create: true,
+      reason: 'active-venn-session'
+    }) || null;
   }
 
   function getVennTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function getVennActiveTabId(){
-    return String(getVennWorkspaceActiveTabId() || venn.__boundTabId || '').trim();
+    return String(Shared.componentLifecycle?.resolveActiveComponentTabId?.('venn', venn, projectedVennSession) || '').trim();
   }
 
   function getVennCallbackOwner(meta = {}){
@@ -1526,7 +1510,7 @@
   function getVennDeactivationSession(tab, meta = {}){
     const tabId = getVennDeactivationTabId(tab, meta);
     const activeSession = getActiveVennSessionForState();
-    const activeTabId = venn.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getVennProjectionTabId() || activeSession?.tabId || null;
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       return getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-deactivate-target-session' }, { create: false });
     }
@@ -1536,7 +1520,7 @@
   function captureVennSessionForDeactivation(tab, meta = {}){
     const tabId = getVennDeactivationTabId(tab, meta);
     const activeSession = getActiveVennSessionForState();
-    const activeTabId = venn.__boundTabId || activeSession?.tabId || null;
+    const activeTabId = getVennProjectionTabId() || activeSession?.tabId || null;
     const targetSession = getVennDeactivationSession(tab, meta);
     if(tabId && activeTabId && String(tabId) !== String(activeTabId)){
       debugLog('inactive-tab deactivate skipped active mirror capture', {
@@ -1553,7 +1537,7 @@
   }
 
   function syncVennSessionRefsFromActive(session = null){
-    const shaped = ensureVennSessionOwnershipShape(session || activeVennSession || getActiveVennSessionForState());
+    const shaped = ensureVennSessionOwnershipShape(session || projectedVennSession || getActiveVennSessionForState());
     if(!shaped){ return null; }
     shaped.root = state.ui.root || shaped.root || null;
     shaped.refs = Object.assign(createDefaultVennRefs(shaped.root || null), shaped.refs || {}, {
@@ -1621,7 +1605,7 @@
   }
 
   function syncVennSessionManagersFromActive(session = null){
-    const shaped = ensureVennSessionOwnershipShape(session || activeVennSession || getActiveVennSessionForState());
+    const shaped = ensureVennSessionOwnershipShape(session || projectedVennSession || getActiveVennSessionForState());
     if(!shaped){ return null; }
     shaped.managers.hot = state.ui.hot || shaped.managers.hot || null;
     shaped.managers.layout = state.ui.layout || shaped.managers.layout || null;
@@ -1889,8 +1873,8 @@
   function bindVennSessionForTab(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeVennSessionTabId(tabLike, meta);
     if(!tabId){ return null; }
-    if(activeVennSession && activeVennSession.tabId && activeVennSession.tabId !== tabId){
-      captureVennSessionStateFromActive(activeVennSession, {
+    if(projectedVennSession && projectedVennSession.tabId && projectedVennSession.tabId !== tabId){
+      captureVennSessionStateFromActive(projectedVennSession, {
         reason: meta?.reason || 'venn-session-switch-capture'
       });
     }
@@ -1899,7 +1883,7 @@
     const root = meta?.root || resolveVennRoot(tabLike || tabId || null) || session.root || null;
     session.root = root || session.root || null;
     session.refs.root = root || session.refs.root || null;
-    activeVennSession = session;
+    projectedVennSession = session;
     venn.__vennSessionTabId = session.tabId;
     if(options.passiveBound !== false){
       venn.__boundTabId = session.tabId;
@@ -1916,7 +1900,7 @@
     if(!record || typeof record !== 'object'){
       return null;
     }
-    const session = getVennSession(meta?.tab || meta?.tabId || venn.__boundTabId || null, meta, { create: true });
+    const session = getVennSession(meta?.tab || meta?.tabId || getVennProjectionTabId() || null, meta, { create: true });
     if(!session){
       return null;
     }
@@ -2957,10 +2941,13 @@
   function scheduleStringNetworkViewport(svgEl = state.ui.stringNetwork?.querySelector?.('svg'), reason = 'venn-string-network-viewport'){
     if(!svgEl){ return; }
     const run = () => padStringNetworkViewport(svgEl, { exportHost: state.ui.stringNetworkExport });
-    Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
-      tabId: venn.__boundTabId || null,
+    const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
+      tabId: getVennProjectionTabId() || null,
       reason
-    }, run) || global.requestAnimationFrame?.(run) || global.setTimeout(run, 0);
+    }, run);
+    if(!scheduled){
+      run();
+    }
   }
 
   // --- Core Functions ---
@@ -4463,7 +4450,7 @@
     const stage = state.ui.stage;
     if (!el || !stage || typeof Shared.enableLabelDrag !== 'function') return;
     Shared.enableLabelDrag(el, stage, {
-      tabId: venn.__boundTabId || null,
+      tabId: getVennProjectionTabId() || null,
       scope: 'vennGraphPanel'
     });
   }
@@ -4934,11 +4921,15 @@
     if(!session?.tabId){ return false; }
     const cache = session.cache || (session.cache = {});
     if(cache.autoAnalysisRefreshTimer){
-      global.clearTimeout(cache.autoAnalysisRefreshTimer);
+      Shared.componentLifecycle?.clearComponentTimeout?.(venn, cache.autoAnalysisRefreshTimer);
+      cache.autoAnalysisRefreshTimer = null;
     }
     const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     cache.autoAnalysisRefreshToken = token;
-    cache.autoAnalysisRefreshTimer = global.setTimeout(() => {
+    cache.autoAnalysisRefreshTimer = Shared.componentLifecycle?.scheduleComponentTimeout?.(venn, 'venn', {
+      tabId: session.tabId,
+      reason: 'venn-analysis-auto-refresh'
+    }, () => {
       if(session.cache?.autoAnalysisRefreshToken !== token || session.tabId !== resolveActiveVennTabId()){
         return;
       }
@@ -4946,7 +4937,12 @@
       refreshVennAnalysesForCurrentRegion(normalized, reason).catch(err => {
         console.error('venn analysis auto-refresh error', err);
       });
-    }, 80);
+    }, 80) || null;
+    if(!cache.autoAnalysisRefreshTimer){
+      refreshVennAnalysesForCurrentRegion(normalized, reason).catch(err => {
+        console.error('venn analysis auto-refresh error', err);
+      });
+    }
     debug('Debug: venn analysis auto-refresh scheduled', {
       reason,
       tabId: session.tabId,
@@ -5317,7 +5313,7 @@
 
   function scheduleVisibleGoChartReflow(reason = 'venn-go-chart-visible-reflow') {
     if (!hasGoChartData()) return false;
-    const ownerTabId = activeVennSession?.tabId || venn.__boundTabId || null;
+    const ownerTabId = getVennProjectionTabId() || null;
     const runOwnerReflow = () => {
       const owner = ownerTabId
         ? getVennSession(ownerTabId, { tabId: ownerTabId, reason }, { create: false })
@@ -5333,12 +5329,9 @@
         renderGOChart(state.analysis.goDisplayLimit || 5, { reason });
       }
     };
-    if (Shared.componentLifecycle?.scheduleComponentFrame) {
-      Shared.componentLifecycle.scheduleComponentFrame(venn, 'venn', { tabId: ownerTabId, reason }, runOwnerReflow);
-    } else if (typeof global.requestAnimationFrame === 'function') {
-      global.requestAnimationFrame(runOwnerReflow);
-    } else {
-      setTimeout(runOwnerReflow, 0);
+    const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', { tabId: ownerTabId, reason }, runOwnerReflow);
+    if(!scheduled){
+      runOwnerReflow();
     }
     return true;
   }
@@ -5466,7 +5459,7 @@
       return false;
     }
     debugLog('venn tab payload synced', { tabId: active, reason: resolvedReason, changed });
-    captureVennSessionStateFromActive(activeVennSession, { reason: resolvedReason });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: resolvedReason });
     return changed;
   }
 
@@ -5610,7 +5603,7 @@
         state.ui.speciesSelect.value = value;
         state.ui.speciesSelect.style.backgroundColor = indicator;
       }
-      captureVennSessionStateFromActive(ownerSession || activeVennSession, {
+      captureVennSessionStateFromActive(ownerSession || projectedVennSession, {
         reason: meta.reason || 'venn-species-commit'
       });
     }
@@ -6257,10 +6250,13 @@
         applyStringOverlayToRenderedNetwork(reason);
       }
     };
-    Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
-      tabId: venn.__boundTabId || null,
+    const scheduled = Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
+      tabId: getVennProjectionTabId() || null,
       reason
-    }, rerender) || global.requestAnimationFrame?.(rerender) || global.setTimeout(rerender, 0);
+    }, rerender);
+    if(!scheduled){
+      rerender();
+    }
   }
 
   function commitStringOverlayPayload(reason){
@@ -6936,7 +6932,7 @@
     const countsSignature = makeCountsSignature(state.analysis.lastCounts);
     state.analysis.lastSignificance = { countsSignature, total };
     captureVennSignificancePanelModel();
-    captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-significance-calculated' });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-significance-calculated' });
     debugLog('calculateSignificance complete', { total, overlaps: res.length, countsSignature });
   }
 
@@ -8976,7 +8972,7 @@
   }
 
   function refreshDiagram() {
-    bindVennSessionForTab(venn.__boundTabId || null, { reason: 'venn-refresh-bind', root: state.ui.root || null }, { apply: false });
+    bindVennSessionForTab(getVennProjectionTabId() || null, { reason: 'venn-refresh-bind', root: state.ui.root || null }, { apply: false });
     const inputs = state.ui.inputs;
     if (!inputs) {
       console.warn('Debug: venn refreshDiagram called before init');
@@ -9030,7 +9026,7 @@
           hasNumeric
         });
         if(!isProjectingVennSession()){
-          captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-refresh-empty' });
+          captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-refresh-empty' });
         }
         return;
       }
@@ -9040,7 +9036,7 @@
         drawFromLists();
       }
       if(!isProjectingVennSession()){
-        captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-refresh-complete' });
+        captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-refresh-complete' });
       }
       debugLog('refreshDiagram executed', { mode });
     } catch (err) {
@@ -9363,7 +9359,7 @@
       console.error('saveVennFile missing fileIO.saveGraphFile');
       return;
     }
-    const operationSession = activeVennSession;
+    const operationSession = projectedVennSession;
     const result = await fileIO.saveGraphFile({
       context: 'venn',
       fileHandle: state.persistence.fileHandle,
@@ -9385,7 +9381,7 @@
       console.error('saveAsVennFile missing fileIO.saveGraphFileAs');
       return;
     }
-    const operationSession = activeVennSession;
+    const operationSession = projectedVennSession;
     const result = await fileIO.saveGraphFileAs({
       context: 'venn',
       payload,
@@ -9405,7 +9401,7 @@
       return;
     }
     const previous = captureVennSnapshot();
-    const operationSession = activeVennSession;
+    const operationSession = projectedVennSession;
     const result = await fileIO.openGraphFile({
       context: 'venn',
       setFileHandle: handle => setVennFileHandleForSession(handle, operationSession),
@@ -9419,7 +9415,7 @@
         }
       }
     });
-    captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-open-complete' });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-open-complete' });
     debug('Debug: venn.open result', result);
   };
 
@@ -9632,14 +9628,14 @@
       const next = captureVennSnapshot();
       recordVennChange(meta.undoLabel || 'venn:load-file', undoPrevious, next);
     }
-    captureVennSessionStateFromActive(hydratedSession || activeVennSession, { reason: meta?.source ? `venn-payload-${meta.source}` : 'venn-payload-apply' });
+    captureVennSessionStateFromActive(hydratedSession || projectedVennSession, { reason: meta?.source ? `venn-payload-${meta.source}` : 'venn-payload-apply' });
     debugLog('Debug: venn payload applied', { source: meta.source || 'unknown' });
     return true;
   }
 
   venn.loadFromFile = function (file, options = {}) {
     const undoPrevious = options?.undo?.previous || captureVennSnapshot();
-    const operationSession = options.session || activeVennSession;
+    const operationSession = options.session || projectedVennSession;
     const reader = new FileReader();
     reader.onload = e => {
       try {
@@ -9799,7 +9795,7 @@
   }
 
   function handleSpeciesSelectChange() {
-    captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-species-select-change' });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-species-select-change' });
     syncActiveVennPayload('venn-species-select');
     debug('Debug: venn handleSpeciesSelectChange', { value: state.ui.speciesSelect?.value || '' });
   }
@@ -9872,7 +9868,7 @@
         state.ui.tooltip.style.top = top + 'px';
         state.ui.tooltip.style.display = 'block';
         Shared.componentLifecycle?.scheduleComponentFrame?.(venn, 'venn', {
-          tabId: venn.__boundTabId || null,
+          tabId: getVennProjectionTabId() || null,
           reason: 'venn-tooltip-size'
         }, () => {
           const w = state.ui.tooltip.scrollWidth;
@@ -10068,7 +10064,7 @@
     const f = e.target.files[0];
     if (f) {
       const previous = captureVennSnapshot();
-      const operationSession = activeVennSession;
+      const operationSession = projectedVennSession;
       setVennFileNameForSession(f.name, operationSession);
       setVennFileHandleForSession(null, operationSession);
       venn.loadFromFile(f, { undo: { previous }, session: operationSession });
@@ -10090,7 +10086,7 @@
     setSpeciesIndicator(null);
     refreshDiagram();
     scheduleSpeciesRecognition('sample-data');
-    captureVennSessionStateFromActive(activeVennSession, { reason: 'venn-sample-data' });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-sample-data' });
     const next = captureVennSnapshot();
     recordVennChange('venn:sample-data', previous, next);
     debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
@@ -10336,7 +10332,7 @@
     if(tabLike && typeof tabLike === 'object'){
       return tabLike.id || tabLike.tabId || null;
     }
-    return tabLike || venn.__boundTabId || null;
+    return tabLike || getVennProjectionTabId() || null;
   }
 
   function resolveVennRoot(tabLike = null){
@@ -10547,26 +10543,22 @@
     if(misplaced && misplaced.parentElement !== stack){
       misplaced.remove();
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('venn notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
-    if(notesState.control?.root && notesState.control.root.isConnected && stack.contains(notesState.control.root)){
-      notesState.control.setValue(notesState.text || '');
-      notesState.control.setOpen(!!notesState.open);
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'venn',
+      ownerTabId: getVennProjectionTabId() || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'venn-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'venn',
       fontKey: 'notes',
-      value: notesState.text || '',
-      open: !!notesState.open,
+      canUseControl: control => !!(control?.root && control.root.isConnected && stack.contains(control.root)),
+      unavailableMessage: 'venn notes helper unavailable',
+      debugLog: debug,
+      applyToControl: control => {
+        control.setValue(notesState.text || '');
+        control.setOpen(!!notesState.open);
+      },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
         const session = getActiveVennSessionForState();
@@ -10585,7 +10577,7 @@
           session.updatedAt = Date.now();
         }
       }
-    });
+    }) || notesState.control || null;
     syncVennSessionRefsFromActive();
   }
 
@@ -10604,13 +10596,13 @@
         const tabId = tab?.id || infoTabId || normalizeVennTabId(tabLike) || null;
         const nextRoot = root || resolveVennRoot(tab || tabId || null) || state.ui.root || null;
         debugLog('active DOM binding rebind', {
-          previousTabId: venn.__boundTabId || null,
+          previousTabId: getVennProjectionTabId() || null,
           targetTabId: tabId,
           hasRoot: !!nextRoot,
           passive: meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true
         });
         if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-          venn.__boundTabId = tabId || venn.__boundTabId || null;
+          venn.__boundTabId = tabId || getVennProjectionTabId() || null;
           bindUiToRoot(nextRoot);
           bindVennSessionForTab(tab || tabId || null, {
             ...(meta || {}),
@@ -10622,7 +10614,7 @@
           syncVennSessionManagersFromActive();
           venn.__domSentinel = mountedSentinel || state.ui.hotContainer || getVennNodeById('vennHot');
           venn.ready = true;
-          debugLog('passive DOM rebind', { tabId: venn.__boundTabId || null });
+          debugLog('passive DOM rebind', { tabId: getVennProjectionTabId() || null });
           return;
         }
         venn.ready = false;
@@ -10644,15 +10636,15 @@
       || resolveVennRoot(targetTabId || null)
       || null;
     if (venn.ready && (!targetTabId || venn.__boundTabId === targetTabId)) {
-      bindVennSessionForTab(targetTabId || venn.__boundTabId || null, { root: mountedRoot || state.ui.root || null, reason: options?.reason || 'venn-init-same-tab' }, { apply: false });
+      bindVennSessionForTab(targetTabId || getVennProjectionTabId() || null, { root: mountedRoot || state.ui.root || null, reason: options?.reason || 'venn-init-same-tab' }, { apply: false });
       syncVennSessionRefsFromActive();
       syncVennSessionManagersFromActive();
-      debugLog('init skipped', { tabId: venn.__boundTabId || null });
+      debugLog('init skipped', { tabId: getVennProjectionTabId() || null });
       return;
     }
     if(venn.ready){
-      captureVennSessionStateFromActive(activeVennSession, { reason: options?.reason || 'venn-init-rebind-capture' });
-      debugLog('init rebinding', { previousTabId: venn.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      captureVennSessionStateFromActive(projectedVennSession, { reason: options?.reason || 'venn-init-rebind-capture' });
+      debugLog('init rebinding', { previousTabId: getVennProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       venn.ready = false;
     }
     venn.__boundTabId = targetTabId || null;
@@ -10670,7 +10662,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'venn',
           debugLabel: 'venn',
-          getTabId: () => venn.__boundTabId || null,
+          getTabId: () => getVennProjectionTabId() || null,
           scheduleRaw: scheduleVennBase
         })
       : scheduleVennBase;
@@ -10694,7 +10686,7 @@
       syncVennSessionManagersFromActive(initSession);
     }
     venn.ready = true;
-    captureVennSessionStateFromActive(activeVennSession, { reason: options?.reason || 'venn-init-complete' });
+    captureVennSessionStateFromActive(projectedVennSession, { reason: options?.reason || 'venn-init-complete' });
     debugLog('init complete');
   };
 
@@ -10744,7 +10736,7 @@
         }) || storedRuntime;
       }
     }
-    const session = bindVennSessionForTab(requestedTabId || meta?.tab || meta?.tabId || venn.__boundTabId || null, { ...(meta || {}), reason: meta.reason || 'venn-runtime-capture-bind' }, { apply: false });
+    const session = bindVennSessionForTab(requestedTabId || meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), reason: meta.reason || 'venn-runtime-capture-bind' }, { apply: false });
     const snapshot = captureVennRuntimeStateSnapshot();
     if(session){
       session.state = createDefaultVennDurableState({ ...(session.state || {}), runtime: snapshot });
@@ -10777,7 +10769,7 @@
     const session = setVennSessionStateFromRuntimeRecord(resolvedSnapshot, meta);
     applyVennRuntimeStateSnapshot(resolvedSnapshot);
     if(session){
-      activeVennSession = session;
+      projectedVennSession = session;
       applyVennSessionStateToActive(session, { restoreEmptyPayload: false });
     }
     rememberVennOwnedRuntimeRecord(meta?.tab || meta?.tabId || null, resolvedSnapshot, {
@@ -10796,12 +10788,12 @@
   };
 
   function syncVennActivationState(meta = {}){
-    bindVennSessionForTab(meta?.tab || meta?.tabId || venn.__boundTabId || null, { ...(meta || {}), root: resolveVennRoot(meta?.tab || meta?.tabId || null) || state.ui.root || null, reason: meta.reason || 'venn-activate-session' }, { apply: true });
+    bindVennSessionForTab(meta?.tab || meta?.tabId || getVennProjectionTabId() || null, { ...(meta || {}), root: resolveVennRoot(meta?.tab || meta?.tabId || null) || state.ui.root || null, reason: meta.reason || 'venn-activate-session' }, { apply: true });
     if(typeof state.ui.syncPanels === 'function'){
       state.ui.syncPanels({ skipSchedule: true });
       debugLog('tab activated panel sync', {
         reason: meta.reason || 'activate-tab',
-        tabId: venn.__boundTabId || null
+        tabId: getVennProjectionTabId() || null
       });
     }
     scheduleActiveVennDraw({ reason: meta.reason || 'venn-activate-tab' });
@@ -10830,11 +10822,11 @@
     getSentinel: () => state.ui.hotContainer || null
   }) || function activateTab(_tab, meta = {}){
     const targetTabId = normalizeVennTabId((_tab && typeof _tab === 'object' ? _tab.id : _tab) || meta?.tabId || null);
-    const previousBoundTabId = venn.__boundTabId || null;
+    const previousBoundTabId = getVennProjectionTabId() || null;
     const rebound = ensureVennDomBindings(targetTabId, meta || {});
     const currentRootTabId = getVennRootTabId(state.ui.root);
     const rootMismatch = !!targetTabId && !!currentRootTabId && String(currentRootTabId) !== String(targetTabId);
-    venn.__boundTabId = targetTabId || venn.__boundTabId || null;
+    venn.__boundTabId = targetTabId || getVennProjectionTabId() || null;
     if(!venn.ready || rootMismatch){
       debugLog('activateTab forcing init for target root', {
         previousBoundTabId,
@@ -10880,8 +10872,8 @@
     const tabId = normalizeVennSessionTabId(_tab || meta?.tabId || null, meta);
     if(tabId){
       vennSessionsByTabId.delete(tabId);
-      if(activeVennSession?.tabId === tabId){
-        activeVennSession = null;
+      if(projectedVennSession?.tabId === tabId){
+        projectedVennSession = null;
       }
     }
     debugLog('tab disposed', {
@@ -11019,7 +11011,7 @@
       debug('Debug: venn export controls unavailable', { hasExporter: false });
       return false;
     }
-    const root = state.ui.root || resolveVennRoot(venn.__boundTabId || null) || null;
+    const root = state.ui.root || resolveVennRoot(getVennProjectionTabId() || null) || null;
     if(!root || root === global.document || typeof root.querySelector !== 'function'){
       debug('Debug: venn export controls unavailable', { hasExporter: true, hasRoot: false });
       return false;
@@ -11159,12 +11151,12 @@
   venn.draw = function draw(meta = {}) {
     try {
       const nextReason = meta?.reason || 'venn-draw';
-      if(Shared.componentLifecycle?.shouldSuppressDraw?.('venn', { ...(meta || {}), tabId: meta?.tabId || venn.__boundTabId || null, reason: nextReason })){
-        debug('Debug: venn draw suppressed by lifecycle', { reason: nextReason, tabId: meta?.tabId || venn.__boundTabId || null });
-        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || venn.__boundTabId || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'venn.draw' } });
+      if(Shared.componentLifecycle?.shouldSuppressDraw?.('venn', { ...(meta || {}), tabId: meta?.tabId || getVennProjectionTabId() || null, reason: nextReason })){
+        debug('Debug: venn draw suppressed by lifecycle', { reason: nextReason, tabId: meta?.tabId || getVennProjectionTabId() || null });
+        Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || getVennProjectionTabId() || null, action: 'draw-suppressed', reason: nextReason, details: { source: 'venn.draw' } });
         return;
       }
-      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || venn.__boundTabId || null, action: 'draw-executed', reason: nextReason, details: { source: 'venn.draw' } });
+      Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'venn', tabId: meta?.tabId || getVennProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'venn.draw' } });
       const targetTabId = normalizeVennTabId(meta?.tabId || null);
       ensureVennDomBindings(targetTabId);
       const rootTabId = getVennRootTabId(state.ui.root);

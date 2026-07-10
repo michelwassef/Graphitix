@@ -134,15 +134,14 @@ async function restoredCacheState(page, type) {
     return {
       tabId: tab?.id || null,
       hasRestoredGraph: !!(
-        tab?.authoritativeRenderRestore
-        || tab?.renderCache
+        tab?.renderCache
         || tab?.renderCacheSignature
         || tab?.archiveRenderCache
         || tab?.archiveRenderCacheSignature
       ),
       hasRuntimeCache: !!(tab?.renderCache || tab?.renderCacheSignature),
       hasArchiveCache: !!(tab?.archiveRenderCache || tab?.archiveRenderCacheSignature),
-      authoritative: !!tab?.authoritativeRenderRestore
+      hasAuthoritativeRenderRestoreProperty: Object.prototype.hasOwnProperty.call(tab || {}, ['authoritative', 'Render', 'Restore'].join(''))
     };
   }, type);
 }

@@ -417,8 +417,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
       renderCache: { cache: { plot: { count: 1 } } },
       renderCacheSignature: 'payload-sig',
       archiveRenderCache: { plot: { count: 1 } },
-      archiveRenderCacheSignature: 'archive-sig',
-      authoritativeRenderRestore: true
+      archiveRenderCacheSignature: 'archive-sig'
     };
     draw = jest.fn();
     window.Components = { box: { draw, isIdleForSnapshot: () => true } };
@@ -438,12 +437,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
           target.archiveRenderCacheSignature = null;
           target.archiveRenderCacheLayoutSignature = null;
           return true;
-        },
-        markTabAuthoritativeRenderRestore(target, active) {
-          target.authoritativeRenderRestore = !!active;
-          return target.authoritativeRenderRestore;
-        }
-      },
+        }      },
       components: {
         get: () => ({ draw })
       }
@@ -463,7 +457,6 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     expect(result.redrawRequested).toBe(true);
     expect(tab.renderCache).toBeNull();
     expect(tab.archiveRenderCache).toBeNull();
-    expect(tab.authoritativeRenderRestore).toBe(false);
     expect(draw).toHaveBeenCalledWith(expect.objectContaining({
       tabId: 'tab-a',
       force: true,
@@ -477,7 +470,6 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     tab.renderCacheSignature = null;
     tab.archiveRenderCache = null;
     tab.archiveRenderCacheSignature = null;
-    tab.authoritativeRenderRestore = false;
 
     const result = lc.beginGraphEdit('box', {
       tabId: 'tab-a',
@@ -526,8 +518,7 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
       renderCache: { cache: { plot: { count: 1 } } },
       renderCacheSignature: 'tab-b-sig',
       archiveRenderCache: { plot: { count: 1 } },
-      archiveRenderCacheSignature: 'tab-b-archive',
-      authoritativeRenderRestore: true
+      archiveRenderCacheSignature: 'tab-b-archive'
     };
     window.Main.session.workspaceState.tabs.push(otherTab);
     document.body.innerHTML = `

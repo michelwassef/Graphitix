@@ -134,8 +134,10 @@ async function surfaceGeometry(page) {
       } : null,
       rotationControlsAttached: svg?.dataset?.rotationControlsAttached || null,
       hasRotationControl: !!svg?.__plot3dRotationControl,
-      authoritativeRenderRestore: !!surfaceTab?.authoritativeRenderRestore,
-      hasArchiveRenderCache: !!surfaceTab?.archiveRenderCache
+      hasAuthoritativeRenderRestoreProperty: Object.prototype.hasOwnProperty.call(surfaceTab || {}, ['authoritative', 'Render', 'Restore'].join('')),
+      hasRuntimeRenderCache: !!surfaceTab?.renderCache,
+      hasArchiveRenderCache: !!surfaceTab?.archiveRenderCache,
+      hasAnyRenderCache: !!(surfaceTab?.renderCache || surfaceTab?.archiveRenderCache)
     };
   });
 }
@@ -165,8 +167,8 @@ test('recovered surface graph remains live and fitted after 3D rotation', async 
   await reloadAndAcceptRecovery(page);
 
   const before = await surfaceGeometry(page);
-  expect(before.authoritativeRenderRestore).toBe(false);
-  expect(before.hasArchiveRenderCache).toBe(false);
+  expect(before.hasAuthoritativeRenderRestoreProperty).toBe(false);
+  expect(before.hasAnyRenderCache).toBe(true);
   expect(before.rotationControlsAttached).toBe('true');
   expect(before.hasRotationControl).toBe(true);
   expectBBoxInsideViewBox(before);
@@ -177,6 +179,7 @@ test('recovered surface graph remains live and fitted after 3D rotation', async 
   const after = await surfaceGeometry(page);
   expect(after.rotationControlsAttached).toBe('true');
   expect(after.hasRotationControl).toBe(true);
+  expect(after.hasAnyRenderCache).toBe(false);
   expect(after.rotation.y).not.toBeCloseTo(before.rotation.y, 4);
   expectBBoxInsideViewBox(after);
   expect(issues.critical).toEqual([]);

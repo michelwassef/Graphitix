@@ -1396,9 +1396,6 @@
         || phase === 'aspect-toggle';
       let resizeInteractionCacheCleared = false;
       const clearActiveResizeRenderCache = phase => {
-        if(componentName === 'line'){
-          return;
-        }
         if(isResizeFinalizePhase(phase)){
           resizeInteractionCacheCleared = false;
           return;
@@ -1423,6 +1420,12 @@
         let cleared = false;
         if(typeof sessionApi.clearTabRenderCache === 'function'){
           cleared = sessionApi.clearTabRenderCache(targetTab, {
+            tabId,
+            reason: `${componentName}-resize-start`
+          }) || cleared;
+        }
+        if(typeof sessionApi.clearTabArchiveRenderCache === 'function'){
+          cleared = sessionApi.clearTabArchiveRenderCache(targetTab, {
             tabId,
             reason: `${componentName}-resize-start`
           }) || cleared;

@@ -893,16 +893,6 @@
         reason: options.reason || 'workspace-view'
       });
     }
-    let authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
-    const syncAuthoritativeRenderRestoreFlag = reason => {
-      authoritativeRenderRestore = !!(hadArchiveRenderCache && canRestoreRender);
-      if (typeof session?.markTabAuthoritativeRenderRestore === 'function') {
-        session.markTabAuthoritativeRenderRestore(tab, authoritativeRenderRestore, {
-          reason: reason || (authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view')
-        });
-      }
-      return authoritativeRenderRestore;
-    };
     if (renderCacheValidationDeferred && !canRestoreRender) {
       console.debug('Debug: workspace render cache unavailable after deferred validation', {
         tabId: tab.id,
@@ -937,13 +927,12 @@
         reasonText: renderCacheUnavailableReasons.join('|')
       });
     }
-    syncAuthoritativeRenderRestoreFlag(authoritativeRenderRestore ? 'workspace-view-authoritative' : 'workspace-view');
     if (canRestoreRender && Shared.componentLayout?.suppressNextScheduleFor) {
       Shared.componentLayout.suppressNextScheduleFor(tab.type, {
         tabId: tab.id,
         reason: 'render-cache-restore-prepare',
-        delayMs: authoritativeRenderRestore ? 5000 : 400,
-        count: authoritativeRenderRestore ? 24 : 3
+        delayMs: 400,
+        count: 3
       });
     }
     const activeWorkspaceElement = Shared.workspaceTabs?.ensureMountedRoot
@@ -1515,13 +1504,10 @@
         reason: 'workspace-render-cache-restore-activation',
         passiveControls: true,
         suppressAutosize: true,
-        authoritativeRenderRestore: true,
         suppressDraw: true,
         suppressAutoDraw: true,
         suppressResizeDraw: true,
         suppressStatsRecompute: true,
-        postSuppressMs: 1800,
-        postSuppressCount: 24
       });
       return earlyRenderRestoreTransactionEnd;
     };
@@ -1535,7 +1521,6 @@
         reason: canRestoreRender ? 'workspace-render-cache-restore' : (options.reason || 'workspace-view-restore'),
         passiveControls: true,
         suppressAutosize: true,
-        authoritativeRenderRestore,
         suppressDraw: canRestoreRender,
         suppressAutoDraw: canRestoreRender,
         suppressResizeDraw: canRestoreRender,
@@ -1562,7 +1547,6 @@
         const postEnsureCanRestore = validateRenderCacheForRestore('post-ensure');
         if (postEnsureCanRestore !== canRestoreRender || renderCacheValidationDeferred) {
           canRestoreRender = postEnsureCanRestore;
-          syncAuthoritativeRenderRestoreFlag(canRestoreRender ? 'workspace-view-authoritative-post-ensure' : 'workspace-view-post-ensure');
           console.debug('Debug: workspace render cache validation finalized', {
             tabId: tab.id,
             type: tab.type,
@@ -1709,8 +1693,8 @@
         Shared.componentLayout.suppressNextScheduleFor(tab.type, {
           tabId: tab.id,
           reason: 'render-cache-restore',
-          delayMs: authoritativeRenderRestore ? 5000 : 400,
-          count: authoritativeRenderRestore ? 24 : 3
+          delayMs: 400,
+          count: 3
         });
       }
       if (!options.skipApply) {
@@ -1742,7 +1726,6 @@
             skipPayloadSizing: canRestoreRender || !!tab.layoutState,
             authoritativeLayoutState: !!tab.layoutState,
             layoutStatePresent: !!tab.layoutState,
-            authoritativeRenderRestore,
             suppressAutoDraw: canRestoreRender,
             suppressResizeDraw: canRestoreRender,
             suppressStatsRecompute: canRestoreRender,
@@ -1794,7 +1777,6 @@
               resetStyles: true,
               resetDataset: true,
               skipSchedule: canRestoreRender,
-              authoritativeRenderRestore,
               suppressAutoDraw: canRestoreRender,
               suppressResizeDraw: canRestoreRender,
               suppressStatsRecompute: canRestoreRender,
@@ -1822,7 +1804,6 @@
             payload: tab.payload || null,
             payloadSignature: targetPayloadSignature,
             layoutSignature: targetLayoutSignature,
-            authoritativeRenderRestore,
             suppressDraw: canRestoreRender,
             suppressAutoDraw: canRestoreRender,
             suppressResizeDraw: canRestoreRender,
@@ -1925,8 +1906,21 @@
         activationError: tab.activationError?.reason || null
       });
       } finally {
+        if (canRestoreRender) {
+          Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
+            tabId: tab.id,
+            reason: options.reason || 'workspace-render-cache-restore-complete'
+          });
+          Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
+            tabId: tab.id,
+            reason: options.reason || 'workspace-render-cache-restore-complete'
+          });
+        }
         if (typeof endRestoreTransaction === 'function') {
-          endRestoreTransaction({ reason: options.reason || 'workspace-view-restore-complete' });
+          endRestoreTransaction({
+            reason: options.reason || 'workspace-view-restore-complete',
+            cancelPostSuppress: true
+          });
         }
       }
     };

@@ -5,6 +5,10 @@
   const Components = global.Components = global.Components || {};
   const heatmap = Components.heatmap = Components.heatmap || {};
 
+  const sanitizeHeatmapDrawOptions = (options = {}, owner = {}) => (
+    Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('heatmap', options, owner) || {}
+  );
+
   function getHeatmapRuntimeOwner(){
     return Shared.componentLifecycle?.createRuntimeOwner?.(heatmap, { componentKey: 'heatmap' }) || null;
   }
@@ -195,7 +199,7 @@
         return;
       }
       const nextReason = heatmapFontRefreshReason || 'font-style-change';
-      const ownerTabId = heatmapFontRefreshTabId || heatmap.__boundTabId || null;
+      const ownerTabId = heatmapFontRefreshTabId || getHeatmapProjectionTabId() || null;
       const ownerSession = ownerTabId
         ? getHeatmapSession(ownerTabId, { tabId: ownerTabId, reason: nextReason }, { create: false })
         : getActiveHeatmapSessionForState();
@@ -208,7 +212,7 @@
       : null;
     return (reason, options = {}) => {
       heatmapFontRefreshReason = reason || heatmapFontRefreshReason || 'font-style-change';
-      heatmapFontRefreshTabId = options?.tabId || heatmapFontRefreshTabId || heatmap.__boundTabId || null;
+      heatmapFontRefreshTabId = options?.tabId || heatmapFontRefreshTabId || getHeatmapProjectionTabId() || null;
       if(debounced){
         debounced({ tabId: heatmapFontRefreshTabId || null, reason: 'heatmap-font-refresh' });
         return;
@@ -357,7 +361,7 @@
         // Drive the draw directly (not via the suppressed post-restore scheduler) so the
         // model+metrics are recomputed now, at this settled visible size.
         debugLog('Debug: heatmap resize refresh recomputing render state (missing metrics)', { reason: nextReason });
-        const recoveryOptions = { tabId: heatmap.__boundTabId || null, reason: `heatmap-recover-render-state-${nextReason}` };
+        const recoveryOptions = { tabId: getHeatmapProjectionTabId() || null, reason: `heatmap-recover-render-state-${nextReason}` };
         updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
           runtime.pendingDrawOptions = sanitizeHeatmapDrawOptions(recoveryOptions);
         });
@@ -373,7 +377,7 @@
     return reason => {
       heatmapResizeRefreshReason = reason || heatmapResizeRefreshReason || 'resize';
       if(debounced){
-        debounced({ tabId: heatmap.__boundTabId || null, reason: 'heatmap-resize-refresh' });
+        debounced({ tabId: getHeatmapProjectionTabId() || null, reason: 'heatmap-resize-refresh' });
         return;
       }
       runRefresh();
@@ -795,7 +799,13 @@
   }
 
   const heatmapSessionsByTabId = new Map();
-  let activeHeatmapSession = null;
+  // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
+  let projectedHeatmapSession = null;
+
+  // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
+  function getHeatmapProjectionTabId(){
+    return Shared.componentLifecycle?.resolveProjectionTabId?.(heatmap, projectedHeatmapSession) || String(heatmap.__boundTabId || projectedHeatmapSession?.tabId || '').trim();
+  }
 
   function createDefaultHeatmapRefs(root = null){
     return {
@@ -959,7 +969,7 @@
   function getHeatmapSession(tabLike = null, meta = {}, options = {}){
     const tabId = normalizeHeatmapSessionTabId(tabLike, meta);
     if(!tabId){
-      return options.fallbackActive === true ? ensureHeatmapSessionOwnershipShape(activeHeatmapSession) : null;
+      return options.fallbackActive === true ? ensureHeatmapSessionOwnershipShape(projectedHeatmapSession) : null;
     }
     let session = heatmapSessionsByTabId.get(tabId) || null;
     if(!session && options.create === true){
@@ -974,19 +984,7 @@
   }
 
   function getHeatmapWorkspaceActiveTabId(){
-    const workspaceInfo = Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap') || null;
-    if(workspaceInfo?.tabId){
-      return String(workspaceInfo.tabId).trim();
-    }
-    const workspace = global.Main?.session?.workspaceState || null;
-    const activeId = workspace?.activeTabId || null;
-    if(activeId && Array.isArray(workspace?.tabs)){
-      const activeTab = workspace.tabs.find(tab => tab && String(tab.id || '') === String(activeId));
-      if(activeTab?.type === 'heatmap'){
-        return String(activeId).trim();
-      }
-    }
-    return '';
+    return String(Shared.componentLifecycle?.resolveWorkspaceActiveTabId?.('heatmap') || '').trim();
   }
 
   function getActiveHeatmapSessionForState(){
@@ -994,8 +992,8 @@
     if(workspaceActiveTabId){
       return getHeatmapSession(workspaceActiveTabId, { tabId: workspaceActiveTabId, reason: 'active-heatmap-session-workspace' }, { create: true });
     }
-    if(activeHeatmapSession && (!heatmap.__boundTabId || String(activeHeatmapSession.tabId || '') === String(heatmap.__boundTabId || ''))){
-      return ensureHeatmapSessionOwnershipShape(activeHeatmapSession);
+    if(projectedHeatmapSession && (!heatmap.__boundTabId || String(projectedHeatmapSession.tabId || '') === String(heatmap.__boundTabId || ''))){
+      return ensureHeatmapSessionOwnershipShape(projectedHeatmapSession);
     }
     const tabId = heatmap.__boundTabId || normalizeHeatmapSessionTabId(null, {}) || null;
     return tabId ? getHeatmapSession(tabId, { tabId, reason: 'active-heatmap-session' }, { create: true }) : null;
@@ -1074,15 +1072,15 @@
     if(!tabId){
       return null;
     }
-    if(activeHeatmapSession && activeHeatmapSession.tabId && activeHeatmapSession.tabId !== tabId){
-      captureHeatmapSessionStateFromActive(activeHeatmapSession, {
+    if(projectedHeatmapSession && projectedHeatmapSession.tabId && projectedHeatmapSession.tabId !== tabId){
+      captureHeatmapSessionStateFromActive(projectedHeatmapSession, {
         ...(meta || {}),
         reason: meta?.reason || 'heatmap-session-switch-capture'
       });
     }
     const session = getHeatmapSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'heatmap-session-bind' }, { create: true });
     if(!session){ return null; }
-    activeHeatmapSession = session;
+    projectedHeatmapSession = session;
     heatmap.__heatmapSessionTabId = session.tabId;
     const workspaceActiveTabId = getHeatmapWorkspaceActiveTabId();
     const sessionIsActiveOwner = !workspaceActiveTabId || workspaceActiveTabId === session.tabId;
@@ -1106,7 +1104,7 @@
   }
 
   function syncHeatmapSessionRefsFromActive(session = null){
-    const shaped = ensureHeatmapSessionOwnershipShape(session || activeHeatmapSession);
+    const shaped = ensureHeatmapSessionOwnershipShape(session || projectedHeatmapSession);
     if(!shaped){ return null; }
     if(shaped.tabId && !isHeatmapSessionActiveForModuleState(shaped)){
       return shaped;
@@ -1124,31 +1122,15 @@
   }
 
   function getHeatmapHotOwnerTabId(hotInstance){
-    return String(
-      hotInstance?.__heatmapTabId
-      || hotInstance?.__workspaceTabId
-      || hotInstance?.__graphitixTabId
-      || hotInstance?.__hotWorkspaceTabId
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveOwnedObjectTabId?.(hotInstance, 'heatmap') || '').trim();
   }
 
   function getHeatmapTabIdFromTarget(target = null){
-    if(!target || typeof target.closest !== 'function'){
-      return '';
-    }
-    const owner = target.closest('[data-workspace-tab-id], [data-tab-id], [data-workspace-instance-root="true"]');
-    return String(
-      owner?.dataset?.workspaceTabId
-      || owner?.dataset?.tabId
-      || owner?.getAttribute?.('data-workspace-tab-id')
-      || owner?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
+    return String(Shared.componentLifecycle?.resolveTabIdFromTarget?.(target) || '').trim();
   }
 
   function getHeatmapActiveTabId(){
-    return String(getHeatmapWorkspaceActiveTabId() || heatmap.__boundTabId || '').trim();
+    return String(Shared.componentLifecycle?.resolveActiveComponentTabId?.('heatmap', heatmap, projectedHeatmapSession) || '').trim();
   }
 
   function getHeatmapCallbackOwner(meta = {}){
@@ -1216,22 +1198,26 @@
     return meta?.fallbackActive === false ? null : getActiveHeatmapSessionForState();
   }
 
-  function heatmapHotBelongsToSession(hotInstance, session = null){
-    if(!hotInstance){
-      return false;
-    }
-    const shaped = ensureHeatmapSessionOwnershipShape(session || activeHeatmapSession || getActiveHeatmapSessionForState());
-    const ownerTabId = getHeatmapHotOwnerTabId(hotInstance);
-    return !!shaped && (!shaped.tabId || (ownerTabId && ownerTabId === shaped.tabId));
-  }
+  const heatmapHotBelongsToSession = (hotInstance, session = null) => (
+    Shared.componentLifecycle?.ownedHotBelongsToSession?.(hotInstance, session, 'heatmap', {
+      ensureSession: ownerSession => ensureHeatmapSessionOwnershipShape(ownerSession || projectedHeatmapSession || getActiveHeatmapSessionForState())
+    }) === true
+  );
+
+  const heatmapDataViewsManagerBelongsToSession = (manager = null, session = null) => (
+    Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'heatmap', {
+      ensureSession: ownerSession => ensureHeatmapSessionOwnershipShape(ownerSession || projectedHeatmapSession || getActiveHeatmapSessionForState())
+    }) === true
+  );
 
   function syncHeatmapSessionManagersFromActive(session = null){
-    const shaped = ensureHeatmapSessionOwnershipShape(session || activeHeatmapSession);
+    const shaped = ensureHeatmapSessionOwnershipShape(session || projectedHeatmapSession);
     if(!shaped){ return null; }
     const hotBelongsToSession = heatmapHotBelongsToSession(state.hot, shaped);
     if(hotBelongsToSession){
+      const manager = state.hot?.__heatmapDataViewsManager || null;
       shaped.managers.hot = state.hot;
-      shaped.managers.dataViews = state.hot?.__heatmapDataViewsManager || shaped.managers.dataViews || null;
+      shaped.managers.dataViews = heatmapDataViewsManagerBelongsToSession(manager, shaped) ? manager : shaped.managers.dataViews || null;
     }
     if(!shaped.managers.hot || !heatmapHotBelongsToSession(shaped.managers.hot, shaped)){
       shaped.managers.hot = null;
@@ -1519,7 +1505,7 @@
       rowThreshold: 500,
       cellThreshold: 5000
     }),
-    getTabId: () => heatmap.__boundTabId || null,
+    getTabId: () => getHeatmapProjectionTabId() || null,
     getHost: () => (
       state.svgBox
       || getHeatmapNodeById('heatmapGraphPanel')?.querySelector?.('.svgbox')
@@ -2582,22 +2568,23 @@
   }
 
   function ensureHeatmapDataViewsForHot(hotInstance, options = {}){
-    if(!hotInstance || typeof hotInstance.getData !== 'function'){
-      return null;
-    }
-    if(typeof Shared.dataViews?.createManager !== 'function'){
-      return null;
-    }
-    const existingManager = hotInstance.__heatmapDataViewsManager || null;
-    if(existingManager && existingManager.__heatmapRuntimeKey !== HEATMAP_RUNTIME_KEY){
-      existingManager.unmount?.();
-      hotInstance.__heatmapDataViewsManager = null;
-    }
-    if(!hotInstance.__heatmapDataViewsManager){
-      hotInstance.__heatmapDataViewsManager = Shared.dataViews.createManager({
+    const ownerTabId = getHeatmapHotOwnerTabId(hotInstance) || getHeatmapProjectionTabId() || null;
+    const hostWrapper = options.wrapper || getHeatmapNodeById('heatmapHotWrapper') || null;
+    const hostContainer = options.container || hotInstance?.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null;
+    const manager = Shared.componentLifecycle?.ensureOwnedDataViewsManager?.({
+      hotInstance,
+      componentKey: 'heatmap',
+      managerField: '__heatmapDataViewsManager',
+      ownerTabId,
+      runtimeKey: HEATMAP_RUNTIME_KEY,
+      runtimeKeyField: '__heatmapRuntimeKey',
+      hostContainerField: '__heatmapHostContainer',
+      wrapper: hostWrapper,
+      container: hostContainer,
+      createOptions: {
         componentKey: 'heatmap',
         maxViews: HEATMAP_DATA_VIEW_MAX,
-        initialData: hotInstance.getData() || [],
+        initialData: hotInstance?.getData?.() || [],
         onActiveViewChanged(view, context){
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
@@ -2656,30 +2643,25 @@
           }
           activateHeatmapDataToolbar('data-tab-interaction');
         }
-      });
-      hotInstance.__heatmapDataViewsManager.__heatmapRuntimeKey = HEATMAP_RUNTIME_KEY;
-      debugLog('Debug: heatmap data views manager created', {
-        tabId: hotInstance.__heatmapTabId || null
-      });
-    }
-    const manager = hotInstance.__heatmapDataViewsManager;
-    const hostWrapper = options.wrapper || getHeatmapNodeById('heatmapHotWrapper') || null;
-    const hostContainer = options.container || hotInstance.__heatmapHostContainer || getHeatmapNodeById('heatmapHot') || null;
-    if(hostWrapper && hostContainer){
-      manager.mount({
-        wrapper: hostWrapper,
-        tableContainer: hostContainer
-      });
-      manager.refresh?.();
+      },
+      onCreated(){
+        debugLog('Debug: heatmap data views manager created', {
+          tabId: getHeatmapHotOwnerTabId(hotInstance) || null
+        });
+      }
+    });
+    if(!manager){
+      return null;
     }
     const activeView = manager.getActiveView?.() || null;
     setHeatmapActiveMaterializedViewId(isHeatmapMaterializedDataView(activeView) ? activeView.id : null);
-    const managerSession = getHeatmapSession(hotInstance.__heatmapTabId || heatmap.__boundTabId || null, {
-      tabId: hotInstance.__heatmapTabId || heatmap.__boundTabId || null,
+    const managerSession = getHeatmapSession(getHeatmapHotOwnerTabId(hotInstance) || getHeatmapProjectionTabId() || null, {
+      tabId: getHeatmapHotOwnerTabId(hotInstance) || getHeatmapProjectionTabId() || null,
       reason: 'heatmap-data-views-manager'
     }, { create: true }) || getActiveHeatmapSessionForState();
     if(managerSession?.managers){
-      managerSession.managers.dataViews = manager;
+      managerSession.managers.hot = hotInstance;
+      managerSession.managers.dataViews = heatmapDataViewsManagerBelongsToSession(manager, managerSession) ? manager : managerSession.managers.dataViews || null;
       managerSession.updatedAt = Date.now();
     }
     return manager;
@@ -2702,17 +2684,19 @@
       captureHeatmapStatsPanelModel();
       return;
     }
-    const manager = hot.__heatmapDataViewsManager || null;
-    if(!manager){
-      return;
-    }
-    manager.updateActiveData(hot.getData() || []);
-    manager.updateActiveExclusions(hot?.exportExclusions?.() || null);
-    manager.updateActiveFilters?.(hot?.exportFilters?.() || null);
+    const ownerSession = getHeatmapSessionForHot(hot, { reason: 'heatmap-active-dataview-sync' }, { create: false, fallbackActive: false });
+    const manager = Shared.componentLifecycle?.refreshOwnedDataViewsManagerFromHot?.({
+      hotInstance: hot,
+      componentKey: 'heatmap',
+      managerField: '__heatmapDataViewsManager',
+      session: ownerSession,
+      belongsToSession: heatmapDataViewsManagerBelongsToSession,
+      reason
+    });
     if(reason === 'afterLoadData'){
       hot.__heatmapPendingProgrammaticLoadSource = '';
-      manager.refresh?.();
     }
+    return manager;
   }
 
   function replaceHeatmapDataset(matrix, options = {}){
@@ -3312,45 +3296,6 @@
     );
   }
 
-  function cloneHeatmapSerializable(value, seen = new WeakSet(), depth = 0){
-    if(value == null){ return value; }
-    const type = typeof value;
-    if(type === 'string' || type === 'number' || type === 'boolean'){ return value; }
-    if(type === 'function' || type === 'symbol' || type === 'bigint'){ return undefined; }
-    if(depth > 8 || isHeatmapSerializableDomLike(value)){ return undefined; }
-    if(seen.has(value)){ return undefined; }
-    seen.add(value);
-    if(Array.isArray(value)){
-      return value
-        .map(item => cloneHeatmapSerializable(item, seen, depth + 1))
-        .filter(item => item !== undefined);
-    }
-    const copy = {};
-    Object.entries(value).forEach(([key, entry]) => {
-      if(key === 'event'
-        || key === 'target'
-        || key === 'currentTarget'
-        || key === 'srcElement'
-        || key === 'session'
-        || key === 'root'
-        || key === 'hot'
-        || key === 'manager'
-        || key === 'dataViews'
-        || key === 'scheduler'){
-        return;
-      }
-      const cloned = cloneHeatmapSerializable(entry, seen, depth + 1);
-      if(cloned !== undefined){
-        copy[key] = cloned;
-      }
-    });
-    return copy;
-  }
-
-  function sanitizeHeatmapDrawOptions(options = {}){
-    const sanitized = cloneHeatmapSerializable(options);
-    return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized : {};
-  }
 
   function normalizeDrawOptions(options){
     if(!options){
@@ -3367,8 +3312,8 @@
 
   function mergePendingDrawOptions(opts){
     const normalizedOpts = opts && typeof opts === 'object' ? sanitizeHeatmapDrawOptions(opts) : {};
-    const targetSession = getHeatmapSession(normalizedOpts.tabId || heatmap.__boundTabId || null, {
-      tabId: normalizedOpts.tabId || heatmap.__boundTabId || null,
+    const targetSession = getHeatmapSession(normalizedOpts.tabId || getHeatmapProjectionTabId() || null, {
+      tabId: normalizedOpts.tabId || getHeatmapProjectionTabId() || null,
       reason: 'heatmap-pending-draw-options'
     }, { create: true }) || getActiveHeatmapSessionForState();
     const runtime = getHeatmapDrawRuntime(targetSession, { seedFromActive: !targetSession });
@@ -3435,8 +3380,8 @@
   function mergeDeferredHiddenDrawOptions(options){
     const opts = normalizeDrawOptions(options);
     const normalizedOpts = opts && typeof opts === 'object' ? sanitizeHeatmapDrawOptions(opts) : {};
-    const targetSession = getHeatmapSession(normalizedOpts.tabId || heatmap.__boundTabId || null, {
-      tabId: normalizedOpts.tabId || heatmap.__boundTabId || null,
+    const targetSession = getHeatmapSession(normalizedOpts.tabId || getHeatmapProjectionTabId() || null, {
+      tabId: normalizedOpts.tabId || getHeatmapProjectionTabId() || null,
       reason: 'heatmap-deferred-hidden-draw-options'
     }, { create: true }) || getActiveHeatmapSessionForState();
     const runtime = getHeatmapDrawRuntime(targetSession, { seedFromActive: !targetSession });
@@ -3511,7 +3456,7 @@
       if(!deferred){
         return;
       }
-      const pending = { ...deferred, tabId: deferred.tabId || drawOwner?.tabId || heatmap.__boundTabId || null };
+      const pending = { ...deferred, tabId: deferred.tabId || drawOwner?.tabId || getHeatmapProjectionTabId() || null };
       updateHeatmapDrawRuntime(drawOwner, runtime => {
         runtime.deferredHiddenDrawOptions = null;
       });
@@ -3958,7 +3903,7 @@
       }
       if(state.hot){
         state.hot.__heatmapHostContainer = entry?.container || baseContainer || null;
-        state.hot.__heatmapTabId = entry?.tabId || heatmap.__boundTabId || null;
+        state.hot.__heatmapTabId = entry?.tabId || getHeatmapProjectionTabId() || null;
         ensureHeatmapDefaultHeaderRow(state.hot);
         ensureHeatmapDataViewsForHot(state.hot, {
           wrapper,
@@ -3988,7 +3933,7 @@
     const formatter = getHeatmapPValueFormatter();
     const scientific = Shared.statsReporting?.getPValueFormatScientific?.({
       target: state.statsEl || $('heatmapStatsContent'),
-      tabId: heatmap.__boundTabId || null
+      tabId: getHeatmapProjectionTabId() || null
     }) === true;
     if(typeof formatter === 'function'){
       return formatter(value, { scientific, forceScientific: scientific });
@@ -5741,7 +5686,7 @@
   }
 
   function isHeatmapDrawCurrent(drawToken, asyncState){
-    const tabId = asyncState?.meta?.tabId || asyncState?.meta?.workspaceTabId || heatmap.__boundTabId || null;
+    const tabId = asyncState?.meta?.tabId || asyncState?.meta?.workspaceTabId || getHeatmapProjectionTabId() || null;
     const session = tabId ? getHeatmapSession(tabId, { tabId, reason: 'heatmap-draw-current-check' }, { create: false }) : getActiveHeatmapSessionForState();
     const runtime = getHeatmapDrawRuntime(session, { seedFromActive: !session });
     const currentToken = runtime ? Number(runtime.token) || 0 : Number(state.drawToken) || 0;
@@ -5767,7 +5712,7 @@
       return { result: hierarchicalCluster(items, metric, linkage), promise: null };
     }
     const payload = buildClusterWorkerPayload(items, metric, linkage);
-    const workerTabId = asyncState?.meta?.tabId || heatmap.__boundTabId || null;
+    const workerTabId = asyncState?.meta?.tabId || getHeatmapProjectionTabId() || null;
     const workerMeta = asyncState?.meta && typeof asyncState.meta === 'object' ? asyncState.meta : {};
     const workerRecordBase = {
       label: label || null,
@@ -8781,7 +8726,7 @@
   }
 
   function renderCorrelationHeatmap(processed, settings, drawToken, asyncState = null){
-    const renderSession = getHeatmapSession(asyncState?.meta?.tabId || heatmap.__boundTabId || null, asyncState?.meta || {}, { create: false }) || getActiveHeatmapSessionForState();
+    const renderSession = getHeatmapSession(asyncState?.meta?.tabId || getHeatmapProjectionTabId() || null, asyncState?.meta || {}, { create: false }) || getActiveHeatmapSessionForState();
     state.lastResolvedValueScale = null;
     updateHeatmapRenderRuntime(renderSession, runtime => {
       runtime.lastResolvedValueScale = null;
@@ -8902,7 +8847,7 @@
   }
 
   function renderValuesHeatmap(processed, settings, drawToken, asyncState = null){
-    const renderSession = getHeatmapSession(asyncState?.meta?.tabId || heatmap.__boundTabId || null, asyncState?.meta || {}, { create: false }) || getActiveHeatmapSessionForState();
+    const renderSession = getHeatmapSession(asyncState?.meta?.tabId || getHeatmapProjectionTabId() || null, asyncState?.meta || {}, { create: false }) || getActiveHeatmapSessionForState();
     syncHeatmapCorrelationMatrixDataView(null, settings, {
       context: resolveHeatmapViewContext(),
       reason: 'heatmap-correlation-view-clear-values'
@@ -9287,7 +9232,7 @@
       });
       return false;
     }
-    const drawSession = bindHeatmapSessionForTab(drawOpts.tabId || heatmap.__boundTabId || null, {
+    const drawSession = bindHeatmapSessionForTab(drawOpts.tabId || getHeatmapProjectionTabId() || null, {
       ...(drawOpts || {}),
       reason: drawOpts.reason || 'heatmap-draw-session'
     }) || requestedSession || scheduledSession;
@@ -9344,7 +9289,7 @@
       }, { seedFromActive: true });
       const drawToken = Number(drawRuntime?.token) || Number(state.drawToken) || 0;
       let drawAsyncState = null;
-      const drawTabId = drawOpts.tabId || drawSession?.tabId || heatmap.__boundTabId || null;
+      const drawTabId = drawOpts.tabId || drawSession?.tabId || getHeatmapProjectionTabId() || null;
       if(drawTabId && Shared.componentLifecycle?.createAsyncScope){
         try{
           const scope = heatmap.__drawAsyncScope || Shared.componentLifecycle.createAsyncScope('heatmap-draw');
@@ -9695,7 +9640,7 @@
   heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
     console.debug('Debug: heatmap.createEmptyPayload pure factory invoked', {
       ready: !!heatmap.ready,
-      boundTabId: heatmap.__boundTabId || null
+      boundTabId: getHeatmapProjectionTabId() || null
     });
     const payload = { type: 'heatmap', config: {} };
     payload.type = 'heatmap';
@@ -9915,7 +9860,7 @@
 
   heatmap.draw = draw;
   heatmap.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
-    const tabId = meta?.tabId || heatmap.__boundTabId || null;
+    const tabId = meta?.tabId || getHeatmapProjectionTabId() || null;
     const session = tabId ? getHeatmapSession(tabId, { ...(meta || {}), tabId, reason: 'heatmap-cancel-current-draw' }, { create: false }) : getActiveHeatmapSessionForState();
     updateHeatmapDrawRuntime(session || getActiveHeatmapSessionForState(), runtime => {
       runtime.pendingDrawOptions = {};
@@ -9944,51 +9889,48 @@
       }
       return;
     }
-    const helper = Shared.notes;
-    if(!helper || typeof helper.mountFoldable !== 'function'){
-      console.warn('heatmap notes helper unavailable', { hasSharedNotes: !!helper });
-      return;
-    }
     const noteSession = getActiveHeatmapSessionForState();
     const noteState = getHeatmapNotesState(noteSession);
-    if(notesState.control?.root && notesState.control.root.isConnected){
-      applyHeatmapNotesStateToControl(noteSession, { control: notesState.control });
-      return;
-    }
-    notesState.control = helper.mountFoldable({
+    notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
+      componentKey: 'heatmap',
+      ownerTabId: heatmap.__boundTabId || noteSession?.tabId || null,
       container: stack,
+      notesState,
+      control: notesState.control,
       id: 'heatmap-notes',
-      title: 'Notes',
-      placeholder: 'Write notes about the data being analyzed...',
-      richText: true,
       scopeId: 'heatmap',
       fontKey: 'notes',
       value: noteState.text || '',
       open: !!noteState.open,
+      unavailableMessage: 'heatmap notes helper unavailable',
+      debugLog,
+      applyToControl: control => applyHeatmapNotesStateToControl(noteSession, { control }),
       onChange: value => {
-        syncHeatmapNotesStateToSession(getActiveHeatmapSessionForState(), {
+        const session = getActiveHeatmapSessionForState();
+        syncHeatmapNotesStateToSession(session, {
           text: value == null ? '' : String(value),
-          open: getHeatmapNotesState(getActiveHeatmapSessionForState()).open
+          open: getHeatmapNotesState(session).open
         });
       },
       onToggle: open => {
-        syncHeatmapNotesStateToSession(getActiveHeatmapSessionForState(), {
-          text: getHeatmapNotesState(getActiveHeatmapSessionForState()).text,
+        const session = getActiveHeatmapSessionForState();
+        syncHeatmapNotesStateToSession(session, {
+          text: getHeatmapNotesState(session).text,
           open: !!open
         });
       }
-    });
+    }) || notesState.control || null;
   }
 
   heatmap.init = function init(options = {}){
     const targetTabId = options?.tabId || options?.tab?.id || resolveHeatmapAsyncTabId(options, state.hot) || null;
     const targetRoot = options?.root || resolveHeatmapRoot(targetTabId || null) || null;
     if(heatmap.ready && (!targetTabId || heatmap.__boundTabId === targetTabId) && (!targetRoot || state.root === targetRoot)){
-      debugLog('Debug: heatmap.init skipped - already ready', { tabId: heatmap.__boundTabId || null });
+      debugLog('Debug: heatmap.init skipped - already ready', { tabId: getHeatmapProjectionTabId() || null });
       return;
     }
     if(heatmap.ready){
-      debugLog('Debug: heatmap.init rebinding', { previousTabId: heatmap.__boundTabId || null, targetTabId, reason: options?.reason || 'init' });
+      debugLog('Debug: heatmap.init rebinding', { previousTabId: getHeatmapProjectionTabId() || null, targetTabId, reason: options?.reason || 'init' });
       heatmap.ready = false;
     }
     heatmap.__boundTabId = targetTabId || null;
@@ -9998,7 +9940,7 @@
       root: state.root || null,
       reason: options?.reason || 'heatmap-init-bind-session'
     });
-    debugLog('Debug: heatmap.init start', { tabId: heatmap.__boundTabId || null });
+    debugLog('Debug: heatmap.init start', { tabId: getHeatmapProjectionTabId() || null });
     state.svg = $('heatmapSvg');
     if(state.svg){
       if(typeof chartStyle.applySvgDefaults === 'function'){
@@ -10127,7 +10069,7 @@
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'heatmap',
           debugLabel: 'heatmap',
-          getTabId: () => heatmap.__boundTabId || null,
+          getTabId: () => getHeatmapProjectionTabId() || null,
           scheduleRaw: scheduleHeatmapInstrumented
         })
       : scheduleHeatmapInstrumented;
@@ -10167,12 +10109,12 @@
         const nextTabId = info?.tab?.id || info?.tabId || (tabLike && typeof tabLike === 'object' ? tabLike.id : tabLike) || null;
         bindHeatmapSessionForTab(info?.tab || nextTabId || null, { ...(meta || {}), tabId: nextTabId || null, root: state.root || null, reason: meta?.reason || 'workspace-dom-rebind' });
         if(meta?.liveDomFastPath === true || meta?.liveDomReuse === true || meta?.passiveControls === true){
-          heatmap.__boundTabId = nextTabId || heatmap.__boundTabId || null;
+          heatmap.__boundTabId = nextTabId || getHeatmapProjectionTabId() || null;
           heatmap.__domSentinel = info?.mountedSentinel || getHeatmapNodeById('heatmapLoadExample');
           syncHeatmapSessionRefsFromActive();
           syncHeatmapSessionManagersFromActive();
           heatmap.ready = true;
-          debugLog('Debug: heatmap passive DOM rebind', { tabId: heatmap.__boundTabId || null });
+          debugLog('Debug: heatmap passive DOM rebind', { tabId: getHeatmapProjectionTabId() || null });
           return;
         }
         heatmap.ready = false;
@@ -10191,7 +10133,7 @@
     }
   };
   function syncHeatmapActivationState(tabLike = null, options = {}){
-    const activationSession = bindHeatmapSessionForTab(tabLike || heatmap.__boundTabId || null, { reason: 'heatmap-activation-state-bind' });
+    const activationSession = bindHeatmapSessionForTab(tabLike || getHeatmapProjectionTabId() || null, { reason: 'heatmap-activation-state-bind' });
     resetHeatmapActivationDrawState('activate-tab');
     if(typeof state.ensureHotForActiveTab === 'function'){
       const hot = state.ensureHotForActiveTab();
@@ -10253,8 +10195,8 @@
       syncHeatmapActivationState(tabLike || meta?.tabId || null, { passive });
     },
     getSentinel: () => {
-      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(heatmap.__boundTabId || null, 'heatmap')
-        || resolveHeatmapRoot(heatmap.__boundTabId || null)
+      const mountedRoot = Shared.workspaceTabs?.getMountedRoot?.(getHeatmapProjectionTabId() || null, 'heatmap')
+        || resolveHeatmapRoot(getHeatmapProjectionTabId() || null)
         || global.document;
       return mountedRoot?.querySelector?.('#heatmapLoadExample')
         || getHeatmapNodeById('heatmapLoadExample')
@@ -10262,7 +10204,7 @@
     }
   }) || function activateTab(tab, meta = {}){
     const targetTabId = (tab && typeof tab === 'object' ? tab.id : tab) || meta?.tabId || null;
-    heatmap.__boundTabId = targetTabId || heatmap.__boundTabId || null;
+    heatmap.__boundTabId = targetTabId || getHeatmapProjectionTabId() || null;
     state.root = resolveHeatmapRoot(tab || targetTabId || null) || state.root || null;
     bindHeatmapSessionForTab(tab || targetTabId || null, { ...(meta || {}), tabId: targetTabId || null, reason: meta?.reason || 'heatmap-activate-fallback-bind-session' });
     if(ensureHeatmapDomBindings(tab)){
@@ -10293,7 +10235,7 @@
       reason: meta.reason || 'heatmap-runtime-capture'
     });
     debugLog('Debug: heatmap runtime snapshot captured', {
-      tabId: sessionSnapshot?.tabId || meta?.tabId || heatmap.__boundTabId || null,
+      tabId: sessionSnapshot?.tabId || meta?.tabId || getHeatmapProjectionTabId() || null,
       fromActive: requestedSession === activeSession,
       reason: meta.reason || 'heatmap-runtime-capture'
     });
@@ -10313,7 +10255,7 @@
     const session = setHeatmapSessionStateFromRuntimeRecord(resolvedSnapshot, {
       ...(meta || {}),
       reason: meta.reason || 'heatmap-runtime-apply-session-state'
-    }) || bindHeatmapSessionForTab(meta?.tab || meta?.tabId || heatmap.__boundTabId || null, meta);
+    }) || bindHeatmapSessionForTab(meta?.tab || meta?.tabId || getHeatmapProjectionTabId() || null, meta);
     const isActiveOwner = !!session && isHeatmapSessionActiveForModuleState(session);
     if(isActiveOwner){
       applyHeatmapSessionStateToActive(session, { syncUi: true });
@@ -10482,6 +10424,8 @@
   }
 
   function resolveHeatmapPreviewSourceSvg(tab){
+    // Read-only preview source: this may reuse an inactive tab's cache DOM,
+    // but restore policy and cache invalidation remain owned by domControls/session.
     const activeTabId = global.Main?.session?.workspaceState?.activeTabId || null;
     const targetTabId = tab?.id || null;
     if(targetTabId && targetTabId !== activeTabId){
@@ -10606,7 +10550,7 @@
   };
 
   heatmap.isIdleForSnapshot = function isIdleForSnapshot(meta = {}){
-    const session = getHeatmapSession(meta?.tab || meta?.tabId || heatmap.__boundTabId || null, {
+    const session = getHeatmapSession(meta?.tab || meta?.tabId || getHeatmapProjectionTabId() || null, {
       ...(meta || {}),
       reason: meta?.reason || 'heatmap-idle-check'
     }, { create: false }) || getActiveHeatmapSessionForState();
