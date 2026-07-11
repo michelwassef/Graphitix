@@ -673,6 +673,12 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(survival, projectedSurvivalSession) || String(survival.__boundTabId || projectedSurvivalSession?.tabId || '').trim();
   }
 
+  function getSurvivalProjectionSession(meta = {}, options = {}){
+    const tabId = getSurvivalProjectionTabId();
+    if(!tabId){ return null; }
+    return getSurvivalSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-projection-session' }, { create: options.create !== false });
+  }
+
   function createDefaultSurvivalStatsPanelModels(source = {}){
     const src = source && typeof source === 'object' ? source : {};
     return {
@@ -794,7 +800,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('survival')?.tabId
-      || survival.__boundTabId
+      || getSurvivalProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -1269,8 +1275,8 @@
       : getActiveSurvivalSessionForState();
     const activeTabId = normalizeSurvivalOwnerTabId(getSurvivalProjectionTabId() || null);
     if(!ownerSession || !ownerTabId || ownerTabId === activeTabId){
-      syncSurvivalRuntimeControlsFromDom(ownerSession || getActiveSurvivalSessionForState());
-      syncSurvivalStateToSession(ownerSession || getActiveSurvivalSessionForState());
+      syncSurvivalRuntimeControlsFromDom(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
+      syncSurvivalStateToSession(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
     }
     const nextReason = reason || options.reason || 'survival-view-refresh';
     const normalizedReason = String(nextReason || '').toLowerCase();
@@ -1410,7 +1416,7 @@
 
   function setGridStyle(style, fallbackThickness){
     state.gridStyle = sanitizeGridStyle(style, fallbackThickness);
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { gridStyle: state.gridStyle });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { gridStyle: state.gridStyle });
   }
 
   function getAxisTickInterval(axis){
@@ -1434,7 +1440,7 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: `axis-${axis}-tick-interval`, tabId: getSurvivalProjectionTabId() || null });
   }
 
@@ -1453,7 +1459,7 @@
     }
     settings[axis].minorTicks = nextValue;
     logDebug('axis minor ticks updated',{ axis, enabled: nextValue });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-ticks`, tabId: getSurvivalProjectionTabId() || null });
   }
 
@@ -1472,7 +1478,7 @@
     }
     settings[axis].minorTickSubdivisions = nextValue;
     logDebug('axis minor tick subdivisions updated',{ axis, subdivisions: nextValue });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: `axis-${axis}-minor-subdivisions`, tabId: getSurvivalProjectionTabId() || null });
   }
 
@@ -1489,7 +1495,7 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     logDebug('axis stroke width updated',{ strokeWidth: settings.strokeWidth });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: 'axis-stroke-width', tabId: getSurvivalProjectionTabId() || null });
   }
 
@@ -1501,7 +1507,7 @@
     const settings = ensureAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     logDebug('axis color updated',{ color: settings.color });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: settings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: settings });
     scheduleActiveSurvivalDraw({ reason: 'axis-color', tabId: getSurvivalProjectionTabId() || null });
   }
 
@@ -1519,7 +1525,7 @@
           refs.showGrid.checked = !!value;
         }
         syncSurvivalRuntimeControlsFromDom();
-        syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+        syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
         scheduleActiveSurvivalDraw({ reason: 'grid-visible-change', tabId: getSurvivalProjectionTabId() || null });
       },
       getStyle: () => getGridStyle(fallbackThickness),
@@ -1555,7 +1561,7 @@
     state.axisSettings = base;
     ensureAxisSettings();
     logDebug('axis settings applied',{ settings: state.axisSettings });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { axisSettings: state.axisSettings });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { axisSettings: state.axisSettings });
   }
 
   function buildManualTicks(min, max, interval){
@@ -1983,7 +1989,7 @@
       || resolveSurvivalHotOwnerTabId(hotInstance)
       || hotInstance?.__survivalTabId
       || hotInstance?.__workspaceTabId
-      || survival.__boundTabId
+      || getSurvivalProjectionTabId()
       || ''
     );
     const hostWrapper = options.wrapper || $('#survivalHotWrapper');
@@ -2345,7 +2351,7 @@
           }
           advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
           syncSurvivalRuntimeControlsFromDom();
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
           setSurvivalAdvisorState(advisorState, advisorSession);
           logDebug('stats advisor recommendation applied', {
             showHazardRatios: recommendation.showHazardRatios,
@@ -2488,7 +2494,7 @@
         }
         advisorState.lastApplied = { ...recommendation, answers: { ...answers } };
         syncSurvivalRuntimeControlsFromDom();
-        syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+        syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
         setSurvivalAdvisorState(advisorState, advisorSession);
         logDebug('stats advisor recommendation applied', {
           showHazardRatios: recommendation.showHazardRatios,
@@ -2587,7 +2593,7 @@
       source: options.source || 'apply',
       forced: force
     });
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelColors: state.labelColors });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelColors: state.labelColors });
     scheduleActiveSurvivalDraw({ reason: 'survival-group-color', tabId: getSurvivalProjectionTabId() || null });
     return true;
   }
@@ -2676,7 +2682,7 @@
             relX: relX, 
             relY: relY 
           };
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
+          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('legend position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -4340,7 +4346,7 @@
       return next;
     }
     state.statsReportPScientific = next;
-    syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { statsReportPScientific: next });
+    syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { statsReportPScientific: next });
     syncSurvivalStatsPValuePanelState();
     if(state.lastSummary && Array.isArray(state.lastSummary.series)){
       updateStats(state.lastSummary);
@@ -4487,16 +4493,16 @@
       const caption = document.createElement('div');
       caption.className = 'stats-table-lead';
       caption.textContent = model.caption;
-      if(Object.prototype.hasOwnProperty.call(model, 'advanced')){
-        caption.setAttribute('data-stats-advanced', model.advanced ? '1' : '0');
+      if(typeof model.section === 'string'){
+        caption.setAttribute('data-stats-section', model.section);
       }
       target.appendChild(caption);
     }
     if(Array.isArray(model.columns) && model.columns.length){
       const table = document.createElement('table');
       table.className = 'stats-table stats-table--fallback';
-      if(Object.prototype.hasOwnProperty.call(model, 'advanced')){
-        table.setAttribute('data-stats-advanced', model.advanced ? '1' : '0');
+      if(typeof model.section === 'string'){
+        table.setAttribute('data-stats-section', model.section);
       }
       const thead = document.createElement('thead');
       const headRow = document.createElement('tr');
@@ -5032,7 +5038,7 @@
       if(xTitle.textContent !== nextValue){
         xTitle.textContent = nextValue;
       }
-      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
       scheduleActiveSurvivalDraw({ reason: 'survival-x-label-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(xTitle, txt => {
@@ -5057,7 +5063,7 @@
             relX: relX, 
             relY: relY 
           };
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
+          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('x-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -5103,7 +5109,7 @@
       if(yTitle.textContent !== nextValue){
         yTitle.textContent = nextValue;
       }
-      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { controls: state.controls });
+      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { controls: state.controls });
       scheduleActiveSurvivalDraw({ reason: 'survival-y-label-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(yTitle, txt => {
@@ -5128,7 +5134,7 @@
             relX: relX, 
             relY: relY 
           };
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
+          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('y-label position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -5169,7 +5175,7 @@
       if(titleText.textContent !== nextValue){
         titleText.textContent = nextValue;
       }
-      syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { titleText: state.titleText });
+      syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { titleText: state.titleText });
       scheduleActiveSurvivalDraw({ reason: 'survival-title-edit', tabId: getSurvivalProjectionTabId() || null });
     };
     makeEditable(titleText, txt => {
@@ -5194,7 +5200,7 @@
             relX: relX, 
             relY: relY 
           };
-          syncSurvivalStateToSession(getActiveSurvivalSessionForState(), { labelPositions: state.labelPositions });
+          syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('title position saved', { absolute: pos, relative: { relX, relY } });
         }
       });
@@ -5429,7 +5435,7 @@
     ];
     renderStatsTableCard(refs.statsSummary, {
       caption: 'Group Summary',
-      advanced: false,
+      section: 'summary',
       columns: [
         { key: 'group', label: 'Group', align: 'left' },
         { key: 'total', label: 'N', align: 'right' },
@@ -5479,7 +5485,7 @@
     if(rows.length){
       renderStatsTableCard(refs.statsLogRank, {
         caption: 'Survival Curve Comparisons',
-        advanced: false,
+        section: 'summary',
         columns: [
           { key: 'test', label: 'Test', align: 'left' },
           { key: 'statistic', label: 'Statistic', align: 'right' },
@@ -5499,7 +5505,7 @@
       if(summary.pairwiseComparisons?.available && Array.isArray(summary.pairwiseComparisons.rows) && summary.pairwiseComparisons.rows.length){
         renderStatsTableCard(refs.statsLogRank, {
           caption: 'Pairwise Log-rank Comparisons',
-          advanced: true,
+          section: 'comparisons',
           columns: [
             { key: 'comparison', label: 'Comparison', align: 'left' },
             { key: 'chi2', label: 'χ²', align: 'right' },
@@ -5596,7 +5602,7 @@
     const rows = buildHazardRatioRows(summary);
     renderStatsTableCard(target, {
       caption: options.caption || getHazardRatioTableCaption(summary),
-      advanced: !!options.advanced,
+      section: 'estimates',
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 'hazardRatio', label: 'Hazard ratio', align: 'right' },
@@ -5621,7 +5627,7 @@
     }
     renderStatsTableCard(target, {
       caption: 'Median Survival Ratios',
-      advanced: true,
+      section: 'estimates',
       columns: [
         { key: 'comparison', label: 'Comparison', align: 'left' },
         { key: 'ratio', label: 'Median ratio', align: 'right' },
@@ -5725,7 +5731,7 @@
     ].filter(Boolean);
     renderStatsTableCard(refs.statsCox, {
       caption: coxCaption,
-      advanced: false,
+      section: 'estimates',
       columns: [
         { key: 'predictor', label: 'Predictor', align: 'left' },
         { key: 'type', label: 'Type', align: 'left' },
@@ -5746,7 +5752,7 @@
     if(concordance){
       renderStatsTableCard(refs.statsCox, {
         caption: 'Cox Model Diagnostics',
-        advanced: true,
+        section: 'diagnostics',
         columns: [
           { key: 'metric', label: 'Metric', align: 'left' },
           { key: 'value', label: 'Value', align: 'right' }
@@ -5774,7 +5780,7 @@
     if(residualRows.length){
       renderStatsTableCard(refs.statsCox, {
         caption: 'Residual Summaries',
-        advanced: true,
+        section: 'diagnostics',
         columns: [
           { key: 'residual', label: 'Residual', align: 'left' },
           { key: 'mean', label: 'Mean', align: 'right' },
@@ -5798,7 +5804,7 @@
     if(Array.isArray(residuals.schoenfeld) && residuals.schoenfeld.length){
       renderStatsTableCard(refs.statsCox, {
         caption: 'Scaled Schoenfeld Residual Checks',
-        advanced: true,
+        section: 'diagnostics',
         columns: [
           { key: 'predictor', label: 'Predictor', align: 'left' },
           { key: 'correlation', label: 'Corr(log time)', align: 'right' },
@@ -6129,7 +6135,7 @@
       state.labelPositions = cloneSimple(nextState.labelPositions) || state.labelPositions || {};
     }
     if(snapshot.advisor && typeof snapshot.advisor === 'object'){
-      setSurvivalAdvisorState(snapshot.advisor, applySession || getActiveSurvivalSessionForState());
+      setSurvivalAdvisorState(snapshot.advisor, applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
     }
     syncSurvivalRuntimeControlsFromState(snapshot.state?.controls || {});
     if(snapshot.notes && typeof snapshot.notes === 'object'){
@@ -6149,7 +6155,7 @@
       ...(meta || {}),
       reason: meta?.reason || 'survival-runtime-apply'
     });
-    captureSurvivalSessionStateFromActive(applySession || getActiveSurvivalSessionForState(), {
+    captureSurvivalSessionStateFromActive(applySession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: meta?.reason || 'survival-runtime-apply-capture',
       captureStatsPanels: true
     });
@@ -6178,7 +6184,7 @@
     const session = getSurvivalSession(tab || tabId || null, { ...(meta || {}), tabId, reason: meta?.reason || 'survival-deactivate-session' }, { create: false })
       || getActiveSurvivalSessionForState();
     const activeSession = getActiveSurvivalSessionForState();
-    if(session && (!tabId || String(session.tabId || '') === String(survival.__boundTabId || '') || session === activeSession)){
+    if(session && (!tabId || String(session.tabId || '') === String(getSurvivalProjectionTabId() || '') || session === activeSession)){
       captureSurvivalSessionStateFromActive(session, {
         reason: meta?.reason || 'survival-deactivate-session-capture',
         captureStatsPanels: true
@@ -6318,7 +6324,7 @@
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
     }
-    captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+    captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: 'survival-payload-applied',
       captureStatsPanels: true
     });
@@ -6344,7 +6350,7 @@
       notesState.control.setValue(notesState.text);
       notesState.control.setOpen(notesState.open);
     }
-    setSurvivalAdvisorState(config.advisor || {}, getActiveSurvivalSessionForState());
+    setSurvivalAdvisorState(config.advisor || {}, getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
     state.labelColors = Object.assign({}, config.labelColors || {});
     state.labelStrokeWidth = Object.assign({}, config.labelStrokeWidth || {});
     state.labelOpacity = Object.assign({}, config.labelOpacity || {});
@@ -6383,7 +6389,7 @@
       pairwiseCorrectionSelect.value = state.pairwiseCorrection;
     }
     setGridStyle(config.gridStyle, config.axis?.strokeWidth);
-    importFontStyles('survival', config.fontStyles || null, { tabId: survival.__boundTabId || getActiveSurvivalSessionForState()?.tabId || null });
+    importFontStyles('survival', config.fontStyles || null, { tabId: getSurvivalProjectionTabId() || getActiveSurvivalSessionForState()?.tabId || null });
     if(config.title !== undefined){
       state.titleText = config.title != null ? String(config.title) : '';
     }else if(state.titleText == null){
@@ -6829,11 +6835,11 @@
           if(fontColor){
             graphStyle.fill = fontColor;
           }
-            importFontStyles('survival', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || survival.__boundTabId || getActiveSurvivalSessionForState()?.tabId || null });
+            importFontStyles('survival', { __graph__: graphStyle }, { tabId: ownerSession?.tabId || getSurvivalProjectionTabId() || getActiveSurvivalSessionForState()?.tabId || null });
         }
         logDebug('prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
-        syncSurvivalRuntimeControlsFromDom(ownerSession || getActiveSurvivalSessionForState());
-        syncSurvivalStateToSession(ownerSession || getActiveSurvivalSessionForState(), {
+        syncSurvivalRuntimeControlsFromDom(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }));
+        syncSurvivalStateToSession(ownerSession || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
           titleText: state.titleText,
           controls: state.controls,
           axisSettings: state.axisSettings
@@ -6909,7 +6915,7 @@
     }
     const runSurvivalScheduledDraw = (drawOptions = {}) => {
       const result = drawSurvival(drawOptions || {});
-      captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+      captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
         reason: 'survival-scheduled-draw-capture',
         captureStatsPanels: true
       });
@@ -6992,7 +6998,7 @@
     ensureEmptyPayloadTemplate();
     survival.__domSentinel = getSurvivalNodeById('survivalHot');
     survival.ready = true;
-    captureSurvivalSessionStateFromActive(session || getActiveSurvivalSessionForState(), {
+    captureSurvivalSessionStateFromActive(session || getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: options?.reason || 'survival-init-complete',
       captureStatsPanels: false
     });
@@ -7038,7 +7044,7 @@
       }
     }
     if(!survival.ready){
-      init({ ...options, tabId: options.tabId || options.tab?.id || survival.__boundTabId || undefined, reason: options.reason || 'ensure' });
+      init({ ...options, tabId: options.tabId || options.tab?.id || getSurvivalProjectionTabId() || undefined, reason: options.reason || 'ensure' });
     }
   };
   survival.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
@@ -7260,7 +7266,7 @@
       return;
     }
     const result = drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
-    captureSurvivalSessionStateFromActive(getActiveSurvivalSessionForState(), {
+    captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: nextReason,
       captureStatsPanels: true
     });

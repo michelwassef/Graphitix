@@ -683,6 +683,12 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(hist, projectedHistSession) || String(hist.__boundTabId || projectedHistSession?.tabId || '').trim();
   }
 
+  function getHistProjectionSession(meta = {}, options = {}){
+    const tabId = getHistProjectionTabId();
+    if(!tabId){ return null; }
+    return getHistSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'hist-projection-session' }, { create: options.create !== false });
+  }
+
   function normalizeHistSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
     const objectTabId = tabLike && typeof tabLike === 'object'
@@ -695,7 +701,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('hist')?.tabId
-      || hist.__boundTabId
+      || getHistProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -4168,7 +4174,7 @@
       if(getHistNodeById('histStatsResults')){
         updateHistStats([]);
       }
-      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+      captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
         reason: scheduleMeta?.source || 'hist-table-change',
         syncControls: true,
         captureStatsPanel: false
@@ -4923,7 +4929,7 @@
         };
       }
       syncHistRuntimeControlsFromDom();
-      captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+      captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
         reason: `hist-payload-${source}`,
         syncControls: false,
         captureStatsPanel: false
@@ -5652,6 +5658,7 @@
       .map(entry => `${entry.label}: best fit ${entry.bestFit}`);
     renderHistStatsModel(target, {
       caption: 'Descriptive statistics',
+      section: 'summary',
       columns: [
         { key: 'column', label: 'Column' },
         { key: 'n', label: 'N', align: 'right' },
@@ -5676,6 +5683,7 @@
     }, false);
     renderHistStatsModel(target, {
       caption: 'Distribution shape',
+      section: 'summary',
       columns: [
         { key: 'column', label: 'Column' },
         { key: 'skewness', label: 'Skewness', align: 'right' },
@@ -5722,6 +5730,7 @@
       }
       renderHistStatsModel(target, {
         caption: diagnosticsMode === 'normal-vs-lognormal' ? 'Fit diagnostics' : 'Normal fit diagnostics',
+        section: 'diagnostics',
         columns: diagnosticColumns,
         rows: diagnosticRows,
         footnotes: diagnosticsMode === 'normal-vs-lognormal'
@@ -5739,6 +5748,7 @@
         ksResult = computeHistKolmogorovSmirnovTwoSample(summaries[0].summary.values, summaries[1].summary.values);
         renderHistStatsModel(target, {
           caption: 'Distribution comparison',
+          section: 'comparisons',
           columns: [
             { key: 'seriesA', label: 'Series A' },
             { key: 'seriesB', label: 'Series B' },
@@ -5762,6 +5772,7 @@
       }else{
         renderHistStatsModel(target, {
           caption: 'Distribution comparison',
+          section: 'comparisons',
           columns: [{ key: 'note', label: 'Note' }],
           rows: [{ note: 'Kolmogorov-Smirnov comparison is available only when exactly two series are visible.' }],
           options: {
@@ -7230,7 +7241,7 @@
       return;
     }
     const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
-    captureHistSessionStateFromActive(getActiveHistSessionForState(), {
+    captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
       reason: nextReason,
       syncControls: false,
       captureStatsPanel: true
@@ -7486,7 +7497,7 @@
     ensureEmptyPayloadTemplate();
     syncHistSessionManagersFromActive();
     syncHistSessionRefsFromActive();
-    captureHistSessionStateFromActive(getActiveHistSessionForState(), { reason: 'hist-init-complete', captureStatsPanel: false });
+    captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), { reason: 'hist-init-complete', captureStatsPanel: false });
     hist.__domSentinel = getHistNodeById('histHot');
     hist.ready = true;
   };
@@ -7495,7 +7506,7 @@
     if(ensureHistDomBindings(options.tab || options.tabId || null, options || {})){
       return;
     }
-    if (!hist.ready) hist.init({ ...options, tabId: options.tabId || options.tab?.id || hist.__boundTabId || undefined, reason: options.reason || 'ensure' });
+    if (!hist.ready) hist.init({ ...options, tabId: options.tabId || options.tab?.id || getHistProjectionTabId() || undefined, reason: options.reason || 'ensure' });
   };
   hist.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
     component: hist,

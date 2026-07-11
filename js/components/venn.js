@@ -299,7 +299,7 @@
   }
 
   function getVennLockRatioCheckbox() {
-    const activeTabId = String(venn.__boundTabId || '').trim();
+    const activeTabId = String(getVennProjectionTabId() || '').trim();
     const isOwnedByActiveTab = node => {
       if (!node || !node.isConnected) {
         return false;
@@ -517,9 +517,9 @@
       session.timers.pendingSpeciesDetection = detection.pendingTimeoutId || null;
       session.updatedAt = Date.now();
     }
-    if (venn.__boundTabId && venn.__asyncScope?.cancelAllForTab) {
+    if (getVennProjectionTabId() && venn.__asyncScope?.cancelAllForTab) {
       try {
-        venn.__asyncScope.cancelAllForTab(venn.__boundTabId, reason || 'species-detection-cancel');
+        venn.__asyncScope.cancelAllForTab(getVennProjectionTabId(), reason || 'species-detection-cancel');
       } catch (err) {
         console.warn('venn species detection async cancel error', err);
       }
@@ -948,6 +948,12 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(venn, projectedVennSession) || String(venn.__boundTabId || projectedVennSession?.tabId || '').trim();
   }
 
+  function getVennProjectionSession(meta = {}, options = {}){
+    const tabId = getVennProjectionTabId();
+    if(!tabId){ return null; }
+    return getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-projection-session' }, { create: options.create !== false });
+  }
+
   function normalizeVennSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
     const objectTabId = tabLike && typeof tabLike === 'object'
@@ -960,7 +966,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('venn')?.tabId
-      || venn.__boundTabId
+      || getVennProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -1477,7 +1483,7 @@
     if(workspaceActiveTabId){
       return workspaceActiveTabId === tabId;
     }
-    const boundTabId = String(venn.__boundTabId || '').trim();
+    const boundTabId = String(getVennProjectionTabId() || '').trim();
     return !boundTabId || boundTabId === tabId;
   }
 
@@ -2267,7 +2273,7 @@
     if(!session || typeof session.assignTabPayload !== 'function' || !normalizedPayload){
       return false;
     }
-    const tabId = String(meta?.tabId || meta?.tab || venn.__boundTabId || resolveActiveVennTabId() || '').trim();
+    const tabId = String(meta?.tabId || meta?.tab || getVennProjectionTabId() || resolveActiveVennTabId() || '').trim();
     const tab = tabId ? getVennTabById(tabId) : null;
     if(!tab){
       return false;
@@ -2293,7 +2299,7 @@
     if(!normalizedPayload || typeof normalizedPayload !== 'object'){
       return null;
     }
-    const tabId = String(meta?.tabId || meta?.tab || venn.__boundTabId || resolveActiveVennTabId() || '').trim();
+    const tabId = String(meta?.tabId || meta?.tab || getVennProjectionTabId() || resolveActiveVennTabId() || '').trim();
     const session = tabId
       ? getVennSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'venn-payload-hydrate-session' }, { create: true })
       : getActiveVennSessionForState();
@@ -2353,7 +2359,7 @@
     if(!next || typeof next !== 'object'){
       return next;
     }
-    const ownerTabId = String(tabId || meta?.tabId || meta?.tab || venn.__boundTabId || resolveActiveVennTabId() || '').trim();
+    const ownerTabId = String(tabId || meta?.tabId || meta?.tab || getVennProjectionTabId() || resolveActiveVennTabId() || '').trim();
     const ownerTab = ownerTabId ? getVennWorkspaceTab(ownerTabId) : null;
     const ownerLayout = ownerTab?.layoutState || null;
     if(ownerLayout && Shared.graphSizing?.enrichPayloadWithLayout){
@@ -2366,16 +2372,6 @@
       }
     }
     return next;
-  }
-
-  function getVennRootTabId(root = state.ui.root || null){
-    return String(
-      root?.dataset?.workspaceTabId
-      || root?.dataset?.tabId
-      || root?.getAttribute?.('data-workspace-tab-id')
-      || root?.getAttribute?.('data-tab-id')
-      || ''
-    ).trim();
   }
 
   function canCaptureLiveVennPayloadForTab(tabId = null){
@@ -2406,7 +2402,7 @@
     }
     const tabId = normalizeVennSessionTabId(options?.tabId || options?.tab || null, options || {})
       || resolveActiveVennTabId()
-      || venn.__boundTabId
+      || getVennProjectionTabId()
       || '';
     const snapshot = {
       payload: enrichVennPayloadForOwnerStorage(payload, tabId, options || {}),
@@ -7540,7 +7536,7 @@
     markFontEditable(titleText, 'graphTitle', 'graphTitle');
     const applyTitle = value => {
       const nextValue = value != null ? String(value) : '';
-      patchVennVisualState(getActiveVennSessionForState(), { titleText: nextValue }, { reason: 'venn-title-edit' });
+      patchVennVisualState(getVennProjectionSession({ reason: 'venn-projection-mutation' }), { titleText: nextValue }, { reason: 'venn-title-edit' });
       if(titleText.textContent !== nextValue){
         titleText.textContent = nextValue;
       }
@@ -7560,7 +7556,7 @@
         onDragEnd: pos => {
           const relX = pos.x / stageWidth;
           const relY = pos.y / stageHeight;
-          patchVennLabelPosition(getActiveVennSessionForState(), 'title', {
+          patchVennLabelPosition(getVennProjectionSession({ reason: 'venn-projection-mutation' }), 'title', {
             x: pos.x,
             y: pos.y,
             relX,
@@ -9088,7 +9084,7 @@
     }
     Shared.attachResizableBox(svgBox, {
       componentName: 'venn',
-      tabId: venn.__boundTabId || resolveActiveVennTabId() || undefined,
+      tabId: getVennProjectionTabId() || resolveActiveVennTabId() || undefined,
       allowUnlimitedWidth: true,
       allowUnlimitedHeight: true,
       debugLabel: 'venn',
@@ -10170,7 +10166,7 @@
         }
       }
     });
-    const tabId = venn.__boundTabId || normalizeVennSessionTabId(null, { reason: 'venn-table-init' }) || null;
+    const tabId = getVennProjectionTabId() || normalizeVennSessionTabId(null, { reason: 'venn-table-init' }) || null;
     const tableEntry = tabId && typeof Shared.hot.mountTableForTab === 'function'
       ? Shared.hot.mountTableForTab({
           type: 'venn',
@@ -10318,14 +10314,30 @@
     debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
   }
 
-  function getVennRootTabId(root){
-    if(!root || typeof root.getAttribute !== 'function'){
+  function getVennRootTabId(root = state.ui.root || null){
+    if(!root){
       return null;
     }
-    return root.getAttribute('data-workspace-tab-id')
-      || root?.dataset?.workspaceTabId
-      || root?.closest?.('[data-workspace-tab-id]')?.getAttribute?.('data-workspace-tab-id')
-      || null;
+    const directId = String(
+      root?.dataset?.workspaceTabId
+      || root?.dataset?.tabId
+      || root?.getAttribute?.('data-workspace-tab-id')
+      || root?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim();
+    if(directId){
+      return directId;
+    }
+    const ownerRoot = typeof root.closest === 'function'
+      ? root.closest('[data-workspace-tab-id], [data-tab-id]')
+      : null;
+    return String(
+      ownerRoot?.dataset?.workspaceTabId
+      || ownerRoot?.dataset?.tabId
+      || ownerRoot?.getAttribute?.('data-workspace-tab-id')
+      || ownerRoot?.getAttribute?.('data-tab-id')
+      || ''
+    ).trim() || null;
   }
 
   function normalizeVennTabId(tabLike = null){

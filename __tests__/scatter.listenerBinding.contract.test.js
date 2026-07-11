@@ -57,18 +57,20 @@ describe('scatter listener binding contract', () => {
     expect(matches).toHaveLength(1);
   });
 
-  test('getScatterGraphPayload persists the live font-size control value', () => {
+  test('module-level payload capture persists the live font-size control value', () => {
     const source = scatterSource();
-    const payloadMatch = source.match(/function getScatterGraphPayload\(context = \{\}\)\{([\s\S]*?)async function saveScatterFile/);
+    expect(source).toMatch(/function getScatterGraphPayload\(context = \{\}\)\{\s*return getActiveScatterGraphPayload\(context\);\s*\}/);
+    const payloadMatch = source.match(/function getActiveScatterGraphPayload\(context = \{\}\)\{([\s\S]*?)function applyActiveScatterPayload/);
     expect(payloadMatch).toBeTruthy();
     const payloadBody = payloadMatch[1];
     expect(payloadBody).toContain("resolvePayloadControl('scatterFontSize', scatterFontSize)");
     expect(payloadBody).toMatch(/fontSize\s*:\s*readValue\(payloadScatterFontSize,\s*''\)/);
   });
 
-  test('applyScatterPayload restores config.fontSize into the live font-size control', () => {
+  test('module-level payload apply restores config.fontSize into the live font-size control', () => {
     const source = scatterSource();
-    const payloadMatch = source.match(/function applyScatterPayload\(obj, meta = \{\}\)\{([\s\S]*?)function initNotes/);
+    expect(source).toMatch(/function applyScatterPayload\(obj, meta = \{\}\)\{\s*return applyActiveScatterPayload\(obj, meta\);\s*\}/);
+    const payloadMatch = source.match(/function applyActiveScatterPayload\(obj, meta = \{\}\)\{([\s\S]*?)function initNotes/);
     expect(payloadMatch).toBeTruthy();
     const payloadBody = payloadMatch[1];
     expect(payloadBody).toContain('if(c.fontSize !== undefined && scatterFontSize)');
@@ -76,4 +78,21 @@ describe('scatter listener binding contract', () => {
     expect(payloadBody).toContain('scatterFontSize.dataset.fontBasePt = String(c.fontSize)');
     expect(payloadBody).toContain('scatterFontSize.dataset.fontDisplayPt = String(c.fontSize)');
   });
+
+  test('module-level DOM bindings include the alpha value label used by payload apply and setup', () => {
+    const source = scatterSource();
+    expect(source).toMatch(/\blet\s+scatterAlphaVal\s*=\s*null\s*;/);
+    const setupMatch = source.match(/function setup\(initOptions[^)]*\)\{([\s\S]*?)scatter\.ready = true;/);
+    expect(setupMatch).toBeTruthy();
+    expect(setupMatch[1]).not.toMatch(/\b(?:const|let|var)\s+scatterAlphaVal\b/);
+    expect(setupMatch[1]).toContain("scatterAlphaVal=$('#scatterAlphaVal')");
+  });
+
+  test('the extracted scheduler resolves its module-level frame debouncer instead of calling the removed setup-local binding', () => {
+    const source = scatterSource();
+    expect(source).toContain('function getScatterScheduleBase()');
+    expect(source).toMatch(/const scheduleBase = getScatterScheduleBase\(\);\s*scheduleBase\(guarded\);/);
+    expect(source).not.toMatch(/\bscheduleScatterBase\s*\(/);
+  });
+
 });

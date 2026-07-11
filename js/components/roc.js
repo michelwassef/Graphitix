@@ -601,6 +601,12 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(roc, projectedRocSession) || String(roc.__boundTabId || projectedRocSession?.tabId || '').trim();
   }
 
+  function getRocProjectionSession(meta = {}, options = {}){
+    const tabId = getRocProjectionTabId();
+    if(!tabId){ return null; }
+    return getRocSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'roc-projection-session' }, { create: options.create !== false });
+  }
+
   function normalizeRocSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
     const objectTabId = tabLike && typeof tabLike === 'object'
@@ -613,7 +619,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('roc')?.tabId
-      || roc.__boundTabId
+      || getRocProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -1477,7 +1483,7 @@
   }
 
   function releaseRocPostRestoreSuppression(reason, options = {}){
-    const tabId = options?.tabId || options?.session?.tabId || roc.__boundTabId || getActiveRocSessionForState()?.tabId || null;
+    const tabId = options?.tabId || options?.session?.tabId || getRocProjectionTabId() || getActiveRocSessionForState()?.tabId || null;
     if(!tabId){
       return;
     }
@@ -1675,7 +1681,7 @@
 
   function scheduleRocStatsReportOrderPin(){
     const run = () => pinRocStatsReportAfterMetrics(getRocNodeById('rocStatsResults') || refs.statsResults || null);
-    const ownerTabId = roc.__boundTabId || getActiveRocSessionForState()?.tabId || null;
+    const ownerTabId = getRocProjectionTabId() || getActiveRocSessionForState()?.tabId || null;
     run();
     if(!ownerTabId || !Shared.componentLifecycle?.scheduleComponentFrame || !Shared.componentLifecycle?.scheduleComponentTimeout){
       run();
@@ -2283,8 +2289,8 @@
       state.hot = entry.instance;
     }
     if(state.hot){
-      state.hot.__rocTabId = tabId || roc.__boundTabId || state.hot.__rocTabId || null;
-      state.hot.__workspaceTabId = tabId || roc.__boundTabId || state.hot.__workspaceTabId || null;
+      state.hot.__rocTabId = tabId || getRocProjectionTabId() || state.hot.__rocTabId || null;
+      state.hot.__workspaceTabId = tabId || getRocProjectionTabId() || state.hot.__workspaceTabId || null;
     }
     const session = getRocSession(tabId || getRocProjectionTabId() || null, { tabId: tabId || getRocProjectionTabId() || null, reason: 'roc-ensure-hot' }, { create: true }) || getActiveRocSessionForState();
     if(session){
@@ -3526,7 +3532,7 @@
     }
     const model={
       caption:graphType==='roc'?'ROC metrics':'Precision–Recall metrics',
-      advanced:false,
+      section:'summary',
       columns:summaryColumns,
       rows,
       footnotes,
@@ -3566,7 +3572,7 @@
         }
         const thresholdModel = {
           caption: `${stat.name}: cutoff-by-cutoff metrics`,
-          advanced: true,
+          section: 'supplementary',
           columns: thresholdTableColumns,
           rows: buildThresholdRows(thresholdRows),
           footnotes: ['Rows reflect score cutoffs applied as score ≥ threshold.'],
@@ -4585,7 +4591,7 @@
     }
     appendRocReportPanel(stats, graphType, diffResult);
     captureRocStatsPanelModel();
-    captureRocSessionStateFromActive(getActiveRocSessionForState(), {
+    captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: 'roc-draw-complete',
       captureStatsPanel: false
     });
@@ -4668,7 +4674,7 @@
       reportModel: statsPanelModel.reportModel || null
     };
     payload.config.labelPositions = state.labelPositions || null;
-    captureRocSessionStateFromActive(getActiveRocSessionForState(), {
+    captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: 'roc-get-payload',
       captureStatsPanel: true
     });
@@ -5019,13 +5025,13 @@
         ? statsConfig.compareSelection
         : null;
       state.compareResultModel = normalizeRocCompareResultModel(statsConfig.compareResult || null);
-      setRocAdvisorState(statsConfig.advisor || {}, getActiveRocSessionForState());
+      setRocAdvisorState(statsConfig.advisor || {}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = normalizeRocStatsPanelModel(statsConfig);
     }else{
       state.diffMethod = 'delong';
       state.compareSelection = null;
       state.compareResultModel = null;
-      setRocAdvisorState({}, getActiveRocSessionForState());
+      setRocAdvisorState({}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
       state.statsPanelModel = { resultsModel: null, reportModel: null };
     }
     // Restore label positions if saved
@@ -5051,7 +5057,7 @@
     if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
       state.scheduleDraw = scheduleBackup;
     }
-    captureRocSessionStateFromActive(getActiveRocSessionForState(), {
+    captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), {
       reason: `roc-payload-${source}`,
       captureStatsPanel: true
     });
@@ -5452,7 +5458,7 @@
     initExportsAndFiles();
     scheduleActiveRocDraw({ reason: 'roc-init-complete' });
     ensureEmptyPayloadTemplate();
-    captureRocSessionStateFromActive(getActiveRocSessionForState(), { reason: 'roc-init-complete', captureStatsPanel: false });
+    captureRocSessionStateFromActive(getRocProjectionSession({ reason: 'roc-projection-mutation' }), { reason: 'roc-init-complete', captureStatsPanel: false });
     roc.__domSentinel = getRocNodeById('rocHot');
     roc.ready = true;
     console.debug('Debug: ROC component initialized');
@@ -5491,7 +5497,7 @@
       }
     }
     if(!roc.ready){
-      init({ ...options, tabId: options.tabId || options.tab?.id || roc.__boundTabId || undefined, reason: options.reason || 'ensure' });
+      init({ ...options, tabId: options.tabId || options.tab?.id || getRocProjectionTabId() || undefined, reason: options.reason || 'ensure' });
     }
   };
   roc.activateTab = Shared.componentLifecycle?.bindTabActivation?.({

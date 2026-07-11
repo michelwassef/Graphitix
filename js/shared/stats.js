@@ -827,6 +827,49 @@
     return 0.5 * (1 + erf(z / SQRT_TWO));
   }
 
+  function normalQuantile(probability){
+    const p = Number(probability);
+    if(!Number.isFinite(p) || p <= 0 || p >= 1){
+      return p === 0 ? -Infinity : (p === 1 ? Infinity : NaN);
+    }
+    let low = -8;
+    let high = 8;
+    for(let iteration = 0; iteration < 80; iteration += 1){
+      const mid = (low + high) / 2;
+      if(normalCdf(mid) < p){
+        low = mid;
+      }else{
+        high = mid;
+      }
+    }
+    return (low + high) / 2;
+  }
+
+  function correlationConfidenceInterval(r, sampleSize, alpha = 0.05){
+    const correlation = Number(r);
+    const n = Number(sampleSize);
+    const levelAlpha = Number(alpha);
+    if(!Number.isFinite(correlation) || !Number.isFinite(n) || n <= 3){
+      return null;
+    }
+    const safeAlpha = Number.isFinite(levelAlpha) && levelAlpha > 0 && levelAlpha < 1
+      ? levelAlpha
+      : 0.05;
+    const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, correlation));
+    const fisherZ = 0.5 * Math.log((1 + clamped) / (1 - clamped));
+    const standardError = 1 / Math.sqrt(n - 3);
+    const critical = normalQuantile(1 - (safeAlpha / 2));
+    if(!Number.isFinite(standardError) || standardError <= 0 || !Number.isFinite(critical)){
+      return null;
+    }
+    const toCorrelation = value => Math.tanh(value);
+    return {
+      low: toCorrelation(fisherZ - (critical * standardError)),
+      high: toCorrelation(fisherZ + (critical * standardError)),
+      method: 'fisher-z'
+    };
+  }
+
   function normalPdf(x, mean, sigma){
     if(!Number.isFinite(x) || !Number.isFinite(mean) || !Number.isFinite(sigma) || sigma <= 0){ return 0; }
     const z = (x - mean) / sigma;
@@ -1300,6 +1343,8 @@
   stats.studentTTwoSidedPValue = studentTTwoSidedPValue;
   stats.normalUpperTail = normalUpperTail;
   stats.normalTwoSidedPValue = normalTwoSidedPValue;
+  stats.normalQuantile = normalQuantile;
+  stats.correlationConfidenceInterval = correlationConfidenceInterval;
   stats.finiteProbabilityOrFallback = finiteProbabilityOrFallback;
 
   stats.createLogFactorialCache = createLogFactorialCache;
@@ -1849,26 +1894,7 @@
     '#survivalStatsHazardRatios',
     '#survivalStatsCox'
   ];
-  const ADVANCED_KEYWORD_PATTERNS = [
-    /\bdiagnostic/i,
-    /\bcoefficient/i,
-    /\bparameter/i,
-    /\bresidual/i,
-    /\bforecast/i,
-    /\bseasonal/i,
-    /\btechnical\b/i,
-    /\breproducibility/i,
-    /\bpost[-\s]?hoc/i,
-    /\bhazard ratio/i,
-    /\bcox\b/i,
-    /\bconfidence interval/i,
-    /\binterval bounds/i,
-    /\bcurve comparison/i,
-    /\bpairwise/i,
-    /\bassumption/i,
-    /\beigen/i,
-    /\bloadings?\b/i
-  ];
+  const COLLAPSED_STATS_SECTIONS = new Set(['diagnostics', 'supplementary']);
   const panelEnhancerState = new WeakMap();
   const enhancedStatsPanels = new Set();
   const TRACKED_STATS_PANEL_IDS = STATS_PANEL_SELECTORS
@@ -2352,63 +2378,14 @@
     return badgeCount;
   }
 
-  function readNodeCaption(node){
-    if(!node || node.nodeType !== 1){
-      return '';
-    }
-    const children = Array.from(node.children || []);
-    for(let index = 0; index < children.length; index += 1){
-      const child = children[index];
-      if(!child){
-        continue;
-      }
-      const tagName = String(child.tagName || '').toLowerCase();
-      const classList = child.classList || { contains: () => false };
-      if(
-        tagName === 'summary'
-        || classList.contains('stats-table-caption')
-        || classList.contains('stats-table-lead')
-        || classList.contains('loadings-card__title')
-        || classList.contains('variance-card__title')
-      ){
-        if(child.textContent){
-          return child.textContent.trim();
-        }
-      }
-    }
-    if(node.getAttribute){
-      const attrCaption = node.getAttribute('data-stats-caption');
-      if(attrCaption){
-        return String(attrCaption).trim();
-      }
-    }
-    if(node.id){
-      return String(node.id);
-    }
-    return '';
-  }
-
   function isAdvancedNode(node){
     if(!node || node.nodeType !== 1){
-      return false;
-    }
-    if(node.classList.contains('stats-assumption-container')){
-      return true;
-    }
-    if(node.getAttribute('data-stats-advanced') === '1'){
-      return true;
-    }
-    if(node.getAttribute('data-stats-advanced') === '0'){
       return false;
     }
     if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
       return false;
     }
-    const caption = readNodeCaption(node);
-    if(!caption){
-      return false;
-    }
-    return ADVANCED_KEYWORD_PATTERNS.some(pattern => pattern.test(caption));
+    return COLLAPSED_STATS_SECTIONS.has(String(node.getAttribute('data-stats-section') || '').trim().toLowerCase());
   }
 
   function isReportingNode(node){
@@ -2574,8 +2551,8 @@
       const captured = { type: 'stats-table', model: cloneStatsReportingValue(node.__statsTableModel) };
       const cardClass = sanitizeStatsClassName(node.getAttribute?.('class') || '');
       if(cardClass){ captured.className = cardClass; }
-      const advanced = node.getAttribute?.('data-stats-advanced');
-      if(advanced != null){ captured.advanced = advanced; }
+      const section = node.getAttribute?.('data-stats-section');
+      if(section != null){ captured.section = section; }
       return captured;
     }
     const tag = String(node.tagName || '').toLowerCase();
@@ -2596,6 +2573,10 @@
     });
     if(Object.keys(statsAttrs).length){
       model.statsAttrs = statsAttrs;
+    }
+    const statsSection = node.getAttribute?.('data-stats-section');
+    if(statsSection){
+      model.statsSection = String(statsSection);
     }
     if(tag === 'details' && node.open === true){
       model.open = true;
@@ -2681,7 +2662,7 @@
       const card = holder.firstChild;
       if(card && card.nodeType === 1){
         if(model.className){ card.setAttribute('class', model.className); }
-        if(model.advanced != null){ card.setAttribute('data-stats-advanced', model.advanced); }
+        if(model.section != null){ card.setAttribute('data-stats-section', model.section); }
       }
       return card || null;
     }
@@ -2702,6 +2683,9 @@
           node.dataset[key] = String(model.statsAttrs[key]);
         }
       });
+    }
+    if(typeof model.statsSection === 'string' && model.statsSection){
+      node.setAttribute('data-stats-section', model.statsSection);
     }
     if(tag === 'details' && model.open === true){
       node.open = true;
@@ -2857,6 +2841,9 @@
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
+    if(typeof reporting.enhancePanelNow === 'function'){
+      reporting.enhancePanelNow(target, 'restore-panel-model');
+    }
     return {
       restoredMain,
       restoredReport
@@ -2966,7 +2953,7 @@
     if(!advancedPanel){
       advancedPanel = documentRef.createElement('details');
       advancedPanel.className = 'stats-results-advanced-panel';
-      advancedPanel.innerHTML = '<summary>Advanced statistics</summary><div class="stats-results-advanced-panel__body"></div>';
+      advancedPanel.innerHTML = '<summary>Diagnostics and model details</summary><div class="stats-results-advanced-panel__body"></div>';
       target.appendChild(advancedPanel);
       statsReportingDebug('createAdvancedPanel', { id: target.id || null });
     }
@@ -3347,6 +3334,18 @@
       ? { value: Number(pValue), operator: '=' }
       : null;
     return resolveSignificanceToken(parsed, sanitizeSignificanceThreshold(threshold, sharedSignificanceThreshold));
+  };
+
+  reporting.enhancePanelNow = function enhancePanelNow(target, reason){
+    if(!target || target.nodeType !== 1){
+      return false;
+    }
+    observeStatsPanel(target);
+    applyPanelEnhancements(target, reason || 'manual-sync');
+    if(typeof reporting.pinReportHostLast === 'function'){
+      reporting.pinReportHostLast(target);
+    }
+    return true;
   };
 
   reporting.refreshEnhancedPanels = function refreshEnhancedPanels(reason){

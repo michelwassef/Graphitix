@@ -249,6 +249,12 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(surface, projectedSurfaceSession) || String(surface.__boundTabId || projectedSurfaceSession?.tabId || '').trim();
   }
 
+  function getSurfaceProjectionSession(meta = {}, options = {}){
+    const tabId = getSurfaceProjectionTabId();
+    if(!tabId){ return null; }
+    return getSurfaceSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'surface-projection-session' }, { create: options.create !== false });
+  }
+
   function normalizeSurfaceSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
     const objectTabId = tabLike && typeof tabLike === 'object'
@@ -261,7 +267,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId
-      || surface.__boundTabId
+      || getSurfaceProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -1333,7 +1339,7 @@
       return false;
     }
     const ownerSession = getActiveSurfaceSessionForState();
-    const tabId = normalizeSurfaceSessionTabId(ownerSession?.tabId || surface.__boundTabId || sessionApi.workspaceState?.activeTabId || null, {});
+    const tabId = normalizeSurfaceSessionTabId(ownerSession?.tabId || getSurfaceProjectionTabId() || sessionApi.workspaceState?.activeTabId || null, {});
     const reason = 'surface-rotation-change';
     const meta = {
       origin: 'user',
@@ -1470,7 +1476,7 @@
 
   function activateSurfaceDataToolbar(reason){
     const now = Date.now();
-    const tabId = String(surface.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId || 'global');
+    const tabId = String(getSurfaceProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('surface')?.tabId || 'global');
     const lastActivation = Number(surfaceDataToolbarLastActivationByTabId.get(tabId)) || 0;
     if(now - lastActivation < 80){
       return false;
@@ -1842,7 +1848,7 @@
     const owner = getSurfaceCallbackOwner({ target, reason: 'surface-grid-control-register' });
     const runOwnerChange = (reason, callback) => runSurfaceOwnedCallback(owner, resolvedOwner => {
       const result = callback(resolvedOwner);
-      captureSurfaceSessionStateFromActive(resolvedOwner.session || getActiveSurfaceSessionForState(), { reason });
+      captureSurfaceSessionStateFromActive(resolvedOwner.session || getSurfaceProjectionSession({ reason: 'surface-projection-mutation' }), { reason });
       scheduleSurfaceDrawForSession(resolvedOwner.session || getActiveSurfaceSessionForState(), { reason });
       return result;
     }, { reason });
@@ -3000,7 +3006,7 @@
             const relY = metrics.availableHeight > 0
               ? (pos.y - metrics.marginTop) / metrics.availableHeight
               : 0;
-            patchSurfaceLabelPosition(getActiveSurfaceSessionForState(), 'legend', {
+            patchSurfaceLabelPosition(getSurfaceProjectionSession({ reason: 'surface-projection-mutation' }), 'legend', {
               x: pos.x,
               y: pos.y,
               relX,
@@ -4145,7 +4151,7 @@
         return;
       }
     }
-    if(!surface.ready){ surface.init({ ...options, tabId: options.tabId || options.tab?.id || surface.__boundTabId || undefined, reason: options.reason || 'ensure' }); }
+    if(!surface.ready){ surface.init({ ...options, tabId: options.tabId || options.tab?.id || getSurfaceProjectionTabId() || undefined, reason: options.reason || 'ensure' }); }
   };
   function resetSurfaceHotViewportToTop(hotInstance){
     const hot = hotInstance || null;
@@ -4296,7 +4302,7 @@
       }
     }
     if(!surface.ready){
-      surface.init({ root: state.root || undefined, tabId: targetTabId || surface.__boundTabId || undefined, reason: meta?.reason || 'activate-tab' });
+      surface.init({ root: state.root || undefined, tabId: targetTabId || getSurfaceProjectionTabId() || undefined, reason: meta?.reason || 'activate-tab' });
     }
     syncSurfaceActivationState(tab || targetTabId || null, meta);
   };

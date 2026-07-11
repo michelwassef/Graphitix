@@ -250,6 +250,8 @@
     };
   };
 
+  regressionTools.computeRunsTestFromResiduals = computeRunsTestFromResiduals;
+
   const computeLackOfFitTest = ({ points, predictions, parameterCount }) => {
     if(!Array.isArray(points) || !Array.isArray(predictions) || points.length !== predictions.length){
       return {
@@ -4280,7 +4282,7 @@
     };
   };
 
-  const computeGroupedAicMetrics = (sse, n, k) => {
+  const computeInformationCriteria = (sse, n, k) => {
     const sampleSize = Number(n);
     const parameterCount = Number(k);
     const rss = Number(sse);
@@ -4293,6 +4295,7 @@
     const bic = (sampleSize * Math.log(rss / sampleSize)) + (parameterCount * Math.log(sampleSize));
     return { aic, aicc, bic };
   };
+  regressionTools.computeInformationCriteria = computeInformationCriteria;
 
   const computeGroupedExtraSumSquaresF = (simplerSse, simplerDf, complexSse, complexDf) => {
     if(
@@ -4399,7 +4402,7 @@
             sse: Number(commonModel.metrics.sse),
             parameterCount: commonParameterCount,
             df: totalN - commonParameterCount,
-            infoCriteria: computeGroupedAicMetrics(commonModel.metrics.sse, totalN, commonParameterCount),
+            infoCriteria: computeInformationCriteria(commonModel.metrics.sse, totalN, commonParameterCount),
             versusSeparate: computeGroupedExtraSumSquaresF(commonModel.metrics.sse, totalN - commonParameterCount, separateSse, separateDf)
           };
         }else{
@@ -4532,7 +4535,7 @@
             sse: finalSse,
             parameterCount: finalParamCount,
             df: finalDf,
-            infoCriteria: computeGroupedAicMetrics(finalSse, totalN, finalParamCount),
+            infoCriteria: computeInformationCriteria(finalSse, totalN, finalParamCount),
             optimizer: {
               iterations: optimization.iterations,
               converged: !!optimization.converged,
@@ -4572,7 +4575,7 @@
           sse: separateSse,
           parameterCount: separateParameterCount,
           df: separateDf,
-          infoCriteria: computeGroupedAicMetrics(separateSse, totalN, separateParameterCount)
+          infoCriteria: computeInformationCriteria(separateSse, totalN, separateParameterCount)
         },
         commonCurve,
         sharedFit,

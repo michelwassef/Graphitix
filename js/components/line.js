@@ -773,7 +773,7 @@
         ? cfg.colorScheme.trim().toLowerCase()
         : resolvedSchemeId);
     const isDark = resolved ? resolved.isDark === true : schemeId === 'dark';
-    setLineThemeState(session || getLineActiveSessionForState(), {
+    setLineThemeState(session || getLineProjectionSession({ reason: 'line-projection-mutation' }), {
       colorScheme: schemeId || 'scientific',
       textColor: normalizeLineThemeColor(
         cfg.textColor,
@@ -1556,7 +1556,7 @@
       || projectedLineSession?.managers?.hot?.__lineTabId
       || lineFallbackHotManager?.__lineTabId
       || resolveLineTabIdFromNode(refs?.root || null)
-      || line.__boundTabId
+      || getLineProjectionTabId()
       || null;
     if(direct){
       return String(direct);
@@ -2303,7 +2303,7 @@
   }
 
   function setLineGridStyle(style, fallbackThickness, session = null){
-    return setLineGridStyleState(session || getLineActiveSessionForState(), style, fallbackThickness, { reason: 'line-grid-style-set' });
+    return setLineGridStyleState(session || getLineProjectionSession({ reason: 'line-projection-mutation' }), style, fallbackThickness, { reason: 'line-grid-style-set' });
   }
 
   function ensureLineAxisSettings(session = null, options = {}){
@@ -2375,7 +2375,7 @@
     const nextValue = sanitizeLineAxisNotation(value);
     if(settings[axis].notation === nextValue){ return; }
     settings[axis].notation = nextValue;
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-notation' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-notation' });
     console.debug('Debug: line axis notation updated',{ axis, notation: nextValue });
     if(canScheduleActiveLineDraw()){
       scheduleActiveLineDraw();
@@ -2402,7 +2402,7 @@
       const numeric = Number(value);
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-tick-interval' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-tick-interval' });
     console.debug('Debug: line axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     if(canScheduleActiveLineDraw()){
       scheduleActiveLineDraw();
@@ -2423,7 +2423,7 @@
       return;
     }
     settings[axis].minorTicks = nextValue;
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-minor-ticks' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-minor-ticks' });
     console.debug('Debug: line minor ticks updated',{ axis, enabled: nextValue });
     if(canScheduleActiveLineDraw()){
       scheduleActiveLineDraw();
@@ -2444,7 +2444,7 @@
       return;
     }
     settings[axis].minorTickSubdivisions = nextValue;
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-minor-subdivisions' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-minor-subdivisions' });
     console.debug('Debug: line minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     if(canScheduleActiveLineDraw()){
       scheduleActiveLineDraw();
@@ -2472,7 +2472,7 @@
     }else{
       settings[axis].additionalTicks = sanitizeLineAxisAdditionalTicks(entries);
     }
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-additional-ticks' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-additional-ticks' });
     lineDebug('Debug: line axis additional ticks updated', {
       axis,
       count: settings[axis].additionalTicks.length
@@ -2576,7 +2576,7 @@
       const numeric = Number(value);
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-stroke-width' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-stroke-width' });
     console.debug('Debug: line axis stroke width updated',{ strokeWidth: settings.strokeWidth });
     scheduleLineViewRefresh('axis-stroke-width');
   }
@@ -2595,7 +2595,7 @@
   function updateLineAxisColor(value){
     const settings = ensureLineAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
-    setLineAxisSettingsState(getLineActiveSessionForState(), settings, { reason: 'line-axis-color' });
+    setLineAxisSettingsState(getLineProjectionSession({ reason: 'line-projection-mutation' }), settings, { reason: 'line-axis-color' });
     console.debug('Debug: line axis color updated',{ color: settings.color });
     scheduleLineViewRefresh('axis-color');
   }
@@ -2713,7 +2713,7 @@
   }
 
   function getLineLockRatioCheckbox(){
-    const activeTabId = String(line.__boundTabId || '').trim();
+    const activeTabId = String(getLineProjectionTabId() || '').trim();
     const isOwnedByActiveTab = node => {
       if(!node || !node.isConnected){
         return false;
@@ -3701,7 +3701,7 @@
         }
       }
     }
-    const applied = setLineAxisSettingsState(session || getLineActiveSessionForState(), base, { ...(meta || {}), reason: meta?.reason || 'line-axis-settings-apply' });
+    const applied = setLineAxisSettingsState(session || getLineProjectionSession({ reason: 'line-projection-mutation' }), base, { ...(meta || {}), reason: meta?.reason || 'line-axis-settings-apply' });
     console.debug('Debug: line axis settings applied',{ settings: applied });
   }
 
@@ -4104,11 +4104,17 @@
     return Shared.componentLifecycle?.resolveProjectionTabId?.(line, projectedLineSession) || String(line.__boundTabId || projectedLineSession?.tabId || '').trim();
   }
 
+  function getLineProjectionSession(meta = {}, options = {}){
+    const tabId = getLineProjectionTabId();
+    if(!tabId){ return null; }
+    return getLineSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'line-projection-session' }, { create: options.create !== false });
+  }
+
   function getLineActiveSessionForState(){
     if(projectedLineSession && (!line.__boundTabId || String(projectedLineSession.tabId || '') === String(line.__boundTabId || ''))){
       return ensureLineSessionOwnershipShape(projectedLineSession);
     }
-    const boundTabId = String(line.__boundTabId || '').trim();
+    const boundTabId = String(getLineProjectionTabId() || '').trim();
     if(boundTabId){
       return ensureLineSessionOwnershipShape(lineSessionsByTabId.get(boundTabId) || null);
     }
@@ -4172,7 +4178,7 @@
   }
 
   function setActiveLineHotManager(hot, options = {}){
-    return setLineSessionHotManager(getLineActiveSessionForState(), hot, options);
+    return setLineSessionHotManager(getLineProjectionSession({ reason: 'line-projection-mutation' }), hot, options);
   }
 
 
@@ -4248,7 +4254,7 @@
   }
 
   function setActiveLineDataViewsManager(manager){
-    return setLineSessionDataViewsManager(getLineActiveSessionForState(), manager);
+    return setLineSessionDataViewsManager(getLineProjectionSession({ reason: 'line-projection-mutation' }), manager);
   }
 
   function getLineSessionAutoDrawManager(session = null, options = {}){
@@ -4277,7 +4283,7 @@
   }
 
   function setActiveLineAutoDrawManager(manager){
-    return setLineSessionAutoDrawManager(getLineActiveSessionForState(), manager);
+    return setLineSessionAutoDrawManager(getLineProjectionSession({ reason: 'line-projection-mutation' }), manager);
   }
 
   function resolveLineStateSession(session = null){
@@ -4471,7 +4477,7 @@
     if(!session || !session.tabId){
       return null;
     }
-    if(projectedLineSession !== session || String(line.__boundTabId || '') !== String(session.tabId || '')){
+    if(projectedLineSession !== session || String(getLineProjectionTabId() || '') !== String(session.tabId || '')){
       bindLineSessionForTab(session.tabId, {
         tabId: session.tabId,
         reason: reason || options.reason || 'line-explicit-session-bind'
@@ -4765,8 +4771,8 @@
       tabId: getLineProjectionTabId() || null,
       reason: meta?.reason || 'line-mode-cache-active-session'
     }, { create: true });
-    if(!projectedLineSession && line.__boundTabId){
-      projectedLineSession = lineSessionsByTabId.get(line.__boundTabId) || projectedLineSession;
+    if(!projectedLineSession && getLineProjectionTabId()){
+      projectedLineSession = lineSessionsByTabId.get(getLineProjectionTabId()) || projectedLineSession;
     }
     return modeCache;
   }
@@ -4964,7 +4970,7 @@
     if(!session && options.create !== false){
       session = createLineSession({
         tabId,
-        root: String(line.__boundTabId || '') === tabId ? (refs.root || null) : null,
+        root: String(getLineProjectionTabId() || '') === tabId ? (refs.root || null) : null,
         initialState: persistedState ? ensureLineCanonicalState(persistedState, tabId) : (migratedState || createDefaultLineCanonicalState(tabId))
       });
       stateChanged = true;
@@ -5238,7 +5244,7 @@
 
   function applyLineCanonicalStateToRuntimeGlobals(state, session = null){
     const targetSession = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
-    const canonical = ensureLineCanonicalState(state, targetSession?.tabId || state?.tabId || line.__boundTabId || '');
+    const canonical = ensureLineCanonicalState(state, targetSession?.tabId || state?.tabId || getLineProjectionTabId() || '');
     notesState.text = canonical.notes.text;
     notesState.open = !!canonical.notes.open;
     lineDisplayMode = sanitizeLineDisplayMode(canonical.displayMode);
@@ -5352,7 +5358,7 @@
     if(!tabId){
       return null;
     }
-    const isActive = String(tabId) === String(line.__boundTabId || '') && line.ready === true;
+    const isActive = String(tabId) === String(getLineProjectionTabId() || '') && line.ready === true;
     if(isActive && options.readActiveControls !== false){
       return rememberLineSessionState(tabId, meta, { readControls: true });
     }
@@ -5405,12 +5411,12 @@
 
   function resolveLineRoot(tabLike){
     const activeTabId = (typeof tabLike === 'string' ? tabLike : tabLike?.id)
-      || line.__boundTabId
+      || getLineProjectionTabId()
       || null;
     const currentRootTabId = resolveLineTabIdFromNode(refs.root);
     if(activeTabId
-      && line.__boundTabId
-      && String(activeTabId) === String(line.__boundTabId)
+      && getLineProjectionTabId()
+      && String(activeTabId) === String(getLineProjectionTabId())
       && refs.root?.isConnected
       && (!currentRootTabId || String(currentRootTabId) === String(activeTabId))){
       return refs.root;
@@ -5877,7 +5883,7 @@
 
   function activateLineDataToolbar(reason){
     const now = Date.now();
-    const tabId = String(line.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('line')?.tabId || 'global');
+    const tabId = String(getLineProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('line')?.tabId || 'global');
     const lastActivation = Number(lineDataToolbarLastActivationByTabId.get(tabId)) || 0;
     if(now - lastActivation < 80){
       return false;
@@ -6487,7 +6493,7 @@
       const applySeriesPatch = (patch, keyOverride) => {
         const resolvedKey = String(keyOverride == null ? seriesKey : keyOverride).trim();
         if(!resolvedKey){ return; }
-        patchLineSeriesStyleState(getLineActiveSessionForState(), resolvedKey, patch, { reason: 'line-series-style-change' });
+        patchLineSeriesStyleState(getLineProjectionSession({ reason: 'line-projection-mutation' }), resolvedKey, patch, { reason: 'line-series-style-change' });
         scheduleActiveLineDraw();
       };
       const knownSeriesKeys = () => {
@@ -6742,7 +6748,7 @@
               const safe = idx >= 0 ? idx : 0;
               const shapes = ensureLineGroupShapeCapacity(Math.max((lineSeriesGroupLabels || []).length, safe + 1));
               shapes[safe] = sanitizeShape(nextShape, safe);
-              setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-marker-shape-change' });
+              setLineGroupShapesState(getLineProjectionSession({ reason: 'line-projection-mutation' }), shapes, { reason: 'line-marker-shape-change' });
               updateLineGroupShapeSelect(safe, shapes[safe]);
               scheduleActiveLineDraw();
               return;
@@ -6759,7 +6765,7 @@
               }
             }
             if(changed){
-              setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-marker-shape-global-change' });
+              setLineGroupShapesState(getLineProjectionSession({ reason: 'line-projection-mutation' }), shapes, { reason: 'line-marker-shape-global-change' });
               scheduleActiveLineDraw();
             }
           }
@@ -8249,7 +8255,7 @@
     if(!changed){
       return false;
     }
-    patchLineGroupedState(getLineActiveSessionForState(), { labels: next }, { reason: options.reason || 'line-series-label-sync' });
+    patchLineGroupedState(getLineProjectionSession({ reason: 'line-projection-mutation' }), { labels: next }, { reason: options.reason || 'line-series-label-sync' });
     lineDebug('Debug: line series labels synced', {
       reason: options.reason || null,
       previous,
@@ -8706,7 +8712,7 @@
     const resolved = sanitizeLineGroupShape(shapes[safeIndex], safeIndex);
     if(shapes[safeIndex] !== resolved){
       shapes[safeIndex] = resolved;
-      setLineGroupShapesState(getLineActiveSessionForState(), shapes, { reason: 'line-group-shape-normalize' });
+      setLineGroupShapesState(getLineProjectionSession({ reason: 'line-projection-mutation' }), shapes, { reason: 'line-group-shape-normalize' });
     }
     return resolved;
   }
@@ -8884,7 +8890,7 @@
       }
       nextShapes[s] = sanitizeLineGroupShape(candidateShape, s);
     }
-    setLineGroupShapesState(getLineActiveSessionForState(), nextShapes, { reason: 'line-replicate-matrix-shapes' });
+    setLineGroupShapesState(getLineProjectionSession({ reason: 'line-projection-mutation' }), nextShapes, { reason: 'line-replicate-matrix-shapes' });
     console.debug('Debug: line group labels synchronized', {
       shouldResetGroupLabels,
       preserveExistingLabels,
@@ -9188,7 +9194,7 @@
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
     }
-    patchLineGroupedState(getLineActiveSessionForState(), {
+    patchLineGroupedState(getLineProjectionSession({ reason: 'line-projection-mutation' }), {
       replicates: lineReplicates,
       lastGroupedReplicateCount: lineLastGroupedReplicateCount,
       labels: lineSeriesGroupLabels,
@@ -9315,7 +9321,7 @@
       shapeSelect.value = currentShape;
       shapeSelect.addEventListener('change', e => {
         const sanitized = sanitizeLineGroupShape(e.target.value, idx);
-        patchLineGroupShapeState(getLineActiveSessionForState(), idx, sanitized, { reason: 'line-grouped-list-shape-change' });
+        patchLineGroupShapeState(getLineProjectionSession({ reason: 'line-projection-mutation' }), idx, sanitized, { reason: 'line-grouped-list-shape-change' });
         if(e.target.value !== sanitized){
           e.target.value = sanitized;
         }
@@ -9813,7 +9819,7 @@
       if(Array.isArray(snapshot.groupShapes)){
         groupedPatch.shapes = snapshot.groupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       }
-      patchLineGroupedState(getLineActiveSessionForState(), groupedPatch, { reason: 'line-hot-state-restore-grouped' });
+      patchLineGroupedState(getLineProjectionSession({ reason: 'line-projection-mutation' }), groupedPatch, { reason: 'line-hot-state-restore-grouped' });
     }
     if(snapshot.labelColors && typeof snapshot.labelColors === 'object'){
       lineLabelColors = { ...snapshot.labelColors };
@@ -10879,6 +10885,7 @@
           ],
           rows:tableRows,
           caption: methodLabel ? `${methodLabel} correlation summary (${regressionModeLabel})` : 'Correlation summary',
+          section:'summary',
           options:{
             fileName:'line-statistics',
             contextLabel:'line-stats'
@@ -10897,6 +10904,7 @@
             ],
             rows: intervalRows,
             caption: 'Regression interval bounds',
+            section:'estimates',
             options:{ fileName:'line-intervals', contextLabel:'line-intervals' },
             append:true
           });
@@ -10917,6 +10925,7 @@
             ],
             rows: diagnosticRows,
             caption: 'Residual diagnostics',
+            section:'diagnostics',
             options:{ fileName:'line-diagnostics', contextLabel:'line-diagnostics' },
             append:true
           });
@@ -10931,6 +10940,7 @@
             ],
             rows: parameterRows,
             caption: 'Regression parameters',
+            section:'estimates',
             options:{ fileName:'line-parameters', contextLabel:'line-parameters' },
             append:true
           });
@@ -10945,6 +10955,7 @@
             ],
             rows: seasonalRows,
             caption: 'Seasonal components',
+            section:'estimates',
             options:{ fileName:'line-seasonals', contextLabel:'line-seasonals' },
             append:true
           });
@@ -10964,6 +10975,7 @@
             ],
             rows: forecastRows,
             caption: 'Forecast accuracy metrics',
+            section:'estimates',
             options:{ fileName:'line-forecast', contextLabel:'line-forecast' },
             append:true
           });
@@ -10982,7 +10994,8 @@
               { key:'ciHigh', label:'CI High', align:'right' }
             ],
             rows: coefficientRows,
-            caption: 'Coefficient diagnostics',
+            caption: 'Coefficient estimates',
+            section:'estimates',
             options:{ fileName:'line-coefficients', contextLabel:'line-coefficients' },
             append:true
           });
@@ -16250,7 +16263,7 @@
         markLineOverlayPending('example-data');
         enterLine3dMode({ skipDraw: true });
         const hot = getActiveLineHotManager();
-        patchLineGroupedState(getLineActiveSessionForState(), {
+        patchLineGroupedState(getLineProjectionSession({ reason: 'line-projection-mutation' }), {
           labels: example.groupLabels.slice(),
           shapes: example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx))
         }, { reason: 'line-3d-example-grouped' });
@@ -17577,7 +17590,7 @@
 
   line.captureRuntimeState = function captureLineRuntimeState(meta = {}){
     const targetTabId = resolveLineOwnedRuntimeTabId(meta?.tab || meta?.tabId || meta?.workspaceTabId || getLineProjectionTabId() || null, meta) || getLineProjectionTabId() || null;
-    const isActive = !!(targetTabId && String(targetTabId) === String(line.__boundTabId || '') && line.ready === true);
+    const isActive = !!(targetTabId && String(targetTabId) === String(getLineProjectionTabId() || '') && line.ready === true);
     let snapshot = null;
     if(isActive){
       snapshot = captureLineCanonicalSnapshot(targetTabId, meta, { readActiveControls: true });
@@ -17619,7 +17632,7 @@
     if(!snapshot || typeof snapshot !== 'object'){
       const session = effectiveMeta.tabId ? getLineSession(effectiveMeta.tab || effectiveMeta.tabId, effectiveMeta, { create: false }) : null;
       if(session?.state){
-        const isActiveSession = String(session.tabId || '') === String(line.__boundTabId || '') && line.ready === true;
+        const isActiveSession = String(session.tabId || '') === String(getLineProjectionTabId() || '') && line.ready === true;
         if(isActiveSession){
           projectedLineSession = session;
           if(passive){
@@ -17651,7 +17664,7 @@
     const canonical = ensureLineCanonicalState(snapshot, effectiveMeta.tabId || snapshot.tabId || '');
     storeLineCanonicalStateForTab(canonical, effectiveMeta.tab || effectiveMeta.tabId || canonical.tabId || null, effectiveMeta);
     const targetTabId = canonical.tabId || effectiveMeta.tabId || null;
-    const isActiveTarget = !!(targetTabId && String(targetTabId) === String(line.__boundTabId || '') && line.ready === true);
+    const isActiveTarget = !!(targetTabId && String(targetTabId) === String(getLineProjectionTabId() || '') && line.ready === true);
     if(isActiveTarget){
       if(passive){
         const session = getLineSession(targetTabId, { ...effectiveMeta, tabId: targetTabId, reason: 'line-runtime-passive-bind-session' }, { create: true })

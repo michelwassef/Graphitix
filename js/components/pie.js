@@ -670,6 +670,12 @@ let state = {
     return Shared.componentLifecycle?.resolveProjectionTabId?.(pie, projectedPieSession) || String(pie.__boundTabId || projectedPieSession?.tabId || '').trim();
   }
 
+  function getPieProjectionSession(meta = {}, options = {}){
+    const tabId = getPieProjectionTabId();
+    if(!tabId){ return null; }
+    return getPieSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'pie-projection-session' }, { create: options.create !== false });
+  }
+
   function normalizePieSessionTabId(tabLike = null, meta = {}){
     const direct = typeof tabLike === 'string' || typeof tabLike === 'number' ? tabLike : null;
     const objectTabId = tabLike && typeof tabLike === 'object'
@@ -682,7 +688,7 @@ let state = {
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || Shared.workspaceTabs?.getActiveSessionInfo?.('pie')?.tabId
-      || pie.__boundTabId
+      || getPieProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -1488,8 +1494,8 @@ let state = {
       : getActivePieSessionForState();
     const activeTabId = normalizePieSessionTabId(getPieProjectionTabId() || null, {});
     if(!ownerTabId || ownerTabId === activeTabId){
-      syncPieRuntimeControlsFromDom(ownerSession || getActivePieSessionForState());
-      capturePieSessionStateFromActive(ownerSession || getActivePieSessionForState(), {
+      syncPieRuntimeControlsFromDom(ownerSession || getPieProjectionSession({ reason: 'pie-projection-mutation' }));
+      capturePieSessionStateFromActive(ownerSession || getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
         reason: nextReason,
         captureStats: false
       });
@@ -2183,13 +2189,13 @@ let state = {
           // Store both absolute and relative positions.
           const relX = pos.x / svgWidth;
           const relY = pos.y / svgHeight;
-          patchPieLabelPosition(getActivePieSessionForState(), 'legend', { 
+          patchPieLabelPosition(getPieProjectionSession({ reason: 'pie-projection-mutation' }), 'legend', { 
             x: pos.x, 
             y: pos.y,
             relX: relX, 
             relY: relY 
           }, { reason: 'pie-legend-position' });
-          capturePieSessionStateFromActive(getActivePieSessionForState(), {
+          capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
             reason: 'legend-position-change',
             captureStats: false
           });
@@ -2241,7 +2247,7 @@ let state = {
   }
 
   function getPieLockRatioCheckbox(){
-    const activeTabId = String(pie.__boundTabId || '').trim();
+    const activeTabId = String(getPieProjectionTabId() || '').trim();
     const isOwnedByActiveTab = node => {
       if(!node || !node.isConnected){
         return false;
@@ -3611,6 +3617,9 @@ let state = {
       }
       const wrap = document.createElement('div');
       wrap.className = 'stats-table-card';
+      if(tableModel.section){
+        wrap.setAttribute('data-stats-section', tableModel.section);
+      }
       const caption = document.createElement('div');
       caption.className = 'stats-table-caption';
       caption.textContent = tableModel.caption || 'Statistics';
@@ -3648,6 +3657,7 @@ let state = {
     ];
     renderTable({
       caption: model.summary.caption,
+      section: 'summary',
       columns: [
         { key: 'metric', label: 'Metric', align: 'left' },
         { key: 'value', label: 'Value', align: 'right' }
@@ -3662,6 +3672,7 @@ let state = {
     if(Array.isArray(model.pairs) && model.pairs.length){
       renderTable({
         caption: model.pairsCaption || 'Pairwise comparisons',
+        section: 'comparisons',
         columns: [
           { key: 'left', label: 'Condition A', align: 'left' },
           { key: 'right', label: 'Condition B', align: 'left' },
@@ -4571,7 +4582,7 @@ let state = {
         pieDebug('Debug: pie table-edit stats refresh skipped during payload apply');
       }
       scheduleActivePieDraw({ reason: 'pie-table-edit' });
-      capturePieSessionStateFromActive(getActivePieSessionForState(), {
+      capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
         reason: 'table-edit',
         captureStats: false
       });
@@ -4936,7 +4947,7 @@ let state = {
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
             pieDebug('Debug: pie prism style applied', { title, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
           }
-          capturePieSessionStateFromActive(ownerSession || getActivePieSessionForState(), { reason: 'import-prism-style', captureStats: false });
+          capturePieSessionStateFromActive(ownerSession || getPieProjectionSession({ reason: 'pie-projection-mutation' }), { reason: 'import-prism-style', captureStats: false });
           schedulePieDrawForSession(ownerSession || getActivePieSessionForState(), { force: true, reason: 'import-prism-style', tabId: ownerSession?.tabId || undefined });
         };
         const result = await tableImport.openFile(pieFileInput,{
@@ -5011,7 +5022,7 @@ let state = {
         text: notesText,
         open: notesOpen
       };
-      capturePieSessionStateFromActive(getActivePieSessionForState(), {
+      capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
         reason: 'payload-capture',
         captureStats: true
       });
@@ -5079,7 +5090,7 @@ let state = {
 
     pie.captureRuntimeState = function capturePieRuntimeState(meta = {}){
       const targetTabId = normalizePieSessionTabId(meta?.tab || meta?.tabId || getPieProjectionTabId() || null, meta);
-      const activeTabId = pie.__boundTabId || getActivePieSessionForState()?.tabId || null;
+      const activeTabId = getPieProjectionTabId() || getActivePieSessionForState()?.tabId || null;
       if(targetTabId && activeTabId && String(targetTabId) !== String(activeTabId)){
         const targetSession = getPieSession(targetTabId, {
           ...(meta || {}),
@@ -5480,7 +5491,7 @@ let state = {
       if(scheduleBackup && state.scheduleDraw === mutedScheduleDraw){
         state.scheduleDraw = scheduleBackup;
       }
-      capturePieSessionStateFromActive(payloadSession || getActivePieSessionForState(), {
+      capturePieSessionStateFromActive(payloadSession || getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
         reason: `payload-${source}`,
         captureStats: false
       });
@@ -5624,7 +5635,7 @@ let state = {
     getPieNodeById('openPieGraph')?.addEventListener('click',pie.open);
     getPieNodeById('savePieGraph')?.addEventListener('click',pie.save);
     getPieNodeById('saveAsPie').addEventListener('click',pie.saveAs);
-    getPieNodeById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ const session = getPieSessionForEvent(e, { reason: 'pie-graph-file-input' }, { create: false }) || getActivePieSessionForState(); setPieFileNameForSession(f.name, session); setPieFileHandleForSession(null, session); capturePieSessionStateFromActive(session, { reason: 'file-input-change', captureStats: false }); pie.loadFromFile(f); }});
+    getPieNodeById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ const session = getPieSessionForEvent(e, { reason: 'pie-graph-file-input' }, { create: false }) || getPieProjectionSession({ reason: 'pie-projection-mutation' }); setPieFileNameForSession(f.name, session); setPieFileHandleForSession(null, session); capturePieSessionStateFromActive(session, { reason: 'file-input-change', captureStats: false }); pie.loadFromFile(f); }});
   }
 
   function ensurePieColors(labels){
@@ -6716,7 +6727,7 @@ let state = {
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || getPieProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'pie.draw' } });
     const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
-    capturePieSessionStateFromActive(getActivePieSessionForState(), {
+    capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
       reason: nextReason,
       captureStats: false
     });
@@ -6807,7 +6818,7 @@ let state = {
       },
       onChange: value => {
         notesState.text = value == null ? '' : String(value);
-        capturePieSessionStateFromActive(getActivePieSessionForState(), {
+        capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
           reason: 'notes-change',
           captureStats: false,
           syncControls: false
@@ -6815,7 +6826,7 @@ let state = {
       },
       onToggle: open => {
         notesState.open = !!open;
-        capturePieSessionStateFromActive(getActivePieSessionForState(), {
+        capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
           reason: 'notes-toggle',
           captureStats: false,
           syncControls: false
@@ -6945,7 +6956,7 @@ let state = {
     ensureEmptyPayloadTemplate();
     syncPieSessionRefsFromActive();
     syncPieSessionManagersFromActive();
-    capturePieSessionStateFromActive(getActivePieSessionForState(), {
+    capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
       reason: 'pie-init-complete',
       captureStats: false
     });
@@ -6957,7 +6968,7 @@ let state = {
     if(ensurePieDomBindings(options.tab || options.tabId || null, options || {})){
       return;
     }
-    if (!pie.ready) pie.init({ ...options, tabId: options.tabId || options.tab?.id || pie.__boundTabId || undefined, reason: options.reason || 'ensure' });
+    if (!pie.ready) pie.init({ ...options, tabId: options.tabId || options.tab?.id || getPieProjectionTabId() || undefined, reason: options.reason || 'ensure' });
   };
   pie.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
     component: pie,
@@ -7202,7 +7213,7 @@ let state = {
     const tabId = normalizePieSessionTabId(tab || null, {
       reason: 'pie-preview-source'
     }) || null;
-    const activeTabId = pie.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('pie')?.tabId || null;
+    const activeTabId = getPieProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('pie')?.tabId || null;
     const renderCache = tab?.renderCache?.cache || tab?.archiveRenderCache?.cache || null;
     const cachePayload = renderCache?.[renderCache?.__graphitixRenderCache?.graphicKey]
       || renderCache?.plot

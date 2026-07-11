@@ -161,29 +161,12 @@
   }
 
   function computeCorrelationConfidenceInterval(r, n, alpha){
-    const rNum = Number(r);
-    const count = Number(n);
-    if(!Number.isFinite(rNum) || !Number.isFinite(count) || count <= 3){
-      return null;
-    }
-    const clamped = Math.max(-0.999999999999, Math.min(0.999999999999, rNum));
-    const z = 0.5 * Math.log((1 + clamped) / (1 - clamped));
-    const se = 1 / Math.sqrt(count - 3);
-    if(!Number.isFinite(se) || se <= 0){
-      return null;
-    }
-    const jStat = ensureJStat();
-    const zCritical = jStat.normal && typeof jStat.normal.inv === 'function'
-      ? jStat.normal.inv(1 - ((alpha || 0.05) / 2), 0, 1)
-      : 1.959963984540054;
-    const loZ = z - (zCritical * se);
-    const hiZ = z + (zCritical * se);
-    const toR = value => {
-      const e2 = Math.exp(2 * value);
-      return (e2 - 1) / (e2 + 1);
-    };
-    return { low: toR(loZ), high: toR(hiZ), method: 'fisher-z' };
+    const stats = ensureStats();
+    return typeof stats?.correlationConfidenceInterval === 'function'
+      ? stats.correlationConfidenceInterval(r, n, alpha)
+      : null;
   }
+
 
   function computeScatterStats(payload){
     debugState.enabled = !!payload?.debug;

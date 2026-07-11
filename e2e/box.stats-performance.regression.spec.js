@@ -12,7 +12,8 @@ async function installBoxPerfProbe(page) {
       statsComputes: 0,
       drawCalls: 0,
       drawDurations: [],
-      drawReasons: []
+      drawReasons: [],
+      statsPanelCaptures: 0
     };
     const workers = Shared.Workers || null;
     if (workers && typeof workers.runTask === 'function' && !workers.__boxPerfProbeRunTask) {
@@ -30,6 +31,22 @@ async function installBoxPerfProbe(page) {
       model.computeBoxStatsModel = function patchedComputeBoxStatsModel(payload) {
         probe.statsComputes += 1;
         return model.__boxPerfProbeCompute.apply(this, arguments);
+      };
+    }
+
+    const reporting = Shared.statsReporting || null;
+    if (reporting && typeof reporting.capturePanelModel === 'function' && !reporting.__boxPerfProbeCapturePanelModel) {
+      reporting.__boxPerfProbeCapturePanelModel = reporting.capturePanelModel;
+      reporting.capturePanelModel = function patchedCapturePanelModel(target) {
+        const ownerPage = target?.closest?.('[data-component], .component-page, [id$="Page"]') || null;
+        const isBoxTarget = target?.id === 'statsResults'
+          || target?.dataset?.component === 'box'
+          || ownerPage?.id === 'boxPage'
+          || ownerPage?.dataset?.component === 'box';
+        if (isBoxTarget) {
+          probe.statsPanelCaptures += 1;
+        }
+        return reporting.__boxPerfProbeCapturePanelModel.apply(this, arguments);
       };
     }
     const box = Components.box || null;
@@ -57,6 +74,7 @@ async function resetBoxPerfProbe(page) {
       window.__boxStatsPerfProbe.drawCalls = 0;
       window.__boxStatsPerfProbe.drawDurations = [];
       window.__boxStatsPerfProbe.drawReasons = [];
+      window.__boxStatsPerfProbe.statsPanelCaptures = 0;
     }
   });
 }
@@ -72,7 +90,8 @@ async function readBoxPerfProbe(page) {
       drawCalls: Number(probe.drawCalls) || 0,
       maxDrawMs,
       totalDrawMs,
-      drawReasons: Array.isArray(probe.drawReasons) ? probe.drawReasons.slice() : []
+      drawReasons: Array.isArray(probe.drawReasons) ? probe.drawReasons.slice() : [],
+      statsPanelCaptures: Number(probe.statsPanelCaptures) || 0
     };
   });
 }
@@ -87,12 +106,14 @@ async function getActiveTabId(page) {
 async function activateTab(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible({ timeout: 20_000 });
+  const startedAt = Date.now();
   await tab.click({ force: true });
   await page.waitForFunction(id => {
     const state = window.Main?.session?.workspaceState;
     return String(state?.activeTabId || '') === String(id || '');
   }, tabId, { timeout: 20_000 });
   await page.waitForTimeout(300);
+  return Date.now() - startedAt;
 }
 
 async function dragBoxGraphWidth(page) {
@@ -133,6 +154,7 @@ test('box stats do not recompute or make resize and tab return sluggish', async 
   await dragBoxGraphWidth(page);
   const resizeProbe = await readBoxPerfProbe(page);
   expect(resizeProbe.statsComputes).toBe(0);
+  expect(resizeProbe.statsPanelCaptures).toBe(0);
   expect(resizeProbe.maxDrawMs).toBeLessThan(250);
 
   await openComponentFromWelcome(
@@ -141,7 +163,7 @@ test('box stats do not recompute or make resize and tab return sluggish', async 
     { first: false, loadExample: true }
   );
   await resetBoxPerfProbe(page);
-  await activateTab(page, boxTabId);
+  const returnActivationMs = await activateTab(page, boxTabId);
   await page.waitForFunction(() => {
     const state = window.Components?.box?.__getState?.();
     return !!state && !state.statsComputationPending;
@@ -158,9 +180,51 @@ test('box stats do not recompute or make resize and tab return sluggish', async 
     };
   });
   expect(returnProbe.statsComputes).toBe(0);
+  expect(returnProbe.statsPanelCaptures).toBe(0);
   expect(returnProbe.maxDrawMs).toBeLessThan(250);
+  expect(returnActivationMs).toBeLessThan(2_000);
   expect(returnedStatsState.lastRunVersion).toBeGreaterThan(0);
   expect(returnedStatsState.lastRunVersion).toBe(returnedStatsState.contextVersion);
   expect(returnedStatsState.selectedCols).toEqual([0, 1, 2]);
   expect(returnedStatsState.status).toContain('Statistics up to date.');
 });
+
+test('two computed Box tabs alternate without cloning or recapturing statistics output', async ({ page }) => {
+  test.setTimeout(150_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+  await openComponentFromWelcome(
+    page,
+    { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
+    { first: true, loadExample: true }
+  );
+  const firstBoxTabId = await getActiveTabId(page);
+  await installBoxPerfProbe(page);
+  await page.locator('#boxComputeStats').click();
+  await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+
+  await openComponentFromWelcome(
+    page,
+    { type: 'box', pageId: 'boxPage', exampleButtonId: 'boxLoadExample' },
+    { first: false, loadExample: true }
+  );
+  const secondBoxTabId = await getActiveTabId(page);
+  expect(secondBoxTabId).not.toBe(firstBoxTabId);
+  await page.locator('#boxComputeStats').click();
+  await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 35_000 });
+
+  await resetBoxPerfProbe(page);
+  const activationDurations = [];
+  for (const tabId of [firstBoxTabId, secondBoxTabId, firstBoxTabId, secondBoxTabId]) {
+    activationDurations.push(await activateTab(page, tabId));
+    await expect(page.locator('#boxStatsStatus')).toContainText('Statistics up to date.', { timeout: 10_000 });
+  }
+
+  const probe = await readBoxPerfProbe(page);
+  expect(probe.statsComputes).toBe(0);
+  expect(probe.statsPanelCaptures).toBe(0);
+  expect(probe.maxDrawMs).toBeLessThan(250);
+  expect(Math.max(...activationDurations)).toBeLessThan(2_000);
+});
+

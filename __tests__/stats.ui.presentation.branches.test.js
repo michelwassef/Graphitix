@@ -230,8 +230,8 @@ describe('UI statistical presentation branches', () => {
     await flushAsyncWork(20);
 
     await box.__testHooks.computeStatsForTest();
-    expect(await waitFor(() => /Pairwise comparisons|Comparisons vs reference/i.test(getBoxStatsText()))).toBe(true);
-    expect(getBoxStatsText()).toMatch(/Pairwise comparisons|Comparisons vs reference/i);
+    expect(await waitFor(() => /Overall test summary|Pairwise comparisons|Comparisons vs reference/i.test(getBoxStatsText()))).toBe(true);
+    expect(getBoxStatsText()).toMatch(/Overall test summary|Pairwise comparisons|Comparisons vs reference/i);
 
     state.hot.loadData([
       ['Control', 'Treatment A', 'Treatment B'],
@@ -265,9 +265,9 @@ describe('UI statistical presentation branches', () => {
     expect(computeBtn).toBeTruthy();
     const statsResults = document.getElementById('scatterStatsResults');
     computeBtn.click();
-    await waitFor(() => /Overall test summary|Coefficient diagnostics/i.test(statsResults?.textContent || ''));
+    await waitFor(() => /Overall test summary|Coefficient estimates/i.test(statsResults?.textContent || ''));
     const defaultText = statsResults?.textContent || '';
-    expect(defaultText).toMatch(/Overall test summary|Coefficient diagnostics/i);
+    expect(defaultText).toMatch(/Overall test summary|Coefficient estimates/i);
     expect(defaultText).toMatch(/Reporting and reproducibility|Series|r \(95% CI\)/i);
     const scatterReport = document.getElementById('scatterStatsReportHost')?.querySelector('.stats-report-panel');
     expect(scatterReport?.querySelector('[data-stats-report-block="methods"]')?.textContent || '').toMatch(/Scatter data .*numeric X\/Y pairs/i);
@@ -278,9 +278,9 @@ describe('UI statistical presentation branches', () => {
     regressionSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAsyncWork(20);
     computeBtn.click();
-    await waitFor(() => /Overall test summary \(Quadratic|Coefficient diagnostics|Model details/i.test(statsResults?.textContent || ''));
+    await waitFor(() => /Overall test summary \(Quadratic|Coefficient estimates|Model details/i.test(statsResults?.textContent || ''));
     const nonlinearText = statsResults?.textContent || '';
-    expect(nonlinearText).toMatch(/Overall test summary \(Quadratic|Coefficient diagnostics|Model details/i);
+    expect(nonlinearText).toMatch(/Overall test summary \(Quadratic|Coefficient estimates|Model details/i);
   }, 30000);
 
   test('line stats render correlation, forecast, diagnostics, and reporting branches', async () => {

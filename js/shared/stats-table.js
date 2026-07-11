@@ -706,8 +706,8 @@
     if(model.caption){
       wrapper.setAttribute('data-stats-caption', model.caption);
     }
-    if(config && Object.prototype.hasOwnProperty.call(config, 'advanced')){
-      wrapper.setAttribute('data-stats-advanced', config.advanced ? '1' : '0');
+    if(config && typeof config.section === 'string' && config.section.trim()){
+      wrapper.setAttribute('data-stats-section', config.section.trim());
     }
     if (model.caption) {
       const captionEl = doc.createElement('div');

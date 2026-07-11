@@ -47,7 +47,7 @@ describe('Shared stats reporting layout', () => {
     expect(target.querySelector('.stats-results-advanced-panel .stats-report-panel')).toBeNull();
   });
 
-  test('advanced content stays in Advanced statistics while reporting remains a separate bottom section', async () => {
+  test('explicit diagnostics stay collapsed while reporting remains a separate bottom section', async () => {
     const target = document.createElement('div');
     target.id = 'pieStatsResults';
     document.body.appendChild(target);
@@ -59,7 +59,7 @@ describe('Shared stats reporting layout', () => {
 
     const advancedNode = document.createElement('div');
     advancedNode.className = 'stats-table-card';
-    advancedNode.setAttribute('data-stats-advanced', '1');
+    advancedNode.setAttribute('data-stats-section', 'diagnostics');
     advancedNode.textContent = 'Pairwise comparison details';
     target.appendChild(advancedNode);
 
@@ -77,6 +77,37 @@ describe('Shared stats reporting layout', () => {
     expect(advancedPanel.querySelector('.stats-table-card')).toBeTruthy();
     expect(advancedPanel.querySelector('.stats-report-panel')).toBeNull();
     expect(reportPanel).toBeTruthy();
+  });
+
+  test('captions never determine hierarchy and semantic sections survive restore', async () => {
+    const target = document.createElement('div');
+    target.id = 'statsResults';
+    document.body.appendChild(target);
+    const reporting = global.Shared.statsReporting;
+    reporting.installEnhancedPanels({ selectors: ['#statsResults'] });
+
+    const primary = document.createElement('div');
+    primary.className = 'stats-table-card';
+    primary.setAttribute('data-stats-section', 'comparisons');
+    primary.textContent = 'Pairwise t-test with confidence interval';
+    target.appendChild(primary);
+    const diagnostics = document.createElement('div');
+    diagnostics.className = 'stats-table-card';
+    diagnostics.setAttribute('data-stats-section', 'diagnostics');
+    diagnostics.textContent = 'Neutral title';
+    target.appendChild(diagnostics);
+    reporting.enhancePanelNow(target, 'semantic-sections');
+
+    expect(target.querySelector('.stats-results-main')?.contains(primary)).toBe(true);
+    expect(target.querySelector('.stats-results-advanced-panel__body')?.contains(diagnostics)).toBe(true);
+    expect(target.querySelector('.stats-results-advanced-panel summary')?.textContent).toBe('Diagnostics and model details');
+
+    const saved = reporting.capturePanelModel(target);
+    target.innerHTML = '';
+    reporting.restorePanelModel(target, saved);
+    reporting.enhancePanelNow(target, 'semantic-sections-restored');
+    expect(target.querySelector('.stats-results-main')?.textContent).toContain('Pairwise t-test');
+    expect(target.querySelector('.stats-results-advanced-panel__body')?.textContent).toContain('Neutral title');
   });
 
   test('report host override places reporting at the end of the containing statistics section', async () => {

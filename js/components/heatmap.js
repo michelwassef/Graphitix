@@ -170,7 +170,7 @@
       || meta?.__workspaceSessionMeta?.tabId
       || hotInstance?.__heatmapTabId
       || state.hot?.__heatmapTabId
-      || heatmap.__boundTabId
+      || getHeatmapProjectionTabId()
       || Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap')?.tabId
       || (activeTab?.type === 'heatmap' ? activeTab.id : null)
       || ''
@@ -362,7 +362,7 @@
         // model+metrics are recomputed now, at this settled visible size.
         debugLog('Debug: heatmap resize refresh recomputing render state (missing metrics)', { reason: nextReason });
         const recoveryOptions = { tabId: getHeatmapProjectionTabId() || null, reason: `heatmap-recover-render-state-${nextReason}` };
-        updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+        updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
           runtime.pendingDrawOptions = sanitizeHeatmapDrawOptions(recoveryOptions);
         });
         draw();
@@ -726,7 +726,7 @@
       activeMaterializedViewId: getActiveHeatmapSessionForState()?.state?.activeMaterializedViewId == null
         ? (state.activeMaterializedViewId == null ? null : String(state.activeMaterializedViewId))
         : String(getActiveHeatmapSessionForState().state.activeMaterializedViewId),
-      controls: syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), captureHeatmapControlStateFromDom()),
+      controls: syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), captureHeatmapControlStateFromDom()),
       dendrogramSettings: getHeatmapDendrogramSettings(getActiveHeatmapSessionForState()),
       labelPositions: cloneSimple(state.labelPositions || defaults.labelPositions) || { ...defaults.labelPositions },
       palette: normalizeHeatmapPalette(state.palette),
@@ -741,7 +741,7 @@
       lastStats: cloneSimple(state.lastStats),
       statsPanelModel: captureHeatmapStatsPanelModel(),
       performance: cloneSimple(state.performance) || { ...defaults.performance },
-      notes: captureHeatmapNotesSnapshot(getActiveHeatmapSessionForState())
+      notes: captureHeatmapNotesSnapshot(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }))
     };
   }
 
@@ -761,16 +761,16 @@
     if(options.syncUi !== false){
       applyHeatmapControlStateToDom(source.controls || defaults.controls);
     }else{
-      syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), source.controls || defaults.controls);
+      syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), source.controls || defaults.controls);
       state.logPlusOne = !!normalizeHeatmapControlState(source.controls || defaults.controls).adjust.logPlusOne;
     }
-    state.dendrogramSettings = updateHeatmapDendrogramSettings(source.dendrogramSettings || defaults.dendrogramSettings, getActiveHeatmapSessionForState());
+    state.dendrogramSettings = updateHeatmapDendrogramSettings(source.dendrogramSettings || defaults.dendrogramSettings, getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }));
     state.labelPositions = cloneSimple(source.labelPositions) || { ...defaults.labelPositions };
     state.palette = normalizeHeatmapPalette(source.palette);
     state.valueScale = normalizeHeatmapValueScale(source.valueScale);
     state.legendHeightMode = normalizeHeatmapLegendHeightMode(source.legendHeightMode);
     state.lastResolvedValueScale = null;
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastResolvedValueScale = null;
     }, { seedFromActive: true });
     updateHeatmapClusterState({
@@ -791,10 +791,10 @@
         restoreHeatmapStatsPanelModel(state.statsPanelModel);
       }
     }
-    syncHeatmapNotesStateToSession(getActiveHeatmapSessionForState(), source.notes || defaults.notes);
+    syncHeatmapNotesStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), source.notes || defaults.notes);
     if(options.syncUi !== false){
       syncHeatmapPaletteInputs(resolveHeatmapRoot());
-      applyHeatmapNotesStateToControl(getActiveHeatmapSessionForState());
+      applyHeatmapNotesStateToControl(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }));
     }
   }
 
@@ -805,6 +805,12 @@
   // Compatibility bridge: visible-DOM projection tab id. Delete after every projection entrypoint receives explicit owner tab metadata.
   function getHeatmapProjectionTabId(){
     return Shared.componentLifecycle?.resolveProjectionTabId?.(heatmap, projectedHeatmapSession) || String(heatmap.__boundTabId || projectedHeatmapSession?.tabId || '').trim();
+  }
+
+  function getHeatmapProjectionSession(meta = {}, options = {}){
+    const tabId = getHeatmapProjectionTabId();
+    if(!tabId){ return null; }
+    return getHeatmapSession(tabId, { ...(meta || {}), tabId, reason: meta?.reason || 'heatmap-projection-session' }, { create: options.create !== false });
   }
 
   function createDefaultHeatmapRefs(root = null){
@@ -864,7 +870,7 @@
       || meta?.tab?.id
       || meta?.__workspaceSessionMeta?.tabId
       || resolveHeatmapAsyncTabId(meta || {}, state.hot)
-      || heatmap.__boundTabId
+      || getHeatmapProjectionTabId()
       || '';
     return String(resolved || '').trim();
   }
@@ -961,7 +967,7 @@
       return false;
     }
     const tabId = String(session.tabId || '').trim();
-    const boundTabId = String(heatmap.__boundTabId || '').trim();
+    const boundTabId = String(getHeatmapProjectionTabId() || '').trim();
     const activeTabId = String(Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap')?.tabId || '').trim();
     return !!tabId && (boundTabId === tabId || activeTabId === tabId);
   }
@@ -975,7 +981,7 @@
     if(!session && options.create === true){
       session = createHeatmapSession({
         tabId,
-        root: resolveHeatmapRoot(tabLike || tabId || null) || (String(heatmap.__boundTabId || '') === tabId ? state.root : null),
+        root: resolveHeatmapRoot(tabLike || tabId || null) || (String(getHeatmapProjectionTabId() || '') === tabId ? state.root : null),
         initialState: options.initialState || null
       });
       heatmapSessionsByTabId.set(tabId, session);
@@ -995,7 +1001,7 @@
     if(projectedHeatmapSession && (!heatmap.__boundTabId || String(projectedHeatmapSession.tabId || '') === String(heatmap.__boundTabId || ''))){
       return ensureHeatmapSessionOwnershipShape(projectedHeatmapSession);
     }
-    const tabId = heatmap.__boundTabId || normalizeHeatmapSessionTabId(null, {}) || null;
+    const tabId = getHeatmapProjectionTabId() || normalizeHeatmapSessionTabId(null, {}) || null;
     return tabId ? getHeatmapSession(tabId, { tabId, reason: 'active-heatmap-session' }, { create: true }) : null;
   }
 
@@ -1901,7 +1907,7 @@
     if(refs.arraysMetric){ refs.arraysMetric.value = normalized.clustering.columns.metric; }
     if(refs.showColumnDendrogram){ refs.showColumnDendrogram.checked = !!normalized.clustering.columns.showDendrogram; }
     if(refs.linkage){ refs.linkage.value = normalized.clustering.linkage; }
-    syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), normalized);
+    syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), normalized);
     if(options.dispatch === true){
       [
         refs.view, refs.method, refs.significanceDisplay,
@@ -2554,7 +2560,7 @@
 
   function activateHeatmapDataToolbar(reason){
     const now = Date.now();
-    const tabId = String(heatmap.__boundTabId || Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap')?.tabId || 'global');
+    const tabId = String(getHeatmapProjectionTabId() || Shared.workspaceTabs?.getActiveSessionInfo?.('heatmap')?.tabId || 'global');
     const lastActivation = Number(heatmapDataToolbarLastActivationByTabId.get(tabId)) || 0;
     if(now - lastActivation < 80){
       return false;
@@ -3169,13 +3175,13 @@
   let hiddenDrawFlushHandle = null;
 
   function clearCachedRenderState(session = null){
-    updateHeatmapRenderRuntime(session || getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(session || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastRenderModel = null;
       runtime.lastViewOptions = null;
       runtime.textAspectMetrics = null;
       runtime.lastResolvedValueScale = null;
     }, { seedFromActive: true });
-    updateHeatmapResultsState(session || getActiveHeatmapSessionForState(), results => {
+    updateHeatmapResultsState(session || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
       results.stats = null;
     });
     debugLog('Debug: heatmap cached render cleared');
@@ -3183,7 +3189,7 @@
 
   function invalidateHeatmapTransientRenderState(reason){
     clearHiddenDrawFlushHandle();
-    updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.pendingDrawOptions = {};
       runtime.deferredHiddenDrawOptions = null;
       runtime.token = (Number(runtime.token) || 0) + 1;
@@ -3221,7 +3227,7 @@
 
   function resetHeatmapActivationDrawState(reason){
     clearHiddenDrawFlushHandle();
-    updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.pendingDrawOptions = {};
       runtime.deferredHiddenDrawOptions = null;
       runtime.token = (Number(runtime.token) || 0) + 1;
@@ -3233,7 +3239,7 @@
   }
 
   function captureHeatmapRenderStateSnapshot(session = null){
-    const shaped = captureHeatmapSessionStateFromActive(session || getActiveHeatmapSessionForState(), { reason: 'heatmap-render-state-capture' });
+    const shaped = captureHeatmapSessionStateFromActive(session || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), { reason: 'heatmap-render-state-capture' });
     const renderRuntime = shaped?.cache?.renderRuntime || createDefaultHeatmapRenderRuntime({
       lastRenderModel: null,
       lastViewOptions: state.lastViewOptions,
@@ -3262,7 +3268,7 @@
       clearCachedRenderState();
       return false;
     }
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastRenderModel = cloneSimple(source.lastRenderModel) || null;
       runtime.lastViewOptions = cloneSimple(source.lastViewOptions) || null;
       runtime.textAspectMetrics = cloneSimple(source.textAspectMetrics) || null;
@@ -3272,7 +3278,7 @@
       runtime.dataSignature = typeof source.dataSignature === 'string' ? source.dataSignature : null;
       runtime.settingsSignature = typeof source.settingsSignature === 'string' ? source.settingsSignature : null;
     }, { seedFromActive: true });
-    updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+    updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
       results.stats = cloneSimple(source.lastStats) || null;
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(source.statsPanelModel || {});
     });
@@ -3428,7 +3434,7 @@
     if(!targetSession || isHeatmapSessionActiveForModuleState(targetSession)){
       hiddenDrawFlushHandle = null;
     }
-    updateHeatmapDrawRuntime(targetSession || getActiveHeatmapSessionForState(), drawRuntime => {
+    updateHeatmapDrawRuntime(targetSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), drawRuntime => {
       drawRuntime.hiddenDrawFlushHandle = null;
     });
   }
@@ -3491,7 +3497,7 @@
       return;
     }
     state.lastDataShape = { rows: normalizedRows, cols: normalizedCols };
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastDataShape = cloneSimple(state.lastDataShape) || { rows: normalizedRows, cols: normalizedCols };
     }, { seedFromActive: true });
     debugLog('Debug: heatmap data shape updated', { rows: normalizedRows, cols: normalizedCols });
@@ -3567,7 +3573,7 @@
       thresholdExceeded,
       totalMs: nowMs() - perfStart
     };
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastAutoDrawEvaluation = cloneSimple(state.lastAutoDrawEvaluation) || null;
     }, { seedFromActive: true });
     updateHeatmapDataShape({ rows: totalRows, cols: totalCols });
@@ -4082,7 +4088,7 @@
     syncHeatmapPaletteInputs(resolveHeatmapRoot());
 
     const syncControlsBeforeSchedule = () => {
-      syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), captureHeatmapControlStateFromDom());
+      syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), captureHeatmapControlStateFromDom());
     };
     const schedule = () => {
       if(state.suspendControlSchedule){
@@ -4618,7 +4624,7 @@
         const targetSession = eventTabId
           ? getHeatmapSession(eventTabId, { tabId: eventTabId, reason: 'stats-pvalue-format' }, { create: false })
           : getActiveHeatmapSessionForState();
-        if(eventTabId && heatmap.__boundTabId && String(eventTabId) !== String(heatmap.__boundTabId)){
+        if(eventTabId && getHeatmapProjectionTabId() && String(eventTabId) !== String(getHeatmapProjectionTabId())){
           scheduleHeatmapDrawForSession(targetSession, { viewOnly: true, reason: 'stats-pvalue-format' });
           return;
         }
@@ -6191,7 +6197,7 @@
         refs.filterRangeEnable.dispatchEvent(new Event('change'));
       }
     });
-    syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), captureHeatmapControlStateFromDom());
+    syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), captureHeatmapControlStateFromDom());
   }
 
   function buildHeatmapDerivedViewTitle(settings){
@@ -7421,7 +7427,7 @@
   function renderEmpty(message){
     clearCachedRenderState();
     state.lastResolvedValueScale = null;
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.lastResolvedValueScale = null;
     }, { seedFromActive: true });
     syncHeatmapPaletteInputs(resolveHeatmapRoot());
@@ -7517,7 +7523,7 @@
 
   function updateStats(stats){
     state.lastStats = stats ? { ...stats } : null;
-    updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+    updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
       results.stats = cloneSimple(state.lastStats) || null;
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel || {});
     });
@@ -7530,7 +7536,7 @@
     if(!stats){
       state.statsEl.textContent = 'Add numeric data to draw the heatmap.';
       state.statsPanelModel = { resultsModel: null, reportModel: null };
-      updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
         results.stats = null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel);
       });
@@ -7613,7 +7619,7 @@
         }, { title: 'Reporting and reproducibility' });
       }
       const panelModel = captureHeatmapStatsPanelModel();
-      updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(panelModel);
       });
@@ -7686,7 +7692,7 @@
         }, { title: 'Reporting and reproducibility' });
       }
       const panelModel = captureHeatmapStatsPanelModel();
-      updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(panelModel);
       });
@@ -7695,7 +7701,7 @@
     if(stats.type === 'empty'){
       state.statsEl.textContent = stats.message || 'No data available for the current configuration.';
       state.statsPanelModel = { resultsModel: null, reportModel: null };
-      updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel);
       });
@@ -7703,7 +7709,7 @@
     }
     state.statsEl.textContent = 'Add numeric data to draw the heatmap.';
     state.statsPanelModel = { resultsModel: null, reportModel: null };
-    updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+    updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
       results.stats = cloneSimple(state.lastStats) || null;
       results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel);
     });
@@ -7956,7 +7962,7 @@
     markFontEditable(title, 'graphTitle', 'graphTitle');
     const applyHeatmapTitle = value => {
       const nextValue = value != null ? String(value) : '';
-      patchHeatmapVisualState(ownerSession || getActiveHeatmapSessionForState(), { titleText: nextValue }, { reason: 'heatmap-title-edit' });
+      patchHeatmapVisualState(ownerSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), { titleText: nextValue }, { reason: 'heatmap-title-edit' });
       if(title.textContent !== nextValue){
         title.textContent = nextValue;
       }
@@ -7978,7 +7984,7 @@
           // Store both absolute and relative positions
           const relX = pos.x / totalWidth;
           const relY = pos.y / matrixTop;
-          patchHeatmapLabelPosition(ownerSession || getActiveHeatmapSessionForState(), 'title', { 
+          patchHeatmapLabelPosition(ownerSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), 'title', { 
             x: pos.x, 
             y: pos.y,
             relX: relX, 
@@ -8305,7 +8311,7 @@
       cellValuePadding,
       cellValueHeightFactor
     };
-    updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.textAspectMetrics = cloneSimple(state.textAspectMetrics) || null;
     }, { seedFromActive: true });
     if(showRowDendrogram && rowClustering?.tree){
@@ -9553,12 +9559,12 @@
         configSession.updatedAt = Date.now();
       }
       state.lastResolvedValueScale = null;
-      updateHeatmapRenderRuntime(getActiveHeatmapSessionForState(), runtime => {
+      updateHeatmapRenderRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
         runtime.lastResolvedValueScale = null;
       }, { seedFromActive: true });
       syncHeatmapPaletteInputs(resolveHeatmapRoot());
       importFontStyles('heatmap', config.fontStyles || null);
-      syncHeatmapControlStateToSession(getActiveHeatmapSessionForState(), restoredControls);
+      syncHeatmapControlStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), restoredControls);
     });
   }
   function getPayload(){
@@ -9779,8 +9785,8 @@
       const restoredNotes = config.notes && typeof config.notes === 'object'
         ? { text: config.notes.text, open: config.notes.open }
         : (typeof config.notes === 'string' ? { text: config.notes, open: notesState.open } : { text: '', open: false });
-      syncHeatmapNotesStateToSession(getActiveHeatmapSessionForState(), restoredNotes);
-      applyHeatmapNotesStateToControl(getActiveHeatmapSessionForState());
+      syncHeatmapNotesStateToSession(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), restoredNotes);
+      applyHeatmapNotesStateToControl(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }));
       if(!skipDataLoad && state.hot){
         updateHeatmapClusterState({ suspendAutoClusterDefaults: true });
         try{
@@ -9806,11 +9812,11 @@
         ? (cloneSimple(obj.stats) || obj.stats)
         : null;
       state.statsPanelModel = normalizeHeatmapStatsPanelModel(config.statsPanelModel || obj.stats?.statsPanelModel || {});
-      updateHeatmapResultsState(getActiveHeatmapSessionForState(), results => {
+      updateHeatmapResultsState(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), results => {
         results.stats = cloneSimple(state.lastStats) || null;
         results.statsPanelModel = normalizeHeatmapStatsPanelModel(state.statsPanelModel || {});
       });
-      captureHeatmapSessionStateFromActive(getActiveHeatmapSessionForState(), { reason: `heatmap-payload-apply:${meta?.source || 'unknown'}` });
+      captureHeatmapSessionStateFromActive(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), { reason: `heatmap-payload-apply:${meta?.source || 'unknown'}` });
       if(!skipDraw){
         if(state.lastStats){
           updateStats(state.lastStats);
@@ -9862,7 +9868,7 @@
   heatmap.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getHeatmapProjectionTabId() || null;
     const session = tabId ? getHeatmapSession(tabId, { ...(meta || {}), tabId, reason: 'heatmap-cancel-current-draw' }, { create: false }) : getActiveHeatmapSessionForState();
-    updateHeatmapDrawRuntime(session || getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapDrawRuntime(session || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.pendingDrawOptions = {};
       runtime.deferredHiddenDrawOptions = null;
       runtime.token = (Number(runtime.token) || 0) + 1;
@@ -9893,7 +9899,7 @@
     const noteState = getHeatmapNotesState(noteSession);
     notesState.control = Shared.componentLifecycle?.ensureOwnedNotesControl?.({
       componentKey: 'heatmap',
-      ownerTabId: heatmap.__boundTabId || noteSession?.tabId || null,
+      ownerTabId: getHeatmapProjectionTabId() || noteSession?.tabId || null,
       container: stack,
       notesState,
       control: notesState.control,
@@ -10054,7 +10060,7 @@
         component: heatmap,
         componentKey: 'heatmap',
         options: nextOpts,
-        tabId: nextOpts.tabId || heatmap.__boundTabId || resolveHeatmapAsyncTabId(nextOpts, state.hot) || null,
+        tabId: nextOpts.tabId || getHeatmapProjectionTabId() || resolveHeatmapAsyncTabId(nextOpts, state.hot) || null,
         reason: overlayReason,
         overlayController: heatmapOverlayController,
         delayForOverlay: !nextOpts.viewOnly,
@@ -10085,7 +10091,7 @@
       || getHeatmapNodeById('heatmapLoadExample')
       || null;
     heatmap.ready = true;
-    captureHeatmapSessionStateFromActive(initSession || getActiveHeatmapSessionForState(), { reason: 'heatmap-init-complete' });
+    captureHeatmapSessionStateFromActive(initSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), { reason: 'heatmap-init-complete' });
     scheduleHeatmapDrawForSession(initSession || getActiveHeatmapSessionForState(), {
       tabId: targetTabId || resolveHeatmapAsyncTabId({}, state.hot),
       reason: 'heatmap-init'
@@ -10129,7 +10135,7 @@
       return;
     }
     if(!heatmap.ready){
-      heatmap.init({ ...options, tabId: options.tabId || options.tab?.id || heatmap.__boundTabId || undefined, reason: options.reason || 'ensure' });
+      heatmap.init({ ...options, tabId: options.tabId || options.tab?.id || getHeatmapProjectionTabId() || undefined, reason: options.reason || 'ensure' });
     }
   };
   function syncHeatmapActivationState(tabLike = null, options = {}){
@@ -10172,7 +10178,7 @@
     heatmap.__domSentinel = mountedRoot?.querySelector?.('#heatmapLoadExample')
       || getHeatmapNodeById('heatmapLoadExample')
       || null;
-    captureHeatmapSessionStateFromActive(activationSession || getActiveHeatmapSessionForState(), { reason: 'heatmap-activation-state-complete' });
+    captureHeatmapSessionStateFromActive(activationSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), { reason: 'heatmap-activation-state-complete' });
   }
 
   heatmap.activateTab = Shared.componentLifecycle?.bindTabActivation?.({
@@ -10181,7 +10187,7 @@
     resolveRoot: tabLike => resolveHeatmapRoot(tabLike || null) || state.root || null,
     setRoot: root => {
       state.root = root || state.root || null;
-      syncHeatmapSessionRefsFromActive(getActiveHeatmapSessionForState());
+      syncHeatmapSessionRefsFromActive(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }));
     },
     ensureBindings: tabLike => ensureHeatmapDomBindings(tabLike),
     init: options => heatmap.init(options),
@@ -10267,7 +10273,7 @@
     }else if(!session){
       applyHeatmapTabContextSnapshot(resolvedSnapshot, { syncUi: true });
       clearHiddenDrawFlushHandle();
-      updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+      updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
         runtime.pendingDrawOptions = {};
         runtime.deferredHiddenDrawOptions = null;
       }, { seedFromActive: true });
@@ -10294,7 +10300,7 @@
     componentKey: 'heatmap',
     cancel: () => {
       clearHiddenDrawFlushHandle();
-      updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+      updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
         runtime.pendingDrawOptions = {};
         runtime.deferredHiddenDrawOptions = null;
         runtime.token = (Number(runtime.token) || 0) + 1;
@@ -10302,7 +10308,7 @@
     }
   }) || function deactivateHeatmapTab(tab, meta = {}){
     clearHiddenDrawFlushHandle();
-    updateHeatmapDrawRuntime(getActiveHeatmapSessionForState(), runtime => {
+    updateHeatmapDrawRuntime(getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), runtime => {
       runtime.pendingDrawOptions = {};
       runtime.deferredHiddenDrawOptions = null;
       runtime.token = (Number(runtime.token) || 0) + 1;

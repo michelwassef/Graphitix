@@ -3,6 +3,8 @@
 // then drive the worker through its onmessage handler.
 
 const jStat = require('jstat');
+require('../../js/shared/stats.js');
+const sharedStats = window.Shared.stats;
 
 function loadWorker() {
   const ctx = {
@@ -17,6 +19,7 @@ function loadWorker() {
   ctx.jStat = jStat;
   // Minimal regression stub
   ctx.Shared = {
+    stats: sharedStats,
     regressionTools: {
       fitRegression: (points, opts) => {
         if (!points || points.length < 2) return null;
