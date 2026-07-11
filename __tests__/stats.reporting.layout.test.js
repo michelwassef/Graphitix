@@ -96,11 +96,20 @@ describe('Shared stats reporting layout', () => {
     diagnostics.setAttribute('data-stats-section', 'diagnostics');
     diagnostics.textContent = 'Neutral title';
     target.appendChild(diagnostics);
+    const descriptive = document.createElement('div');
+    descriptive.className = 'stats-table-card';
+    descriptive.setAttribute('data-stats-section', 'descriptive');
+    descriptive.textContent = 'Descriptive statistics';
+    target.insertBefore(descriptive, primary);
     reporting.enhancePanelNow(target, 'semantic-sections');
 
     expect(target.querySelector('.stats-results-main')?.contains(primary)).toBe(true);
     expect(target.querySelector('.stats-results-advanced-panel__body')?.contains(diagnostics)).toBe(true);
+    expect(target.querySelector('.stats-results-descriptive')?.contains(descriptive)).toBe(true);
     expect(target.querySelector('.stats-results-advanced-panel summary')?.textContent).toBe('Diagnostics and model details');
+    const ordered = Array.from(target.children);
+    expect(ordered.indexOf(target.querySelector('.stats-results-main'))).toBeLessThan(ordered.indexOf(target.querySelector('.stats-results-advanced-panel')));
+    expect(ordered.indexOf(target.querySelector('.stats-results-advanced-panel'))).toBeLessThan(ordered.indexOf(target.querySelector('.stats-results-descriptive')));
 
     const saved = reporting.capturePanelModel(target);
     target.innerHTML = '';
@@ -108,6 +117,7 @@ describe('Shared stats reporting layout', () => {
     reporting.enhancePanelNow(target, 'semantic-sections-restored');
     expect(target.querySelector('.stats-results-main')?.textContent).toContain('Pairwise t-test');
     expect(target.querySelector('.stats-results-advanced-panel__body')?.textContent).toContain('Neutral title');
+    expect(target.querySelector('.stats-results-descriptive')?.textContent).toContain('Descriptive statistics');
   });
 
   test('report host override places reporting at the end of the containing statistics section', async () => {

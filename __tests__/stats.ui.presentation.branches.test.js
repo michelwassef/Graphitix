@@ -424,12 +424,19 @@ describe('UI statistical presentation branches', () => {
     expect(logRankText).toMatch(/Survival Curve Comparisons|Pairwise Log-rank Comparisons/i);
     expect(hazardText).toMatch(/Hazard ratios|Median Survival Ratios/i);
     expect(coxText).toMatch(/Cox Model Coefficients|Cox Model Diagnostics|Residual Summaries|Scaled Schoenfeld Residual Checks/i);
-    expect(coxText).toContain('Reporting and reproducibility');
+    expect(document.getElementById('survivalStatsReportHost')?.textContent || '').toContain('Reporting and reproducibility');
     expect(document.querySelectorAll('#survivalStatsSummary .stats-significance-controls').length).toBe(1);
     expect(document.querySelectorAll('#survivalStatsLogRank .stats-significance-controls').length).toBe(0);
     expect(document.querySelectorAll('#survivalStatsHazardRatios .stats-significance-controls').length).toBe(0);
     expect(document.querySelectorAll('#survivalStatsCox .stats-significance-controls').length).toBe(0);
-    expectReportHostAtBottom('survivalStatsCoxReportHost');
+    expectReportHostAtBottom('survivalStatsReportHost');
+    const survivalFieldset = document.getElementById('survivalStatsLogRank')?.parentElement;
+    const survivalChildren = Array.from(survivalFieldset?.children || []);
+    expect(survivalChildren.indexOf(document.getElementById('survivalStatsLogRank')))
+      .toBeLessThan(survivalChildren.indexOf(document.getElementById('survivalStatsHazardRatios')));
+    expect(survivalChildren.indexOf(document.getElementById('survivalStatsCox')))
+      .toBeLessThan(survivalChildren.indexOf(document.getElementById('survivalStatsSummary')));
+    expect(survivalChildren.at(-1)).toBe(document.getElementById('survivalStatsReportHost'));
   }, 40000);
 
   test('pca stats render PCA and MDS presentation branches', async () => {

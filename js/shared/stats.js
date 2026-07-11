@@ -1895,6 +1895,22 @@
     '#survivalStatsCox'
   ];
   const COLLAPSED_STATS_SECTIONS = new Set(['diagnostics', 'supplementary']);
+  const STATS_SECTION_ORDER = Object.freeze({
+    summary: 0,
+    estimates: 1,
+    comparisons: 2,
+    diagnostics: 3,
+    supplementary: 4,
+    descriptive: 5
+  });
+
+  function readStatsSection(node){
+    if(!node || node.nodeType !== 1){
+      return 'summary';
+    }
+    const section = String(node.getAttribute('data-stats-section') || '').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(STATS_SECTION_ORDER, section) ? section : 'summary';
+  }
   const panelEnhancerState = new WeakMap();
   const enhancedStatsPanels = new Set();
   const TRACKED_STATS_PANEL_IDS = STATS_PANEL_SELECTORS
@@ -2385,7 +2401,7 @@
     if(node.classList.contains('stats-report-panel') || node.classList.contains('stats-report-panel__advanced')){
       return false;
     }
-    return COLLAPSED_STATS_SECTIONS.has(String(node.getAttribute('data-stats-section') || '').trim().toLowerCase());
+    return COLLAPSED_STATS_SECTIONS.has(readStatsSection(node));
   }
 
   function isReportingNode(node){
@@ -2961,6 +2977,15 @@
       target.insertBefore(advancedPanel, main.nextSibling);
     }
     const advancedBody = findDirectChildByClass(advancedPanel, 'stats-results-advanced-panel__body');
+    let descriptive = findDirectChildByClass(target, 'stats-results-descriptive');
+    if(!descriptive){
+      descriptive = documentRef.createElement('div');
+      descriptive.className = 'stats-results-descriptive';
+      target.appendChild(descriptive);
+    }
+    if(advancedPanel.nextSibling !== descriptive){
+      target.insertBefore(descriptive, advancedPanel.nextSibling);
+    }
     if(typeof reporting.pinReportHostLast === 'function'){
       reporting.pinReportHostLast(target);
     }
@@ -2970,12 +2995,13 @@
       hint: controls ? controls.querySelector('.stats-significance-controls__hint') : null,
       main,
       advancedPanel,
-      advancedBody
+      advancedBody,
+      descriptive
     };
   }
 
   function redistributePanelNodes(target, scaffold){
-    if(!target || !scaffold?.main || !scaffold?.advancedBody){
+    if(!target || !scaffold?.main || !scaffold?.advancedBody || !scaffold?.descriptive){
       return;
     }
     const candidates = [];
@@ -2984,7 +3010,7 @@
       if(!node){
         return;
       }
-      if(node === scaffold.controls || node === scaffold.main || node === scaffold.advancedPanel || node === reportingHost){
+      if(node === scaffold.controls || node === scaffold.main || node === scaffold.advancedPanel || node === scaffold.descriptive || node === reportingHost){
         return;
       }
       if(node.nodeType === 3){
@@ -3002,14 +3028,23 @@
     Array.from(target.childNodes).forEach(pushCandidate);
     Array.from(scaffold.main.childNodes).forEach(pushCandidate);
     Array.from(scaffold.advancedBody.childNodes).forEach(pushCandidate);
+    Array.from(scaffold.descriptive.childNodes).forEach(pushCandidate);
     const unique = Array.from(new Set(candidates));
+    unique.sort((left, right) => {
+      const leftOrder = left.nodeType === 1 ? STATS_SECTION_ORDER[readStatsSection(left)] : 0;
+      const rightOrder = right.nodeType === 1 ? STATS_SECTION_ORDER[readStatsSection(right)] : 0;
+      return leftOrder - rightOrder;
+    });
     const reportingNodes = [];
     unique.forEach(node => {
       if(isReportingNode(node)){
         reportingNodes.push(node);
         return;
       }
-      const destination = isAdvancedNode(node) ? scaffold.advancedBody : scaffold.main;
+      const section = readStatsSection(node);
+      const destination = section === 'descriptive'
+        ? scaffold.descriptive
+        : (isAdvancedNode(node) ? scaffold.advancedBody : scaffold.main);
       destination.appendChild(node);
     });
     reportingNodes.forEach(node => {
@@ -3019,6 +3054,8 @@
     });
     scaffold.advancedPanel.hidden = scaffold.advancedBody.childNodes.length === 0;
     scaffold.advancedPanel.setAttribute('aria-hidden', scaffold.advancedPanel.hidden ? 'true' : 'false');
+    scaffold.descriptive.hidden = scaffold.descriptive.childNodes.length === 0;
+    scaffold.descriptive.setAttribute('aria-hidden', scaffold.descriptive.hidden ? 'true' : 'false');
   }
 
   function applyPanelEnhancements(target, reason){

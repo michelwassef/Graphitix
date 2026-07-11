@@ -8868,6 +8868,7 @@
       columns: normalizeBoxStatsTableColumns(raw.columns),
       rows: normalizeBoxStatsTableRows(raw.rows),
       caption: typeof raw.caption === 'string' && raw.caption ? raw.caption : 'Descriptive statistics',
+      section: 'descriptive',
       options: {
         fileName: typeof options.fileName === 'string' && options.fileName ? options.fileName : 'box-summary-statistics',
         contextLabel: typeof options.contextLabel === 'string' && options.contextLabel ? options.contextLabel : 'box-summary'

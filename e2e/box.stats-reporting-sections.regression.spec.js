@@ -47,11 +47,15 @@ async function assertStatsSections(page) {
     const fieldset = root?.querySelector('#statsResults')?.closest('fieldset');
     return {
       reportHostLast: fieldset?.lastElementChild?.id === 'boxStatsReportHost',
+      diagnosticsBeforeDescriptives: !!root?.querySelector('#statsResults')
+        && !!root?.querySelector('#statsTable')
+        && !!(root.querySelector('#statsResults').compareDocumentPosition(root.querySelector('#statsTable')) & Node.DOCUMENT_POSITION_FOLLOWING),
       reportModel: !!window.Components?.box?.__getState?.()?.statsLastReport,
       panelModel: !!window.Components?.box?.__getState?.()?.statsPanelModel
     };
   });
   expect(order.reportHostLast).toBe(true);
+  expect(order.diagnosticsBeforeDescriptives).toBe(true);
   expect(order.reportModel).toBe(true);
 }
 

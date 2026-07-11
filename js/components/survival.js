@@ -1702,12 +1702,14 @@
     if(!refs.statsCox || !reporting || typeof reporting.ensureReportHost !== 'function'){
       return refs.statsCox?.__statsReportHost || null;
     }
-    return reporting.ensureReportHost(refs.statsCox, {
-      id: 'survivalStatsCoxReportHost',
+    const host = reporting.ensureReportHost(refs.statsCox, {
+      id: 'survivalStatsReportHost',
       className: 'stats-report-host',
-      attachToTarget: true,
+      attachToTarget: false,
       position: 'last'
     });
+    refs.statsCox.__statsReportHost = host || null;
+    return host;
   }
   function clearSurvivalStatsReportHost(target){
     const reporting = Shared.statsReporting;
@@ -5435,7 +5437,7 @@
     ];
     renderStatsTableCard(refs.statsSummary, {
       caption: 'Group Summary',
-      section: 'summary',
+      section: 'descriptive',
       columns: [
         { key: 'group', label: 'Group', align: 'left' },
         { key: 'total', label: 'N', align: 'right' },

@@ -157,7 +157,8 @@ async function readSurvivalState(page) {
       },
       stats: {
         hazardText: root?.querySelector?.('#survivalStatsHazardRatios')?.textContent || '',
-        coxText: root?.querySelector?.('#survivalStatsCox')?.textContent || ''
+        coxText: root?.querySelector?.('#survivalStatsCox')?.textContent || '',
+        reportText: root?.querySelector?.('#survivalStatsReportHost')?.textContent || ''
       }
     };
   });
@@ -190,7 +191,7 @@ function expectSurvivalState(actual, expected) {
   if (expected.showHazardRatios) {
     expect(actual.stats.hazardText).toMatch(/Hazard Ratio|Relative hazard|Reporting and reproducibility/i);
   } else {
-    expect(`${actual.stats.hazardText}\n${actual.stats.coxText}`).toMatch(/Show Hazard Ratios:\s*No/i);
+    expect(`${actual.stats.hazardText}\n${actual.stats.coxText}\n${actual.stats.reportText}`).toMatch(/Show Hazard Ratios:\s*No/i);
   }
   if (expected.fitCoxModel) {
     expect(actual.stats.coxText).toMatch(/Cox Model|Reporting and reproducibility/i);

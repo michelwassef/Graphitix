@@ -76,7 +76,8 @@ function expectSingleReportPanel(targetId, hostId){
   expect(target).toBeTruthy();
   expect(host).toBeTruthy();
   expect(host.querySelectorAll('.stats-report-panel').length).toBe(1);
-  expect(target.querySelectorAll('.stats-report-panel').length).toBe(1);
+  const targetOwnsHost = target === host || target.contains(host);
+  expect(target.querySelectorAll('.stats-report-panel').length).toBe(targetOwnsHost ? 1 : 0);
   expect(host.parentElement?.lastElementChild).toBe(host);
 }
 
@@ -414,8 +415,8 @@ describe('UI stats persistence and restore', () => {
     expect(survival.restoreRenderCache(survivalCache)).toBe(true);
     await flushAsyncWork(20);
     expect(document.getElementById('survivalStatsLogRank')?.textContent || '').toMatch(/Survival Curve Comparisons|Pairwise Log-rank Comparisons/i);
-    expect(document.getElementById('survivalStatsCox')?.textContent || '').toMatch(/Cox Model Coefficients|Reporting and reproducibility/i);
-    expectSingleReportPanel('survivalStatsCox', 'survivalStatsCoxReportHost');
+    expect(document.getElementById('survivalStatsCox')?.textContent || '').toMatch(/Cox Model Coefficients|Cox Model Group Effects/i);
+    expectSingleReportPanel('survivalStatsCox', 'survivalStatsReportHost');
 
     const pca = await preparePcaStats();
     // The render cache carries only the graph; the stats panel (summary, scree, biplot,

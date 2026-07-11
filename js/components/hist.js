@@ -5658,7 +5658,7 @@
       .map(entry => `${entry.label}: best fit ${entry.bestFit}`);
     renderHistStatsModel(target, {
       caption: 'Descriptive statistics',
-      section: 'summary',
+      section: 'descriptive',
       columns: [
         { key: 'column', label: 'Column' },
         { key: 'n', label: 'N', align: 'right' },
@@ -5683,7 +5683,7 @@
     }, false);
     renderHistStatsModel(target, {
       caption: 'Distribution shape',
-      section: 'summary',
+      section: 'descriptive',
       columns: [
         { key: 'column', label: 'Column' },
         { key: 'skewness', label: 'Skewness', align: 'right' },
