@@ -8273,7 +8273,7 @@
       ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
       : null;
 
-    const pad = 20;
+    const pad = Math.max(8, Math.min(20, stageWidth * 0.045, stageHeight * 0.045));
     const scaleX = Number.isFinite(defaultWidth) && defaultWidth > 0 ? stageWidth / defaultWidth : 1;
     const scaleY = Number.isFinite(defaultHeight) && defaultHeight > 0 ? stageHeight / defaultHeight : 1;
     const geometryScaleRaw = Math.sqrt(Math.max(scaleX * scaleY, 0));
@@ -8290,27 +8290,39 @@
       dotSizeBase: settings.dotSize,
       dotSizePx
     });
-    const gap = Math.max(style.fontSizePx * 0.8, 12);
-    const setAxisHeight = Math.max(style.fontSizePx * 1.8, 18);
-    const innerHeight = Math.max(stageHeight - topPadding - pad, style.fontSizePx * 10);
-    const contentHeight = Math.max(innerHeight - setAxisHeight, style.fontSizePx * 8);
-
-    let rowHeight = Math.max(dotSizePx * 2.6, style.fontSizePx * 1.4);
-    let matrixHeight = rowHeight * sets.length;
-    let barChartHeight = contentHeight - matrixHeight - gap;
-    if (barChartHeight < style.fontSizePx * 4) {
-      barChartHeight = Math.max(style.fontSizePx * 4, contentHeight * 0.5);
-      const remaining = Math.max(contentHeight - barChartHeight - gap, style.fontSizePx * 2);
-      rowHeight = Math.max(remaining / sets.length, style.fontSizePx * 1.1);
-      matrixHeight = rowHeight * sets.length;
+    const gap = Math.max(style.fontSizePx * 0.65, 10);
+    const setAxisHeight = Math.max(style.fontSizePx * 3.4, 52);
+    const innerHeight = Math.max(1, stageHeight - topPadding - pad);
+    const contentHeight = Math.max(1, innerHeight - setAxisHeight);
+    const sharedPanelHeight = Math.max(1, contentHeight - gap);
+    const minRowHeight = Math.max(dotSizePx * 2.4, style.fontSizePx * 1.15);
+    const minMatrixHeight = minRowHeight * sets.length;
+    const minBarChartHeight = Math.max(style.fontSizePx * 4, 48);
+    const matrixShare = clampNumber(
+      0.28 + Math.max(0, sets.length - 3) * 0.025,
+      0.28,
+      0.28,
+      0.48
+    );
+    let matrixHeight;
+    let barChartHeight;
+    if (sharedPanelHeight >= minMatrixHeight + minBarChartHeight) {
+      matrixHeight = Math.max(minMatrixHeight, sharedPanelHeight * matrixShare);
+      matrixHeight = Math.min(matrixHeight, sharedPanelHeight - minBarChartHeight);
+      barChartHeight = sharedPanelHeight - matrixHeight;
+    } else {
+      const minimumTotal = Math.max(1, minMatrixHeight + minBarChartHeight);
+      matrixHeight = sharedPanelHeight * (minMatrixHeight / minimumTotal);
+      barChartHeight = Math.max(1, sharedPanelHeight - matrixHeight);
     }
+    const rowHeight = matrixHeight / Math.max(sets.length, 1);
 
     const barTop = topPadding;
     const barBottom = barTop + barChartHeight;
     const matrixTop = barBottom + gap;
     const matrixBottom = matrixTop + matrixHeight;
 
-    const contentWidth = Math.max(stageWidth - pad * 2, style.fontSizePx * 12);
+    const contentWidth = Math.max(1, stageWidth - pad * 2);
     const setLabelFontSize = Math.max(10, Math.round(style.fontSizePx));
     const axisTickFontSize = Math.max(10, Math.round(style.fontSizePx));
     const axisLabelFontSize = Math.max(10, Math.round(style.fontSizePx));
@@ -8318,34 +8330,89 @@
     const labelFont = `${setLabelFontSize}px ${fontFamily}`;
     const countFont = `${axisTickFontSize}px ${fontFamily}`;
     const measure = (text, font) => measureUpSetText(text, font, style.fontSizePx);
+    const fitLabelToWidth = (value, maxWidth, font) => {
+      const text = String(value ?? '');
+      if (!text || maxWidth <= 0) return '';
+      if (measure(text, font) <= maxWidth) return text;
+      const ellipsis = '\u2026';
+      const ellipsisWidth = measure(ellipsis, font);
+      if (ellipsisWidth > maxWidth) return '';
+      let low = 0;
+      let high = text.length;
+      while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (measure(`${text.slice(0, middle)}${ellipsis}`, font) <= maxWidth) {
+          low = middle;
+        } else {
+          high = middle - 1;
+        }
+      }
+      return `${text.slice(0, low)}${ellipsis}`;
+    };
+    const buildIntegerTicks = (maximum, desiredIntervalCount) => {
+      const limit = Math.max(0, Math.round(maximum));
+      if (!limit) return [0];
+      const intervalCount = Math.max(1, Math.min(limit, Math.floor(desiredIntervalCount) || 1));
+      return Array.from(
+        new Set(Array.from({ length: intervalCount + 1 }, (_, index) => (
+          Math.round(limit * index / intervalCount)
+        )))
+      );
+    };
     const maxLabelWidth = Math.max(...sets.map(set => measure(set.label, labelFont)), 0);
-    let labelAreaWidth = Math.min(Math.max(maxLabelWidth + 8, 50), contentWidth * 0.35);
     const maxSetSize = Math.max(...sets.map(set => set.size), 0);
+    const maxIntersection = Math.max(...intersections.map(entry => entry.size), 0) || 1;
     const countAreaWidth = settings.showSetCounts ? measure(formatCount(maxSetSize), countFont) + 6 : 0;
-    const barLabelGap = 8;
+    const barLabelGap = Math.max(4, style.fontSizePx * 0.4);
 
-    const minColumnWidth = Math.max(dotSizePx * 2.6, style.fontSizePx * 1.4);
     const columnCount = Math.max(1, intersections.length);
+    const maxIntersectionLabelWidth = settings.showCounts
+      ? measure(formatCount(maxIntersection), `${valueLabelFontSize}px ${fontFamily}`)
+      : 0;
+    const minColumnWidth = Math.max(
+      dotSizePx * 2.35,
+      maxIntersectionLabelWidth + 4,
+      7
+    );
     const minMatrixWidth = minColumnWidth * columnCount;
-
-    let setBarAreaWidth = Math.min(Math.max(contentWidth * 0.2, 80), contentWidth * 0.4);
-    let matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
+    const desiredLabelAreaWidth = Math.max(maxLabelWidth + 8, 36);
+    const minSetBarAreaWidth = Math.max(32, style.fontSizePx * 2.4);
+    const desiredSetBarAreaWidth = Math.min(
+      Math.max(contentWidth * 0.22, minSetBarAreaWidth),
+      Math.max(minSetBarAreaWidth, contentWidth * 0.34)
+    );
+    const fixedHorizontalSpace = countAreaWidth + gap + barLabelGap;
+    const flexibleWidth = Math.max(1, contentWidth - fixedHorizontalSpace);
+    let setBarAreaWidth = desiredSetBarAreaWidth;
+    let labelAreaWidth = desiredLabelAreaWidth;
+    let matrixWidth = flexibleWidth - setBarAreaWidth - labelAreaWidth;
     if (matrixWidth < minMatrixWidth) {
-      const shortage = minMatrixWidth - matrixWidth;
-      const reducibleSet = Math.max(0, setBarAreaWidth - 60);
-      const reduceSet = Math.min(shortage, reducibleSet);
-      setBarAreaWidth -= reduceSet;
-      matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
+      const setBarReduction = Math.min(
+        minMatrixWidth - matrixWidth,
+        Math.max(0, setBarAreaWidth - minSetBarAreaWidth)
+      );
+      setBarAreaWidth -= setBarReduction;
+      matrixWidth += setBarReduction;
     }
     if (matrixWidth < minMatrixWidth) {
-      const shortage = minMatrixWidth - matrixWidth;
-      const reducibleLabel = Math.max(0, labelAreaWidth - 40);
-      const reduceLabel = Math.min(shortage, reducibleLabel);
-      labelAreaWidth -= reduceLabel;
-      matrixWidth = contentWidth - setBarAreaWidth - labelAreaWidth - countAreaWidth - gap - barLabelGap;
+      const labelReduction = Math.min(
+        minMatrixWidth - matrixWidth,
+        Math.max(0, labelAreaWidth)
+      );
+      labelAreaWidth -= labelReduction;
+      matrixWidth += labelReduction;
     }
-    matrixWidth = Math.max(matrixWidth, minColumnWidth);
+    if (matrixWidth < minMatrixWidth) {
+      const matrixScale = Math.max(0.45, matrixWidth / Math.max(minMatrixWidth, 1));
+      setBarAreaWidth = Math.max(20, setBarAreaWidth * matrixScale);
+      matrixWidth = Math.max(1, flexibleWidth - setBarAreaWidth - labelAreaWidth);
+    }
+    matrixWidth = Math.max(1, matrixWidth);
     const columnWidth = matrixWidth / columnCount;
+    const matrixDotRadius = Math.max(
+      0.75,
+      Math.min(dotSizePx, rowHeight * 0.32, columnWidth * 0.32)
+    );
 
     const barAreaWidth = Math.max(10, setBarAreaWidth);
     const countX = pad;
@@ -8424,15 +8491,17 @@
       });
     }
 
-    const maxIntersection = Math.max(...intersections.map(entry => entry.size), 0) || 1;
-    const tickCount = 4;
-    const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => Math.round(maxIntersection * i / tickCount));
+    const intersectionTickIntervals = Math.max(
+      1,
+      Math.min(4, Math.floor(barChartHeight / Math.max(axisTickFontSize * 2.2, 20)))
+    );
+    const tickValues = buildIntegerTicks(maxIntersection, intersectionTickIntervals);
     const tickLabels = tickValues.map(v => formatCount(v));
     const maxTickLabelWidth = Math.max(...tickLabels.map(lbl => measure(lbl, countFont)), 0);
     const axisX = Math.max(pad + 6, matrixX - (tickLength + tickLabelGap + maxTickLabelWidth + 6));
     const intersectionLayout = intersections.map((entry, idx) => {
       const columnCenter = matrixX + columnWidth * (idx + 0.5);
-      const barWidth = Math.max(4, columnWidth * 0.6);
+      const barWidth = Math.max(0.75, columnWidth * 0.6);
       const barHeight = (entry.size / maxIntersection) * barChartHeight;
       const barX = columnCenter - barWidth / 2;
       const barY = barBottom - barHeight;
@@ -8658,9 +8727,12 @@
         makeEl('circle', {
           cx: columnCenter,
           cy: matrixTop + rowIdx * rowHeight + rowHeight / 2,
-          r: dotSizePx,
+          r: matrixDotRadius,
           fill: settings.inactiveDotColor,
-          opacity: 1
+          opacity: 1,
+          'data-upset-matrix-cell': entry.code,
+          'data-upset-column-code': entry.code,
+          'data-upset-set-key': set.key
         });
       });
 
@@ -8672,7 +8744,14 @@
           opacity: activeMarkOpacity,
           size: settings.dotSize
         });
-        const activeDotSizePx = clampNumber(clampNumber(matrixStyle.size, settings.dotSize, 2, 12) * geometryScale, dotSizePx, 1.5, 48);
+        const activeDotSizePx = Math.max(
+          0.75,
+          Math.min(
+            clampNumber(matrixStyle.size, settings.dotSize, 2, 12) * geometryScale,
+            rowHeight * 0.38,
+            columnWidth * 0.38
+          )
+        );
         const activeGroup = makeEl('g', {
           color: sanitizeColor(matrixStyle.fill, activeColor),
           opacity: clampNumber(matrixStyle.opacity, activeMarkOpacity, 0, 1),
@@ -8747,11 +8826,23 @@
         'text-anchor': 'start',
         'dominant-baseline': 'middle',
         'font-size': setLabelFontSize,
-        fill: textColor
+        fill: textColor,
+        'data-upset-set-label': set.key,
+        'data-upset-full-label': set.label,
+        'aria-label': set.label
       });
-      label.textContent = set.label;
+      const fittedLabel = fitLabelToWidth(set.label, Math.max(0, labelAreaWidth - 4), labelFont);
+      label.textContent = fittedLabel;
+      if (fittedLabel !== set.label) {
+        const labelTitle = document.createElementNS(NS, 'title');
+        labelTitle.textContent = set.label;
+        label.appendChild(labelTitle);
+      }
       const barWidth = maxSetSize > 0 ? (set.size / maxSetSize) * barAreaWidth : 0;
-      const barHeight = Math.max(dotSizePx * 1.6, rowHeight * 0.6);
+      const barHeight = Math.min(
+        rowHeight * 0.72,
+        Math.max(matrixDotRadius * 1.6, rowHeight * 0.5)
+      );
       const barY = rowCenter - barHeight / 2;
       const barFill = settings.useSetColors ? set.color : settings.setBarColor;
       const barX = setBarX + (barAreaWidth - barWidth);
@@ -8813,13 +8904,23 @@
       x2: setAxisX2,
       y2: axisY,
       stroke: axisColor,
-      'stroke-width': axisWidth
+      'stroke-width': axisWidth,
+      'data-upset-axis': 'set-x'
     });
 
-    const setTickFractions = Array.from({ length: tickCount + 1 }, (_, i) => i / tickCount);
-    setTickFractions.forEach(fraction => {
-      const value = Math.round(maxSetSize * fraction);
-      const x = setBarX + barAreaWidth - fraction * barAreaWidth;
+    const maxSetTickWidth = Math.max(
+      measure(formatCount(0), countFont),
+      measure(formatCount(maxSetSize), countFont)
+    );
+    const setTickIntervals = Math.max(
+      1,
+      Math.min(4, Math.floor(barAreaWidth / Math.max(maxSetTickWidth + 12, 28)))
+    );
+    const setTickValues = buildIntegerTicks(maxSetSize, setTickIntervals);
+    setTickValues.forEach(value => {
+      const x = maxSetSize > 0
+        ? setBarX + barAreaWidth - (value / maxSetSize) * barAreaWidth
+        : setBarX + barAreaWidth;
       makeEl('line', {
         x1: x,
         y1: axisY,
@@ -8850,8 +8951,14 @@
     setAxisLabel.textContent = 'Set Size';
 
     // Keep intersection axes in the foreground so bars/dots never hide them.
-    const yAxisLine = makeEl('line', yAxisLineAttrs);
-    const xAxisLine = makeEl('line', xAxisLineAttrs);
+    const yAxisLine = makeEl('line', {
+      ...yAxisLineAttrs,
+      'data-upset-axis': 'intersection-y'
+    });
+    const xAxisLine = makeEl('line', {
+      ...xAxisLineAttrs,
+      'data-upset-axis': 'intersection-x'
+    });
     if (!resizePreview && axisControls && typeof axisControls.registerAxisElement === 'function') {
       axisControls.registerAxisElement(yAxisLine, createUpSetAxisControlConfig('y'));
       axisControls.registerAxisElement(xAxisLine, createUpSetAxisControlConfig('x'));

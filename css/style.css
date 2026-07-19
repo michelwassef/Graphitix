@@ -5887,14 +5887,16 @@ details{background:#fff;border:1px solid #ddd;border-radius:var(--ui-rounded-rad
 #vennPage .upset-toggle{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;letter-spacing:.04em;text-transform:none;cursor:pointer;white-space:nowrap}
 #vennPage .upset-controls-row--toggles .upset-toggle{width:100%;min-width:0;box-sizing:border-box;white-space:normal;line-height:1.2}
 #vennPage .upset-toggle input{margin:0}
-#vennPage .upset-color-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin-top:2px}
-#vennPage .upset-color-grid .upset-color{display:grid;grid-template-columns:112px auto;align-items:center;justify-content:start;column-gap:8px;width:max-content;max-width:100%;font-size:11px;color:#111b2c}
+#vennPage .upset-color-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:20px;align-items:start;margin-top:2px}
+#vennPage .upset-color-column{display:grid;gap:6px;min-width:0}
+#vennPage .upset-color-grid .upset-color{display:grid;grid-template-columns:minmax(0,112px) auto;align-items:center;justify-content:start;column-gap:8px;width:100%;max-width:100%;font-size:11px;color:#111b2c}
 #vennPage .upset-color-grid .upset-color span{white-space:nowrap}
 #vennPage .upset-color-grid .upset-color input[type=color]{justify-self:start}
 @media (max-width:430px){
   #vennPage .upset-controls-row--main,
   #vennPage .upset-controls-row--size,
-  #vennPage .upset-controls-row--toggles{grid-template-columns:minmax(0,1fr)}
+  #vennPage .upset-controls-row--toggles,
+  #vennPage .upset-color-grid{grid-template-columns:minmax(0,1fr)}
 }
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 @media (max-width:680px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}

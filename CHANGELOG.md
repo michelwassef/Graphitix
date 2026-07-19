@@ -17,9 +17,10 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - Test contracts updated to match current PCA auto-draw and line toolbar behavior.
 - Heatmap regression tests made resilient to current correlation/data-view flow.
 - Repository cleanup rules now ignore generated coverage, Playwright artifacts, temporary scratch files, and local assistant/editor settings.
+- UpSet color controls now use a compact two-column layout.
 
 ### Fixed
-- UpSet resizing now uses tab-owned render data, atomic live frames, and a size-anchored viewport, eliminating transient invalid geometry and resize-frame jumps.
+- UpSet resizing now uses tab-owned render data, atomic live frames, a coordinated two-panel layout, and collision-aware narrow-width labels, eliminating transient jumps and overlap between set names and matrix dots.
 - UpSet now defaults to an unlocked ratio while preserving a user-selected ratio lock across mode changes, tabs, and archive reopen.
 - Hiding graph or axis titles now preserves the user-set graph geometry and proportions across all graph types; Heatmap no longer shifts, clips column labels, or shrinks text after tab return.
 - Inline title editing now keeps renderer-replaced text projections hidden, preventing Heatmap’s unchanged title from appearing behind the editor.

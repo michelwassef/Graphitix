@@ -129,6 +129,11 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
     const stage = root?.querySelector('#stage');
     const title = stage?.querySelector('text[data-font-role="graphTitle"]');
     const svgBox = root?.querySelector('#vennGraphPanel .svgbox');
+    const matrixRows = Array.from(stage.querySelectorAll('[data-upset-matrix-cell]'))
+      .map(node => Number(node.getAttribute('cy')))
+      .filter(Number.isFinite);
+    const intersectionAxis = stage.querySelector('[data-upset-axis="intersection-y"]');
+    const setBar = stage.querySelector('rect[data-upset-trace-kind="setBars"]');
     window.__upsetUnlockedResizeProbe = {
       renderBatches: 0,
       fontRegistrations: 0,
@@ -170,7 +175,12 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
     window.__upsetUnlockedResizeObserver.observe(stage, { childList: true, subtree: true });
     return {
       panelHeight: svgBox.getBoundingClientRect().height,
-      titleHeight: title.getBoundingClientRect().height
+      titleHeight: title.getBoundingClientRect().height,
+      matrixSpan: Math.max(...matrixRows) - Math.min(...matrixRows),
+      intersectionAxisHeight: Math.abs(
+        Number(intersectionAxis.getAttribute('y2')) - Number(intersectionAxis.getAttribute('y1'))
+      ),
+      setBarHeight: setBar.getBBox().height
     };
   });
 
@@ -190,6 +200,11 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
     const root = document.querySelector('#vennPage:not([hidden])');
     const stage = root.querySelector('#stage');
     const barBox = stage.querySelector('rect[data-upset-trace-kind="intersectionBars"]').getBBox();
+    const matrixRows = Array.from(stage.querySelectorAll('[data-upset-matrix-cell]'))
+      .map(node => Number(node.getAttribute('cy')))
+      .filter(Number.isFinite);
+    const intersectionAxis = stage.querySelector('[data-upset-axis="intersection-y"]');
+    const setBar = stage.querySelector('rect[data-upset-trace-kind="setBars"]');
     return {
       renderBatches: window.__upsetUnlockedResizeProbe.renderBatches,
       fontRegistrations: window.__upsetUnlockedResizeProbe.fontRegistrations,
@@ -200,7 +215,12 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
       stageWidth: stage.clientWidth,
       stageHeight: stage.clientHeight,
       viewBox: stage.getAttribute('viewBox').trim().split(/\s+/).map(Number),
-      barBox: { y: barBox.y, height: barBox.height }
+      barBox: { y: barBox.y, height: barBox.height },
+      matrixSpan: Math.max(...matrixRows) - Math.min(...matrixRows),
+      intersectionAxisHeight: Math.abs(
+        Number(intersectionAxis.getAttribute('y2')) - Number(intersectionAxis.getAttribute('y1'))
+      ),
+      setBarHeight: setBar.getBBox().height
     };
   });
   expect(during.panelHeight - initial.panelHeight).toBeGreaterThan(50);
@@ -210,6 +230,9 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
   expect(during.invalidPaintedFrames).toBe(0);
   expect(Math.abs(during.titleHeight - initial.titleHeight)).toBeLessThanOrEqual(1.5);
   expect(during.viewBox).toEqual([0, 0, during.stageWidth, during.stageHeight]);
+  expect(during.matrixSpan - initial.matrixSpan).toBeGreaterThan(8);
+  expect(during.intersectionAxisHeight - initial.intersectionAxisHeight).toBeGreaterThan(30);
+  expect(during.setBarHeight - initial.setBarHeight).toBeGreaterThan(2);
 
   await page.mouse.up();
   await page.waitForTimeout(150);
@@ -243,4 +266,86 @@ test('UpSet defaults to unlocked ratio and redraws live during fixed-font axis d
   expect(rafP95).toBeLessThanOrEqual(25);
   expect(Math.abs(completed.barBox.y - during.barBox.y)).toBeLessThanOrEqual(1.5);
   expect(Math.abs(completed.barBox.height - during.barBox.height)).toBeLessThanOrEqual(1.5);
+});
+
+test('UpSet narrow live resize keeps set labels outside the matrix and columns aligned', async ({ page }) => {
+  test.setTimeout(120_000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(
+    page,
+    { type: 'venn', pageId: 'vennPage', exampleButtonId: 'sample' },
+    { first: true }
+  );
+  await clickExampleButtonIfPresent(page, 'sample');
+  await page.locator('#vennPage:not([hidden]) #vennPlotType').selectOption('upset');
+  await page.waitForFunction(() => (
+    document.querySelectorAll('#vennPage:not([hidden]) #stage [data-upset-matrix-cell]').length > 0
+  ));
+
+  const handle = page.locator('#vennPage:not([hidden]) #vennGraphPanel .resizer-vertical').first();
+  await expect(handle).toBeVisible();
+  const handleBox = await handle.boundingBox();
+  expect(handleBox).toBeTruthy();
+  const stageWidth = await page.locator('#vennPage:not([hidden]) #stage').evaluate(node => node.clientWidth);
+  const shrinkBy = Math.max(60, Math.min(180, stageWidth - 300));
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  for(let step = 1; step <= 20; step += 1){
+    await page.mouse.move(
+      handleBox.x + handleBox.width / 2 - (shrinkBy * step / 20),
+      handleBox.y + handleBox.height / 2
+    );
+    await page.waitForTimeout(16);
+  }
+
+  const during = await page.evaluate(() => {
+    const stage = document.querySelector('#vennPage:not([hidden]) #stage');
+    const stageRect = stage.getBoundingClientRect();
+    const cells = Array.from(stage.querySelectorAll('[data-upset-matrix-cell]'));
+    const labels = Array.from(stage.querySelectorAll('[data-upset-set-label]'));
+    const matrixLeft = Math.min(...cells.map(node => node.getBoundingClientRect().left));
+    const labelRight = Math.max(...labels.map(node => node.getBoundingClientRect().right));
+    const visibleLabels = labels.filter(node => (
+      Array.from(node.childNodes).some(child => child.nodeType === Node.TEXT_NODE && child.nodeValue)
+    ));
+    const columnErrors = Array.from(stage.querySelectorAll('rect[data-upset-trace-kind="intersectionBars"]'))
+      .map(bar => {
+        const code = bar.getAttribute('data-upset-trace-id');
+        const cell = stage.querySelector(`[data-upset-matrix-cell="${CSS.escape(code)}"]`);
+        const barRect = bar.getBoundingClientRect();
+        const cellRect = cell.getBoundingClientRect();
+        return Math.abs(
+          (barRect.left + barRect.width / 2) - (cellRect.left + cellRect.width / 2)
+        );
+      });
+    const cellsInsideStage = cells.every(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.left >= stageRect.left - 1 && rect.right <= stageRect.right + 1;
+    });
+    return {
+      stageWidth: stage.clientWidth,
+      labelGap: matrixLeft - labelRight,
+      visibleLabelCount: visibleLabels.length,
+      maxColumnError: Math.max(...columnErrors),
+      cellsInsideStage
+    };
+  });
+  expect(during.stageWidth).toBeLessThan(stageWidth - 40);
+  expect(during.labelGap).toBeGreaterThanOrEqual(1);
+  expect(during.visibleLabelCount).toBeGreaterThan(0);
+  expect(during.maxColumnError).toBeLessThanOrEqual(1);
+  expect(during.cellsInsideStage).toBe(true);
+
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  const settledGap = await page.evaluate(() => {
+    const stage = document.querySelector('#vennPage:not([hidden]) #stage');
+    const cells = Array.from(stage.querySelectorAll('[data-upset-matrix-cell]'));
+    const labels = Array.from(stage.querySelectorAll('[data-upset-set-label]'));
+    return Math.min(...cells.map(node => node.getBoundingClientRect().left))
+      - Math.max(...labels.map(node => node.getBoundingClientRect().right));
+  });
+  expect(settledGap).toBeGreaterThanOrEqual(1);
 });
