@@ -69,7 +69,7 @@
       return false;
     }
     const proto = Object.getPrototypeOf(value);
-    return proto === Object.prototype || proto === null;
+    return proto === null || Object.prototype.toString.call(value) === '[object Object]';
   }
 
   function isLiveDrawObject(value){
@@ -3420,7 +3420,7 @@
     if(!componentKey || !snapshot || typeof snapshot !== 'object'){
       return null;
     }
-    const owner = namespace.createRuntimeOwner(componentOrKey || componentKey);
+    const owner = namespace.createRuntimeOwner(componentKey);
     const owned = owner.hydrate(snapshot, {
       ...(meta || {}),
       reason: meta.reason || 'remember-component-runtime'
@@ -3446,7 +3446,7 @@
     if(!componentKey){
       return null;
     }
-    const owner = namespace.createRuntimeOwner(componentOrKey || componentKey);
+    const owner = namespace.createRuntimeOwner(componentKey);
     return owner.get(meta);
   };
 
@@ -4078,8 +4078,10 @@
     catch(err){ warn('Debug: lifecycle snapshot ui capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     try{ layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState(captureMeta) : null; }
     catch(err){ warn('Debug: lifecycle snapshot layout capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
-    try{ renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null; }
-    catch(err){ warn('Debug: lifecycle snapshot render cache capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
+    if(meta.captureRenderCache !== false){
+      try{ renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null; }
+      catch(err){ warn('Debug: lifecycle snapshot render cache capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
+    }
     try{ stateModel = workspace.__stateModel?.snapshot?.(tab || captureMeta.tabId || null, captureMeta) || null; }
     catch(err){ warn('Debug: lifecycle snapshot state model capture failed', { componentKey, tabId: captureMeta.tabId, err: err?.message || String(err) }); }
     return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: captureMeta.reason, sync: true } };
@@ -4100,7 +4102,9 @@
     const runtime = typeof workspace.captureRuntimeState === 'function' ? workspace.captureRuntimeState(captureMeta) : null;
     const uiState = typeof workspace.captureUiState === 'function' ? workspace.captureUiState(captureMeta) : null;
     const layoutState = typeof workspace.getLayoutState === 'function' ? workspace.getLayoutState(captureMeta) : null;
-    const renderCache = typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null;
+    const renderCache = meta.captureRenderCache === false
+      ? null
+      : (typeof workspace.captureRenderCache === 'function' ? workspace.captureRenderCache(captureMeta) : null);
     const stateModel = workspace.__stateModel?.snapshot?.(tab || tabId, captureMeta) || null;
     return { ok: true, componentKey, payload, runtime, uiState, layoutState, renderCache, stateModel, diagnostics: { capturedAt: Date.now(), reason: captureMeta.reason } };
   };

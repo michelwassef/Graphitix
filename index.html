@@ -30,11 +30,11 @@
   <meta name="twitter:description" content="Create publication-ready scientific graphs, statistical reports, and reusable multi-tab workspaces directly in the browser." />
   <meta name="twitter:image" content="https://michelwassef.github.io/Graphitix/assets/graphitix-preview.png" />
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="preload" href="node_modules/ag-grid-community/styles/ag-grid.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
-  <link rel="preload" href="node_modules/ag-grid-community/styles/ag-theme-balham.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" href="libs/ag-grid-community/ag-grid.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <link rel="preload" href="libs/ag-grid-community/ag-theme-balham.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript>
-    <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-grid.css" />
-    <link rel="stylesheet" href="node_modules/ag-grid-community/styles/ag-theme-balham.css" />
+    <link rel="stylesheet" href="libs/ag-grid-community/ag-grid.css" />
+    <link rel="stylesheet" href="libs/ag-grid-community/ag-theme-balham.css" />
   </noscript>
   <script type="application/ld+json">
 {
@@ -58,9 +58,10 @@
   ]
 }
   </script>
-  <script defer src="node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
-  <script defer src="node_modules/jstat/dist/jstat.min.js"></script>
+  <script defer src="libs/ag-grid-community/ag-grid-community.min.noStyle.js"></script>
+  <script defer src="libs/jstat.min.js"></script>
   <script defer src="js/vendor.js"></script>
+  <script defer src="js/shared/debug.js"></script>
   <script defer src="js/shared/loaders.js"></script>
   <script defer src="js/shared/palette.js"></script>
   <script defer src="js/shared/theme/themeCatalog.js"></script>
@@ -92,10 +93,12 @@
   <script defer src="js/shared/plot3d.js"></script>
   <script defer src="js/shared/graphSizing.js"></script>
   <script defer src="js/shared/regression.js"></script>
+  <script defer src="js/shared/resampling.js"></script>
   <script defer src="js/shared/stats.js"></script>
   <script defer src="js/shared/boxStatsModel.js"></script>
   <script defer src="js/shared/stats-table.js"></script>
   <script defer src="js/shared/colorPicker.js"></script>
+  <script defer src="js/shared/tableImport.js"></script>
   <script defer src="js/shared/workspaceToolbarAccess.js"></script>
   <script defer src="js/shared/workspaceToolbar.js"></script>
   <script defer src="js/shared/styleUndo.js"></script>
@@ -113,7 +116,6 @@
   <script defer src="js/shared/formulaEngine.js"></script>
   <script defer src="js/shared/componentLayout.js"></script>
   <script defer src="js/shared/loadingOverlay.js"></script>
-  <script defer src="js/shared/tableImport.js"></script>
   <script defer src="js/shared/uniprot.js"></script>
   <script defer src="js/shared/goAnalysis.js"></script>
   <script defer src="js/shared/stringAnalysis.js"></script>
@@ -152,9 +154,9 @@
               </button>
               <div id="welcomeFileDropZone" class="welcome-drop-zone" role="button" tabindex="0" aria-label="Drop or choose a Graphitix, Prism, CSV, TSV, Excel, or ODS file">
                 <strong>Drop a file here</strong>
-                <span>.graph, .prism, .pzfx, .csv, .tsv, .xlsx, .ods</span>
+                <span data-file-formats-label="welcome">.graph, .prism, .pzfx, .csv, .tsv, .txt, .xls, .xlsx, .ods</span>
               </div>
-              <input type="file" id="welcomeGraphFileInput" accept=".graph,.json,.session,.prism,.pzfx,.csv,.tsv,.xlsx,.xls,.ods" class="idx-inline-001" />
+              <input type="file" id="welcomeGraphFileInput" data-file-formats="welcome" class="idx-inline-001" />
             </div>
             <div class="welcome-graph-finder welcome-picker" aria-labelledby="welcomeGraphFinderTitle">
               <div class="welcome-graph-finder__copy">
@@ -212,15 +214,18 @@
       <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
       <path class="welcome-icon__guide" d="M14.5 32L37.5 15" />
       <g class="welcome-icon__points">
-        <circle cx="16.8" cy="30.9" r="1.55" />
-        <circle cx="20.2" cy="28.0" r="1.55" />
-        <circle cx="23.8" cy="24.0" r="1.55" />
-        <circle cx="27.8" cy="20.4" r="1.55" />
-        <circle cx="32.4" cy="16.6" r="1.55" />
-        <circle cx="19.0" cy="31.8" r="1.55" />
-        <circle cx="24.8" cy="27.8" r="1.55" />
-        <circle cx="29.8" cy="24.6" r="1.55" />
-        <circle cx="34.8" cy="22.1" r="1.55" />
+        <circle cx="15.3" cy="31.6" r="1.55" />
+        <circle cx="17.5" cy="34.0" r="1.55" />
+        <circle cx="19.1" cy="27.8" r="1.55" />
+        <circle cx="21.9" cy="30.2" r="1.55" />
+        <circle cx="23.6" cy="21.4" r="1.55" />
+        <circle cx="25.2" cy="25.5" r="1.55" />
+        <circle cx="27.8" cy="26.8" r="1.55" />
+        <circle cx="29.0" cy="18.7" r="1.55" />
+        <circle cx="31.5" cy="21.0" r="1.55" />
+        <circle cx="33.1" cy="13.6" r="1.55" />
+        <circle cx="34.5" cy="18.2" r="1.55" />
+        <circle cx="37.1" cy="14.7" r="1.55" />
       </g>
     </svg></div>
                   <div class="graph-card__content">
@@ -281,18 +286,18 @@
                   <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
       <path class="welcome-icon__dendrogram" d="M10 23.5H13 M13 17V30 M13 17H18 M13 30H18 M18 14V20 M18 27V33 M18 14H23 M18 20H23 M18 27H23 M18 33H23" />
       <g class="welcome-icon__heatmap-grid">
-        <rect class="welcome-icon__heat-1" x="25" y="11.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-2" x="31" y="11.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-3" x="37" y="11.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-2" x="25" y="17.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-3" x="31" y="17.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-4" x="37" y="17.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-3" x="25" y="23.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-4" x="31" y="23.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-5" x="37" y="23.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-4" x="25" y="29.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-5" x="31" y="29.5" width="4.5" height="4.5" />
-        <rect class="welcome-icon__heat-6" x="37" y="29.5" width="4.5" height="4.5" />
+        <rect class="welcome-icon__heat-1" x="25" y="11.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-2" x="31" y="11.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-3" x="37" y="11.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-2" x="25" y="17.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-3" x="31" y="17.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-4" x="37" y="17.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-3" x="25" y="23.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-4" x="31" y="23.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-5" x="37" y="23.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-4" x="25" y="29.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-5" x="31" y="29.5" width="6" height="6" />
+        <rect class="welcome-icon__heat-6" x="37" y="29.5" width="6" height="6" />
       </g>
     </svg></div>
                   <div class="graph-card__content">
@@ -357,7 +362,7 @@
                   <div class="graph-card__icon" aria-hidden="true"><svg class="welcome-graph-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
       <path class="welcome-icon__axis" d="M10 38.5H40 M10 38.5V10" />
       <path class="welcome-icon__diagonal" d="M10 38.5L40 10" />
-      <path class="welcome-icon__primary" d="M10 38.5C12 31 16 23 23 18C29 13.5 35 12 40 11" />
+      <path class="welcome-icon__primary" d="M10 38.5C11 17 18 11 40 11" />
     </svg></div>
                   <div class="graph-card__content">
                     <span class="graph-card__hint">ROC &amp; precision-recall</span>
@@ -438,7 +443,7 @@
   <div id="vennPage" class="workspace-page" data-plot="venn" hidden>
     <div class="workspace-page__topbar" data-toolbar="venn">
       <div data-toolbar-root></div>
-      <input type="file" id="vennGraphFile" accept=".graph" class="idx-inline-001" />
+      <input type="file" id="vennGraphFile" data-file-formats="graph" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="vennInputPanel">
@@ -694,7 +699,7 @@
                 <span class="string-overlay-label">Data</span>
                 <button type="button" class="btn string-overlay-file-button" id="stringOverlayFileButton">Choose file</button>
                 <span id="stringOverlayFileName" class="string-overlay-file-name">No file selected</span>
-                <input type="file" id="stringOverlayFile" class="string-overlay-file-input" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods" />
+                <input type="file" id="stringOverlayFile" class="string-overlay-file-input" data-file-formats="table-basic" />
               </div>
               <div class="string-overlay-row">
                 <label>Threshold <input type="number" id="stringOverlayThreshold" value="0.75" step="0.01" /></label>
@@ -750,8 +755,8 @@
   <div id="boxPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="box">
       <div data-toolbar-root></div>
-      <input type="file" id="boxGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="boxGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="boxFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
@@ -935,8 +940,8 @@
   <div id="scatterPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="scatter">
       <div data-toolbar-root></div>
-      <input type="file" id="scatterGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="scatterGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="scatterFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
@@ -1233,8 +1238,8 @@
   <div id="pcaPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="pca">
       <div data-toolbar-root></div>
-      <input type="file" id="pcaGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="pcaGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="pcaFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
         <div class="panel" id="pcaTablePanel">
@@ -1409,8 +1414,8 @@
   <div id="surfacePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="surface">
       <div data-toolbar-root></div>
-      <input type="file" id="surfaceGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="surfaceGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="surfaceFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="surfaceTablePanel">
@@ -1504,8 +1509,8 @@
   <div id="linePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="line">
       <div data-toolbar-root></div>
-      <input type="file" id="lineGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="lineGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="lineFile" data-file-formats="table" class="idx-inline-001" />
     </div>
 
     <div class="wrap">
@@ -1696,8 +1701,8 @@
   <div id="heatmapPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="heatmap">
       <div data-toolbar-root></div>
-      <input type="file" id="heatmapGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="heatmapGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="heatmapFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="heatmapTablePanel">
@@ -1920,8 +1925,8 @@
   <div id="rocPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="roc">
       <div data-toolbar-root></div>
-      <input type="file" id="rocGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="rocGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="rocFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="rocTablePanel">
@@ -1992,8 +1997,8 @@
   <div id="survivalPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="survival">
       <div data-toolbar-root></div>
-      <input type="file" id="survivalGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="survivalGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="survivalFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="survivalTablePanel">
@@ -2071,8 +2076,8 @@
   <div id="histPage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="hist">
       <div data-toolbar-root></div>
-      <input type="file" id="histGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="histGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="histFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="histTablePanel">
@@ -2246,8 +2251,8 @@
   <div id="piePage" class="workspace-page" hidden>
     <div class="workspace-page__topbar" data-toolbar="pie">
       <div data-toolbar-root></div>
-      <input type="file" id="pieGraphFile" accept=".graph" class="idx-inline-001" />
-      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.prism,.pzfx" class="idx-inline-001" />
+      <input type="file" id="pieGraphFile" data-file-formats="graph" class="idx-inline-001" />
+      <input type="file" id="pieFile" data-file-formats="table" class="idx-inline-001" />
     </div>
     <div class="wrap">
       <div class="panel" id="pieTablePanel">
@@ -2325,7 +2330,7 @@
     <div id="workspaceTabsDock" class="workspace-tabs-dock" role="presentation">
       <div id="workspaceTabsList" class="workspace-tabs-list" role="tablist" aria-label="Workspace tabs"></div>
       <button id="addWorkspaceTab" type="button" class="workspace-tab workspace-add-tab" aria-label="Add workspace tab">+</button>
-      <input id="workspaceSessionInput" type="file" accept=".graph,.json,.session" class="idx-inline-001" />
+      <input id="workspaceSessionInput" type="file" data-file-formats="session" class="idx-inline-001" />
     </div>
     <div id="tabContextMenu" class="tab-context-menu" hidden role="menu" aria-label="Tab actions">
       <button id="tabContextDuplicateReuse" type="button" class="tab-context-menu__item">Duplicate (Reuse data)</button>

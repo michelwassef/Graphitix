@@ -418,6 +418,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     require('../js/shared/debounce.js');
     require('../js/shared/dataTransforms.js');
     require('../js/shared/dataViews.js');
+    require('../js/shared/workspaceTabs.js');
+    require('../js/shared/tabContext.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
     require('../js/shared/dom.js');
@@ -435,11 +437,13 @@ describe('Box layout reserves under horizontal shrink', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');
     require('../js/shared/goAnalysis.js');
     require('../js/shared/stringAnalysis.js');
+    require('../js/shared/boxStatsModel.js');
     require('../js/main/components.js');
     if(window.Main?.components?.preloadAllBundlesSync){
       window.Main.components.preloadAllBundlesSync();

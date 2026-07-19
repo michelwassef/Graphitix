@@ -132,7 +132,7 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
   });
 
-  test('recovery snapshot forwards lifecycle-checkpoint policy inputs', async () => {
+  test('recovery snapshot forwards canonical recovery policy inputs', async () => {
     const { sessionActions } = installDocumentState();
 
     await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
@@ -141,43 +141,85 @@ describe('documentState recovery snapshot throttling', () => {
       expect.any(Object),
       expect.objectContaining({
         policyMode: 'recovery',
-        snapshotKind: 'lifecycle-checkpoint',
+        snapshotKind: 'recovery',
         idleForMs: expect.any(Number)
       })
     );
   });
 
-  test('recovery flushes the active tab before inspecting recoverable data', async () => {
-    // Reproduces the single-tab-never-deactivated case: the active tab's live edits
-    // are not yet flushed into its persisted payload, so graphTabsHaveData() reports
-    // false until persistActiveTabIfNeeded captures it. Without the pre-gate flush the
-    // snapshot is skipped/cleared and recovery never fires.
-    let activeTabFlushed = false;
+  test('recovery restore blocks checkpoint creation until the shared restore transaction completes', async () => {
+    let resolveRestore;
+    const restoreBarrier = new Promise(resolve => {
+      resolveRestore = resolve;
+    });
+    const applyArchiveBlob = jest.fn(() => restoreBarrier);
+    const markSessionDirty = jest.fn();
+    const { sessionActions } = installDocumentState({
+      sessionActions: { applyArchiveBlob },
+      session: { markSessionDirty }
+    });
+    window.desktop.readRecoverySnapshot = jest.fn().mockResolvedValue({
+      exists: true,
+      dataBase64: Buffer.from('graphitix-recovery').toString('base64'),
+      meta: {
+        dirty: true,
+        hasData: true,
+        tabCount: 1,
+        fileName: 'recovered.graph',
+        fileScope: 'workspace'
+      }
+    });
+    window.confirm = jest.fn(() => true);
+
+    const restorePromise = window.Main.documentState.maybeRestoreRecovery();
+    await flushTimers();
+    expect(applyArchiveBlob).toHaveBeenCalledTimes(1);
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('during-restore')).resolves.toEqual({
+      status: 'skipped',
+      reason: 'restore-in-progress'
+    });
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+    expect(markSessionDirty).not.toHaveBeenCalled();
+
+    resolveRestore({ status: 'loaded' });
+    await expect(restorePromise).resolves.toBe(true);
+    expect(markSessionDirty).toHaveBeenCalledWith('recovery-restored', expect.objectContaining({
+      fileName: 'recovered.graph',
+      origin: 'user'
+    }));
+  });
+
+  test('recovery delegates live capture and recoverable-data evaluation to the shared checkpoint owner', async () => {
+    let checkpointBuilt = false;
     const { sessionActions, session } = installDocumentState({
       sessionActions: {
-        persistActiveTabIfNeeded: jest.fn(() => {
-          activeTabFlushed = true;
+        persistActiveTabIfNeeded: jest.fn(),
+        buildWorkspaceArchiveBlob: jest.fn(async () => {
+          checkpointBuilt = true;
+          return {
+            size: 3,
+            arrayBuffer: jest.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+          };
         })
       },
       session: {
-        graphTabsHaveData: jest.fn(() => activeTabFlushed),
-        tabHasTableData: jest.fn(() => activeTabFlushed)
+        graphTabsHaveData: jest.fn(() => checkpointBuilt),
+        tabHasTableData: jest.fn(() => checkpointBuilt)
       }
     });
 
     const result = await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
 
-    expect(sessionActions.persistActiveTabIfNeeded).toHaveBeenCalledWith(
+    expect(sessionActions.persistActiveTabIfNeeded).not.toHaveBeenCalled();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
-        snapshotIntent: expect.objectContaining({
-          captureLivePayload: true,
-          allowSkipLivePayloadCapture: false
-        })
+        snapshotKind: 'recovery',
+        policyMode: 'recovery'
       })
     );
     expect(session.graphTabsHaveData).toHaveBeenCalled();
-    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('saved');
     expect(window.desktop.clearRecoverySnapshot).not.toHaveBeenCalled();
   });

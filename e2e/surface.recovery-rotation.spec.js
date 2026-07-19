@@ -56,7 +56,7 @@ async function seedRecoverySnapshot(page) {
     const context = window.Main.tabs.getSessionActionsContext();
     const blob = await window.Main.sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'recovery-interval',
       idleForMs: 8_000,

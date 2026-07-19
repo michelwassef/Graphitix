@@ -1347,6 +1347,32 @@
     }
   }
 
+  function captureRenderCacheForStorage(config, tab, reason) {
+    let rawCaptured = null;
+    let captured = null;
+    try {
+      rawCaptured = config.captureRenderCache({
+        tabId: tab.id,
+        type: tab.type,
+        reason
+      });
+      captured = normalizeRenderCacheShapeForTab(rawCaptured, tab, { reason });
+      const cacheForStorage = captured
+        ? normalizeRenderCacheShapeForTab(
+            cloneRenderCacheForStorage(captured),
+            tab,
+            { reason: `${reason}:storage-clone` }
+          )
+        : null;
+      return { captured, cacheForStorage };
+    } finally {
+      const liveCapture = captured || rawCaptured;
+      if (liveCapture) {
+        restoreLiveDomAfterRenderCacheCapture(config, liveCapture, tab, reason);
+      }
+    }
+  }
+
   function normalizeRenderCacheShapeForTab(cache, tab, meta = {}){
     if(!cache || typeof cache !== 'object'){
       return cache || null;
@@ -1382,7 +1408,28 @@
     if (!tab.archiveRenderCache) {
       return null;
     }
-    const cache = normalizeRenderCacheShapeForTab(deserializeRenderCacheValue(tab.archiveRenderCache), tab, {
+    const payloadSignature = tab.archiveRenderCacheSignature || null;
+    const layoutSignature = tab.archiveRenderCacheLayoutSignature || null;
+    if (!payloadSignature || !layoutSignature) {
+      console.debug('Debug: archive render cache rejected without complete provenance signatures', {
+        tabId: tab.id || null,
+        type: tab.type || null,
+        reason: meta.reason || 'archive-render-cache-peeked'
+      });
+      return null;
+    }
+    const deserializedCache = deserializeRenderCacheValue(tab.archiveRenderCache);
+    const embeddedOwnerTabId = getRenderCacheOwnerTabId(deserializedCache);
+    if (!embeddedOwnerTabId || embeddedOwnerTabId !== String(tab.id || '')) {
+      console.debug('Debug: archive render cache rejected by owner provenance', {
+        tabId: tab.id || null,
+        type: tab.type || null,
+        embeddedOwnerTabId,
+        reason: meta.reason || 'archive-render-cache-peeked'
+      });
+      return null;
+    }
+    const cache = normalizeRenderCacheShapeForTab(deserializedCache, tab, {
       reason: meta.reason || 'archive-render-cache-peeked'
     });
     if (!cache) {
@@ -1393,19 +1440,6 @@
       });
       return null;
     }
-    if (cache && cache.__graphitixRenderCache && typeof cache.__graphitixRenderCache === 'object') {
-      const originalTabId = cache.__graphitixRenderCache.tabId;
-      cache.__graphitixRenderCache.tabId = tab.id;
-      if (originalTabId && originalTabId !== tab.id) {
-        console.debug('Debug: archive render cache metadata tabId rewritten on peek', {
-          originalTabId,
-          tabId: tab.id,
-          reason: meta.reason || 'archive-render-cache-peeked'
-        });
-      }
-    }
-    const payloadSignature = tab.archiveRenderCacheSignature || tab.payloadSignature || null;
-    const layoutSignature = tab.archiveRenderCacheLayoutSignature || tab.layoutSignature || null;
     const payloadVersion = Number(tab.payloadVersion || 0);
     const layoutVersion = Number(tab.layoutVersion || 0);
     const renderCommitVersion = Number(tab.renderCommitVersion || 0);
@@ -2488,17 +2522,7 @@
     const captureRenderCacheOnly = () => {
       if (options.captureRenderCache && typeof config.captureRenderCache === 'function') {
         try {
-          const captured = normalizeRenderCacheShapeForTab(config.captureRenderCache({
-            tabId: tab.id,
-            type: tab.type,
-            reason
-          }), tab, { reason });
-          const cacheForStorage = captured
-            ? normalizeRenderCacheShapeForTab(cloneRenderCacheForStorage(captured), tab, { reason: `${reason}:storage-clone` })
-            : null;
-          if (captured) {
-            restoreLiveDomAfterRenderCacheCapture(config, captured, tab, reason);
-          }
+          const { cacheForStorage } = captureRenderCacheForStorage(config, tab, reason);
           if (cacheForStorage) {
             const capturedAt = Date.now();
             tab.renderCommitVersion = Math.max(
@@ -2837,17 +2861,8 @@
       if ((options.captureRenderCache || (forceCaptureRenderCacheAfterPayloadChange && changed))
         && typeof config.captureRenderCache === 'function') {
         try {
-          const captured = normalizeRenderCacheShapeForTab(config.captureRenderCache({
-            tabId: tab.id,
-            type: tab.type,
-            reason: options.reason || 'persist-active'
-          }), tab, { reason: options.reason || 'persist-active' });
-          const cacheForStorage = captured
-            ? normalizeRenderCacheShapeForTab(cloneRenderCacheForStorage(captured), tab, { reason: `${options.reason || 'persist-active'}:storage-clone` })
-            : null;
-          if (captured) {
-            restoreLiveDomAfterRenderCacheCapture(config, captured, tab, options.reason || 'persist-active');
-          }
+          const captureReason = options.reason || 'persist-active';
+          const { captured, cacheForStorage } = captureRenderCacheForStorage(config, tab, captureReason);
           if (cacheForStorage) {
             const capturedAt = Date.now();
             tab.renderCommitVersion = Math.max(
@@ -3179,7 +3194,50 @@
     return { payload: payloadClone, layout: layoutClone };
   }
 
-  function applySessionData(session, options = {}) {
+  function getRenderCacheOwnerTabId(cache) {
+    if (!cache || typeof cache !== 'object') {
+      return null;
+    }
+    const ownerTabId = cache.__graphitixRenderCache?.tabId || cache.tabId || null;
+    const normalized = String(ownerTabId || '').trim();
+    return normalized || null;
+  }
+
+  function resolveRehomedArchiveCacheSignatures(tabData, clonedPayload, clonedLayout, targetTabId) {
+    const archiveCache = tabData?.archiveRenderCache;
+    if (!archiveCache || typeof archiveCache !== 'object') {
+      return { payloadSignature: null, layoutSignature: null };
+    }
+    const storedPayloadSignature = tabData.archiveRenderCacheSignature || null;
+    const storedLayoutSignature = tabData.archiveRenderCacheLayoutSignature || null;
+    const sourcePayloadSignature = serializePayloadSignature(tabData.payload || null);
+    const sourceLayoutSignature = serializePayloadSignature(tabData.layout || null);
+    const sourceRuntimeTabId = String(tabData.archiveRuntimeTabId || tabData.runtimeTabId || '').trim() || null;
+    const embeddedOwnerTabId = getRenderCacheOwnerTabId(archiveCache);
+    const ownerProvenanceValid = !!sourceRuntimeTabId
+      && !!embeddedOwnerTabId
+      && embeddedOwnerTabId === sourceRuntimeTabId;
+    const payloadProvenanceValid = !!storedPayloadSignature && storedPayloadSignature === sourcePayloadSignature;
+    const layoutProvenanceValid = !!storedLayoutSignature && storedLayoutSignature === sourceLayoutSignature;
+    if (!ownerProvenanceValid || !payloadProvenanceValid || !layoutProvenanceValid) {
+      console.debug('Debug: session rejected archive render cache provenance', {
+        targetTabId,
+        type: tabData?.type || null,
+        sourceRuntimeTabId,
+        embeddedOwnerTabId,
+        ownerProvenanceValid,
+        payloadProvenanceValid,
+        layoutProvenanceValid
+      });
+      return { payloadSignature: null, layoutSignature: null };
+    }
+    return {
+      payloadSignature: serializePayloadSignature(clonedPayload || null),
+      layoutSignature: serializePayloadSignature(clonedLayout || null)
+    };
+  }
+
+  async function applySessionData(session, options = {}) {
     const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
     if (window.Shared?.undoManager?.clear) {
       window.Shared.undoManager.clear({ reason: options.reason || 'session-load' });
@@ -3264,6 +3322,12 @@
         ...assertNoStaleRuntimeWorkspaceIds('archiveRenderCache', predictedRuntimeTabId, clonedArchiveRenderCache),
         ...assertNoStaleRuntimeWorkspaceIds('uiState', predictedRuntimeTabId, clonedUiState)
       ];
+      const rehomedArchiveCacheSignatures = resolveRehomedArchiveCacheSignatures(
+        tabData,
+        clonedPayload,
+        clonedLayout,
+        predictedRuntimeTabId
+      );
       if (staleRuntimeIds.length) {
         console.warn('Debug: session archive tab contains stale runtime ids after rehome', {
           title: tabData.title || `Workspace ${index + 1}`,
@@ -3281,8 +3345,8 @@
         previewSignature: tabData.previewSignature || null,
         previewMeta: clonedPreviewMeta,
         archiveRenderCache: clonedArchiveRenderCache,
-        archiveRenderCacheSignature: tabData.archiveRenderCacheSignature || null,
-        archiveRenderCacheLayoutSignature: oldRuntimeIds.length ? null : (tabData.archiveRenderCacheLayoutSignature || null),
+        archiveRenderCacheSignature: rehomedArchiveCacheSignatures.payloadSignature,
+        archiveRenderCacheLayoutSignature: rehomedArchiveCacheSignatures.layoutSignature,
         loadedFromArchive: true,
         userModified: false,
         payloadDirty: false,
@@ -3307,7 +3371,11 @@
       ? graphTabs[requestedIndex]
       : (graphTabs[0] || null);
     if (targetTab && typeof options.activateTab === 'function') {
-      options.activateTab(targetTab.id, { skipPersist: true, reason: options.reason || 'session-load' });
+      await Promise.resolve(options.activateTab(targetTab.id, {
+        skipPersist: true,
+        awaitReadyForRestore: true,
+        reason: options.reason || 'session-load'
+      }));
     } else if (!targetTab && typeof options.showGraphSelection === 'function') {
       if (window.Shared?.undoManager?.refreshState) {
         window.Shared.undoManager.refreshState(welcomeTab.id, options.reason || 'session-empty');

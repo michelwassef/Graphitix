@@ -22,6 +22,103 @@ async function waitForHeatmapDrawAdvance(page, previousTimestamp, timeout = 60_0
 }
 
 test.describe('Heatmap title clearance', () => {
+  test('preserves title-hidden geometry and label clearance across tab return', async ({ page }) => {
+    test.setTimeout(120_000);
+    await installLocalCdnOverrides(page);
+    await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+
+    await openComponentFromWelcome(
+      page,
+      { type: 'heatmap', pageId: 'heatmapPage', exampleButtonId: 'heatmapLoadExample' },
+      { first: true }
+    );
+    await clickExampleButtonIfPresent(page, 'heatmapLoadExample');
+    await page.waitForFunction(() => (
+      document.querySelectorAll('#heatmapSvg text[data-font-role="columnLabel"]').length > 0
+      && window.Components?.heatmap?.__testHooks?.getPerformance?.()?.performance?.draw?.status === 'complete'
+    ));
+
+    const captureGeometry = () => page.evaluate(() => {
+      const svg = document.getElementById('heatmapSvg');
+      const title = svg?.querySelector('text[data-font-role="graphTitle"]');
+      const columns = Array.from(svg?.querySelectorAll('text[data-font-role="columnLabel"]') || []);
+      const cells = svg?.querySelector('[data-export-layer="heatmap-cells"]');
+      const rowLabel = svg?.querySelector('text[data-font-role="rowLabel"]');
+      const cellValue = svg?.querySelector('text[data-font-role="cellValue"]');
+      if(!svg || !title || !columns.length || !cells || !rowLabel || !cellValue){
+        return null;
+      }
+      const svgRect = svg.getBoundingClientRect();
+      const cellsRect = cells.getBoundingClientRect();
+      const rowLabelRect = rowLabel.getBoundingClientRect();
+      const columnLabelRect = columns[0].getBoundingClientRect();
+      const cellValueRect = cellValue.getBoundingClientRect();
+      return {
+        viewBox: svg.getAttribute('viewBox'),
+        titleVisibility: getComputedStyle(title).visibility,
+        svgTop: svgRect.top,
+        cellsTop: cellsRect.top,
+        cellsWidth: cellsRect.width,
+        cellsHeight: cellsRect.height,
+        rowLabelHeight: rowLabelRect.height,
+        columnLabelWidth: columnLabelRect.width,
+        cellValueHeight: cellValueRect.height,
+        minColumnTop: Math.min(...columns.map(node => node.getBoundingClientRect().top))
+      };
+    });
+
+    const visible = await captureGeometry();
+    expect(visible).toBeTruthy();
+    const previousTimestamp = await page.evaluate(() => (
+      window.Components?.heatmap?.__testHooks?.getPerformance?.()?.performance?.draw?.timestamp || 0
+    ));
+
+    await page.evaluate(() => {
+      window.Shared.fontControls.setRoleVisibility('heatmap', 'graphTitle', false);
+    });
+    await waitForHeatmapDrawAdvance(page, previousTimestamp);
+
+    const hidden = await captureGeometry();
+    expect(hidden).toBeTruthy();
+    expect(hidden.titleVisibility).toBe('hidden');
+    expect(hidden.minColumnTop).toBeGreaterThanOrEqual(hidden.svgTop - 1);
+    expect(hidden.viewBox).toBe(visible.viewBox);
+    expect(hidden.cellsTop).toBeCloseTo(visible.cellsTop, 1);
+    expect(hidden.cellsWidth).toBeCloseTo(visible.cellsWidth, 1);
+    expect(hidden.cellsHeight).toBeCloseTo(visible.cellsHeight, 1);
+    expect(hidden.rowLabelHeight).toBeCloseTo(visible.rowLabelHeight, 1);
+    expect(hidden.columnLabelWidth).toBeCloseTo(visible.columnLabelWidth, 1);
+    expect(hidden.cellValueHeight).toBeCloseTo(visible.cellValueHeight, 1);
+
+    const heatmapTabId = await page.evaluate(() => (
+      window.Main?.session?.workspaceState?.activeTabId || null
+    ));
+    expect(heatmapTabId).toBeTruthy();
+    await page.locator('#workspaceTabsList .workspace-tab').filter({ hasText: 'Welcome' }).click();
+    await expect(page.locator('#welcomeScreen')).toBeVisible();
+    await page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${heatmapTabId}"]`).click();
+    await expect(page.locator('#heatmapPage')).toBeVisible();
+    await page.evaluate(async tabId => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.Components?.heatmap?.awaitReadyForSnapshot?.({
+        tabId,
+        reason: 'heatmap-title-hidden-tab-return-test'
+      });
+    }, heatmapTabId);
+
+    const restored = await captureGeometry();
+    expect(restored).toBeTruthy();
+    expect(restored.titleVisibility).toBe('hidden');
+    expect(restored.minColumnTop).toBeGreaterThanOrEqual(restored.svgTop - 1);
+    expect(restored.viewBox).toBe(hidden.viewBox);
+    expect(restored.cellsTop).toBeCloseTo(hidden.cellsTop, 1);
+    expect(restored.cellsWidth).toBeCloseTo(hidden.cellsWidth, 1);
+    expect(restored.cellsHeight).toBeCloseTo(hidden.cellsHeight, 1);
+    expect(restored.rowLabelHeight).toBeCloseTo(hidden.rowLabelHeight, 1);
+    expect(restored.columnLabelWidth).toBeCloseTo(hidden.columnLabelWidth, 1);
+    expect(restored.cellValueHeight).toBeCloseTo(hidden.cellValueHeight, 1);
+  });
+
   test('keeps a visible gap between graph title and column labels after font/style changes', async ({ page }) => {
     test.setTimeout(120_000);
     await installLocalCdnOverrides(page);
@@ -160,4 +257,3 @@ test.describe('Heatmap title clearance', () => {
     expect(metrics.gapPx, JSON.stringify(metrics)).toBeGreaterThanOrEqual(4);
   });
 });
-

@@ -3,22 +3,10 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const Workers = Shared.Workers = Shared.Workers || {};
-  const debugState = Shared.__debugState || { enabled: false };
-  Shared.__debugState = debugState;
-
-  if(typeof Shared.isDebugEnabled !== 'function'){
-    Shared.isDebugEnabled = function isDebugEnabled(){
-      return !!debugState.enabled;
-    };
-  }
 
   function logDebug(message, payload){
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      if(typeof payload === 'undefined'){
-        console.debug(message);
-      }else{
-        console.debug(message, payload);
-      }
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
     }
   }
 

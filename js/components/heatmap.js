@@ -350,6 +350,10 @@
         scheduleHeatmapResizeRefresh(nextReason);
         return;
       }
+      if(isHeatmapWorkspaceHidden()){
+        debugLog('Debug: heatmap resize refresh skipped while hidden', { reason: nextReason });
+        return;
+      }
       // A render-cache restore (notably an archive/recovery restore while this tab was in
       // the background) can rehydrate the SVG markup without the component's private
       // render state, leaving textAspectMetrics/lastRenderModel absent. The readable-label
@@ -357,7 +361,7 @@
       // aspect correction now would fall back to defaults and corrupt the text (shrunken
       // labels, oversized overlapping cell values). Recompute the model+metrics from the
       // restored data with a full draw at this settled, visible size instead.
-      if(!state.textAspectMetrics && state.hot && state.svg && !isHeatmapWorkspaceHidden()){
+      if(!state.textAspectMetrics && state.hot && state.svg){
         // Drive the draw directly (not via the suppressed post-restore scheduler) so the
         // model+metrics are recomputed now, at this settled visible size.
         debugLog('Debug: heatmap resize refresh recomputing render state (missing metrics)', { reason: nextReason });
@@ -391,6 +395,10 @@
     const target = state.svgBox || state.svg?.closest?.('.svgbox') || null;
     if(!target){ return; }
     heatmapTextResizeObserver = new global.ResizeObserver(() => {
+      const observeMutedUntil = Number(target.dataset?.heatmapResizeObserveMutedUntil) || 0;
+      if(target.dataset?.heatmapResizeActive === 'true' || Date.now() <= observeMutedUntil){
+        return;
+      }
       scheduleHeatmapResizeRefresh('resize-observer');
     });
     heatmapTextResizeObserver.observe(target);
@@ -3291,16 +3299,7 @@
     return true;
   }
 
-  function isHeatmapSerializableDomLike(value){
-    return !!value && typeof value === 'object' && (
-      value.nodeType === 1
-      || value.nodeType === 9
-      || value === global
-      || value === global.document
-      || value === global.window
-      || (typeof value.addEventListener === 'function' && typeof value.dispatchEvent === 'function')
-    );
-  }
+
 
 
   function normalizeDrawOptions(options){
@@ -4220,7 +4219,7 @@
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
           if(isCorrelation){
-            const wasChecked = !!aspectCheckbox.checked;
+
             aspectCheckbox.disabled = true;
             aspectCheckbox.checked = true;
             if(svgBox && svgBox.dataset){
@@ -4235,7 +4234,7 @@
           }else{
             aspectCheckbox.disabled = false;
             if(enteringDataValues){
-              const wasChecked = !!aspectCheckbox.checked;
+
               aspectCheckbox.checked = false;
               if(svgBox && svgBox.dataset){
                 svgBox.dataset.resizerAspectLocked = 'false';
@@ -7938,7 +7937,7 @@
     const defaultTitleX = totalWidth / 2;
     const defaultTitleY = matrixTop - titleGap;
     const titlePos = state.labelPositions?.title;
-    
+
     // Convert relative positions to absolute if needed
     let absoluteTitleX = defaultTitleX;
     let absoluteTitleY = defaultTitleY;
@@ -7953,7 +7952,7 @@
         absoluteTitleY = titlePos.y;
       }
     }
-    
+
     title.setAttribute('x', String(absoluteTitleX));
     title.setAttribute('y', String(absoluteTitleY));
     title.setAttribute('text-anchor', 'middle');
@@ -7984,11 +7983,11 @@
           // Store both absolute and relative positions
           const relX = pos.x / totalWidth;
           const relY = pos.y / matrixTop;
-          patchHeatmapLabelPosition(ownerSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), 'title', { 
-            x: pos.x, 
+          patchHeatmapLabelPosition(ownerSession || getHeatmapProjectionSession({ reason: 'heatmap-projection-mutation' }), 'title', {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           }, { reason: 'heatmap-title-position' });
           debugLog('Debug: heatmap title position saved', { absolute: pos, relative: { relX, relY } });
         }
@@ -7997,8 +7996,8 @@
     state.svg.appendChild(title);
 
     const defs = doc.createElementNS(NS, 'defs');
-    
-    
+
+
     state.svg.appendChild(defs);
     const gradientId = `heatmap-scale-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
     const gradient = doc.createElementNS(NS, 'linearGradient');
@@ -8528,6 +8527,7 @@
             Math.round(outerPadding * 0.35)
           );
           const nextTitleY = Math.max(minTitleY, currentTitleY - overlapViewUnits - safety);
+          const shiftedTitle = currentTitleY - nextTitleY;
           if(nextTitleY < currentTitleY){
             title.setAttribute('y', String(nextTitleY));
             debugLog('Debug: heatmap title clearance adjusted', {
@@ -8537,6 +8537,11 @@
               nextTitleY,
               minTitleY
             });
+          }
+          const remainingOverlap = Math.max(0, overlapViewUnits + safety - shiftedTitle);
+          if(remainingOverlap > 0.01){
+            nextExtraRow += remainingOverlap;
+            needsReflow = true;
           }
         }else{
           nextExtraRow += overlapViewUnits + safety;
@@ -9949,17 +9954,11 @@
     debugLog('Debug: heatmap.init start', { tabId: getHeatmapProjectionTabId() || null });
     state.svg = $('heatmapSvg');
     if(state.svg){
-      if(typeof chartStyle.applySvgDefaults === 'function'){
-        chartStyle.applySvgDefaults(state.svg);
+      if(typeof chartStyle.prepareSvg === 'function'){
+        chartStyle.prepareSvg(state.svg, { scopeId: 'heatmap' });
       }
       if(state.svg.dataset){
         state.svg.dataset.fontScope = 'heatmap';
-      }
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(state.svg, { scopeId: 'heatmap' });
-        debugLog('Debug: heatmap fontControls enableForSvg invoked', { hasFontControls: !!fontControls }); // Debug: font toolbar binding
-      } else {
-        debugLog('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
       }
       if(!state.svg.__heatmapPaletteFormatBound){
         state.svg.addEventListener('click', handleHeatmapSvgFormatClick, false);
@@ -9968,6 +9967,7 @@
       ensureHeatmapFontObserver();
       ensureHeatmapFontEventListener();
     }
+    const heatmapResizeTarget = state.svg?.closest('.svgbox') || null;
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
       tabId: targetTabId || undefined,
@@ -9979,11 +9979,12 @@
         panelResizer: '#heatmapPanelResizer',
         hotWrapper: '#heatmapHotWrapper',
         hotContainer: '#heatmapHot',
-        svgBox: () => state.svg?.closest('.svgbox'),
-        resizeTarget: () => state.svg?.closest('.svgbox')
+        svgBox: () => heatmapResizeTarget,
+        resizeTarget: () => heatmapResizeTarget
       },
       preserveGraphContent: false,
       skipScheduleOnObserver: true,
+      skipScheduleOnResizePhases: () => true,
       panelSyncOptions: {
         disableAutoWidthClamp: true,
         lockGraphPanelWidth: false
@@ -9993,9 +9994,38 @@
         debugLog('Debug: heatmap layout minSvgWidth updated', { value });
       },
       resizableBoxOptions: {
-        onResize: () => {
-          debugLog('Debug: heatmap layout onResize schedule trigger');
-          scheduleHeatmapResizeRefresh('resize');
+        onResize: phase => {
+          const resizePhase = typeof phase === 'string' ? phase : '';
+          debugLog('Debug: heatmap layout onResize', { phase: resizePhase || null });
+          if(resizePhase === 'start' || resizePhase === 'move'){
+            if(heatmapResizeTarget?.dataset){
+              heatmapResizeTarget.dataset.heatmapResizeActive = 'true';
+            }
+            if(resizePhase === 'move'){
+              scheduleActiveHeatmapDraw({
+                viewOnly: true,
+                reason: 'resize-move',
+                resizePhase
+              });
+            }
+            return;
+          }
+          if(heatmapResizeTarget?.dataset){
+            delete heatmapResizeTarget.dataset.heatmapResizeActive;
+            heatmapResizeTarget.dataset.heatmapResizeObserveMutedUntil = String(Date.now() + 180);
+          }
+          if(resizePhase === 'zoom'){
+            return;
+          }
+          if(state.textAspectMetrics){
+            scheduleActiveHeatmapDraw({
+              viewOnly: true,
+              reason: `resize-${resizePhase || 'complete'}`,
+              resizePhase: resizePhase || null
+            });
+          }else{
+            scheduleHeatmapResizeRefresh(`resize-${resizePhase || 'complete'}`);
+          }
         }
       }
     });

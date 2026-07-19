@@ -66,7 +66,6 @@
 
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
-  const Main = global.Main = global.Main || {};
   const notesHelper = Shared.notes = Shared.notes || {};
   if(typeof notesHelper.mountFoldable !== 'function' && typeof require === 'function'){
     try{
@@ -544,6 +543,60 @@
   const ROC_AUTO_DRAW_COL_THRESHOLD = 5000;
   const ROC_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const ROC_DATA_VIEW_MAX = 15;
+  const ROC_RESAMPLING_DEFAULT_SEED = 1337;
+  const ROC_RESAMPLING_DEFAULT_ITERATIONS = 200;
+
+  function normalizeRocResamplingSeed(value, fallback = ROC_RESAMPLING_DEFAULT_SEED){
+    if(typeof Shared.resampling?.normalizeSeed === 'function'){
+      return Shared.resampling.normalizeSeed(value, fallback);
+    }
+    const numeric = Number(value);
+    return (Math.trunc(Number.isFinite(numeric) ? numeric : fallback) >>> 0) || ROC_RESAMPLING_DEFAULT_SEED;
+  }
+
+  function normalizeRocResamplingIterations(value, fallback = ROC_RESAMPLING_DEFAULT_ITERATIONS){
+    if(typeof Shared.resampling?.normalizeIterations === 'function'){
+      return Shared.resampling.normalizeIterations(value, fallback, { min: 1, max: 1000000 });
+    }
+    const numeric = Number(value);
+    const normalized = Math.trunc(Number.isFinite(numeric) ? numeric : fallback);
+    return Math.max(1, Math.min(1000000, normalized));
+  }
+
+  function createFallbackRocRandom(seed, scopeParts){
+    const text = JSON.stringify([normalizeRocResamplingSeed(seed), ...(scopeParts || [])]);
+    let state = 2166136261;
+    for(let index = 0; index < text.length; index += 1){
+      state ^= text.charCodeAt(index);
+      state = Math.imul(state, 16777619);
+    }
+    state = state >>> 0 || ROC_RESAMPLING_DEFAULT_SEED;
+    return function nextRandom(){
+      state = (state + 0x6D2B79F5) >>> 0;
+      let value = state;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function createRocScopedRandom(seed, ...scopeParts){
+    if(typeof Shared.resampling?.createScopedRandom === 'function'){
+      return Shared.resampling.createScopedRandom(seed, ...scopeParts);
+    }
+    return createFallbackRocRandom(seed, scopeParts);
+  }
+
+  function normalizeRocResamplingOptions(options, scopeParts = []){
+    const source = typeof options === 'number' ? { iterations: options } : (options || {});
+    const seed = normalizeRocResamplingSeed(source.seed, ROC_RESAMPLING_DEFAULT_SEED);
+    const iterations = normalizeRocResamplingIterations(source.iterations, ROC_RESAMPLING_DEFAULT_ITERATIONS);
+    return {
+      seed,
+      iterations,
+      random: typeof source.random === 'function' ? source.random : createRocScopedRandom(seed, ...scopeParts)
+    };
+  }
 
   function createDefaultAxisSettings(){
     return {
@@ -566,6 +619,8 @@
     labelOpacity: {},
     labelLinePattern: {},
     diffMethod: 'delong',
+    resamplingSeed: ROC_RESAMPLING_DEFAULT_SEED,
+    resamplingIterations: ROC_RESAMPLING_DEFAULT_ITERATIONS,
     compareSel: null,
     compareLabel: null,
     compareResult: null,
@@ -647,6 +702,8 @@
       labelOpacity: cloneSimple(src.labelOpacity) || {},
       labelLinePattern: cloneSimple(src.labelLinePattern) || {},
       diffMethod: typeof src.diffMethod === 'string' && src.diffMethod.trim() ? src.diffMethod : 'delong',
+      resamplingSeed: normalizeRocResamplingSeed(src.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
+      resamplingIterations: normalizeRocResamplingIterations(src.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
       compareSelection: Object.prototype.hasOwnProperty.call(src, 'compareSelection') ? (src.compareSelection || null) : null,
       minSvgWidth: Number.isFinite(Number(src.minSvgWidth)) ? Number(src.minSvgWidth) : 0,
       fileName: typeof src.fileName === 'string' && src.fileName.trim() ? src.fileName : 'roc.graph',
@@ -697,6 +754,8 @@
     return {
       graphType: String(src.graphType || '').toLowerCase() === 'pr' ? 'pr' : 'roc',
       diffMethod: typeof src.diffMethod === 'string' && src.diffMethod.trim() ? src.diffMethod : 'delong',
+      resamplingSeed: normalizeRocResamplingSeed(src.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
+      resamplingIterations: normalizeRocResamplingIterations(src.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
       compareSelection: src.compareSelection == null ? null : String(src.compareSelection),
       signature: src.signature == null ? '' : String(src.signature),
       displayText: src.displayText == null ? '' : String(src.displayText),
@@ -708,7 +767,7 @@
     };
   }
 
-  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB } = {}){
+  function buildRocCompareResultSignature({ graphType, diffMethod, compareSelection, pairsA, pairsB, resamplingSeed, resamplingIterations } = {}){
     const normalizePairs = pairs => (Array.isArray(pairs) ? pairs : []).map(pair => [
       Number(pair?.label) > 0 ? 1 : 0,
       Number.isFinite(Number(pair?.score)) ? Number(pair.score) : null
@@ -717,6 +776,8 @@
       graphType: String(graphType || 'roc').toLowerCase() === 'pr' ? 'pr' : 'roc',
       diffMethod: String(diffMethod || 'delong'),
       compareSelection: compareSelection == null ? null : String(compareSelection),
+      resamplingSeed: normalizeRocResamplingSeed(resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
+      resamplingIterations: normalizeRocResamplingIterations(resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
       pairsA: normalizePairs(pairsA),
       pairsB: normalizePairs(pairsB)
     });
@@ -1237,6 +1298,8 @@
       labelOpacity: state.labelOpacity,
       labelLinePattern: state.labelLinePattern,
       diffMethod: state.diffMethod,
+      resamplingSeed: state.resamplingSeed,
+      resamplingIterations: state.resamplingIterations,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
       minSvgWidth: state.minSvgWidth,
       fileName: state.fileName,
@@ -1276,6 +1339,8 @@
     state.labelOpacity = cloneSimple(shaped.state.labelOpacity) || {};
     state.labelLinePattern = cloneSimple(shaped.state.labelLinePattern) || {};
     state.diffMethod = shaped.state.diffMethod || 'delong';
+    state.resamplingSeed = normalizeRocResamplingSeed(shaped.state.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED);
+    state.resamplingIterations = normalizeRocResamplingIterations(shaped.state.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS);
     state.compareSelection = shaped.results.compareSelection || shaped.state.compareSelection || null;
     state.minSvgWidth = Number.isFinite(Number(shaped.state.minSvgWidth)) ? Number(shaped.state.minSvgWidth) : 0;
     state.fileName = shaped.state.fileName || state.fileName || 'roc.graph';
@@ -2174,9 +2239,7 @@
     }
   };
 
-  function $(selector){
-    return queryRocRoot(selector);
-  }
+
 
   function ensureElements(){
     refs.root = state.root || resolveRocRoot(getRocProjectionTabId() || null) || refs.root || null;
@@ -3228,62 +3291,65 @@
     return rows;
   }
 
-  function bootstrapCurveTest(pairs, baseline, graphType, iters = 200){
+  function bootstrapCurveTest(pairs, baseline, graphType, options = {}){
+    const config = normalizeRocResamplingOptions(options, ['roc-curve-test', graphType, baseline, pairs]);
     let count = 0;
     const n = pairs.length;
-    for(let b = 0; b < iters; b += 1){
-      const sample = Array.from({length: n}, () => pairs[Math.floor(Math.random() * n)]);
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
+      const sample = Array.from({ length: n }, () => pairs[Math.min(n - 1, Math.floor(config.random() * n))]);
       const metric = computeCurveMetric(sample, graphType);
       if(metric <= baseline){
         count += 1;
       }
     }
-    const p = (count + 1) / (iters + 1);
+    const p = (count + 1) / (config.iterations + 1);
     if(global.DEBUG_ROC){
-      console.debug('Debug: ROC bootstrap test', {baseline, graphType, iters, p});
+      console.debug('Debug: ROC bootstrap test', { baseline, graphType, iterations: config.iterations, seed: config.seed, p });
     }
     return p;
   }
 
-  function bootstrapCurveDiff(pairs1, pairs2, graphType, iters = 200){
-    const n = pairs1.length;
+  function bootstrapCurveDiff(pairs1, pairs2, graphType, options = {}){
+    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, pairs1, pairs2]);
+    const n = Math.min(pairs1.length, pairs2.length);
     const diffs = [];
     const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
-    for(let b = 0; b < iters; b += 1){
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
       const sample1 = [];
       const sample2 = [];
-      for(let i = 0; i < n; i += 1){
-        const idx = Math.floor(Math.random() * n);
-        sample1.push(pairs1[idx]);
-        sample2.push(pairs2[idx]);
+      for(let index = 0; index < n; index += 1){
+        const sampleIndex = Math.min(n - 1, Math.floor(config.random() * n));
+        sample1.push(pairs1[sampleIndex]);
+        sample2.push(pairs2[sampleIndex]);
       }
       diffs.push(computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType));
     }
     const count = diffs.filter(diff => Math.abs(diff) >= Math.abs(baseDiff)).length;
     diffs.sort((a, b) => a - b);
-    const lower = diffs[Math.floor(0.025 * iters)] ?? diffs[0];
-    const upper = diffs[Math.floor(0.975 * iters)] ?? diffs[diffs.length - 1];
-    const p = (count + 1) / (iters + 1);
+    const lower = diffs[Math.floor(0.025 * config.iterations)] ?? diffs[0];
+    const upper = diffs[Math.floor(0.975 * config.iterations)] ?? diffs[diffs.length - 1];
+    const p = (count + 1) / (config.iterations + 1);
     if(global.DEBUG_ROC){
-      console.debug('Debug: ROC bootstrap diff', {graphType, iters, p, ci: [lower, upper]});
+      console.debug('Debug: ROC bootstrap diff', { graphType, iterations: config.iterations, seed: config.seed, p, ci: [lower, upper] });
     }
-    return {p, ci: [lower, upper], diff: baseDiff};
+    return { p, ci: [lower, upper], diff: baseDiff, seed: config.seed, iterations: config.iterations };
   }
 
-  function permutationCurveDiff(pairs1, pairs2, graphType, iters = 200){
-    const n = pairs1.length;
+  function permutationCurveDiff(pairs1, pairs2, graphType, options = {}){
+    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, pairs1, pairs2]);
+    const n = Math.min(pairs1.length, pairs2.length);
     const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
     let count = 0;
-    for(let b = 0; b < iters; b += 1){
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
       const sample1 = [];
       const sample2 = [];
-      for(let i = 0; i < n; i += 1){
-        if(Math.random() < 0.5){
-          sample1.push(pairs1[i]);
-          sample2.push(pairs2[i]);
+      for(let index = 0; index < n; index += 1){
+        if(config.random() < 0.5){
+          sample1.push(pairs1[index]);
+          sample2.push(pairs2[index]);
         }else{
-          sample1.push({label: pairs1[i].label, score: pairs2[i].score});
-          sample2.push({label: pairs2[i].label, score: pairs1[i].score});
+          sample1.push({ label: pairs1[index].label, score: pairs2[index].score });
+          sample2.push({ label: pairs2[index].label, score: pairs1[index].score });
         }
       }
       const diff = computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType);
@@ -3291,11 +3357,11 @@
         count += 1;
       }
     }
-    const p = (count + 1) / (iters + 1);
+    const p = (count + 1) / (config.iterations + 1);
     if(global.DEBUG_ROC){
-      console.debug('Debug: ROC permutation diff', {graphType, iters, p});
+      console.debug('Debug: ROC permutation diff', { graphType, iterations: config.iterations, seed: config.seed, p });
     }
-    return {p, diff: baseDiff};
+    return { p, diff: baseDiff, seed: config.seed, iterations: config.iterations };
   }
 
   function delongCurveDiff(pairs1, pairs2){
@@ -3651,7 +3717,7 @@
         ]
       : (compareText || null);
     Shared.statsReporting.appendReportPanel(refs.statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. ${graphType === 'roc' ? 'AUC uncertainty used a DeLong-style nonparametric variance estimate, and cutoff tables reported Wilson confidence intervals for diagnostic rates.' : 'Average precision/area summaries were calculated from the ranked score curve, and curve comparison used the selected resampling method when requested.'} Threshold summaries were derived from the displayed score direction and should be reported together with the selected positive-class definition.`,
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. ${graphType === 'roc' ? 'AUC uncertainty used a DeLong-style nonparametric variance estimate, and cutoff tables reported Wilson confidence intervals for diagnostic rates.' : 'Average precision/area summaries were calculated from the ranked score curve, and curve comparison used the selected resampling method when requested.'} Monte Carlo p-values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}. Threshold summaries were derived from the displayed score direction and should be reported together with the selected positive-class definition.`,
       resultsText: [
         `${stats.length} series were analysed.`,
         primary ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : null,
@@ -3670,6 +3736,8 @@
         seriesCount: stats.length,
         cutoffRows: stats.reduce((sum, stat) => sum + (Array.isArray(stat.thresholdRows) ? stat.thresholdRows.length : 0), 0),
         diffMethod: state.diffMethod,
+        resamplingSeed: state.resamplingSeed,
+        resamplingIterations: state.resamplingIterations,
         compareSelection: state.compareSelection || state.compareSel?.value || null,
         compared: !!compareText,
         differenceSummary: diffResult ? {
@@ -3804,7 +3872,7 @@
     });
     const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
     console.debug('Debug: roc axis metrics',axisMetrics);
-    const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
+
     const data = typeof state.hot?.getIncludedDataMatrix === 'function'
       ? state.hot.getIncludedDataMatrix()
       : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
@@ -3895,14 +3963,8 @@
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     svg.dataset.fontScope = 'roc';
     console.debug('Debug: roc svg dataset scope assigned', { scope: svg.dataset.fontScope }); // Debug: svg font scope tagging
-    chartStyle.applySvgDefaults(svg);
+    chartStyle.prepareSvg(svg, { scopeId: 'roc' });
     plotEl.appendChild(svg);
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
-      fontControls.enableForSvg(svg,{ scopeId: 'roc' });
-      console.debug('Debug: roc fontControls enableForSvg invoked',{ width, height }); // Debug: font toolbar binding
-    } else {
-      console.debug('Debug: roc fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font toolbar missing
-    }
 
     ensureRocLegendControlPlacement();
     const showLegend = controls.showLegend !== false;
@@ -4441,7 +4503,11 @@
       }
 
       const baseline = graphType === 'roc' ? 0.5 : positives / Math.max(1, positives + negatives);
-      const pValue = bootstrapCurveTest(pairs, baseline, graphType);
+      const pValue = bootstrapCurveTest(pairs, baseline, graphType, {
+        seed: state.resamplingSeed,
+        iterations: state.resamplingIterations,
+        random: createRocScopedRandom(state.resamplingSeed, 'roc-curve-test', graphType, serie.name, pairs)
+      });
       const aucUncertainty = graphType === 'roc' ? computeSingleAucUncertainty(pairs) : null;
       const thresholdRows = graphType === 'roc' ? buildRocThresholdMetricsTable(pairs) : [];
       stats.push({
@@ -4551,7 +4617,9 @@
         diffMethod: state.diffMethod,
         compareSelection,
         pairsA,
-        pairsB
+        pairsB,
+        resamplingSeed: state.resamplingSeed,
+        resamplingIterations: state.resamplingIterations
       });
       const savedCompareResult = normalizeRocCompareResultModel(state.compareResultModel);
       if(savedCompareResult
@@ -4559,6 +4627,8 @@
         && savedCompareResult.graphType === graphType
         && savedCompareResult.diffMethod === state.diffMethod
         && savedCompareResult.compareSelection === compareSelection
+        && savedCompareResult.resamplingSeed === state.resamplingSeed
+        && savedCompareResult.resamplingIterations === state.resamplingIterations
         && savedCompareResult.displayText){
         diffResult = cloneSimple(savedCompareResult.result) || null;
         state.compareResult.textContent = savedCompareResult.displayText;
@@ -4566,15 +4636,17 @@
         if(graphType === 'roc' && state.diffMethod === 'delong'){
           diffResult = delongCurveDiff(pairsA, pairsB);
         }else if(state.diffMethod === 'bootstrap'){
-          diffResult = bootstrapCurveDiff(pairsA, pairsB, graphType);
+          diffResult = bootstrapCurveDiff(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations });
         }else if(state.diffMethod === 'permutation'){
-          diffResult = permutationCurveDiff(pairsA, pairsB, graphType);
+          diffResult = permutationCurveDiff(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations });
         }
         state.compareResult.textContent = formatRocCompareResultText(graphType, state.diffMethod, diffResult);
       }
       state.compareResultModel = normalizeRocCompareResultModel({
         graphType,
         diffMethod: state.diffMethod,
+        resamplingSeed: state.resamplingSeed,
+        resamplingIterations: state.resamplingIterations,
         compareSelection,
         signature,
         displayText: state.compareResult.textContent,
@@ -4667,6 +4739,8 @@
     const statsPanelModel = captureRocStatsPanelModel();
     payload.stats = {
       diffMethod: state.diffMethod,
+      resamplingSeed: state.resamplingSeed,
+      resamplingIterations: state.resamplingIterations,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
       compareResult: normalizeRocCompareResultModel(state.compareResultModel || null),
       advisor: createDefaultRocAdvisorState(getRocAdvisorState(getActiveRocSessionForState())),
@@ -4751,6 +4825,8 @@
         labelOpacity: cloneSimple(sessionState.labelOpacity) || {},
         labelLinePattern: cloneSimple(sessionState.labelLinePattern) || {},
         diffMethod: sessionResults.diffMethod || sessionState.diffMethod,
+        resamplingSeed: sessionState.resamplingSeed,
+        resamplingIterations: sessionState.resamplingIterations,
         compareSelection: sessionResults.compareSelection || sessionState.compareSelection || null,
         compareResult: normalizeRocCompareResultModel(sessionResults.compareResult || sessionState.compareResult || null),
         minSvgWidth: sessionState.minSvgWidth,
@@ -5021,6 +5097,8 @@
       }else{
         state.diffMethod = 'delong';
       }
+      state.resamplingSeed = normalizeRocResamplingSeed(statsConfig.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED);
+      state.resamplingIterations = normalizeRocResamplingIterations(statsConfig.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS);
       state.compareSelection = typeof statsConfig.compareSelection === 'string'
         ? statsConfig.compareSelection
         : null;
@@ -5029,6 +5107,8 @@
       state.statsPanelModel = normalizeRocStatsPanelModel(statsConfig);
     }else{
       state.diffMethod = 'delong';
+      state.resamplingSeed = ROC_RESAMPLING_DEFAULT_SEED;
+      state.resamplingIterations = ROC_RESAMPLING_DEFAULT_ITERATIONS;
       state.compareSelection = null;
       state.compareResultModel = null;
       setRocAdvisorState({}, getRocProjectionSession({ reason: 'roc-projection-mutation' }));
@@ -5713,17 +5793,23 @@
     computeSingleAucUncertainty: (pairs, alpha = 0.05) => computeSingleAucUncertainty(Array.isArray(pairs) ? pairs : [], alpha),
     buildThresholdMetricsTable: (pairs, alpha = 0.05) => buildRocThresholdMetricsTable(Array.isArray(pairs) ? pairs : [], alpha),
     delongCurveDiff: (pairs1, pairs2) => delongCurveDiff(Array.isArray(pairs1) ? pairs1 : [], Array.isArray(pairs2) ? pairs2 : []),
-    bootstrapCurveDiff: (pairs1, pairs2, graphType = 'roc', iters = 200) => bootstrapCurveDiff(
-      Array.isArray(pairs1) ? pairs1 : [],
-      Array.isArray(pairs2) ? pairs2 : [],
+    bootstrapCurveTest: (pairs, baseline, graphType = 'roc', iterations = ROC_RESAMPLING_DEFAULT_ITERATIONS, seed = ROC_RESAMPLING_DEFAULT_SEED) => bootstrapCurveTest(
+      Array.isArray(pairs) ? pairs : [],
+      baseline,
       graphType,
-      iters
+      { iterations, seed }
     ),
-    permutationCurveDiff: (pairs1, pairs2, graphType = 'roc', iters = 200) => permutationCurveDiff(
+    bootstrapCurveDiff: (pairs1, pairs2, graphType = 'roc', iterations = ROC_RESAMPLING_DEFAULT_ITERATIONS, seed = ROC_RESAMPLING_DEFAULT_SEED) => bootstrapCurveDiff(
       Array.isArray(pairs1) ? pairs1 : [],
       Array.isArray(pairs2) ? pairs2 : [],
       graphType,
-      iters
+      { iterations, seed }
+    ),
+    permutationCurveDiff: (pairs1, pairs2, graphType = 'roc', iterations = ROC_RESAMPLING_DEFAULT_ITERATIONS, seed = ROC_RESAMPLING_DEFAULT_SEED) => permutationCurveDiff(
+      Array.isArray(pairs1) ? pairs1 : [],
+      Array.isArray(pairs2) ? pairs2 : [],
+      graphType,
+      { iterations, seed }
     ),
     resolveDrawableFrame: plot => resolveRocDrawableFrame(plot)
   });

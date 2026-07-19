@@ -249,6 +249,9 @@
     const options = (extraOptions && typeof extraOptions === 'object') ? extraOptions : {};
     const nextReason = reason || options.reason || 'line-view-refresh';
     const normalizedReason = String(nextReason || '').toLowerCase();
+    const resizePhase = String(options.resizePhase || '').toLowerCase();
+    const passiveResize = normalizedReason === 'resize'
+      && (resizePhase === 'observe' || resizePhase === 'programmatic' || resizePhase === '');
     const passiveReason = normalizedReason.includes('restore')
       || normalizedReason.includes('payload')
       || normalizedReason.includes('programmatic')
@@ -256,7 +259,8 @@
       || normalizedReason.includes('init')
       || normalizedReason.includes('observer')
       || normalizedReason.includes('layout')
-      || normalizedReason.includes('sync');
+      || normalizedReason.includes('sync')
+      || passiveResize;
     const lifecycleMeta = {
       tabId: getLineProjectionTabId() || null,
       reason: nextReason,
@@ -3514,7 +3518,7 @@
       return false;
     }
     const controls = resolveLineOverlayControls(session?.tabId || getLineProjectionTabId() || null, { session, refs: lineRefs });
-    if(!!controls.showTrendLine?.checked){
+    if(controls.showTrendLine?.checked){
       return true;
     }
     return (!!controls.showIntervals?.checked && !controls.showIntervals?.disabled)
@@ -3672,16 +3676,16 @@
         base.x.additionalTicks = sanitizeLineAxisAdditionalTicks(settings.additionalTicksX ?? settings?.x?.additionalTicks);
         base.y.additionalTicks = sanitizeLineAxisAdditionalTicks(settings.additionalTicksY ?? settings?.y?.additionalTicks);
       }
-      
+
       // Handle broken axis settings
       if(settings.brokenAxis){
         if(settings.brokenAxis.x){
           base.x.brokenAxis = {
             enabled: !!settings.brokenAxis.x.enabled,
-            segments: Array.isArray(settings.brokenAxis.x.segments) 
-              ? settings.brokenAxis.x.segments.filter(seg => 
-                  seg && typeof seg === 'object' && 
-                  Number.isFinite(seg.start) && Number.isFinite(seg.end) && 
+            segments: Array.isArray(settings.brokenAxis.x.segments)
+              ? settings.brokenAxis.x.segments.filter(seg =>
+                  seg && typeof seg === 'object' &&
+                  Number.isFinite(seg.start) && Number.isFinite(seg.end) &&
                   seg.start < seg.end
                 ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
               : []
@@ -3690,10 +3694,10 @@
         if(settings.brokenAxis.y){
           base.y.brokenAxis = {
             enabled: !!settings.brokenAxis.y.enabled,
-            segments: Array.isArray(settings.brokenAxis.y.segments) 
-              ? settings.brokenAxis.y.segments.filter(seg => 
-                  seg && typeof seg === 'object' && 
-                  Number.isFinite(seg.start) && Number.isFinite(seg.end) && 
+            segments: Array.isArray(settings.brokenAxis.y.segments)
+              ? settings.brokenAxis.y.segments.filter(seg =>
+                  seg && typeof seg === 'object' &&
+                  Number.isFinite(seg.start) && Number.isFinite(seg.end) &&
                   seg.start < seg.end
                 ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
               : []
@@ -3731,7 +3735,7 @@
   function computeBrokenAxisScale(config){
     const { dataMin, dataMax, segments, plotLength, orientation } = config;
     const isHorizontal = orientation === 'horizontal';
-    
+
     if(!Array.isArray(segments) || segments.length === 0){
       // No broken axis, return standard linear scale
       return {
@@ -3749,12 +3753,12 @@
         segments: []
       };
     }
-    
+
     // Sort and validate segments
     const validSegments = segments
       .filter(seg => Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.start < seg.end)
       .sort((a, b) => a.start - b.start);
-    
+
     if(validSegments.length === 0){
       // No valid segments, return standard scale
       return {
@@ -3772,11 +3776,11 @@
         segments: []
       };
     }
-    
+
     // Merge overlapping segments and calculate display ranges
     const mergedSegments = [];
     let current = { ...validSegments[0] };
-    
+
     for(let i = 1; i < validSegments.length; i++){
       const seg = validSegments[i];
       if(seg.start <= current.end){
@@ -3788,16 +3792,16 @@
       }
     }
     mergedSegments.push(current);
-    
+
     // Calculate the total data range covered by segments
     const totalDataRange = mergedSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
-    
+
     // Define gap size in pixels
     const gapSizePx = BROKEN_AXIS_GAP_SIZE_PX;
     const numGaps = mergedSegments.length - 1;
     const totalGapLength = numGaps * gapSizePx;
     const availableLength = plotLength - totalGapLength;
-    
+
     // Assign pixel lengths to each segment proportionally
     const segmentMeta = mergedSegments.map((seg, idx) => {
       const dataRange = seg.end - seg.start;
@@ -3811,7 +3815,7 @@
         pixelEnd: 0
       };
     });
-    
+
     // Calculate pixel positions
     let currentPixel = 0;
     for(let i = 0; i < segmentMeta.length; i++){
@@ -3819,7 +3823,7 @@
       segmentMeta[i].pixelEnd = currentPixel + segmentMeta[i].lengthPx;
       currentPixel = segmentMeta[i].pixelEnd + gapSizePx;
     }
-    
+
     // Create value-to-pixel mapping function
     const valueToPixel = (value, basePos, plotLen) => {
       const mapPixel = pixel => {
@@ -3829,7 +3833,7 @@
           return basePos + plotLen - pixel;
         }
       };
-      
+
       // Find which segment contains this value
       for(let i = 0; i < segmentMeta.length; i++){
         const seg = segmentMeta[i];
@@ -3841,7 +3845,7 @@
           return mapPixel(pixelInSegment);
         }
       }
-      
+
       // Value not in any segment - clamp to nearest segment edge
       if(value < segmentMeta[0].start){
         return mapPixel(segmentMeta[0].pixelStart);
@@ -3849,7 +3853,7 @@
       if(value > segmentMeta[segmentMeta.length - 1].end){
         return mapPixel(segmentMeta[segmentMeta.length - 1].pixelEnd);
       }
-      
+
       // Value falls in a gap - return the end of the segment before it
       for(let i = 0; i < segmentMeta.length - 1; i++){
         if(value > segmentMeta[i].end && value < segmentMeta[i + 1].start){
@@ -3857,11 +3861,11 @@
           return mapPixel(segmentMeta[i].pixelEnd);
         }
       }
-      
+
       // Final fallback - should not reach here, but return first segment start for safety
       return mapPixel(segmentMeta[0].pixelStart);
     };
-    
+
     return {
       isBroken: true,
       min: mergedSegments[0].start,
@@ -6725,7 +6729,6 @@
             if(scopedSeriesKey){
               applySeriesPatch({ markerFill: nextColor, fill: nextColor }, scopedSeriesKey);
             }else{
-              if(fillInput){ applyAndDispatch(fillInput, nextColor); }
               applyGlobalPatch('markerFill', nextColor);
               applyGlobalPatch('fill', nextColor);
             }
@@ -6735,7 +6738,6 @@
             if(scopedSeriesKey){
               applySeriesPatch({ markerFill: nextColor, fill: nextColor }, scopedSeriesKey);
             }else{
-              if(fillInput){ applyAndDispatch(fillInput, nextColor); }
               applyGlobalPatch('markerFill', nextColor);
               applyGlobalPatch('fill', nextColor);
             }
@@ -8902,7 +8904,7 @@
     newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X title';
     for(let s=0;s<seriesCount;s++){
       const groupLabel = lineSeriesGroupLabels[s] || `Series ${s+1}`;
-      const groupLabelLower = groupLabel ? String(groupLabel).trim().toLowerCase() : '';
+
       for(let rep=0;rep<targetCount;rep++){
         const newIdx = 1 + s*targetCount + rep;
         if(newIdx >= targetCols) continue;
@@ -12425,7 +12427,7 @@
       svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
       svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
-      chartStyle.applySvgDefaults(svg3);
+      chartStyle.prepareSvg(svg3, { scopeId: 'line' });
       while(svg3.firstChild){
         svg3.removeChild(svg3.firstChild);
       }
@@ -12437,9 +12439,6 @@
       appendLine3dBackground(svg3, W3, H3, invocation.session);
       svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
       bindLine3dRotationControls(svg3, 'line-3d');
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(svg3, { scopeId: 'line' });
-      }
 
       const legendAxisGap = Math.max(fs * 0.9, 18);
       const appliedLegendAxisGap = showLegend ? legendAxisGap : 0;
@@ -12858,7 +12857,7 @@
         const defaultLegendX = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
         const defaultLegendY = margin3.top + legendRenderer.baselineOffset;
         const legendPos = lineLabelsState.positions?.legend;
-        
+
         // Convert relative positions to absolute if needed for 3D legend
         let absoluteLegendX = defaultLegendX;
         let absoluteLegendY = defaultLegendY;
@@ -12873,7 +12872,7 @@
             absoluteLegendY = legendPos.y;
           }
         }
-        
+
         const legendGroup = legendRenderer.draw(svg3,{
           x: absoluteLegendX,
           y: absoluteLegendY
@@ -12887,11 +12886,11 @@
                 const relX = (pos.x - (margin3.left + plotW3)) / legendGapFor3d;
                 const relY = (pos.y - margin3.top) / plotH3;
                 const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-                nextPositions.legend = { 
-                  x: pos.x, 
+                nextPositions.legend = {
+                  x: pos.x,
                   y: pos.y,
-                  relX: relX, 
-                  relY: relY 
+                  relX: relX,
+                  relY: relY
                 };
                 lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-3d-legend-position' });
                 if(Shared.isDebugEnabled?.()){
@@ -12914,7 +12913,7 @@
       const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
       const defaultTitleX = margin3.left + plotW3 / 2;
       const titlePos = lineLabelsState.positions?.title;
-      
+
       // Convert relative positions to absolute if needed for 3D title
       let absoluteTitleX = defaultTitleX;
       let absoluteTitleY = defaultTitleY;
@@ -12929,7 +12928,7 @@
           absoluteTitleY = titlePos.y;
         }
       }
-      
+
       const title3d = global.document.createElementNS(NS, 'text');
       title3d.setAttribute('x', String(absoluteTitleX));
       title3d.setAttribute('y', String(absoluteTitleY));
@@ -12964,11 +12963,11 @@
             const relX = (pos.x - margin3.left) / plotW3;
             const relY = (pos.y - margin3.top) / plotH3;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-            nextPositions.title = { 
-              x: pos.x, 
+            nextPositions.title = {
+              x: pos.x,
               y: pos.y,
-              relX: relX, 
-              relY: relY 
+              relX: relX,
+              relY: relY
             };
             lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-3d-title-position' });
             if(Shared.isDebugEnabled?.()){
@@ -13017,7 +13016,6 @@
       let lineLabelsState = getLineLabelsState(invocation.session);
       const lineThemeState = getLineThemeState(invocation.session);
       const lineStylesState = getLineStylesState(invocation.session);
-      let lineGroupedState = getLineGroupedState(invocation.session);
       if(controls.viewMode === '3d' || controls.tableFormat === '3d'){
         drawLine3d(invocation.session, drawOpts);
         return;
@@ -13398,7 +13396,7 @@
               return true;
             }
             shapes[seriesIndex] = sanitized;
-            lineGroupedState = patchLineGroupedState(invocation.session, { shapes }, { reason: 'line-2d-legend-shape' });
+            patchLineGroupedState(invocation.session, { shapes }, { reason: 'line-2d-legend-shape' });
             if(Array.isArray(series) && series[seriesIndex]){
               series[seriesIndex].shape = sanitized;
             }
@@ -13536,7 +13534,7 @@
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
       line.__resizeLiveRevision = (Number(line.__resizeLiveRevision) || 0) + 1;
       svg.dataset.resizeLiveRevision = String(line.__resizeLiveRevision);
-      chartStyle.applySvgDefaults(svg);
+      chartStyle.prepareSvg(svg, { scopeId: 'line' });
       const lineResolvedTheme2d = Shared.colorSchemes?.resolveThemeState?.('line', { config: { colorScheme: lineThemeState.colorScheme } }) || null;
       const lineThemeDark = lineResolvedTheme2d
         ? lineResolvedTheme2d.isDark === true
@@ -13552,12 +13550,6 @@
       }
       plotEl.appendChild(svg);
       svg.addEventListener('mouseleave', handleLinePlotMouseLeave);
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(svg,{ scopeId: 'line' });
-        console.debug('Debug: line fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
-      } else {
-        console.debug('Debug: line fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
-      }
       let xMinT=logX?Math.log10(xMin):xMin;
       let xMaxT=logX?Math.log10(xMax):xMax;
       let yMinT=logY?Math.log10(yMin):yMin;
@@ -13808,7 +13800,7 @@
           lineDebug('Debug: line layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
         }
       }
-      
+
       // Broken axis support
       const brokenXEnabled = getBrokenAxisEnabled('x');
       const brokenXSegments = brokenXEnabled ? getBrokenAxisSegments('x') : [];
@@ -13821,7 +13813,7 @@
             orientation: 'horizontal'
           })
         : null;
-      
+
       const brokenYEnabled = getBrokenAxisEnabled('y');
       const brokenYSegments = brokenYEnabled ? getBrokenAxisSegments('y') : [];
       const brokenYScale = brokenYEnabled && brokenYSegments.length > 0
@@ -13833,13 +13825,13 @@
             orientation: 'vertical'
           })
         : null;
-      
-      console.debug('Debug: line broken axis',{ 
-        xEnabled: brokenXEnabled, 
-        xSegments: brokenXSegments, 
+
+      console.debug('Debug: line broken axis',{
+        xEnabled: brokenXEnabled,
+        xSegments: brokenXSegments,
         xBroken: brokenXScale?.isBroken,
-        yEnabled: brokenYEnabled, 
-        ySegments: brokenYSegments, 
+        yEnabled: brokenYEnabled,
+        ySegments: brokenYSegments,
         yBroken: brokenYScale?.isBroken
       });
 
@@ -13852,7 +13844,7 @@
         if(!brokenYScale || !brokenYScale.isBroken){ return true; }
         return brokenYScale.segments.some(seg => value >= seg.start && value <= seg.end);
       };
-      
+
       const x2px=v=>{
         const safeV = Math.min(Math.max(v, xScale.min), xScale.max);
         if(brokenXScale && brokenXScale.isBroken){
@@ -14106,14 +14098,14 @@
           }
         }
       });
-      
+
       // Draw X-axis with broken axis support
       if(brokenXScale && brokenXScale.isBroken){
         // Draw each segment separately
         let combinedLeft = Infinity;
         let combinedRight = -Infinity;
         let xBreakCapCount = 0;
-        
+
         brokenXScale.segments.forEach((seg, segIndex) => {
           const segLeft = x2px(seg.start);
           const segRight = x2px(seg.end);
@@ -14154,7 +14146,7 @@
           combinedRight = Math.max(combinedRight, segRight);
         });
         lineDebug('Debug: line broken X axis caps rendered',{ count: xBreakCapCount, segmentCount: brokenXScale.segments.length });
-        
+
         // Single transparent hit area covering the whole broken axis range
         if(isFinite(combinedLeft) && isFinite(combinedRight)){
           const hitLine = add('line',{
@@ -14176,14 +14168,14 @@
           axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
         }
       }
-      
+
       // Draw Y-axis with broken axis support
       if(brokenYScale && brokenYScale.isBroken){
         // Draw each segment separately
         let combinedTop = Infinity;
         let combinedBottom = -Infinity;
         let yBreakCapCount = 0;
-        
+
         brokenYScale.segments.forEach((seg, segIndex) => {
           const segTop = y2px(seg.end);
           const segBottom = y2px(seg.start);
@@ -14224,7 +14216,7 @@
           combinedBottom = Math.max(combinedBottom, segBottom);
         });
         lineDebug('Debug: line broken Y axis caps rendered',{ count: yBreakCapCount, segmentCount: brokenYScale.segments.length });
-        
+
         // Single transparent hit area covering the whole broken axis range
         if(isFinite(combinedTop) && isFinite(combinedBottom)){
           const hitLine = add('line',{
@@ -14960,7 +14952,7 @@
         const defaultLegendX=margin.left+plotW+legendLayout.legendGapPx;
         const defaultLegendY=margin.top+legendRenderer.baselineOffset;
         const legendPos=lineLabelsState.positions?.legend;
-        
+
         // Convert relative positions to absolute if needed for legend
         let absoluteLegendX = defaultLegendX;
         let absoluteLegendY = defaultLegendY;
@@ -14975,7 +14967,7 @@
             absoluteLegendY = legendPos.y;
           }
         }
-        
+
         const legendGroup=legendRenderer.draw(svg,{
           x: absoluteLegendX,
           y: absoluteLegendY
@@ -14988,11 +14980,11 @@
                 const relX = (pos.x - (margin.left + plotW)) / legendLayout.legendGapPx;
                 const relY = (pos.y - margin.top) / plotH;
                 const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-                nextPositions.legend = { 
-                  x: pos.x, 
+                nextPositions.legend = {
+                  x: pos.x,
                   y: pos.y,
-                  relX: relX, 
-                  relY: relY 
+                  relX: relX,
+                  relY: relY
                 };
                 lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-2d-legend-position' });
                 if(Shared.isDebugEnabled?.()){
@@ -15013,7 +15005,7 @@
       const defaultXLabelX = margin.left+plotW/2;
       const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
       const xLabelPos = lineLabelsState.positions?.xLabel;
-      
+
       // Convert relative positions to absolute if needed for xLabel
       let absoluteXLabelX = defaultXLabelX;
       let absoluteXLabelY = defaultXLabelY;
@@ -15028,7 +15020,7 @@
           absoluteXLabelY = xLabelPos.y;
         }
       }
-      
+
       const xText=add('text',{x: absoluteXLabelX, y: absoluteXLabelY,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       xText.textContent=lineLabelsState.x;
       markFontEditable(xText,'xTitle','xTitle');
@@ -15078,11 +15070,11 @@
             const relX = (pos.x - margin.left) / plotW;
             const relY = (pos.y - xAxisBase) / (plotH + margin.top);
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-            nextPositions.xLabel = { 
-              x: pos.x, 
+            nextPositions.xLabel = {
+              x: pos.x,
               y: pos.y,
-              relX: relX, 
-              relY: relY 
+              relX: relX,
+              relY: relY
             };
             lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-2d-x-label-position' });
             console.debug('Debug: line x-label position saved', { absolute: pos, relative: { relX, relY } });
@@ -15093,7 +15085,7 @@
       const defaultYX = margin.left - yLabelOffsetSpan;
       const defaultYY = margin.top+plotH/2;
       const yLabelPos = lineLabelsState.positions?.yLabel;
-      
+
       // Convert relative positions to absolute if needed for yLabel
       let absoluteYTextX = defaultYX;
       let absoluteYTextY = defaultYY;
@@ -15108,7 +15100,7 @@
           absoluteYTextY = yLabelPos.y;
         }
       }
-      
+
       const yText=add('text',{x:absoluteYTextX,y:absoluteYTextY,transform:`rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       yText.textContent=lineLabelsState.y;
       markFontEditable(yText,'yTitle','yTitle');
@@ -15137,11 +15129,11 @@
             const relX = (pos.x - margin.left) / yLabelOffsetSpan;
             const relY = (pos.y - margin.top) / plotH;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-            nextPositions.yLabel = { 
-              x: pos.x, 
+            nextPositions.yLabel = {
+              x: pos.x,
               y: pos.y,
-              relX: relX, 
-              relY: relY 
+              relX: relX,
+              relY: relY
             };
             lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-2d-y-label-position' });
             console.debug('Debug: line y-label position saved', { absolute: pos, relative: { relX, relY } });
@@ -15151,7 +15143,7 @@
       const defaultTitleX = margin.left+plotW/2;
       const defaultTitleY = margin.top/2;
       const titlePos = lineLabelsState.positions?.title;
-      
+
       // Convert relative positions to absolute if needed
       let absoluteTitleX = defaultTitleX;
       let absoluteTitleY = defaultTitleY;
@@ -15166,7 +15158,7 @@
           absoluteTitleY = titlePos.y;
         }
       }
-      
+
       const titleText=add('text',{x: absoluteTitleX, y: absoluteTitleY,'text-anchor':'middle','font-size':fs,fill:lineThemeTextColor});
       titleText.textContent=lineLabelsState.title;
       markFontEditable(titleText,'graphTitle','graphTitle');
@@ -15195,11 +15187,11 @@
             const relX = (pos.x - margin.left) / plotW;
             const relY = (pos.y - margin.top) / plotH;
             const nextPositions = cloneLineRuntimeValue(getLineLabelsState(invocation.session).positions, {}) || {};
-            nextPositions.title = { 
-              x: pos.x, 
+            nextPositions.title = {
+              x: pos.x,
               y: pos.y,
-              relX: relX, 
-              relY: relY 
+              relX: relX,
+              relY: relY
             };
             lineLabelsState = patchLineLabelsState(invocation.session, { positions: nextPositions }, { reason: 'line-2d-title-position' });
             console.debug('Debug: line title position saved', { absolute: pos, relative: { relX, relY } });

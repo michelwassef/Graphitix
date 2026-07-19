@@ -375,6 +375,100 @@ describe('domControls default payload cache isolation', () => {
     expect(session.clearTabRenderCache).not.toHaveBeenCalled();
   });
 
+  test('showWorkspaceForTab awaits the component readiness barrier during archive restore', async () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="heatmapPage" hidden></div>';
+    const element = document.getElementById('heatmapPage');
+    let resolveReady;
+    const readiness = new Promise(resolve => {
+      resolveReady = resolve;
+    });
+    const config = {
+      type: 'heatmap',
+      element,
+      createEmptyPayload: jest.fn(() => ({ type: 'heatmap', data: [], config: {} })),
+      loadFromPayload: jest.fn(),
+      draw: jest.fn(),
+      awaitReadyForSnapshot: jest.fn(() => readiness)
+    };
+    const tab = {
+      id: 'workspace-4',
+      type: 'heatmap',
+      payload: { type: 'heatmap', data: [['Gene', 'A'], ['X', 1]], config: {} },
+      payloadSignature: 'payload-restore-ready',
+      layoutSignature: 'layout-restore-ready'
+    };
+    const workspaceState = { loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    domControls.markWorkspaceInitialized('heatmap', { reason: 'test-restore-readiness' });
+
+    let settled = false;
+    const activation = domControls.showWorkspaceForTab({
+      tab,
+      options: { reason: 'recovery-restore', awaitReadyForRestore: true },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { heatmap: config },
+      session: { fastClonePayload: value => deepClone(value) },
+      workspaceState
+    });
+    expect(activation).toBeInstanceOf(Promise);
+    activation.finally(() => { settled = true; });
+
+    await Promise.resolve();
+    expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
+    expect(config.awaitReadyForSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'workspace-4',
+      componentKey: 'heatmap',
+      reason: 'recovery-restore-restore-ready'
+    }));
+    expect(settled).toBe(false);
+
+    resolveReady({ ok: true });
+    await activation;
+    expect(settled).toBe(true);
+  });
+
+  test('showWorkspaceForTab records readiness failure without aborting restored document state', async () => {
+    const domControls = window.Main?.domControls;
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="heatmapPage" hidden></div>';
+    const element = document.getElementById('heatmapPage');
+    const readinessError = new Error('heatmap restore did not settle');
+    const config = {
+      type: 'heatmap',
+      element,
+      createEmptyPayload: jest.fn(() => ({ type: 'heatmap', data: [], config: {} })),
+      loadFromPayload: jest.fn(),
+      draw: jest.fn(),
+      awaitReadyForSnapshot: jest.fn(() => Promise.reject(readinessError))
+    };
+    const tab = {
+      id: 'workspace-readiness-error',
+      type: 'heatmap',
+      payload: { type: 'heatmap', data: [['Gene', 'A'], ['X', 1]], config: {} },
+      payloadSignature: 'payload-readiness-error',
+      layoutSignature: 'layout-readiness-error'
+    };
+    const workspaceState = { loadedWorkspaces: {}, renderedWorkspaceByType: {} };
+    ensureWorkspaceTabs({ activateWorkspace: jest.fn() });
+    domControls.markWorkspaceInitialized('heatmap', { reason: 'test-restore-readiness-error' });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(domControls.showWorkspaceForTab({
+      tab,
+      options: { reason: 'recovery-restore', awaitReadyForRestore: true },
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { heatmap: config },
+      session: { fastClonePayload: value => deepClone(value) },
+      workspaceState
+    })).resolves.toBe(config);
+
+    expect(config.loadFromPayload).toHaveBeenCalledTimes(1);
+    expect(tab.activationError?.reason).toBe('workspace-restore-readiness-async-error');
+    consoleError.mockRestore();
+  });
+
   test('showWorkspaceForTab reuses a matching per-tab DOM root without payload redraw', () => {
     const domControls = window.Main?.domControls;
     expect(domControls).toBeTruthy();
@@ -522,6 +616,73 @@ describe('domControls default payload cache isolation', () => {
     // post-reopen tab switch (see the May 5 incident log).
     expect(config.restoreRenderCache.mock.calls.length).toBeLessThanOrEqual(1);
     expect(config.draw).not.toHaveBeenCalled();
+  });
+
+
+  test('showWorkspaceForTab rejects a render cache whose layout signature is stale', () => {
+    const domControls = window.Main?.domControls;
+    expect(domControls).toBeTruthy();
+
+    document.body.innerHTML = '<div id="welcomeScreen"></div><div id="scatterPage" hidden></div>';
+    const element = document.getElementById('scatterPage');
+    const payload = {
+      type: 'scatter',
+      data: [['Gene', 'X', 'Y'], ['A', 1, 2]],
+      config: { title: 'Current layout' }
+    };
+    const tab = {
+      id: 'workspace-2',
+      type: 'scatter',
+      payload,
+      payloadSignature: 'same-payload-signature',
+      layoutSignature: 'current-layout-signature',
+      renderCache: {
+        tabId: 'workspace-2',
+        type: 'scatter',
+        payloadSignature: 'same-payload-signature',
+        layoutSignature: 'stale-layout-signature',
+        cache: { svg: '<svg data-layout="stale"></svg>' }
+      },
+      renderCacheTabId: 'workspace-2'
+    };
+    const config = {
+      type: 'scatter',
+      element,
+      loadFromPayload: jest.fn(),
+      canRestoreRenderCache: jest.fn(() => true),
+      restoreRenderCache: jest.fn(() => true),
+      draw: jest.fn(),
+      applyLayoutState: jest.fn()
+    };
+    const session = {
+      fastClonePayload: jest.fn(value => deepClone(value)),
+      clearTabRenderCache: jest.fn()
+    };
+    const workspaceState = {
+      loadedWorkspaces: {},
+      renderedWorkspaceByType: {
+        scatter: 'workspace-3'
+      }
+    };
+
+    ensureWorkspaceTabs({
+      activateWorkspace: jest.fn()
+    });
+    window.Shared.componentLayout = {
+      suppressNextScheduleFor: jest.fn()
+    };
+    domControls.markWorkspaceInitialized('scatter', { reason: 'test' });
+
+    domControls.showWorkspaceForTab({
+      tab,
+      dom: { welcomeScreen: document.getElementById('welcomeScreen') },
+      workspaces: { scatter: config },
+      session,
+      workspaceState
+    });
+
+    expect(config.canRestoreRenderCache).not.toHaveBeenCalled();
+    expect(config.restoreRenderCache).not.toHaveBeenCalled();
   });
 
   test('showWorkspaceForTab rejects render cache owned by another tab', () => {

@@ -253,6 +253,17 @@ describe('graphArchive component round-trip', () => {
     });
   });
 
+  test('rejects removed multi-tab JSON workspace files', async () => {
+    const json = JSON.stringify({
+      tabs: [{ title: 'Box', type: 'box', payload: { type: 'box', data: [] } }]
+    });
+    const buffer = Uint8Array.from(json, character => character.charCodeAt(0)).buffer;
+
+    await expect(window.Shared.graphArchive.parseArchiveBuffer(buffer, {
+      fileName: 'workspace.json'
+    })).rejects.toThrow('Unsupported JSON workspace format');
+  });
+
   test('uiState round-trips through .graph archives (toolbar active sub-page)', async () => {
     const graphArchive = window.Shared.graphArchive;
     const tabs = [

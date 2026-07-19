@@ -139,7 +139,7 @@ describe('sessionActions save lazy archive build', () => {
     await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
       policyMode: 'recovery',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       idleForMs: 5000,
       reason: 'recovery-interval'
     });
@@ -151,7 +151,7 @@ describe('sessionActions save lazy archive build', () => {
     await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
       policyMode: 'recovery',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       idleForMs: 10,
       reason: 'recovery-interval'
     });
@@ -163,7 +163,7 @@ describe('sessionActions save lazy archive build', () => {
     await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
       policyMode: 'recovery',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       idleForMs: 9000,
       captureRenderCacheBeforeSnapshot: false,
       reason: 'recovery-interval'
@@ -174,38 +174,117 @@ describe('sessionActions save lazy archive build', () => {
     }));
   });
 
-  test('captures active render cache for archive without entering runtime restore mode', async () => {
+
+  test('manual save and recovery checkpoints freeze the same canonical document state', async () => {
     const sessionActions = installSessionActions();
-    const serializedCache = { plot: { fragment: { kind: 'element', markup: '<svg></svg>' } } };
-    const capturedCache = { plot: { fragment: document.createDocumentFragment(), count: 1 } };
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    const livePayload = {
+      type: 'scatter',
+      data: [['Gene', 'X', 'Y'], ['A', 1, 2]],
+      exclusions: { rows: [4], cols: [2], cells: [[1, 1]] },
+      config: { title: 'Checkpoint parity' }
+    };
+    const liveLayout = { component: 'scatter', width: 777, height: 543 };
+    const liveUiState = {
+      toolbarActiveSection: 'data',
+      component: { table: { firstDisplayedRow: 3 } }
+    };
+    activeTab.payload = { type: 'scatter', data: [] };
+    activeTab.layoutState = null;
+    activeTab.uiState = liveUiState;
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializePayloadSignature = value => JSON.stringify(value);
+    context.session.enrichTabSnapshotForArchive = tab => ({
+      payload: JSON.parse(JSON.stringify(tab.payload)),
+      layout: JSON.parse(JSON.stringify(tab.layoutState))
+    });
+    context.session.persistActiveTabState.mockImplementation((tab, options) => {
+      expect(options.snapshotIntent).toEqual(expect.objectContaining({
+        saveLike: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false
+      }));
+      tab.payload = JSON.parse(JSON.stringify(livePayload));
+      tab.layoutState = JSON.parse(JSON.stringify(liveLayout));
+      tab.payloadSignature = JSON.stringify(tab.payload);
+      tab.layoutSignature = JSON.stringify(tab.layoutState);
+    });
+
+    const manual = await sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      snapshotKind: 'archive-save',
+      policyMode: 'manual-save',
+      captureRenderCacheBeforeSnapshot: false,
+      reason: 'toolbar-save'
+    });
+    const manualPersistOptions = context.session.persistActiveTabState.mock.calls.at(-1)[1];
+
+    activeTab.payload = { type: 'scatter', data: [] };
+    activeTab.layoutState = null;
+    activeTab.payloadSignature = null;
+    activeTab.layoutSignature = null;
+
+    const recovery = await sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      captureRenderCacheBeforeSnapshot: false,
+      reason: 'recovery-interval'
+    });
+    const recoveryPersistOptions = context.session.persistActiveTabState.mock.calls.at(-1)[1];
+
+    expect(recovery.snapshot).toStrictEqual(manual.snapshot);
+    expect(recovery.snapshot.tabs[0]).toEqual(expect.objectContaining({
+      payload: livePayload,
+      layout: liveLayout,
+      uiState: liveUiState,
+      archiveRenderCache: null
+    }));
+    expect(recoveryPersistOptions.snapshotIntent).toStrictEqual(manualPersistOptions.snapshotIntent);
+  });
+
+  test('serializes the active cache captured by the shared session checkpoint owner', async () => {
+    const sessionActions = installSessionActions();
+    const serializedCache = {
+      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      plot: { fragment: { kind: 'element', markup: '<svg></svg>' } }
+    };
+    const capturedCache = {
+      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      plot: { fragment: document.createDocumentFragment(), count: 1 }
+    };
     let archiveRequest = null;
     window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
       archiveRequest = request;
       return new Blob(['zip'], { type: 'application/zip' });
     });
     window.Shared.fileIO.saveGraphFileAs = jest.fn(async options => {
-      const payload = await options.getPayload();
-      expect(payload).toBeInstanceOf(Blob);
-      return {
-        status: 'saved',
-        via: 'picker',
-        fileName: 'workspace.graph'
-      };
+      await options.getPayload();
+      return { status: 'saved', via: 'picker', fileName: 'workspace.graph' };
     });
     const context = createContext();
     const activeTab = context.workspaceState.tabs[0];
     activeTab.payloadSignature = 'payload-sig';
     activeTab.layoutSignature = 'layout-sig';
     context.session.getActiveTab.mockReturnValue(activeTab);
-    context.session.serializeRenderCacheForArchive = jest.fn(() => serializedCache);
-    const captureRenderCache = jest.fn(() => capturedCache);
-    const restoreRenderCache = jest.fn(() => true);
-    const draw = jest.fn();
+    context.session.serializeRenderCacheForArchive = jest.fn(cache => cache === capturedCache ? serializedCache : null);
+    context.session.persistActiveTabState.mockImplementation((tab, options) => {
+      if (options.captureRenderCache === true) {
+        tab.renderCache = {
+          cache: capturedCache,
+          tabId: tab.id,
+          type: tab.type,
+          payloadSignature: tab.payloadSignature,
+          layoutSignature: tab.layoutSignature
+        };
+      }
+    });
+    const directCapture = jest.fn();
     context.workspaces = {
       scatter: {
-        captureRenderCache,
-        restoreRenderCache,
-        draw
+        captureRenderCache: directCapture,
+        restoreRenderCache: jest.fn()
       }
     };
 
@@ -214,32 +293,35 @@ describe('sessionActions save lazy archive build', () => {
     });
 
     expect(result.status).toBe('saved');
-    expect(captureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: activeTab.id,
-      type: 'scatter',
-      reason: 'archive-save-active'
-    }));
-    expect(restoreRenderCache).toHaveBeenCalledWith(
-      capturedCache,
-      expect.objectContaining({
-        tabId: activeTab.id,
-        type: 'scatter',
-        reason: 'archive-save-active-restore',
-        temporaryRestore: true
-      })
+    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(
+      activeTab,
+      expect.objectContaining({ captureRenderCache: true })
     );
-    expect(draw).not.toHaveBeenCalled();
+    expect(directCapture).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toStrictEqual(serializedCache);
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBe('payload-sig');
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBe('layout-sig');
   });
 
+
   test('serializes inactive tab render cache from in-memory cache without invoking live capture', async () => {
     const sessionActions = installSessionActions();
-    const serializedCache = { plot: { kind: 'scatter' } };
-    const capturedCache = { plot: { fragment: document.createDocumentFragment(), count: 1 } };
-    const boxSerializedCache = { plot: { kind: 'box' } };
-    const boxCachedFragment = { plot: { fragment: document.createDocumentFragment(), count: 2 } };
+    const serializedCache = {
+      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      plot: { kind: 'scatter' }
+    };
+    const capturedCache = {
+      __graphitixRenderCache: { tabId: 'tab-1', type: 'scatter', complete: true },
+      plot: { fragment: document.createDocumentFragment(), count: 1 }
+    };
+    const boxSerializedCache = {
+      __graphitixRenderCache: { tabId: 'tab-2', type: 'box', complete: true },
+      plot: { kind: 'box' }
+    };
+    const boxCachedFragment = {
+      __graphitixRenderCache: { tabId: 'tab-2', type: 'box', complete: true },
+      plot: { fragment: document.createDocumentFragment(), count: 2 }
+    };
     let archiveRequest = null;
     window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
       archiveRequest = request;
@@ -302,8 +384,19 @@ describe('sessionActions save lazy archive build', () => {
       }
       return null;
     });
-    const captureRenderCache = jest.fn(() => capturedCache);
-    const restoreRenderCache = jest.fn(() => true);
+    context.session.persistActiveTabState.mockImplementation((tab, options) => {
+      if (tab.id === activeTab.id && options.captureRenderCache === true) {
+        tab.renderCache = {
+          cache: capturedCache,
+          tabId: tab.id,
+          type: tab.type,
+          payloadSignature: tab.payloadSignature,
+          layoutSignature: tab.layoutSignature
+        };
+      }
+    });
+    const captureRenderCache = jest.fn();
+    const restoreRenderCache = jest.fn();
     const draw = jest.fn();
     const boxCaptureRenderCache = jest.fn(() => boxCachedFragment);
     const boxRestoreRenderCache = jest.fn(() => true);
@@ -326,17 +419,85 @@ describe('sessionActions save lazy archive build', () => {
     });
 
     expect(result.status).toBe('saved');
-    expect(captureRenderCache).toHaveBeenCalledWith(expect.objectContaining({
-      tabId: activeTab.id,
-      type: 'scatter',
-      reason: 'archive-save-active'
-    }));
+    expect(captureRenderCache).not.toHaveBeenCalled();
     expect(boxCaptureRenderCache).not.toHaveBeenCalled();
     expect(boxRestoreRenderCache).not.toHaveBeenCalled();
     expect(boxDraw).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCache).toStrictEqual(boxSerializedCache);
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheSignature).toBe('box-payload-sig');
     expect(archiveRequest?.tabs?.[1]?.archiveRenderCacheLayoutSignature).toBe('box-layout-sig');
+  });
+
+  test('lean recovery checkpoints never capture or embed render caches', async () => {
+    const sessionActions = installSessionActions();
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    activeTab.payloadSignature = 'payload-sig';
+    activeTab.layoutSignature = 'layout-sig';
+    activeTab.renderCache = {
+      cache: { plot: { stale: false } },
+      tabId: activeTab.id,
+      payloadSignature: 'payload-sig',
+      layoutSignature: 'layout-sig'
+    };
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(cache => cache);
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      policyMode: 'recovery',
+      snapshotKind: 'recovery',
+      idleForMs: 0,
+      captureRenderCacheBeforeSnapshot: false,
+      reason: 'recovery-interval'
+    });
+
+    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(
+      activeTab,
+      expect.objectContaining({ captureRenderCache: false })
+    );
+    expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBeNull();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBeNull();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBeNull();
+  });
+
+  test('stale render caches are discarded instead of being relabeled with current signatures', async () => {
+    const sessionActions = installSessionActions();
+    let archiveRequest = null;
+    window.Shared.graphArchive.buildArchiveBlob.mockImplementation(async request => {
+      archiveRequest = request;
+      return new Blob(['zip'], { type: 'application/zip' });
+    });
+    const context = createContext();
+    const activeTab = context.workspaceState.tabs[0];
+    activeTab.payloadSignature = 'current-payload';
+    activeTab.layoutSignature = 'current-layout';
+    activeTab.renderCache = {
+      cache: { plot: { stale: true } },
+      tabId: activeTab.id,
+      payloadSignature: 'old-payload',
+      layoutSignature: 'old-layout'
+    };
+    context.session.getActiveTab.mockReturnValue(activeTab);
+    context.session.serializeRenderCacheForArchive = jest.fn(cache => cache);
+
+    await sessionActions.buildWorkspaceArchiveBlob(context, {
+      scope: 'workspace',
+      snapshotKind: 'archive-save',
+      captureRenderCacheBeforeSnapshot: true,
+      reason: 'toolbar-save'
+    });
+
+    expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBeNull();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBeNull();
+    expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheLayoutSignature).toBeNull();
   });
 
   test('buildArchiveTabSnapshot funnels payload/layout through session.enrichTabSnapshotForArchive', async () => {

@@ -53,7 +53,7 @@ Graphitix uses AG Grid-backed tables with spreadsheet-style behavior:
 
 - Paste data directly from spreadsheets.
 - Paste transposed data from the context menu.
-- Import CSV, TSV, TXT, XLS, XLSX, ODS, `.graph`, `.json`, `.session`, `.prism`, and `.pzfx` files.
+- Import CSV, TSV, TXT, XLS, XLSX, ODS, `.graph`, `.json`, `.prism`, and `.pzfx` files.
 - Preview imported data and choose delimiter, sheet, start row, title row, and trimming options.
 - Sort and reorder columns where supported.
 - Use undo/redo for table and graph edits.
@@ -179,7 +179,11 @@ The test suite covers:
 
 More detail is available in:
 
-- `ARCHITECTURE.md`
+- `AGENTS.md` — normative engineering and ownership rules
+- `ARCHITECTURE.md` — current runtime structure and orientation
+- `issues.txt` — verified open engineering work
+- `CHANGELOG.md` — completed changes
+- `CONTRIBUTING.md` — development and validation workflow
 - `docs/development/main-bootstrap.md`
 - `docs/development/module-call-map.md`
 - `docs/development/component-contracts.md`

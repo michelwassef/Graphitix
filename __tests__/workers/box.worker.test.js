@@ -181,7 +181,7 @@ describe('box.worker — box-stats action', () => {
     };
     const msg = await send(ctx, 'b3', 'box-stats', payload);
     expect(msg.ok).toBe(true);
-    expect(msg.result.parametricVariant).toBe('nonparametric');
+    expect(msg.result.nonParametricVariant).toBe('mannWhitney');
   });
 
   test('three groups → ok, groupCount=3', async () => {

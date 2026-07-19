@@ -12,32 +12,32 @@ const KNOWN_NON_FATAL_LOG_PATTERNS = [
 const CDN_OVERRIDE_ENTRIES = [
   {
     match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/styles\/ag-grid\.css$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/styles/ag-grid.css'),
+    localPath: path.resolve(__dirname, '../../libs/ag-grid-community/ag-grid.css'),
     contentType: 'text/css; charset=utf-8'
   },
   {
     match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/styles\/ag-theme-balham\.css$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/styles/ag-theme-balham.css'),
+    localPath: path.resolve(__dirname, '../../libs/ag-grid-community/ag-theme-balham.css'),
     contentType: 'text/css; charset=utf-8'
   },
   {
     match: /\/(?:npm\/)?ag-grid-community@32\.3\.3\/dist\/ag-grid-community\.min\.noStyle\.js$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/ag-grid-community/dist/ag-grid-community.min.noStyle.js'),
+    localPath: path.resolve(__dirname, '../../libs/ag-grid-community/ag-grid-community.min.noStyle.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
     match: /\/(?:npm\/)?jstat@1\.9\.5\/dist\/jstat\.min\.js$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/jstat/dist/jstat.min.js'),
+    localPath: path.resolve(__dirname, '../../libs/jstat.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
     match: /\/(?:npm\/)?jszip@3\.10\.1\/dist\/jszip\.min\.js$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/jszip/dist/jszip.min.js'),
+    localPath: path.resolve(__dirname, '../../libs/jszip.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   },
   {
     match: /\/(?:npm\/)?svd-js@1\.1\.1\/build-umd\/svd-js\.min\.js$/i,
-    localPath: path.resolve(__dirname, '../../node_modules/svd-js/build-umd/svd-js.min.js'),
+    localPath: path.resolve(__dirname, '../../libs/svd-js.min.js'),
     contentType: 'text/javascript; charset=utf-8'
   }
 ];

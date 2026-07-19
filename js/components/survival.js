@@ -1000,11 +1000,7 @@
     Shared.componentLifecycle?.ownedHotBelongsToSession?.(hotInstance, session, 'survival') === true
   );
 
-  function resolveSurvivalDataViewsManagerOwnerTabId(manager){
-    return normalizeSurvivalOwnerTabId(
-      Shared.componentLifecycle?.resolveOwnedObjectTabId?.(manager, 'survival') || ''
-    );
-  }
+
 
   const survivalDataViewsManagerBelongsToSession = (manager = null, session = null) => (
     Shared.componentLifecycle?.ownedDataViewsManagerBelongsToSession?.(manager, session, 'survival', {
@@ -2641,14 +2637,14 @@
     }
     const stored = state.labelPositions || {};
     const storedLegend = stored.legend || {};
-    
+
     // Get SVG dimensions for relative positioning
     const svgWidth = svgDimensions.width || (svg.getAttribute('width') ? parseFloat(svg.getAttribute('width')) : 500);
     const svgHeight = svgDimensions.height || (svg.getAttribute('height') ? parseFloat(svg.getAttribute('height')) : 400);
-    
+
     let resolvedX = Number.isFinite(defaults.x) ? Number(defaults.x) : 0;
     let resolvedY = Number.isFinite(defaults.y) ? Number(defaults.y) : 0;
-    
+
     // Convert relative positions to absolute if needed
     if (storedLegend) {
       if (storedLegend.relX !== undefined && storedLegend.relY !== undefined) {
@@ -2661,7 +2657,7 @@
         resolvedY = storedLegend.y;
       }
     }
-    
+
     const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
     if(!legendGroup){
       return null;
@@ -2678,11 +2674,11 @@
           // Store both absolute and relative positions
           const relX = pos.x / svgWidth;
           const relY = pos.y / svgHeight;
-          state.labelPositions.legend = { 
-            x: pos.x, 
+          state.labelPositions.legend = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           };
           syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('legend position saved', { absolute: pos, relative: { relX, relY } });
@@ -4639,15 +4635,9 @@
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    chartStyle.applySvgDefaults(svg);
+    chartStyle.prepareSvg(svg, { scopeId: 'survival' });
     if(svg.dataset){
       svg.dataset.fontScope = 'survival';
-    }
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
-      fontControls.enableForSvg(svg, { scopeId: 'survival' });
-      logDebug('fontControls enableForSvg invoked', { width, height });
-    } else {
-      logDebug('fontControls enableForSvg missing', { hasFontControls: !!fontControls });
     }
     refs.plotDiv.appendChild(svg);
 
@@ -5006,7 +4996,7 @@
     const defaultXLabelX = margin.left + plotW / 2;
     const defaultXLabelY = xTitleY;
     const xLabelPos = state.labelPositions?.xLabel;
-    
+
     // Convert relative positions to absolute if needed for xLabel
     let absoluteXLabelX = defaultXLabelX;
     let absoluteXLabelY = defaultXLabelY;
@@ -5021,7 +5011,7 @@
         absoluteXLabelY = xLabelPos.y;
       }
     }
-    
+
     const xTitle = add('text', {
       x: absoluteXLabelX,
       y: absoluteXLabelY,
@@ -5059,11 +5049,11 @@
           // Store both absolute and relative positions for xLabel
           const relX = (pos.x - margin.left) / plotW;
           const relY = (pos.y - xAxisY) / (plotH + margin.top);
-          state.labelPositions.xLabel = { 
-            x: pos.x, 
+          state.labelPositions.xLabel = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           };
           syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('x-label position saved', { absolute: pos, relative: { relX, relY } });
@@ -5075,7 +5065,7 @@
     const defaultYTitleX = margin.left - yLabelOffsetSpan;
     const defaultYTitleY = margin.top + plotH / 2;
     const yLabelPos = state.labelPositions?.yLabel;
-    
+
     // Convert relative positions to absolute if needed for yLabel
     let yTitleX = defaultYTitleX;
     let yTitleY = defaultYTitleY;
@@ -5090,7 +5080,7 @@
         yTitleY = yLabelPos.y;
       }
     }
-    
+
     logDebug('y-axis title placement', { yTitleX, maxYLabelWidth }); // Debug: axis label alignment
     const yTitle = add('text', {
       x: yTitleX,
@@ -5130,11 +5120,11 @@
           // Store both absolute and relative positions for yLabel
           const relX = (pos.x - margin.left) / yLabelOffsetSpan;
           const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.yLabel = { 
-            x: pos.x, 
+          state.labelPositions.yLabel = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           };
           syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('y-label position saved', { absolute: pos, relative: { relX, relY } });
@@ -5146,7 +5136,7 @@
     const defaultTitleX = margin.left + plotW / 2;
     const defaultTitleY = titleY;
     const titlePos = state.labelPositions?.title;
-    
+
     // Convert relative positions to absolute if needed
     let absoluteTitleX = defaultTitleX;
     let absoluteTitleY = defaultTitleY;
@@ -5161,7 +5151,7 @@
         absoluteTitleY = titlePos.y;
       }
     }
-    
+
     const titleText = add('text', {
       x: absoluteTitleX,
       y: absoluteTitleY,
@@ -5196,11 +5186,11 @@
           // Store both absolute and relative positions
           const relX = (pos.x - margin.left) / plotW;
           const relY = (pos.y - margin.top) / plotH;
-          state.labelPositions.title = { 
-            x: pos.x, 
+          state.labelPositions.title = {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           };
           syncSurvivalStateToSession(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), { labelPositions: state.labelPositions });
           logDebug('title position saved', { absolute: pos, relative: { relX, relY } });

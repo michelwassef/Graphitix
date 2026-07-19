@@ -100,8 +100,8 @@ describe('Pie tab host isolation', () => {
 
     const wrapper = document.getElementById('pieHotWrapper');
     expect(wrapper).toBeTruthy();
-    expect(wrapper.querySelectorAll('.data-view-host__table').length).toBe(1);
-    expect(wrapper.querySelectorAll('[id=\"pieHot\"]').length).toBe(1);
+    expect(wrapper.querySelectorAll(':scope > [id=\"pieHot\"]').length).toBe(1);
+    expect(document.querySelectorAll('#pieHotWrapper [id=\"pieHot\"]').length).toBe(1);
   });
 
   test('reinitializing pie does not stack import file-picker handlers', async () => {

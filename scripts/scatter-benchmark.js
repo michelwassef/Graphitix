@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -76,7 +75,9 @@ async function waitForServer(url, timeoutMs = 90000) {
       return true;
     } catch (err) {
       lastErr = err;
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(resolve => {
+        setTimeout(resolve, 300);
+      });
     }
   }
   throw new Error(`Server not ready at ${url}: ${lastErr ? lastErr.message : 'unknown error'}`);

@@ -118,6 +118,61 @@ describe('session.assignTabPayload null-overwrite guard', () => {
     expect(tab.payload.data).toEqual([['Lib1', 'Lib2'], [180, 109], [337, 204]]);
   });
 
+  test('render-cache capture always restores live DOM when cache normalization fails', () => {
+    const tab = createTabWithPayload();
+    tab.loadedFromArchive = true;
+    tab.userModified = false;
+    tab.payloadDirty = false;
+    session.workspaceState.activeTabId = tab.id;
+    const captured = {};
+    Object.defineProperty(captured, '__graphitixRenderCache', {
+      configurable: true,
+      get() {
+        throw new Error('synthetic cache normalization failure');
+      }
+    });
+    const restoreRenderCache = jest.fn(() => true);
+    window.Main.components = {
+      registry: {
+        box: {
+          getPayload: jest.fn(() => tab.payload),
+          captureRenderCache: jest.fn(() => captured),
+          restoreRenderCache
+        }
+      }
+    };
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => session.persistActiveTabState(tab, {
+        reason: 'archive-save-cache-safety',
+        origin: 'lifecycle',
+        captureRenderCache: true,
+        snapshotIntent: {
+          captureLivePayload: false,
+          skipLivePayloadCapture: true,
+          allowSkipLivePayloadCapture: true,
+          lifecycleSnapshot: true,
+          reasonSkippable: true
+        }
+      })).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        'persistActiveTabState render cache error',
+        expect.objectContaining({ tabId: tab.id, type: tab.type })
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+
+    expect(window.Main.components.registry.box.captureRenderCache).toHaveBeenCalledTimes(1);
+    expect(restoreRenderCache).toHaveBeenCalledWith(captured, expect.objectContaining({
+      tabId: tab.id,
+      restoreLiveAfterCapture: true,
+      skipStateMutation: true
+    }));
+    expect(tab.renderCache).toBeNull();
+  });
+
   test('dirty loaded tab flushes live payload once, then clears payloadDirty', () => {
     const tab = createTabWithPayload();
     tab.loadedFromArchive = true;

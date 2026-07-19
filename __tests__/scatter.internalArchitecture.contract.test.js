@@ -113,13 +113,13 @@ describe('Scatter internal architecture contract', () => {
   });
 
   test('axis-title editing uses one canonical table-header write', () => {
-    const update = functionSource(scatter, 'updateScatterAxisHeader');
+    const update = functionSource(scatter, 'syncScatterAxisHeader');
     const textLayer = functionSource(scatter, 'renderScatter2dTextLayers');
     expect(update).toBeTruthy();
     expect(textLayer).toBeTruthy();
     expect((update.match(/\.setDataAtCell\s*\(/g) || [])).toHaveLength(1);
     expect(update).not.toMatch(/\.setData\s*\(|\.updateSettings\s*\(|gridApi\.setRowData/);
-    expect(textLayer).toContain('updateScatterAxisHeader(axis, nextValue');
+    expect(textLayer).toContain('syncScatterAxisHeader(axis, nextValue');
     expect(scatter).not.toContain('IMMEDIATE DEBUG');
     expect(scatter).not.toContain('Try multiple approaches');
     expect(scatter).not.toContain('JSON.parse(JSON.stringify(currentData))');

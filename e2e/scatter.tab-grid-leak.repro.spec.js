@@ -10,10 +10,19 @@ async function activateTabById(page, tabId) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible();
   await tab.click({ force: true });
-  await page.waitForTimeout(350);
+  await expect(tab).toHaveClass(/workspace-tab--active/);
+  await page.waitForFunction((expectedTabId) => {
+    const active = document.querySelector('#workspaceTabsList .workspace-tab.workspace-tab--active');
+    if(String(active?.getAttribute('data-tab-id') || '') !== String(expectedTabId)){
+      return false;
+    }
+    const pageRoot = document.querySelector('#scatterPage:not([hidden])');
+    const hot = pageRoot?.querySelector('#scatterHot');
+    return !!(pageRoot && hot && hot.querySelector('.ag-root-wrapper, .ag-root'));
+  }, tabId);
 }
 
-test('repro: scatter two-tab AG-grid container/mount drift', async ({ page }, testInfo) => {
+test('scatter two-tab AG Grid mounts remain owner-scoped across tab switches', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const issues = registerIssueCollectors(page);
   const logs = [];
@@ -51,7 +60,7 @@ test('repro: scatter two-tab AG-grid container/mount drift', async ({ page }, te
     const emptyBtn = page.locator('#duplicateEmpty');
     if (await emptyBtn.isVisible()) {
       await emptyBtn.click({ force: true });
-      await page.waitForTimeout(250);
+      await expect(duplicatePrompt).toBeHidden();
     }
   }
   // Fallback if graph selection grid is still visible after add-tab flow.
@@ -119,7 +128,13 @@ test('repro: scatter two-tab AG-grid container/mount drift', async ({ page }, te
     contentType: 'application/json'
   });
 
-  // This spec is for reproduction/evidence: assert baseline sanity only.
   expect(issues.critical).toEqual([]);
-  expect(snapshots.some(s => s.hasHot === false || s.hasGridRoot === false)).toBeTruthy();
+  expect(snapshots).toHaveLength(4);
+  snapshots.forEach(snapshot => {
+    expect(snapshot.hasPageRoot, `${snapshot.stepLabel}: active Scatter page`).toBe(true);
+    expect(snapshot.hasHot, `${snapshot.stepLabel}: owner-scoped table host`).toBe(true);
+    expect(snapshot.hasWrapper, `${snapshot.stepLabel}: owner-scoped table wrapper`).toBe(true);
+    expect(snapshot.hasGridRoot, `${snapshot.stepLabel}: AG Grid root`).toBe(true);
+    expect(Number.isFinite(snapshot.deltaTop), `${snapshot.stepLabel}: table geometry`).toBe(true);
+  });
 });

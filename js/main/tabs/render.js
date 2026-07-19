@@ -15,6 +15,7 @@
       ? options.applyTabDragClasses
       : () => {};
     const dragHandlers = options.dragHandlers || {};
+    let overflowObserver = null;
 
     if (!dom || !workspaceState || !session || typeof getTabById !== 'function') {
       const details = {
@@ -168,6 +169,19 @@
         return false;
       }
       return triggerTabRename(tab, event, { reason: 'synthetic-double-click', source: 'click-handler' });
+    }
+
+    function syncTabOverflowState() {
+      const hasOverflow = !!dom.tabsList && dom.tabsList.scrollWidth > dom.tabsList.clientWidth;
+      document.documentElement.classList.toggle('workspace-tabs-overflow', hasOverflow);
+    }
+
+    function ensureTabOverflowObserver() {
+      if (overflowObserver || !dom.tabsList || typeof ResizeObserver !== 'function') {
+        return;
+      }
+      overflowObserver = new ResizeObserver(syncTabOverflowState);
+      overflowObserver.observe(dom.tabsList);
     }
 
     function renderTabs() {
@@ -356,6 +370,8 @@
         }
       });
       applyTabDragClasses();
+      syncTabOverflowState();
+      ensureTabOverflowObserver();
     }
 
     return {

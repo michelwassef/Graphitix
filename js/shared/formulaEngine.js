@@ -748,9 +748,9 @@
       }
       for(let i = 0; i < changed.length; i += 1){
         const key = changed[i];
-        const [rowStr, colStr] = key.split(':');
+        const [rowStr] = key.split(':');
         const row = Number(rowStr);
-        const col = Number(colStr);
+
         const value = raw.get(key);
         if(row >= headerRows && isFormulaValue(value)){
           const parsed = parseFormula(value);

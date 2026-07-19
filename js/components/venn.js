@@ -365,7 +365,7 @@
     return null;
   }
 
-  function syncVennAspectControls(reason) {
+  function syncVennAspectControls(reason, options = {}) {
     if (vennAspectSyncing) {
       return;
     }
@@ -379,9 +379,6 @@
       }
       const lockLabel = lockRatioCheckbox.closest('label');
       if (enforceLockRatio) {
-        if (getVennLockRatioPrevious() === null) {
-          setVennLockRatioPrevious(!!lockRatioCheckbox.checked);
-        }
         if (!lockRatioCheckbox.checked) {
           lockRatioCheckbox.checked = true;
           lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
@@ -400,10 +397,19 @@
           delete lockLabel.__vennOriginalTitle;
         }
         const restoreValue = getVennLockRatioPrevious();
-        const savedAspectLock = getVennSavedAspectLockPreference();
-        const targetValue = savedAspectLock !== null ? savedAspectLock : restoreValue;
-        if (targetValue !== null) {
-          setVennLockRatioPrevious(null);
+        const savedAspectLock = options.restoreSavedPreference === true
+          ? getVennSavedAspectLockPreference()
+          : null;
+        const shouldProjectPreference = restoreValue !== null
+          || savedAspectLock !== null
+          || options.applyUpSetDefault === true;
+        if (shouldProjectPreference) {
+          const targetValue = restoreValue !== null
+            ? restoreValue
+            : (savedAspectLock !== null ? savedAspectLock : false);
+          if (restoreValue !== null) {
+            setVennLockRatioPrevious(null);
+          }
           if (lockRatioCheckbox.checked !== targetValue) {
             lockRatioCheckbox.checked = targetValue;
             lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
@@ -441,7 +447,9 @@
 
   function syncPlotMode(nextType, options = {}) {
     const normalized = normalizePlotType(nextType);
-    const page = getVennNodeById('vennPage');
+    const page = state.ui?.root || resolveVennRoot(getVennProjectionTabId() || null);
+    const previous = normalizePlotType(page?.dataset?.plot || DEFAULT_PLOT_TYPE);
+    const modeChanged = previous !== normalized;
     if (page && page.dataset) {
       page.dataset.plot = normalized;
     }
@@ -458,10 +466,15 @@
         debugLog('plot type title swap', { plot: normalized });
       }
     }
+    syncVennAspectControls('plot-mode-sync', {
+      restoreSavedPreference: options.restoreAspectLock === true,
+      applyUpSetDefault: normalized === 'upset'
+        && modeChanged
+        && options.restoreAspectLock !== true
+    });
     if (options.syncPanels && typeof state.ui?.syncPanels === 'function') {
       state.ui.syncPanels({ skipSchedule: true });
     }
-    syncVennAspectControls('plot-mode-sync');
     debugLog('plot mode synced', { plot: normalized });
     return normalized;
   }
@@ -1336,6 +1349,8 @@
       cache: {
         emptyPayloadTemplate: null,
         parsedDerivedCache: null,
+        upsetRenderModel: null,
+        upsetTextMeasurements: new Map(),
         asyncRequests: {
           go: null,
           string: null
@@ -1372,6 +1387,10 @@
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'emptyPayloadTemplate')){ session.cache.emptyPayloadTemplate = null; }
     if(!Object.prototype.hasOwnProperty.call(session.cache, 'parsedDerivedCache')){ session.cache.parsedDerivedCache = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.cache, 'upsetRenderModel')){ session.cache.upsetRenderModel = null; }
+    session.cache.upsetTextMeasurements = session.cache.upsetTextMeasurements instanceof Map
+      ? session.cache.upsetTextMeasurements
+      : new Map();
     if(!session.cache.asyncRequests || typeof session.cache.asyncRequests !== 'object'){
       session.cache.asyncRequests = { go: null, string: null, species: null };
     }
@@ -1622,53 +1641,97 @@
     return shaped;
   }
 
-  function sanitizeVennScheduleValue(value, depth = 0){
-    if(value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'){
+  const VENN_DRAW_OPTION_LIVE_KEYS = new Set([
+    'tab', 'event', 'target', 'currentTarget', 'srcElement', 'ownerDocument',
+    'session', 'root', 'hot', 'hotInstance', 'manager', 'dataViews', 'scheduler'
+  ]);
+
+  function isVennSerializableRecord(value){
+    if(!value || typeof value !== 'object'){
+      return false;
+    }
+    const tag = Object.prototype.toString.call(value);
+    return tag === '[object Object]';
+  }
+
+  function sanitizeVennDrawValue(value, seen = new WeakSet(), depth = 0){
+    if(value == null){
       return value;
     }
-    if(depth > 4){
+    const type = typeof value;
+    if(type === 'string' || type === 'boolean'){
+      return value;
+    }
+    if(type === 'number'){
+      return Number.isFinite(value) ? value : undefined;
+    }
+    if(type === 'bigint'){
+      return value.toString();
+    }
+    if(type === 'function' || type === 'symbol' || type === 'undefined' || depth > 8){
       return undefined;
     }
-    if(typeof value === 'function'){
+    if(typeof value.nodeType === 'number'
+      || typeof value.addEventListener === 'function'
+      || typeof value.preventDefault === 'function'
+      || typeof value.stopPropagation === 'function'
+      || value.window === value
+      || value.document === value
+      || value.ownerDocument){
       return undefined;
     }
-    if(value && typeof value === 'object'){
-      if(value.nodeType || value.currentTarget || value.target || value.componentKey || value.refs || value.managers){
-        return undefined;
-      }
-      if(Array.isArray(value)){
-        const arr = value
-          .map(item => sanitizeVennScheduleValue(item, depth + 1))
-          .filter(item => item !== undefined);
-        return arr.length ? arr : undefined;
-      }
-      const proto = Object.getPrototypeOf(value);
-      if(proto !== Object.prototype && proto !== null){
-        return undefined;
-      }
-      const out = {};
-      Object.keys(value).forEach(key => {
-        const sanitized = sanitizeVennScheduleValue(value[key], depth + 1);
-        if(sanitized !== undefined){
-          out[key] = sanitized;
-        }
-      });
-      return Object.keys(out).length ? out : undefined;
+    if(seen.has(value)){
+      return undefined;
     }
-    return undefined;
+    seen.add(value);
+    if(Array.isArray(value)){
+      const sanitizedArray = value
+        .map(item => sanitizeVennDrawValue(item, seen, depth + 1))
+        .filter(item => item !== undefined);
+      seen.delete(value);
+      return sanitizedArray;
+    }
+    if(!isVennSerializableRecord(value)){
+      seen.delete(value);
+      return undefined;
+    }
+    const sanitizedRecord = {};
+    Object.keys(value).forEach(key => {
+      if(VENN_DRAW_OPTION_LIVE_KEYS.has(key)){
+        return;
+      }
+      const sanitized = sanitizeVennDrawValue(value[key], seen, depth + 1);
+      if(sanitized !== undefined){
+        sanitizedRecord[key] = sanitized;
+      }
+    });
+    seen.delete(value);
+    return sanitizedRecord;
   }
 
   function sanitizeVennScheduleOptions(options = {}, session = null){
     const source = options && typeof options === 'object' ? options : {};
-    const sanitized = {};
-    Object.keys(source).forEach(key => {
-      const value = sanitizeVennScheduleValue(source[key], 0);
-      if(value !== undefined){
-        sanitized[key] = value;
-      }
-    });
-    sanitized.tabId = String(session?.tabId || source.tabId || '').trim() || undefined;
-    sanitized.reason = String(source.reason || sanitized.reason || 'venn-session-draw');
+    const owner = {
+      tabId: session?.tabId || source.tabId || null,
+      sessionGeneration: session?.generation || session?.sessionGeneration || null,
+      reason: source.reason || 'venn-session-draw'
+    };
+    const sharedSanitized = Shared.componentLifecycle?.sanitizeComponentDrawOptions?.('venn', source, owner);
+    const sanitized = sharedSanitized && typeof sharedSanitized === 'object'
+      ? sharedSanitized
+      : (sanitizeVennDrawValue(source) || {});
+    const tabId = String(owner.tabId || '').trim();
+    if(tabId){
+      sanitized.tabId = tabId;
+    }else{
+      delete sanitized.tabId;
+    }
+    delete sanitized.workspaceTabId;
+    const generation = Number(owner.sessionGeneration);
+    if(Number.isFinite(generation) && generation > 0){
+      sanitized.sessionGeneration = generation;
+    }
+    sanitized.reason = String(owner.reason || 'venn-session-draw').trim() || 'venn-session-draw';
     return sanitized;
   }
 
@@ -2533,49 +2596,13 @@
     return next;
   }
 
-  function normalizeVennSet(value){
-    if(value instanceof Set){
-      return value;
-    }
-    if(Array.isArray(value)){
-      return new Set(value.map(item => String(item || '').trim()).filter(Boolean));
-    }
-    if(value && typeof value === 'object' && Array.isArray(value.values)){
-      return new Set(value.values.map(item => String(item || '').trim()).filter(Boolean));
-    }
-    return new Set();
-  }
 
-  function normalizeVennRegionSetMap(value){
-    if(!value || typeof value !== 'object'){
-      return null;
-    }
-    const next = {};
-    Object.keys(value).forEach(key => {
-      next[key] = normalizeVennSet(value[key]);
-    });
-    return next;
-  }
 
-  function normalizeVennRegions(value){
-    const normalized = normalizeVennRegionSetMap(value);
-    if(!normalized){
-      return null;
-    }
-    ['A','B','C','Aonly','Bonly','Conly','AB','AC','BC','ABC'].forEach(key => {
-      if(!(normalized[key] instanceof Set)){
-        normalized[key] = new Set();
-      }
-    });
-    return normalized;
-  }
 
-  function normalizeVennIntersections(value){
-    return Array.isArray(value) ? value.map(entry => ({
-      ...entry,
-      items: Array.isArray(entry?.items) ? entry.items.map(item => String(item || '').trim()).filter(Boolean) : []
-    })) : null;
-  }
+
+
+
+
 
   function resetVennRuntimeState(){
     cancelPendingSpeciesDetection('runtime-reset', { abortActive: true, resetIndicator: false });
@@ -3587,22 +3614,25 @@
     return true;
   }
 
-  const markFontEditable = (node, role, key) => {
+  const markFontEditable = (node, role, key, options = {}) => {
     if(!node){ return; }
     const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
-    if(fontControls && typeof fontControls.markText === 'function'){
+    if(options.register !== false && fontControls && typeof fontControls.markText === 'function'){
       fontControls.markText(node, { scopeId: 'venn', role, key });
     } else if(node.dataset){
       node.dataset.fontEditable = '1';
       node.dataset.fontScope = 'venn';
       if(role){ node.dataset.fontRole = role; }
       if(key || role){ node.dataset.fontKey = key || role; }
+      if(fontControls && typeof fontControls.applySavedStyle === 'function'){
+        fontControls.applySavedStyle(node);
+      }
     }
     if(role && role.indexOf('region') !== -1){ return; }
     debugLog('font mark applied', payload);
   };
 
-  function ensureUpSetFontBindings(stage) {
+  function ensureUpSetFontBindings(stage, options = {}) {
     if (!stage) return;
     const textNodes = Array.from(stage.querySelectorAll('text'));
     let boundCount = 0;
@@ -3612,7 +3642,7 @@
       const key = node.dataset?.fontKey || `upset-text-${idx + 1}`;
       const needsBinding = node.dataset?.fontEditable !== '1' || !node.dataset?.fontKey;
       if (needsBinding) {
-        markFontEditable(node, role, key);
+        markFontEditable(node, role, key, options);
         boundCount += 1;
       }
     });
@@ -3622,9 +3652,11 @@
     });
   }
 
+  let activeVennRenderParent = null;
+
   function makeEl(tag, attrs = {}, parent) {
     const stage = state.ui.stage;
-    if (!parent) parent = stage;
+    if (!parent) parent = activeVennRenderParent || stage;
     const el = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) {
       el.setAttribute(k, String(v));
@@ -6794,7 +6826,7 @@
       state.ui.significanceResults.textContent = 'Please enter a valid total gene count.';
       return;
     }
-    const inputs = ensureInputs();
+    ensureInputs();
     const labels = getCurrentVennLabelMap();
     const statsHelpers = Shared.stats || {};
     const significanceCache = getSignificanceCache();
@@ -7409,22 +7441,18 @@
     exporter.downloadBlob(blob, 'string_network.svg', 'string-export');
   }
 
-  function configureStage(style) {
-    clearSVG();
+  function configureStage(style, options = {}) {
+    if (options.preserveContent !== true) {
+      clearSVG();
+    }
     hideVennEmptyPlotNotice();
     const stage = state.ui.stage;
     if (!stage) return null;
-    if (typeof chartStyle.applySvgDefaults === 'function') {
-      chartStyle.applySvgDefaults(stage);
+    if (typeof chartStyle.prepareSvg === 'function') {
+      chartStyle.prepareSvg(stage, { scopeId: 'venn' });
     }
     if(stage?.dataset){
       stage.dataset.fontScope = 'venn';
-    }
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
-      fontControls.enableForSvg(stage, { scopeId: 'venn' });
-      debugLog('fontControls enableForSvg invoked', { width: stage.getAttribute('width'), height: stage.getAttribute('height') });
-    } else {
-      debugLog('fontControls enableForSvg missing', { hasFontControls: !!fontControls });
     }
     const svgBox = state.ui.svgBox || stage.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
     if (!state.ui.svgBox && svgBox) {
@@ -7507,7 +7535,7 @@
     };
   }
 
-  function renderPlotTitle({ stageWidth, stageHeight, fontFamily, textColor, fontSizePx, defaultText }) {
+  function renderPlotTitle({ stageWidth, stageHeight, fontFamily, textColor, fontSizePx, defaultText, interactive = true }) {
     const titlePadding = Math.max(fontSizePx * 2, 28);
     const defaultTitleX = stageWidth / 2;
     const defaultTitleY = Math.max(fontSizePx * 1.6, titlePadding * 0.55);
@@ -7533,7 +7561,7 @@
     });
     const fallback = defaultText || DEFAULT_VENN_TITLE;
     titleText.textContent = state.titleText != null ? String(state.titleText) : fallback;
-    markFontEditable(titleText, 'graphTitle', 'graphTitle');
+    markFontEditable(titleText, 'graphTitle', 'graphTitle', { register: interactive });
     const applyTitle = value => {
       const nextValue = value != null ? String(value) : '';
       patchVennVisualState(getVennProjectionSession({ reason: 'venn-projection-mutation' }), { titleText: nextValue }, { reason: 'venn-title-edit' });
@@ -7542,16 +7570,18 @@
       }
       scheduleActiveVennDraw({ reason: 'venn-title-edit' });
     };
-    makeEditable(titleText, txt => {
-      const previousValue = state.titleText != null ? String(state.titleText) : '';
-      const nextValue = txt != null ? String(txt) : '';
-      if(previousValue === nextValue){
-        return;
-      }
-      applyTitle(nextValue);
-      recordVennTitleChange(previousValue, nextValue, applyTitle);
-    });
-    if(typeof Shared.enableLabelDrag === 'function'){
+    if(interactive){
+      makeEditable(titleText, txt => {
+        const previousValue = state.titleText != null ? String(state.titleText) : '';
+        const nextValue = txt != null ? String(txt) : '';
+        if(previousValue === nextValue){
+          return;
+        }
+        applyTitle(nextValue);
+        recordVennTitleChange(previousValue, nextValue, applyTitle);
+      });
+    }
+    if(interactive && typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(titleText, state.ui.stage, {
         onDragEnd: pos => {
           const relX = pos.x / stageWidth;
@@ -7572,7 +7602,7 @@
   function fitAndDraw(d, style, labels, counts) {
     const metrics = configureStage(style);
     if (!metrics) return;
-    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, defaultWidth, defaultHeight, fontFamily, textColor } = metrics;
+    const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, fontFamily, textColor } = metrics;
     const { titlePadding } = renderPlotTitle({
       stageWidth,
       stageHeight,
@@ -7827,11 +7857,13 @@
         syncActiveVennPayload('venn-region-hit');
       }
     }, 'venn-region-hit');
-    ensureGraphViewport(stage, {
+    const viewportOptions = {
       padding: Math.max(style.fontSizePx || 12, 20),
       debugLabel: 'venn-diagram',
-      preserveAspectRatio: 'xMidYMid meet'
-    });
+      preserveAspectRatio: 'xMidYMid meet',
+      remeasure: false
+    };
+    ensureGraphViewport(stage, viewportOptions);
     stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
       chartStyle.applyTextAspectCorrection({
@@ -7843,6 +7875,7 @@
         displayHeight: svgBoxRect?.height,
         debugLabel: 'venn-text-correction'
       });
+      ensureGraphViewport(stage, viewportOptions);
     }
   }
 
@@ -8034,6 +8067,59 @@
     return intersections;
   }
 
+  function getUpSetRuntimeCache() {
+    const session = ensureVennSessionOwnershipShape(getActiveVennSessionForState());
+    return session?.cache || null;
+  }
+
+  function isCompleteUpSetRenderModel(model) {
+    return !!model
+      && Array.isArray(model.sets)
+      && model.sets.length > 0
+      && model.sets.every(set => Number.isFinite(set?.size))
+      && Array.isArray(model.intersections)
+      && model.intersections.every(entry => (
+        Number.isFinite(entry?.size)
+        && Array.isArray(entry?.sets)
+      ));
+  }
+
+  function getCachedUpSetRenderModel() {
+    const model = getUpSetRuntimeCache()?.upsetRenderModel || null;
+    return isCompleteUpSetRenderModel(model) ? model : null;
+  }
+
+  function rememberUpSetRenderModel(sets, intersections) {
+    const cache = getUpSetRuntimeCache();
+    if (!cache) return;
+    const model = {
+      sets: Array.isArray(sets) ? sets.slice() : [],
+      intersections: Array.isArray(intersections) ? intersections.slice() : [],
+      needsIntersectionBuild: false
+    };
+    cache.upsetRenderModel = isCompleteUpSetRenderModel(model) ? model : null;
+  }
+
+  function measureUpSetText(text, font, fallbackFontSize) {
+    const value = String(text || '');
+    const cache = getUpSetRuntimeCache()?.upsetTextMeasurements || null;
+    const key = `${font}\u0000${value}`;
+    if (cache?.has(key)) {
+      return cache.get(key);
+    }
+    const measured = typeof chartStyle.measureText === 'function'
+      ? chartStyle.measureText(value, font)
+      : value.length * fallbackFontSize * 0.6;
+    const width = Number.isFinite(measured) ? measured : value.length * fallbackFontSize * 0.6;
+    if (cache) {
+      if (cache.size >= 256) {
+        cache.delete(cache.keys().next().value);
+      }
+      cache.set(key, width);
+    }
+    return width;
+  }
+
   function resolveUpSetTableData(parsed, labels, style) {
     const caseSensitive = parsed?.caseSensitive === true
       || (state.ui.inputs?.caseSensitive?.checked === true);
@@ -8057,9 +8143,32 @@
   }
 
   function drawUpSet(counts, labels, style, options = {}) {
-    const metrics = configureStage(style);
+    const drawOptions = options?.drawOptions || {};
+    const resizePreview = drawOptions?.resizePhase === 'move';
+    const metrics = configureStage(style, { preserveContent: true });
     if (!metrics) return;
     const { stage, svgBox, svgBoxRect, stageWidth, stageHeight, defaultWidth, defaultHeight, fontFamily, textColor } = metrics;
+    const previousRenderParent = activeVennRenderParent;
+    const renderGroup = document.createElementNS(NS, 'g');
+    renderGroup.dataset.upsetStagedFrame = 'true';
+    renderGroup.style.visibility = 'hidden';
+    renderGroup.style.pointerEvents = 'none';
+    stage.appendChild(renderGroup);
+    activeVennRenderParent = renderGroup;
+    let frameCommitted = false;
+    const commitUpSetFrame = () => {
+      if (frameCommitted) return;
+      Array.from(stage.childNodes || []).forEach(node => {
+        if (node !== renderGroup && node.parentNode === stage) {
+          stage.removeChild(node);
+        }
+      });
+      delete renderGroup.dataset.upsetStagedFrame;
+      renderGroup.style.removeProperty('visibility');
+      renderGroup.style.removeProperty('pointer-events');
+      frameCommitted = true;
+    };
+    try {
     stage.onclick = null;
     const { titlePadding } = renderPlotTitle({
       stageWidth,
@@ -8067,7 +8176,8 @@
       fontFamily,
       textColor,
       fontSizePx: style.fontSizePx,
-      defaultText: DEFAULT_UPSET_TITLE
+      defaultText: DEFAULT_UPSET_TITLE,
+      interactive: !resizePreview
     });
     const topPadding = Math.max(titlePadding, style.fontSizePx * 2.6 + 8);
 
@@ -8093,13 +8203,18 @@
       }
       allIntersections = buildUpSetIntersectionsFromCounts(counts, hasC);
     }
+    if (!resizePreview) {
+      rememberUpSetRenderModel(sets, allIntersections);
+    }
     let intersections = allIntersections.slice();
     if (!(upsetData && upsetData.needsIntersectionBuild) && !settings.showEmpty) {
       intersections = allIntersections.filter(entry => entry.size > 0);
     }
 
     if (!intersections.length) {
-      updateUpSetRegionContext(sets, [], '');
+      if (!resizePreview) {
+        updateUpSetRegionContext(sets, [], '');
+      }
       const emptyText = makeEl('text', {
         x: stageWidth / 2,
         y: stageHeight / 2,
@@ -8108,10 +8223,13 @@
         fill: textColor
       });
       emptyText.textContent = 'No intersections to display';
+      commitUpSetFrame();
       ensureUpSetFontBindings(stage);
       ensureGraphViewport(stage, {
-        padding: Math.max(style.fontSizePx || 12, 20),
+        padding: 0,
         debugLabel: 'upset-empty',
+        baseViewport: { width: stageWidth, height: stageHeight },
+        remeasure: false,
         preserveAspectRatio: 'xMidYMid meet'
       });
       stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -8148,7 +8266,9 @@
       }
     }
     intersections = limited;
-    updateUpSetRegionContext(sets, intersections, preferredRegionCode);
+    if (!resizePreview) {
+      updateUpSetRegionContext(sets, intersections, preferredRegionCode);
+    }
     const regionOptions = regionSelect
       ? new Set(Array.from(regionSelect.options || []).map(option => option.value))
       : null;
@@ -8197,12 +8317,7 @@
     const valueLabelFontSize = Math.max(9, Math.round(style.fontSizePx * 0.9));
     const labelFont = `${setLabelFontSize}px ${fontFamily}`;
     const countFont = `${axisTickFontSize}px ${fontFamily}`;
-    const measure = (text, font) => {
-      if (typeof chartStyle.measureText === 'function') {
-        return chartStyle.measureText(text || '', font);
-      }
-      return (text || '').length * style.fontSizePx * 0.6;
-    };
+    const measure = (text, font) => measureUpSetText(text, font, style.fontSizePx);
     const maxLabelWidth = Math.max(...sets.map(set => measure(set.label, labelFont)), 0);
     let labelAreaWidth = Math.min(Math.max(maxLabelWidth + 8, 50), contentWidth * 0.35);
     const maxSetSize = Math.max(...sets.map(set => set.size), 0);
@@ -8259,7 +8374,7 @@
     const activeMarkOpacity = clampNumber(style.opacity, 1, 0.05, 1);
     const barBorderColor = sanitizeColor(style.borderColor, axisColor);
     const barBorderWidth = clampNumber(style.borderWidth, Math.max(0.5, axisWidth * 0.75), 0);
-    const barStroke = barBorderWidth > 0 ? barBorderColor : 'none';
+
     const setTickFontSize = axisTickFontSize;
     const setAxisLabelFontSize = axisLabelFontSize;
     const setTickBaselineDy = '0.8em';
@@ -8475,43 +8590,45 @@
       const entryLabel = entry.label || entry.code;
       barTitle.textContent = `${entryLabel}: ${formatCount(entry.size)}`;
       bar.appendChild(barTitle);
-      if (canSelectEntry) {
-        bar.addEventListener('click', (event) => {
-          if (event && typeof event.stopPropagation === 'function') {
-            event.stopPropagation();
-          }
-          if (state.ui.regionSelect) {
-            state.ui.regionSelect.value = entry.code;
-            populateRegion(entry.code);
-            syncActiveVennPayload('venn-upset-select');
-          }
-          showUpSetTraceSymbolToolbar(bar, {
-            kind: 'intersectionBars',
-            traceId: entry.code,
-            fallback: {
-              fill: settings.barColor,
-              borderColor: barBorderColor,
-              borderWidth: barBorderWidth,
-              opacity: style.opacity
+      if (!resizePreview) {
+        if (canSelectEntry) {
+          bar.addEventListener('click', (event) => {
+            if (event && typeof event.stopPropagation === 'function') {
+              event.stopPropagation();
             }
-          });
-        });
-      } else {
-        bar.addEventListener('click', (event) => {
-          if (event && typeof event.stopPropagation === 'function') {
-            event.stopPropagation();
-          }
-          showUpSetTraceSymbolToolbar(bar, {
-            kind: 'intersectionBars',
-            traceId: entry.code,
-            fallback: {
-              fill: settings.barColor,
-              borderColor: barBorderColor,
-              borderWidth: barBorderWidth,
-              opacity: style.opacity
+            if (state.ui.regionSelect) {
+              state.ui.regionSelect.value = entry.code;
+              populateRegion(entry.code);
+              syncActiveVennPayload('venn-upset-select');
             }
+            showUpSetTraceSymbolToolbar(bar, {
+              kind: 'intersectionBars',
+              traceId: entry.code,
+              fallback: {
+                fill: settings.barColor,
+                borderColor: barBorderColor,
+                borderWidth: barBorderWidth,
+                opacity: style.opacity
+              }
+            });
           });
-        });
+        } else {
+          bar.addEventListener('click', (event) => {
+            if (event && typeof event.stopPropagation === 'function') {
+              event.stopPropagation();
+            }
+            showUpSetTraceSymbolToolbar(bar, {
+              kind: 'intersectionBars',
+              traceId: entry.code,
+              fallback: {
+                fill: settings.barColor,
+                borderColor: barBorderColor,
+                borderWidth: barBorderWidth,
+                opacity: style.opacity
+              }
+            });
+          });
+        }
       }
       if (settings.showCounts) {
         const valueText = makeEl('text', {
@@ -8563,27 +8680,29 @@
           'data-upset-trace-kind': 'matrix',
           'data-upset-trace-id': entry.code
         });
-        activeGroup.addEventListener('click', (event) => {
-          if (event && typeof event.stopPropagation === 'function') {
-            event.stopPropagation();
-          }
-          if (canSelectEntry && state.ui.regionSelect) {
-            state.ui.regionSelect.value = entry.code;
-            populateRegion(entry.code);
-            syncActiveVennPayload('venn-upset-select');
-          }
-          showUpSetTraceSymbolToolbar(activeGroup, {
-            kind: 'matrix',
-            traceId: entry.code,
-            fallback: {
-              fill: activeColor,
-              borderColor: activeColor,
-              borderWidth: 0,
-              opacity: activeMarkOpacity,
-              size: settings.dotSize
+        if (!resizePreview) {
+          activeGroup.addEventListener('click', (event) => {
+            if (event && typeof event.stopPropagation === 'function') {
+              event.stopPropagation();
             }
+            if (canSelectEntry && state.ui.regionSelect) {
+              state.ui.regionSelect.value = entry.code;
+              populateRegion(entry.code);
+              syncActiveVennPayload('venn-upset-select');
+            }
+            showUpSetTraceSymbolToolbar(activeGroup, {
+              kind: 'matrix',
+              traceId: entry.code,
+              fallback: {
+                fill: activeColor,
+                borderColor: activeColor,
+                borderWidth: 0,
+                opacity: activeMarkOpacity,
+                size: settings.dotSize
+              }
+            });
           });
-        });
+        }
 
         if (activeIndices.length > 1) {
           const y1 = matrixTop + activeIndices[0] * rowHeight + rowHeight / 2;
@@ -8657,21 +8776,23 @@
         'data-upset-trace-kind': 'setBars',
         'data-upset-trace-id': set.key
       });
-      setBar.addEventListener('click', (event) => {
-        if (event && typeof event.stopPropagation === 'function') {
-          event.stopPropagation();
-        }
-        showUpSetTraceSymbolToolbar(setBar, {
-          kind: 'setBars',
-          traceId: set.key,
-          fallback: {
-            fill: barFill,
-            borderColor: barBorderColor,
-            borderWidth: barBorderWidth,
-            opacity: style.opacity
+      if (!resizePreview) {
+        setBar.addEventListener('click', (event) => {
+          if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
           }
+          showUpSetTraceSymbolToolbar(setBar, {
+            kind: 'setBars',
+            traceId: set.key,
+            fallback: {
+              fill: barFill,
+              borderColor: barBorderColor,
+              borderWidth: barBorderWidth,
+              opacity: style.opacity
+            }
+          });
         });
-      });
+      }
       if (settings.showSetCounts) {
         const valueText = makeEl('text', {
           x: barX - 6,
@@ -8731,7 +8852,7 @@
     // Keep intersection axes in the foreground so bars/dots never hide them.
     const yAxisLine = makeEl('line', yAxisLineAttrs);
     const xAxisLine = makeEl('line', xAxisLineAttrs);
-    if (axisControls && typeof axisControls.registerAxisElement === 'function') {
+    if (!resizePreview && axisControls && typeof axisControls.registerAxisElement === 'function') {
       axisControls.registerAxisElement(yAxisLine, createUpSetAxisControlConfig('y'));
       axisControls.registerAxisElement(xAxisLine, createUpSetAxisControlConfig('x'));
     }
@@ -8741,12 +8862,16 @@
       axisWidth
     });
 
-    ensureUpSetFontBindings(stage);
-    ensureGraphViewport(stage, {
-      padding: Math.max(style.fontSizePx || 12, 20),
+    commitUpSetFrame();
+    ensureUpSetFontBindings(stage, { register: !resizePreview });
+    const viewportOptions = {
+      padding: 0,
       debugLabel: 'upset-plot',
-      preserveAspectRatio: 'xMidYMid meet'
-    });
+      baseViewport: { width: stageWidth, height: stageHeight },
+      preserveAspectRatio: 'xMidYMid meet',
+      remeasure: false
+    };
+    ensureGraphViewport(stage, viewportOptions);
     stage.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
       chartStyle.applyTextAspectCorrection({
@@ -8758,6 +8883,7 @@
         displayHeight: svgBoxRect?.height,
         debugLabel: 'upset-text-correction'
       });
+      ensureGraphViewport(stage, viewportOptions);
     }
     debugLog('drawUpSet complete', {
       intersections: intersections.length,
@@ -8765,9 +8891,16 @@
       maxIntersection,
       maxSetSize
     });
+    } finally {
+      activeVennRenderParent = previousRenderParent;
+      if (!frameCommitted && renderGroup.parentNode === stage) {
+        stage.removeChild(renderGroup);
+      }
+    }
   }
 
-  function drawFromLists() {
+  function drawFromLists(drawOptions = {}) {
+    const resizePreview = drawOptions?.resizePhase === 'move';
     const parsed = ensureParsedLists({ includeRegions: true, reason: 'drawFromLists' });
     const inputs = ensureInputs();
     if (!parsed || !parsed.lists || !parsed.maps) {
@@ -8787,18 +8920,20 @@
       AB: regions.AB.size, AC: regions.AC.size, BC: regions.BC.size, ABC: regions.ABC.size
     };
     state.analysis.lastCounts = counts;
-    const countsSignature = makeCountsSignature(counts);
-    const lastSig = state.analysis.lastSignificance;
-    const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
-    if (shouldClearSignificance) {
-      if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
-      state.analysis.lastSignificance = null;
-      state.analysis.significancePanelModel = null;
-      debugLog('significance invalidated after list draw', { countsSignature, hadPrevious: !!lastSig });
-    } else {
-      debugLog('significance preserved after list draw', { countsSignature });
+    if (!resizePreview) {
+      const countsSignature = makeCountsSignature(counts);
+      const lastSig = state.analysis.lastSignificance;
+      const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
+      if (shouldClearSignificance) {
+        if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+        state.analysis.lastSignificance = null;
+        state.analysis.significancePanelModel = null;
+        debugLog('significance invalidated after list draw', { countsSignature, hadPrevious: !!lastSig });
+      } else {
+        debugLog('significance preserved after list draw', { countsSignature });
+      }
+      refreshCounts(counts);
     }
-    refreshCounts(counts);
     const defaultStyle = createDefaultVennStyleState();
     const fontInputValue = getVennInputValue(inputs, 'fontsize', defaultStyle.fontsize);
     const fontInfo = resolveFontInfo(fontInputValue);
@@ -8825,18 +8960,23 @@
       fontScale: fontInfo?.scaleInfo?.styleScale,
       fontSizePx
     });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    if (!resizePreview) {
+      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    }
     const labels = getCurrentVennLabelMap();
     const plotType = getActivePlotType();
-    updateCountLabels(labels);
-    if (plotType !== 'upset') {
-      updateRegionSelect(labels, counts);
+    if (!resizePreview) {
+      updateCountLabels(labels);
+      if (plotType !== 'upset') {
+        updateRegionSelect(labels, counts);
+      }
+      updateColorLabels(labels);
     }
-    updateColorLabels(labels);
     if (plotType === 'upset') {
       style.upset = resolveUpSetSettings();
-      const upsetData = resolveUpSetTableData(parsed, labels, style);
-      drawUpSet(counts, labels, style, { upsetData });
+      const upsetData = (resizePreview && getCachedUpSetRenderModel())
+        || resolveUpSetTableData(parsed, labels, style);
+      drawUpSet(counts, labels, style, { upsetData, drawOptions });
     } else {
       ensureVennRegionOptions();
       state.analysis.lastUpSetRegionMap = null;
@@ -8845,12 +8985,15 @@
       const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
       fitAndDraw(L, style, labels, counts);
     }
-    if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
-    scheduleSpeciesRecognition('draw-from-lists');
+    if (!resizePreview) {
+      if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
+      scheduleSpeciesRecognition('draw-from-lists');
+    }
     debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts, cacheSignature: parsed.signature });
   }
 
-  function drawFromNumeric() {
+  function drawFromNumeric(drawOptions = {}) {
+    const resizePreview = drawOptions?.resizePhase === 'move';
     const inputs = ensureInputs();
     const nA = +inputs.counts.nA.value || 0, nB = +inputs.counts.nB.value || 0, nC = +inputs.counts.nC.value || 0;
     const nAB = +inputs.counts.nAB.value || 0, nAC = +inputs.counts.nAC.value || 0, nBC = +inputs.counts.nBC.value || 0, nABC = +inputs.counts.nABC.value || 0;
@@ -8867,18 +9010,20 @@
     };
     state.analysis.lastDrawMode = 'numeric';
     state.analysis.lastCounts = counts;
-    const countsSignature = makeCountsSignature(counts);
-    const lastSig = state.analysis.lastSignificance;
-    const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
-    if (shouldClearSignificance) {
-      if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
-      state.analysis.lastSignificance = null;
-      state.analysis.significancePanelModel = null;
-      debugLog('significance invalidated after numeric draw', { countsSignature, hadPrevious: !!lastSig });
-    } else {
-      debugLog('significance preserved after numeric draw', { countsSignature });
+    if (!resizePreview) {
+      const countsSignature = makeCountsSignature(counts);
+      const lastSig = state.analysis.lastSignificance;
+      const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
+      if (shouldClearSignificance) {
+        if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+        state.analysis.lastSignificance = null;
+        state.analysis.significancePanelModel = null;
+        debugLog('significance invalidated after numeric draw', { countsSignature, hadPrevious: !!lastSig });
+      } else {
+        debugLog('significance preserved after numeric draw', { countsSignature });
+      }
+      refreshCounts(counts);
     }
-    refreshCounts(counts);
     const defaultStyle = createDefaultVennStyleState();
     const fontInputValue = getVennInputValue(inputs, 'fontsize', defaultStyle.fontsize);
     const fontInfo = resolveFontInfo(fontInputValue);
@@ -8905,17 +9050,22 @@
       fontScale: fontInfo?.scaleInfo?.styleScale,
       fontSizePx
     });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    if (!resizePreview) {
+      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    }
     const labels = getCurrentVennLabelMap();
     const plotType = getActivePlotType();
-    updateCountLabels(labels);
-    if (plotType !== 'upset') {
-      updateRegionSelect(labels, counts);
+    if (!resizePreview) {
+      updateCountLabels(labels);
+      if (plotType !== 'upset') {
+        updateRegionSelect(labels, counts);
+      }
+      updateColorLabels(labels);
     }
-    updateColorLabels(labels);
     if (plotType === 'upset') {
       style.upset = resolveUpSetSettings();
-      drawUpSet(counts, labels, style);
+      const upsetData = resizePreview ? getCachedUpSetRenderModel() : null;
+      drawUpSet(counts, labels, style, { upsetData, drawOptions });
     } else {
       ensureVennRegionOptions();
       state.analysis.lastUpSetRegionMap = null;
@@ -8923,8 +9073,10 @@
       const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
       fitAndDraw(L, style, labels, counts);
     }
-    if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
-    cancelPendingSpeciesDetection('draw-from-numeric', { abortActive: true, resetIndicator: true });
+    if (!resizePreview) {
+      if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
+      cancelPendingSpeciesDetection('draw-from-numeric', { abortActive: true, resetIndicator: true });
+    }
     debugLog('drawFromNumeric complete', { counts });
   }
 
@@ -8967,7 +9119,8 @@
     return fallback;
   }
 
-  function refreshDiagram() {
+  function refreshDiagram(drawOptions = {}) {
+    const resizePreview = drawOptions?.resizePhase === 'move';
     bindVennSessionForTab(getVennProjectionTabId() || null, { reason: 'venn-refresh-bind', root: state.ui.root || null }, { apply: false });
     const inputs = state.ui.inputs;
     if (!inputs) {
@@ -8976,26 +9129,33 @@
     }
     try {
       const plotType = getActivePlotType();
-      const hasLists = hasListContent(inputs);
-      const hasNumeric = hasNumericContent(inputs);
-      const hasUpSetLists = plotType === 'upset' ? hasUpSetContent(inputs) : hasLists;
       const hintedMode = state.analysis.lastDrawMode;
       let mode = null;
-      if (plotType === 'upset') {
-        if (hintedMode === 'lists' && hasUpSetLists) {
-          mode = 'lists';
-        } else if (hintedMode === 'numeric' && hasNumeric && !hasUpSetLists) {
-          mode = 'numeric';
-        } else {
-          mode = hasUpSetLists ? 'lists' : (hasNumeric ? 'numeric' : null);
-        }
+      let hasLists = false;
+      let hasNumeric = false;
+      let hasUpSetLists = false;
+      if (resizePreview && (hintedMode === 'lists' || hintedMode === 'numeric')) {
+        mode = hintedMode;
       } else {
-        const modePreference = (
-          (hintedMode === 'lists' && hasLists) || (hintedMode === 'numeric' && hasNumeric)
-        )
-          ? hintedMode
-          : null;
-        mode = modePreference || (hasLists ? 'lists' : (hasNumeric ? 'numeric' : null));
+        hasLists = hasListContent(inputs);
+        hasNumeric = hasNumericContent(inputs);
+        hasUpSetLists = plotType === 'upset' ? hasUpSetContent(inputs) : hasLists;
+        if (plotType === 'upset') {
+          if (hintedMode === 'lists' && hasUpSetLists) {
+            mode = 'lists';
+          } else if (hintedMode === 'numeric' && hasNumeric && !hasUpSetLists) {
+            mode = 'numeric';
+          } else {
+            mode = hasUpSetLists ? 'lists' : (hasNumeric ? 'numeric' : null);
+          }
+        } else {
+          const modePreference = (
+            (hintedMode === 'lists' && hasLists) || (hintedMode === 'numeric' && hasNumeric)
+          )
+            ? hintedMode
+            : null;
+          mode = modePreference || (hasLists ? 'lists' : (hasNumeric ? 'numeric' : null));
+        }
       }
       if (!mode) {
         clearSVG();
@@ -9027,11 +9187,11 @@
         return;
       }
       if (mode === 'numeric') {
-        drawFromNumeric();
+        drawFromNumeric(drawOptions);
       } else {
-        drawFromLists();
+        drawFromLists(drawOptions);
       }
-      if(!isProjectingVennSession()){
+      if(!resizePreview && !isProjectingVennSession()){
         captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-refresh-complete' });
       }
       debugLog('refreshDiagram executed', { mode });
@@ -9060,8 +9220,17 @@
     return {
       onResize: phase => {
         debugLog('layout onResize', { phase });
-        if (phase !== 'observe') {
-          scheduleActiveVennDraw({ reason: 'venn-layout-resize' });
+        const resizePhase = typeof phase === 'string' ? phase : '';
+        if (resizePhase !== 'start' && resizePhase !== 'observe' && resizePhase !== 'zoom') {
+          scheduleActiveVennDraw({
+            reason: 'resize',
+            source: 'venn-view-refresh',
+            viewOnly: true,
+            silentOverlay: true,
+            force: true,
+            resizePhase: resizePhase || null,
+            userInitiated: true
+          });
         }
       }
     };
@@ -9123,6 +9292,7 @@
       },
       scheduleDraw: options => scheduleActiveVennDraw(options && typeof options === 'object' ? options : {}),
       preserveGraphContent: false,
+      skipScheduleOnResizePhases: () => true,
       panelSyncOptions: {
         disableAutoWidthClamp: true,
         lockGraphPanelWidth: false
@@ -9490,7 +9660,7 @@
       notesState.control.setOpen(notesState.open);
     }
     const plotType = normalizePlotType(s.plotType || DEFAULT_PLOT_TYPE);
-    syncPlotMode(plotType, { updateTitle: false });
+    syncPlotMode(plotType, { updateTitle: false, restoreAspectLock: true });
     importFontStyles('venn', s.fontStyles || null);
     state.analysis.vennTraceStyles = cloneVennTraceStyles(s.vennTraceStyles);
     if(s.title !== undefined){
@@ -9749,6 +9919,13 @@
   function handlePlotTypeChange(event) {
     const target = event?.currentTarget || state.ui.plotType;
     const nextType = normalizePlotType(target?.value || DEFAULT_PLOT_TYPE);
+    const previousType = normalizePlotType(state.ui?.root?.dataset?.plot || DEFAULT_PLOT_TYPE);
+    if (previousType === 'upset' && nextType === 'venn') {
+      const lockRatioCheckbox = getVennLockRatioCheckbox();
+      if (lockRatioCheckbox) {
+        setVennLockRatioPrevious(!!lockRatioCheckbox.checked);
+      }
+    }
     syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
     requestScheduledDraw('plot-type-change');
     persistActiveVennUserChange('venn-plot-type-change');
@@ -10808,6 +10985,8 @@
         tabId: getVennProjectionTabId() || null
       });
     }
+    ensureVennSvgBoxControls('tab-activation');
+    syncVennAspectControls('tab-activation', { restoreSavedPreference: true });
     scheduleActiveVennDraw({ reason: meta.reason || 'venn-activate-tab' });
     syncVennSessionRefsFromActive();
     syncVennSessionManagersFromActive();
@@ -11180,7 +11359,7 @@
         });
         return;
       }
-      refreshDiagram();
+      refreshDiagram(meta);
     } catch (e) {
       console.error('venn.draw error', e);
     }

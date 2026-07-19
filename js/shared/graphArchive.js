@@ -7,7 +7,7 @@
   const ARCHIVE_FORMAT = 'venn-graph-archive';
   const ARCHIVE_VERSION = 3;
   const DEFAULT_TAB_TITLE = 'Workspace';
-  const ZIP_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  const ZIP_SCRIPT_URL = 'libs/jszip.min.js';
   const GRAPH_ARCHIVE_WORKER_URL = 'js/workers/graphArchive.worker.js';
   const ADAPTIVE_COMPRESS_THRESHOLD_BYTES = 1024 * 1024;
   const ADAPTIVE_COMPRESS_LEVEL = 1;
@@ -577,7 +577,7 @@
     for (let i = 0; i < keys.length; i += 1) {
       const key = keys[i];
       const value = mapValue[key];
-      const defaultValue = defaults[i % defaults.length];
+
       if (matchesScatterDefaultValue(value, i, defaults)) {
         prunedCount += 1;
       } else {
@@ -1056,24 +1056,7 @@
       const text = decodeBufferToText(buffer);
       const parsed = JSON.parse(text);
       if (parsed && Array.isArray(parsed.tabs)) {
-        const scope = normalizeScope(parsed.scope, parsed.tabs.length);
-        const activeIndex = resolveActiveIndex(Number(parsed.activeIndex), parsed.tabs.length);
-        return {
-          source: 'legacy-session-json',
-          manifest: null,
-          session: {
-            version: 1,
-            scope,
-            savedAt: parsed.savedAt || new Date().toISOString(),
-            activeIndex,
-            tabs: parsed.tabs.map((tab, index) => ({
-              title: tab?.title || `${DEFAULT_TAB_TITLE} ${index + 1}`,
-              type: tab?.type || tab?.payload?.type || null,
-              payload: tab?.payload || null,
-              layout: tab?.layout || null
-            }))
-          }
-        };
+        throw new Error('Unsupported JSON workspace format. Open a .graph archive instead.');
       }
       return {
         source: 'legacy-graph-json',

@@ -277,7 +277,7 @@
   const state = {
     initialized: false,
     controlsByType: {},
-    monitorTimer: null,
+    activeTabObserver: null,
     lastActiveSignature: null,
     pendingSyncTimer: null,
     lifecycleSyncAttached: false,
@@ -377,16 +377,7 @@
     });
   }
 
-  function lighten(hex, factor){
-    const rgb = hexToRgb(hex);
-    if(!rgb) return '#ffffff';
-    const f = Number.isFinite(factor) ? factor : 0.22;
-    return rgbToHex({
-      r: rgb.r + (255 - rgb.r) * f,
-      g: rgb.g + (255 - rgb.g) * f,
-      b: rgb.b + (255 - rgb.b) * f
-    });
-  }
+
 
   function relativeLuminance(hex){
     const rgb = hexToRgb(hex);
@@ -401,20 +392,7 @@
     return (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
   }
 
-  function deriveBorderColor(fill, fallback){
-    const source = typeof fill === 'string' ? fill : null;
-    const luminance = relativeLuminance(source);
-    if(luminance === null){
-      return typeof fallback === 'string' && fallback ? fallback : '#111111';
-    }
-    if(luminance < 0.18){
-      return lighten(source, 0.42);
-    }
-    if(luminance > 0.78){
-      return darken(source, 0.46);
-    }
-    return darken(source, 0.34);
-  }
+
 
   function deriveDarkerBorderColor(fill, fallback){
     const source = typeof fill === 'string' ? fill : null;
@@ -1044,89 +1022,11 @@
     }
   }
 
-  function parseNumberLike(value){
-    if(value === null || value === undefined) return null;
-    const parsed = Number.parseFloat(String(value));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
 
-  function resolveSvgViewport(svg){
-    let x = 0;
-    let y = 0;
-    let width = null;
-    let height = null;
 
-    const viewBoxAttr = svg.getAttribute && svg.getAttribute('viewBox');
-    if(typeof viewBoxAttr === 'string' && viewBoxAttr.trim()){
-      const parts = viewBoxAttr.trim().split(/[,\s]+/).map(parseNumberLike);
-      if(parts.length >= 4 && parts.every(Number.isFinite)){
-        x = parts[0];
-        y = parts[1];
-        width = parts[2];
-        height = parts[3];
-      }
-    }
 
-    if(!(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)){
-      const vb = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal : null;
-      if(vb && Number.isFinite(vb.width) && vb.width > 0 && Number.isFinite(vb.height) && vb.height > 0){
-        x = Number.isFinite(vb.x) ? vb.x : 0;
-        y = Number.isFinite(vb.y) ? vb.y : 0;
-        width = vb.width;
-        height = vb.height;
-      }
-    }
 
-    if(!(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)){
-      const attrWidth = parseNumberLike(svg.getAttribute && svg.getAttribute('width'));
-      const attrHeight = parseNumberLike(svg.getAttribute && svg.getAttribute('height'));
-      if(Number.isFinite(attrWidth) && attrWidth > 0 && Number.isFinite(attrHeight) && attrHeight > 0){
-        width = attrWidth;
-        height = attrHeight;
-      }
-    }
 
-    if(!(Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0)){
-      const box = typeof svg.getBoundingClientRect === 'function' ? svg.getBoundingClientRect() : null;
-      if(box && Number.isFinite(box.width) && box.width > 0 && Number.isFinite(box.height) && box.height > 0){
-        width = box.width;
-        height = box.height;
-      }
-    }
-
-    if(!(Number.isFinite(width) && width > 0)){
-      width = 100;
-    }
-    if(!(Number.isFinite(height) && height > 0)){
-      height = 100;
-    }
-
-    return { x, y, width, height };
-  }
-
-  function ensureBackgroundRectPosition(svg, rect){
-    const children = Array.from(svg.childNodes || []);
-    let reference = null;
-    for(let i = 0; i < children.length; i += 1){
-      const child = children[i];
-      if(!child || child === rect || child.nodeType !== 1) continue;
-      const tag = String(child.nodeName || '').toLowerCase();
-      if(tag === 'defs' || tag === 'style' || tag === 'title' || tag === 'desc' || tag === 'metadata'){
-        continue;
-      }
-      reference = child;
-      break;
-    }
-    if(reference){
-      if(rect.nextSibling !== reference){
-        svg.insertBefore(rect, reference);
-      }
-      return;
-    }
-    if(svg.firstChild !== rect){
-      svg.insertBefore(rect, svg.firstChild || null);
-    }
-  }
 
   const NO_PREVIOUS_FILL = '__none__';
 
@@ -1246,32 +1146,7 @@
     });
   }
 
-  function almostEqual(a, b){
-    if(!Number.isFinite(a) || !Number.isFinite(b)) return false;
-    return Math.abs(a - b) <= 0.5;
-  }
 
-  function isBackgroundRectOutdated(svg, rect){
-    if(!svg || !rect) return true;
-    const viewport = resolveSvgViewport(svg);
-    const rx = parseNumberLike(rect.getAttribute('x'));
-    const ry = parseNumberLike(rect.getAttribute('y'));
-    const rw = parseNumberLike(rect.getAttribute('width'));
-    const rh = parseNumberLike(rect.getAttribute('height'));
-    if(!(Number.isFinite(rx) && Number.isFinite(ry) && Number.isFinite(rw) && Number.isFinite(rh))){
-      return true;
-    }
-    if(!almostEqual(rx, viewport.x)) return true;
-    if(!almostEqual(ry, viewport.y)) return true;
-    if(!almostEqual(rw, viewport.width)) return true;
-    if(!almostEqual(rh, viewport.height)) return true;
-    return false;
-  }
-
-  function hasUnthemedText(svg){
-    if(!svg) return false;
-    return !!svg.querySelector('text:not([data-color-scheme-text-themed="1"]),tspan:not([data-color-scheme-text-themed="1"])');
-  }
 
   function applySvgVisualTheme(svg, scheme){
     if(!svg || typeof svg.querySelector !== 'function') return;
@@ -2322,37 +2197,35 @@
     debugLog('Debug: colorSchemes visuals synced', { reason, tabId: tab.id, type: tab.type, scheme: schemeId, displayedScheme: displayedSchemeId });
   }
 
-  function startActiveMonitor(){
-    if(state.monitorTimer) return;
-    state.monitorTimer = global.setInterval(() => {
+  function startActiveTabObserver(){
+    if(state.activeTabObserver || !global.MutationObserver){
+      return;
+    }
+    const tabList = global.document?.getElementById?.('workspaceTabsList');
+    if(!tabList){
+      return;
+    }
+    const syncForActiveTabChange = () => {
       const signature = getActiveSignature();
-      if(signature !== state.lastActiveSignature){
-        state.lastActiveSignature = signature;
-        if(signature){
-          syncActiveTabVisuals('tab-change');
-          const tab = getActiveTab();
-          scheduleColorSchemeTimeout(tab?.type || 'colorSchemes', tab?.id || null, 'color-scheme-tab-change-delayed', () => syncActiveTabVisuals('tab-change-delayed'), 120);
-        }
+      if(signature === state.lastActiveSignature){
         return;
       }
-      if(!signature) return;
-      const tab = getActiveTab();
-      if(!tab || !tab.type) return;
-      const schemeId = readActiveSchemeForType(tab.type);
-      if(schemeId !== 'dark') return;
-      const root = resolveTabScopedRoot(tab.type, tab);
-      const activeSvg = root ? root.querySelector?.('.svgbox svg') : null;
-      if(!activeSvg) return;
-      const is3dView = String(activeSvg.dataset?.viewMode || '').toLowerCase() === '3d';
-      if(is3dView){
+      state.lastActiveSignature = signature;
+      if(!signature){
         return;
       }
-      const needsTextRepair = hasUnthemedText(activeSvg);
-      if(needsTextRepair){
-        syncActiveTabVisuals('dark-repair');
-      }
-    }, 350);
+      scheduleActiveVisualSync('tab-change', { preferWorkspace: true });
+    };
+    state.activeTabObserver = new global.MutationObserver(syncForActiveTabChange);
+    state.activeTabObserver.observe(tabList, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-tab-id']
+    });
+    state.lastActiveSignature = getActiveSignature();
   }
+
 
   function attachLifecycleVisualSync(){
     if(state.lifecycleSyncAttached){
@@ -2734,7 +2607,7 @@
     attachColorSchemeControlListeners();
     attachManualColorListeners();
     attachLifecycleVisualSync();
-    startActiveMonitor();
+    startActiveTabObserver();
     syncActiveTabVisuals('init');
     state.initialized = true;
     debugLog('Debug: colorSchemes.init complete', {

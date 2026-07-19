@@ -237,26 +237,6 @@
       }
     }
 
-    const distanceCache = new Map();
-    const makeKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
-    const setDistance = (a, b, value) => {
-      if(a === b){ return; }
-      distanceCache.set(makeKey(a, b), value);
-    };
-    const getDistance = (a, b) => {
-      if(a === b){ return 0; }
-      const key = makeKey(a, b);
-      if(distanceCache.has(key)){
-        return distanceCache.get(key);
-      }
-      if(a < countItems && b < countItems){
-        const base = readBaseDistance(a, b);
-        distanceCache.set(key, base);
-        return base;
-      }
-      return 1;
-    };
-
     const computeCentroidForIndices = indices => {
       const length = items[0]?.vector?.length || 0;
       const sums = Array.from({ length }, () => 0);

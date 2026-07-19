@@ -3,7 +3,7 @@
   'use strict';
 
   const ctx = typeof self !== 'undefined' ? self : this;
-  const JSTAT_URL = 'https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js';
+  const JSTAT_URL = '../../libs/jstat.min.js';
   const STATS_URL = '../shared/stats.js';
   const REGRESSION_URL = '../shared/regression.js';
   const debugState = { enabled: false };

@@ -49,6 +49,7 @@
       return Shared.boxStatsModel;
     }
     if(typeof ctx.importScripts === 'function'){
+      ctx.importScripts('../shared/debug.js');
       ctx.importScripts('../shared/boxStatsModel.js');
     }
     if(hasUsableBoxStatsModel(Shared.boxStatsModel)){

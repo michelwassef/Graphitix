@@ -20,6 +20,8 @@ This file is the working guide for coding agents in Graphitix. Follow it reposit
 - Report any refactor need, inconsistency, or architectural smell even when it is outside the immediate task.
 - Also record each confirmed issue in root `issues.txt`; check first to avoid duplicates.
 - Keep the testing framework coherent with code changes. Update tests when behavior or contracts change.
+- Keep one source of truth per documentation role: `AGENTS.md` for engineering rules, `ARCHITECTURE.md` for the current system map, `issues.txt` for verified open work, `CHANGELOG.md` for completed changes, and `package.json`/`.github/workflows/` for executable validation gates.
+- Remove completed or abandoned roadmaps instead of retaining them as parallel architecture or backlog documents. Migrate any still-valid rule or task to the appropriate canonical file first.
 
 ## 2. Graphitix Golden Rules
 

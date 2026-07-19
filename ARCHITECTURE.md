@@ -4,6 +4,15 @@ This file is the fast-orientation entrypoint for the Graphitix codebase. It comp
 
 For component-level contracts, see the generated [docs/development/component-contracts.md](./docs/development/component-contracts.md).
 
+## Documentation Sources of Truth
+
+- [AGENTS.md](./AGENTS.md) is the normative engineering and ownership contract.
+- This file describes the current runtime structure and orientation path.
+- [issues.txt](./issues.txt) is the only live engineering backlog.
+- [CHANGELOG.md](./CHANGELOG.md) records completed work; completed roadmaps are not retained as active documentation.
+- `package.json` scripts and `.github/workflows/` are the executable validation source of truth.
+- Generated contracts and maps under `docs/development/` must be regenerated from source rather than edited as parallel specifications.
+
 ## 1. Runtime Bootstrap Order
 
 `index.html` loads scripts in a strict sequence. The order matters because modules attach to global namespaces (`window.Shared`, `window.Main`, `window.Components`) and expect prior modules to exist.
@@ -21,6 +30,7 @@ The exact script order is in `index.html` near the bottom (`<script src=...>` ta
 - `window.Shared`
   - Cross-cutting primitives and adapters.
   - Source of truth for reusable services: grid wiring, file IO, import/export, styling, stats, resizers, analysis integrations.
+  - Title visibility is stored with tab-scoped font styles; the shared resizer menu projects graph-title and relevant axis-title toggles.
   - Primarily implemented under `js/shared/`.
 
 - `window.Components`
@@ -72,18 +82,24 @@ Optional but already supported:
 
 ## 5. Persistence Flow
 
-### Save
+Graphitix has one document checkpoint transaction and one document restore transaction. Manual file operations and private crash recovery differ only in destination metadata and optional render-cache policy; they do not own separate payload or hydration logic.
 
-1. `Main.sessionActions.warmTabRenderCaches()` activates each cold tab through the normal path so every tab has a populated `tab.renderCache.cache` (or stays cold-skipped if its component bundle isn't ready yet).
-2. `Main.sessionActions.buildScopeSnapshot()` builds the tab snapshot array. Clean loaded tabs keep `tab.payload` authoritative; dirty mounted tabs flush live component state first. Each entry funnels through `Main.session.enrichTabSnapshotForArchive` (clone + `Shared.graphSizing.enrich/merge` for non-box types) and includes payload, layout, preview, archive render cache, and `uiState`.
-3. `Main.sessionActions.saveWorkspaceArchiveWithScope()` routes to `Shared.graphArchive.buildArchiveBlob()`.
-4. `Shared.fileIO.saveGraphFile` / `saveGraphFileAs` persists the archive.
+### Checkpoint and serialization
 
-### Load
+1. `Main.sessionActions.createDocumentCheckpoint()` resolves the snapshot policy, waits for the active component's snapshot-ready contract, and captures the active live payload through `Main.session.persistActiveTabState()` with save-grade intent.
+2. `Main.sessionActions.buildScopeSnapshot()` clones the committed payload, layout, `uiState`, preview metadata, and only render caches whose owner, payload signature, and layout signature exactly match that detached checkpoint snapshot.
+3. `Main.sessionActions.serializeDocumentCheckpoint()` is the only archive serialization entry for a detached checkpoint snapshot.
+4. Manual Save, Autosave, and recovery call those shared primitives. Manual workspace save may warm caches first; recovery may omit caches while the user is active. Omitting a cache changes only restore speed, never canonical document content.
 
-1. `Main.sessionActions.handleSessionLoadClick()` acquires file.
-2. `Shared.graphArchive.parseFile()` parses payload.
-3. `Main.session.applySessionData()` rebuilds workspace tabs and activates the target tab.
+### Restore
+
+1. `Main.sessionActions.restoreDocumentArchive()` parses every `.graph` source through `Shared.graphArchive.parseFile()`.
+2. `Main.sessionActions.applyParsedSession()` passes the parsed session to `Main.session.applySessionData()`.
+3. `Main.session.applySessionData()` rebuilds tab records and **awaits** activation/hydration of the target workspace before the restore transaction resolves.
+4. Cache restoration requires exact owner, payload-signature, and layout-signature parity. A rejected or absent cache falls back to the component's normal live draw.
+5. The caller then applies the only legitimate source-specific state: a normal file open may retain a file handle and is clean; crash recovery clears any trusted destination and marks the restored document dirty.
+
+`Shared.hot` exclusion mutations are owner-scoped payload transactions. Cell, row, and column exclusions immediately update only the owning tab's canonical `payload.exclusions`, invalidate that tab's caches, increment the session revision, and schedule recovery. Archive/recovery hydration applies exclusions silently.
 
 Detailed schema references are in [docs/development/state-persistence-schema.md](./docs/development/state-persistence-schema.md).
 

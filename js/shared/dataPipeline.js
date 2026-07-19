@@ -5,41 +5,9 @@
   const Shared = global.Shared = global.Shared || {};
   const DataPipeline = Shared.DataPipeline = Shared.DataPipeline || {};
 
-  const debugState = Shared.__debugState || { enabled: false };
-  Shared.__debugState = debugState;
-
-  if(typeof Shared.setDebugLogging !== 'function'){
-    Shared.setDebugLogging = function setDebugLogging(enabled){
-      debugState.enabled = !!enabled;
-      return debugState.enabled;
-    };
-  }
-
-  if(typeof Shared.enableDebugLogging !== 'function'){
-    Shared.enableDebugLogging = function enableDebugLogging(){
-      return Shared.setDebugLogging(true);
-    };
-  }
-
-  if(typeof Shared.disableDebugLogging !== 'function'){
-    Shared.disableDebugLogging = function disableDebugLogging(){
-      return Shared.setDebugLogging(false);
-    };
-  }
-
-  if(typeof Shared.isDebugEnabled !== 'function'){
-    Shared.isDebugEnabled = function isDebugEnabled(){
-      return !!debugState.enabled;
-    };
-  }
-
   function logDebug(message, payload){
-    if(Shared.isDebugEnabled && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      if(typeof payload === 'undefined'){
-        console.debug(message);
-      }else{
-        console.debug(message, payload);
-      }
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
     }
   }
 
@@ -258,13 +226,11 @@
         });
       case 'compact':
         return createIterable(function*(){
-          let index = 0;
           const includeNull = step.includeNull === true;
           for(const item of iterable){
             if(typeof item !== 'undefined' && (includeNull || item !== null)){
               yield item;
             }
-            index += 1;
           }
         });
       case 'pipe':
@@ -491,7 +457,8 @@
       count(){
         return evaluate(function(iterable){
           let count = 0;
-          for(const _ of iterable){
+          const iterator = iterable[Symbol.iterator]();
+          for(let entry = iterator.next(); !entry.done; entry = iterator.next()){
             count += 1;
           }
           return count;
@@ -499,10 +466,12 @@
       },
       first(){
         return evaluate(function(iterable){
-          for(const item of iterable){
-            return item;
+          const iterator = iterable[Symbol.iterator]();
+          const entry = iterator.next();
+          if(!entry.done && typeof iterator.return === 'function'){
+            iterator.return();
           }
-          return undefined;
+          return entry.done ? undefined : entry.value;
         }, 'first');
       },
       last(){

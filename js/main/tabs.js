@@ -145,18 +145,14 @@
     let showUnsavedPrompt;
     let hideUnsavedPrompt;
     let bindUnsavedPromptHandlers;
-    let handleUnsavedSave;
-    let handleUnsavedDiscard;
-    let handleUnsavedCancel;
-    let setUnsavedPromptBusy;
     let hideDuplicatePrompt;
     let showDuplicateDecision;
     let applyDuplicateChoice;
 
     const applyTabDragClasses = () => tabDrag.applyTabDragClasses({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty });
-    const updateTabDragHover = (targetTabId, insertBefore, meta = {}) => tabDrag.updateTabDragHover({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, targetTabId, insertBefore, meta);
-    const resetTabDragState = reason => tabDrag.resetTabDragState({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, reason);
-    const moveWorkspaceTab = (tabId, targetIndex) => tabDrag.moveWorkspaceTab({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, tabId, targetIndex);
+
+
+
     const handleTabDragStart = (event, tab) => tabDrag.handleTabDragStart({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
     const handleTabDragEnd = (event, tab) => tabDrag.handleTabDragEnd({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
     const handleTabDragOver = (event, tab) => tabDrag.handleTabDragOver({ dom, workspaceState, renderTabs, markSessionDirty: session.markSessionDirty }, event, tab);
@@ -243,10 +239,6 @@
     showUnsavedPrompt = unsavedHelpers.showUnsavedPrompt;
     hideUnsavedPrompt = unsavedHelpers.hideUnsavedPrompt;
     bindUnsavedPromptHandlers = unsavedHelpers.bindUnsavedPromptHandlers;
-    handleUnsavedSave = unsavedHelpers.handleUnsavedSave;
-    handleUnsavedDiscard = unsavedHelpers.handleUnsavedDiscard;
-    handleUnsavedCancel = unsavedHelpers.handleUnsavedCancel;
-    setUnsavedPromptBusy = unsavedHelpers.setUnsavedPromptBusy;
 
     const duplicateHelpers = namespace.createDuplicatePromptHandlers({
       dom,
@@ -734,7 +726,9 @@
     }
 
     function delay(ms) {
-      return new Promise(resolve => window.setTimeout(resolve, ms));
+      return new Promise(resolve => {
+        window.setTimeout(resolve, ms);
+      });
     }
 
     function waitForNextPaint() {

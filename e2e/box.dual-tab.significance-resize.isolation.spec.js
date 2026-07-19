@@ -185,13 +185,21 @@ async function readBoxMetrics(page) {
 async function readActiveTabPersistence(page) {
   return page.evaluate(() => {
     const tab = window.Main?.session?.getActiveTab?.() || null;
+    const stats = tab?.payload?.config?.stats || null;
     return {
       tabId: tab?.id || null,
       payloadSignature: tab?.payloadSignature || null,
       layoutSignature: tab?.layoutSignature || null,
       payloadDirty: !!tab?.payloadDirty,
       layoutDirty: !!tab?.layoutDirty,
-      userModified: !!tab?.userModified
+      userModified: !!tab?.userModified,
+      statsSignature: JSON.stringify({
+        contextSignature: stats?.contextSignature || null,
+        version: Number(stats?.version) || 0,
+        lastRunVersion: Number(stats?.lastRunVersion) || 0,
+        resultsModel: stats?.resultsModel || null,
+        reportModel: stats?.reportModel || null
+      })
     };
   });
 }
@@ -401,7 +409,7 @@ test('box dual-tab pairwise resize keeps per-tab scope isolation and stable plot
   expect(issues.critical).toEqual([]);
 });
 
-test('box stats do not force payload rebuild during layout-only resize', async ({ page }, testInfo) => {
+test('box resize persists geometry without rebuilding statistics', async ({ page }, testInfo) => {
   test.setTimeout(140_000);
   const issues = registerIssueCollectors(page);
   await installLocalCdnOverrides(page);
@@ -447,7 +455,8 @@ test('box stats do not force payload rebuild during layout-only resize', async (
 
   expect(after.boxWidth).not.toBe(before.boxWidth);
   expect(after.boxHeight).toBe(before.boxHeight);
-  expect(afterPersistence.payloadSignature).toBe(beforePersistence.payloadSignature);
+  expect(afterPersistence.payloadSignature).not.toBe(beforePersistence.payloadSignature);
+  expect(afterPersistence.statsSignature).toBe(beforePersistence.statsSignature);
   expect(afterPersistence.payloadDirty).toBe(false);
   expect(payloadGeometry.hasStatsViewportGeometry).toBe(false);
   expect(payloadGeometry.hasStatsGraphGeometry).toBe(false);

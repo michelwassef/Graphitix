@@ -3,7 +3,7 @@
   'use strict';
 
   const ctx = typeof self !== 'undefined' ? self : this;
-  const SVD_URL = 'https://cdn.jsdelivr.net/npm/svd-js@1.1.1/build-umd/svd-js.min.js';
+  const SVD_URL = '../../libs/svd-js.min.js';
 
   function ensureSvd(){
     if(ctx.SVDJS && typeof ctx.SVDJS.SVD === 'function'){

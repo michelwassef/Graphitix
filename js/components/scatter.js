@@ -4,6 +4,7 @@
   const Components = global.Components = global.Components || {};
   const scatter = Components.scatter = Components.scatter || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -224,7 +225,7 @@
     ];
   })();
 
-  const SIGNIFICANT_COLOR = (typeof global.SIGNIFICANT_COLOR !== 'undefined' && global.SIGNIFICANT_COLOR) 
+  const SIGNIFICANT_COLOR = (typeof global.SIGNIFICANT_COLOR !== 'undefined' && global.SIGNIFICANT_COLOR)
     ? global.SIGNIFICANT_COLOR
     : (DEFAULT_SCATTER_COLORS[0] || '#e41a1c');
   if(typeof global.SIGNIFICANT_COLOR === 'undefined') global.SIGNIFICANT_COLOR = SIGNIFICANT_COLOR;
@@ -347,7 +348,6 @@
   let scatterXLabelText = 'X';
   let scatterYLabelText = 'Y';
   let scatterZLabelText = 'Z';
-  let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null, legend: null };
   function resolveScatterTabIdFromNode(node){
     return Shared.componentLifecycle?.resolveTabIdFromTarget?.(node) || null;
   }
@@ -1596,7 +1596,6 @@
       scatterXLabelText = labels.x;
       scatterYLabelText = labels.y;
       scatterZLabelText = labels.z;
-      scatterLabelPositions = cloneSimple(labels.positions) || createDefaultScatterOwnedLabelsState().positions;
     }
     return labels;
   }
@@ -4134,6 +4133,17 @@
     }
   }
 
+  function cloneScatterRegressionModel(model){
+    if(!model || typeof model !== 'object'){
+      return null;
+    }
+    const cloned = cloneSimple(model) || { ...model };
+    if(typeof model.predict === 'function'){
+      cloned.predict = (...args) => model.predict(...args);
+    }
+    return cloned;
+  }
+
   function cloneScatterPoint(point){
     if(!point || typeof point !== 'object'){
       return point;
@@ -4786,9 +4796,7 @@
   let scatterFitLowessRegressionForTests = null;
   const getScatterJStat = () => global.jStat || global.window?.jStat || null;
 
-  const ensureFiniteNumber = typeof regressionTools.ensureFiniteNumber === 'function'
-    ? regressionTools.ensureFiniteNumber
-    : (value => (Number.isFinite(value) ? value : NaN));
+
 
   const DEFAULT_AXIS_COLOR = '#000000';
   const DEFAULT_GRID_COLOR = '#dddddd';
@@ -6336,7 +6344,7 @@
     }
     const replicates = clampScatterReplicateCount(options.replicates ?? scatterReplicates);
     const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
-    const xReplicateCount = getScatterGroupedXReplicateCount(replicates, { xReplicatesEnabled });
+
     const baseCols = getScatterGroupedBaseCols(replicates, { xReplicatesEnabled });
     if(col === 0){
       return 'label';
@@ -6907,7 +6915,7 @@
 
   function resolveScatterColumnLayout(data, colCountOverride){
     const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
-    const colCount = Number.isInteger(colCountOverride) ? colCountOverride : headerRow.length;
+
     if(isScatterGroupedMode()){
       const replicates = clampScatterReplicateCount(scatterReplicates);
       const xReplicatesEnabled = !!scatterGroupedXReplicates;
@@ -10484,14 +10492,7 @@
     }
     return Math.max(0, Math.min(1, num));
   }
-  function scatterNormalTwoSidedPValue(z){
-    const helper = Shared.stats?.normalTwoSidedPValue;
-    if(typeof helper === 'function'){
-      return resolveScatterPValue(helper(z));
-    }
-    const cdf = getScatterJStat()?.normal?.cdf;
-    return typeof cdf === 'function' ? resolveScatterPValue(2 * (1 - cdf(Math.abs(z), 0, 1))) : NaN;
-  }
+
   function scatterStudentTTwoSidedPValue(t, df){
     const helper = Shared.stats?.studentTTwoSidedPValue;
     if(typeof helper === 'function'){
@@ -10687,7 +10688,6 @@
   let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
   let scatterColorModeRow = null;
   let scatterConfidenceLevel = null;
-  let scatterConfigPanel = null;
   let scatterContainer = null;
   let scatterDensityPalette = null;
   let scatterDensityPaletteRow = null;
@@ -10724,7 +10724,6 @@
   let scatterOriginMode = null;
   let scatterOriginX = null;
   let scatterOriginY = null;
-  let scatterPanelResizer = null;
   let scatterParameterConstraintsJson = null;
   let scatterParameterConstraintsJsonError = null;
   let scatterPlotDiv = null;
@@ -10750,7 +10749,6 @@
   let scatterStatsResults = null;
   let scatterStatsStatus = null;
   let scatterSvgBox = null;
-  let scatterTablePanel = null;
   let scatterThresholdControls = null;
   let scatterViewControls = null;
   let scatterViewMode = null;
@@ -13786,7 +13784,6 @@
 
   const createScatterTable = (container) => {
     const data = createScatterDefaultTableData();
-        let lastKeyDownAt = 0;
         let hotInstance = null;
       hotInstance = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
         debugLabel: 'scatter',
@@ -13930,9 +13927,6 @@
         },
         hotOptions: {
           colHeaders: true,
-          beforeKeyDown(){
-            lastKeyDownAt = Date.now();
-          },
           // Configure checkbox selection for row selection
           rowSelection: 'multiple',
           checkboxSelection: true,
@@ -19646,27 +19640,6 @@
       return fallback;
     }
 
-    function updateScatterAxisHeader(axis, value, hotInstance){
-      const axisKey = axis === 'y' ? 'y' : 'x';
-      const hot = hotInstance || scatter.__ensureHotForActiveTab?.() || scatterRefs.hot || null;
-      if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
-        return false;
-      }
-      const data = hot.getData() || [];
-      const headerRow = Array.isArray(data[0]) ? data[0] : null;
-      const layout = resolveScatterColumnLayout(data);
-      const columnIndex = axisKey === 'x' ? layout?.xCol : layout?.yCol;
-      if(!headerRow || !Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= headerRow.length){
-        return false;
-      }
-      const nextValue = value != null ? String(value) : '';
-      if(String(headerRow[columnIndex] ?? '') === nextValue){
-        return true;
-      }
-      hot.setDataAtCell([[0, columnIndex, nextValue]], `scatter-${axisKey}-axis-inline`);
-      return true;
-    }
-
     function renderScatter2dTextLayers(context){
       const {
         add,
@@ -19718,7 +19691,10 @@
               ...scatterState.axisLabelModes,
               [axis]: 'manual'
             }, scatterState.axisLabelModes);
-            updateScatterAxisHeader(axis, nextValue, scatterHot || drawSession?.managers?.hot || null);
+            syncScatterAxisHeader(axis, nextValue, {
+              hot: scatterHot || drawSession?.managers?.hot || null,
+              source: `scatter-${axis}-axis-inline`
+            });
           }
           if(node.textContent !== nextValue){
             node.textContent = nextValue;
@@ -20266,7 +20242,6 @@
         dotSizePx,
         drawSession,
         drawableFrame,
-        effectiveViewMode,
         existingScatterSvg,
         fill,
         fs,
@@ -20288,7 +20263,6 @@
         showFrame,
         showGrid,
         styleScaleInfo,
-        supports3d,
         themeSnapshot,
         updateScatterDrawLabels,
         useUniformLabelStyle,
@@ -20347,7 +20321,7 @@
       svg3.setAttribute('viewBox',`0 0 ${W3} ${H3}`);
       svg3.setAttribute('font-family',chartStyle.FONT_FAMILY);
       svg3.dataset.viewMode = '3d';
-      chartStyle.applySvgDefaults(svg3);
+      chartStyle.prepareSvg(svg3, { scopeId: 'scatter' });
       while(svg3.firstChild){
         svg3.removeChild(svg3.firstChild);
       }
@@ -20359,9 +20333,6 @@
       appendScatter3dBackground(svg3, W3, H3, themeSnapshot);
       svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
       bindScatter3dRotationControls(svg3, 'scatter-3d');
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(svg3,{ scopeId: 'scatter' });
-      }
       const legendAxisGap = Math.max(fs * 0.9, 18);
       const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
       const legendGapFor3d = legendLayout?.legendGapPx ?? legendGapPx;
@@ -20984,7 +20955,7 @@
       const defaultTitleX = margin3.left + plotW3 / 2;
       const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
       const titlePos = scatterLabelsState?.positions?.title;
-    
+
       // Convert relative positions to absolute if needed for 3D
       let absoluteTitleX = defaultTitleX;
       let absoluteTitleY = defaultTitleY;
@@ -20999,7 +20970,7 @@
           absoluteTitleY = titlePos.y;
         }
       }
-    
+
       const title3d = add3('text',{
         x: absoluteTitleX,
         y: absoluteTitleY,
@@ -21053,7 +21024,7 @@
       // from the content aspect, on initial render, rotation, and resize.
       ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph', preserveAspectRatio: 'xMidYMid meet' });
       return;
-    
+
     }
 
     function renderScatter2dAxes(context){
@@ -22685,7 +22656,7 @@ if(legendVisible){
         const defaultLegendX=plotRight+legendGapPx;
         const defaultLegendY=margin.top;
         const legendPos=scatterLabelsState?.positions?.legend;
-      
+
         // Convert relative positions to absolute if needed for legend
         let absoluteLegendX = defaultLegendX;
         let absoluteLegendY = defaultLegendY;
@@ -22700,7 +22671,7 @@ if(legendVisible){
             absoluteLegendY = legendPos.y;
           }
         }
-      
+
         const legendGroup=legendRenderer.draw(svg,{
           x: absoluteLegendX,
           y: absoluteLegendY
@@ -23004,7 +22975,7 @@ async function drawScatter(drawOptions = {}){
       const log2fcThreshold=Number.isFinite(log2fcThresholdValue)?log2fcThresholdValue:0;
       const negLogPThreshold=Number.isFinite(negLogPThresholdValue)?negLogPThresholdValue:0;
       debug('Debug: scatter threshold values',{graphType,log2fcThreshold,negLogPThreshold});
-      const statTypeControl = scatterStatType || getScatterNodeById('scatterStatType') || null;
+
       const xMinControl = scatterXMin || getScatterNodeById('scatterXMin') || null;
       const xMaxControl = scatterXMax || getScatterNodeById('scatterXMax') || null;
       const yMinControl = scatterYMin || getScatterNodeById('scatterYMin') || null;
@@ -23012,7 +22983,7 @@ async function drawScatter(drawOptions = {}){
       const originModeControl = scatterOriginMode || getScatterNodeById('scatterOriginMode') || null;
       const originXControl = scatterOriginX || getScatterNodeById('scatterOriginX') || null;
       const originYControl = scatterOriginY || getScatterNodeById('scatterOriginY') || null;
-      const method=statTypeControl?.value || 'pearson';
+
       const xMinManual=parseFloat(xMinControl?.value);
       const xMaxManual=parseFloat(xMaxControl?.value);
       const yMinManual=parseFloat(yMinControl?.value);
@@ -23116,7 +23087,7 @@ async function drawScatter(drawOptions = {}){
             cacheRuntime.cachedCollect = null;
             cacheRuntime.cachedGeometry = null;
           });
-          chartStyle.clearSvg(scatterSvg);
+          chartStyle.clearSvg(scatterPlotDiv);
           const placeholder = groupedScatterActive
             ? 'Statistics unavailable until X and at least one grouped Y column are included.'
             : 'Statistics unavailable until both axes are included.';
@@ -23930,7 +23901,6 @@ async function drawScatter(drawOptions = {}){
       let removedForRange = 0;
       let cachedVisualStats = null;
       let cachedVisualStatsSignature = null;
-      let cachedVisualStatsControlSignature = null;
       if(graphType === 'scatter' && showIntervals){
         const statsPayloadBase = buildScatterStatsContextPayload({
           points,
@@ -23941,7 +23911,6 @@ async function drawScatter(drawOptions = {}){
         const cachedStatsResult = resolveScatterCachedVisualStatsForContext(statsPayloadBase);
         cachedVisualStats = cachedStatsResult.stats;
         cachedVisualStatsSignature = cachedStatsResult.signature;
-        cachedVisualStatsControlSignature = cachedStatsResult.controlSignature;
         const intervalBounds = collectScatterIntervalYBounds(cachedVisualStats, {
           includeConfidence: !!(scatterShowCI && scatterShowCI.checked),
           includePrediction: !!(scatterShowPI && scatterShowPI.checked),
@@ -24482,7 +24451,7 @@ async function drawScatter(drawOptions = {}){
       svg.dataset.viewMode='2d';
       scatter.__resizeLiveRevision = (Number(scatter.__resizeLiveRevision) || 0) + 1;
       svg.dataset.resizeLiveRevision = String(scatter.__resizeLiveRevision);
-      chartStyle.applySvgDefaults(svg);
+      chartStyle.prepareSvg(svg, { scopeId: 'scatter' });
       svg.setAttribute('data-color-scheme', themeSnapshot.schemeId || 'scientific');
       if(scatterThemeDark){
         const darkBg = normalizeScatterThemeColor(themeSnapshot.backgroundColor, '#000000');
@@ -24526,12 +24495,6 @@ async function drawScatter(drawOptions = {}){
         stagedScatterSvgForCleanup = null;
         return true;
       };
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
-        debug('Debug: scatter fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
-      } else {
-        debug('Debug: scatter fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
-      }
       const svgLayoutPerf = perfApi?.start('scatter.svg.layout', {
         component: 'scatter',
         token,
@@ -26247,12 +26210,9 @@ async function drawScatter(drawOptions = {}){
       // Scatter plot setup
       scatterHotContainer=getScatterNodeById('scatterHot');
       scatterHotWrapper=getScatterNodeById('scatterHotWrapper');
-      scatterTablePanel=getScatterNodeById('scatterTablePanel');
       scatterGraphPanel=getScatterNodeById('scatterGraphPanel');
-      scatterPanelResizer=getScatterNodeById('scatterPanelResizer');
       scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       bindScatterPlotContextMenuSuppression(scatterSvgBox);
-      scatterConfigPanel=scatterGraphPanel?.querySelector('.config-panel');
 
 
 
@@ -26510,12 +26470,12 @@ async function drawScatter(drawOptions = {}){
             if(xLabel){
               scatterXLabelText = xLabel;
               scatterState.xLabelText = xLabel;
-              updateScatterDrawLabels({ x: xLabel }, 'scatter-prism-style-x-label');
+              patchScatterLabelsState(styleSession, { x: xLabel }, { reason: 'scatter-prism-style-x-label' });
             }
             if(yLabel){
               scatterYLabelText = yLabel;
               scatterState.yLabelText = yLabel;
-              updateScatterDrawLabels({ y: yLabel }, 'scatter-prism-style-y-label');
+              patchScatterLabelsState(styleSession, { y: yLabel }, { reason: 'scatter-prism-style-y-label' });
             }
             if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && scatterFontSize){
               scatterFontSize.value = String(fontSizeValue);
@@ -27207,7 +27167,7 @@ async function drawScatter(drawOptions = {}){
 
 
 
-    
+
       scatterPlotDiv=getScatterNodeById('scatterPlot');
       if(scatterPlotDiv && !scatterPlotDiv.__scatterAxesLengthCloseHandler){
         const onPlotPointerDown = () => {
@@ -27281,13 +27241,13 @@ async function drawScatter(drawOptions = {}){
       });
         scatterLayout?.setScheduleDraw?.((...args) => scheduleActiveScatterDraw(...args));
       console.debug('Debug: scatter scheduleDraw configured via tab-scoped lifecycle frame', { guarded: true }); // Debug: scheduler setup
-    
-    
-    
+
+
+
   // PART: PERSISTENCE
 
 
-    
+
       ensureScatterPersistenceControlsBound();
 
 

@@ -148,7 +148,7 @@
       description: 'Workspace Graph Archive',
       accept: {
         'application/zip': ['.graph'],
-        'application/json': ['.graph', '.json', '.session']
+        'application/json': ['.json']
       }
     }
   ];

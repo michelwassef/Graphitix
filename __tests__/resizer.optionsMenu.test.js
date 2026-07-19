@@ -55,6 +55,86 @@ describe('Shared resizer graph options menu', () => {
     expect(tray.querySelector(':scope > .resizer-fontresize-control')).toBeNull();
   });
 
+  test('adds tab-scoped graph and axes title controls when font controls are available', () => {
+    const setRoleVisibility = jest.fn(() => true);
+    const recordStateChange = jest.fn();
+    window.Shared.fontControls = {
+      areRolesVisible: jest.fn(() => true),
+      setRoleVisibility
+    };
+    window.Shared.styleUndo = { recordStateChange };
+    const box = createSvgBox();
+    box.dataset.workspaceTabId = 'tab-a';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const xTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    xTitle.dataset.fontRole = 'xTitle';
+    svg.appendChild(xTitle);
+    box.appendChild(svg);
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'scatter',
+      tabId: 'tab-a',
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90
+    });
+
+    const graphInput = box.querySelector('.resizer-graph-title-checkbox');
+    const axesInput = box.querySelector('.resizer-axes-title-checkbox');
+    expect(graphInput).toBeTruthy();
+    expect(axesInput).toBeTruthy();
+    expect(axesInput.closest('label').hidden).toBe(false);
+
+    graphInput.checked = false;
+    graphInput.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(setRoleVisibility).toHaveBeenCalledWith(
+      'scatter',
+      'graphTitle',
+      false,
+      expect.objectContaining({
+        tabId: 'tab-a',
+        recordUndo: true,
+        undoLabel: 'title-visibility:graph'
+      })
+    );
+    expect(recordStateChange).not.toHaveBeenCalled();
+  });
+
+  test('tracks axis-title applicability from the active rendered graph', async () => {
+    window.Shared.fontControls = {
+      areRolesVisible: jest.fn(() => true),
+      setRoleVisibility: jest.fn(() => true)
+    };
+    const box = createSvgBox();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    box.appendChild(svg);
+
+    window.Shared.attachResizableBox(box, {
+      componentName: 'pie',
+      tabId: 'tab-a',
+      defaultWidth: 420,
+      defaultHeight: 320,
+      minWidth: 120,
+      minHeight: 90
+    });
+
+    const axesControl = box.querySelector('.resizer-axes-title-control');
+    expect(axesControl.hidden).toBe(true);
+
+    const yTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    yTitle.dataset.fontRole = 'yTitle';
+    svg.appendChild(yTitle);
+    await Promise.resolve();
+
+    expect(axesControl.hidden).toBe(false);
+
+    yTitle.remove();
+    await Promise.resolve();
+
+    expect(axesControl.hidden).toBe(true);
+  });
+
   test('lock ratio toggle is geometry-neutral and only emits aspect-toggle resize reason', () => {
     const box = createSvgBox();
     const onResize = jest.fn();

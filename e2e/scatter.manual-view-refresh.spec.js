@@ -78,14 +78,11 @@ test.describe('Scatter live updates with view-only optimizations', () => {
       const hasCollect = entries.some(entry => String(entry?.label || '') === 'scatter.data.collect');
       return hasDraw && hasCollect;
     }, null, { timeout: 180000 });
-    const hasSvg = await page.evaluate(() => !!document.querySelector('#scatterPlot svg'));
-    if(!hasSvg){
-      await page.waitForTimeout(1500);
-    }
-    const hasSvgAfterWait = await page.evaluate(() => !!document.querySelector('#scatterPlot svg'));
-    if(!hasSvgAfterWait){
-      return;
-    }
+    await page.waitForFunction(() => {
+      const svg = document.querySelector('#scatterPage:not([hidden]) #scatterPlot svg');
+      const layer = svg?.querySelector?.('[data-layer="points"]');
+      return !!svg && !!layer;
+    }, null, { timeout: 180000 });
     await waitForScatterIdle(page, 180000);
 
     const largeRenderMeta = await page.evaluate(() => {

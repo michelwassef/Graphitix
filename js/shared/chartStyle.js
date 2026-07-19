@@ -2406,20 +2406,43 @@
   };
 
   chartStyle.applySvgDefaults = function applySvgDefaults(svg){
-    if(svg){
-      svg.setAttribute('font-family', FONT_FAMILY);
-      svg.setAttribute('color', TEXT_COLOR);
-      const fontControls = (global.Shared && global.Shared.fontControls) || {};
-      if(fontControls && typeof fontControls.enableForSvg === 'function'){
-        try {
-          fontControls.enableForSvg(svg,{ scopeId: svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null });
-          console.debug('Debug: chartStyle.applySvgDefaults fontControls attached',{ scope: svg.id || svg.dataset?.fontScope || null }); // Debug: font panel auto-binding
-        } catch(fontErr){
-          console.error('chartStyle.applySvgDefaults fontControls error', fontErr);
-        }
-      }
+    if(!svg){
+      return false;
     }
-    console.debug('Debug: chartStyle.applySvgDefaults', {hasSvg: !!svg}); // Debug: svg defaults applied
+    svg.setAttribute('font-family', FONT_FAMILY);
+    svg.setAttribute('color', TEXT_COLOR);
+    console.debug('Debug: chartStyle.applySvgDefaults', { hasSvg: true }); // Debug: svg defaults applied
+    return true;
+  };
+
+  chartStyle.bindSvgInteractions = function bindSvgInteractions(svg, options = {}){
+    if(!svg){
+      return false;
+    }
+    const fontControls = global.Shared?.fontControls || null;
+    if(typeof fontControls?.enableForSvg !== 'function'){
+      return false;
+    }
+    const scopeId = options.scopeId || svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null;
+    try{
+      fontControls.enableForSvg(svg, { scopeId });
+      console.debug('Debug: chartStyle.bindSvgInteractions fontControls attached', { scope: scopeId }); // Debug: font panel binding
+      return true;
+    }catch(err){
+      console.error('chartStyle.bindSvgInteractions fontControls error', err);
+      return false;
+    }
+  };
+
+  chartStyle.prepareSvg = function prepareSvg(svg, options = {}){
+    const styled = chartStyle.applySvgDefaults(svg);
+    if(!styled){
+      return false;
+    }
+    if(options.bindInteractions !== false){
+      chartStyle.bindSvgInteractions(svg, options);
+    }
+    return true;
   };
 
   chartStyle.renderFontSizeLabel = function renderFontSizeLabel(options){

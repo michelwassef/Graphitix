@@ -12,13 +12,19 @@ describe('table import format affordances', () => {
     'pieFile'
   ];
 
+  beforeAll(() => {
+    require('../js/shared/tableImport.js');
+    window.Shared.tableImport.applyFormatMetadata(document);
+  });
+
   test('table import file inputs expose PZFX beside PRISM', () => {
     for(const id of tableFileInputIds){
       const input = document.getElementById(id);
       expect(input).toBeTruthy();
-      const accepted = String(input.getAttribute('accept') || '')
-        .split(',')
-        .map(item => item.trim().toLowerCase());
+      expect(input.dataset.fileFormats).toBe('table');
+      const accepted = window.Shared.tableImport
+        .getAcceptedExtensions(input.dataset.fileFormats)
+        .map(extension => `.${extension}`);
       expect(accepted).toContain('.prism');
       expect(accepted).toContain('.pzfx');
     }

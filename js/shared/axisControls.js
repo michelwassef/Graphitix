@@ -1166,10 +1166,10 @@
     if(!brokenAxisSegmentsContainer || !config){ return; }
     const doc = brokenAxisSegmentsContainer.ownerDocument || global.document;
     if(!doc){ return; }
-    
+
     // Clear existing segments
     brokenAxisSegmentsContainer.innerHTML = '';
-    
+
     const rawSegments = config.getBrokenAxisSegments ? config.getBrokenAxisSegments(config.axis) : [];
     const rawSegmentList = Array.isArray(rawSegments) ? rawSegments : [];
     const bounds = resolveAxisBounds(config);
@@ -1797,9 +1797,7 @@
       if(brokenAxisSupported){
         brokenAxisFieldEl.hidden = false;
         const enabled = config.getBrokenAxisEnabled ? config.getBrokenAxisEnabled(config.axis) : false;
-        const segments = typeof config.getBrokenAxisSegments === 'function'
-          ? (config.getBrokenAxisSegments(config.axis) || [])
-          : [];
+
         if(brokenAxisCheckbox){
           brokenAxisCheckbox.checked = enabled;
         }

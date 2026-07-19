@@ -168,6 +168,12 @@ describe('Pie percentage labels', () => {
         fontSize: '12'
       }
     });
+    const activeTab = window.Main.tabs.getActiveTab();
+    expect(window.Components.pie.draw({
+      force: true,
+      reason: 'pie-percent-label-render-test',
+      tabId: activeTab?.id
+    })).toBe(true);
     await flushAsyncWork(10);
 
     const svg = document.querySelector('#piePlot svg');

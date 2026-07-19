@@ -905,7 +905,6 @@
         return resolved;
       }
 
-      const scope = dataset.fontScope || null;
       const escapeAttr = (value) => {
         const raw = String(value);
         if (ownerWindow?.CSS && typeof ownerWindow.CSS.escape === 'function') {
@@ -950,6 +949,14 @@
       if (state.preview && state.preview.remove) {
         state.preview.remove();
         state.preview = null;
+      }
+      if (state.visibilityObserver) {
+        try {
+          state.visibilityObserver.disconnect();
+        } catch (observerErr) {
+          console.error('Shared.makeEditable visibility observer cleanup error', observerErr);
+        }
+        state.visibilityObserver = null;
       }
       if (state.safePointerdownHandler) {
         try {
@@ -1167,6 +1174,7 @@
           pendingSafeFocus: false,
           lastSafePointerTarget: null,
           safePointerdownResetTimer: null,
+          visibilityObserver: null,
           displayScale,
           overlayFontSize,
           overlayLineHeight,
@@ -1195,26 +1203,57 @@
           }
         };
 
+        const hideInlineVisibilityTarget = node => {
+          if (!node || !node.style) { return; }
+          if (state.hiddenTargets.some(entry => entry?.target === node)) { return; }
+          try {
+            state.hiddenTargets.push({
+              target: node,
+              restoreVisibility: node.style.visibility || null,
+              restoreOpacity: node.style.opacity || null,
+            });
+            node.style.visibility = 'hidden';
+            node.style.opacity = '0';
+          } catch (hideErr) {
+            console.error('Shared.makeEditable hide target error', hideErr);
+          }
+        };
         const visibilityTargets = collectVisibilityTargets(el);
         if (visibilityTargets.length) {
-          visibilityTargets.forEach(node => {
-            if (!node || !node.style) { return; }
-            try {
-              state.hiddenTargets.push({
-                target: node,
-                restoreVisibility: node.style.visibility || null,
-                restoreOpacity: node.style.opacity || null,
-              });
-              node.style.visibility = 'hidden';
-              node.style.opacity = '0';
-            } catch (hideErr) {
-              console.error('Shared.makeEditable hide target error', hideErr);
-            }
-          });
+          visibilityTargets.forEach(hideInlineVisibilityTarget);
           logDebug('makeEditable inline targets hidden', {
             count: state.hiddenTargets.length,
             tag: el?.tagName || null
           });
+        }
+        const fontKey = String(el?.dataset?.fontKey || '').trim();
+        const visibilityRoot = el?.closest?.('.svgbox') || el?.closest?.('svg') || null;
+        const MutationObserverCtor = ownerWindow?.MutationObserver || global.MutationObserver;
+        if(fontKey && visibilityRoot && typeof MutationObserverCtor === 'function'){
+          const hideMatchingTextNodes = root => {
+            if(!root){ return; }
+            const candidates = [];
+            if(
+              String(root.tagName || '').toLowerCase() === 'text'
+              && String(root.dataset?.fontKey || '') === fontKey
+            ){
+              candidates.push(root);
+            }
+            if(typeof root.querySelectorAll === 'function'){
+              root.querySelectorAll('text[data-font-key]').forEach(node => {
+                if(String(node.dataset?.fontKey || '') === fontKey){
+                  candidates.push(node);
+                }
+              });
+            }
+            candidates.forEach(hideInlineVisibilityTarget);
+          };
+          state.visibilityObserver = new MutationObserverCtor(mutations => {
+            mutations.forEach(mutation => {
+              mutation.addedNodes?.forEach?.(hideMatchingTextNodes);
+            });
+          });
+          state.visibilityObserver.observe(visibilityRoot, { childList: true, subtree: true });
         }
 
         const preview = ownerDocument.createElement('div');
@@ -1746,7 +1785,40 @@
         };
 
         function commit(nextValue, reason) {
-          const finalValue = nextValue ?? '';
+          let finalValue = nextValue ?? '';
+          let emptyTitleVisibility = null;
+          const titleRole = String(el?.dataset?.fontRole || '').trim();
+          const isGraphTitle = titleRole === 'graphTitle';
+          const isAxisTitle = titleRole === 'xTitle' || titleRole === 'yTitle' || titleRole === 'zTitle';
+          const initialTitleValue = state.initialValue == null ? '' : String(state.initialValue);
+          const shouldHideEmptyTitle = (isGraphTitle || isAxisTitle)
+            && String(finalValue).trim() === ''
+            && initialTitleValue.trim() !== '';
+          if (shouldHideEmptyTitle) {
+            finalValue = initialTitleValue;
+            state.inlineText = initialTitleValue;
+            state.styleMap = Array.isArray(state.initialStyleMap)
+              ? state.initialStyleMap.slice()
+              : new Array(initialTitleValue.length).fill(null);
+            state.usingInlineSegments = hasStyledCharacters(state.styleMap);
+            state.refreshInlineRendering(false);
+            notifyFontControlsInlineChange('empty-title-restore', {
+              range: { start: 0, end: initialTitleValue.length },
+              entire: true
+            });
+            const fontControlsApi = (Shared && Shared.fontControls) || ownerWindow?.Shared?.fontControls || null;
+            const scopeId = String(el?.dataset?.fontScope || '').trim();
+            const tabId = String(el?.dataset?.fontTabId || '').trim() || null;
+            if(scopeId && typeof fontControlsApi?.setRoleVisibility === 'function'){
+              emptyTitleVisibility = {
+                fontControlsApi,
+                scopeId,
+                tabId,
+                roles: isGraphTitle ? 'graphTitle' : ['xTitle', 'yTitle', 'zTitle'],
+                kind: isGraphTitle ? 'graph' : 'axes'
+              };
+            }
+          }
           const prevText = state.inlineText ?? '';
           state.updateInlineText(finalValue);
           const hasInlineStyles = hasStyledCharacters(state.styleMap);
@@ -1757,6 +1829,31 @@
             syncBaseStyleAttributes(el, state.baseStyle);
           }
           removeOverlay(state);
+          if(emptyTitleVisibility){
+            const {
+              fontControlsApi,
+              scopeId,
+              tabId,
+              roles,
+              kind
+            } = emptyTitleVisibility;
+            fontControlsApi.setRoleVisibility(scopeId, roles, false, {
+              tabId,
+              recordUndo: true,
+              undoLabel: `title-visibility:${kind}`,
+              undoScope: el.closest?.('.panel')?.id || scopeId
+            });
+            const sessionApi = ownerWindow?.Main?.session || global.Main?.session || null;
+            if(typeof sessionApi?.markWorkspaceTargetUserModified === 'function'){
+              sessionApi.markWorkspaceTargetUserModified(el, 'title-hidden-by-empty-edit', {
+                tabId,
+                componentKey: scopeId,
+                source: 'inline-title-edit',
+                origin: 'user',
+                affectsPayload: true
+              });
+            }
+          }
           logDebug('makeEditable commit', { finalValue, reason, prevLength: prevText.length });
           if (typeof onChange === 'function') {
             safeCall(onChange, [finalValue, el], 'Shared.makeEditable onChange error');

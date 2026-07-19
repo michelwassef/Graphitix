@@ -4,7 +4,7 @@
 
 const jStat = require('jstat');
 require('../../js/shared/stats.js');
-const sharedStats = window.Shared.stats;
+const sharedStats = global.Shared.stats;
 
 function loadWorker() {
   const ctx = {

@@ -47,4 +47,41 @@ describe('Main.components.ensureComponent', () => {
     expect(resolved).toBe(component);
     expect(component.ensure).toHaveBeenCalled();
   });
+
+  test('compatibility fallbacks do not advertise persistence capabilities', () => {
+    global.window.Components = {};
+    global.window.Shared = { debounceFrame: fn => fn };
+    const component = { ready: true, ensure: jest.fn(() => null) };
+    global.window.Components.box = component;
+    require('../js/main/components.js');
+
+    window.Main.components.ensureComponent('box');
+
+    expect(typeof component.captureRuntimeState).toBe('function');
+    expect(component.captureRuntimeState.__graphitixLifecycleFallback).toBe(true);
+    expect(window.Main.components.getLifecycleCapabilities('box').captureRuntimeState).toBe(false);
+    expect(window.Main.components.registry.box.__lifecycleContract.captureRuntimeState).toBe(false);
+  });
+
+  test('declared component persistence hooks are published as capabilities', () => {
+    global.window.Components = {};
+    global.window.Shared = { debounceFrame: fn => fn };
+    const component = {
+      ready: true,
+      ensure: jest.fn(() => null),
+      captureRuntimeState: jest.fn(() => ({ ready: true })),
+      applyRuntimeState: jest.fn(() => true)
+    };
+    global.window.Components.box = component;
+    require('../js/main/components.js');
+
+    window.Main.components.ensureComponent('box');
+
+    const capabilities = window.Main.components.getLifecycleCapabilities('box');
+    expect(capabilities.captureRuntimeState).toBe(true);
+    expect(capabilities.applyRuntimeState).toBe(true);
+    expect(window.Main.components.registry.box.__lifecycleContract.captureRuntimeState).toBe(true);
+    expect(window.Main.components.registry.box.__lifecycleContract.applyRuntimeState).toBe(true);
+  });
+
 });

@@ -10,7 +10,7 @@
       description: 'Graph Files',
       accept: {
         'application/zip': ['.graph'],
-        'application/json': ['.graph', '.json', '.session']
+        'application/json': ['.json']
       }
     }
   ];
@@ -58,7 +58,7 @@
         });
       });
     });
-    return [{ name: 'Supported Files', extensions: exts.length ? exts : ['graph', 'json', 'session'] }];
+    return [{ name: 'Supported Files', extensions: exts.length ? exts : ['graph', 'json'] }];
   }
 
   function registerPayloadBlob(blob, payload){
@@ -692,7 +692,7 @@
           return { status: 'cancelled', via: 'picker' };
         }
         const file = await handle.getFile();
-        const shouldProbePayload = /\.(graph|json|session)$/i.test(String(file?.name || ''));
+        const shouldProbePayload = /\.(graph|json)$/i.test(String(file?.name || ''));
         const parsedPayload = shouldProbePayload ? await parseJsonPayloadFromBlob(file, context) : null;
         ensureSetter(setFileHandle, handle);
         if(file?.name) ensureSetter(setFileName, file.name);

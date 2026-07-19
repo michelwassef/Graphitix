@@ -23,6 +23,9 @@
     if (!normalizedReason) {
       return DEFAULT_SNAPSHOT_KIND;
     }
+    if (normalizedReason.includes('recovery')) {
+      return 'recovery';
+    }
     if (normalizedReason.includes('autosave')) {
       return 'autosave';
     }
@@ -45,13 +48,15 @@
       case 'archive-save':
       case 'document-snapshot':
       case 'append-existing':
+      case 'recovery':
         return {
           saveLike: true,
           captureLivePayload: true,
           allowSkipLivePayloadCapture: false,
           runSkippedPayloadDriftProbe: true,
           promoteSkippedPayloadDrift: true,
-          reasonSkippable: false
+          reasonSkippable: false,
+          snapshotCapture: true
         };
       case 'warmup-cache':
         return {
@@ -62,7 +67,8 @@
           lifecycleSnapshot: true,
           runSkippedPayloadDriftProbe: false,
           promoteSkippedPayloadDrift: false,
-          reasonSkippable: true
+          reasonSkippable: true,
+          snapshotCapture: true
         };
       case 'autosave':
         return {
@@ -71,7 +77,8 @@
           lifecycleSnapshot: true,
           runSkippedPayloadDriftProbe: false,
           promoteSkippedPayloadDrift: false,
-          reasonSkippable: true
+          reasonSkippable: true,
+          snapshotCapture: true
         };
       case 'lifecycle-checkpoint':
       default:
@@ -100,7 +107,7 @@
     const autosaveLike = modeText === 'autosave' || kind === 'autosave' || reasonText.includes('autosave');
     const warmupLike = modeText === 'warmup-cache' || kind === 'warmup-cache';
     const recoveryLike = modeText === 'recovery'
-      || kind === 'lifecycle-checkpoint'
+      || kind === 'recovery'
       || reasonText.includes('recovery');
 
     let captureRenderCache = false;

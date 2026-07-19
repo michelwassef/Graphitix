@@ -413,24 +413,7 @@
     return { series: current.slice(), order: stages.length - 1, history, stages };
   };
 
-  const restoreDifferences = (baseValues, diffPredictions, order) => {
-    if(!Number.isInteger(order) || order <= 0){
-      return diffPredictions.slice();
-    }
-    const restored = [];
-    const history = Array.isArray(baseValues) ? baseValues.slice() : [];
-    diffPredictions.forEach((diffVal, idx) => {
-      let value = diffVal;
-      for(let d = order - 1; d >= 0; d--){
-        const reference = history[history.length - 1] ?? 0;
-        value = reference + value;
-        history.push(value);
-      }
-      restored[idx] = value;
-    });
-    console.debug('Debug:', debugNs, 'restoreDifferences', { order, baseSeedCount: baseValues.length, restoredCount: restored.length });
-    return restored;
-  };
+
 
   const computeForecastVariance = (phiCoefficients, horizon, sigmaSq) => {
     if(!Array.isArray(phiCoefficients) || phiCoefficients.length === 0){
@@ -1806,7 +1789,7 @@
     }
     const maxDomainX = Number.isFinite(domain?.maxX) ? Math.max(domain.maxX, Math.max(...filteredX)) : Math.max(...filteredX);
     const domainEffective = { minX: minDomainX, maxX: maxDomainX };
-    const logX = filteredX.map(val => Math.log(val));
+
     const logY = filteredY.map(val => Math.log(val));
     const design = filtered.map(pt => [1, Math.log(pt.x)]);
     const solved = solveLeastSquares(design, logY.map(val => [val]));
@@ -3357,7 +3340,7 @@
 
   const buildNonlinearModel = ({ points, domain, alpha, method, options, spec }) => {
     const yVals = points.map(pt => pt.y);
-    const xVals = points.map(pt => pt.x);
+
     const yMean = jStatLib.mean(yVals);
     const sst = yVals.reduce((sum,val)=>sum + Math.pow(val - yMean, 2), 0);
     const fitSpec = normalizeFitSpec(options);

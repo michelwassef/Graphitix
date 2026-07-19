@@ -138,7 +138,6 @@
     description: 'Graphitix, Prism, CSV, TSV, Excel, or ODS files',
     accept: {
       'application/zip': ['.graph'],
-      'application/json': ['.graph', '.json', '.session'],
       'application/octet-stream': ['.prism', '.pzfx'],
       'text/csv': ['.csv'],
       'text/tab-separated-values': ['.tsv'],
@@ -220,7 +219,7 @@
     return el;
   };
   const hasCustomDollar = typeof window.$ === 'function' && !(window.$.fn?.jquery);
-  const $ = hasCustomDollar ? window.$ : fallbackDollar;
+
   if (!hasCustomDollar) {
     window.$ = fallbackDollar;
     debug('Debug: window.$ fallback installed');
@@ -845,7 +844,11 @@
     const raf = typeof window.requestAnimationFrame === 'function'
       ? window.requestAnimationFrame.bind(window)
       : callback => window.setTimeout(callback, 0);
-    return new Promise(resolve => raf(() => raf(resolve)));
+    return new Promise(resolve => {
+      raf(() => {
+        raf(resolve);
+      });
+    });
   }
 
   async function importWelcomeDataFile(file, component, options = {}) {
@@ -887,7 +890,7 @@
     if (!file || !ext) {
       return false;
     }
-    if (['graph', 'json', 'session'].includes(ext)) {
+    if (ext === 'graph') {
       const loadPlan = await prepareWelcomeGraphLoadPlan();
       if (!loadPlan.proceed) {
         return false;
@@ -1224,7 +1227,10 @@
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      drawFromLists();
+      const activeTab = Main.session?.getActiveTab?.();
+      if(activeTab?.type === 'venn'){
+        window.Components?.venn?.drawFromLists?.();
+      }
     }
   });
 

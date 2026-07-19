@@ -41,41 +41,6 @@
     return Number(state?.workspaceState?.sessionRevision) || 0;
   }
 
-  function getActiveRecoverySnapshotIntent() {
-    const active = state?.session?.getActiveTab?.() || null;
-    const layoutOnly = !!(active && state?.session?.isLayoutOnlyTabDirty?.(active));
-    const boxPayloadAlreadyAuthoritative = !!(
-      active
-      && active.type === 'box'
-      && active.payload
-      && active.payloadDirty !== true
-      && Array.isArray(active.payload.data)
-      && active.payload.data.length > 0
-    );
-    if (layoutOnly || boxPayloadAlreadyAuthoritative) {
-      return {
-        saveLike: false,
-        lifecycleSnapshot: true,
-        captureLivePayload: false,
-        skipLivePayloadCapture: true,
-        allowSkipLivePayloadCapture: true,
-        reasonSkippable: true,
-        runSkippedPayloadDriftProbe: false,
-        promoteSkippedPayloadDrift: false,
-        snapshotCapture: true,
-        layoutOnly,
-        payloadAlreadyAuthoritative: boxPayloadAlreadyAuthoritative
-      };
-    }
-    return {
-      saveLike: false,
-      lifecycleSnapshot: true,
-      captureLivePayload: true,
-      allowSkipLivePayloadCapture: false,
-      reasonSkippable: false,
-      snapshotCapture: true
-    };
-  }
 
   function estimateSnapshotSignatureSize() {
     const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
@@ -107,6 +72,9 @@
   }
 
   function hasRecoverySnapshotDue() {
+    if (state?.restoringRecovery) {
+      return false;
+    }
     const revision = getSessionRevision();
     const inFlight = revision > 0
       ? recoveryInFlightRevision === revision
@@ -333,11 +301,8 @@
     }, 2200);
   }
 
-  async function buildRecoveryRecord(reason, snapshotIntent = null) {
+  async function buildRecoveryRecord(reason) {
     if (!state?.sessionActions || typeof state.sessionActions.buildWorkspaceArchiveBlob !== 'function') {
-      return null;
-    }
-    if (!currentWorkspaceHasRecoverableData()) {
       return null;
     }
     const context = state.getSessionActionsContext();
@@ -346,19 +311,17 @@
       reason,
       scope: 'workspace',
       useWorker: true,
-      snapshotKind: 'lifecycle-checkpoint',
-      snapshotIntent: snapshotIntent || getActiveRecoverySnapshotIntent(),
+      snapshotKind: 'recovery',
       policyMode: 'recovery',
       idleForMs
     });
-    if (!blob) {
+    if (!blob || !currentWorkspaceHasRecoverableData()) {
       return null;
     }
     const workspaceState = state.workspaceState || {};
     const graphTabs = Array.isArray(workspaceState.tabs)
       ? workspaceState.tabs.filter(tab => tab && !tab.isWelcome && tab.type)
       : [];
-    const hasData = currentWorkspaceHasRecoverableData();
     return {
       blob,
       meta: {
@@ -369,7 +332,7 @@
         updatedAt: Date.now(),
         reason,
         dirty: !!workspaceState.sessionUserDirty,
-        hasData,
+        hasData: true,
         tabCount: graphTabs.length,
         idleForMs,
         fileName: workspaceState.sessionFileName || '',
@@ -379,39 +342,10 @@
     };
   }
 
-  // Flush the active tab's live edits into its persisted payload before the recovery
-  // path inspects recoverable data. The active tab's payload is otherwise only flushed
-  // on tab deactivation (switch) or save, so a single never-deactivated tab would report
-  // no recoverable data and the snapshot would be skipped/cleared.
-  //
-  // We FORCE a live payload capture (captureLivePayload) rather than the default
-  // lifecycle-checkpoint "skip if clean" behavior. A clean tab.payload is NOT proof the
-  // stored payload matches the live component: bulk hot.loadData() (CSV/import) is treated
-  // as a programmatic non-user load (see Shared.hot afterLoadData), so it populates the hot
-  // WITHOUT syncing tab.payload or marking the tab dirty. The stored payload then stays as
-  // the empty-default template while the component holds real data. A recovery snapshot must
-  // capture authoritative live state (getPayload), exactly like a save does, so it reflects
-  // what the user actually sees regardless of how the data was entered.
-  function flushActiveTabForRecovery(reason, snapshotIntent = null) {
-    const sessionActions = state?.sessionActions;
-    if (!sessionActions || typeof sessionActions.persistActiveTabIfNeeded !== 'function') {
-      return;
-    }
-    if (typeof state.getSessionActionsContext !== 'function') {
-      return;
-    }
-    try {
-      sessionActions.persistActiveTabIfNeeded(state.getSessionActionsContext(), {
-        reason: reason || 'recovery-flush',
-        captureRenderCache: false,
-        snapshotIntent: snapshotIntent || getActiveRecoverySnapshotIntent()
-      });
-    } catch (err) {
-      debug('recovery.flushActiveTabFailed', { reason, message: err?.message || String(err) });
-    }
-  }
-
   async function writeRecoverySnapshot(reason = 'recovery') {
+    if (state?.restoringRecovery) {
+      return { status: 'skipped', reason: 'restore-in-progress' };
+    }
     if (!state?.workspaceState?.sessionUserDirty) {
       return { status: 'skipped', reason: 'clean' };
     }
@@ -425,13 +359,6 @@
       debug('recovery.write.skippedInFlight', { reason, revision });
       return { status: 'skipped', reason: 'in-flight', revision };
     }
-    const snapshotIntent = getActiveRecoverySnapshotIntent();
-    flushActiveTabForRecovery(reason, snapshotIntent);
-    if (!currentWorkspaceHasRecoverableData()) {
-      await clearRecoverySnapshot('no-recoverable-data');
-      lastRecoverySavedRevision = revision;
-      return { status: 'skipped', reason: 'no-recoverable-data' };
-    }
     const sequence = ++recoveryWriteSequence;
     recoveryInFlightRevision = inFlightToken;
     const recoveryJob = window.Shared?.jobs?.start?.({
@@ -443,9 +370,11 @@
       cancellable: false
     }) || null;
     try {
-      const record = await buildRecoveryRecord(reason, snapshotIntent);
+      const record = await buildRecoveryRecord(reason);
       if (!record) {
-        return { status: 'skipped', reason: 'empty' };
+        await clearRecoverySnapshot('no-recoverable-data');
+        lastRecoverySavedRevision = revision;
+        return { status: 'skipped', reason: 'no-recoverable-data' };
       }
       if (sequence !== recoveryWriteSequence) {
         debug('recovery.write.superseded', { reason, sequence, latest: recoveryWriteSequence });

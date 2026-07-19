@@ -674,6 +674,130 @@
     });
   }
 
+  const AXIS_TITLE_ROLES = ['xTitle', 'yTitle', 'zTitle'];
+  const AXIS_TITLE_SELECTOR = AXIS_TITLE_ROLES
+    .map(role => `text[data-font-role="${role}"]`)
+    .join(', ');
+
+  function resolveTitleVisibilityTabId(svgBox, opts){
+    const explicit = String(opts?.tabId || '').trim();
+    if(explicit){
+      return explicit;
+    }
+    const owner = svgBox?.closest?.('[data-workspace-tab-id], [data-tab-id]');
+    return String(owner?.dataset?.workspaceTabId || owner?.dataset?.tabId || '').trim() || null;
+  }
+
+  function hasAxisTitles(svgBox){
+    return !!svgBox?.querySelector?.(AXIS_TITLE_SELECTOR);
+  }
+
+  function syncTitleVisibilityControls(svgBox, opts){
+    const fontControls = Shared.fontControls;
+    const scopeId = String(opts?.componentName || '').trim();
+    if(!svgBox || !scopeId || typeof fontControls?.areRolesVisible !== 'function'){
+      return;
+    }
+    const tabId = resolveTitleVisibilityTabId(svgBox, opts);
+    const graphInput = svgBox.querySelector('.resizer-graph-title-checkbox');
+    const axesInput = svgBox.querySelector('.resizer-axes-title-checkbox');
+    const axesControl = axesInput?.closest('.resizer-title-control');
+    if(graphInput){
+      graphInput.checked = fontControls.areRolesVisible(scopeId, 'graphTitle', { tabId });
+    }
+    if(axesInput){
+      axesInput.checked = fontControls.areRolesVisible(scopeId, AXIS_TITLE_ROLES, { tabId });
+    }
+    if(axesControl){
+      axesControl.hidden = !hasAxisTitles(svgBox);
+    }
+  }
+
+  function ensureAxisTitleApplicabilityObserver(svgBox, optionsControl){
+    if(
+      !svgBox
+      || !optionsControl
+      || optionsControl.__resizerAxisTitleObserver
+      || typeof global.MutationObserver !== 'function'
+    ){
+      return;
+    }
+    const observer = new global.MutationObserver(() => {
+      optionsControl.__resizerTitleVisibilitySync?.();
+    });
+    observer.observe(svgBox, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-font-role']
+    });
+    optionsControl.__resizerAxisTitleObserver = observer;
+  }
+
+  function ensureTitleVisibilityControls(svgBox, doc, opts){
+    const scopeId = String(opts?.componentName || '').trim();
+    const fontControls = Shared.fontControls;
+    if(
+      !svgBox
+      || !doc
+      || !scopeId
+      || typeof fontControls?.setRoleVisibility !== 'function'
+      || typeof fontControls?.areRolesVisible !== 'function'
+    ){
+      return;
+    }
+    const setup = ensureGraphOptionsMenu(svgBox, doc, {
+      debugLabel: `${scopeId}-title-options`,
+      title: 'Graph options'
+    });
+    if(!setup?.menu){
+      return;
+    }
+    const ensureControl = (className, labelText, roles) => {
+      let control = setup.menu.querySelector(`.${className}`);
+      if(!control){
+        control = doc.createElement('label');
+        control.className = `resizer-title-control ${className}`;
+        const input = doc.createElement('input');
+        input.type = 'checkbox';
+        input.className = className === 'resizer-graph-title-control'
+          ? 'resizer-graph-title-checkbox'
+          : 'resizer-axes-title-checkbox';
+        input.setAttribute('aria-label', labelText);
+        const text = doc.createElement('span');
+        text.textContent = labelText;
+        control.appendChild(input);
+        control.appendChild(text);
+        setup.menu.appendChild(control);
+      }
+      const input = control.querySelector('input[type="checkbox"]');
+      if(input?.__resizerTitleVisibilityHandler){
+        input.removeEventListener('change', input.__resizerTitleVisibilityHandler);
+      }
+      const onChange = () => {
+        const tabId = resolveTitleVisibilityTabId(svgBox, opts);
+        const next = !!input.checked;
+        fontControls.setRoleVisibility(scopeId, roles, next, {
+          tabId,
+          recordUndo: true,
+          undoLabel: `title-visibility:${className === 'resizer-graph-title-control' ? 'graph' : 'axes'}`,
+          undoScope: svgBox.closest?.('.panel')?.id || scopeId
+        });
+        syncTitleVisibilityControls(svgBox, opts);
+      };
+      input?.addEventListener('change', onChange);
+      if(input){
+        input.__resizerTitleVisibilityHandler = onChange;
+      }
+      return control;
+    };
+    ensureControl('resizer-graph-title-control', 'Show graph title', 'graphTitle');
+    ensureControl('resizer-axes-title-control', 'Show axes titles', AXIS_TITLE_ROLES);
+    setup.control.__resizerTitleVisibilitySync = () => syncTitleVisibilityControls(svgBox, opts);
+    ensureAxisTitleApplicabilityObserver(svgBox, setup.control);
+    syncTitleVisibilityControls(svgBox, opts);
+  }
+
   function ensureGraphOptionsMenu(svgBox, doc, opts = {}){
     if(!svgBox || !doc){
       return null;
@@ -725,6 +849,7 @@
         if(control.hasAttribute('open')){
           closeSiblingOptionsMenus(control);
           openAxesLengthOptionsInMenu(control.querySelector('.resizer-options-menu'));
+          control.__resizerTitleVisibilitySync?.();
         }
       };
       control.addEventListener('toggle', onToggle);
@@ -810,7 +935,8 @@
       '.resizer-aspect-control',
       '.resizer-fontresize-control',
       '.resizer-axeslength-control',
-      '.resizer-legend-control'
+      '.resizer-legend-control',
+      '.resizer-title-control'
     ].forEach(selector => {
       Array.from(tray.querySelectorAll(selector)).forEach(control => {
         if(control.closest('.resizer-options-control') === setup.control){
@@ -1292,8 +1418,6 @@
         zoomLevel
       }, payload));
     };
-    let zoomViewport = null;
-    let zoomContent = null;
     let zoomTarget = null;
     let zoomControl = null;
     let zoomOutButton = null;
@@ -1807,8 +1931,6 @@
       if(!zoomSetup){
         return null;
       }
-      zoomViewport = zoomSetup.viewport;
-      zoomContent = zoomSetup.content;
       zoomTarget = zoomSetup.target;
       if(zoomSetup.created){
         logZoom('viewport-created', {
@@ -2224,6 +2346,7 @@
       if(fontResizeControl){
         moveGraphOptionIntoMenu(container, fontResizeControl, { debugLabel: `${containerLabel}-font-resize-option` });
       }
+      ensureTitleVisibilityControls(container, doc, opts);
 
       const zoomSetup = ensureZoomElements();
       if(zoomSetup){

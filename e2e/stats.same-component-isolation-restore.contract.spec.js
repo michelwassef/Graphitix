@@ -43,17 +43,20 @@ const CASES = [
       const results = String(root.querySelector('#statsResults')?.textContent || '').replace(/\s+/g, ' ').trim();
       return {
         option: stats.test || null,
+        tabOption: active?.payload?.config?.stats?.test || null,
         status,
         results,
         hasControls: /Analysis family:|Conditions to compare:/i.test(controlsText),
         hasTopStatus: /Statistics up to date/i.test(status),
         hasResultsModel: !!stats.resultsModel,
-        hasReportModel: !!stats.reportModel
+        hasReportModel: !!stats.reportModel,
+        tabHasResultsModel: !!active?.payload?.config?.stats?.resultsModel,
+        tabHasReportModel: !!active?.payload?.config?.stats?.reportModel
       };
     }),
     assertVariant: snapshot => {
       expect(snapshot.hasControls).toBe(true);
-      expect(snapshot.hasTopStatus).toBe(true);
+      expect(snapshot.hasTopStatus, JSON.stringify(snapshot)).toBe(true);
       expect(snapshot.hasResultsModel || snapshot.hasReportModel).toBe(true);
     }
   },
@@ -178,9 +181,9 @@ async function getTabIds(page) {
 async function activateTab(page, tabId, componentCase = null) {
   const tab = page.locator(`#workspaceTabsList .workspace-tab[data-tab-id="${tabId}"]`).first();
   await expect(tab).toBeVisible({ timeout: 20_000 });
-  await page.evaluate(id => {
+  await page.evaluate(async id => {
     if(window.Main?.tabs?.activateTab){
-      window.Main.tabs.activateTab(id, { reason: 'e2e-stats-same-component-activate' });
+      await Promise.resolve(window.Main.tabs.activateTab(id, { reason: 'e2e-stats-same-component-activate' }));
       return;
     }
     document.querySelector(`#workspaceTabsList .workspace-tab[data-tab-id="${CSS.escape(id)}"]`)?.click();

@@ -67,6 +67,29 @@ describe('componentLifecycle — payloadHasRenderableContent', () => {
   });
 });
 
+describe('componentLifecycle — draw option sanitization', () => {
+  beforeEach(loadFresh);
+
+  test('preserves serializable cross-realm records while removing live objects', () => {
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    const source = new iframe.contentWindow.Object();
+    source.mode = 'lists';
+    source.nested = new iframe.contentWindow.Object();
+    source.nested.ok = true;
+    source.target = document.createElement('div');
+
+    expect(lc.sanitizeDrawOptions(source, { tabId: 'tab-a', reason: 'unit-cross-realm' })).toEqual({
+      mode: 'lists',
+      nested: { ok: true },
+      tabId: 'tab-a',
+      reason: 'unit-cross-realm'
+    });
+
+    iframe.remove();
+  });
+});
+
 describe('componentLifecycle — isGraphFrameLayoutAuthorityWrite', () => {
   beforeEach(loadFresh);
 
@@ -636,6 +659,42 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
   });
 });
 
+
+describe('componentLifecycle — snapshot render-cache policy', () => {
+  beforeEach(loadFresh);
+
+  test('captureRenderCache false is absolute for sync and async snapshots', async () => {
+    const captureRenderCache = jest.fn(() => ({ plot: { count: 1 } }));
+    const workspace = {
+      type: 'scatter',
+      getPayload: jest.fn(() => ({ type: 'scatter', data: [[1, 2]] })),
+      captureRuntimeState: jest.fn(() => ({ runtime: true })),
+      captureUiState: jest.fn(() => ({ ui: true })),
+      getLayoutState: jest.fn(() => ({ width: 640, height: 480 })),
+      captureRenderCache,
+      awaitReadyForSnapshot: jest.fn(() => Promise.resolve({ ok: true }))
+    };
+    const tab = { id: 'tab-a', type: 'scatter', payload: { type: 'scatter', data: [] } };
+
+    const syncSnapshot = lc.snapshotWorkspaceSync(workspace, tab, {
+      tabId: tab.id,
+      captureRenderCache: false,
+      reason: 'unit-lean-checkpoint-sync'
+    });
+    const asyncSnapshot = await lc.snapshotWorkspace(workspace, tab, {
+      tabId: tab.id,
+      captureRenderCache: false,
+      reason: 'unit-lean-checkpoint-async'
+    });
+
+    expect(syncSnapshot.ok).toBe(true);
+    expect(syncSnapshot.renderCache).toBeNull();
+    expect(asyncSnapshot.ok).toBe(true);
+    expect(asyncSnapshot.renderCache).toBeNull();
+    expect(captureRenderCache).not.toHaveBeenCalled();
+  });
+});
+
 describe('componentLifecycle — diffPayload / validatePayload / normalizePayloadEnvelope', () => {
   beforeEach(loadFresh);
 
@@ -939,6 +998,23 @@ describe('componentLifecycle — createRuntimeOwner', () => {
       strictRuntimeOwner: true,
       reason: 'unit-resolve-missing-tab'
     })).toThrow(/requires explicit tab id/);
+  });
+
+
+  test('runtime snapshot helpers honor an explicit component key for unattached component objects', () => {
+    const unattachedComponent = {};
+    const snapshot = { stats: { ready: true } };
+    const stored = lc.rememberComponentRuntimeSnapshot(unattachedComponent, snapshot, {
+      componentKey: 'box',
+      tabId: 'tab-a',
+      reason: 'unit-unattached-component'
+    });
+
+    expect(stored.__runtimeOwner).toMatchObject({ componentKey: 'box', tabId: 'tab-a' });
+    expect(lc.getComponentRuntimeSnapshot(unattachedComponent, {
+      componentKey: 'box',
+      tabId: 'tab-a'
+    })).toEqual(stored);
   });
 
   test('dispose removes both normalized snapshots and owned runtime records', () => {
@@ -1372,7 +1448,7 @@ describe('session teardown contract', () => {
     lc = window.Shared.componentLifecycle;
   });
 
-  test('applySessionData disposes existing tab runtime before replacing the tab list', () => {
+  test('applySessionData disposes existing tab runtime before replacing the tab list', async () => {
     const tab = session.createTab({
       title: 'Box',
       type: 'box',
@@ -1386,7 +1462,7 @@ describe('session teardown contract', () => {
 
     expect(tab.sharedState?.runtime?.lifecycle || tab.sharedState?.sessions?.box?.runtime?.lifecycle).toBeTruthy();
 
-    session.applySessionData({ tabs: [], activeIndex: -1 }, {
+    await session.applySessionData({ tabs: [], activeIndex: -1 }, {
       reason: 'unit-session-reload'
     });
 
@@ -1395,6 +1471,149 @@ describe('session teardown contract', () => {
     expect(session.workspaceState.tabs).toHaveLength(1);
     expect(session.workspaceState.tabs[0].isWelcome).toBe(true);
   });
+
+
+  test('applySessionData rebases valid archive cache signatures after runtime tab-id rehoming', async () => {
+    const sourcePayload = { type: 'box', data: [['A'], [1]] };
+    const sourceLayout = {
+      component: 'box',
+      tabId: 'workspace-99',
+      graphFrame: { tabId: 'workspace-99', width: 640, height: 480 }
+    };
+    const sourceCache = {
+      __graphitixRenderCache: {
+        complete: true,
+        type: 'box',
+        tabId: 'workspace-99'
+      },
+      plot: { markup: '<svg data-workspace-tab-id="workspace-99"></svg>' }
+    };
+
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        archiveRuntimeTabId: 'workspace-99',
+        payload: sourcePayload,
+        layout: sourceLayout,
+        archiveRenderCache: sourceCache,
+        archiveRenderCacheSignature: session.serializePayloadSignature(sourcePayload),
+        archiveRenderCacheLayoutSignature: session.serializePayloadSignature(sourceLayout)
+      }]
+    }, {
+      reason: 'unit-cache-signature-rehome',
+      activateTab: jest.fn(() => true)
+    });
+
+    const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
+    expect(restored).toBeTruthy();
+    expect(restored.id).not.toBe('workspace-99');
+    expect(restored.layoutState.tabId).toBe(restored.id);
+    expect(restored.archiveRenderCache.__graphitixRenderCache.tabId).toBe(restored.id);
+    expect(restored.archiveRenderCacheSignature).toBe(restored.payloadSignature);
+    expect(restored.archiveRenderCacheLayoutSignature).toBe(restored.layoutSignature);
+    expect(restored.archiveRenderCacheLayoutSignature).not.toBe(session.serializePayloadSignature(sourceLayout));
+  });
+
+  test('applySessionData rejects stale archive cache signature provenance', async () => {
+    const sourcePayload = { type: 'box', data: [['A'], [1]] };
+    const sourceLayout = { component: 'box', tabId: 'workspace-77', width: 640, height: 480 };
+
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        archiveRuntimeTabId: 'workspace-77',
+        payload: sourcePayload,
+        layout: sourceLayout,
+        archiveRenderCache: {
+          __graphitixRenderCache: { tabId: 'workspace-77', type: 'box', complete: true },
+          plot: { markup: '<svg></svg>' }
+        },
+        archiveRenderCacheSignature: 'stale-payload-signature',
+        archiveRenderCacheLayoutSignature: 'stale-layout-signature'
+      }]
+    }, {
+      reason: 'unit-cache-signature-reject',
+      activateTab: jest.fn(() => true)
+    });
+
+    const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
+    expect(restored.archiveRenderCache).toBeTruthy();
+    expect(restored.archiveRenderCacheSignature).toBeNull();
+    expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
+  });
+
+  test('applySessionData rejects an archive cache whose embedded owner differs from the manifest owner', async () => {
+    const sourcePayload = { type: 'box', data: [['A'], [1]] };
+    const sourceLayout = { component: 'box', tabId: 'workspace-88', width: 640, height: 480 };
+
+    const result = await session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        archiveRuntimeTabId: 'workspace-88',
+        payload: sourcePayload,
+        layout: sourceLayout,
+        archiveRenderCache: {
+          __graphitixRenderCache: { tabId: 'workspace-89', type: 'box', complete: true },
+          plot: { markup: '<svg></svg>' }
+        },
+        archiveRenderCacheSignature: session.serializePayloadSignature(sourcePayload),
+        archiveRenderCacheLayoutSignature: session.serializePayloadSignature(sourceLayout)
+      }]
+    }, {
+      reason: 'unit-cache-owner-reject',
+      activateTab: jest.fn(() => true)
+    });
+
+    const restored = session.workspaceState.tabs.find(tab => tab.id === result.targetTabId);
+    expect(restored.archiveRenderCache).toBeTruthy();
+    expect(restored.archiveRenderCacheSignature).toBeNull();
+    expect(restored.archiveRenderCacheLayoutSignature).toBeNull();
+    expect(session.peekArchiveRenderCache(restored, { reason: 'unit-cache-owner-reject-peek' })).toBeNull();
+  });
+
+  test('applySessionData does not resolve until active workspace activation completes', async () => {
+    let resolveActivation;
+    const activation = new Promise(resolve => {
+      resolveActivation = resolve;
+    });
+    const activateTab = jest.fn(() => activation);
+    let settled = false;
+
+    const restorePromise = session.applySessionData({
+      activeIndex: 0,
+      tabs: [{
+        title: 'Box',
+        type: 'box',
+        payload: { type: 'box', data: [['A'], [1]] },
+        layout: null
+      }]
+    }, {
+      reason: 'unit-awaited-restore',
+      activateTab
+    });
+    restorePromise.finally(() => { settled = true; });
+
+    await Promise.resolve();
+    expect(activateTab).toHaveBeenCalledTimes(1);
+    expect(activateTab).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      skipPersist: true,
+      awaitReadyForRestore: true,
+      reason: 'unit-awaited-restore'
+    }));
+    expect(settled).toBe(false);
+
+    resolveActivation(true);
+    const result = await restorePromise;
+    expect(result.targetTabId).toBeTruthy();
+    expect(settled).toBe(true);
+  });
+
 });
 
 describe('componentLifecycle — waitForAnimationFrames', () => {
@@ -1581,6 +1800,53 @@ describe('component runtime ownership adapter cleanup', () => {
       expect(source).not.toMatch(/workspaceTabs\?\.(?:getOwnedRuntimeRecord|setOwnedRuntimeRecord|clearOwnedRuntimeRecord)/);
       expect(source).not.toMatch(/Shared\.workspaceTabs\?\.(?:getOwnedRuntimeRecord|setOwnedRuntimeRecord|clearOwnedRuntimeRecord)/);
       expect(source).toMatch(/createRuntimeOwner\?\.\(/);
+    });
+  });
+});
+
+describe('componentLifecycle — draw option sanitation', () => {
+  beforeEach(loadFresh);
+
+  test('removes live objects and preserves plain owner-scoped metadata', () => {
+    const event = new Event('click');
+    const node = document.createElement('div');
+    const session = { tabId: 'tab-a' };
+    const result = lc.sanitizeComponentDrawOptions('venn', {
+      reason: 'analysis-update',
+      force: true,
+      nested: { value: 3, node },
+      event,
+      session,
+      callback: () => {}
+    }, {
+      tabId: 'tab-a',
+      sessionGeneration: 7
+    });
+
+    expect(result).toEqual({
+      reason: 'analysis-update',
+      force: true,
+      nested: { value: 3 },
+      tabId: 'tab-a',
+      sessionGeneration: 7
+    });
+  });
+
+  test('drops circular and non-plain values without losing valid flags', () => {
+    const circular = { keep: true };
+    circular.self = circular;
+    const result = lc.sanitizeComponentDrawOptions('scatter', {
+      reason: 'style-change',
+      viewOnly: true,
+      circular,
+      controller: new AbortController()
+    }, { tabId: 'tab-b' });
+
+    expect(result).toEqual({
+      reason: 'style-change',
+      viewOnly: true,
+      circular: { keep: true },
+      tabId: 'tab-b'
     });
   });
 });

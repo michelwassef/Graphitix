@@ -3298,11 +3298,8 @@
     svg.setAttribute('data-surface-base-height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY || 'Segoe UI, sans-serif');
-    if(typeof chartStyle.applySvgDefaults === 'function'){
-      chartStyle.applySvgDefaults(svg);
-    }
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
-      fontControls.enableForSvg(svg, { scopeId: 'surface' });
+    if(typeof chartStyle.prepareSvg === 'function'){
+      chartStyle.prepareSvg(svg, { scopeId: 'surface' });
     }
     const doc = svg.ownerDocument || global.document;
     // Ensure <defs> exists for gradients/etc

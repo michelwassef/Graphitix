@@ -41,7 +41,7 @@ describe('graph archive render cache serialization', () => {
       __graphitixRenderCache: {
         type: 'scatter',
         complete: true,
-        tabId: 'workspace-2'
+        tabId: 'workspace-3'
       }
     });
 
@@ -65,5 +65,29 @@ describe('graph archive render cache serialization', () => {
     const restoredImage = consumed.cache.plot.fragment.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]');
     expect(restoredImage).toBeTruthy();
     expect(restoredImage.getAttribute('src')).toBe('data:image/png;base64,Y2FjaGVkLXBvaW50cw==');
+  });
+
+  test('rejects an archive render cache whose embedded owner does not match the target tab', () => {
+    const session = window.Main?.session;
+    const serialized = session.serializeRenderCacheForArchive({
+      plot: { nodes: [], count: 0 },
+      __graphitixRenderCache: {
+        type: 'scatter',
+        complete: true,
+        tabId: 'workspace-other'
+      }
+    });
+    const tab = {
+      id: 'workspace-target',
+      type: 'scatter',
+      payloadSignature: 'payload',
+      layoutSignature: 'layout',
+      archiveRenderCache: serialized,
+      archiveRenderCacheSignature: 'payload',
+      archiveRenderCacheLayoutSignature: 'layout'
+    };
+
+    expect(session.consumeArchiveRenderCache(tab, { reason: 'owner-mismatch-test' })).toBeNull();
+    expect(tab.archiveRenderCache).toBe(serialized);
   });
 });

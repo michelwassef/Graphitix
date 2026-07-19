@@ -749,14 +749,14 @@ async function seedRecoverySnapshot(page) {
     const context = tabsApi.getSessionActionsContext();
     const policy = window.Main?.snapshotPolicy?.resolveArchiveBuildPolicy?.({
       mode: 'recovery',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       reason: 'recovery-interval',
       scope: 'workspace',
       idleForMs: 8_000
     }) || null;
     const blob = await sessionActions.buildWorkspaceArchiveBlob(context, {
       scope: 'workspace',
-      snapshotKind: 'lifecycle-checkpoint',
+      snapshotKind: 'recovery',
       policyMode: 'recovery',
       reason: 'recovery-interval',
       idleForMs: 8_000,

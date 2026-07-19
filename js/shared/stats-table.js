@@ -496,7 +496,6 @@
       footnoteGap,
       outerPadding,
       cellPaddingX,
-      minColumnWidth,
       fontFamily
     } = options;
 
@@ -565,7 +564,6 @@
       tableWidth,
       width,
       height,
-      captionOffset,
       captionFontSize,
       footnoteFontSize,
       tableTop,

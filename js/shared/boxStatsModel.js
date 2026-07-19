@@ -8,24 +8,12 @@
   const ctx = root || (typeof self !== 'undefined' ? self : (typeof window !== 'undefined' ? window : globalThis));
   const global = ctx;
   const Shared = ctx.Shared = ctx.Shared || {};
-  const JSTAT_URL = 'https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js';
+  const JSTAT_URL = '../../libs/jstat.min.js';
   const STATS_URL = '../shared/stats.js';
-  const debugState = { enabled: false };
-
-  if(typeof Shared.isDebugEnabled !== 'function'){
-    Shared.isDebugEnabled = function isDebugEnabled(){
-      return !!debugState.enabled;
-    };
-  }
 
   function logDebug(message, payload){
-    if(!debugState.enabled){
-      return;
-    }
-    if(typeof payload === 'undefined'){
-      console.debug(message);
-    }else{
-      console.debug(message, payload);
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
     }
   }
 
@@ -602,16 +590,7 @@
     return typeof cdf === 'function' ? resolvePValue(2 * (1 - cdf(Math.abs(z), 0, 1))) : NaN;
   }
 
-  function normalUpperTailPValue(z){
-    try{
-      const helper = ensureStats()?.normalUpperTail;
-      if(typeof helper === 'function'){
-        return resolvePValue(helper(z));
-      }
-    }catch(err){}
-    const cdf = ctx.jStat?.normal?.cdf;
-    return typeof cdf === 'function' ? resolvePValue(1 - cdf(z, 0, 1)) : NaN;
-  }
+
 
   function studentTTwoSidedPValue(t, df){
     try{
@@ -1118,52 +1097,7 @@
       ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4] + 1);
   }
 
-  function sampleArrayEvenly(values, limit){
-    if(!Array.isArray(values) || !values.length){
-      return [];
-    }
-    const maxSamples = Math.max(0, Math.floor(limit));
-    if(!maxSamples){
-      return [];
-    }
-    if(values.length <= maxSamples){
-      return values.slice().filter(Number.isFinite);
-    }
-    if(maxSamples === 1){
-      const firstFinite = values.find(Number.isFinite);
-      return Number.isFinite(firstFinite) ? [Number(firstFinite)] : [];
-    }
-    const sample = [];
-    const step = (values.length - 1) / (maxSamples - 1);
-    for(let idx = 0; idx < maxSamples; idx++){
-      const target = Math.min(values.length - 1, Math.round(idx * step));
-      let candidate = Number(values[target]);
-      if(!Number.isFinite(candidate)){
-        let offset = 1;
-        while(!Number.isFinite(candidate) && (target - offset >= 0 || target + offset < values.length)){
-          if(target - offset >= 0){
-            const left = Number(values[target - offset]);
-            if(Number.isFinite(left)){
-              candidate = left;
-              break;
-            }
-          }
-          if(target + offset < values.length){
-            const right = Number(values[target + offset]);
-            if(Number.isFinite(right)){
-              candidate = right;
-              break;
-            }
-          }
-          offset++;
-        }
-      }
-      if(Number.isFinite(candidate)){
-        sample.push(candidate);
-      }
-    }
-    return sample;
-  }
+
 
     function computeQQPoints(values,options){
     const maxSample=Number.isFinite(options?.maxSampleSize)
@@ -1337,18 +1271,7 @@
     return { method: 'brown-forsythe', statistic: F, pValue, passed, df1, df2, sparkline: sparklineValues };
   }
 
-  function countFiniteValues(values){
-    if(!Array.isArray(values) || !values.length){
-      return 0;
-    }
-    let count = 0;
-    for(let idx = 0; idx < values.length; idx++){
-      if(Number.isFinite(values[idx])){
-        count++;
-      }
-    }
-    return count;
-  }
+
 
   const SHAPIRO_A_CACHE = new Map();
 
@@ -1518,7 +1441,7 @@
 
     // Coefficients for the test.
     const a = shapiroCoefficients(n);
-    const nn2 = Math.floor(n/2);
+
 
     // Compute W statistic (uncensored, n1 = n).
     let xx = x[0] / range;
@@ -2765,36 +2688,7 @@
     };
   }
 
-  const GAUSS_HERMITE_NODES = [
-    -3.889724897869781,
-    -3.020637025120889,
-    -2.2795070805010594,
-    -1.5976826351526044,
-    -0.9477883912401637,
-    -0.3142403762543591,
-    0.3142403762543591,
-    0.9477883912401637,
-    1.5976826351526044,
-    2.2795070805010594,
-    3.020637025120889,
-    3.889724897869781
-  ];
-  const GAUSS_HERMITE_WEIGHTS = [
-    2.6585516843563013e-07,
-    0.00001761400713915212,
-    0.0009322840086241802,
-    0.02697315497843491,
-    0.3982821276709972,
-    1.830103131080486,
-    1.830103131080486,
-    0.3982821276709972,
-    0.02697315497843491,
-    0.0009322840086241802,
-    0.00001761400713915212,
-    2.6585516843563013e-07
-  ];
-
-    function studentizedRangeCDFInfinite(q,r){
+  function studentizedRangeCDFInfinite(q,r){
     if(!Number.isFinite(q) || q<=0){
       return 0;
     }
@@ -3359,10 +3253,8 @@
         }
         const z=diff/se;
         const absZ=Math.abs(z);
-        const jStatLib=global.jStat;
-        const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
-          ? jStatLib.normal.cdf
-          : 0.5*(1+Math.erf(absZ/Math.SQRT2));
+
+
         const p=normalTwoSidedPValue(absZ);
         pairs.push({
           i,
@@ -3643,9 +3535,9 @@
     const PREFERRED_GAP_FACTOR = 2.05;
     const densityDistance = Math.max(0.5, basePointRadius * PREFERRED_GAP_FACTOR);
     let axisBoundary = Math.max(0, axisSpacing / 2 - basePointRadius);
-    const violinScale = 0.45;
+
     const stripScale = 0.18;
-    const baseScale = stripScale / violinScale;
+
     let effectiveHalfSpan = axisBoundary > 0
       ? axisSpacing * stripScale * spreadFactor
       : basePointRadius * 2.2 * spreadFactor;
@@ -4709,103 +4601,7 @@
     };
   }
 
-  function analyzeThreeWayMixed(data){
-    const base = collectGroupedMomentInfo(data);
-    if(!base.ok){
-      return { ok: false, message: base.message };
-    }
-    const jStatLib = global.jStat;
-    if(!jStatLib){
-      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
-    }
-    const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
-    if(I < 2 || J < 2 || K < 2){
-      return { ok: false, message: 'Three-way mixed model requires at least two groups, two conditions, and two rows.' };
-    }
-    const dfA = I - 1;
-    const dfB = J - 1;
-    const dfC = K - 1;
-    const dfAS = (I - 1) * (K - 1);
-    const dfBS = (J - 1) * (K - 1);
-    const dfAB = (I - 1) * (J - 1);
-    const dfABS = (I - 1) * (J - 1) * (K - 1);
-    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
-      return { ok: false, message: 'Three-way mixed model requires at least two rows to estimate random effects.' };
-    }
-    let sss = 0;
-    for(let k = 0; k < K; k++){
-      sss += Math.pow(subjectMeans[k] - grandMean, 2);
-    }
-    sss *= I * J;
-    let ssas = 0;
-    for(let i = 0; i < I; i++){
-      for(let k = 0; k < K; k++){
-        const term = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
-        ssas += Math.pow(term, 2);
-      }
-    }
-    ssas *= J;
-    let ssbs = 0;
-    for(let j = 0; j < J; j++){
-      for(let k = 0; k < K; k++){
-        const term = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
-        ssbs += Math.pow(term, 2);
-      }
-    }
-    ssbs *= I;
-    let ssabs = 0;
-    for(let k = 0; k < K; k++){
-      for(let i = 0; i < I; i++){
-        for(let j = 0; j < J; j++){
-          const term = data.rows[k][i][j]
-            - base.cellMeans[i][j]
-            - asMeans[i][k]
-            - bsMeans[j][k]
-            + meanByGroup[i]
-            + meanByCondition[j]
-            + subjectMeans[k]
-            - grandMean;
-          ssabs += Math.pow(term, 2);
-        }
-      }
-    }
-    const msa = ssa / dfA;
-    const msas = ssas / dfAS;
-    const msb = ssb / dfB;
-    const msbs = ssbs / dfBS;
-    const msab = ssab / dfAB;
-    const msabs = ssabs / dfABS;
-    const fA = msas > 0 ? msa / msas : NaN;
-    const fB = msbs > 0 ? msb / msbs : NaN;
-    const fAB = msabs > 0 ? msab / msabs : NaN;
-    const pA = Number.isFinite(fA) ? fUpperTailPValue(fA, dfA, dfAS) : NaN;
-    const pB = Number.isFinite(fB) ? fUpperTailPValue(fB, dfB, dfBS) : NaN;
-    const pAB = Number.isFinite(fAB) ? fUpperTailPValue(fAB, dfAB, dfABS) : NaN;
-    return {
-      ok: true,
-      caption: 'Three-way Mixed Model',
-      section: 'summary',
-      columns: [
-        { key: 'source', label: 'Source', align: 'left' },
-        { key: 'df', label: 'df', align: 'right' },
-        { key: 'ss', label: 'SS', align: 'right' },
-        { key: 'ms', label: 'MS', align: 'right' },
-        { key: 'f', label: 'F', align: 'right' },
-        { key: 'p', label: 'P value', align: 'right' }
-      ],
-      rows: [
-        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
-        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
-        { source: 'Row (random)', df: String(dfC), ss: formatStatNumber(sss), ms: formatStatNumber(dfC ? sss / dfC : NaN), f: '-', p: '-' },
-        { source: 'Group x Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
-        { source: 'Group x Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '-', p: '-' },
-        { source: 'Condition x Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '-', p: '-' },
-        { source: 'Group x Condition x Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '-', p: '-' }
-      ],
-      options: { fileName: 'box-three-way-mixed', contextLabel: 'box-grouped-mixed3' },
-      footnotes: ['Rows treated as a random effect; F-tests reported for fixed factors only.']
-    };
-  }
+
 
   function analyzeRowWiseTTests(data, correctionMethod){
     const jStatLib = global.jStat;
@@ -6422,7 +6218,7 @@
   }
 
   function computeBoxStatsModel(payload){
-    debugState.enabled = !!payload?.debug;
+    Shared.setDebugLogging?.(payload?.debug === true);
     ensureStats();
     ensureJStat();
     if(payload?.mode === 'grouped'){

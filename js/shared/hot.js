@@ -383,10 +383,7 @@
     }
   };
 
-  const markActiveTabUserModified = (reason, meta = {}) => {
-    const { tab } = resolveActiveSessionAndTab();
-    return markTabUserModifiedForOwner(tab, reason, meta);
-  };
+
 
   // A genuine user table mutation makes a restored render stale. Lift the
   // post-render-cache-restore draw suppression (and any deferred component-layout
@@ -437,7 +434,7 @@
     return type ? { type, data: [] } : { data: [] };
   };
 
-  const captureAttachedDataViewsPayload = hotInstance => {
+  const captureAttachedDataViewsPayload = (hotInstance, meta = {}) => {
     if (!hotInstance || typeof hotInstance !== 'object') {
       return { checked: false, payload: null };
     }
@@ -452,6 +449,9 @@
         continue;
       }
       try {
+        if (meta.exclusions && typeof manager.updateActiveExclusions === 'function') {
+          manager.updateActiveExclusions(meta.exclusions);
+        }
         const payload = manager.serialize({ includeData: true }) || null;
         return { checked: true, payload };
       } catch (err) {
@@ -687,6 +687,66 @@
     return syncOwnerTabPayloadDataChanges(changes, reason, meta);
   };
 
+  const normalizeOwnerExclusionState = state => {
+    const rows = Array.isArray(state?.rows) ? state.rows : [];
+    const cols = Array.isArray(state?.cols) ? state.cols : [];
+    const cells = Array.isArray(state?.cells) ? state.cells : [];
+    const normalizeIndex = value => {
+      const number = Number(value);
+      return Number.isInteger(number) && number >= 0 ? number : null;
+    };
+    return {
+      rows: Array.from(new Set(rows.map(normalizeIndex).filter(value => value !== null))).sort((a, b) => a - b),
+      cols: Array.from(new Set(cols.map(normalizeIndex).filter(value => value !== null))).sort((a, b) => a - b),
+      cells: Array.from(new Set(cells.map(pair => {
+        const row = normalizeIndex(pair?.row ?? pair?.[0]);
+        const col = normalizeIndex(pair?.col ?? pair?.[1]);
+        return row === null || col === null ? null : `${row}:${col}`;
+      }).filter(Boolean))).map(key => key.split(':').map(Number)).sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]))
+    };
+  };
+
+  const syncOwnerTabPayloadExclusions = (hotInstance, exclusions, reason, meta = {}) => {
+    if (isSessionPayloadSyncSuppressedSource(meta.source) || isSessionPayloadSyncSuppressedInstance({ hotInstance })) {
+      return false;
+    }
+    const effectiveReason = reason || 'table-exclusions-change';
+    const normalized = normalizeOwnerExclusionState(exclusions);
+    const { session, tab } = resolveTableOwnerSessionAndTab({
+      ...meta,
+      hotInstance,
+      reason: effectiveReason
+    });
+    if (!tab || !tab.type || typeof session?.updateTabPayload !== 'function') {
+      return false;
+    }
+    releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    return session.updateTabPayload(tab, draft => {
+      const nextPayload = draft && typeof draft === 'object'
+        ? draft
+        : createPayloadForTab(tab);
+      nextPayload.exclusions = normalized;
+      const dataViewsCapture = captureAttachedDataViewsPayload(hotInstance, { exclusions: normalized });
+      if (dataViewsCapture.checked) {
+        const dataViewsPayload = dataViewsCapture.payload;
+        const includeDataViews = !!(dataViewsPayload
+          && Array.isArray(dataViewsPayload.views)
+          && dataViewsPayload.views.length > 1);
+        if (includeDataViews) {
+          nextPayload.dataViews = dataViewsPayload;
+          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
+        } else {
+          delete nextPayload.dataViews;
+          delete nextPayload.activeDataViewId;
+        }
+      }
+      return nextPayload;
+    }, {
+      reason: effectiveReason,
+      origin: 'user'
+    });
+  };
+
   const EXCLUSION_SCOPES = Object.freeze({
     CELL: 'cell',
     ROW: 'row',
@@ -761,30 +821,9 @@
     return !!owner;
   };
 
-  const appendClassName = (existing, cls)=>{
-    if(!cls){
-      return existing || '';
-    }
-    if(!existing){
-      return cls;
-    }
-    const parts = new Set(String(existing).split(/\s+/).filter(Boolean));
-    parts.add(cls);
-    return Array.from(parts).join(' ');
-  };
 
-  const appendTitle = (existing, addition)=>{
-    if(!addition){
-      return existing || '';
-    }
-    if(!existing){
-      return addition;
-    }
-    if(String(existing).includes(addition)){
-      return existing;
-    }
-    return `${existing}\n${addition}`;
-  };
+
+
 
   const toNumber = (value)=>{
     const num = Number(value);
@@ -1245,7 +1284,7 @@
           cells: exportCells()
         };
       },
-      importState(payload){
+      importState(payload, options = {}){
         const nextRows = Array.isArray(payload?.rows) ? payload.rows : [];
         const nextCols = Array.isArray(payload?.cols) ? payload.cols : [];
         const nextCells = Array.isArray(payload?.cells) ? payload.cells : [];
@@ -1257,7 +1296,9 @@
         updateCellsBulk(nextCells.map(pair=>({ row: pair?.row ?? pair?.[0], col: pair?.col ?? pair?.[1] })), true);
         hotDebug('Debug: hot exclusion imported', { debugLabel, rows: Array.from(rows), cols: Array.from(cols), cells: exportCells() });
         render();
-        schedule('import', {});
+        if(options.silent !== true){
+          schedule('import', { source: options.source || null });
+        }
       },
       shiftRowsForInsert(index, amount){
         const changedRows = shiftSetForInsert(rows, index, amount);
@@ -1265,6 +1306,13 @@
         if(changedRows || changedCells){
           hotDebug('Debug: hot exclusion rows shifted for insert', { debugLabel, index, amount, rows: Array.from(rows) });
           render();
+          schedule(EXCLUSION_SCOPES.ROW, {
+            source: 'structure-shift',
+            action: 'insert',
+            index,
+            amount,
+            syncOnly: true
+          });
         }
       },
       shiftRowsForRemoval(physicalRows){
@@ -1273,6 +1321,12 @@
         if(changedRows || changedCells){
           hotDebug('Debug: hot exclusion rows shifted for removal', { debugLabel, physicalRows, rows: Array.from(rows) });
           render();
+          schedule(EXCLUSION_SCOPES.ROW, {
+            source: 'structure-shift',
+            action: 'remove',
+            indices: Array.from(physicalRows || []),
+            syncOnly: true
+          });
         }
       },
       shiftColsForInsert(index, amount){
@@ -1281,6 +1335,13 @@
         if(changedCols || changedCells){
           hotDebug('Debug: hot exclusion cols shifted for insert', { debugLabel, index, amount, cols: Array.from(cols) });
           render();
+          schedule(EXCLUSION_SCOPES.COLUMN, {
+            source: 'structure-shift',
+            action: 'insert',
+            index,
+            amount,
+            syncOnly: true
+          });
         }
       },
       shiftColsForRemoval(physicalCols){
@@ -1289,6 +1350,12 @@
         if(changedCols || changedCells){
           hotDebug('Debug: hot exclusion cols shifted for removal', { debugLabel, physicalCols, cols: Array.from(cols) });
           render();
+          schedule(EXCLUSION_SCOPES.COLUMN, {
+            source: 'structure-shift',
+            action: 'remove',
+            indices: Array.from(physicalCols || []),
+            syncOnly: true
+          });
         }
       }
     };
@@ -1557,18 +1624,7 @@
       container,
       createInstance
     } = options || {};
-    const resolveTabIdFromNode = node => {
-      if(!node || typeof node.closest !== 'function'){
-        return null;
-      }
-      const scopedRoot = node.closest('[data-workspace-tab-id],[data-tab-id]') || null;
-      if(!scopedRoot){
-        return null;
-      }
-      return scopedRoot.getAttribute?.('data-workspace-tab-id')
-        || scopedRoot.getAttribute?.('data-tab-id')
-        || null;
-    };
+
     let resolvedWrapper = wrapper || null;
     let resolvedContainer = container || null;
     let tabId = explicitTabId || null;
@@ -2300,8 +2356,15 @@
     let colHeadersEnabled = colHeadersSetting !== false;
     let rowHeadersEnabled = rowHeadersSetting !== false;
 
-    const exclusionController = createExclusionController(()=>instance, debugLabel, (scope)=>{
-      triggerSchedule(scope || 'exclusion-change', { scope });
+    const exclusionController = createExclusionController(()=>instance, debugLabel, (scope, detail = {})=>{
+      const normalizedScope = scope || 'change';
+      syncOwnerTabPayloadExclusions(instance, exclusionController.exportState(), `table-exclusions-${normalizedScope}`, {
+        source: detail.source || null,
+        scope: normalizedScope
+      });
+      if(detail.syncOnly !== true){
+        triggerSchedule('exclusion-change', { ...detail, scope: normalizedScope });
+      }
     });
     const FILTER_STATE_EVENT = 'hot:filter-state-changed';
     let activeColumnFilters = new Map();
@@ -2501,8 +2564,8 @@
       }
       const textValue = String(clonedModel.value == null ? '' : clonedModel.value).trim();
       const textValueLower = textValue.toLowerCase();
-      const textValueTo = String(clonedModel.valueTo == null ? '' : clonedModel.valueTo).trim();
-      const textValueToLower = textValueTo.toLowerCase();
+
+
       const numericValue = coerceFilterNumber(clonedModel.value);
       const numericValueTo = coerceFilterNumber(clonedModel.valueTo);
       let threshold = null;
@@ -6504,9 +6567,9 @@
       syncFormulaModelActivityFromMatrix('load-data');
       colHeaders = resolveColHeaders(colCount);
       if(explicitExclusions && typeof explicitExclusions === 'object'){
-        exclusionController.importState(cloneExclusionState(explicitExclusions));
+        exclusionController.importState(cloneExclusionState(explicitExclusions), { silent: true, source: 'load-data-explicit' });
       }else if(existingExclusions){
-        exclusionController.importState(existingExclusions);
+        exclusionController.importState(existingExclusions, { silent: true, source: 'load-data-preserve' });
       }else{
         exclusionController.clearAll(true);
       }
@@ -6642,17 +6705,7 @@
       return lines.join('\n');
     };
 
-    const isContiguousColumnSelection = (columns)=>{
-      if(!Array.isArray(columns) || !columns.length){
-        return false;
-      }
-      for(let i = 1; i < columns.length; i += 1){
-        if(columns[i] !== columns[i - 1] + 1){
-          return false;
-        }
-      }
-      return true;
-    };
+
 
     const buildSelectionRangesFromColumns = (columns, rowStart, rowEnd)=>{
       if(!Array.isArray(columns) || !columns.length){
@@ -9573,7 +9626,7 @@
       }
     };
 
- 
+
 
 
     const pruneColumnWidthOverrides = ()=>{
@@ -9837,7 +9890,10 @@
             needsRebuild = true;
           }
           if(existingExclusions){
-            exclusionController.importState(existingExclusions);
+            exclusionController.importState(existingExclusions, {
+              silent: true,
+              source: 'update-settings-preserve'
+            });
           }else{
             exclusionController.clearAll(true);
           }
@@ -11570,7 +11626,6 @@
             applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
               exclusionController.markColumns(selectedCols, true);
             });
-            triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
           }
         }
       ];
@@ -11582,7 +11637,6 @@
             applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
               exclusionController.markColumns(selectedCols, false);
             });
-            triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
           }
         });
       }
@@ -12775,7 +12829,6 @@
                 applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
                   exclusionController.markRows(uniqueRowList, true);
                 });
-                triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
               }
             }
           ];
@@ -12786,7 +12839,6 @@
                 applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
                   exclusionController.markRows(uniqueRowList, false);
                 });
-                triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
               }
             });
           }
@@ -12897,7 +12949,6 @@
               applyExclusionChange(`table:${debugLabel}:exclude-cells`, ()=>{
                 exclusionController.markCells(pairs, true);
               });
-              triggerSchedule('exclusion-change', { scope: 'cell', exclude: true });
             }
           },
           {
@@ -12907,7 +12958,6 @@
               applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
                 exclusionController.markRows(rowList, true);
               });
-              triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
             }
           },
           {
@@ -12917,7 +12967,6 @@
               applyExclusionChange(`table:${debugLabel}:exclude-cols`, ()=>{
                 exclusionController.markColumns(colList, true);
               });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
             }
           }
         ];
@@ -12928,7 +12977,6 @@
               applyExclusionChange(`table:${debugLabel}:include-cells`, ()=>{
                 exclusionController.markCells(pairs, false);
               });
-              triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
             }
           });
         }
@@ -12939,7 +12987,6 @@
               applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
                 exclusionController.markRows(rowList, false);
               });
-              triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
             }
           });
         }
@@ -12950,7 +12997,6 @@
               applyExclusionChange(`table:${debugLabel}:include-cols`, ()=>{
                 exclusionController.markColumns(colList, false);
               });
-              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
           });
         }
@@ -15144,7 +15190,9 @@
                 const item = items[i];
                 try{
                   if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
-                    plain = await new Promise(resolve => item.getAsString(s => resolve(s)));
+                    plain = await new Promise(resolve => {
+                      item.getAsString(resolve);
+                    });
                     if(plain) break;
                   }
                   if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
@@ -15576,8 +15624,8 @@
     instance.exportExclusions = function(){
       return hotNS.exportExclusions(instance);
     };
-    instance.applyExclusions = function(payload){
-      return hotNS.applyExclusions(instance, payload);
+    instance.applyExclusions = function(payload, options){
+      return hotNS.applyExclusions(instance, payload, options);
     };
     instance.clearExclusions = function(){
       return hotNS.clearExclusions(instance);
@@ -15598,7 +15646,7 @@
       return hotNS.getIncludedDataMatrix(instance, options);
     };
     if(overrides?.exclusions){
-      exclusionController.importState(overrides.exclusions);
+      exclusionController.importState(overrides.exclusions, { silent: true, source: 'table-create' });
     }
     if(overrides?.filters){
       instance.applyFilters(overrides.filters, { schedule: false });
@@ -15689,13 +15737,16 @@
     return state;
   }
 
-  function applyExclusions(instance, payload){
+  function applyExclusions(instance, payload, options = {}){
     const inst = resolveInstance(instance);
     const controller = getControllerFromInstance(inst);
     if(!controller){
       return EMPTY_EXCLUSION_STATE;
     }
-    controller.importState(payload || {});
+    controller.importState(payload || {}, {
+      silent: options.silent !== false,
+      source: options.source || 'apply-exclusions'
+    });
     return controller.exportState();
   }
 

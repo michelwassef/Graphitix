@@ -92,17 +92,79 @@
     return handler.apply(component, args);
   }
 
-  function getTabPayloadSignature(tabId) {
-    const id = String(tabId || '').trim();
-    if (!id) {
+  const LIFECYCLE_CAPABILITY_METHODS = Object.freeze([
+    'activateTab',
+    'deactivateTab',
+    'disposeTab',
+    'captureRuntimeState',
+    'applyRuntimeState',
+    'captureUiState',
+    'applyUiState',
+    'awaitReadyForSnapshot',
+    'captureRenderCache',
+    'canRestoreRenderCache',
+    'restoreRenderCache'
+  ]);
+
+  function captureDeclaredLifecycleCapabilities(target) {
+    if (!target || typeof target !== 'object') {
+      return Object.freeze({});
+    }
+    if (target.__declaredLifecycleCapabilities) {
+      return target.__declaredLifecycleCapabilities;
+    }
+    const declared = {};
+    LIFECYCLE_CAPABILITY_METHODS.forEach(methodName => {
+      declared[methodName] = typeof target[methodName] === 'function';
+    });
+    const frozen = Object.freeze(declared);
+    Object.defineProperty(target, '__declaredLifecycleCapabilities', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: frozen
+    });
+    return frozen;
+  }
+
+  function markLifecycleFallback(handler) {
+    if (typeof handler === 'function') {
+      Object.defineProperty(handler, '__graphitixLifecycleFallback', {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: true
+      });
+    }
+    return handler;
+  }
+
+  function publishLifecycleCapabilities(type, workspace, component = resolveComponentFromGlobal(type)) {
+    if (!workspace || typeof workspace !== 'object') {
       return null;
     }
-    const tabs = Array.isArray(window.Main?.session?.workspaceState?.tabs)
-      ? window.Main.session.workspaceState.tabs
-      : [];
-    const tab = tabs.find(item => item && String(item.id || '') === id) || null;
-    return tab?.payloadSignature ?? null;
+    const workspaceDeclared = captureDeclaredLifecycleCapabilities(workspace);
+    const componentDeclared = component?.__declaredLifecycleCapabilities
+      || (component ? captureDeclaredLifecycleCapabilities(component) : null);
+    const capabilities = {};
+    LIFECYCLE_CAPABILITY_METHODS.forEach(methodName => {
+      capabilities[methodName] = !!(workspaceDeclared[methodName] || componentDeclared?.[methodName]);
+    });
+    const frozen = Object.freeze(capabilities);
+    Object.defineProperty(workspace, '__lifecycleCapabilities', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: frozen
+    });
+    workspace.__lifecycleContract = {
+      ...frozen,
+      roundTripPayload: typeof workspace.roundTripPayload === 'function'
+    };
+    return frozen;
   }
+
+
 
   function installGenericRenderCacheValidator(workspace, type) {
     if (!workspace || typeof workspace.restoreRenderCache !== 'function' || typeof workspace.canRestoreRenderCache === 'function') {
@@ -411,6 +473,7 @@
       return workspace;
     }
     const type = workspace.type;
+    captureDeclaredLifecycleCapabilities(workspace);
     if (Shared.componentLifecycle?.attachWorkspace && !workspace.__lifecycleDescriptor) {
       Shared.componentLifecycle.attachWorkspace(workspace, buildWorkspaceLifecycleDescriptor(type, workspace));
     }
@@ -487,20 +550,7 @@
         || runWorkspacePayloadRoundTripSelfTest(workspace, type, payload, meta || {});
     }
     installGenericRenderCacheValidator(workspace, type);
-    workspace.__lifecycleContract = {
-      activateTab: typeof workspace.activateTab === 'function',
-      deactivateTab: typeof workspace.deactivateTab === 'function',
-      disposeTab: typeof workspace.disposeTab === 'function',
-      captureRuntimeState: typeof workspace.captureRuntimeState === 'function',
-      applyRuntimeState: typeof workspace.applyRuntimeState === 'function',
-      captureUiState: typeof workspace.captureUiState === 'function',
-      applyUiState: typeof workspace.applyUiState === 'function',
-      awaitReadyForSnapshot: typeof workspace.awaitReadyForSnapshot === 'function',
-      roundTripPayload: typeof workspace.roundTripPayload === 'function',
-      captureRenderCache: typeof workspace.captureRenderCache === 'function',
-      canRestoreRenderCache: typeof workspace.canRestoreRenderCache === 'function',
-      restoreRenderCache: typeof workspace.restoreRenderCache === 'function'
-    };
+    publishLifecycleCapabilities(type, workspace);
     console.debug('Debug: workspace lifecycle contract installed', { type, contract: workspace.__lifecycleContract });
     return workspace;
   }
@@ -509,6 +559,7 @@
     if (!component || typeof component !== 'object') {
       return component;
     }
+    captureDeclaredLifecycleCapabilities(component);
     const lifecycleDescriptor = Shared.componentLifecycle?.getDescriptor?.(type) || null;
     if (lifecycleDescriptor) {
       Shared.componentLifecycle?.attachComponent?.(type, component, lifecycleDescriptor);
@@ -526,13 +577,13 @@
       component.__componentKey = component.__componentKey || type;
     }
     if (typeof component.deactivateTab !== 'function') {
-      component.deactivateTab = (tab, meta) => {
+      component.deactivateTab = markLifecycleFallback((tab, meta) => {
         console.debug('Debug: component deactivateTab noop', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return false;
-      };
+      });
     }
     if (typeof component.disposeTab !== 'function') {
-      component.disposeTab = (tab, meta) => {
+      component.disposeTab = markLifecycleFallback((tab, meta) => {
         try {
           window.Shared?.hot?.disposeTableForTab?.(type, tab?.id || meta?.tabId || null, {
             reason: meta?.reason || 'component-dispose-tab',
@@ -543,19 +594,19 @@
         }
         console.debug('Debug: component disposeTab default complete', { type, tabId: tab?.id || null, reason: meta?.reason || null });
         return true;
-      };
+      });
     }
     if (typeof component.captureRuntimeState !== 'function') {
-      component.captureRuntimeState = () => null;
+      component.captureRuntimeState = markLifecycleFallback(() => null);
     }
     if (typeof component.applyRuntimeState !== 'function') {
-      component.applyRuntimeState = () => false;
+      component.applyRuntimeState = markLifecycleFallback(() => false);
     }
     if (typeof component.captureUiState !== 'function') {
-      component.captureUiState = () => null;
+      component.captureUiState = markLifecycleFallback(() => null);
     }
     if (typeof component.applyUiState !== 'function') {
-      component.applyUiState = () => false;
+      component.applyUiState = markLifecycleFallback(() => false);
     }
     if (typeof component.awaitReadyForSnapshot !== 'function') {
       component.awaitReadyForSnapshot = meta => Shared.componentLifecycle?.awaitReadyForSnapshot?.(component, { ...(meta || {}), componentKey: type, type })
@@ -567,6 +618,9 @@
 
   function ensureComponent(name, options = {}) {
     const component = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
+    if (component && WORKSPACES?.[name]) {
+      publishLifecycleCapabilities(name, WORKSPACES[name], component);
+    }
     if (component && !options.forceReload) {
       try {
         let ensureResult = null;
@@ -594,6 +648,9 @@
 
     return loadComponentBundle(name, options).then(() => {
       const loadedComponent = installComponentLifecycleDefaults(name, resolveComponentFromGlobal(name));
+      if (loadedComponent && WORKSPACES?.[name]) {
+        publishLifecycleCapabilities(name, WORKSPACES[name], loadedComponent);
+      }
       if (!loadedComponent) {
         console.debug('Debug: ensureComponent missing global export', { name });
         return null;
@@ -624,6 +681,7 @@
   }
 
   namespace.getLifecycleDescriptor = type => Shared.componentLifecycle?.getDescriptor?.(type) || null;
+  namespace.getLifecycleCapabilities = type => ({ ...(WORKSPACES?.[type]?.__lifecycleCapabilities || {}) });
   namespace.getLifecycleSpecs = () => ({ ...WORKSPACE_LIFECYCLE_SPECS });
 
   namespace.loadComponentBundle = function loadComponentBundleForExternal(type, options) {
@@ -1021,56 +1079,67 @@
 
   const WORKSPACE_LIFECYCLE_SPECS = {
     venn: {
+      payloadKeys: Object.freeze(['type', 'data', 'style', 'notes', 'analysis']),
       root: { pageId: 'vennPage', sentinelSelector: '#vennHot' },
       table: { wrapperSelector: '#vennHotWrapper', containerSelector: '#vennHot' },
       renderCache: { selectors: ['#vennGraphPanel svg', '#vennPlot svg', 'svg', 'canvas'], graphSelectors: ['#vennGraphPanel svg', 'svg'], markupPattern: /(<svg\b|data-venn-trace-id|data-upset-trace-id)/i }
     },
     box: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
       root: { pageId: 'boxPage', sentinelSelector: '#boxPlot' },
       table: { wrapperSelector: '#boxTablePanel', containerSelector: '#boxTablePanel' },
       renderCache: { selectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], graphSelectors: ['#boxPlot svg', '#boxPlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-significance|data-export-layer)/i }
     },
     scatter: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'series', 'config']),
       root: { pageId: 'scatterPage', sentinelSelector: '#scatterHot' },
       table: { wrapperSelector: '#scatterHotWrapper', containerSelector: '#scatterHot' },
       renderCache: { selectors: ['#scatterPlot svg', '#scatterPlot canvas', 'svg', 'canvas'], graphSelectors: ['#scatterPlot svg', '#scatterPlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-export-layer|data-layer)/i }
     },
     pca: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'stats', 'config']),
       root: { pageId: 'pcaPage', sentinelSelector: '#pcaHot' },
       table: { wrapperSelector: '#pcaHotWrapper', containerSelector: '#pcaHot' },
       renderCache: { selectors: ['#pcaPlot svg', '#pcaScreePlot svg', 'svg', 'canvas'], graphSelectors: ['#pcaPlot svg', '#pcaScreePlot svg', 'svg'], markupPattern: /(<svg\b|id=["']pcaSvg["']|id=["']pcaScreePlot["'])/i }
     },
     line: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'series', 'config']),
       root: { pageId: 'linePage', sentinelSelector: '#lineHot' },
       table: { wrapperSelector: '#lineHotWrapper', containerSelector: '#lineHot' },
       renderCache: { selectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], graphSelectors: ['#linePlot svg', '#linePlot canvas', 'svg', 'canvas'], markupPattern: /(<svg\b|<canvas\b|data-export-layer|data-layer)/i }
     },
     heatmap: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
       root: { pageId: 'heatmapPage', sentinelSelector: '#heatmapHot' },
       table: { wrapperSelector: '#heatmapHotWrapper', containerSelector: '#heatmapHot' },
       renderCache: { selectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg', 'canvas'], graphSelectors: ['#heatmapSvg', '#heatmapGraphPanel svg', 'svg'], markupPattern: /(<svg\b|id=["']heatmapSvg["'])/i }
     },
     surface: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
       root: { pageId: 'surfacePage', sentinelSelector: '#surfaceHot' },
       table: { wrapperSelector: '#surfaceHotWrapper', containerSelector: '#surfaceHot' },
       renderCache: { selectors: ['#surfaceSvg', '#surfaceGraphPanel svg', 'svg', 'canvas'], graphSelectors: ['#surfaceSvg', '#surfaceGraphPanel svg', 'svg'], markupPattern: /(<svg\b|id=["']surfaceSvg["'])/i }
     },
     roc: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'stats', 'config']),
       root: { pageId: 'rocPage', sentinelSelector: '#rocHot' },
       table: { wrapperSelector: '#rocHotWrapper', containerSelector: '#rocHot' },
       renderCache: { selectors: ['#rocPlot svg', 'svg', 'canvas'], graphSelectors: ['#rocPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']rocSvg["'])/i }
     },
     survival: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'stats', 'config']),
       root: { pageId: 'survivalPage', sentinelSelector: '#survivalHot' },
       table: { wrapperSelector: '#survivalHotWrapper', containerSelector: '#survivalHot' },
       renderCache: { selectors: ['#survivalPlot svg', 'svg', 'canvas'], graphSelectors: ['#survivalPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']survivalSvg["'])/i }
     },
     hist: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
       root: { pageId: 'histPage', sentinelSelector: '#histHot' },
       table: { wrapperSelector: '#histHotWrapper', containerSelector: '#histHot' },
       renderCache: { selectors: ['#histPlot svg', 'svg', 'canvas'], graphSelectors: ['#histPlot svg', 'svg'], markupPattern: /(<svg\b|id=["']histSvg["'])/i }
     },
     pie: {
+      payloadKeys: Object.freeze(['type', 'data', 'exclusions', 'config']),
       root: { pageId: 'piePage', sentinelSelector: '#pieHot' },
       table: { wrapperSelector: '#pieHotWrapper', containerSelector: '#pieHot' },
       renderCache: { selectors: ['#piePlot svg', 'svg', 'canvas'], graphSelectors: ['#piePlot svg', 'svg'], markupPattern: /(<svg\b|id=["']pieSvg["'])/i }
@@ -1089,6 +1158,7 @@
         getInstance: () => window.Components?.[type]?.hot || window.Components?.[type]?.grid || null
       },
       payload: {
+        documentedTopLevelKeys: Array.isArray(spec.payloadKeys) ? spec.payloadKeys.slice() : [],
         get: () => workspace.getPayload?.(),
         load: (payload, options) => workspace.loadFromPayload?.(payload, options),
         createEmpty: () => workspace.createEmptyPayload?.()

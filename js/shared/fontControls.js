@@ -296,7 +296,7 @@
   let hideAllSuppressedReason = null;
   let openerClickEventRef = null;
   let openerClickEventStamp = null;
-  let knownFontNames = null;
+
   let appendFontOption = null;
   let hydrateLocalFonts = null;
   let localFontsHydrating = false;
@@ -482,7 +482,7 @@
   }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
-  const STYLE_META_KEYS = ['fontSizeResizeReference'];
+  const STYLE_META_KEYS = ['fontSizeResizeReference', 'hidden'];
   const STYLE_STATE_KEYS = STYLE_KEYS.concat(STYLE_META_KEYS);
   const STYLE_ATTR_MAP = {
     fontFamily: 'font-family',
@@ -1270,6 +1270,10 @@
     if(Number.isFinite(reference) && reference > 0 && clone.fontSize){
       clone.fontSizeResizeReference = reference;
     }
+    if(style.hidden === true){
+      clone.hidden = true;
+      hasValue = true;
+    }
     const segments = normalizeInlineSegments(style.inlineSegments || []);
     if(segments.length){
       clone.inlineSegments = segments.map(segment => ({
@@ -1320,6 +1324,7 @@
         const value = snapshot[key];
         if(value !== undefined && value !== null && value !== ''){
           merged[key] = value;
+          hasValue = true;
         }
       });
       if(Array.isArray(snapshot.inlineSegments) && snapshot.inlineSegments.length){
@@ -1639,10 +1644,7 @@
     return state?.styles?.[storeKey] || null;
   }
 
-  function hasStoredStyle(storeKey, options = {}){
-    const state = getFontControlStateForStoreKey(storeKey, { ...options, create: false, reason: options.reason || 'font-style-has' });
-    return !!(state?.styles && Object.prototype.hasOwnProperty.call(state.styles, storeKey));
-  }
+
 
   function setStoredStyle(storeKey, style, options = {}){
     const state = getFontControlStateForStoreKey(storeKey, { ...options, create: true, reason: options.reason || 'font-style-write' });
@@ -2988,6 +2990,20 @@
     applyToken('fill', 'color', resolvedStyle.fill);
     applyToken('text-decoration', 'textDecoration', resolvedStyle.textDecoration);
     applyToken('baseline-shift', 'verticalAlign', resolvedStyle.baselineShift);
+    if(node.style){
+      // Title visibility is presentation state, not layout state. Keeping the
+      // text in SVG geometry prevents title toggles from changing a user-sized
+      // graph's fitted viewport or plot proportions.
+      node.style.display = '';
+      node.style.visibility = resolvedStyle.hidden === true ? 'hidden' : '';
+    }
+    if(node.dataset){
+      if(resolvedStyle.hidden === true){
+        node.dataset.fontHidden = 'true';
+      }else{
+        delete node.dataset.fontHidden;
+      }
+    }
     if(styleHasInlineSegments(resolvedStyle)){
       applyInlineSegmentsToNode(node, resolvedStyle.inlineSegments);
     } else {
@@ -3009,7 +3025,7 @@
       const value = style[key];
       return value === undefined || value === null || value === '';
     });
-    if(!baseEmpty){ return false; }
+    if(!baseEmpty || style.hidden === true){ return false; }
     return !styleHasInlineSegments(style);
   }
 
@@ -3032,6 +3048,13 @@
       node.style.color = '';
       node.style.textDecoration = '';
       node.style.verticalAlign = '';
+    }
+    if(node.style){
+      node.style.display = '';
+      node.style.visibility = '';
+    }
+    if(node.dataset){
+      delete node.dataset.fontHidden;
     }
     resetInlineSegments(node);
     logDebug('clearStyleFromNode', {
@@ -3381,6 +3404,97 @@
       tabToken: tabToken || null,
       imported: incoming ? Object.keys(incoming).length : 0,
       pruned: opts.prune === false ? 0 : undefined
+    });
+  }
+
+  function dispatchStyleChanged(detail){
+    try{
+      if(!global.document || typeof global.document.dispatchEvent !== 'function'){
+        return;
+      }
+      const event = typeof global.CustomEvent === 'function'
+        ? new global.CustomEvent('fontControls:styleChanged', { detail })
+        : null;
+      if(event){
+        global.document.dispatchEvent(event);
+      }
+    }catch(err){
+      logDebug('dispatchStyleChanged error', { error: err?.message || String(err) });
+    }
+  }
+
+  function setRoleVisibility(scopeId, roles, visible, options){
+    const scope = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
+    const opts = options || {};
+    const tabToken = resolveStoreTabToken(opts);
+    const normalizedRoles = Array.from(new Set(
+      (Array.isArray(roles) ? roles : [roles])
+        .map(role => sanitizeStoreToken(role))
+        .filter(Boolean)
+    ));
+    if(!normalizedRoles.length){
+      return false;
+    }
+    let changed = false;
+    normalizedRoles.forEach(role => {
+      const storeKey = buildStoreKey(scope, role, { tabId: tabToken });
+      const previous = cloneStyleSnapshot(getStoredStyle(storeKey, { reason: 'role-visibility-read' })) || {};
+      const wasVisible = previous.hidden !== true;
+      if(wasVisible === !!visible){
+        return;
+      }
+      const next = { ...previous };
+      if(visible){
+        delete next.hidden;
+      }else{
+        next.hidden = true;
+      }
+      const normalized = cloneStyleSnapshot(next);
+      if(normalized){
+        setStoredStyle(storeKey, normalized, { tabId: tabToken, reason: 'role-visibility-set' });
+      }else{
+        deleteStoredStyle(storeKey, { tabId: tabToken, reason: 'role-visibility-clear' });
+      }
+      broadcastStyle(storeKey, normalized, null);
+      changed = true;
+    });
+    if(changed){
+      dispatchStyleChanged({
+        scopeId: scope,
+        tabId: tabToken || null,
+        roles: normalizedRoles,
+        titleVisibility: !!visible
+      });
+      if(opts.recordUndo === true && typeof Shared.styleUndo?.recordStateChange === 'function'){
+        Shared.styleUndo.recordStateChange({
+          label: opts.undoLabel || 'title-visibility',
+          scope: opts.undoScope || scope,
+          from: !visible,
+          to: !!visible,
+          apply: value => {
+            setRoleVisibility(scope, normalizedRoles, !!value, {
+              tabId: tabToken,
+              recordUndo: false
+            });
+          }
+        });
+      }
+    }
+    return changed;
+  }
+
+  function areRolesVisible(scopeId, roles, options){
+    const scope = scopeId || FONT_CONTROLS_DEFAULT_SCOPE;
+    const tabToken = resolveStoreTabToken(options || {});
+    const normalizedRoles = (Array.isArray(roles) ? roles : [roles])
+      .map(role => sanitizeStoreToken(role))
+      .filter(Boolean);
+    if(!normalizedRoles.length){
+      return true;
+    }
+    return normalizedRoles.every(role => {
+      const storeKey = buildStoreKey(scope, role, { tabId: tabToken });
+      return getStoredStyle(storeKey, { reason: 'role-visibility-read' })?.hidden !== true;
     });
   }
 
@@ -4658,6 +4772,8 @@
   fontControls.captureInlineState = captureInlineStateForNode;
   fontControls.exportScopeStyles = exportScopeStyles;
   fontControls.importScopeStyles = importScopeStyles;
+  fontControls.setRoleVisibility = setRoleVisibility;
+  fontControls.areRolesVisible = areRolesVisible;
   fontControls.close = closePanel;
   fontControls.hideComponentHosts = hideComponentHosts;
   fontControls.hideAllFormatControls = hideAllFormatControls;

@@ -380,7 +380,7 @@
    * Uses two arc commands to draw a complete circle.
    * The format is optimized for minimal character count while maintaining valid SVG.
    * @param {number} cx - Center x coordinate
-   * @param {number} cy - Center y coordinate  
+   * @param {number} cy - Center y coordinate
    * @param {number} r - Radius
    * @returns {string} - Path data for the circle
    */
@@ -432,7 +432,7 @@
       }
     };
 
-    const doc = svgNode.ownerDocument || (typeof document !== 'undefined' && document);
+
 
     // Helper to record example snippets (max 3)
     const recordExample = (arr, node) => {
@@ -711,13 +711,13 @@
   /**
    * Optimizes scatter point elements in an SVG for export.
    * Combines circles with the same style into single path elements.
-   * 
+   *
    * Strategy:
    * 1. Group circles by radius and style attributes
    * 2. For each group, create a single <path> element with multiple circle subpaths
    * 3. Apply shared style attributes to parent groups
    * 4. Reduce coordinate precision
-   * 
+   *
    * @param {SVGElement} svgNode - The root SVG element (will be modified)
    * @param {Object} options - Optimization options
    * @param {string} options.layerSelector - CSS selector for the scatter points layer
@@ -772,7 +772,7 @@
     const circleGroups = new Map();
     for (const circle of circles) {
       const key = getCircleGroupKey(circle);
-      
+
       if (!circleGroups.has(key)) {
         circleGroups.set(key, {
           radius: Number.parseFloat(circle.getAttribute('r') || '3'),
@@ -784,7 +784,7 @@
           circles: []
         });
       }
-      
+
       const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
       const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
       circleGroups.get(key).circles.push({ cx, cy });
@@ -798,19 +798,19 @@
 
     let totalPathElements = 0;
 
-    for (const [key, group] of circleGroups) {
+    for (const [, group] of circleGroups) {
       // Build path data by combining all circles in this group
       const pathParts = [];
       for (const pt of group.circles) {
         pathParts.push(circleToPathData(pt.cx, pt.cy, group.radius));
       }
-      
+
       const pathData = pathParts.join('');
-      
+
       // Create a single path element for all circles in this group
       const path = ownerDoc.createElementNS(NS, 'path');
       path.setAttribute('d', pathData);
-      
+
       // Apply style attributes
       if (group.fill) path.setAttribute('fill', group.fill);
       if (group.stroke) path.setAttribute('stroke', group.stroke);
@@ -821,7 +821,7 @@
       if (group.strokeOpacity && group.strokeOpacity !== '1') {
         path.setAttribute('stroke-opacity', group.strokeOpacity);
       }
-      
+
       optimizedLayer.appendChild(path);
       totalPathElements++;
       stats.groupsCreated++;
@@ -1313,12 +1313,7 @@
     }));
   }
 
-  function transformPoints(points, matrix) {
-    if (!matrix || matrix === IDENTITY_MATRIX) {
-      return points.slice();
-    }
-    return points.map(pt => applyMatrixToPoint(matrix, pt.x, pt.y));
-  }
+
 
   function normalizeRect(rect) {
     if (!rect) return null;
@@ -3907,7 +3902,7 @@
     const serializer = Serializer ? new Serializer() : null;
     return svgEl => serializer ? serializer.serializeToString(svgEl) : '';
   }
-  
+
   // Groups all drawable children into a single <g> so paste into Inkscape keeps them together.
   // Keeps <defs>, <title>, <desc> at the top level, and wraps everything else.
   // Keeps the grouping lightweight so stroke widths render identically between preview and export.

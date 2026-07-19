@@ -155,7 +155,8 @@ describe('Venn shared runtime isolation', () => {
 
     const restoredA = venn.__getState();
     expect(restoredA.persistence.fileName).toBe('venn-a.graph');
-    expect(restoredA.analysis.lastParsedLists).toBeNull();
+    expect(restoredA.analysis.lastParsedLists?.signature || '').not.toBe('sig-a');
+    expect(restoredA.analysis.lastParsedLists?.uniques?.A?.has?.('BRCA1') || false).toBe(false);
     expect(restoredA.analysis.significanceCache).toEqual({ lastUniverse: 12, logFactorial: { maxComputed: 12 } });
     expect(restoredA.analysis.speciesDetection.delayMs).toBe(333);
     expect(restoredA.analysis.speciesDetection.active).toBeNull();

@@ -391,7 +391,7 @@
   }
 
   function persistActiveTabIfNeeded(context, options = {}) {
-    const { session, withSessionContext, workspaceState } = context || {};
+    const { session, withSessionContext } = context || {};
     if (!session || typeof session.getActiveTab !== 'function' || typeof session.persistActiveTabState !== 'function') {
       return;
     }
@@ -417,15 +417,48 @@
   }
   namespace.persistActiveTabIfNeeded = persistActiveTabIfNeeded;
 
+  function getEmbeddedRenderCacheOwnerTabId(cache) {
+    if (!cache || typeof cache !== 'object') {
+      return null;
+    }
+    const ownerTabId = cache.__graphitixRenderCache?.tabId || cache.tabId || null;
+    const normalized = String(ownerTabId || '').trim();
+    return normalized || null;
+  }
+
+  function cacheEnvelopeMatchesSnapshot(tab, envelope, payloadSignature, layoutSignature) {
+    if (!envelope || typeof envelope !== 'object' || !envelope.cache) {
+      return false;
+    }
+    const tabId = String(tab?.id || '');
+    const ownerTabId = String(envelope.tabId || tab?.renderCacheTabId || '');
+    const embeddedOwnerTabId = getEmbeddedRenderCacheOwnerTabId(envelope.cache);
+    const cachedPayloadSignature = envelope.payloadSignature ?? tab?.renderCacheSignature ?? null;
+    const cachedLayoutSignature = envelope.layoutSignature ?? tab?.renderCacheLayoutSignature ?? null;
+    return !!tabId
+      && ownerTabId === tabId
+      && embeddedOwnerTabId === tabId
+      && cachedPayloadSignature === payloadSignature
+      && cachedLayoutSignature === layoutSignature;
+  }
+
+
+  function mountedRootMatchesSnapshot(context, tab, payloadSignature, layoutSignature) {
+    const loaded = context?.workspaceState?.loadedWorkspaces?.[tab?.id || ''] || null;
+    if (!loaded || String(loaded.tabId || '') !== String(tab?.id || '')) {
+      return false;
+    }
+    return loaded.payloadSignature === payloadSignature
+      && loaded.layoutSignature === layoutSignature;
+  }
+
+
   function buildArchiveTabSnapshot(context, tab, options = {}) {
     const { session, workspaces } = context || {};
     if (!tab || tab.isWelcome || !tab.type) {
       return null;
     }
-    // Funnel through the shared enrichment helper so that the live save path produces the
-    // same payload/layout shape as the legacy buildSessionPayload (including the
-    // graphSizing enrich/merge for non-box types). Falls back to a plain clone if the
-    // session module is mocked in a test that doesn't expose the helper.
+
     let payload;
     let layout;
     if (typeof session?.enrichTabSnapshotForArchive === 'function') {
@@ -436,39 +469,9 @@
       payload = cloneWithSession(session, tab.payload || null);
       layout = cloneWithSession(session, tab.layoutState || null);
     }
-    const activeId = session?.getActiveTab?.()?.id || null;
+
     const config = workspaces?.[tab.type] || null;
-    const snapshotIntent = resolvePersistSnapshotIntent(options);
-    const skipLifecyclePayloadCapture = snapshotIntent.captureLivePayload === false
-      || snapshotIntent.skipLivePayloadCapture === true;
-    let lifecycleSnapshot = null;
-    if (config && tab.id === activeId && Shared.componentLifecycle?.snapshotWorkspaceSync) {
-      try {
-        lifecycleSnapshot = Shared.componentLifecycle.snapshotWorkspaceSync(config, tab, {
-          tabId: tab.id,
-          type: tab.type,
-          componentKey: tab.type,
-          reason: 'archive-save-lifecycle-snapshot',
-          snapshotIntent,
-          skipLivePayloadCapture: skipLifecyclePayloadCapture
-        });
-        if (!skipLifecyclePayloadCapture && lifecycleSnapshot?.payload) {
-          payload = cloneWithSession(session, lifecycleSnapshot.payload);
-        }
-        if (lifecycleSnapshot?.layoutState) {
-          layout = cloneWithSession(session, lifecycleSnapshot.layoutState);
-        }
-        debug(context, 'buildArchiveTabSnapshot.lifecycleSnapshot', {
-          tabId: tab.id,
-          type: tab.type,
-          hasPayload: !!lifecycleSnapshot?.payload,
-          hasLayout: !!lifecycleSnapshot?.layoutState,
-          hasRenderCache: !!lifecycleSnapshot?.renderCache
-        });
-      } catch (err) {
-        console.error('buildArchiveTabSnapshot lifecycle snapshot error', { tabId: tab.id, type: tab.type, err });
-      }
-    }
+    const includeRenderCache = options.captureRenderCache === true;
 
     const archivePayloadForSignature = rehomeArchiveValue(session, payload, tab.id);
     const archiveLayoutForSignature = rehomeArchiveValue(session, layout, tab.id);
@@ -478,75 +481,55 @@
     const archiveLayoutSignature = typeof session?.serializePayloadSignature === 'function'
       ? session.serializePayloadSignature(archiveLayoutForSignature || null)
       : (tab.layoutSignature || null);
-
-    let archiveRenderCache = tab.renderCache?.cache
-      ? (typeof session?.serializeRenderCacheForArchive === 'function'
-          ? session.serializeRenderCacheForArchive(tab.renderCache.cache)
-          : null)
-      : (tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object'
-          ? cloneWithSession(session, tab.archiveRenderCache)
-          : null);
-    let archiveRenderCacheSignature = archiveRenderCache ? archivePayloadSignature : null;
-    let archiveRenderCacheLayoutSignature = archiveRenderCache ? archiveLayoutSignature : null;
-
-    // Only fall back to a live captureRenderCache for the active tab. For inactive tabs
-    // the live DOM holds the active tab's content (per-tab DOM instances), so the live
-    // capture would record the wrong fragment. Pre-save warmup is responsible for
-    // populating tab.renderCache.cache on inactive tabs before this point.
-    if (!archiveRenderCache && lifecycleSnapshot?.renderCache && typeof session?.serializeRenderCacheForArchive === 'function') {
-      archiveRenderCache = session.serializeRenderCacheForArchive(lifecycleSnapshot.renderCache);
-      archiveRenderCacheSignature = archivePayloadSignature;
-      archiveRenderCacheLayoutSignature = archiveLayoutSignature;
-    }
-
-    if (!archiveRenderCache && config && typeof config.captureRenderCache === 'function' && tab.id === activeId) {
-      try {
-        const captured = config.captureRenderCache({
-          tabId: tab.id,
-          type: tab.type,
-          reason: 'archive-save-active'
-        });
-        if (captured && typeof session?.serializeRenderCacheForArchive === 'function') {
-          archiveRenderCache = session.serializeRenderCacheForArchive(captured);
-          archiveRenderCacheSignature = archivePayloadSignature;
-          archiveRenderCacheLayoutSignature = archiveLayoutSignature;
-        }
-        if (captured && typeof config.restoreRenderCache === 'function') {
-          try {
-            config.restoreRenderCache(captured, {
-              tabId: tab.id,
-              type: tab.type,
-              reason: 'archive-save-active-restore',
-              temporaryRestore: true
-            });
-          } catch (err) {
-            console.error('buildArchiveTabSnapshot restoreRenderCache error', {
-              tabId: tab.id,
-              type: tab.type,
-              err
-            });
-          }
-        }
-      } catch (err) {
-        console.error('buildArchiveTabSnapshot captureRenderCache error', {
-          tabId: tab.id,
-          type: tab.type,
-          err
-        });
+    let cacheSnapshot = null;
+    if (includeRenderCache && cacheEnvelopeMatchesSnapshot(tab, tab.renderCache, archivePayloadSignature, archiveLayoutSignature)) {
+      const serialized = typeof session?.serializeRenderCacheForArchive === 'function'
+        ? session.serializeRenderCacheForArchive(tab.renderCache.cache)
+        : null;
+      if (serialized) {
+        cacheSnapshot = {
+          cache: serialized,
+          payloadSignature: tab.renderCache.payloadSignature ?? tab.renderCacheSignature ?? archivePayloadSignature,
+          layoutSignature: tab.renderCache.layoutSignature ?? tab.renderCacheLayoutSignature ?? archiveLayoutSignature
+        };
       }
     }
 
-    if (!archiveRenderCache) {
+    if (!cacheSnapshot && includeRenderCache && tab.archiveRenderCache && typeof tab.archiveRenderCache === 'object') {
+      const archiveCacheEnvelope = {
+        cache: tab.archiveRenderCache,
+        tabId: tab.id,
+        payloadSignature: tab.archiveRenderCacheSignature ?? null,
+        layoutSignature: tab.archiveRenderCacheLayoutSignature ?? null
+      };
+      if (cacheEnvelopeMatchesSnapshot(tab, archiveCacheEnvelope, archivePayloadSignature, archiveLayoutSignature)) {
+        cacheSnapshot = {
+          cache: cloneWithSession(session, tab.archiveRenderCache),
+          payloadSignature: archiveCacheEnvelope.payloadSignature,
+          layoutSignature: archiveCacheEnvelope.layoutSignature
+        };
+      }
+    }
+
+    if (!cacheSnapshot
+      && includeRenderCache
+      && mountedRootMatchesSnapshot(context, tab, archivePayloadSignature, archiveLayoutSignature)) {
       const mountedRootCache = captureMountedTabRenderCacheForArchive(context, tab, config, {
         reason: 'archive-save-mounted-root-fallback'
       });
       if (mountedRootCache && typeof session?.serializeRenderCacheForArchive === 'function') {
-        archiveRenderCache = session.serializeRenderCacheForArchive(mountedRootCache);
-        archiveRenderCacheSignature = archivePayloadSignature;
-        archiveRenderCacheLayoutSignature = archiveLayoutSignature;
+        const serialized = session.serializeRenderCacheForArchive(mountedRootCache);
+        if (serialized) {
+          cacheSnapshot = {
+            cache: serialized,
+            payloadSignature: archivePayloadSignature,
+            layoutSignature: archiveLayoutSignature
+          };
+        }
       }
     }
 
+    const archiveRenderCache = cacheSnapshot?.cache || null;
     if ((!tab.previewMarkup || !String(tab.previewMarkup).trim()) && archiveRenderCache && config && context?.previews?.updateTabPreviewFromWorkspace) {
       const previousRenderCache = tab.renderCache || null;
       const previousRenderCacheSignature = tab.renderCacheSignature || null;
@@ -557,13 +540,13 @@
           cache: archiveRenderCache,
           tabId: tab.id,
           type: tab.type || null,
-          payloadSignature: archivePayloadSignature || tab.payloadSignature || null,
-          layoutSignature: archiveLayoutSignature || tab.layoutSignature || null,
+          payloadSignature: cacheSnapshot.payloadSignature,
+          layoutSignature: cacheSnapshot.layoutSignature,
           capturedAt: Date.now(),
           captureSequence: Number(previousRenderCache?.captureSequence || 0)
         };
-        tab.renderCacheSignature = archivePayloadSignature || tab.payloadSignature || null;
-        tab.renderCacheLayoutSignature = archiveLayoutSignature || tab.layoutSignature || null;
+        tab.renderCacheSignature = cacheSnapshot.payloadSignature;
+        tab.renderCacheLayoutSignature = cacheSnapshot.layoutSignature;
         tab.renderCacheTabId = tab.id;
         context.previews.updateTabPreviewFromWorkspace(tab, config, {
           reason: 'archive-save-preview-from-render-cache',
@@ -577,12 +560,10 @@
           message: err?.message || String(err)
         });
       } finally {
-        if (previousRenderCache) {
-          tab.renderCache = previousRenderCache;
-          tab.renderCacheSignature = previousRenderCacheSignature;
-          tab.renderCacheLayoutSignature = previousRenderCacheLayoutSignature;
-          tab.renderCacheTabId = previousRenderCacheTabId;
-        }
+        tab.renderCache = previousRenderCache;
+        tab.renderCacheSignature = previousRenderCacheSignature;
+        tab.renderCacheLayoutSignature = previousRenderCacheLayoutSignature;
+        tab.renderCacheTabId = previousRenderCacheTabId;
       }
     }
 
@@ -598,8 +579,8 @@
       archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object'
         ? rehomeArchiveValue(session, archiveRenderCache, tab.id)
         : null,
-      archiveRenderCacheSignature: archiveRenderCache ? archiveRenderCacheSignature : null,
-      archiveRenderCacheLayoutSignature: archiveRenderCache ? archiveRenderCacheLayoutSignature : null,
+      archiveRenderCacheSignature: archiveRenderCache ? cacheSnapshot.payloadSignature : null,
+      archiveRenderCacheLayoutSignature: archiveRenderCache ? cacheSnapshot.layoutSignature : null,
       uiState: tab.uiState && typeof tab.uiState === 'object'
         ? rehomeArchiveValue(session, tab.uiState, tab.id)
         : null
@@ -1045,6 +1026,93 @@
   namespace.tabHasReusableRenderCache = tabHasReusableRenderCache;
   namespace.hasTabsNeedingPostLoadWarmup = hasTabsNeedingPostLoadWarmup;
 
+  async function createDocumentCheckpoint(context, options = {}) {
+    const { session, workspaceState } = context || {};
+    if (!session || !workspaceState) {
+      throw new Error('Document checkpoint unavailable: missing session context.');
+    }
+    const scope = options.scope === 'tab' ? 'tab' : 'workspace';
+    const requestedSnapshotKind = options.snapshotKind || 'document-snapshot';
+    const policy = resolveArchiveBuildPolicy({
+      mode: options.policyMode || options.mode || 'manual-save',
+      snapshotKind: requestedSnapshotKind,
+      snapshotIntent: options.snapshotIntent,
+      reason: options.reason || 'document-snapshot',
+      scope,
+      captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
+      idleForMs: options.idleForMs,
+      idleThresholdMs: options.idleThresholdMs
+    });
+    const captureRenderCache = policy.captureRenderCache === true;
+
+    if (scope === 'workspace' && captureRenderCache && options.prepareRenderCaches === true) {
+      try {
+        await warmTabRenderCaches(context, {
+          reason: options.warmupReason || `${options.reason || 'document-checkpoint'}-warmup`
+        });
+      } catch (err) {
+        console.error('createDocumentCheckpoint warmup error', err);
+      }
+    }
+
+    const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
+    if (activeTab && !activeTab.isWelcome && activeTab.type) {
+      await awaitWorkspaceReadyForSnapshot(context, activeTab, {
+        reason: options.readyReason || `${options.reason || 'document-checkpoint'}-active-ready`,
+        timeoutMs: options.readyTimeoutMs
+      });
+    }
+
+    const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
+    const preserveRenderCacheTabIds = policy.preserveRenderCacheTabScope === 'all'
+      ? graphTabs.map(tab => tab?.id).filter(Boolean)
+      : [activeTab?.id || null].filter(Boolean);
+    const snapshot = buildScopeSnapshot(context, scope, {
+      ...options,
+      reason: options.reason || 'document-snapshot',
+      snapshotKind: policy.snapshotKind || requestedSnapshotKind,
+      snapshotIntent: policy.snapshotIntent,
+      captureRenderCache,
+      preserveRenderCacheTabIds
+    });
+    if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
+      return null;
+    }
+    return {
+      scope,
+      snapshot,
+      policy,
+      fileName: resolveArchiveNameForScope(context, scope, options),
+      sessionRevision: Number(workspaceState.sessionRevision) || 0,
+      createdAt: Date.now()
+    };
+  }
+
+  namespace.createDocumentCheckpoint = createDocumentCheckpoint;
+
+
+  async function serializeDocumentCheckpoint(context, checkpoint, options = {}) {
+    if (!checkpoint?.snapshot || !Array.isArray(checkpoint.snapshot.tabs)) {
+      throw new Error('Document checkpoint serialization requires a valid checkpoint.');
+    }
+    const Shared = context?.Shared || window.Shared;
+    const graphArchive = ensureGraphArchiveApi(Shared);
+    if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
+      throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
+    }
+    return graphArchive.buildArchiveBlob({
+      tabs: checkpoint.snapshot.tabs,
+      activeIndex: checkpoint.snapshot.activeIndex,
+      fileName: checkpoint.fileName,
+      scope: checkpoint.scope,
+      compression: options.compression || 'STORE',
+      payloadMode: options.payloadMode || 'full',
+      useWorker: options.useWorker !== false
+    });
+  }
+
+  namespace.serializeDocumentCheckpoint = serializeDocumentCheckpoint;
+
   let pendingPostLoadWarmup = null;
   function schedulePostLoadWarmup(context, reason) {
     if (pendingPostLoadWarmup && pendingPostLoadWarmup.cancel) {
@@ -1156,12 +1224,15 @@
     let addedTabCount = sessionPayload.tabs.length;
 
     if (loadMode === 'append') {
-      const existingSnapshot = buildScopeSnapshot(context, 'workspace', {
+      const existingCheckpoint = await createDocumentCheckpoint(context, {
+        scope: 'workspace',
         reason: meta.reason || 'graph-load-append-existing',
         snapshotKind: 'append-existing',
-        captureRenderCache: true,
-        preserveRenderCacheTabIds: getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
+        policyMode: 'manual-save',
+        captureRenderCacheBeforeSnapshot: true,
+        prepareRenderCaches: false
       });
+      const existingSnapshot = existingCheckpoint?.snapshot || null;
       const existingTabs = Array.isArray(existingSnapshot?.tabs) ? existingSnapshot.tabs : [];
       existingTabCount = existingTabs.length;
       const incomingTabs = Array.isArray(sessionPayload.tabs) ? sessionPayload.tabs : [];
@@ -1176,6 +1247,7 @@
         mergedTabs.push({
           title: tab?.title || 'Workspace',
           type: tab?.type || tab?.payload?.type || null,
+          archiveRuntimeTabId: tab?.archiveRuntimeTabId || tab?.runtimeTabId || null,
           payload: cloneWithSession(session, tab?.payload || null),
           layout: cloneWithSession(session, tab?.layout || null),
           previewMarkup: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup : null,
@@ -1191,6 +1263,7 @@
         mergedTabs.push({
           title: tab?.title || 'Workspace',
           type: tab?.type || tab?.payload?.type || null,
+          archiveRuntimeTabId: tab?.archiveRuntimeTabId || tab?.runtimeTabId || null,
           payload: cloneWithSession(session, tab?.payload || null),
           layout: cloneWithSession(session, tab?.layout || null),
           previewMarkup: typeof tab?.previewMarkup === 'string' ? tab.previewMarkup : null,
@@ -1223,7 +1296,7 @@
       activateTab,
       showGraphSelection
     });
-    session.applySessionData(payloadToApply, loadOptions);
+    const restoreResult = await session.applySessionData(payloadToApply, loadOptions);
     if (loadMode === 'append') {
       if (workspaceState) {
         workspaceState.sessionFileHandle = null;
@@ -1250,24 +1323,35 @@
       tabCount: payloadToApply.tabs.length,
       source: parsed?.source || 'unknown',
       loadMode,
-      addedTabCount
+      addedTabCount,
+      restoreResult: restoreResult || null
     };
   }
 
-  namespace.loadWorkspaceFile = async function loadWorkspaceFile(context, file, meta = {}) {
+  async function restoreDocumentArchive(context, source, meta = {}) {
     const Shared = context?.Shared || window.Shared;
     const graphArchive = ensureGraphArchiveApi(Shared);
     if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
       throw new Error('Shared.graphArchive.parseFile is unavailable.');
     }
-    const parsed = await graphArchive.parseFile(file, {
-      fileName: meta.fileName || file?.name || ''
+    const parsed = await graphArchive.parseFile(source, {
+      fileName: meta.fileName || source?.name || 'workspace.graph'
     });
-    debug(context, 'loadWorkspaceFile.parsed', {
+    debug(context, 'restoreDocumentArchive.parsed', {
       source: parsed?.source || 'unknown',
-      tabCount: parsed?.session?.tabs?.length || 0
+      tabCount: parsed?.session?.tabs?.length || 0,
+      reason: meta.reason || 'graph-load'
     });
     return applyParsedSession(context, parsed, meta);
+  }
+
+  namespace.restoreDocumentArchive = restoreDocumentArchive;
+
+  namespace.loadWorkspaceFile = async function loadWorkspaceFile(context, file, meta = {}) {
+    return restoreDocumentArchive(context, file, {
+      ...meta,
+      reason: meta.reason || 'graph-load'
+    });
   };
 
   namespace.saveWorkspaceArchiveWithScope = async function saveWorkspaceArchiveWithScope(context, options = {}) {
@@ -1283,61 +1367,33 @@
 
     const scope = options.scope === 'workspace' ? 'workspace' : 'tab';
     const rememberFile = options.rememberFile !== false;
-    if (scope === 'workspace' && options.skipWarmup !== true) {
-      try {
-        await warmTabRenderCaches(context, { reason: 'pre-save-warmup' });
-      } catch (err) {
-        console.error('saveWorkspaceArchiveWithScope warmup error', err);
-      }
-    }
-    try {
-      const activeForSnapshot = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
-      if (activeForSnapshot && !activeForSnapshot.isWelcome && activeForSnapshot.type) {
-        await awaitWorkspaceReadyForSnapshot(context, activeForSnapshot, { reason: 'pre-save-active-ready' });
-      }
-    } catch (err) {
-      console.error('saveWorkspaceArchiveWithScope active ready error', err);
-    }
     const requestedSnapshotKind = options.snapshotKind
       || (options.reason === 'autosave' ? 'autosave' : 'archive-save');
-    const snapshotPolicy = resolveArchiveBuildPolicy({
-      mode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
-      snapshotKind: requestedSnapshotKind,
-      snapshotIntent: options.snapshotIntent,
-      reason: options.reason || 'archive-save',
-      scope,
-      captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
-      idleForMs: options.idleForMs,
-      idleThresholdMs: options.idleThresholdMs
-    });
-    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
-    const captureRenderCache = snapshotPolicy.captureRenderCache !== false;
-    const preserveRenderCacheTabIds = snapshotPolicy.preserveRenderCacheTabScope === 'all'
-      ? getGraphTabsFromWorkspaceState(workspaceState).map(tab => tab && tab.id).filter(Boolean)
-      : [session.getActiveTab?.()?.id || null].filter(Boolean);
-    const snapshot = buildScopeSnapshot(context, scope, {
+    const checkpoint = await createDocumentCheckpoint(context, {
       ...options,
-      snapshotKind,
-      snapshotIntent: snapshotPolicy.snapshotIntent,
-      captureRenderCache,
-      preserveRenderCacheTabIds
+      scope,
+      reason: options.reason || 'archive-save',
+      snapshotKind: requestedSnapshotKind,
+      policyMode: options.reason === 'autosave' ? 'autosave' : 'manual-save',
+      prepareRenderCaches: scope === 'workspace' && options.skipWarmup !== true,
+      warmupReason: 'pre-save-warmup',
+      readyReason: 'pre-save-active-ready'
     });
-    if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
+    if (!checkpoint) {
       debug(context, 'saveWorkspaceArchiveWithScope.skip', { scope, reason: 'no-tabs' });
       return { status: 'cancelled', reason: 'no-tabs' };
     }
+    const { snapshot, policy: snapshotPolicy, fileName } = checkpoint;
+    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
+    const captureRenderCache = snapshotPolicy.captureRenderCache === true;
 
-    const fileName = resolveArchiveNameForScope(context, scope, options);
     let archiveBlobPromise = null;
     const getArchiveBlob = async () => {
       if (!archiveBlobPromise) {
-        archiveBlobPromise = graphArchive.buildArchiveBlob({
-          tabs: snapshot.tabs,
-          activeIndex: snapshot.activeIndex,
-          fileName,
-          scope,
-          compression: options.compression || 'STORE',
-          payloadMode: options.payloadMode || 'full'
+        archiveBlobPromise = serializeDocumentCheckpoint(context, checkpoint, {
+          compression: options.compression,
+          payloadMode: options.payloadMode,
+          useWorker: options.useWorker
         }).then(blob => {
           debug(context, 'saveWorkspaceArchiveWithScope.archiveBuilt', {
             scope,
@@ -1619,67 +1675,26 @@
     if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
       throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
     }
-    const snapshotScope = options.scope === 'tab' ? 'tab' : 'workspace';
-    const requestedSnapshotKind = options.snapshotKind || 'document-snapshot';
-    const snapshotPolicy = resolveArchiveBuildPolicy({
-      mode: options.policyMode || options.mode || 'manual-save',
-      snapshotKind: requestedSnapshotKind,
-      snapshotIntent: options.snapshotIntent,
-      reason: options.reason || 'document-snapshot',
-      scope: snapshotScope,
-      captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
-      idleForMs: options.idleForMs,
-      idleThresholdMs: options.idleThresholdMs
-    });
-    const snapshotKind = snapshotPolicy.snapshotKind || requestedSnapshotKind;
-    const preserveRenderCacheTabIds = snapshotPolicy.preserveRenderCacheTabScope === 'all'
-      ? getGraphTabsFromWorkspaceState(context?.workspaceState || null)
-        .map(tab => tab && tab.id)
-        .filter(Boolean)
-      : [context?.session?.getActiveTab?.()?.id || null].filter(Boolean);
-    if (!preserveRenderCacheTabIds.length) {
-      const activeId = context?.session?.getActiveTab?.()?.id || null;
-      if (activeId) {
-        preserveRenderCacheTabIds.push(activeId);
-      }
-    }
-    const snapshot = buildScopeSnapshot(context, snapshotScope, {
+    const checkpoint = await createDocumentCheckpoint(context, {
       ...options,
+      scope: options.scope === 'tab' ? 'tab' : 'workspace',
       reason: options.reason || 'document-snapshot',
-      snapshotKind,
-      snapshotIntent: snapshotPolicy.snapshotIntent,
-      captureRenderCache: snapshotPolicy.captureRenderCache !== false,
-      preserveRenderCacheTabIds
+      snapshotKind: options.snapshotKind || 'document-snapshot',
+      policyMode: options.policyMode || options.mode || 'manual-save',
+      prepareRenderCaches: options.prepareRenderCaches === true
     });
-    if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
+    if (!checkpoint) {
       return null;
     }
-    const fileName = resolveArchiveNameForScope(context, options.scope === 'tab' ? 'tab' : 'workspace', options);
-    return graphArchive.buildArchiveBlob({
-      tabs: snapshot.tabs,
-      activeIndex: snapshot.activeIndex,
-      fileName,
-      scope: options.scope === 'tab' ? 'tab' : 'workspace',
-      compression: options.compression || 'STORE',
-      payloadMode: options.payloadMode || 'full',
-      useWorker: options.useWorker !== false
-    });
+    return serializeDocumentCheckpoint(context, checkpoint, options);
   };
 
   namespace.applyArchiveBlob = async function applyArchiveBlob(context, blob, meta = {}) {
-    const Shared = context?.Shared || window.Shared;
-    const graphArchive = ensureGraphArchiveApi(Shared);
-    if (!graphArchive || typeof graphArchive.parseFile !== 'function') {
-      throw new Error('Shared.graphArchive.parseFile is unavailable.');
-    }
-    const parsed = await graphArchive.parseFile(blob, {
-      fileName: meta.fileName || blob?.name || 'recovered.graph'
-    });
-    return applyParsedSession(context, parsed, {
+    return restoreDocumentArchive(context, blob, {
       ...meta,
       reason: meta.reason || 'recovery-restore',
       fileHandle: meta.fileHandle || null,
-      fileName: meta.fileName || '',
+      fileName: meta.fileName || blob?.name || '',
       loadMode: meta.loadMode || 'replace',
       skipWarmup: meta.skipWarmup === true
     });

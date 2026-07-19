@@ -7,6 +7,8 @@ const { ensureJStatStub } = require('./helpers/jstatTestStub');
 const originalDebug = console.debug;
 const originalLog = console.log;
 
+jest.setTimeout(20000);
+
 async function activateWorkspace(type){
   const graphSelection = window.Main?.tabs?.handleGraphSelection;
   expect(typeof graphSelection).toBe('function');

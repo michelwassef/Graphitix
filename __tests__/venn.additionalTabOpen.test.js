@@ -62,6 +62,7 @@ describe('Venn additional tab opening', () => {
     require('../js/shared/fontControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');
     require('../js/shared/uniprot.js');

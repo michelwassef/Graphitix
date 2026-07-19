@@ -474,7 +474,7 @@ async function buildArchiveBlob(page, mode, label) {
     if (!sessionActions || typeof sessionActions.buildWorkspaceArchiveBlob !== 'function') throw new Error('Main.sessionActions.buildWorkspaceArchiveBlob unavailable');
     const context = tabsApi.getSessionActionsContext();
     const options = snapshotMode === 'recovery'
-      ? { scope: 'workspace', snapshotKind: 'lifecycle-checkpoint', policyMode: 'recovery', reason: diagnosticLabel, idleForMs: 8_000, useWorker: true }
+      ? { scope: 'workspace', snapshotKind: 'recovery', policyMode: 'recovery', reason: diagnosticLabel, idleForMs: 8_000, useWorker: true }
       : { scope: 'workspace', snapshotKind: 'document-snapshot', compression: 'STORE', reason: diagnosticLabel };
     const policy = window.Main?.snapshotPolicy?.resolveArchiveBuildPolicy?.({
       mode: snapshotMode === 'recovery' ? 'recovery' : 'manual-save',
@@ -568,7 +568,11 @@ async function reloadAndAcceptRecovery(page) {
   page.on('dialog', dialogHandler);
   try {
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1_200);
+    await page.waitForFunction(
+      () => window.Main?.session?.workspaceState?.sessionUserDirty === true,
+      null,
+      { timeout: 60_000 }
+    );
   } finally {
     page.off('dialog', dialogHandler);
   }

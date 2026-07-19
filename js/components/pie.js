@@ -2153,14 +2153,14 @@ let state = {
       return null;
     }
     const stored = state.labelPositions || {};
-    
+
     // Get SVG dimensions for relative positioning
     const svgWidth = svgDimensions.width || (svg.getAttribute('width') ? parseFloat(svg.getAttribute('width')) : 500);
     const svgHeight = svgDimensions.height || (svg.getAttribute('height') ? parseFloat(svg.getAttribute('height')) : 400);
-    
+
     let resolvedX = Number.isFinite(defaults.x) ? defaults.x : 0;
     let resolvedY = Number.isFinite(defaults.y) ? defaults.y : 0;
-    
+
     // Convert relative positions to absolute if needed
     if (stored?.legend) {
       if (stored.legend.relX !== undefined && stored.legend.relY !== undefined) {
@@ -2173,7 +2173,7 @@ let state = {
         resolvedY = stored.legend.y;
       }
     }
-    
+
     const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
     if(!legendGroup){
       return null;
@@ -2189,11 +2189,11 @@ let state = {
           // Store both absolute and relative positions.
           const relX = pos.x / svgWidth;
           const relY = pos.y / svgHeight;
-          patchPieLabelPosition(getPieProjectionSession({ reason: 'pie-projection-mutation' }), 'legend', { 
-            x: pos.x, 
+          patchPieLabelPosition(getPieProjectionSession({ reason: 'pie-projection-mutation' }), 'legend', {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           }, { reason: 'pie-legend-position' });
           capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
             reason: 'legend-position-change',
@@ -2324,7 +2324,7 @@ let state = {
     }
     pieLockRatioEnforcing = true;
     try{
-      const chartTypeValue = $('#pieChartType')?.value || 'pie';
+      const chartTypeValue = getPieNodeById('pieChartType')?.value || 'pie';
       const shouldEnforceLockRatio = chartTypeValue === 'pie' || chartTypeValue === 'donut';
       const lockRatioCheckbox = getPieLockRatioCheckbox();
       if(lockRatioCheckbox){
@@ -4363,10 +4363,7 @@ let state = {
   function getDefaultPalette(){
     try{
       const palFromGlobal = (global && Array.isArray(global.DEFAULT_SCATTER_COLORS)) ? global.DEFAULT_SCATTER_COLORS : undefined;
-      // Some sections define DEFAULT_SCATTER_COLORS as a global lexical binding
-      // eslint-disable-next-line no-undef
-      const palFromLexical = (typeof DEFAULT_SCATTER_COLORS !== 'undefined' && Array.isArray(DEFAULT_SCATTER_COLORS)) ? DEFAULT_SCATTER_COLORS : undefined;
-      const palette = palFromGlobal || palFromLexical || ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
+      const palette = palFromGlobal || ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
       return palette;
     }catch(_e){
       return ['#0000ff','#ff0000','#00aa00','#ff8c00','#800080','#00a6d6','#8b4513','#ff1493','#666666'];
@@ -4786,11 +4783,11 @@ let state = {
   }
 
   function initControls(){
-    const pieShowPercents=$('#pieShowPercents');
-    const pieStartAngle=$('#pieStartAngle');
-    const pieFontSize=$('#pieFontSize');
-    const pieFontSizeVal=$('#pieFontSizeVal');
-    const pieChartType=$('#pieChartType');
+    const pieShowPercents=getPieNodeById('pieShowPercents');
+    const pieStartAngle=getPieNodeById('pieStartAngle');
+    const pieFontSize=getPieNodeById('pieFontSize');
+    const pieFontSizeVal=getPieNodeById('pieFontSizeVal');
+    const pieChartType=getPieNodeById('pieChartType');
     pieShowLegendInput = getPieNodeById('pieShowLegend');
     const pieBorderColor=getPieNodeById('pieBorderColor');
     const pieBorderWidth=getPieNodeById('pieBorderWidth');
@@ -5820,7 +5817,8 @@ let state = {
     const drawReason = typeof drawOptions?.reason === 'string' ? drawOptions.reason : '';
     const isResizeDrivenDraw = drawReason.startsWith('resize');
     const isResizeViewDraw = isResizeDrivenDraw && drawOptions?.viewOnly === true;
-    const pieFontInput=$('#pieFontSize');
+    const pieFontInput=getPieNodeById('pieFontSize', drawTabId);
+    const pieFontSizeVal=getPieNodeById('pieFontSizeVal', drawTabId);
     const rawPieFontSize = controls.fontSize || String(DEFAULT_PIE_FONT_SIZE_PT);
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: rawPieFontSize,
@@ -5915,7 +5913,7 @@ let state = {
       });
       const stackedLegendVisible = showLegend && stackedLegendLayout.renderer.entries.length > 0;
       state.legendWidth = stackedLegendVisible ? Math.ceil(stackedLegendLayout.renderer.width) : 0;
-      const stackedLegendMargin = stackedLegendVisible ? Math.max(stackedLegendLayout.legendGapPx, Math.round(8 * fontScale)) : 0;
+
       const stackedLegendGap = stackedLegendVisible ? stackedLegendLayout.legendGapPx : 0;
       const stackedLegendMarkerSize = stackedLegendVisible ? stackedLegendLayout.renderer.swatchSize : 0;
       pieDebug('Debug: pie stacked legend metrics',{
@@ -6304,8 +6302,8 @@ let state = {
       title.setAttribute('font-size',fs);
       title.textContent=state.titleText;
       markFontEditable(title,'graphTitle','graphTitle');
-      if(!isResizePreview && global.makeEditable){
-        makeEditable(title,txt=>{
+      if(!isResizePreview && typeof Shared.makeEditable === 'function'){
+        Shared.makeEditable(title,txt=>{
           const previous=state.titleText!=null?String(state.titleText):'';
           const nextValue=txt!=null?String(txt):'';
           if(previous===nextValue){
@@ -6461,7 +6459,7 @@ let state = {
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0, exact: true });
     const frameStroke = '#000';
-    const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
+
     const legendReservedWidth = radialLegendVisible ? radialLegendLayout.legendWidthForMargin : 0;
     const contentLeft = 0;
     const contentRight = Math.max(contentLeft + 50, svgWidth - legendReservedWidth);
@@ -6637,7 +6635,7 @@ let state = {
     const defaultTitleX = contentLeft + contentWidth/2;
     const defaultTitleY = fs*1.2;
     const titlePos = state.labelPositions?.title;
-    
+
     // Convert relative positions to absolute if needed
     let absoluteTitleX = defaultTitleX;
     let absoluteTitleY = defaultTitleY;
@@ -6652,7 +6650,7 @@ let state = {
         absoluteTitleY = titlePos.y;
       }
     }
-    
+
     const title=document.createElementNS(NS,'text');
     title.setAttribute('x', absoluteTitleX);
     title.setAttribute('y', absoluteTitleY);
@@ -6660,8 +6658,8 @@ let state = {
     title.setAttribute('font-size',fs);
     title.textContent=state.titleText;
     markFontEditable(title,'graphTitle','graphTitle');
-    if(!isResizePreview && global.makeEditable){
-      makeEditable(title,txt=>{
+    if(!isResizePreview && typeof Shared.makeEditable === 'function'){
+      Shared.makeEditable(title,txt=>{
         const previous=state.titleText!=null?String(state.titleText):'';
         const nextValue=txt!=null?String(txt):'';
         if(previous===nextValue){
@@ -6677,11 +6675,11 @@ let state = {
           // Store both absolute and relative positions
           const relX = pos.x / svgWidth;
           const relY = pos.y / svgHeight;
-          patchPieLabelPosition(drawSession, 'title', { 
-            x: pos.x, 
+          patchPieLabelPosition(drawSession, 'title', {
+            x: pos.x,
             y: pos.y,
-            relX: relX, 
-            relY: relY 
+            relX: relX,
+            relY: relY
           }, { reason: 'pie-title-position' });
           pieDebug('Debug: pie title position saved', { absolute: pos, relative: { relX, relY } });
         }
@@ -6689,7 +6687,7 @@ let state = {
     }
     svg.appendChild(title);
     if(radialLegendVisible){
-      const legendRenderer = radialLegendLayout.renderer;
+
       let defaultLegendX = contentRight + radialLegendLayout.legendGapPx;
       if(!Number.isFinite(defaultLegendX) || defaultLegendX < 0){
         defaultLegendX = 0;

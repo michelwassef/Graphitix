@@ -974,14 +974,20 @@
           return { markup, width: sizing.targetWidth, height: sizing.targetHeight, size: markup.length, simplified: true, canvasSimplified: true, canvasBitmap: hydratedCanvasLayers > 0 };
         }
       }
-      if (true) {
-        const placeholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
-          message: 'Preview simplified',
-          detail: 'Large dataset'
-        });
-        if (placeholder) {
-          return { markup: placeholder, width: sizing.targetWidth, height: sizing.targetHeight, size: placeholder.length, simplified: true, canvasSimplified: true, canvasBitmap: false };
-        }
+      const simplifiedPlaceholder = buildPreviewPlaceholder(sizing.targetWidth, sizing.targetHeight, {
+        message: 'Preview simplified',
+        detail: 'Large dataset'
+      });
+      if (simplifiedPlaceholder) {
+        return {
+          markup: simplifiedPlaceholder,
+          width: sizing.targetWidth,
+          height: sizing.targetHeight,
+          size: simplifiedPlaceholder.length,
+          simplified: true,
+          canvasSimplified: true,
+          canvasBitmap: false
+        };
       }
       const scheduled = scheduleHybridPreviewCapture(tab, svg, sizing, {
         reason: 'oversize',
@@ -1157,7 +1163,6 @@
     if (!tab || !document || !session) {
       return;
     }
-    const workspaceState = session.workspaceState;
     const domList = document.getElementById('workspaceTabsList');
     if (!domList) {
       return;

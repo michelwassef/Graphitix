@@ -1182,6 +1182,34 @@
     return session;
   }
 
+  function markHistOwnerDrawPending(session = null, meta = {}){
+    const target = ensureHistSessionOwnershipShape(session);
+    if(!target){
+      return false;
+    }
+    const pendingOptions = sanitizeHistDrawOptions({
+      ...(meta || {}),
+      tabId: target.tabId || undefined,
+      reason: meta?.reason || 'hist-owner-draw-pending'
+    }, {
+      tabId: target.tabId || null,
+      reason: meta?.reason || 'hist-owner-draw-pending'
+    });
+    target.state.drawPending = true;
+    target.state.autoDraw = {
+      ...createDefaultHistAutoDrawState(target.state.autoDraw || {}),
+      drawPending: true,
+      autoDrawReason: pendingOptions.reason || target.state.autoDraw?.autoDrawReason || null
+    };
+    target.timers.pendingDrawOptions = pendingOptions;
+    target.updatedAt = Date.now();
+    histDebug('Debug: hist draw skipped for inactive session', {
+      tabId: target.tabId || null,
+      reason: pendingOptions.reason || null
+    });
+    return true;
+  }
+
   function scheduleHistOwnerDraw(owner, options = {}){
     const resolvedOwner = owner?.session || owner?.tabId || owner?.hot
       ? owner
@@ -4294,16 +4322,16 @@
   }
 
   function initControls(){
-    const histPlotMode=$('#histPlotMode'), histShowLegend=$('#histShowLegend'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histXMin=$('#histXMin'), histXMax=$('#histXMax'), histYMax=$('#histYMax'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal');
-    const histStatsDiagnosticsMode=$('#histStatsDiagnosticsMode'), histStatsComparisonMode=$('#histStatsComparisonMode');
-    const histFrequencyCreateMode=$('#histFrequencyCreateMode');
-    const histFrequencyTabulateMode=$('#histFrequencyTabulateMode');
-    const histBinningMode=$('#histBinningMode');
-    const histBinWidth=$('#histBinWidth');
-    const histFirstBinCenterAuto=$('#histFirstBinCenterAuto');
-    const histFirstBinCenter=$('#histFirstBinCenter');
-    const histLastBinCenterAuto=$('#histLastBinCenterAuto');
-    const histLastBinCenter=$('#histLastBinCenter');
+    const histPlotMode=getHistNodeById('histPlotMode'), histShowLegend=getHistNodeById('histShowLegend'), histBins=getHistNodeById('histBins'), histShowGrid=getHistNodeById('histShowGrid'), histShowFrame=getHistNodeById('histShowFrame'), histLogY=getHistNodeById('histLogY'), histXMin=getHistNodeById('histXMin'), histXMax=getHistNodeById('histXMax'), histYMax=getHistNodeById('histYMax'), histFontSize=getHistNodeById('histFontSize'), histFontSizeVal=getHistNodeById('histFontSizeVal');
+    const histStatsDiagnosticsMode=getHistNodeById('histStatsDiagnosticsMode'), histStatsComparisonMode=getHistNodeById('histStatsComparisonMode');
+    const histFrequencyCreateMode=getHistNodeById('histFrequencyCreateMode');
+    const histFrequencyTabulateMode=getHistNodeById('histFrequencyTabulateMode');
+    const histBinningMode=getHistNodeById('histBinningMode');
+    const histBinWidth=getHistNodeById('histBinWidth');
+    const histFirstBinCenterAuto=getHistNodeById('histFirstBinCenterAuto');
+    const histFirstBinCenter=getHistNodeById('histFirstBinCenter');
+    const histLastBinCenterAuto=getHistNodeById('histLastBinCenterAuto');
+    const histLastBinCenter=getHistNodeById('histLastBinCenter');
     if(histFontSize?.dataset){
       histFontSize.dataset.fontBasePt = String(histFontSize.value);
       histDebug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
@@ -4325,7 +4353,7 @@
     });
     applyHistPlotMode(histPlotMode?.value || state.plotMode, { schedule: false, syncDefaults: false });
     syncHistFrequencyControls();
-    const distListEl=getHistNodeById('histDistributionList');
+
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     if(histPlotMode){
       histPlotMode.value = normalizeHistPlotMode(state.plotMode);
@@ -6247,7 +6275,8 @@
       });
       return false;
     }
-    const histFontSizeVal=$('#histFontSizeVal');
+    const histFontSizeVal=getHistNodeById('histFontSizeVal', drawSession?.tabId);
+    const histFontSize=getHistNodeById('histFontSize', drawSession?.tabId);
     const controls = normalizeHistRuntimeControls(state.runtimeControls || {});
     ensureAxisSettings();
     const plotMode = normalizeHistPlotMode(state.plotMode);
@@ -6445,13 +6474,7 @@
       histDebug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
     }
     plotEl.style.position='relative';
-    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
-    if(fontControls && typeof fontControls.enableForSvg === 'function'){
-      fontControls.enableForSvg(svg,{ scopeId: 'hist' });
-      histDebug('Debug: hist fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
-    } else {
-      histDebug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
-    }
+    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.prepareSvg(svg, { scopeId: 'hist' }); plotEl.appendChild(svg);
     const histNotationX = getAxisNotation('x');
     const histNotationY = getAxisNotation('y');
     const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
@@ -7053,8 +7076,8 @@
       patchHistLabelsState(drawSession, { x: nextValue }, { reason: 'hist-x-label-edit' });
       scheduleActiveHistDraw({ reason: 'hist-x-label-edit' });
     };
-    if(global.makeEditable){
-      makeEditable(xText,txt=>{
+    if(typeof Shared.makeEditable === 'function'){
+      Shared.makeEditable(xText,txt=>{
         const previous=state.xLabelText!=null?String(state.xLabelText):'';
         const nextValue=txt!=null?String(txt):'';
         if(previous===nextValue){
@@ -7092,8 +7115,8 @@
       }, { reason: 'hist-y-label-edit' });
       scheduleActiveHistDraw({ reason: 'hist-y-label-edit' });
     };
-    if(global.makeEditable){
-      makeEditable(yText,txt=>{
+    if(typeof Shared.makeEditable === 'function'){
+      Shared.makeEditable(yText,txt=>{
         const previous=state.yLabelText!=null?String(state.yLabelText):'';
         const nextValue=txt!=null?String(txt):'';
         if(previous===nextValue){
@@ -7127,8 +7150,8 @@
       }, { reason: 'hist-title-edit' });
       scheduleActiveHistDraw({ reason: 'hist-title-edit' });
     };
-    if(global.makeEditable){
-      makeEditable(titleText,txt=>{
+    if(typeof Shared.makeEditable === 'function'){
+      Shared.makeEditable(titleText,txt=>{
         const previous=state.titleText!=null?String(state.titleText):'';
         const nextValue=txt!=null?String(txt):'';
         if(previous===nextValue){
@@ -7268,6 +7291,7 @@
       componentKey: 'hist',
       tabLike: tabLike || null,
       meta,
+      getCurrentRoot: () => state.root || null,
       sentinelSelector: '#histHot',
       getCurrentSentinel: () => hist.__domSentinel || null,
       rebind: info => {

@@ -525,12 +525,7 @@
     return panel.querySelector('[data-publication-style-fieldset="1"]');
   }
 
-  function resolveInsertAnchor(panel){
-    if(!panel || typeof panel.querySelector !== 'function') return null;
-    // Prefer inserting after the color scheme controls if present.
-    const schemeFieldset = panel.querySelector('[data-color-scheme-fieldset="1"]');
-    return schemeFieldset || panel.firstChild || null;
-  }
+
 
 
   function captureDefaultState(type, session, domControls, workspace){

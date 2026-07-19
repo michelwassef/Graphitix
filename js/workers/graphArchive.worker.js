@@ -1,7 +1,7 @@
 (function(ctx) {
   'use strict';
 
-  const ZIP_SCRIPT_URL = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+  const ZIP_SCRIPT_URL = '../../libs/jszip.min.js';
   const Shared = ctx.Shared = ctx.Shared || {};
   if (!Shared.graphArchiveSchema) {
     ctx.importScripts('../shared/graphArchiveSchema.js');

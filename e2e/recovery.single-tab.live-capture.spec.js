@@ -5,10 +5,10 @@
 // non-user load (Shared.hot afterLoadData) that populates the hot WITHOUT syncing
 // tab.payload or marking the tab dirty. For a single never-deactivated tab the stored
 // payload then stays as the empty-default template (clean) while the component holds real
-// data. If writeRecoverySnapshot's pre-gate flush is allowed to "skip if clean", it leaves
+// data. If the shared checkpoint transaction is allowed to "skip if clean", it leaves
 // the empty payload, graphTabsHaveData() reports no data, the snapshot is skipped/cleared,
-// and recovery never fires — until the user happens to switch tabs (which flushes via
-// getPayload). The fix forces a live payload capture in the recovery flush.
+// and recovery never fires — until the user happens to switch tabs. The fix makes recovery
+// use the same save-grade checkpoint builder and live-payload intent as manual save.
 //
 // This test reproduces the stale-but-clean payload directly (the same state bulk loadData
 // produces) and asserts the recovery snapshot still captures the live data, for every
@@ -98,7 +98,7 @@ for (const type of ['box', 'line', 'scatter', 'hist', 'heatmap']) {
     // Sanity: with the stale-clean payload, the data-presence gate alone reports no data
     // (this is the condition that breaks recovery without a forced live capture).
     expect(r.gateWithStalePayload, `${type}: stale payload should look empty to the gate`).toBe(false);
-    // The fix: the recovery flush re-captures live data, so the snapshot is written with data.
+    // The shared checkpoint transaction re-captures live data before evaluating archive eligibility.
     expect(r.writeStatus, `${type}: recovery snapshot should be saved`).toBe('saved');
     expect(r.snapshotHasData, `${type}: recovery snapshot must contain the live data`).toBe(true);
     expect(r.recapturedRows, `${type}: tab.payload should be re-hydrated with live data`).toBeGreaterThan(1);

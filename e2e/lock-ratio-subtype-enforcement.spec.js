@@ -45,9 +45,9 @@ async function waitForLockRatioCheckbox(page, pageId, tabId = null) {
     if (tabId && String(activeId || '') !== String(tabId || '')) {
       return false;
     }
-    const root = tabId
-      ? (window.Shared?.workspaceTabs?.getMountedRoot?.(tabId, null) || document.querySelector(`#${pageId}:not([hidden])`))
-      : document.querySelector(`#${pageId}:not([hidden])`);
+    const visibleRoot = document.querySelector(`#${pageId}:not([hidden])`);
+    const root = visibleRoot
+      || (tabId ? window.Shared?.workspaceTabs?.getMountedRoot?.(tabId, null) : null);
     return !!root?.querySelector?.('.svgbox .resizer-aspect-checkbox');
   }, { pageId, tabId }, {
     timeout: 30_000,
@@ -169,11 +169,18 @@ async function readActiveLockSnapshot(page, pageId, modeSelector) {
     const checkbox = root?.querySelector?.('.svgbox .resizer-aspect-checkbox') || null;
     const svgBox = root?.querySelector?.('.svgbox') || null;
     const mode = root?.querySelector?.(modeSelector) || null;
+    const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    const vennState = pageId === 'vennPage' ? window.Components?.venn?.__getState?.() : null;
+    const vennSession = pageId === 'vennPage'
+      ? window.Components?.venn?.__testHooks?.getSession?.(activeTabId)
+      : null;
     return {
       mode: mode?.value || null,
       checked: !!checkbox?.checked,
       disabled: !!checkbox?.disabled,
-      aspectLocked: svgBox?.dataset?.resizerAspectLocked || null
+      aspectLocked: svgBox?.dataset?.resizerAspectLocked || null,
+      lockRatioPrevious: vennState?.ui?.lockRatioPrevious ?? null,
+      sessionLockRatioPrevious: vennSession?.state?.lockRatioPrevious ?? null
     };
   }, { pageId, modeSelector });
 }
@@ -288,7 +295,28 @@ test.describe('Lock ratio subtype enforcement', () => {
     await page.waitForTimeout(300);
     state = await getLockRatioState(page, 'vennPage');
     expect(state.present).toBe(true);
+    expect(state.checked).toBe(false);
     expect(state.disabled).toBe(false);
+
+    await setLockRatio(page, 'vennPage', true);
+    let snapshot = await readActiveLockSnapshot(page, 'vennPage', '#vennPlotType');
+    expect(snapshot.checked).toBe(true);
+    expect(snapshot.disabled).toBe(false);
+    expect(snapshot.aspectLocked).toBe('true');
+
+    await page.selectOption('#vennPlotType', 'venn');
+    await page.waitForTimeout(300);
+    await page.selectOption('#vennPlotType', 'upset');
+    await page.waitForTimeout(300);
+    snapshot = await readActiveLockSnapshot(page, 'vennPage', '#vennPlotType');
+    expect(snapshot.checked).toBe(true);
+    expect(snapshot.disabled).toBe(false);
+    expect(snapshot.aspectLocked).toBe('true');
+
+    await setLockRatio(page, 'vennPage', false);
+    snapshot = await readActiveLockSnapshot(page, 'vennPage', '#vennPlotType');
+    expect(snapshot.checked).toBe(false);
+    expect(snapshot.aspectLocked).toBe('false');
   });
 
   test('surface enforces lock ratio', async ({ page }) => {
@@ -317,15 +345,16 @@ test.describe('Lock ratio subtype enforcement', () => {
       });
       expect(userTab).toBeTruthy();
       await selectMode(page, componentCase.pageId, componentCase.modeSelector, componentCase.userMode);
-      await setLockRatio(page, componentCase.pageId, false);
+      const userLockValue = componentCase.type === 'venn';
+      await setLockRatio(page, componentCase.pageId, userLockValue);
       await persistActiveTab(page, `e2e-lock-ratio-${componentCase.type}-persist-user`);
       const userBaseline = await readActiveLockSnapshot(page, componentCase.pageId, componentCase.modeSelector);
       expect(userBaseline).toMatchObject({
         mode: componentCase.userMode,
-        checked: false,
+        checked: userLockValue,
         disabled: false
       });
-      expect(userBaseline.aspectLocked).not.toBe('true');
+      expect(userBaseline.aspectLocked).toBe(userLockValue ? 'true' : 'false');
 
       const forcedTab = await openGraphTab(page, componentCase.type, componentCase.pageId, {
         first: false,

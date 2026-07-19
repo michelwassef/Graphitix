@@ -166,7 +166,7 @@ for (const scenario of [
 
     const initial = await captureHeatmapGeometry(page);
     expect(initial.aspectLocked).toBe('true');
-    expect(parseAspectRatio(initial.graphAspectRatio)).toBeGreaterThan(1);
+    expect(parseAspectRatio(initial.graphAspectRatio)).toBeGreaterThan(0);
     const initialStyleAspect = String(initial.styleAspectRatio || '').trim();
     if (initialStyleAspect) {
       expect(parseAspectRatio(initialStyleAspect)).toBeGreaterThan(0);

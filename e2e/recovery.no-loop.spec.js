@@ -1,7 +1,7 @@
 // Regression: a recovery snapshot capture must be REVISION-NEUTRAL.
 //
-// writeRecoverySnapshot flushes the active tab's live state (config.getPayload + layout) so the
-// snapshot reflects what the user sees. persistActiveTabState would normally markSessionDirty
+// The shared checkpoint transaction captures the active tab's live state (config.getPayload +
+// layout) so recovery and manual save reflect the same document. persistActiveTabState would normally markSessionDirty
 // when that capture detects a change — including live-DOM layout drift. For a snapshot capture
 // that re-dirties the session, which reschedules another recovery write, whose own capture
 // re-detects drift, and so on: an unbounded, expensive feedback loop (observed as endless debug

@@ -114,10 +114,10 @@
 
     const m00 = 1 - 2 * (yy + zz);
     const m01 = 2 * (xy - wz);
-    const m02 = 2 * (xz + wy);
+
     const m10 = 2 * (xy + wz);
     const m11 = 1 - 2 * (xx + zz);
-    const m12 = 2 * (yz - wx);
+
     const m20 = 2 * (xz - wy);
     const m21 = 2 * (yz + wx);
     const m22 = 1 - 2 * (xx + yy);
@@ -678,7 +678,7 @@
     const makeTickFont = size => (typeof chartStyle.makeFont === 'function'
       ? chartStyle.makeFont(size)
       : `${size}px Arial, Helvetica, sans-serif`);
-    const tickFont = makeTickFont(tickFontSize);
+
     const readTextFontSize = (node, fallback) => {
       if(!node){ return fallback; }
       let raw = null;
@@ -1390,7 +1390,7 @@
       return value;
     };
       const tiltMax = Number.isFinite(cfg.tickLabelTiltMax) ? cfg.tickLabelTiltMax : 55;
-      const tiltMin = Number.isFinite(cfg.tickLabelTiltMin) ? cfg.tickLabelTiltMin : 12;
+
       const minGap = Number.isFinite(cfg.tickLabelMinGap) ? cfg.tickLabelMinGap : Math.max(2, Math.round(tickFontSize * 0.15));
       const tickLabelClearance = Number.isFinite(cfg.tickLabelTickClearance)
         ? cfg.tickLabelTickClearance

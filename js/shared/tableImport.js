@@ -3,6 +3,99 @@
   const Shared = global.Shared = global.Shared || {};
   const tableImport = Shared.tableImport = Shared.tableImport || {};
 
+  const IMPORT_FORMAT_DEFINITIONS = Object.freeze({
+    graph: Object.freeze({ extension: 'graph', label: 'Graphitix', dispatch: 'graph' }),
+    json: Object.freeze({ extension: 'json', label: 'JSON', dispatch: 'session' }),
+    prism: Object.freeze({ extension: 'prism', label: 'PRISM', dispatch: 'prism' }),
+    pzfx: Object.freeze({ extension: 'pzfx', label: 'PZFX', dispatch: 'pzfx' }),
+    csv: Object.freeze({ extension: 'csv', label: 'CSV', dispatch: 'tabular-text' }),
+    tsv: Object.freeze({ extension: 'tsv', label: 'TSV', dispatch: 'tabular-text' }),
+    txt: Object.freeze({ extension: 'txt', label: 'TXT', dispatch: 'tabular-text' }),
+    xls: Object.freeze({ extension: 'xls', label: 'XLS', dispatch: 'spreadsheet' }),
+    xlsx: Object.freeze({ extension: 'xlsx', label: 'XLSX', dispatch: 'spreadsheet' }),
+    ods: Object.freeze({ extension: 'ods', label: 'ODS', dispatch: 'spreadsheet' })
+  });
+  const IMPORT_FORMAT_GROUPS = Object.freeze({
+    table: Object.freeze(['csv', 'tsv', 'txt', 'xls', 'xlsx', 'ods', 'prism', 'pzfx']),
+    'table-basic': Object.freeze(['csv', 'tsv', 'txt', 'xls', 'xlsx', 'ods']),
+    graph: Object.freeze(['graph']),
+    session: Object.freeze(['graph', 'json']),
+    welcome: Object.freeze(['graph', 'prism', 'pzfx', 'csv', 'tsv', 'txt', 'xls', 'xlsx', 'ods'])
+  });
+
+  function normalizeFormatKey(value){
+    return String(value == null ? '' : value).trim().toLowerCase().replace(/^\./, '');
+  }
+
+  function resolveFormatKeys(groupOrKeys = 'table'){
+    if(Array.isArray(groupOrKeys)){
+      return groupOrKeys.map(normalizeFormatKey).filter(key => IMPORT_FORMAT_DEFINITIONS[key]);
+    }
+    const groupKey = normalizeFormatKey(groupOrKeys) || 'table';
+    if(IMPORT_FORMAT_GROUPS[groupKey]){
+      return IMPORT_FORMAT_GROUPS[groupKey].slice();
+    }
+    return IMPORT_FORMAT_DEFINITIONS[groupKey] ? [groupKey] : [];
+  }
+
+  tableImport.getFormatDefinitions = function getFormatDefinitions(groupOrKeys = 'table'){
+    return resolveFormatKeys(groupOrKeys).map(key => IMPORT_FORMAT_DEFINITIONS[key]);
+  };
+
+  tableImport.getAcceptedExtensions = function getAcceptedExtensions(groupOrKeys = 'table'){
+    return tableImport.getFormatDefinitions(groupOrKeys).map(format => format.extension);
+  };
+
+  tableImport.getAcceptAttribute = function getAcceptAttribute(groupOrKeys = 'table'){
+    return tableImport.getAcceptedExtensions(groupOrKeys).map(extension => `.${extension}`).join(',');
+  };
+
+  tableImport.getFormatLabel = function getFormatLabel(groupOrKeys = 'table', options = {}){
+    const formats = tableImport.getFormatDefinitions(groupOrKeys);
+    if(options.extensions === true){
+      return formats.map(format => `.${format.extension}`).join(', ');
+    }
+    return formats.map(format => format.label).join(', ');
+  };
+
+  tableImport.getImportTooltip = function getImportTooltip(groupOrKeys = 'table'){
+    const labels = tableImport.getFormatDefinitions(groupOrKeys).map(format => format.label);
+    if(!labels.length){
+      return 'Import data';
+    }
+    if(labels.length === 1){
+      return `Import ${labels[0]} files`;
+    }
+    return `Import ${labels.slice(0, -1).join(', ')}, or ${labels[labels.length - 1]} files`;
+  };
+
+  tableImport.supportsExtension = function supportsExtension(extension, groupOrKeys = 'table'){
+    return resolveFormatKeys(groupOrKeys).includes(normalizeFormatKey(extension));
+  };
+
+  tableImport.getDispatchKind = function getDispatchKind(extension){
+    return IMPORT_FORMAT_DEFINITIONS[normalizeFormatKey(extension)]?.dispatch || null;
+  };
+
+  tableImport.applyFormatMetadata = function applyFormatMetadata(root = global.document){
+    if(!root || typeof root.querySelectorAll !== 'function'){
+      return 0;
+    }
+    let updated = 0;
+    root.querySelectorAll('[data-file-formats]').forEach(input => {
+      const accept = tableImport.getAcceptAttribute(input.dataset.fileFormats || 'table');
+      if(accept && input.getAttribute('accept') !== accept){
+        input.setAttribute('accept', accept);
+      }
+      updated += 1;
+    });
+    root.querySelectorAll('[data-file-formats-label]').forEach(label => {
+      label.textContent = tableImport.getFormatLabel(label.dataset.fileFormatsLabel || 'table', { extensions: true });
+      updated += 1;
+    });
+    return updated;
+  };
+
   let xlsxLoaderPromise = null;
   let zipLoaderPromise = null;
   let pakoLoaderPromise = null;
@@ -390,7 +483,9 @@
             const item = cd.items[i];
             try{
               if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
-                const text = await new Promise(resolve => item.getAsString(s => resolve(s)));
+                const text = await new Promise(resolve => {
+                  item.getAsString(resolve);
+                });
                 const type = item.type || '';
                 tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, type, length: (text || '').length, snippet: (text||'').slice(0,200) });
                 if(text) itemEntries.push({ type, text });
@@ -545,7 +640,7 @@
     }
     zipLoaderPromise = new Promise((resolve, reject) => {
       const script = global.document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      script.src = 'libs/jszip.min.js';
       script.onload = () => resolve(global.JSZip);
       script.onerror = () => reject(new Error('Failed to load ZIP script'));
       global.document.head.appendChild(script);
@@ -697,14 +792,7 @@
     return compact === 'ytitle' || compact === 'xtitle' || compact === 'y1title' || compact === 'x1title';
   }
 
-  function isPrismColorToken(value){
-    if(!value){
-      return false;
-    }
-    const raw = String(value).trim();
-    const stripped = raw.startsWith('@') ? raw.slice(1) : raw;
-    return /^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(stripped);
-  }
+
 
   function extractPrismStringsFromBuffer(buffer){
     if(!buffer){
@@ -732,18 +820,7 @@
     return { text: decoded, strings };
   }
 
-  function findPrismLabelAfterMarker(text, marker){
-    if(!text || !marker){
-      return '';
-    }
-    const idx = text.indexOf(marker);
-    if(idx < 0){
-      return '';
-    }
-    const slice = text.slice(idx + marker.length);
-    const match = slice.match(/[\x20-\x7E]{4,}/);
-    return match ? normalizePrismString(match[0]) : '';
-  }
+
 
   function readInt32LE(bytes, offset){
     return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
@@ -863,36 +940,7 @@
     return best;
   }
 
-  function filterPrismGraphCandidates(strings, options = {}){
-    const sheetTitle = normalizePrismString(options.sheetTitle || '');
-    const dataSetTitles = Array.isArray(options.dataSetTitles)
-      ? options.dataSetTitles.map(title => normalizePrismString(title)).filter(Boolean)
-      : [];
-    const excluded = new Set(['PCFFGRA4','Y1Title','Zval','Zend']);
-    if(sheetTitle){
-      excluded.add(sheetTitle);
-    }
-    dataSetTitles.forEach(title => excluded.add(title));
-    return (strings || []).filter(value => {
-      const normalized = normalizePrismString(value);
-      if(!normalized){
-        return false;
-      }
-      if(isPrismColorToken(normalized)){
-        return false;
-      }
-      if(!isPrismReadableLabel(normalized)){
-        return false;
-      }
-      if(excluded.has(normalized)){
-        return false;
-      }
-      if(/^[0-9a-f]{8}-[0-9a-f-]{8,}$/i.test(normalized)){
-        return false;
-      }
-      return true;
-    });
-  }
+
 
   function prismStringsInclude(strings, matcher){
     if(!Array.isArray(strings) || typeof matcher !== 'function'){
@@ -950,26 +998,9 @@
     return false;
   }
 
-  function prismWordSequenceToBytes(words){
-    if(!Array.isArray(words) || !words.length){
-      return new Uint8Array(0);
-    }
-    const bytes = new Uint8Array(words.length * 2);
-    words.forEach((value, index) => {
-      const normalized = Number(value) >>> 0;
-      bytes[index * 2] = normalized & 0xFF;
-      bytes[index * 2 + 1] = (normalized >>> 8) & 0xFF;
-    });
-    return bytes;
-  }
 
-  function prismDataIncludesWordSequence(data, words){
-    const pattern = prismWordSequenceToBytes(words);
-    if(!pattern.length){
-      return false;
-    }
-    return prismDataIncludes(data, pattern);
-  }
+
+
 
   function prismReadUInt16LE(data, offset){
     if(!data || offset < 0 || offset + 1 >= data.length){
@@ -1741,20 +1772,7 @@
     };
   }
 
-  function parsePzfxText(xmlText){
-    const doc = parsePrismXmlText(xmlText, 'PZFX');
-    const tableNode = selectPzfxTable(doc);
-    const model = buildPzfxModel(tableNode);
-    const built = buildPzfxImportRowsAndMeta(model);
-    const rows = filterRows(built.rows || []);
-    return {
-      rows,
-      prismMeta: built.meta || null,
-      tableTitle: model.title || '',
-      tableFormat: model.tableFormat || '',
-      yFormat: model.yFormat || ''
-    };
-  }
+
 
   async function readZipJson(zip, path){
     const text = await readZipText(zip, path);
@@ -2273,7 +2291,8 @@
         : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
       return handler(rows, meta);
     };
-    if(ext === 'pzfx'){
+    const dispatchKind = tableImport.getDispatchKind(ext);
+    if(dispatchKind === 'pzfx'){
       if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
@@ -2303,7 +2322,7 @@
         return null;
       }
     }
-    if(ext === 'prism'){
+    if(dispatchKind === 'prism'){
       if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
       try{
         const buffer = await readFileAsArrayBuffer(file);
@@ -2623,7 +2642,7 @@
         return null;
       }
     }
-    if(['csv','tsv','txt','xls','xlsx','ods'].includes(ext)){
+    if(dispatchKind === 'tabular-text' || dispatchKind === 'spreadsheet'){
       try{
         const parsed = await readTabularFileRows(file, inputEl, options);
         const filtered = prepareTabularRows(parsed?.rows || []);
@@ -2638,13 +2657,21 @@
         debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
         return result;
       }catch(err){
-        notifyError(options, ['xls','xlsx','ods'].includes(ext) ? 'Failed to import spreadsheet' : 'Failed to import text file', err);
+        notifyError(options, dispatchKind === 'spreadsheet' ? 'Failed to import spreadsheet' : 'Failed to import text file', err);
         return null;
       }
     }
     notifyError(options, `Unsupported file format: ${ext}`);
     return null;
   };
+
+  if(global.document){
+    if(global.document.readyState === 'loading'){
+      global.document.addEventListener('DOMContentLoaded', () => tableImport.applyFormatMetadata(global.document), { once: true });
+    }else{
+      tableImport.applyFormatMetadata(global.document);
+    }
+  }
 
   tableImport.handlePaste = async function handlePaste(event, hot, options = {}){
     const debugLabel = options.debugLabel || 'tableImport';

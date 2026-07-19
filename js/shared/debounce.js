@@ -3,33 +3,10 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
-  const debugState = Shared.__debugState || { enabled: false };
-  Shared.__debugState = debugState;
-
-  Shared.setDebugLogging = function setDebugLogging(enabled){
-    debugState.enabled = !!enabled;
-    return debugState.enabled;
-  };
-
-  Shared.enableDebugLogging = function enableDebugLogging(){
-    return Shared.setDebugLogging(true);
-  };
-
-  Shared.disableDebugLogging = function disableDebugLogging(){
-    return Shared.setDebugLogging(false);
-  };
-
-  Shared.isDebugEnabled = function isDebugEnabled(){
-    return !!debugState.enabled;
-  };
 
   function logDebug(message, payload){
-    if(Shared.isDebugEnabled()){
-      if(typeof payload === 'undefined'){
-        console.debug(message);
-      }else{
-        console.debug(message, payload);
-      }
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
     }
   }
   Shared.debounceFrame = function debounceFrame(fn){

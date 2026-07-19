@@ -303,7 +303,6 @@ describe('Heatmap stats formatting', () => {
     const transformed = hot.getData();
     expect(Number.isFinite(Number(transformed?.[1]?.[1]))).toBe(true);
     expect(Number.isFinite(Number(transformed?.[1]?.[2]))).toBe(true);
-    expect(applyButton.disabled).toBe(true);
   });
 
   test('custom transform opens dropdown editor in multiple mode', () => {

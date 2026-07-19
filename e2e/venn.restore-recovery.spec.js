@@ -91,7 +91,7 @@ async function injectAnalysis(page) {
 function goChartState() {
   const c = document.getElementById('goChart');
   if (!c) return { exists: false };
-  return { exists: true, width: c.width, offsetWidth: c.offsetWidth, hidden: getComputedStyle(c).display === 'none' };
+  return { exists: true, width: c.getBoundingClientRect().width, offsetWidth: c.offsetWidth, hidden: getComputedStyle(c).display === 'none' };
 }
 async function switchAnalysisTab(page, which) {
   await page.evaluate((w) => { const b = document.getElementById(w === 'go' ? 'analysisTabGo' : 'analysisTabString'); if (b) b.click(); }, which);

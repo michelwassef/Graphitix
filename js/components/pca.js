@@ -16,7 +16,6 @@
     }
   }
   const pca = Components.pca = Components.pca || {};
-  const Main = global.Main = global.Main || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if (typeof plot3d.createRotationState !== 'function' && typeof require === 'function') {
@@ -829,7 +828,7 @@
     component: 'pca',
     message: 'Rendering PCA workspace...',
     isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
-      getHot: () => pcaHot,
+      getHot: () => ensurePcaHotForActiveTab(),
       startRow: 1,
       startCol: 1,
       rowThreshold: 1000,
@@ -6592,7 +6591,9 @@
 
   function createPcaOwnedRuntimeRecord(tabId, options = {}) {
     const seedFromActive = options && options.seedFromActive === true;
-    const results = seedFromActive ? readPcaResultsFromMirrors() : createDefaultPcaResultsState();
+    const results = seedFromActive
+      ? normalizePcaResultsState(pcaFallbackResultsState)
+      : createDefaultPcaResultsState();
     return {
       version: 1,
       componentKey: 'pca',
@@ -7625,7 +7626,7 @@
     options.userInitiated = lifecycleMeta.userInitiated === true;
     const session = ownerSession || getActivePcaSessionForState();
     markPcaViewDirty(nextReason, session);
-    const renderRuntime = getPcaRenderRuntime(session, {
+    getPcaRenderRuntime(session, {
       seedFromActive: true
     });
     const drawRuntime = getPcaDrawRuntime(session, {
@@ -9521,59 +9522,7 @@
     };
   }
 
-  function renderPcaComponentSelectionSummary(summary) {
-    const {
-      card,
-      body
-    } = ensurePcaDynamicStatsCard('pcaComponentSelectionSummaryCard', 'Component retention summary', pcaStatsSummary || null);
-    if (!card || !body) {
-      return;
-    }
-    card.setAttribute('data-stats-section', 'summary');
-    card.setAttribute('data-shared-stats-table', '1');
-    if (!summary || !Array.isArray(summary.rows) || !summary.rows.length) {
-      card.hidden = true;
-      body.innerHTML = '';
-      return;
-    }
-    body.innerHTML = '';
-    const rendered = renderPcaSharedStatsTable(body, {
-      target: body,
-      section: 'summary',
-      columns: [{
-        key: 'criterion',
-        label: 'Criterion',
-        align: 'left'
-      }, {
-        key: 'threshold',
-        label: 'Threshold',
-        align: 'left'
-      }, {
-        key: 'retained',
-        label: 'Retained',
-        align: 'right'
-      }, {
-        key: 'detail',
-        label: 'Detail',
-        align: 'left'
-      }],
-      rows: summary.rows,
-      caption: 'Component retention summary',
-      options: {
-        fileName: 'pca-component-selection',
-        contextLabel: 'pca-component-selection'
-      }
-    });
-    if (!rendered) {
-      let html = '<table class="stats-table"><thead><tr><th>Criterion</th><th>Threshold</th><th>Retained</th><th>Detail</th></tr></thead><tbody>';
-      summary.rows.forEach(row => {
-        html += `<tr><td>${row.criterion}</td><td>${row.threshold}</td><td>${row.retained}</td><td>${row.detail}</td></tr>`;
-      });
-      html += '</tbody></table>';
-      body.innerHTML = html;
-    }
-    card.hidden = false;
-  }
+
 
   function createPcaMiniScatterSvg(config = {}) {
     const width = 360;
@@ -10322,84 +10271,7 @@
     updateScreeVarianceRowVisibility();
   }
 
-  function renderVarianceSummary(options) {
-    const opts = options || {};
-    const method = opts.method || null;
-    const data = Array.isArray(opts.data) ? opts.data : [];
-    if (!pcaVarianceSummary || !pcaVarianceList) {
-      debugLog('Debug: pca variance summary skipped', {
-        reason: 'missing-container'
-      });
-      return;
-    }
-    if (method !== 'pca') {
-      pcaVarianceSummary.hidden = true;
-      pcaVarianceList.innerHTML = '';
-      delete pcaVarianceSummary.dataset.sharedStatsTable;
-      updateScreeVarianceRowVisibility();
-      debugLog('Debug: pca variance summary hidden', {
-        method,
-        count: data.length
-      });
-      return;
-    }
-    if (!data.length) {
-      pcaVarianceSummary.hidden = false;
-      delete pcaVarianceSummary.dataset.sharedStatsTable;
-      pcaVarianceList.innerHTML = '<div class="variance-card__empty">Variance summary will appear after PCA runs.</div>';
-      updateScreeVarianceRowVisibility();
-      debugLog('Debug: pca variance summary placeholder shown');
-      return;
-    }
-    let listHtml = '<ul class="variance-card__sr-only">';
-    const rows = data.map(entry => {
-      const component = Number(entry.component) || 0;
-      const pct = Number(entry.variancePercent) || 0;
-      const label = entry.componentLabel || `PC${component}`;
-      listHtml += `<li>${label}: ${pct.toFixed(2)}%</li>`;
-      return {
-        component: label,
-        variancePercent: `${pct.toFixed(2)}%`
-      };
-    });
-    listHtml += '</ul>';
-    const rendered = renderPcaSharedStatsTable(pcaVarianceList, {
-      target: pcaVarianceList,
-      section: 'summary',
-      columns: [{
-        key: 'component',
-        label: 'Component',
-        align: 'left'
-      }, {
-        key: 'variancePercent',
-        label: 'Variance %',
-        align: 'left'
-      }],
-      rows,
-      caption: 'Component Variance',
-      options: {
-        fileName: 'pca-component-variance',
-        contextLabel: 'pca-component-variance'
-      }
-    });
-    if (rendered) {
-      pcaVarianceSummary.dataset.sharedStatsTable = '1';
-      pcaVarianceList.insertAdjacentHTML('beforeend', listHtml);
-    } else {
-      delete pcaVarianceSummary.dataset.sharedStatsTable;
-      let tableHtml = '<table class="variance-card__table"><thead><tr><th>Component</th><th>Variance %</th></tr></thead><tbody>';
-      rows.forEach(row => {
-        tableHtml += `<tr><td>${row.component}</td><td>${row.variancePercent}</td></tr>`;
-      });
-      tableHtml += '</tbody></table>';
-      pcaVarianceList.innerHTML = tableHtml + listHtml;
-    }
-    pcaVarianceSummary.hidden = false;
-    updateScreeVarianceRowVisibility();
-    debugLog('Debug: pca variance summary rendered', {
-      count: data.length
-    });
-  }
+
 
   function renderEigenTable(options) {
     const opts = options || {};
@@ -11182,7 +11054,7 @@
       });
       const axisMetrics = chartStyle.createAxisMetrics(fontInfo.px, styleScaleInfo);
       debugLog('Debug: pca axis metrics', axisMetrics);
-      const fontScale = styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
+
       const showGrid = !!controls.showGrid;
       const gridStyleBase = getGridStyle(axisStrokeWidthBase);
       const gridStrokeStyle = Object.assign({}, gridStyleBase, {
@@ -11210,7 +11082,7 @@
       debugLog('Debug: pca showFrame state', {
         showFrame
       });
-      const dotSize = dotSizeRaw; // retain original reference for downstream logs
+       // retain original reference for downstream logs
       const scaleVars = !!controls.scale;
       debugLog('Debug: pca axis range auto', {
         scaleVars
@@ -12688,7 +12560,7 @@
         svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
         svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
         svg3.dataset.viewMode = '3d';
-        chartStyle.applySvgDefaults(svg3);
+        chartStyle.prepareSvg(svg3, { scopeId: 'pca' });
         while (svg3.firstChild) {
           svg3.removeChild(svg3.firstChild);
         }
@@ -12697,21 +12569,6 @@
           '';
         appendPca3dBackground(svg3, W3, H3);
         bindPca3dRotationControls(svg3, 'pca-3d');
-        if (fontControls && typeof fontControls.enableForSvg === 'function') {
-          fontControls.enableForSvg(svg3, {
-            scopeId: 'pca'
-          });
-          debugLog('Debug: pca fontControls enableForSvg invoked', {
-            width: W3,
-            height: H3,
-            mode: '3d'
-          });
-        } else {
-          debugLog('Debug: pca fontControls enableForSvg missing', {
-            hasFontControls: !!fontControls,
-            mode: '3d'
-          });
-        }
         const baseLegendMargin = Math.max(fs * 2.25, 28);
         const legendMargin = legendVisible ? legendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
         const margin3 = {
@@ -14047,7 +13904,7 @@
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg.dataset.viewMode = effectiveViewMode;
-      chartStyle.applySvgDefaults(svg);
+      chartStyle.prepareSvg(svg, { scopeId: 'pca' });
       svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
       const shouldUseCanvasPoints = points.length >= PCA_FAST_POINT_THRESHOLD;
       let fastPointCanvas = null;
@@ -14082,19 +13939,6 @@
         }
       }
       layeredRoot.appendChild(svg);
-      if (fontControls && typeof fontControls.enableForSvg === 'function') {
-        fontControls.enableForSvg(svg, {
-          scopeId: 'pca'
-        });
-        debugLog('Debug: pca fontControls enableForSvg invoked', {
-          width: W,
-          height: H
-        }); // Debug: font panel binding
-      } else {
-        debugLog('Debug: pca fontControls enableForSvg missing', {
-          hasFontControls: !!fontControls
-        }); // Debug: font panel missing
-      }
       const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
       const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
 
@@ -16769,7 +16613,7 @@
     // scree/biplot/summary.
     const plotCache = detachChildren(plot);
     const session = getActivePcaSessionForState();
-    const renderRuntime = getPcaRenderRuntime(session, {
+    getPcaRenderRuntime(session, {
       seedFromActive: true
     });
     if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
@@ -16919,14 +16763,14 @@
       usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
     });
     // PCA plot setup
-    const pcaHotContainer = getPcaNodeById('pcaHot');
-    const pcaHotWrapper = getPcaNodeById('pcaHotWrapper');
-    const pcaTablePanel = getPcaNodeById('pcaTablePanel');
+
+
+
     const pcaGraphPanel = getPcaNodeById('pcaGraphPanel');
-    const pcaPanelResizer = getPcaNodeById('pcaPanelResizer');
+
     pcaPlotDiv = getPcaNodeById('pcaPlot');
     pcaSvgBox = pcaGraphPanel?.querySelector('.svgbox') || null;
-    const pcaConfigPanel = pcaGraphPanel?.querySelector('.config-panel');
+
     bindPcaPlotContextMenuSuppression(pcaSvgBox);
     pcaEls = {
       tableFormat: getPcaNodeById('pcaTableFormat'),

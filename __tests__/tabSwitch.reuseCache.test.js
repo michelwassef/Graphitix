@@ -45,18 +45,25 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
     document.body.innerHTML = '';
   });
 
-  function createGraphTab({ id, type, payloadSignature = `${id}-payload-sig`, layoutSignature = `${id}-layout-sig`, archiveRenderCache = { kind: `${type}-archive-cache` } }) {
+  function createGraphTab({ id, type, payloadSignature = `${id}-payload-sig`, layoutSignature = `${id}-layout-sig`, archiveRenderCache = null }) {
     const tab = session.createTab({
       title: `${type}-tab`,
       type,
       payload: { type, data: [['col']], config: {} },
       payloadSignature,
       layoutState: { component: type },
-      layoutSignature,
-      archiveRenderCache,
-      archiveRenderCacheSignature: payloadSignature,
-      archiveRenderCacheLayoutSignature: layoutSignature
+      layoutSignature
     });
+    tab.archiveRenderCache = archiveRenderCache || {
+      kind: `${type}-archive-cache`,
+      __graphitixRenderCache: {
+        tabId: tab.id,
+        type,
+        complete: true
+      }
+    };
+    tab.archiveRenderCacheSignature = payloadSignature;
+    tab.archiveRenderCacheLayoutSignature = layoutSignature;
     session.workspaceState.tabs.push(tab);
     return tab;
   }
@@ -264,8 +271,7 @@ describe('tab switch reuse-cache contract (post-reopen)', () => {
     const tab = createGraphTab({
       id: 'tab-mismatch',
       type: 'box',
-      payloadSignature: 'fresh-sig',
-      archiveRenderCache: { kind: 'stale' }
+      payloadSignature: 'fresh-sig'
     });
     // Mark the archive cache as belonging to a different signature so the validator
     // rejects it. With no valid cache to restore, restoreRenderCache must NOT be called

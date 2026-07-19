@@ -802,18 +802,14 @@
     if (renderCacheOwnerTabId && String(renderCacheOwnerTabId) !== String(tab.id)) { renderCacheUnavailableReasons.push('owner-tab-mismatch'); }
     if (renderPayloadSignature !== targetPayloadSignature) { renderCacheUnavailableReasons.push('payload-signature-mismatch'); }
     const layoutSignatureMatches = renderLayoutSignature === targetLayoutSignature;
-    const layoutSignatureMismatchTolerated = !!(renderCacheIsArchiveBacked
-      && renderPayloadSignature === targetPayloadSignature
-      && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
-      && renderCache?.cache);
-    if (!layoutSignatureMatches && !layoutSignatureMismatchTolerated) { renderCacheUnavailableReasons.push('layout-signature-mismatch'); }
+    if (!layoutSignatureMatches) { renderCacheUnavailableReasons.push('layout-signature-mismatch'); }
     if (!hasRenderCacheRestoreHook) { renderCacheUnavailableReasons.push('missing-restore-hook'); }
     const hasBasicRestorableRenderCache = !!(!options.forceReload
       && renderCache
       && renderCache.cache
       && (!renderCacheOwnerTabId || String(renderCacheOwnerTabId) === String(tab.id))
       && renderPayloadSignature === targetPayloadSignature
-      && (layoutSignatureMatches || layoutSignatureMismatchTolerated)
+      && layoutSignatureMatches
       && hasRenderCacheRestoreHook);
     if (renderCache && !hasBasicRestorableRenderCache) {
       console.debug('Debug: workspace render cache basic validation failed', {
@@ -907,7 +903,6 @@
         renderCacheOwnerTabId,
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
         layoutSignatureMatched: layoutSignatureMatches,
-        layoutSignatureMismatchTolerated,
         hasRenderCacheValidator
       });
     } else if (isSameComponentTabSwitch && !canRestoreRender) {
@@ -920,7 +915,6 @@
         hasRenderCache: !!(renderCache && renderCache.cache),
         payloadSignatureMatched: renderPayloadSignature === targetPayloadSignature,
         layoutSignatureMatched: layoutSignatureMatches,
-        layoutSignatureMismatchTolerated,
         hasRenderCacheValidator,
         validationDeferred: renderCacheValidationDeferred,
         hasRestoreHook: typeof config.restoreRenderCache === 'function',
@@ -1925,8 +1919,66 @@
       }
     };
 
-    if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {
+    const awaitWorkspaceActivationReady = () => {
+      if (options.awaitReadyForRestore !== true) {
+        return null;
+      }
+      const readyHook = typeof config.awaitReadyForSnapshot === 'function'
+        ? config.awaitReadyForSnapshot.bind(config)
+        : null;
+      if (!readyHook) {
+        return null;
+      }
+      let readyResult;
+      try {
+        readyResult = readyHook({
+          tab,
+          tabId: tab.id,
+          type: tab.type,
+          componentKey: tab.type,
+          reason: `${options.reason || 'workspace-view'}-restore-ready`,
+          timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
+        });
+      } catch (err) {
+        console.error('workspace restore readiness hook error', { tabId: tab.id, type: tab.type, err });
+        setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-error', err });
+        return null;
+      }
+      if (!readyResult || typeof readyResult.then !== 'function') {
+        return readyResult || null;
+      }
+      return workspacePromiseWithTimeout(readyResult, WORKSPACE_ENSURE_TIMEOUT_MS, {
+        label: 'workspace-restore-ready',
+        tabId: tab.id,
+        type: tab.type
+      }).then(outcome => {
+        if (!outcome?.timedOut) {
+          return outcome;
+        }
+        const error = new Error(`Workspace restore readiness timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`);
+        setWorkspaceActivationError(tab, {
+          reason: 'workspace-restore-readiness-timeout',
+          message: error.message,
+          err: error
+        });
+        return outcome;
+      }, err => {
+        console.error('workspace restore readiness async error', { tabId: tab.id, type: tab.type, err });
+        setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-async-error', err });
+        return null;
+      });
+    };
+
+    const finishWorkspaceActivation = () => {
+      const readyResult = awaitWorkspaceActivationReady();
+      if (readyResult && typeof readyResult.then === 'function') {
+        return readyResult.then(() => config);
+      }
       return config;
+    };
+
+    if (applyLiveDomFastPath('pre-ensure-live-dom-fast-path')) {
+      return finishWorkspaceActivation();
     }
 
     beginEarlyRenderRestoreTransaction();
@@ -2000,17 +2052,15 @@
     }
 
     if (ensurePromise && typeof ensurePromise.then === 'function') {
-      return ensurePromise.then(() => {
+      const applyAfterEnsure = () => {
         applyWorkspaceState();
-        return config;
-      }).catch(() => {
-        applyWorkspaceState();
-        return config;
-      });
+        return finishWorkspaceActivation();
+      };
+      return ensurePromise.then(applyAfterEnsure, applyAfterEnsure);
     }
 
     applyWorkspaceState();
-    return config;
+    return finishWorkspaceActivation();
   };
 
   namespace.showGraphSelection = function showGraphSelection(params = {}) {

@@ -15,14 +15,18 @@ npm install
 
 1. Create a branch from `main`.
 2. Make focused changes.
-3. Run tests locally:
+3. Run the relevant local gates:
 
 ```bash
-npm test
-npm run test:e2e
+npm run quality:static
+npm test -- --runInBand
+npm run test:e2e:contracts
+npm run pages:check
 ```
 
-4. Update documentation for behavior/API changes.
+Use targeted Jest or Playwright files while developing, then run the broadest applicable gate before opening a pull request.
+
+4. Update documentation for behavior or contract changes.
 5. Open a pull request with:
 - scope and motivation
 - testing evidence
@@ -30,6 +34,8 @@ npm run test:e2e
 
 ## Coding Guidelines
 
-- Follow the architecture docs under `docs/development/`.
+- Follow `AGENTS.md` for normative engineering rules and `ARCHITECTURE.md` for the current system map.
+- Treat `issues.txt` as the only live backlog and `CHANGELOG.md` as completed history. Do not create a parallel roadmap for ordinary open work.
 - Keep changes in `css/style.css` and component/shared modules instead of inline patches.
 - Prefer `Shared` and `Components` contracts over new global side channels.
+- Regenerate source-derived documentation with its checked-in generator; do not hand-maintain competing contracts.

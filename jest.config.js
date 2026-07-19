@@ -1,4 +1,5 @@
 module.exports = {
+  maxWorkers: 4,
   projects: [
     {
       // Integration project: all tests that need the full jsdom + index.html environment.
@@ -34,4 +35,3 @@ module.exports = {
     }
   }
 };
-

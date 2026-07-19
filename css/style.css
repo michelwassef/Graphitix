@@ -45,7 +45,13 @@
     --color-swatch-size: 18px;
     --panel-resizer-width: 4px;
     --panel-resizer-gap: 8px;
-    --workspace-tabs-height: 40px;
+    --workspace-tab-row-height: 40px;
+    --workspace-tabs-scrollbar-height: 6px;
+    --workspace-tabs-height: var(--workspace-tab-row-height);
+}
+
+:root.workspace-tabs-overflow {
+    --workspace-tabs-height: calc(var(--workspace-tab-row-height) + var(--workspace-tabs-scrollbar-height));
 }
 
 .shared-color-picker {
@@ -2778,13 +2784,16 @@ select {
 .workspace-tabs-list {
     position: relative;
     display: flex;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 0;
     flex: 0 1 auto;
     max-width: calc(100% - 48px);
+    height: 100%;
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    scrollbar-color: #a3a3a3 transparent;
 }
 
 .workspace-tabs-list::-webkit-scrollbar {
@@ -2814,7 +2823,9 @@ select {
     flex: 0 0 auto;
     min-width: 0;
     line-height: 1.4;
-    min-height: 36px;
+    height: var(--workspace-tab-row-height);
+    min-height: var(--workspace-tab-row-height);
+    box-sizing: border-box;
     white-space: nowrap;
     scroll-snap-align: start;
     border-radius: 0 !important;
@@ -2889,8 +2900,7 @@ select {
     border-top-color: #6366f1;
     box-shadow:
         inset 1px 0 0 #d6d6d6,
-        inset -1px 0 0 #d6d6d6,
-        inset 0 -1px 0 #d6d6d6;
+        inset -1px 0 0 #d6d6d6;
     border-radius: 0 !important;
     border-top-left-radius: 0 !important;
     border-top-right-radius: 0 !important;
@@ -2989,23 +2999,26 @@ select {
     display: none;
 }
 
-.workspace-tab__rename {
+.workspace-tab input.workspace-tab__rename {
     position: absolute;
     left: 14px;
     right: 14px;
+    width: auto;
     top: 50%;
     transform: translateY(-50%);
     height: 26px;
+    box-sizing: border-box;
     border-radius: 0;
     border: none;
     padding: 0;
+    margin: 0;
     font-size: 13px;
     background: transparent;
     color: inherit;
     box-shadow: none;
 }
 
-.workspace-tab__rename:focus {
+.workspace-tab input.workspace-tab__rename:focus {
     outline: none;
     border: none;
     box-shadow: none;
@@ -3026,8 +3039,9 @@ select {
     font-weight: 600;
     width: 48px;
     min-width: 48px;
-    height: 100%;
-    min-height: 100%;
+    height: var(--workspace-tab-row-height);
+    min-height: var(--workspace-tab-row-height);
+    align-self: flex-start;
     padding: 0;
     border: none;
     background: #f8fafc;
@@ -5201,14 +5215,17 @@ input[type=number]::-webkit-inner-spin-button{
 .svgbox .resizer-zoom-unit{display:inline-flex;align-items:center;font-size:11px;line-height:1;color:#1e2633}
 .svgbox .resizer-control-tray .resizer-aspect-control,
 .svgbox .resizer-control-tray .resizer-fontresize-control,
+.svgbox .resizer-control-tray .resizer-title-control,
 .svgbox .resizer-control-tray .resizer-zoom-control,
 .svgbox .resizer-control-tray .resizer-legend-control,
 .svgbox .resizer-bottom-tray .resizer-legend-control,
 .svgbox .resizer-axeslength-summary{display:flex;align-items:center;gap:var(--shared-checkbox-chip-gap,6px);font-size:11px;background:var(--shared-checkbox-chip-bg,#f9fafc);padding:var(--shared-checkbox-chip-padding,4px 8px);border-radius:0;color:var(--shared-checkbox-chip-text,#1e2633);box-shadow:none;border:1px solid var(--shared-checkbox-chip-border,#b4bccb);font-weight:400;letter-spacing:.04em;text-transform:none;white-space:nowrap}
+.svgbox .resizer-title-control[hidden]{display:none}
 .svgbox .resizer-control-tray .resizer-legend-control input[type=checkbox],
 .svgbox .resizer-bottom-tray .resizer-legend-control input[type=checkbox]{margin:0;width:16px;height:16px;accent-color:#0b63d1}
 .svgbox .resizer-aspect-control input[type="checkbox"],
 .svgbox .resizer-fontresize-control input[type="checkbox"],
+.svgbox .resizer-title-control input[type="checkbox"],
 .svgbox .resizer-axeslength-menu input[type="checkbox"]{
     margin:0;
     width:16px;
@@ -5224,6 +5241,7 @@ input[type=number]::-webkit-inner-spin-button{
 .svgbox .resizer-axeslength-text{white-space:nowrap}
 .svgbox .resizer-options-menu .resizer-aspect-control,
 .svgbox .resizer-options-menu .resizer-fontresize-control,
+.svgbox .resizer-options-menu .resizer-title-control,
 .svgbox .resizer-options-menu .resizer-legend-control,
 .svgbox .resizer-options-menu .resizer-axeslength-summary{width:100%;justify-content:flex-start;padding:4px 2px;border:0;background:transparent;box-shadow:none;font-size:12px;letter-spacing:0}
 .svgbox .resizer-options-menu .resizer-axeslength-control{width:100%}

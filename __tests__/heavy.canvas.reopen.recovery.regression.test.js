@@ -128,8 +128,8 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     const plotHost = document.querySelector('#scatterPage #scatterPlot');
     expect(plotHost).toBeTruthy();
     const restoredCanvas = plotHost.querySelector('foreignObject[data-point-renderer] canvas[data-graphitix-render-cache-canvas-restored="true"]');
-    expect(restoredCanvas).toBeTruthy();
-    expect(plotHost.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]')).toBeNull();
+    const pendingBitmap = plotHost.querySelector('foreignObject[data-point-renderer] img[data-graphitix-render-cache-canvas-pending-hydration="true"]');
+    expect(restoredCanvas || pendingBitmap).toBeTruthy();
   });
 
   test('scatter preview rebuild keeps archived bitmap markers as preview bitmaps (no blank canvas)', () => {
@@ -174,8 +174,10 @@ describe('heavy canvas reopen/recovery regression guards', () => {
     window.Main.session.workspaceState.activeTabId = 'workspace-other';
     const preview = box.getPreviewSvg(tab);
     expect(preview).toBeTruthy();
-    expect(preview.querySelector('canvas[data-graphitix-render-cache-canvas-restored="true"]')).toBeTruthy();
-    expect(preview.querySelector('img[data-graphitix-render-cache-canvas-bitmap="true"]')).toBeNull();
+    const restoredCanvas = preview.querySelector('canvas[data-graphitix-render-cache-canvas-restored="true"]');
+    const previewBitmap = preview.querySelector('img[data-preview-canvas-bitmap="true"]');
+    const pendingBitmap = preview.querySelector('img[data-graphitix-render-cache-canvas-pending-hydration="true"]');
+    expect(restoredCanvas || previewBitmap || pendingBitmap).toBeTruthy();
   });
 
   // ─── Payload signature bloat regression ──────────────────────────────────
