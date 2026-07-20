@@ -73,6 +73,24 @@ describe('Shared.hot AG Grid binding', () => {
     capturedApi = null;
   });
 
+  test('row checkbox selection is opt-in', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+      debugLabel: 'no-row-selection'
+    });
+    expect(capturedGridOptions.rowSelection).toBeUndefined();
+
+    const rowSelection = { mode: 'multiRow', headerCheckbox: false };
+    Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
+      debugLabel: 'with-row-selection',
+      rowSelection
+    });
+    expect(capturedGridOptions.rowSelection).toBe(rowSelection);
+  });
+
   test('loadData updates valueGetter source and keeps edits in sync', () => {
     const Shared = global.window.Shared;
     expect(Shared?.hot?.createStandardTable).toBeInstanceOf(Function);

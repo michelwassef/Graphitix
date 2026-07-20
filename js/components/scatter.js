@@ -13789,6 +13789,7 @@
         debugLabel: 'scatter',
         data,
         pinFirstRow: true,
+        rowSelection: { mode: 'multiRow', headerCheckbox: false },
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
           if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
@@ -13927,11 +13928,6 @@
         },
         hotOptions: {
           colHeaders: true,
-          // Configure checkbox selection for row selection
-          rowSelection: 'multiple',
-          checkboxSelection: true,
-          // Remove the column 5 selection handler completely
-          // Row selection checkboxes now control point labeling exclusively
           afterChange(changes,source){
             if(!changes||source==='loadData') return;
             scatterLog('scatter afterChange', {count:changes.length, source});

@@ -1556,7 +1556,7 @@
       debugLabel: 'pca',
       data: pcaData,
       pinFirstColumn: true,
-      rowSelection: null,
+      rowSelection: { mode: 'multiRow', headerCheckbox: false },
       firstRowClassName: 'hot-header-row htCenter',
       headerRowIndex: PCA_HEADER_ROW_INDEX,
       pinFirstRow: getPcaPinnedMetaRowCountForMode({

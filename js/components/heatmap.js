@@ -3768,7 +3768,6 @@
         debugLabel: 'heatmap',
         data,
         pinFirstColumn: true,
-        rowSelection: null,
         pinFirstRow: true,
         scheduleOnLoadData: true,
         hotOptions: {

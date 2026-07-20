@@ -15791,7 +15791,6 @@
         // option cannot vary by tab/table-format during same-component reuse.
         pinFirstColumn: false,
         pinFirstRow: true,
-        rowSelection: null,
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
           if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){

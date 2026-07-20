@@ -7449,9 +7449,9 @@
       ? overrides.fixedColumnWidth
       : DEFAULT_DATA_COLUMN_WIDTH);
     const pinFirstDataColumn = overrides?.pinFirstColumn === true;
-    const rowSelectionConfig = (Object.prototype.hasOwnProperty.call(overrides || {}, 'rowSelection'))
+    const rowSelectionConfig = Object.prototype.hasOwnProperty.call(overrides || {}, 'rowSelection')
       ? overrides.rowSelection
-      : { mode: 'multiRow', headerCheckbox: false };
+      : null;
     const columnWidthOverrides = new Map();
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
