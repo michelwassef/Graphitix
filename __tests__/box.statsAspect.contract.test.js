@@ -21,9 +21,9 @@ describe('box stats context and aspect-lock lifecycle contract', () => {
     expect(source).toMatch(/context\.svg\.isConnected !== false/);
   });
 
-  test('programmatic Box frame/reserve resizes preserve user aspect-lock preference', () => {
+  test('flip frame synchronization preserves the user aspect-lock preference', () => {
     const source = boxSource();
-    const boxOnly = source.match(/function swapBoxFrameAcrossAxisFlip[\s\S]*?function resolveBoxAutoReserveMetrics/);
+    const boxOnly = source.match(/function synchronizeBoxFlipFrameToLayout[\s\S]*?function isBoxGraphGeometryMaterial/);
     expect(boxOnly).toBeTruthy();
     expect(boxOnly[0]).not.toMatch(/preserveAspectLock:\s*false/);
     expect(boxOnly[0]).toMatch(/preserveAspectLock:\s*true/);

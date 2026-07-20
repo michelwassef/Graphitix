@@ -7836,6 +7836,18 @@
       : Math.max(1, Number(svg?.clientHeight) || 1);
     return { width, height };
   }
+
+  function applyBoxCanvasViewport(svg, width, height){
+    const viewportWidth = Math.max(1, Number(width) || 1);
+    const viewportHeight = Math.max(1, Number(height) || 1);
+    svg.setAttribute('width', String(viewportWidth));
+    svg.setAttribute('height', String(viewportHeight));
+    svg.setAttribute('viewBox', `0 0 ${viewportWidth} ${viewportHeight}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('data-box-base-width', String(viewportWidth));
+    svg.setAttribute('data-box-base-height', String(viewportHeight));
+  }
+
   function ensureBoxViewport(svg, options = {}){
     if(!svg){
       return;
@@ -8490,47 +8502,11 @@
 
   function createDefaultBoxFlipTransitionState(){
     return {
-      version: 1,
+      version: 2,
       phase: 'idle',
       transitionId: 0,
       active: null,
-      snapshots: {
-        vertical: null,
-        horizontal: null
-      },
-      pending: {
-        axisSpanTarget: null,
-        drawZoneOverride: null,
-        horizontalReserveCarryoverPx: 0
-      }
-    };
-  }
-
-  function cloneBoxFlipTransitionSnapshot(snapshot){
-    if(!snapshot || typeof snapshot !== 'object'){
-      return null;
-    }
-    const normalizeNullablePositive = value => {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : null;
-    };
-    const normalizeNonNegative = value => {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : 0;
-    };
-    const axisX = Number(snapshot.xAxisSpanPx);
-    const axisY = Number(snapshot.yAxisSpanPx);
-    return {
-      width: normalizeNullablePositive(snapshot.width),
-      height: normalizeNullablePositive(snapshot.height),
-      plotClientWidthPx: normalizeNullablePositive(snapshot.plotClientWidthPx),
-      plotClientHeightPx: normalizeNullablePositive(snapshot.plotClientHeightPx),
-      bottomViewportExtensionPx: normalizeNonNegative(snapshot.bottomViewportExtensionPx),
-      significanceViewportExtensionPx: normalizeNonNegative(snapshot.significanceViewportExtensionPx),
-      leftViewportExtensionPx: normalizeNonNegative(snapshot.leftViewportExtensionPx),
-      rightViewportExtensionPx: normalizeNonNegative(snapshot.rightViewportExtensionPx),
-      xAxisSpanPx: Number.isFinite(axisX) && axisX > 0 ? axisX : null,
-      yAxisSpanPx: Number.isFinite(axisY) && axisY > 0 ? axisY : null
+      axisSpanTarget: null
     };
   }
 
@@ -8551,11 +8527,6 @@
   state.viewportExtensionResizeGuardTimer = null;
   state.lastViewportExtensionRedrawSignature = null;
   state.flipTransition = createDefaultBoxFlipTransitionState();
-  state.flipFrameRestoreSnapshot = null;
-  state.flipAxisSpanTarget = null;
-  state.pendingFlipDrawZoneOverride = null;
-  state.flipHorizontalReserveCarryoverPx = 0;
-  syncBoxFlipTransitionLegacyState('state-init');
   let boxDataToolbarBound = false;
   const boxDataToolbarLastActivationByTabId = new Map();
   let boxSignificanceFontEventBound = false;
@@ -8684,8 +8655,7 @@
     'restoredSignificanceGeometryLock', 'restoredSignificanceGeometry', 'traceShapeStyles',
     'traceShapeGlobalStyle', 'pointStyles', 'pointGlobalStyle', 'summaryStyles',
     'summaryGlobalStyle', 'connectPointsAcrossDatasets', 'connectionLineStyle',
-    'flipTransition', 'flipFrameRestoreSnapshot', 'flipAxisSpanTarget',
-    'pendingFlipDrawZoneOverride', 'flipHorizontalReserveCarryoverPx'
+    'flipTransition'
   ]);
 
   function resolveBoxOwnedRuntimeTabId(tabLike = null, meta = {}){
@@ -11116,7 +11086,7 @@
     setBoxGraphGeometryState(cloneSimple(record.geometry?.graphGeometry) || state.graphGeometry || createDefaultBoxGraphGeometry(), getBoxProjectionSession({ reason: 'box-projection-mutation' }), 'bind-box-owned-runtime-geometry');
     if(record.geometry?.flipTransition){
       state.flipTransition = cloneSimple(record.geometry.flipTransition) || state.flipTransition || createDefaultBoxFlipTransitionState();
-      syncBoxFlipTransitionLegacyState('box-owned-runtime-bind');
+      ensureBoxFlipTransitionState();
     }
     if(record.notes){
       notesState.text = typeof record.notes.text === 'string' ? record.notes.text : notesState.text || '';
@@ -11525,26 +11495,18 @@
       if(statsRuntime.flipTransition && typeof statsRuntime.flipTransition === 'object'){
         state.flipTransition = cloneSimple(statsRuntime.flipTransition) || createDefaultBoxFlipTransitionState();
       }else{
-        const legacyVerticalSnapshot = cloneBoxFlipTransitionSnapshot(statsRuntime.flipFrameRestoreSnapshot) || null;
         state.flipTransition = createDefaultBoxFlipTransitionState();
-        state.flipTransition.snapshots.vertical = legacyVerticalSnapshot;
-        state.flipTransition.pending = normalizeBoxFlipTransitionPendingState({
-          axisSpanTarget: cloneSimple(statsRuntime.flipAxisSpanTarget) || null,
-          drawZoneOverride: cloneSimple(statsRuntime.pendingFlipDrawZoneOverride) || null,
-          horizontalReserveCarryoverPx: Number.isFinite(Number(statsRuntime.flipHorizontalReserveCarryoverPx))
-            ? Math.max(0, Number(statsRuntime.flipHorizontalReserveCarryoverPx))
-            : 0
-        });
+        state.flipTransition.axisSpanTarget = normalizeBoxFlipAxisSpanTarget(
+          cloneSimple(statsRuntime.flipAxisSpanTarget) || null
+        );
         state.flipTransition.phase = 'steady';
         state.flipTransition.active = {
           orientation: resolveBoxOrientationFromFlipFlag(!!state.flipAxes),
           reason: 'runtime-legacy-upgrade',
-          at: Date.now(),
-          manualFrameEdit: false
+          at: Date.now()
         };
       }
       ensureBoxFlipTransitionState();
-      syncBoxFlipTransitionLegacyState('runtime-snapshot-apply');
     } else {
       resetBoxViewportRuntimeState(reason || 'runtime-restore-missing');
     }
@@ -12351,36 +12313,30 @@
     return orientation === 'horizontal' ? 'horizontal' : 'vertical';
   }
 
-  function normalizeBoxFlipTransitionPendingState(pending){
-    const source = pending && typeof pending === 'object' ? pending : {};
-    const axisSpanTarget = source.axisSpanTarget && typeof source.axisSpanTarget === 'object'
-      ? {
-          sourceOrientation: normalizeBoxFlipOrientation(source.axisSpanTarget.sourceOrientation),
-          xAxisSpanPx: Number.isFinite(Number(source.axisSpanTarget.xAxisSpanPx)) && Number(source.axisSpanTarget.xAxisSpanPx) > 0
-            ? Number(source.axisSpanTarget.xAxisSpanPx)
-            : null,
-          yAxisSpanPx: Number.isFinite(Number(source.axisSpanTarget.yAxisSpanPx)) && Number(source.axisSpanTarget.yAxisSpanPx) > 0
-            ? Number(source.axisSpanTarget.yAxisSpanPx)
-            : null
-        }
+  function oppositeBoxFlipOrientation(orientation){
+    return normalizeBoxFlipOrientation(orientation) === 'horizontal' ? 'vertical' : 'horizontal';
+  }
+
+  function normalizeBoxFlipAxisSpanTarget(target){
+    if(!target || typeof target !== 'object'){
+      return null;
+    }
+    const legacySourceOrientation = target.sourceOrientation
+      ? normalizeBoxFlipOrientation(target.sourceOrientation)
       : null;
-    const drawZoneOverride = source.drawZoneOverride && typeof source.drawZoneOverride === 'object'
-      ? {
-          width: Number.isFinite(Number(source.drawZoneOverride.width)) && Number(source.drawZoneOverride.width) > 0
-            ? Math.max(50, Math.round(Number(source.drawZoneOverride.width)))
-            : null,
-          height: Number.isFinite(Number(source.drawZoneOverride.height)) && Number(source.drawZoneOverride.height) > 0
-            ? Math.max(40, Math.round(Number(source.drawZoneOverride.height)))
-            : null
-        }
-      : null;
-    const horizontalReserveCarryoverPx = Number.isFinite(Number(source.horizontalReserveCarryoverPx))
-      ? Math.max(0, Math.round(Number(source.horizontalReserveCarryoverPx)))
-      : 0;
+    const targetOrientation = target.targetOrientation
+      ? normalizeBoxFlipOrientation(target.targetOrientation)
+      : oppositeBoxFlipOrientation(legacySourceOrientation);
+    const plotWidthPx = Number(target.plotWidthPx ?? target.yAxisSpanPx);
+    const plotHeightPx = Number(target.plotHeightPx ?? target.xAxisSpanPx);
+    if(!Number.isFinite(plotWidthPx) || plotWidthPx <= 0
+      || !Number.isFinite(plotHeightPx) || plotHeightPx <= 0){
+      return null;
+    }
     return {
-      axisSpanTarget: (axisSpanTarget && axisSpanTarget.xAxisSpanPx && axisSpanTarget.yAxisSpanPx) ? axisSpanTarget : null,
-      drawZoneOverride: (drawZoneOverride && drawZoneOverride.width && drawZoneOverride.height) ? drawZoneOverride : null,
-      horizontalReserveCarryoverPx
+      targetOrientation,
+      plotWidthPx,
+      plotHeightPx
     };
   }
 
@@ -12391,155 +12347,86 @@
       state.flipTransition = defaults;
       return state.flipTransition;
     }
-    const snapshots = current.snapshots && typeof current.snapshots === 'object' ? current.snapshots : {};
-    const pending = normalizeBoxFlipTransitionPendingState(current.pending);
+    const axisSpanTarget = normalizeBoxFlipAxisSpanTarget(
+      current.axisSpanTarget || current.pending?.axisSpanTarget
+    );
     state.flipTransition = {
-      version: 1,
-      phase: typeof current.phase === 'string' && current.phase ? current.phase : 'idle',
+      version: 2,
+      phase: current.phase === 'transitioning' || current.phase === 'steady' ? current.phase : 'idle',
       transitionId: Number.isFinite(Number(current.transitionId)) ? Math.max(0, Math.round(Number(current.transitionId))) : 0,
       active: current.active && typeof current.active === 'object'
         ? {
             orientation: normalizeBoxFlipOrientation(current.active.orientation),
             reason: typeof current.active.reason === 'string' ? current.active.reason : null,
-            at: Number.isFinite(Number(current.active.at)) ? Number(current.active.at) : null,
-            manualFrameEdit: !!current.active.manualFrameEdit
+            at: Number.isFinite(Number(current.active.at)) ? Number(current.active.at) : null
           }
         : null,
-      snapshots: {
-        vertical: cloneBoxFlipTransitionSnapshot(snapshots.vertical),
-        horizontal: cloneBoxFlipTransitionSnapshot(snapshots.horizontal)
-      },
-      pending
+      axisSpanTarget
     };
     return state.flipTransition;
   }
 
-  function syncBoxFlipTransitionLegacyState(reason){
-    const transition = ensureBoxFlipTransitionState();
-    state.flipFrameRestoreSnapshot = cloneBoxFlipTransitionSnapshot(transition.snapshots.vertical);
-    state.flipAxisSpanTarget = transition.pending.axisSpanTarget ? cloneSimple(transition.pending.axisSpanTarget) : null;
-    state.pendingFlipDrawZoneOverride = transition.pending.drawZoneOverride ? cloneSimple(transition.pending.drawZoneOverride) : null;
-    state.flipHorizontalReserveCarryoverPx = Number.isFinite(Number(transition.pending.horizontalReserveCarryoverPx))
-      ? Math.max(0, Math.round(Number(transition.pending.horizontalReserveCarryoverPx)))
-      : 0;
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      boxLog('Debug: box flip-transition legacy mirrors synchronized', {
-        reason: reason || null,
-        phase: transition.phase,
-        transitionId: transition.transitionId,
-        activeOrientation: transition.active?.orientation || null,
-        hasVerticalSnapshot: !!transition.snapshots.vertical,
-        hasHorizontalSnapshot: !!transition.snapshots.horizontal,
-        hasAxisSpanTarget: !!transition.pending.axisSpanTarget,
-        hasDrawZoneOverride: !!transition.pending.drawZoneOverride,
-        horizontalReserveCarryoverPx: transition.pending.horizontalReserveCarryoverPx
-      });
+  function commitBoxFlipTransitionToSession(reason, session = null){
+    const owner = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState());
+    const transition = cloneSimple(ensureBoxFlipTransitionState()) || createDefaultBoxFlipTransitionState();
+    const patchRecord = record => {
+      if(!record || typeof record !== 'object'){
+        return;
+      }
+      record.geometry = record.geometry && typeof record.geometry === 'object' ? record.geometry : {};
+      record.controls = record.controls && typeof record.controls === 'object' ? record.controls : {};
+      record.geometry.flipTransition = cloneSimple(transition);
+      record.controls.flipAxes = !!state.flipAxes;
+      record.updatedAt = Date.now();
+    };
+    patchRecord(owner?.state);
+    if(owner){
+      owner.updatedAt = Date.now();
     }
+    const runtimeRecord = getBoxOwnedRuntimeRecord(owner?.tabId || null, {
+      tabId: owner?.tabId || null,
+      reason: reason || 'box-flip-transition-commit'
+    }, { create: true });
+    if(runtimeRecord !== owner?.state){
+      patchRecord(runtimeRecord);
+    }
+    return transition;
   }
 
-  function captureBoxFlipOrientationSnapshot(orientation){
-    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
-    const snapshot = cloneBoxFlipTransitionSnapshot(captureBoxFlipFrameSnapshot(normalizedOrientation));
-    if(!snapshot){
-      return null;
-    }
+  function setBoxFlipAxisSpanTarget(target, reason){
     const transition = ensureBoxFlipTransitionState();
-    transition.snapshots[normalizedOrientation] = snapshot;
-    syncBoxFlipTransitionLegacyState(`capture-${normalizedOrientation}`);
-    return snapshot;
-  }
-
-  function transposeBoxFlipTransitionSnapshot(snapshot){
-    const source = cloneBoxFlipTransitionSnapshot(snapshot);
-    if(!source){
-      return null;
-    }
-    const transposed = cloneBoxFlipTransitionSnapshot({
-      width: source.height,
-      height: source.width,
-      plotClientWidthPx: source.plotClientHeightPx,
-      plotClientHeightPx: source.plotClientWidthPx,
-      bottomViewportExtensionPx: source.leftViewportExtensionPx,
-      significanceViewportExtensionPx: source.rightViewportExtensionPx,
-      leftViewportExtensionPx: source.bottomViewportExtensionPx,
-      rightViewportExtensionPx: source.significanceViewportExtensionPx,
-      xAxisSpanPx: source.yAxisSpanPx,
-      yAxisSpanPx: source.xAxisSpanPx
+    transition.axisSpanTarget = normalizeBoxFlipAxisSpanTarget(target);
+    boxDebug('Debug: box flip target updated', {
+      reason: reason || null,
+      transitionId: transition.transitionId,
+      target: transition.axisSpanTarget
     });
-    return transposed;
+    return transition.axisSpanTarget;
   }
 
-  function resolveBoxFlipTransitionTargetSnapshot(nextOrientation, sourceSnapshot){
-    const transition = ensureBoxFlipTransitionState();
-    const normalizedOrientation = normalizeBoxFlipOrientation(nextOrientation);
-    const cachedSnapshot = cloneBoxFlipTransitionSnapshot(transition.snapshots[normalizedOrientation]);
-    if(cachedSnapshot){
-      return cachedSnapshot;
-    }
-    return transposeBoxFlipTransitionSnapshot(sourceSnapshot);
-  }
-
-  function hasBoxFlipSnapshotMaterialChange(previousSnapshot, nextSnapshot, tolerancePx = 3){
-    const a = cloneBoxFlipTransitionSnapshot(previousSnapshot);
-    const b = cloneBoxFlipTransitionSnapshot(nextSnapshot);
-    if(!a || !b){
-      return false;
-    }
-    const tolerance = Number.isFinite(Number(tolerancePx)) ? Math.max(0, Number(tolerancePx)) : 3;
-    const changed = (left, right) => Math.abs((Number(left) || 0) - (Number(right) || 0)) > tolerance;
-    return changed(a.width, b.width)
-      || changed(a.height, b.height);
-  }
-
-  function applyBoxFlipTransitionPendingState(pendingPatch, reason){
-    const transition = ensureBoxFlipTransitionState();
-    transition.pending = normalizeBoxFlipTransitionPendingState({
-      ...transition.pending,
-      ...(pendingPatch && typeof pendingPatch === 'object' ? pendingPatch : {})
-    });
-    syncBoxFlipTransitionLegacyState(reason || 'pending-update');
-    return transition.pending;
-  }
-
-  function consumeBoxFlipTransitionPendingDrawZoneOverride(orientation){
+  function getBoxFlipAxisSpanTarget(orientation){
     const transition = ensureBoxFlipTransitionState();
     const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
-    const pending = transition.pending?.drawZoneOverride || null;
-    if(!pending){
-      return null;
-    }
-    const activeOrientation = transition.active?.orientation
-      ? normalizeBoxFlipOrientation(transition.active.orientation)
-      : null;
-    if(activeOrientation && activeOrientation !== normalizedOrientation){
-      return null;
-    }
-    const value = cloneSimple(pending);
-    transition.pending.drawZoneOverride = null;
-    syncBoxFlipTransitionLegacyState(`consume-draw-zone-${normalizedOrientation}`);
-    return value;
-  }
-
-  function getBoxFlipTransitionPendingAxisSpanTarget(orientation){
-    const transition = ensureBoxFlipTransitionState();
-    const normalizedOrientation = normalizeBoxFlipOrientation(orientation);
-    const target = transition.pending?.axisSpanTarget || null;
+    const target = transition.axisSpanTarget || null;
     if(!target){
       return null;
     }
-    if(normalizeBoxFlipOrientation(target.sourceOrientation) !== normalizedOrientation){
+    if(normalizeBoxFlipOrientation(target.targetOrientation) !== normalizedOrientation){
       return null;
     }
     return target;
   }
 
-  function clearBoxFlipTransitionPendingAxisSpanTarget(reason){
+  function clearBoxFlipAxisSpanTarget(reason){
     const transition = ensureBoxFlipTransitionState();
-    if(!transition.pending?.axisSpanTarget){
+    if(!transition.axisSpanTarget){
       return false;
     }
-    transition.pending.axisSpanTarget = null;
-    syncBoxFlipTransitionLegacyState(reason || 'clear-axis-span-target');
+    transition.axisSpanTarget = null;
+    boxDebug('Debug: box flip target cleared', {
+      reason: reason || null,
+      transitionId: transition.transitionId
+    });
     return true;
   }
 
@@ -12553,9 +12440,6 @@
         next.horizontalSignificanceBaseFrameWidthPx = null;
       }
     });
-    if(!owner || isBoxSessionActiveForModuleState(owner)){
-      state.horizontalSpanTarget = target;
-    }
     boxDebug('Debug: box horizontal span target updated', {
       reason: reason || null,
       tabId: owner?.tabId || null,
@@ -12571,8 +12455,7 @@
     if(Number.isFinite(sessionTarget) && sessionTarget > 20){
       return sessionTarget;
     }
-    const legacyTarget = Number(state.horizontalSpanTarget);
-    return Number.isFinite(legacyTarget) && legacyTarget > 20 ? legacyTarget : null;
+    return null;
   }
 
   function startBoxFlipTransition(previousOrientation, nextOrientation, reason){
@@ -12582,13 +12465,14 @@
     transition.active = {
       orientation: normalizeBoxFlipOrientation(nextOrientation),
       reason: typeof reason === 'string' ? reason : null,
-      at: Date.now(),
-      manualFrameEdit: false
+      at: Date.now()
     };
-    if(typeof previousOrientation === 'string' && previousOrientation){
-      transition.active.fromOrientation = normalizeBoxFlipOrientation(previousOrientation);
-    }
-    syncBoxFlipTransitionLegacyState(reason || 'transition-start');
+    boxDebug('Debug: box flip transition started', {
+      reason: reason || null,
+      transitionId: transition.transitionId,
+      previousOrientation: normalizeBoxFlipOrientation(previousOrientation),
+      nextOrientation: transition.active.orientation
+    });
     return transition.transitionId;
   }
 
@@ -12598,46 +12482,29 @@
     transition.active = {
       orientation: normalizeBoxFlipOrientation(orientation),
       reason: typeof reason === 'string' ? reason : null,
-      at: Date.now(),
-      manualFrameEdit: false
+      at: Date.now()
     };
-    syncBoxFlipTransitionLegacyState(reason || 'transition-settle');
-  }
-
-  function markBoxFlipTransitionManualFrameEdit(reason){
-    const transition = ensureBoxFlipTransitionState();
-    if(!transition.active || typeof transition.active !== 'object'){
-      transition.active = {
-        orientation: resolveBoxOrientationFromFlipFlag(!!state.flipAxes),
-        reason: typeof reason === 'string' ? reason : 'manual-frame-edit',
-        at: Date.now(),
-        manualFrameEdit: true
-      };
-      syncBoxFlipTransitionLegacyState(reason || 'manual-frame-edit');
-      return true;
-    }
-    if(transition.active.manualFrameEdit){
-      return false;
-    }
-    transition.active.manualFrameEdit = true;
-    transition.active.reason = typeof reason === 'string' ? reason : transition.active.reason;
-    transition.active.at = Date.now();
-    syncBoxFlipTransitionLegacyState(reason || 'manual-frame-edit');
-    return true;
+    commitBoxFlipTransitionToSession(reason || 'transition-settle');
   }
 
   function syncBoxFlipTransitionOrientationFromState(reason){
     const transition = ensureBoxFlipTransitionState();
     const orientation = resolveBoxOrientationFromFlipFlag(!!state.flipAxes);
-    if(transition.phase !== 'steady' || normalizeBoxFlipOrientation(transition.active?.orientation) !== orientation){
+    const activeOrientation = transition.active?.orientation
+      ? normalizeBoxFlipOrientation(transition.active.orientation)
+      : null;
+    if(transition.phase === 'transitioning' && activeOrientation === orientation){
+      return false;
+    }
+    if(transition.phase !== 'steady' || activeOrientation !== orientation){
       transition.phase = 'steady';
       transition.active = {
         orientation,
         reason: typeof reason === 'string' ? reason : 'orientation-sync',
-        at: Date.now(),
-        manualFrameEdit: false
+        at: Date.now()
       };
-      syncBoxFlipTransitionLegacyState(reason || 'orientation-sync');
+      transition.axisSpanTarget = null;
+      commitBoxFlipTransitionToSession(reason || 'orientation-sync');
       return true;
     }
     return false;
@@ -12645,7 +12512,8 @@
 
   function resetBoxFlipTransitionState(reason){
     state.flipTransition = createDefaultBoxFlipTransitionState();
-    syncBoxFlipTransitionLegacyState(reason || 'transition-reset');
+    commitBoxFlipTransitionToSession(reason || 'transition-reset');
+    boxDebug('Debug: box flip transition reset', { reason: reason || null });
   }
 
   function runBoxFlipTransition(previousFlip, nextFlip, options = {}){
@@ -12655,117 +12523,79 @@
       settleBoxFlipTransition(nextOrientation, options.reason || 'flip-noop');
       return { applied: false, reason: 'no-orientation-change', previousOrientation, nextOrientation };
     }
-    const transitionBeforeCapture = ensureBoxFlipTransitionState();
-    const cachedTargetSnapshotBefore = cloneBoxFlipTransitionSnapshot(
-      transitionBeforeCapture.snapshots?.[nextOrientation]
-    );
-    const manualFrameEditActive = !!(
-      transitionBeforeCapture.active
-      && normalizeBoxFlipOrientation(transitionBeforeCapture.active.orientation) === previousOrientation
-      && transitionBeforeCapture.active.manualFrameEdit
-    );
-    const previousOrientationSnapshot = cloneBoxFlipTransitionSnapshot(transitionBeforeCapture.snapshots[previousOrientation]);
-    const currentSnapshot = captureBoxFlipOrientationSnapshot(previousOrientation);
-    const currentOrientationChanged = manualFrameEditActive
-      || hasBoxFlipSnapshotMaterialChange(previousOrientationSnapshot, currentSnapshot, 3);
-    const targetSnapshot = currentOrientationChanged
-      ? transposeBoxFlipTransitionSnapshot(currentSnapshot)
-      : (cachedTargetSnapshotBefore || resolveBoxFlipTransitionTargetSnapshot(nextOrientation, currentSnapshot));
-    const axisSpanTarget = (
-      currentSnapshot
-      && Number.isFinite(Number(currentSnapshot.xAxisSpanPx)) && Number(currentSnapshot.xAxisSpanPx) > 0
-      && Number.isFinite(Number(currentSnapshot.yAxisSpanPx)) && Number(currentSnapshot.yAxisSpanPx) > 0
-    )
-      ? {
-          sourceOrientation: previousOrientation,
-          xAxisSpanPx: Number(currentSnapshot.xAxisSpanPx),
-          yAxisSpanPx: Number(currentSnapshot.yAxisSpanPx)
-        }
-      : null;
-    if(nextOrientation === 'horizontal' && Number.isFinite(Number(axisSpanTarget?.yAxisSpanPx)) && Number(axisSpanTarget.yAxisSpanPx) > 20){
-      const horizontalPlotTarget = setBoxHorizontalSpanTarget(
-        Number(axisSpanTarget.yAxisSpanPx),
-        getActiveBoxSessionForState(),
-        options.reason || 'flip-transition-horizontal-span-target'
-      );
-      updateBoxSignificanceResultsState(getBoxProjectionSession({ reason: 'box-projection-mutation' }), next => {
-        next.horizontalSignificancePlotWidthTargetPx = horizontalPlotTarget;
-        next.horizontalSignificanceBaseFrameWidthPx = Number.isFinite(Number(targetSnapshot?.plotClientWidthPx)) && Number(targetSnapshot.plotClientWidthPx) > 50
-          ? Number(targetSnapshot.plotClientWidthPx)
-          : null;
-      });
-    }
-    const pendingDrawZoneOverride = targetSnapshot
-      && Number.isFinite(Number(targetSnapshot.plotClientWidthPx)) && Number(targetSnapshot.plotClientWidthPx) > 0
-      && Number.isFinite(Number(targetSnapshot.plotClientHeightPx)) && Number(targetSnapshot.plotClientHeightPx) > 0
-      ? {
-          width: Math.max(50, Math.round(Number(targetSnapshot.plotClientWidthPx))),
-          height: Math.max(40, Math.round(Number(targetSnapshot.plotClientHeightPx)))
-        }
-      : null;
-    const horizontalReserveCarryoverPx = (
-      previousOrientation === 'vertical'
-      && nextOrientation === 'horizontal'
-      && currentSnapshot
-      && !cachedTargetSnapshotBefore
-    )
-      ? Math.max(
-          0,
-          Math.round(
-            (Number(currentSnapshot.bottomViewportExtensionPx) || 0)
-            + (Number(currentSnapshot.significanceViewportExtensionPx) || 0)
-          )
-        )
-      : 0;
+    const renderedSpans = resolveCurrentBoxAxisSpansForFlip();
+    const geometryPlotWidth = Number(state.graphGeometry?.plot?.widthPx);
+    const geometryPlotHeight = Number(state.graphGeometry?.plot?.heightPx);
+    const sourceXAxisSpanPx = Number.isFinite(Number(renderedSpans.xAxisSpanPx)) && Number(renderedSpans.xAxisSpanPx) > 0
+      ? Number(renderedSpans.xAxisSpanPx)
+      : geometryPlotWidth;
+    const sourceYAxisSpanPx = Number.isFinite(Number(renderedSpans.yAxisSpanPx)) && Number(renderedSpans.yAxisSpanPx) > 0
+      ? Number(renderedSpans.yAxisSpanPx)
+      : geometryPlotHeight;
+    const axisSpanTarget = normalizeBoxFlipAxisSpanTarget({
+      targetOrientation: nextOrientation,
+      plotWidthPx: sourceYAxisSpanPx,
+      plotHeightPx: sourceXAxisSpanPx
+    });
+
     startBoxFlipTransition(previousOrientation, nextOrientation, options.reason || 'flip-transition');
-    applyBoxFlipTransitionPendingState({
-      axisSpanTarget,
-      drawZoneOverride: pendingDrawZoneOverride,
-      horizontalReserveCarryoverPx
-    }, options.reason || 'flip-transition-pending');
-
-    const nextVerticalSignificance = nextOrientation === 'vertical' && targetSnapshot
-      ? (Number.isFinite(Number(targetSnapshot.significanceViewportExtensionPx)) ? Number(targetSnapshot.significanceViewportExtensionPx) : 0)
-      : 0;
-    const nextVerticalBottom = nextOrientation === 'vertical' && targetSnapshot
-      ? (Number.isFinite(Number(targetSnapshot.bottomViewportExtensionPx)) ? Number(targetSnapshot.bottomViewportExtensionPx) : 0)
-      : 0;
-    const nextHorizontalLeft = nextOrientation === 'horizontal' && targetSnapshot
-      ? (Number.isFinite(Number(targetSnapshot.leftViewportExtensionPx)) ? Number(targetSnapshot.leftViewportExtensionPx) : 0)
-      : 0;
-    const nextHorizontalRight = nextOrientation === 'horizontal' && targetSnapshot
-      ? (Number.isFinite(Number(targetSnapshot.rightViewportExtensionPx)) ? Number(targetSnapshot.rightViewportExtensionPx) : 0)
-      : 0;
-
+    setBoxFlipAxisSpanTarget(axisSpanTarget, options.reason || 'flip-transition-target');
     applyBoxViewportExtensions({
-      significance: nextVerticalSignificance,
-      bottom: nextVerticalBottom
+      significance: 0,
+      bottom: 0
     }, { reason: `${options.reason || 'flip-transition'}-vertical-reserve`, resizeContainer: false });
     applyBoxHorizontalViewportExtensions({
-      left: nextHorizontalLeft,
-      right: nextHorizontalRight
+      left: 0,
+      right: 0
     }, { reason: `${options.reason || 'flip-transition'}-horizontal-reserve`, resizeContainer: false });
-
-    const targetWidthPx = Number(targetSnapshot?.width);
-    const targetHeightPx = Number(targetSnapshot?.height);
-    const hasTargetDimensions = Number.isFinite(targetWidthPx) && targetWidthPx > 0
-      && Number.isFinite(targetHeightPx) && targetHeightPx > 0;
-    const frameResult = swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, hasTargetDimensions
-      ? {
-          reason: options.reason || 'flip-transition-frame',
-          targetWidthPx: targetWidthPx,
-          targetHeightPx: targetHeightPx
-        }
-      : { reason: options.reason || 'flip-transition-frame' });
-    settleBoxFlipTransition(nextOrientation, options.reason || 'flip-transition-settle');
-    captureBoxFlipOrientationSnapshot(nextOrientation);
+    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
+    rememberBoxAppliedSignificanceFrameReservePx('x', 0, svgBox, `${options.reason || 'flip-transition'}-reset-horizontal-frame-reserve`);
+    rememberBoxAppliedSignificanceFrameReservePx('y', 0, svgBox, `${options.reason || 'flip-transition'}-reset-vertical-frame-reserve`);
+    if(nextOrientation === 'horizontal'){
+      setBoxHorizontalSpanTarget(axisSpanTarget?.plotWidthPx, getActiveBoxSessionForState(), 'flip-horizontal-span-target');
+    }else{
+      setBoxHorizontalSpanTarget(null, getActiveBoxSessionForState(), 'flip-vertical-clear-horizontal-span-target');
+    }
+    if(!axisSpanTarget){
+      settleBoxFlipTransition(nextOrientation, options.reason || 'flip-transition-without-plot');
+    }else{
+      commitBoxFlipTransitionToSession(options.reason || 'flip-transition');
+    }
     return {
-      applied: true,
+      applied: !!axisSpanTarget,
       previousOrientation,
       nextOrientation,
-      currentOrientationChanged,
-      targetSnapshot: cloneBoxFlipTransitionSnapshot(targetSnapshot),
-      frameResult
+      axisSpanTarget: axisSpanTarget ? { ...axisSpanTarget } : null
+    };
+  }
+
+  function resolveBoxFlipTargetLayout(orientation, margin, naturalLayout = {}){
+    const target = getBoxFlipAxisSpanTarget(orientation);
+    const naturalPlotWidth = Math.max(20, Number(naturalLayout.plotWidth) || 20);
+    const naturalPlotHeight = Math.max(20, Number(naturalLayout.plotHeight) || 20);
+    const naturalCanvasWidth = Math.max(50, Number(naturalLayout.canvasWidth) || 50);
+    const naturalCanvasHeight = Math.max(40, Number(naturalLayout.canvasHeight) || 40);
+    if(!target){
+      return {
+        target: null,
+        applied: false,
+        plotWidth: naturalPlotWidth,
+        plotHeight: naturalPlotHeight,
+        canvasWidth: naturalCanvasWidth,
+        canvasHeight: naturalCanvasHeight
+      };
+    }
+    const plotWidth = Math.max(20, Number(target.plotWidthPx));
+    const plotHeight = Math.max(20, Number(target.plotHeightPx));
+    const horizontalChromePx = Math.max(0, Number(naturalLayout.horizontalChromePx) || 0);
+    const verticalChromePx = Math.max(0, Number(naturalLayout.verticalChromePx) || 0);
+    return {
+      target,
+      applied: true,
+      plotWidth,
+      plotHeight,
+      canvasWidth: Math.max(50, Number(margin?.left || 0) + plotWidth + Number(margin?.right || 0) + horizontalChromePx),
+      canvasHeight: Math.max(40, Number(margin?.top || 0) + plotHeight + Number(margin?.bottom || 0) + verticalChromePx)
     };
   }
 
@@ -12795,16 +12625,23 @@
     const scaleY = Number.isFinite(renderHeight) && renderHeight > 0 && Number.isFinite(viewBoxHeight) && viewBoxHeight > 0
       ? (renderHeight / viewBoxHeight)
       : null;
-    const axisScale = Number.isFinite(scaleX) && Number.isFinite(scaleY)
-      ? Math.min(scaleX, scaleY)
-      : (Number.isFinite(scaleX) ? scaleX : (Number.isFinite(scaleY) ? scaleY : 1));
+    const horizontalScale = Number.isFinite(scaleX) ? scaleX : 1;
+    const verticalScale = Number.isFinite(scaleY) ? scaleY : 1;
     const axisLayer = svgNode.querySelector('g[data-layer="box-axis"]') || svgNode;
-    const lines = Array.from(axisLayer.querySelectorAll('line'));
+    const primaryLines = Array.from(axisLayer.querySelectorAll('line[data-box-primary-axis]'));
+    const lines = primaryLines.length ? primaryLines : Array.from(axisLayer.querySelectorAll('line'));
     let xAxisSpanPx = null;
     let yAxisSpanPx = null;
+    let primaryXMin = Infinity;
+    let primaryXMax = -Infinity;
+    let primaryYMin = Infinity;
+    let primaryYMax = -Infinity;
     for(let idx = 0; idx < lines.length; idx += 1){
       const line = lines[idx];
       if(!line || typeof line.getAttribute !== 'function'){
+        continue;
+      }
+      if(line.getAttribute('stroke') === 'transparent' || line.getAttribute('data-export-ignore') === '1'){
         continue;
       }
       const x1 = Number(line.getAttribute('x1'));
@@ -12816,178 +12653,46 @@
       }
       const dx = Math.abs(x2 - x1);
       const dy = Math.abs(y2 - y1);
-      const horizontalSpan = dx * axisScale;
-      const verticalSpan = dy * axisScale;
+      const lineRect = typeof line.getBoundingClientRect === 'function'
+        ? line.getBoundingClientRect()
+        : null;
+      const renderedWidth = Number(lineRect?.width);
+      const renderedHeight = Number(lineRect?.height);
+      const renderedLeft = Number(lineRect?.left);
+      const renderedRight = Number(lineRect?.right);
+      const renderedTop = Number(lineRect?.top);
+      const renderedBottom = Number(lineRect?.bottom);
+      const horizontalSpan = Number.isFinite(renderedWidth) && renderedWidth > 1
+        ? renderedWidth
+        : dx * horizontalScale;
+      const verticalSpan = Number.isFinite(renderedHeight) && renderedHeight > 1
+        ? renderedHeight
+        : dy * verticalScale;
       if(dy <= 0.25 && dx > 1){
         xAxisSpanPx = xAxisSpanPx == null ? horizontalSpan : Math.max(xAxisSpanPx, horizontalSpan);
+        if(primaryLines.length && Number.isFinite(renderedLeft) && Number.isFinite(renderedRight)){
+          primaryXMin = Math.min(primaryXMin, renderedLeft, renderedRight);
+          primaryXMax = Math.max(primaryXMax, renderedLeft, renderedRight);
+        }
       }
       if(dx <= 0.25 && dy > 1){
         yAxisSpanPx = yAxisSpanPx == null ? verticalSpan : Math.max(yAxisSpanPx, verticalSpan);
+        if(primaryLines.length && Number.isFinite(renderedTop) && Number.isFinite(renderedBottom)){
+          primaryYMin = Math.min(primaryYMin, renderedTop, renderedBottom);
+          primaryYMax = Math.max(primaryYMax, renderedTop, renderedBottom);
+        }
       }
+    }
+    if(primaryXMax > primaryXMin){
+      xAxisSpanPx = primaryXMax - primaryXMin;
+    }
+    if(primaryYMax > primaryYMin){
+      yAxisSpanPx = primaryYMax - primaryYMin;
     }
     return {
       xAxisSpanPx: Number.isFinite(Number(xAxisSpanPx)) ? Number(xAxisSpanPx) : null,
       yAxisSpanPx: Number.isFinite(Number(yAxisSpanPx)) ? Number(yAxisSpanPx) : null
     };
-  }
-
-  function captureBoxFlipFrameSnapshot(orientation = null){
-    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
-    const plot = els.plotDiv || getBoxNodeById('boxPlot') || null;
-    const normalizedOrientation = normalizeBoxFlipOrientation(orientation || resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
-    const capturesVerticalContentReserves = normalizedOrientation === 'vertical';
-    const size = resolveBoxSvgBoxBaseSize(svgBox);
-    const width = Number(size.width);
-    const height = Number(size.height);
-    const domAxisSpans = resolveCurrentBoxAxisSpansForFlip();
-    const geometryPlotWidth = Number(state.graphGeometry?.plot?.widthPx);
-    const geometryPlotHeight = Number(state.graphGeometry?.plot?.heightPx);
-    const xAxisSpanPx = Number.isFinite(geometryPlotWidth) && geometryPlotWidth > 0
-      ? geometryPlotWidth
-      : domAxisSpans.xAxisSpanPx;
-    const yAxisSpanPx = Number.isFinite(geometryPlotHeight) && geometryPlotHeight > 0
-      ? geometryPlotHeight
-      : domAxisSpans.yAxisSpanPx;
-    const significanceState = getBoxSignificanceResultsState(getActiveBoxSessionForState());
-    return {
-      width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
-      height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
-      plotClientWidthPx: Number.isFinite(Number(plot?.clientWidth)) && Number(plot.clientWidth) > 0 ? Math.round(Number(plot.clientWidth)) : null,
-      plotClientHeightPx: Number.isFinite(Number(plot?.clientHeight)) && Number(plot.clientHeight) > 0 ? Math.round(Number(plot.clientHeight)) : null,
-      bottomViewportExtensionPx: capturesVerticalContentReserves ? normalizeBoxSignificancePx(significanceState.bottomViewportExtensionPx) : 0,
-      significanceViewportExtensionPx: capturesVerticalContentReserves ? normalizeBoxSignificancePx(significanceState.significanceViewportExtensionPx) : 0,
-      leftViewportExtensionPx: normalizeBoxSignificancePx(significanceState.leftViewportExtensionPx),
-      rightViewportExtensionPx: normalizeBoxSignificancePx(significanceState.rightViewportExtensionPx),
-      xAxisSpanPx,
-      yAxisSpanPx
-    };
-  }
-
-  function swapBoxFrameAcrossAxisFlip(previousFlip, nextFlip, options = {}){
-    if(previousFlip === nextFlip){
-      return { applied: false, reason: 'no-orientation-change' };
-    }
-    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
-    if(!svgBox){
-      return { applied: false, reason: 'missing-svgbox' };
-    }
-    const size = resolveBoxSvgBoxBaseSize(svgBox);
-    const currentWidth = Number(size.width);
-    const currentHeight = Number(size.height);
-    if(!Number.isFinite(currentWidth) || currentWidth <= 0 || !Number.isFinite(currentHeight) || currentHeight <= 0){
-      return {
-        applied: false,
-        reason: 'missing-size',
-        currentWidth,
-        currentHeight
-      };
-    }
-    // Flip must transpose the full user-visible graph frame proportions (including
-    // manual resize state) so pre-flip x/y drawable lengths can swap consistently.
-    const overrideWidth = Number(options.targetWidthPx);
-    const overrideHeight = Number(options.targetHeightPx);
-    const hasOverrideTarget = Number.isFinite(overrideWidth) && overrideWidth > 0
-      && Number.isFinite(overrideHeight) && overrideHeight > 0;
-    const targetWidth = hasOverrideTarget
-      ? Math.max(50, Math.round(overrideWidth))
-      : Math.max(50, Math.round(currentHeight));
-    const targetHeight = hasOverrideTarget
-      ? Math.max(40, Math.round(overrideHeight))
-      : Math.max(40, Math.round(currentWidth));
-    if(Math.abs(targetWidth - currentWidth) < 1 && Math.abs(targetHeight - currentHeight) < 1){
-      const unchangedResult = {
-        applied: false,
-        alreadyCorrect: true,
-        currentWidth,
-        currentHeight,
-        targetWidth,
-        targetHeight
-      };
-      boxLog('Debug: box axis flip frame transpose skipped', unchangedResult);
-      return unchangedResult;
-    }
-    let resizeResult = null;
-    if(typeof Shared.applyResizableBoxSize === 'function'){
-      try{
-        resizeResult = Shared.applyResizableBoxSize(svgBox, {
-          axis: 'both',
-          width: targetWidth,
-          height: targetHeight,
-          forceExact: true,
-          // Programmatic Box frame authority may bypass aspect constraints, but it must
-          // not clear the user's persisted ratio-lock preference.
-          preserveAspectLock: true,
-          updateAspectRatio: true,
-          updateDefaults: false,
-          reason: options.reason || 'box-flip-axis-swap'
-        });
-      }catch(err){
-        console.error('box flip axis frame swap failed', err);
-        return { applied: false, reason: 'resize-failed', error: err };
-      }
-    }
-    if(!resizeResult && svgBox.style){
-      svgBox.style.width = `${targetWidth}px`;
-      svgBox.style.height = `${targetHeight}px`;
-      const dataset = svgBox.dataset || {};
-      dataset.resizerWidth = `${targetWidth}px`;
-      dataset.resizerHeight = `${targetHeight}px`;
-      dataset.resizerResized = 'true';
-      resizeResult = {
-        width: targetWidth,
-        height: targetHeight,
-        fallbackDirectStyle: true
-      };
-    }
-    const dataset = svgBox.dataset || {};
-    const significanceState = getBoxSignificanceResultsState(getActiveBoxSessionForState());
-    const nextHorizontalExtension = Math.max(
-      0,
-      Math.round((Number(significanceState.leftViewportExtensionPx) || 0) + (Number(significanceState.rightViewportExtensionPx) || 0))
-    );
-    const nextVerticalExtension = Math.max(
-      0,
-      Math.round((Number(significanceState.significanceViewportExtensionPx) || 0) + (Number(significanceState.bottomViewportExtensionPx) || 0))
-    );
-    const nextBaseWidth = Math.max(50, Math.round(targetWidth - nextHorizontalExtension));
-    const nextBaseHeight = Math.max(40, Math.round(targetHeight - nextVerticalExtension));
-    dataset.boxAutoReserveBaseWidthPx = String(nextBaseWidth);
-    dataset.boxAutoReserveHorizontalExtensionPx = String(nextHorizontalExtension);
-    dataset.boxAutoReserveBaseHeightPx = String(nextBaseHeight);
-    dataset.boxAutoReserveExtensionPx = String(nextVerticalExtension);
-    updateBoxSignificanceResultsState(getBoxProjectionSession({ reason: 'box-projection-mutation' }), next => {
-      next.significanceBasePlotWidthPx = targetWidth;
-      next.significanceBasePlotHeightPx = targetHeight;
-    });
-    const committedFrame = {
-      widthPx: targetWidth,
-      heightPx: targetHeight,
-      aspectRatio: targetWidth / targetHeight
-    };
-    updateBoxGraphGeometry({
-      frame: committedFrame
-    }, { reason: options.reason || 'box-flip-axis-swap-frame-state' });
-    commitBoxGraphFrame(committedFrame, {
-      svgBox,
-      commitLayout: true,
-      writeStyle: true,
-      reason: options.reason || 'box-flip-axis-swap-frame-commit'
-    });
-    const result = {
-      applied: !!resizeResult,
-      targetWidth,
-      targetHeight,
-      currentWidth,
-      currentHeight,
-      resizeResult
-    };
-    boxLog('Debug: box axis flip frame transpose applied', {
-      reason: options.reason || null,
-      previousFlip,
-      nextFlip,
-      ...result
-    });
-    return result;
   }
 
   function getAxisStrokeWidthBase(){
@@ -13869,6 +13574,83 @@
     return true;
   }
 
+  function synchronizeBoxFlipFrameToLayout(options = {}){
+    const orientationResult = options.orientationResult || null;
+    if(orientationResult?.flipAxisTargetApplied !== true){
+      return { applied: false, reason: 'no-flip-target' };
+    }
+    const svgBox = options.svgBox || els.svgBox || els.graphPanel?.querySelector?.('.svgbox') || null;
+    if(!svgBox){
+      return { applied: false, reason: 'missing-svgbox' };
+    }
+    const viewportWidth = Number(options.viewportWidth);
+    const viewportHeight = Number(options.viewportHeight);
+    if(!Number.isFinite(viewportWidth) || viewportWidth <= 0
+      || !Number.isFinite(viewportHeight) || viewportHeight <= 0){
+      return { applied: false, reason: 'missing-viewport-size' };
+    }
+    const chromeWidth = Math.max(0, Number(options.frameChromeWidth) || 0);
+    const chromeHeight = Math.max(0, Number(options.frameChromeHeight) || 0);
+    const targetWidth = Math.max(50, Math.round(viewportWidth + chromeWidth));
+    const targetHeight = Math.max(40, Math.round(viewportHeight + chromeHeight));
+    const currentSize = resolveBoxSvgBoxBaseSize(svgBox);
+    const currentWidth = Number(currentSize?.width);
+    const currentHeight = Number(currentSize?.height);
+    const changed = !Number.isFinite(currentWidth)
+      || !Number.isFinite(currentHeight)
+      || Math.abs(currentWidth - targetWidth) > 0.75
+      || Math.abs(currentHeight - targetHeight) > 0.75;
+    if(!changed){
+      return {
+        applied: false,
+        alreadyCorrect: true,
+        targetWidth,
+        targetHeight,
+        currentWidth,
+        currentHeight
+      };
+    }
+    if(typeof Shared.applyResizableBoxSize !== 'function'){
+      return { applied: false, reason: 'missing-shared-resizer', targetWidth, targetHeight };
+    }
+    const reason = options.reason || 'box-flip-layout-frame';
+    beginBoxViewportExtensionResizeGuard({
+      session: options.session || getActiveBoxSessionForState(),
+      svgBox,
+      reason
+    });
+    const resizeResult = Shared.applyResizableBoxSize(svgBox, {
+      axis: 'both',
+      width: targetWidth,
+      height: targetHeight,
+      forceExact: true,
+      preserveAspectLock: true,
+      updateAspectRatio: true,
+      updateDefaults: false,
+      reason
+    });
+    commitBoxGraphFrame({
+      widthPx: targetWidth,
+      heightPx: targetHeight,
+      aspectRatio: targetWidth / targetHeight
+    }, {
+      svgBox,
+      session: options.session || getActiveBoxSessionForState(),
+      commitLayout: true,
+      writeStyle: true,
+      reason
+    });
+    return {
+      applied: true,
+      changed: true,
+      targetWidth,
+      targetHeight,
+      currentWidth,
+      currentHeight,
+      resizeResult
+    };
+  }
+
   function isBoxGraphGeometryMaterial(geometry){
     if(!geometry || typeof geometry !== 'object'){
       return false;
@@ -14501,39 +14283,22 @@
     const hasFrameAuthority = options.frameAuthority === true && options.resizeContainer === true;
     const shouldCommitFrameLayout = options.commitFrameLayout === true
       || (!horizontal && options.resizeContainer === true && compositionChanged);
-    let carryoverExtension = 0;
-    let effectivePreviousExtension = previousExtension;
-    if(horizontal){
-      const transition = ensureBoxFlipTransitionState();
-      carryoverExtension = normalizeBoxViewportExtensionPx(transition.pending?.horizontalReserveCarryoverPx);
-      effectivePreviousExtension = Math.max(previousExtension, carryoverExtension);
-    }
 
     const resizeOptions = {
       ...options,
       session: owner,
       commitFrameLayout: !horizontal && hasFrameAuthority && shouldCommitFrameLayout,
       commitFrameLayoutBeforeResize: horizontal && hasFrameAuthority && options.commitFrameLayoutBeforeResize === true,
-      forceBaseFromPrevious: horizontal
-        ? (hasFrameAuthority && carryoverExtension > 0)
-        : (hasFrameAuthority && options.forceBaseFromPrevious === true)
+      forceBaseFromPrevious: !horizontal && hasFrameAuthority && options.forceBaseFromPrevious === true
     };
     const resizeResult = horizontal
-      ? applyBoxAutoReserveFrameWidth(nextExtension, effectivePreviousExtension, resizeOptions)
+      ? applyBoxAutoReserveFrameWidth(nextExtension, previousExtension, resizeOptions)
       : applyBoxAutoReserveFrameSize(nextExtension, previousExtension, resizeOptions);
-
-    if(horizontal && carryoverExtension > 0 && hasFrameAuthority){
-      const transition = ensureBoxFlipTransitionState();
-      transition.pending.horizontalReserveCarryoverPx = 0;
-      syncBoxFlipTransitionLegacyState('horizontal-reserve-carryover-consumed');
-    }
     if(boxDebugEnabled()){
       boxLog(horizontal
         ? 'Debug: box horizontal viewport extension stored as automatic graph reserve'
         : 'Debug: box viewport extension stored as automatic graph reserve', {
         previousExtension,
-        effectivePreviousExtension: horizontal ? effectivePreviousExtension : previousExtension,
-        carryoverExtension: horizontal ? carryoverExtension : 0,
         nextExtension,
         [horizontal ? 'previousLeftExtension' : 'previousSignificanceExtension']: previousFirstExtension,
         [horizontal ? 'nextLeftExtension' : 'nextSignificanceExtension']: nextFirstExtension,
@@ -14549,7 +14314,6 @@
     return {
       changed: Math.abs(nextExtension - previousExtension) >= 1 || compositionChanged,
       previousExtension,
-      effectivePreviousExtension,
       nextExtension,
       delta: nextExtension - previousExtension,
       applied: !!resizeResult?.applied,
@@ -18587,13 +18351,12 @@
       const initialOrientation = resolveBoxOrientationFromFlipFlag(state.flipAxes);
       const transition = ensureBoxFlipTransitionState();
       transition.phase = 'steady';
-      transition.active = { orientation: initialOrientation, reason: 'init-ui', at: Date.now(), manualFrameEdit: false };
-      syncBoxFlipTransitionLegacyState('init-ui');
+      transition.active = { orientation: initialOrientation, reason: 'init-ui', at: Date.now() };
+      commitBoxFlipTransitionToSession('init-ui');
       bindBoxControlHandler(els.boxFlipAxes, 'change', 'flip-axes', ()=>{
         const previousFlip = !!state.flipAxes;
         const nextFlip = !!els.boxFlipAxes.checked;
         state.flipAxes = nextFlip;
-        state.resizeObserveDrawMutedUntil = Date.now() + 260;
         syncDatasetSpacingAcrossFlip(previousFlip, nextFlip);
         const transitionResult = runBoxFlipTransition(previousFlip, nextFlip, { reason: 'flip-axes-change' });
         try{
@@ -18607,10 +18370,7 @@
           transitionId: state.flipTransition?.transitionId || 0,
           transitionResult
         }); // Debug: flip axis change trace
-        const scheduleFlipDraw = () => scheduleBoxViewRefresh('flip-axes-change');
-        if(!scheduleBoxAsyncTimeout('flip-axes-change', scheduleFlipDraw, 280)){
-          scheduleFlipDraw();
-        }
+        scheduleBoxViewRefresh('flip-axes-change');
       });
     }
     updateGraphTypeControls();
@@ -28541,7 +28301,18 @@ Technical analysis record (advanced)
     marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
     let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
     let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
+    let canvasWidthLocal = W;
     let canvasHeightLocal = baseCanvasHeight;
+    let flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
+      plotWidth: plotWLocal,
+      plotHeight: plotHLocal,
+      canvasWidth: canvasWidthLocal,
+      canvasHeight: canvasHeightLocal
+    });
+    plotWLocal = flipAxisLayout.plotWidth;
+    plotHLocal = flipAxisLayout.plotHeight;
+    canvasWidthLocal = flipAxisLayout.canvasWidth;
+    canvasHeightLocal = flipAxisLayout.canvasHeight;
     let bottomLayoutResult = resolveBottomLayoutForVerticalShift(plotWLocal, marginLocal.bottom);
     let bottomLayout = bottomLayoutResult.bottomLayout;
     let bottomViewportExtension = bottomLayoutResult.bottomViewportExtension;
@@ -28557,6 +28328,16 @@ Technical analysis record (advanced)
       : baseCanvasHeight;
     plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
     plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
+    flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
+      plotWidth: plotWLocal,
+      plotHeight: plotHLocal,
+      canvasWidth: W,
+      canvasHeight: canvasHeightLocal
+    });
+    plotWLocal = flipAxisLayout.plotWidth;
+    plotHLocal = flipAxisLayout.plotHeight;
+    canvasWidthLocal = flipAxisLayout.canvasWidth;
+    canvasHeightLocal = flipAxisLayout.canvasHeight;
     const yIntervalSetting = getAxisTickInterval('y');
     const resolveYTickTargetHeight = () => Math.max(20, plotHLocal);
     let yTickTarget = chartStyle.estimateTickCount(resolveYTickTargetHeight(), { axis: 'y', fallback: 6 });
@@ -28610,6 +28391,14 @@ Technical analysis record (advanced)
       marginLocal.left = Math.max(marginLocal.left, yLabelGap + axisMetrics.axisTitleGap + fs + yTitleSafetyPad);
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
+      flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
+        plotWidth: plotWLocal,
+        plotHeight: plotHLocal,
+        canvasWidth: W,
+        canvasHeight: baseCanvasHeight
+      });
+      plotWLocal = flipAxisLayout.plotWidth;
+      plotHLocal = flipAxisLayout.plotHeight;
       bottomLayoutResult = resolveBottomLayoutForVerticalShift(plotWLocal, marginLocal.bottom);
       bottomLayout = bottomLayoutResult.bottomLayout;
       bottomViewportExtension = bottomLayoutResult.bottomViewportExtension;
@@ -28621,6 +28410,16 @@ Technical analysis record (advanced)
         : baseCanvasHeight;
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, canvasHeightLocal - marginLocal.top - marginLocal.bottom);
+      flipAxisLayout = resolveBoxFlipTargetLayout('vertical', marginLocal, {
+        plotWidth: plotWLocal,
+        plotHeight: plotHLocal,
+        canvasWidth: W,
+        canvasHeight: canvasHeightLocal
+      });
+      plotWLocal = flipAxisLayout.plotWidth;
+      plotHLocal = flipAxisLayout.plotHeight;
+      canvasWidthLocal = flipAxisLayout.canvasWidth;
+      canvasHeightLocal = flipAxisLayout.canvasHeight;
       if(manualYScale){
         break;
       }
@@ -28633,10 +28432,6 @@ Technical analysis record (advanced)
       yTickTarget = refinedTickTarget;
     }
     setBoxHorizontalSpanTarget(null, drawSession, 'vertical-layout-clear-horizontal-span-target');
-    const flipAxisSpanTarget = getBoxFlipTransitionPendingAxisSpanTarget('horizontal');
-    if(flipAxisSpanTarget){
-      clearBoxFlipTransitionPendingAxisSpanTarget('vertical-axis-span-target-consumed');
-    }
     const xLabelReservePx = Number.isFinite(Number(bottomLayoutResult?.xLabelReserve))
       ? Math.max(0, Number(bottomLayoutResult.xLabelReserve))
       : 0;
@@ -28644,7 +28439,7 @@ Technical analysis record (advanced)
     const bottomReservePx = Math.max(0, Number(marginLocal.bottom) || 0);
     const minPlotHeightPx = Math.max(120, Math.round((fs || 12) * 6));
     const graphGeometry = updateBoxGraphGeometry({
-      frame: resolveBoxFrameGeometry(els.svgBox, { width: W, height: H }),
+      frame: resolveBoxFrameGeometry(els.svgBox, { width: canvasWidthLocal, height: canvasHeightLocal }),
       reserves: {
         topPx: topReservePx,
         bottomPx: bottomReservePx,
@@ -28689,6 +28484,7 @@ Technical analysis record (advanced)
       titleBaselineY,
       baseCanvasHeight,
       existingViewportExtension,
+      canvasWidth: canvasWidthLocal,
       canvasHeight: canvasHeightLocal
     });
     const yAxisX = marginLocal.left;
@@ -28813,7 +28609,8 @@ Technical analysis record (advanced)
           y2: segYBottom,
           stroke: axisStroke,
           'stroke-linecap': 'square',
-          'stroke-width': axisStrokeWidth
+          'stroke-width': axisStrokeWidth,
+          'data-box-primary-axis': 'y'
         });
         segmentLine?.setAttribute?.('data-axis-control', '1');
         if(!primaryYAxisLine){
@@ -28871,7 +28668,7 @@ Technical analysis record (advanced)
       }
     }else{
       // Standard continuous y-axis
-      addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'y' });
       registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd }, axisControlConfig('y', { min: yScale.min, max: yScale.max }));
     }
     const yMajorTickLabels = [];
@@ -29001,7 +28798,7 @@ Technical analysis record (advanced)
     const frameXMax = plotRightX;
     axisXEnd = Math.max(yAxisX, Math.min(axisXEnd, frameXMax));
     boxLog('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax, plotWUsed });
-    addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+    addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'x' });
     registerAxisHitLine(addAxisElement, { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY }, axisControlConfig('x'));
     boxLog('Debug: box axes stroke scaled',{ axisStrokeWidth });
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWUsed, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
@@ -29496,9 +29293,11 @@ Technical analysis record (advanced)
       titleX: marginLocal.left + plotWUsed / 2,
       titleY: Number.isFinite(titleBaselineY) ? titleBaselineY : (marginLocal.top / 2),
       annotationMinY,
+      flipAxisTargetApplied: flipAxisLayout.applied,
       baseCanvasHeight,
       significanceViewportExtension: unresolvedDownShift,
       bottomViewportExtension,
+      canvasWidth: canvasWidthLocal,
       canvasHeight: canvasHeightLocal
     };
   }
@@ -29602,7 +29401,7 @@ Technical analysis record (advanced)
       fallbackPx: Math.max(34, Math.round((fs || 12) * 2.2)),
       paddingPx: Math.max(2, Math.round((fs || 12) * 0.15))
     });
-    const canvasHeightLocal = Math.max(40, baseCanvasHeight + bottomChromeClearancePx);
+    let canvasHeightLocal = Math.max(40, baseCanvasHeight + bottomChromeClearancePx);
     const horizontalLevelStep = resolveSignificanceLevelStepPx(annotationLevelGap, annotationLabelFontSize, 'horizontal', annotationStrokeWidth, {
       labelMode: state.significanceLabelMode,
       scientific: sanitizeSignificancePScientific(significanceStyle.pScientific),
@@ -29651,41 +29450,36 @@ Technical analysis record (advanced)
     marginLocal.right = Math.max(baseMarginRight, fs) + rightSignificanceReservePx;
     marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
     marginLocal = stabilizeBoxMarginForAxisResize(marginLocal, { exactRightPx: marginLocal.right });
-    const flipAxisSpanTarget = getBoxFlipTransitionPendingAxisSpanTarget('vertical');
-    const targetVerticalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.xAxisSpanPx))
-      ? Math.max(20, Number(flipAxisSpanTarget.xAxisSpanPx))
-      : null;
-    const targetHorizontalAxisSpan = Number.isFinite(Number(flipAxisSpanTarget?.yAxisSpanPx))
-      ? Math.max(20, Number(flipAxisSpanTarget.yAxisSpanPx))
-      : null;
-    const canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
+    const flipAxisSpanTarget = getBoxFlipAxisSpanTarget('horizontal');
+    let canvasWidthLocal = Math.max(50, baseCanvasWidth + leftLabelReservePx + rightSignificanceReservePx);
     let plotWLocal = Math.max(20, canvasWidthLocal - marginLocal.left - marginLocal.right);
     let plotHLocal = Math.max(20, baseCanvasHeight - marginLocal.top - marginLocal.bottom);
-    if(Number.isFinite(targetVerticalAxisSpan) && plotHLocal > targetVerticalAxisSpan + 0.5){
-      const reduction = plotHLocal - targetVerticalAxisSpan;
-      marginLocal.top += reduction;
-      plotHLocal = targetVerticalAxisSpan;
-    }
-    if(Number.isFinite(targetHorizontalAxisSpan)){
-      const committedTarget = setBoxHorizontalSpanTarget(targetHorizontalAxisSpan, drawSession, 'horizontal-axis-span-target');
+    if(flipAxisSpanTarget){
+      const committedTarget = setBoxHorizontalSpanTarget(flipAxisSpanTarget.plotWidthPx, drawSession, 'horizontal-axis-span-target');
       updateBoxSignificanceResultsState(drawSession, next => {
         next.horizontalSignificancePlotWidthTargetPx = committedTarget;
         next.horizontalSignificanceBaseFrameWidthPx = baseCanvasWidth;
       });
     }
     const sessionHorizontalSpanTarget = getBoxHorizontalSpanTarget(drawSession);
-    const activeSpanTarget = Number.isFinite(Number(targetHorizontalAxisSpan))
-      ? targetHorizontalAxisSpan
-      : (Number.isFinite(Number(horizontalSignificancePlotSpanTarget))
+    const activeSpanTarget = Number.isFinite(Number(horizontalSignificancePlotSpanTarget))
           ? horizontalSignificancePlotSpanTarget
-          : (Number.isFinite(Number(sessionHorizontalSpanTarget)) && Number(sessionHorizontalSpanTarget) > 20 ? Number(sessionHorizontalSpanTarget) : null));
-    if(Number.isFinite(activeSpanTarget) && plotWLocal > activeSpanTarget + 0.5){
+          : (Number.isFinite(Number(sessionHorizontalSpanTarget)) && Number(sessionHorizontalSpanTarget) > 20 ? Number(sessionHorizontalSpanTarget) : null);
+    if(!flipAxisSpanTarget && Number.isFinite(activeSpanTarget) && plotWLocal > activeSpanTarget + 0.5){
       marginLocal.right += plotWLocal - activeSpanTarget;
       plotWLocal = activeSpanTarget;
     }
-    if(flipAxisSpanTarget){
-      clearBoxFlipTransitionPendingAxisSpanTarget('horizontal-axis-span-target-consumed');
-    }
+    const flipAxisLayout = resolveBoxFlipTargetLayout('horizontal', marginLocal, {
+      plotWidth: plotWLocal,
+      plotHeight: plotHLocal,
+      canvasWidth: canvasWidthLocal,
+      canvasHeight: canvasHeightLocal,
+      verticalChromePx: bottomChromeClearancePx
+    });
+    plotWLocal = flipAxisLayout.plotWidth;
+    plotHLocal = flipAxisLayout.plotHeight;
+    canvasWidthLocal = flipAxisLayout.canvasWidth;
+    canvasHeightLocal = flipAxisLayout.canvasHeight;
     state.xTickRotateVertical = false;
     const xIntervalSetting = getAxisTickInterval('x');
     const buildHorizontalValueScale = () => {
@@ -29712,12 +29506,12 @@ Technical analysis record (advanced)
     let yScale = buildHorizontalValueScale();
     const topReservePx = Math.max(0, Number(marginLocal.top) || 0);
     const bottomReservePx = Math.max(0, Number(marginLocal.bottom) || 0);
-    const minPlotHeightPx = Number.isFinite(targetVerticalAxisSpan)
-      ? Math.max(40, Math.round(targetVerticalAxisSpan))
+    const minPlotHeightPx = flipAxisLayout.applied
+      ? Math.max(40, Math.round(plotHLocal))
       : Math.max(120, Math.round((fs || 12) * 6));
     const minPlotWidthPx = Math.max(120, Math.round((fs || 12) * 8));
     const horizontalGraphGeometry = updateBoxGraphGeometry({
-      frame: resolveBoxFrameGeometry(els.svgBox, { width: canvasWidthLocal, height: H }),
+      frame: resolveBoxFrameGeometry(els.svgBox, { width: canvasWidthLocal, height: canvasHeightLocal }),
       reserves: {
         topPx: topReservePx,
         bottomPx: bottomReservePx,
@@ -29752,8 +29546,7 @@ Technical analysis record (advanced)
         canvasWidthLocal,
         leftLabelReservePx,
         rightSignificanceReservePx,
-        targetVerticalAxisSpan,
-        targetHorizontalAxisSpan,
+        flipAxisTarget: flipAxisSpanTarget,
         topReservePx,
         bottomReservePx,
         plotWLocal,
@@ -29873,7 +29666,7 @@ Technical analysis record (advanced)
     });
     boxLog('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeStyle, visible: showGrid });
     const yAxisLeft = marginLocal.left;
-    addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+    addAxisElement('line',{ x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'y' });
     registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: plotTopY, x2: yAxisLeft, y2: plotBottomY }, axisControlConfig('y'));
     const yIntervalSetting = getAxisTickInterval('y');
     const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
@@ -30044,7 +29837,8 @@ Technical analysis record (advanced)
           y2: xAxisBottom,
           stroke: axisStroke,
           'stroke-linecap': 'square',
-          'stroke-width': axisStrokeWidth
+          'stroke-width': axisStrokeWidth,
+          'data-box-primary-axis': 'x'
         });
         if(segIndex > 0){
           const breakCapHalfLen = Math.max(0.5, tickLen * 0.9);
@@ -30090,7 +29884,7 @@ Technical analysis record (advanced)
         }
       }
     }else{
-      addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth, 'data-box-primary-axis': 'x' });
       registerAxisHitLine(addAxisElement, { x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom }, axisControlConfig('x', { min: yScale.min, max: yScale.max }));
     }
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
@@ -30506,6 +30300,7 @@ Technical analysis record (advanced)
       valueToCoord: valueToX,
       annotationMaxByTrace,
       annotationObstaclePaddingPx,
+      flipAxisTargetApplied: flipAxisLayout.applied,
       titleX: marginLocal.left + plotWLocal / 2,
       titleY: marginLocal.top / 2,
       significanceViewportExtension: 0,
@@ -33175,6 +32970,9 @@ Technical analysis record (advanced)
     const viewportBaseWidth = Number.isFinite(orientationResult?.baseCanvasWidth) && orientationResult.baseCanvasWidth > 0
       ? orientationResult.baseCanvasWidth
       : Math.max(50, significanceBasePlotWidth);
+    const frameSizeBeforeLayoutSync = resolveBoxSvgBoxBaseSize(els.svgBox);
+    const frameChromeWidth = Math.max(0, (Number(frameSizeBeforeLayoutSync?.width) || W) - W);
+    const frameChromeHeight = Math.max(0, (Number(frameSizeBeforeLayoutSync?.height) || H) - H);
     const requiredSignificanceViewportExtension = Number.isFinite(Number(orientationResult?.significanceViewportExtension))
       ? Math.max(0, Math.ceil(Number(orientationResult.significanceViewportExtension)))
       : 0;
@@ -33189,7 +32987,6 @@ Technical analysis record (advanced)
       ? Math.max(0, Math.ceil(Number(orientationResult.rightViewportExtension)))
       : 0;
     const requiredHorizontalViewportExtension = requiredLeftViewportExtension + requiredRightViewportExtension;
-    const useFillParentViewport = !(viewportWidth > W + 0.5 || viewportHeight > H + 0.5);
     const resizeDrawReason = typeof drawOpts?.reason === 'string' ? drawOpts.reason : '';
     const resizeDrawPhase = typeof drawOpts?.resizePhase === 'string' ? drawOpts.resizePhase : '';
     const isActiveResizePreview = resizeDrawReason.startsWith('resize')
@@ -33214,6 +33011,7 @@ Technical analysis record (advanced)
     };
     let significanceFrameUpdate = null;
     let horizontalSignificanceFrameUpdate = null;
+    let flipFrameUpdate = null;
 
     if(shouldDeferViewportExtensionSync){
       if(boxDebugEnabled()){
@@ -33384,6 +33182,17 @@ Technical analysis record (advanced)
       }
     }
 
+    flipFrameUpdate = synchronizeBoxFlipFrameToLayout({
+      orientationResult,
+      viewportWidth,
+      viewportHeight,
+      frameChromeWidth,
+      frameChromeHeight,
+      svgBox: els.svgBox,
+      session: drawSession,
+      reason: 'box-flip-layout-frame'
+    });
+
     const extensionChanged = (
       !!extensionUpdate?.changed
       || !!horizontalExtensionUpdate?.changed
@@ -33394,8 +33203,7 @@ Technical analysis record (advanced)
     svg.dataset.boxPlotTop = String(Number(orientationResult?.margin?.top) || 0);
     svg.dataset.boxPlotW = String(Number(orientationResult?.plotW) || 0);
     svg.dataset.boxPlotH = String(Number(orientationResult?.plotH) || 0);
-    svg.setAttribute('data-box-base-width', String(viewportWidth));
-    svg.setAttribute('data-box-base-height', String(viewportHeight));
+    applyBoxCanvasViewport(svg, viewportWidth, viewportHeight);
     const zoomViewport = els.svgBox?.querySelector?.('.resizer-zoom-viewport') || null;
     const zoomContent = els.svgBox?.querySelector?.('.resizer-zoom-content') || null;
 
@@ -33409,7 +33217,7 @@ Technical analysis record (advanced)
     if(zoomContent?.style){
       zoomContent.style.overflow = 'hidden';
     }
-    if(!useFillParentViewport && boxDebugEnabled()){
+    if((viewportWidth > W + 0.5 || viewportHeight > H + 0.5) && boxDebugEnabled()){
       boxLog('Debug: box oversized viewport clipped to graph frame', {
         viewportWidth,
         viewportHeight,
@@ -33417,10 +33225,6 @@ Technical analysis record (advanced)
         frameHeight: H,
         reason: drawOpts?.reason || null
       });
-    }
-    if(!useFillParentViewport){
-      svg.setAttribute('width', String(viewportWidth));
-      svg.setAttribute('height', String(viewportHeight));
     }
     if(extensionChanged){
       const inlineBottomReserveSatisfied = !showSignificance
@@ -33648,18 +33452,10 @@ Technical analysis record (advanced)
     }else if(debugEnabled){
       boxLog('Debug: box grid toolbar target skipped',{ target: 'grid-layer', visible: false, fallbackThickness: axisStrokeBase });
     }
-    const disableViewportAspectNormalization = requiredViewportExtension > 0 || isFlipped;
-    const viewportExcludeSelector = !isFlipped && requiredBottomViewportExtension > 0
-      ? `${BOX_VIEWPORT_EXCLUDE_SELECTOR}, [data-box-x-tick-label="1"]`
-      : BOX_VIEWPORT_EXCLUDE_SELECTOR;
-    ensureBoxViewport(svg, {
-      padding: Math.max(fs || 14, 16),
-      debugLabel: 'box-graph',
-      excludeSelector: viewportExcludeSelector,
-      fillParent: useFillParentViewport,
-      preserveBaseAspect: !disableViewportAspectNormalization,
-      horizontalResizeAnchorX: orientationResult.margin?.left
-    });
+    // The renderer has already allocated every margin and annotation reserve in
+    // viewportWidth/viewportHeight. Keep that computed canvas authoritative;
+    // fitting the content bounding box here would rescale X and Y independently.
+    applyBoxCanvasViewport(svg, viewportWidth, viewportHeight);
     ensureBoxExportControlsClearance(svg, {
       reason: drawOpts?.reason || 'draw-layout',
       resizePhase: drawOpts?.resizePhase || null,
@@ -33667,8 +33463,12 @@ Technical analysis record (advanced)
     });
     commitPendingPlotFrame();
     state.layout?.syncPanels?.({ skipSchedule: true });
-    if(state.flipTransition?.phase === 'steady'){
-      captureBoxFlipOrientationSnapshot(resolveBoxOrientationFromFlipFlag(isFlipped));
+    if(orientationResult.flipAxisTargetApplied === true){
+      if(flipFrameUpdate?.changed){
+        scheduleActiveBoxDraw({ viewOnly: true, reason: 'flip-axes-settle' });
+      }else{
+        settleBoxFlipTransition(resolveBoxOrientationFromFlipFlag(isFlipped), 'flip-layout-settled');
+      }
     }
     traceCount = traces.length;
     boxLog('boxplot render complete');
@@ -34553,15 +34353,6 @@ Technical analysis record (advanced)
     }
     let W = Math.max(50, Math.floor(plotResizeZone.width || plotDiv.clientWidth || 50));
     let H = Math.max(40, Math.floor(plotResizeZone.height || plotDiv.clientHeight || 40));
-    if(drawOpts?.reason === 'flip-axes-change'){
-      const pendingZone = consumeBoxFlipTransitionPendingDrawZoneOverride(resolveBoxOrientationFromFlipFlag(!!state.flipAxes));
-      if(pendingZone && Number.isFinite(Number(pendingZone.width)) && Number(pendingZone.width) > 0
-        && Number.isFinite(Number(pendingZone.height)) && Number(pendingZone.height) > 0){
-        W = Math.max(50, Math.round(Number(pendingZone.width)));
-        H = Math.max(40, Math.round(Number(pendingZone.height)));
-        boxDebug('Debug: box flip restore draw-zone override applied', { width: W, height: H });
-      }
-    }
     const significanceBasePlotHeight = H;
     const significanceBasePlotWidth = W;
     const previousBoxFrameHasCanvasPoints = !!previousBoxSvg2d?.querySelector?.('g[data-export-layer="box-points"] canvas');
@@ -36895,10 +36686,9 @@ Technical analysis record (advanced)
           }
           if(phase === 'move'){
             state.resizeInteractionActive = true;
-            markBoxFlipTransitionManualFrameEdit('resize-move');
             clearRestoredBoxSignificanceGeometryLock('resize-move', getActiveBoxSessionForState());
-            if(state.flipAxes && clearBoxFlipTransitionPendingAxisSpanTarget('manual-resize-move')){
-              boxDebug('Debug: box flip-axis span target released on manual resize');
+            if(clearBoxFlipAxisSpanTarget('manual-resize-move')){
+              settleBoxFlipTransition(resolveBoxOrientationFromFlipFlag(!!state.flipAxes), 'manual-resize-move');
             }
           }else if(phase === 'start'){
             state.resizeInteractionActive = true;

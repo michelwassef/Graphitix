@@ -375,7 +375,10 @@
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null,
-        overlayTimeout: null
+        overlayTimeout: null,
+        rotationActive: false,
+        rotationPending: false,
+        rotationViewport: null
       },
       workers: new Map(),
       managers: {
@@ -416,6 +419,9 @@
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'overlayTimeout')){ session.timers.overlayTimeout = null; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationActive')){ session.timers.rotationActive = false; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationPending')){ session.timers.rotationPending = false; }
+    if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationViewport')){ session.timers.rotationViewport = null; }
     session.workers = session.workers instanceof Map ? session.workers : new Map();
     session.managers = session.managers && typeof session.managers === 'object' ? session.managers : {};
     if(!Object.prototype.hasOwnProperty.call(session.managers, 'hot')){ session.managers.hot = null; }
@@ -1355,9 +1361,47 @@
     return false;
   }
 
+  function captureSurfaceRotationViewport(svg){
+    const viewBox = svg?.viewBox?.baseVal;
+    if(!viewBox || !Number.isFinite(viewBox.x) || !Number.isFinite(viewBox.y)
+      || !Number.isFinite(viewBox.width) || viewBox.width <= 0
+      || !Number.isFinite(viewBox.height) || viewBox.height <= 0){
+      return null;
+    }
+    return {
+      x: viewBox.x,
+      y: viewBox.y,
+      width: viewBox.width,
+      height: viewBox.height
+    };
+  }
+
+  function applySurfaceRotationViewport(svg, viewport){
+    if(!svg || !viewport){
+      return false;
+    }
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.minWidth = '0';
+    svg.style.minHeight = '0';
+    svg.style.display = 'block';
+    svg.setAttribute('viewBox', `${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    return true;
+  }
+
   function scheduleSurfaceRotationRedraw(rotation = null){
     commitSurfaceRotationState(rotation || state.rotation, 'surface-rotation-change');
     markSurfaceRotationUserModified();
+    const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
+    if(session?.timers?.rotationPending){
+      return;
+    }
+    if(session?.timers){
+      session.timers.rotationPending = true;
+    }
     scheduleActiveSurfaceDraw({
       viewOnly: true,
       silentOverlay: true,
@@ -1377,9 +1421,25 @@
     }
     plot3d.attachRotationControls(svg, {
       state: rotationState,
-      onStart: (_event, state) => commitSurfaceRotationState(state, 'surface-rotation-start'),
+      onStart: (_event, state) => {
+        const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
+        if(session?.timers){
+          session.timers.rotationActive = true;
+          session.timers.rotationViewport = captureSurfaceRotationViewport(svg);
+        }
+        commitSurfaceRotationState(state, 'surface-rotation-start');
+      },
       onChange: (_event, state) => scheduleSurfaceRotationRedraw(state),
-      onEnd: (_event, state) => commitSurfaceRotationState(state, 'surface-rotation-end'),
+      onEnd: (_event, state) => {
+        const session = ensureSurfaceSessionOwnershipShape(getActiveSurfaceSessionForState());
+        commitSurfaceRotationState(state, 'surface-rotation-end');
+        if(session?.timers){
+          session.timers.rotationActive = false;
+          if(!session.timers.rotationPending){
+            session.timers.rotationViewport = null;
+          }
+        }
+      },
       debugLabel: debugLabel || 'surface-plot',
       shouldIgnorePointer: (event) => {
         if(typeof plot3d.isInteractivePointerTarget === 'function'){
@@ -3254,6 +3314,12 @@
       status = 'error';
       throw err;
     }finally{
+      if(options?.reason === 'rotation' && drawSession?.timers){
+        drawSession.timers.rotationPending = false;
+        if(!drawSession.timers.rotationActive){
+          drawSession.timers.rotationViewport = null;
+        }
+      }
       resolveSurfaceOverlay(status, { session: drawSession, allowInactive: true });
     }
   }
@@ -3850,11 +3916,16 @@
       removeLegend(svg);
     }
     registerSurfaceGridControlTarget(svg, { fallbackThickness: axisStrokeWidthBase });
-    ensureSurfaceGraphViewport(svg, {
-      padding: Math.max(fs, 18),
-      debugLabel: 'surface-3d-graph',
-      baseViewport: { width, height }
-    });
+    const rotationViewport = options?.reason === 'rotation'
+      ? drawSession?.timers?.rotationViewport || null
+      : null;
+    if(!applySurfaceRotationViewport(svg, rotationViewport)){
+      ensureSurfaceGraphViewport(svg, {
+        padding: Math.max(fs, 18),
+        debugLabel: 'surface-3d-graph',
+        baseViewport: { width, height }
+      });
+    }
     updateStats(parsed.stats);
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncSurfaceAutoDrawNoticeWidth('draw');

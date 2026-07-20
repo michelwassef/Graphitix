@@ -79,7 +79,8 @@ test('box initial strip draw preserves non-significance bottom reserve', async (
   expect(metrics.significanceExtensionPx).toBe(0);
   expect(metrics.bottomExtensionPx).toBeGreaterThan(0);
   expect(metrics.preserveAspectRatio).toBe('none');
-  expect(metrics.axisToViewBottomPx).toBeGreaterThan(metrics.axisToBaseBottomPx + 6);
+  expect(metrics.axisToViewBottomPx).toBeGreaterThan(metrics.bottomExtensionPx);
+  expect(Math.abs(metrics.axisToViewBottomPx - metrics.axisToBaseBottomPx)).toBeLessThanOrEqual(0.5);
 
   expect(issues.critical).toEqual([]);
 });

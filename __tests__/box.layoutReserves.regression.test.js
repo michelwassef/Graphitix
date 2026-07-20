@@ -207,13 +207,20 @@ function readBoxAxisMetrics(){
     return null;
   }
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
-  const lines = Array.from(axisLayer.querySelectorAll('line'))
-    .map(line => ({
-      x1: Number(line.getAttribute('x1')),
-      y1: Number(line.getAttribute('y1')),
-      x2: Number(line.getAttribute('x2')),
-      y2: Number(line.getAttribute('y2'))
-    }))
+  const primaryAxisLines = Array.from(axisLayer.querySelectorAll('line[data-box-primary-axis]'));
+  const lines = (primaryAxisLines.length ? primaryAxisLines : Array.from(axisLayer.querySelectorAll('line')))
+    .map(line => {
+      if(line.getAttribute('stroke') === 'transparent' || line.getAttribute('data-export-ignore') === '1'){
+        return null;
+      }
+      return {
+        x1: Number(line.getAttribute('x1')),
+        y1: Number(line.getAttribute('y1')),
+        x2: Number(line.getAttribute('x2')),
+        y2: Number(line.getAttribute('y2'))
+      };
+    })
+    .filter(Boolean)
     .filter(line => [line.x1, line.y1, line.x2, line.y2].every(Number.isFinite));
   const horizontal = lines.filter(line => Math.abs(line.y1 - line.y2) <= 0.01 && Math.abs(line.x2 - line.x1) > 1);
   const vertical = lines.filter(line => Math.abs(line.x1 - line.x2) <= 0.01 && Math.abs(line.y2 - line.y1) > 1);
@@ -531,7 +538,7 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.xAxisSpan).toBeLessThan(before.xAxisSpan * 0.8);
   });
 
-  test('flip axes swaps drawable axis lengths while keeping labels fully rotated and preserving frame transpose (no significance)', async () => {
+  test('flip axes swaps drawable axis lengths while keeping labels fully rotated (no significance)', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
     await applyLongBoxLabels();
@@ -553,10 +560,10 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.significanceViewportExtensionPx).toBe(0);
     expect(after.leftViewportExtensionPx + after.rightViewportExtensionPx).toBeGreaterThan(0);
     expect(after.rotatedCategoryLabelCount).toBe(0);
-    expect(after.xAxisSpan).toBeGreaterThan(0);
-    expect(after.yAxisSpan).toBeGreaterThan(0);
-    expect(after.plotWidthPx).toBeGreaterThan(0);
-    expect(after.plotHeightPx).toBeGreaterThan(0);
+    expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.plotWidthPx - after.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.plotHeightPx - after.yAxisSpan)).toBeLessThanOrEqual(1.5);
   });
 
   test('flip axes keeps axis-length swap stable with significance brackets enabled', async () => {
@@ -583,13 +590,13 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(after.leftViewportExtensionPx + after.rightViewportExtensionPx).toBeGreaterThan(0);
     expect(after.rightViewportExtensionPx).toBeGreaterThan(0);
     expect(after.rotatedCategoryLabelCount).toBe(0);
-    expect(after.xAxisSpan).toBeGreaterThan(0);
-    expect(after.yAxisSpan).toBeGreaterThan(0);
-    expect(after.plotWidthPx).toBeGreaterThan(0);
-    expect(after.plotHeightPx).toBeGreaterThan(0);
+    expect(Math.abs(after.xAxisSpan - before.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.yAxisSpan - before.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.plotWidthPx - after.xAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(after.plotHeightPx - after.yAxisSpan)).toBeLessThanOrEqual(1.5);
   });
 
-  test('flip transition state machine restores orientation-specific proportions across repeated cycles', async () => {
+  test('repeated flips preserve exact drawable-axis transposition after manual resizing', async () => {
     await activateWorkspace('box');
     await loadBoxExample();
     await applyLongBoxLabels();
@@ -608,6 +615,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(flippedA.flipAxes).toBe(true);
     expect(flippedA.flipTransitionPhase).toBe('steady');
     expect(flippedA.flipTransitionOrientation).toBe('horizontal');
+    expect(Math.abs(flippedA.xAxisSpan - baseline.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(flippedA.yAxisSpan - baseline.xAxisSpan)).toBeLessThanOrEqual(1.5);
 
     await setFlipAxesAndRedraw(false);
     const restoredA = readBoxAxisMetrics();
@@ -616,8 +625,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(restoredA.flipTransitionOrientation).toBe('vertical');
     expect(restoredA.svgBoxWidthPx).toBeGreaterThan(0);
     expect(restoredA.svgBoxHeightPx).toBeGreaterThan(0);
-    expect(restoredA.xAxisSpan).toBeGreaterThan(0);
-    expect(restoredA.yAxisSpan).toBeGreaterThan(0);
+    expect(Math.abs(restoredA.xAxisSpan - flippedA.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(restoredA.yAxisSpan - flippedA.xAxisSpan)).toBeLessThanOrEqual(1.5);
 
     await setFlipAxesAndRedraw(true);
     const flippedB = readBoxAxisMetrics();
@@ -626,8 +635,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(flippedB.flipTransitionOrientation).toBe('horizontal');
     expect(flippedB.svgBoxWidthPx).toBeGreaterThan(0);
     expect(flippedB.svgBoxHeightPx).toBeGreaterThan(0);
-    expect(flippedB.xAxisSpan).toBeGreaterThan(0);
-    expect(flippedB.yAxisSpan).toBeGreaterThan(0);
+    expect(Math.abs(flippedB.xAxisSpan - restoredA.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(flippedB.yAxisSpan - restoredA.xAxisSpan)).toBeLessThanOrEqual(1.5);
 
     await setBoxWidthAndRedraw(controller, 760, 640);
     const flippedResized = readBoxAxisMetrics();
@@ -643,6 +652,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(unflippedPropagated.flipTransitionOrientation).toBe('vertical');
     expect(unflippedPropagated.svgBoxWidthPx).toBeGreaterThan(0);
     expect(unflippedPropagated.svgBoxHeightPx).toBeGreaterThan(0);
+    expect(Math.abs(unflippedPropagated.xAxisSpan - flippedResized.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(unflippedPropagated.yAxisSpan - flippedResized.xAxisSpan)).toBeLessThanOrEqual(1.5);
 
     await setFlipAxesAndRedraw(true);
     const flippedRestoredAfterPropagation = readBoxAxisMetrics();
@@ -651,6 +662,8 @@ describe('Box layout reserves under horizontal shrink', () => {
     expect(flippedRestoredAfterPropagation.flipTransitionOrientation).toBe('horizontal');
     expect(flippedRestoredAfterPropagation.svgBoxWidthPx).toBeGreaterThan(0);
     expect(flippedRestoredAfterPropagation.svgBoxHeightPx).toBeGreaterThan(0);
+    expect(Math.abs(flippedRestoredAfterPropagation.xAxisSpan - unflippedPropagated.yAxisSpan)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(flippedRestoredAfterPropagation.yAxisSpan - unflippedPropagated.xAxisSpan)).toBeLessThanOrEqual(1.5);
   });
 
   test('non-flip significance off-on restores reserve without stretching axes', async () => {

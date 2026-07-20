@@ -15,8 +15,12 @@ function readFlipTransposeMetrics() {
   }
 
   const axisLayer = svg.querySelector('g[data-layer="box-axis"]') || svg;
-  const lines = Array.from(axisLayer.querySelectorAll('line'))
+  const primaryAxisLines = Array.from(axisLayer.querySelectorAll('line[data-box-primary-axis]'));
+  const lines = (primaryAxisLines.length ? primaryAxisLines : Array.from(axisLayer.querySelectorAll('line')))
     .map(line => {
+      if (line.getAttribute('stroke') === 'transparent' || line.getAttribute('data-export-ignore') === '1') {
+        return null;
+      }
       const x1 = Number(line.getAttribute('x1'));
       const y1 = Number(line.getAttribute('y1'));
       const x2 = Number(line.getAttribute('x2'));
@@ -71,6 +75,13 @@ function readFlipTransposeMetrics() {
   }).length;
 
   const svgBoxRect = svgBox.getBoundingClientRect();
+  const svgScreenMatrix = svg.getScreenCTM?.() || null;
+  const svgScaleX = svgScreenMatrix
+    ? Math.hypot(Number(svgScreenMatrix.a) || 0, Number(svgScreenMatrix.b) || 0)
+    : null;
+  const svgScaleY = svgScreenMatrix
+    ? Math.hypot(Number(svgScreenMatrix.c) || 0, Number(svgScreenMatrix.d) || 0)
+    : null;
   const svgBoxStyle = window.getComputedStyle(svgBox);
   const padTop = Number.parseFloat(String(svgBoxStyle?.paddingTop || '0')) || 0;
   const padBottom = Number.parseFloat(String(svgBoxStyle?.paddingBottom || '0')) || 0;
@@ -118,27 +129,10 @@ function readFlipTransposeMetrics() {
       phase: state.flipTransition.phase || null,
       transitionId: Number(state.flipTransition.transitionId) || 0,
       activeOrientation: state.flipTransition.active?.orientation || null,
-      pendingAxisSpanTarget: state.flipTransition.pending?.axisSpanTarget ? {
-        sourceOrientation: state.flipTransition.pending.axisSpanTarget.sourceOrientation || null,
-        xAxisSpanPx: Number(state.flipTransition.pending.axisSpanTarget.xAxisSpanPx) || null,
-        yAxisSpanPx: Number(state.flipTransition.pending.axisSpanTarget.yAxisSpanPx) || null
-      } : null,
-      pendingDrawZoneOverride: state.flipTransition.pending?.drawZoneOverride ? {
-        width: Number(state.flipTransition.pending.drawZoneOverride.width) || null,
-        height: Number(state.flipTransition.pending.drawZoneOverride.height) || null
-      } : null,
-      pendingHorizontalReserveCarryoverPx: Number(state.flipTransition.pending?.horizontalReserveCarryoverPx) || 0,
-      verticalSnapshot: state.flipTransition.snapshots?.vertical ? {
-        width: Number(state.flipTransition.snapshots.vertical.width) || null,
-        height: Number(state.flipTransition.snapshots.vertical.height) || null,
-        xAxisSpanPx: Number(state.flipTransition.snapshots.vertical.xAxisSpanPx) || null,
-        yAxisSpanPx: Number(state.flipTransition.snapshots.vertical.yAxisSpanPx) || null
-      } : null,
-      horizontalSnapshot: state.flipTransition.snapshots?.horizontal ? {
-        width: Number(state.flipTransition.snapshots.horizontal.width) || null,
-        height: Number(state.flipTransition.snapshots.horizontal.height) || null,
-        xAxisSpanPx: Number(state.flipTransition.snapshots.horizontal.xAxisSpanPx) || null,
-        yAxisSpanPx: Number(state.flipTransition.snapshots.horizontal.yAxisSpanPx) || null
+      axisSpanTarget: state.flipTransition.axisSpanTarget ? {
+        targetOrientation: state.flipTransition.axisSpanTarget.targetOrientation || null,
+        plotWidthPx: Number(state.flipTransition.axisSpanTarget.plotWidthPx) || null,
+        plotHeightPx: Number(state.flipTransition.axisSpanTarget.plotHeightPx) || null
       } : null
     } : null,
     plotWidthPx: Number(state.graphGeometry?.plot?.widthPx) || null,
@@ -152,6 +146,9 @@ function readFlipTransposeMetrics() {
     svgBoxWidthPx: Number.isFinite(Number(svgBoxRect?.width)) ? Number(svgBoxRect.width) : null,
     svgBoxHeightPx: Number.isFinite(Number(svgBoxRect?.height)) ? Number(svgBoxRect.height) : null,
     svgBoxAspectRatio: Number.isFinite(ratio) ? ratio : null,
+    svgScaleX: Number.isFinite(svgScaleX) ? svgScaleX : null,
+    svgScaleY: Number.isFinite(svgScaleY) ? svgScaleY : null,
+    preserveAspectRatio: svg.getAttribute('preserveAspectRatio'),
     categoryLabelCount: axisLabels.length,
     rotatedCategoryLabelCount,
     horizontalCategoryLabelCount,
@@ -444,16 +441,29 @@ async function setShowSignificance(page, enabled, options = {}) {
 function expectApprox(actual, expected, tolerance, label) {
   expect(actual, `${label} (actual missing)`).not.toBeNull();
   expect(expected, `${label} (expected missing)`).not.toBeNull();
-  expect(Math.abs(Number(actual) - Number(expected)), label).toBeLessThanOrEqual(tolerance);
+  expect(
+    Math.abs(Number(actual) - Number(expected)),
+    `${label}: ${Number(actual)} vs ${Number(expected)}`
+  ).toBeLessThanOrEqual(tolerance);
+}
+
+function expectUndistortedViewport(metrics, label, tolerance = 0.01) {
+  expect(metrics?.svgScaleX, `${label}: horizontal SVG scale`).not.toBeNull();
+  expect(metrics?.svgScaleY, `${label}: vertical SVG scale`).not.toBeNull();
+  expect(
+    Math.abs(Number(metrics.svgScaleX) - Number(metrics.svgScaleY)),
+    `${label}: horizontal and vertical SVG scales`
+  ).toBeLessThanOrEqual(tolerance);
+  expectApprox(metrics.xAxisSpan, metrics.plotWidthPx, 1.5, `${label}: rendered x-axis`);
+  expectApprox(metrics.yAxisSpan, metrics.plotHeightPx, 1.5, `${label}: rendered y-axis`);
 }
 
 function expectOrientationStable(current, baseline, options = {}) {
   const label = options.label || 'orientation';
-  const svgTolerance = Number.isFinite(Number(options.svgTolerance)) ? Number(options.svgTolerance) : 12;
-  const svgHeightTolerance = Math.max(svgTolerance, verticalReserveAllowance(current, svgTolerance), verticalReserveAllowance(baseline, svgTolerance));
+  const axisTolerance = Number.isFinite(Number(options.axisTolerance)) ? Number(options.axisTolerance) : 1.5;
   const reserveTolerance = Number.isFinite(Number(options.reserveTolerance)) ? Number(options.reserveTolerance) : 6;
-  expectApprox(current.svgBoxWidthPx, baseline.svgBoxWidthPx, svgTolerance, `${label} svg width`);
-  expectApprox(current.svgBoxHeightPx, baseline.svgBoxHeightPx, svgHeightTolerance, `${label} svg height`);
+  expectApprox(current.xAxisSpan, baseline.xAxisSpan, axisTolerance, `${label} x-axis span`);
+  expectApprox(current.yAxisSpan, baseline.yAxisSpan, axisTolerance, `${label} y-axis span`);
   expectApprox(
     (Number(current.leftViewportExtensionPx) || 0) + (Number(current.rightViewportExtensionPx) || 0),
     (Number(baseline.leftViewportExtensionPx) || 0) + (Number(baseline.rightViewportExtensionPx) || 0),
@@ -468,24 +478,24 @@ function expectOrientationStable(current, baseline, options = {}) {
   );
 }
 
-function expectTransposePair(before, flipped, options = {}) {
+function expectTransposePair(before, after, options = {}) {
   const label = options.label || 'transpose';
-  const svgTolerance = Number.isFinite(Number(options.svgTolerance)) ? Number(options.svgTolerance) : 16;
-  const svgWidthTolerance = Math.max(svgTolerance, horizontalReserveAllowance(flipped, svgTolerance), horizontalReserveAllowance(before, svgTolerance));
-  const svgHeightTolerance = Math.max(svgTolerance, verticalReserveAllowance(before, svgTolerance), verticalReserveAllowance(flipped, svgTolerance));
+  const axisTolerance = Number.isFinite(Number(options.axisTolerance)) ? Number(options.axisTolerance) : 1.5;
   const reserveTolerance = Number.isFinite(Number(options.reserveTolerance)) ? Number(options.reserveTolerance) : 12;
-  expectApprox(flipped.svgBoxWidthPx, before.svgBoxHeightPx, svgWidthTolerance, `${label} svg width->height`);
-  expectApprox(flipped.svgBoxHeightPx, before.svgBoxWidthPx, svgHeightTolerance, `${label} svg height->width`);
-  expect(
-    (Number(flipped.leftViewportExtensionPx) || 0) + (Number(flipped.rightViewportExtensionPx) || 0)
-  ).toBeGreaterThanOrEqual(
-    Math.max(0, (Number(before.bottomViewportExtensionPx) || 0) + (Number(before.significanceViewportExtensionPx) || 0) - reserveTolerance)
-  );
-}
-
-function horizontalReserveAllowance(metrics, fallback = 16) {
-  const reserve = (Number(metrics?.leftViewportExtensionPx) || 0) + (Number(metrics?.rightViewportExtensionPx) || 0);
-  return Math.max(fallback, Math.min(220, reserve));
+  expect(after.flipTransition?.axisSpanTarget, `${label} active axis target`).not.toBeNull();
+  expectApprox(after.flipTransition?.axisSpanTarget?.plotWidthPx, before.yAxisSpan, axisTolerance, `${label} stored plot width`);
+  expectApprox(after.flipTransition?.axisSpanTarget?.plotHeightPx, before.xAxisSpan, axisTolerance, `${label} stored plot height`);
+  expectApprox(after.plotWidthPx, before.yAxisSpan, axisTolerance, `${label} target plot width`);
+  expectApprox(after.plotHeightPx, before.xAxisSpan, axisTolerance, `${label} target plot height`);
+  expectApprox(after.xAxisSpan, before.yAxisSpan, axisTolerance, `${label} y-axis->x-axis span`);
+  expectApprox(after.yAxisSpan, before.xAxisSpan, axisTolerance, `${label} x-axis->y-axis span`);
+  if(after.flipAxes){
+    expect(
+      (Number(after.leftViewportExtensionPx) || 0) + (Number(after.rightViewportExtensionPx) || 0)
+    ).toBeGreaterThanOrEqual(
+      Math.max(0, (Number(before.bottomViewportExtensionPx) || 0) + (Number(before.significanceViewportExtensionPx) || 0) - reserveTolerance)
+    );
+  }
 }
 
 function verticalReserveAllowance(metrics, fallback = 16) {
@@ -500,7 +510,7 @@ function verticalReserveAllowance(metrics, fallback = 16) {
 test.describe('Box flip axes with manual resize', () => {
   test.setTimeout(120_000);
 
-  test('state-machine flip cycles preserve per-orientation proportions and transpose geometry', async ({ page }) => {
+  test('repeated flips preserve exact drawable-axis transposition after manual resizing', async ({ page }) => {
     const issues = registerIssueCollectors(page);
     await installLocalCdnOverrides(page);
 
@@ -530,7 +540,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(firstFlipped.bottomViewportExtensionPx).toBeGreaterThanOrEqual(0);
     expect(firstFlipped.significanceViewportExtensionPx).toBe(0);
     expect(firstFlipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expectTransposePair(baselineUnflipped, firstFlipped, { label: 'first flip transpose', svgTolerance: 20, axisTolerance: 26, plotTolerance: 40 });
+    expectTransposePair(baselineUnflipped, firstFlipped, { label: 'first flip transpose', axisTolerance: 1.5 });
 
     await setFlipAxes(page, false);
     const firstRestoredUnflipped = await page.evaluate(readFlipTransposeMetrics);
@@ -540,7 +550,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(firstRestoredUnflipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expect(firstRestoredUnflipped.bottomViewportExtensionPx + firstRestoredUnflipped.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(firstRestoredUnflipped.leftViewportExtensionPx + firstRestoredUnflipped.rightViewportExtensionPx).toBe(0);
-    expectOrientationStable(firstRestoredUnflipped, baselineUnflipped, { label: 'first unflip restore', svgTolerance: 14, axisTolerance: 14, plotTolerance: 18 });
+    expectOrientationStable(firstRestoredUnflipped, baselineUnflipped, { label: 'first unflip restore', axisTolerance: 1.5 });
 
     await setFlipAxes(page, true);
     const secondFlipped = await page.evaluate(readFlipTransposeMetrics);
@@ -550,14 +560,14 @@ test.describe('Box flip axes with manual resize', () => {
     expect(secondFlipped.rotatedCategoryLabelCount).toBe(0);
     expect(secondFlipped.leftViewportExtensionPx + secondFlipped.rightViewportExtensionPx).toBeGreaterThan(0);
     expect(secondFlipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expectOrientationStable(secondFlipped, firstFlipped, { label: 'reflip restore', svgTolerance: 14, axisTolerance: 16, plotTolerance: 30 });
+    expectOrientationStable(secondFlipped, firstFlipped, { label: 'reflip restore', axisTolerance: 1.5 });
 
     await setFlipAxes(page, false);
     const secondRestoredUnflipped = await page.evaluate(readFlipTransposeMetrics);
     expect(secondRestoredUnflipped).not.toBeNull();
     expect(secondRestoredUnflipped.flipAxes).toBe(false);
     expect(secondRestoredUnflipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expectOrientationStable(secondRestoredUnflipped, baselineUnflipped, { label: 'second unflip restore', svgTolerance: 14, axisTolerance: 14, plotTolerance: 18 });
+    expectOrientationStable(secondRestoredUnflipped, baselineUnflipped, { label: 'second unflip restore', axisTolerance: 1.5 });
 
     const flippedWiderWidth = await resizeBoxWidthByRatio(page, 0.28);
     const flippedWider = await page.evaluate(readFlipTransposeMetrics);
@@ -572,7 +582,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(resizedFlipped).not.toBeNull();
     expect(resizedFlipped.flipAxes).toBe(true);
     expect(resizedFlipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expectTransposePair(flippedWider, resizedFlipped, { label: 'flip after unflipped resize', svgTolerance: 18, axisTolerance: 28, plotTolerance: 44 });
+    expectTransposePair(flippedWider, resizedFlipped, { label: 'flip after unflipped resize', axisTolerance: 1.5 });
 
     const flippedTallerHeight = await resizeBoxHeightByRatio(page, 0.28);
     const flippedExpanded = await page.evaluate(readFlipTransposeMetrics);
@@ -582,13 +592,14 @@ test.describe('Box flip axes with manual resize', () => {
     expect(flippedExpanded.svgBoxHeightPx).toBeGreaterThan(resizedFlipped.svgBoxHeightPx + 16);
     expect(flippedExpanded.yAxisSpan).toBeGreaterThan(resizedFlipped.yAxisSpan + 5);
     expect(flippedTallerHeight).not.toBeNull();
+    expectUndistortedViewport(flippedExpanded, 'flipped vertical resize');
 
     await setFlipAxes(page, false);
     const propagatedUnflipped = await page.evaluate(readFlipTransposeMetrics);
     expect(propagatedUnflipped).not.toBeNull();
     expect(propagatedUnflipped.flipAxes).toBe(false);
     expect(propagatedUnflipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expectTransposePair(propagatedUnflipped, flippedExpanded, { label: 'unflip after flipped resize', svgTolerance: 16, axisTolerance: 30, plotTolerance: 48 });
+    expectTransposePair(flippedExpanded, propagatedUnflipped, { label: 'unflip after flipped resize', axisTolerance: 1.5 });
 
     await setFlipAxes(page, true);
     const restoredFlippedAfterPropagation = await page.evaluate(readFlipTransposeMetrics);
@@ -597,9 +608,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredFlippedAfterPropagation.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(restoredFlippedAfterPropagation, flippedExpanded, {
       label: 'flipped restore after propagation',
-      svgTolerance: 14,
-      axisTolerance: 18,
-      plotTolerance: 24
+      axisTolerance: 1.5
     });
 
     await setFlipAxes(page, false);
@@ -609,10 +618,12 @@ test.describe('Box flip axes with manual resize', () => {
     expect(finalUnflipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(finalUnflipped, propagatedUnflipped, {
       label: 'final unflipped restore',
-      svgTolerance: 14,
-      axisTolerance: 16,
-      plotTolerance: 22
+      axisTolerance: 1.5
     });
+
+    await resizeBoxHeightByRatio(page, -0.2);
+    const resizedFinalUnflipped = await page.evaluate(readFlipTransposeMetrics);
+    expectUndistortedViewport(resizedFinalUnflipped, 'unflipped vertical resize after flip cycle');
 
     expect(issues.critical).toEqual([]);
   });
@@ -626,10 +637,6 @@ test.describe('Box flip axes with manual resize', () => {
     await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
     await loadStripExample(page);
     await shrinkBoxWidthByHalf(page);
-
-    const beforeSignificanceNonFlipped = await page.evaluate(readFlipTransposeMetrics);
-    expect(beforeSignificanceNonFlipped).not.toBeNull();
-    expect(beforeSignificanceNonFlipped.flipAxes).toBe(false);
 
     await setFlipAxes(page, true);
     const beforeSignificance = await page.evaluate(readFlipTransposeMetrics);
@@ -706,13 +713,10 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.bottomViewportExtensionPx + restoredWithSignificance.significanceViewportExtensionPx).toBeGreaterThan(0);
     expect(restoredWithSignificance.leftViewportExtensionPx + restoredWithSignificance.rightViewportExtensionPx).toBe(0);
-    expect(Math.abs(restoredWithSignificance.svgBoxWidthPx - afterSignificance.svgBoxHeightPx))
-      .toBeLessThanOrEqual(verticalReserveAllowance(restoredWithSignificance, 14));
-    expect(restoredWithSignificance.svgBoxHeightPx).toBeGreaterThanOrEqual(afterSignificance.svgBoxWidthPx - 140);
-    expect(restoredWithSignificance.svgBoxHeightPx).toBeLessThanOrEqual(afterSignificance.svgBoxWidthPx + 40);
-    expect(Math.abs(restoredWithSignificance.plotWidthPx - beforeSignificanceNonFlipped.plotWidthPx)).toBeLessThanOrEqual(14);
-    expect(Math.abs(restoredWithSignificance.plotHeightPx - beforeSignificanceNonFlipped.plotHeightPx)).toBeLessThanOrEqual(4);
-    expect(Math.abs(restoredWithSignificance.yAxisSpan - beforeSignificanceNonFlipped.yAxisSpan)).toBeLessThanOrEqual(4);
+    expectTransposePair(afterSignificance, restoredWithSignificance, {
+      label: 'unflip with significance',
+      axisTolerance: 1.5
+    });
     expect(restoredWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
 
     await setFlipAxes(page, true);
@@ -730,9 +734,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(reflipWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(reflipWithSignificance, afterSignificance, {
       label: 'reflip with significance',
-      svgTolerance: 16,
-      axisTolerance: 18,
-      plotTolerance: 24
+      axisTolerance: 1.5
     });
 
     await setFlipAxes(page, false);
@@ -744,9 +746,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(finalUnflipWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(finalUnflipWithSignificance, restoredWithSignificance, {
       label: 'final unflip with significance',
-      svgTolerance: 14,
-      axisTolerance: 16,
-      plotTolerance: 22
+      axisTolerance: 1.5
     });
 
     expect(issues.critical).toEqual([]);
@@ -783,14 +783,10 @@ test.describe('Box flip axes with manual resize', () => {
     expect(afterFlip.rightViewportExtensionPx).toBeGreaterThan(0);
     expect(afterFlip.leftViewportExtensionPx).toBeGreaterThan(0);
     expect(afterFlip.overflowMaxPx).toBeLessThanOrEqual(2.5);
-    expect(afterFlip.svgBoxWidthPx).toBeGreaterThanOrEqual(beforeFlip.svgBoxHeightPx);
-    expect(afterFlip.svgBoxWidthPx).toBeLessThanOrEqual(beforeFlip.svgBoxHeightPx + horizontalReserveAllowance(afterFlip, 80));
-    expect(Math.abs(afterFlip.svgBoxHeightPx - beforeFlip.svgBoxWidthPx))
-      .toBeLessThanOrEqual(verticalReserveAllowance(afterFlip, 16));
-    expect(afterFlip.plotWidthPx).not.toBeNull();
-    expect(afterFlip.plotHeightPx).not.toBeNull();
-    expect(Math.abs(afterFlip.xAxisSpan - beforeFlip.yAxisSpan)).toBeLessThanOrEqual(20);
-    expect(Math.abs(afterFlip.yAxisSpan - beforeFlip.xAxisSpan)).toBeLessThanOrEqual(20);
+    expectTransposePair(beforeFlip, afterFlip, {
+      label: 'flip after significance',
+      axisTolerance: 1.5
+    });
 
     await setFlipAxes(page, false);
     const restoredAfterFlip = await page.evaluate(readFlipTransposeMetrics);
@@ -801,9 +797,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredAfterFlip.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(restoredAfterFlip, beforeFlip, {
       label: 'restore after stats-before-flip',
-      svgTolerance: 14,
-      axisTolerance: 16,
-      plotTolerance: 22
+      axisTolerance: 1.5
     });
 
     expect(issues.critical).toEqual([]);
@@ -889,9 +883,7 @@ test.describe('Box flip axes with manual resize', () => {
     expect(restoredWithSignificance.overflowMaxPx).toBeLessThanOrEqual(2.5);
     expectOrientationStable(restoredWithSignificance, beforeFlip, {
       label: 'restore before significance off',
-      svgTolerance: 14,
-      axisTolerance: 16,
-      plotTolerance: 22
+      axisTolerance: 1.5
     });
 
     await setShowSignificance(page, false, { expectedFlip: false });
