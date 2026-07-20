@@ -69,6 +69,21 @@ test.describe('PCA label toggle regression', () => {
     await openComponentFromWelcome(page, { type: 'pca', pageId: 'pcaPage' }, { first: true });
     await loadPcaFixture(page);
 
+    const labelCell = page.locator('#pcaHot .ag-floating-top .ag-cell[col-id="c1"]').first();
+    const labelCheckbox = labelCell.locator('.ag-checkbox-input-wrapper');
+    const [cellBox, checkboxBox] = await Promise.all([
+      labelCell.boundingBox(),
+      labelCheckbox.boundingBox()
+    ]);
+    expect(cellBox).toBeTruthy();
+    expect(checkboxBox).toBeTruthy();
+    const cellCenterX = cellBox.x + (cellBox.width / 2);
+    const checkboxCenterX = checkboxBox.x + (checkboxBox.width / 2);
+    const cellCenterY = cellBox.y + (cellBox.height / 2);
+    const checkboxCenterY = checkboxBox.y + (checkboxBox.height / 2);
+    expect(Math.abs(cellCenterX - checkboxCenterX)).toBeLessThanOrEqual(1);
+    expect(Math.abs(cellCenterY - checkboxCenterY)).toBeLessThanOrEqual(1);
+
     await expect.poll(() => readPcaManualLabels(page)).toEqual([]);
 
     await clickPcaLabelToggle(page, 'c1');

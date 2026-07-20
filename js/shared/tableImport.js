@@ -2,6 +2,11 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const tableImport = Shared.tableImport = Shared.tableImport || {};
+  let importOptionsPrompt = null;
+
+  tableImport.setImportOptionsPrompt = function setImportOptionsPrompt(handler){
+    importOptionsPrompt = typeof handler === 'function' ? handler : null;
+  };
 
   const IMPORT_FORMAT_DEFINITIONS = Object.freeze({
     graph: Object.freeze({ extension: 'graph', label: 'Graphitix', dispatch: 'graph' }),
@@ -2279,8 +2284,27 @@
       debugLog('openFile.noFile', {}, debugLabel);
       return null;
     }
+    options = Object.assign({
+      delimiter: readDatasetOption(inputEl, 'importDelimiter', ''),
+      sheetName: readDatasetOption(inputEl, 'sheetName', ''),
+      sourceStartRow: readDatasetOption(inputEl, 'sourceStartRow', 1),
+      firstRowIsTitles: readBooleanOption(inputEl?.dataset?.firstRowIsTitles, true),
+      trimCells: readBooleanOption(inputEl?.dataset?.trimCells, false)
+    }, options);
     const ext = getFileExtension(file);
     debugLog('openFile.fileSelected', { name: file.name, size: file.size, ext }, debugLabel);
+    const dispatchKind = tableImport.getDispatchKind(ext);
+    const needsImportOptions = dispatchKind === 'tabular-text' || dispatchKind === 'spreadsheet';
+    const importOptionsConfirmed = options.importOptionsConfirmed === true
+      || inputEl?.dataset?.importOptionsConfirmed === 'true';
+    if(needsImportOptions && !importOptionsConfirmed && importOptionsPrompt){
+      const selectedOptions = await importOptionsPrompt(file, { inputEl, options, dispatchKind });
+      if(!selectedOptions){
+        debugLog('openFile.cancelled', { name: file.name, ext }, debugLabel);
+        return null;
+      }
+      options = Object.assign({}, options, selectedOptions);
+    }
     const defaultStartRow = options.startRow ?? 0;
     const defaultStartCol = options.startCol ?? 0;
     const allowShrink = options.allowShrink !== false;
@@ -2291,7 +2315,6 @@
         : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
       return handler(rows, meta);
     };
-    const dispatchKind = tableImport.getDispatchKind(ext);
     if(dispatchKind === 'pzfx'){
       if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
       try{

@@ -109,6 +109,7 @@
       welcomeDataImportPrompt: document.getElementById('welcomeDataImportPrompt'),
       welcomeDataImportTitle: document.getElementById('welcomeDataImportTitle'),
       welcomeDataImportMessage: document.getElementById('welcomeDataImportMessage'),
+      welcomeDataImportComponentField: document.getElementById('welcomeDataImportComponentField'),
       welcomeDataImportComponent: document.getElementById('welcomeDataImportComponent'),
       welcomeDataImportSheetField: document.getElementById('welcomeDataImportSheetField'),
       welcomeDataImportSheet: document.getElementById('welcomeDataImportSheet'),

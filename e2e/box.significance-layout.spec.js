@@ -317,6 +317,262 @@ async function waitForVerticalSignificanceAnnotations(page) {
   );
 }
 
+test('box asterisk significance labels optically align with ns labels', async ({ page }) => {
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  const centers = await page.evaluate(async () => {
+    const hooks = window.Components?.box?.__testHooks;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 400 300');
+    svg.setAttribute('width', '400');
+    svg.setAttribute('height', '300');
+    svg.style.position = 'absolute';
+    svg.style.left = '-10000px';
+    document.body.appendChild(svg);
+    const runtime = hooks.buildBoxPairAnnotationRuntime({
+      svg,
+      traces: Array.from({ length: 4 }, () => ({ rawY: [12, 14] })),
+      significanceEnabled: true,
+      annotationOpts: {
+        showWhiskers: true,
+        whiskerMode: 'adaptive',
+        fontSize: 20,
+        strokeWidth: 1
+      },
+      helpers: {
+        annotationStyle: {
+          showWhiskers: true,
+          whiskerMode: 'adaptive',
+          fontSize: 20,
+          strokeWidth: 1
+        }
+      },
+      orientation: 'vertical',
+      categoryCenter: idx => 80 + idx * 80,
+      valueToCoord: value => 240 - value * 10,
+      levelGap: 25,
+      levelStep: 25,
+      annotationBracketSize: 10,
+      annotationMaxByTrace: [14, 14, 14, 14]
+    });
+    runtime.renderPairs([
+      { ai: 0, bi: 1, rangeMax: 14, p: 0.04 },
+      { ai: 1, bi: 3, rangeMax: 14, p: 0.2 },
+      { ai: 0, bi: 2, rangeMax: 14, p: 0.2 }
+    ]);
+    const upperPath = Array.from(svg.querySelectorAll('path.box-significance-annotation'))
+      .find(path => path.getAttribute('data-sig-x1') === '80' && path.getAttribute('data-sig-x2') === '240');
+    const lowerPath = Array.from(svg.querySelectorAll('path.box-significance-annotation'))
+      .find(path => Number(path.getAttribute('data-sig-x1')) < 100 && Number(path.getAttribute('data-sig-x2')) < 200);
+    const upperInner = Number(upperPath?.getAttribute('data-sig-inner'));
+    const lowerInner = Number(lowerPath?.getAttribute('data-sig-inner'));
+    const upperCoords = String(upperPath?.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
+    const upperRightWhiskerLength = upperCoords[upperCoords.length - 1] - upperInner;
+    svg.querySelectorAll('path').forEach(path => path.remove());
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.removeAttribute('style');
+    svg.querySelectorAll('text').forEach(text => {
+      const computed = getComputedStyle(text);
+      text.setAttribute('fill', '#000');
+      text.setAttribute('font-family', computed.fontFamily);
+      text.setAttribute('font-size', computed.fontSize);
+      text.setAttribute('font-style', computed.fontStyle);
+      text.setAttribute('font-weight', computed.fontWeight);
+      text.removeAttribute('visibility');
+    });
+    const image = new Image();
+    const loaded = new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+    });
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`;
+    await loaded;
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 300;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(image, 0, 0, 400, 300);
+    const pixels = context.getImageData(0, 0, 400, 300).data;
+    const readInkBounds = (minX, maxX) => {
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (let y = 0; y < 150; y += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          if (pixels[(y * 400 + x) * 4 + 3] > 24) {
+            top = Math.min(top, y);
+            bottom = Math.max(bottom, y);
+          }
+        }
+      }
+      return { top, bottom, center: (top + bottom) / 2 };
+    };
+    const labels = Array.from(svg.querySelectorAll('text.box-significance-annotation'));
+    const starInk = readInkBounds(80, 145);
+    const nsInk = readInkBounds(210, 270);
+    const result = {
+      star: starInk.center,
+      ns: nsInk.center,
+      clearanceAboveLabels: Math.min(starInk.top, nsInk.top) - upperInner,
+      upperRightWhiskerLength,
+      blockToDataGap: 100 - lowerInner,
+      starY: Number(labels.find(text => text.textContent === '*')?.getAttribute('y')),
+      nsY: Number(labels.find(text => text.textContent === 'ns')?.getAttribute('y')),
+      fontSize: labels.find(text => text.textContent === '*')?.getAttribute('font-size')
+    };
+    svg.remove();
+    return result;
+  });
+
+  expect(Math.abs(centers.star - centers.ns), JSON.stringify(centers)).toBeLessThanOrEqual(0.5);
+  expect(centers.clearanceAboveLabels, JSON.stringify(centers)).toBeGreaterThanOrEqual(12);
+  expect(centers.clearanceAboveLabels, JSON.stringify(centers)).toBeLessThanOrEqual(14);
+  expect(centers.upperRightWhiskerLength, JSON.stringify(centers)).toBeGreaterThanOrEqual(3);
+  expect(centers.blockToDataGap, JSON.stringify(centers)).toBeGreaterThanOrEqual(22);
+  expect(centers.blockToDataGap, JSON.stringify(centers)).toBeLessThanOrEqual(24);
+  expect(issues.critical).toEqual([]);
+});
+
+test('flipped adaptive whiskers clear full-width P-value labels', async ({ page }) => {
+  const issues = registerIssueCollectors(page);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'box', pageId: 'boxPage' }, { first: true });
+
+  const layout = await page.evaluate(() => {
+    const hooks = window.Components?.box?.__testHooks;
+    const labelMode = document.querySelector('#boxSignificanceLabelMode');
+    labelMode.value = 'p';
+    labelMode.dispatchEvent(new Event('change', { bubbles: true }));
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 800 420');
+    svg.setAttribute('width', '800');
+    svg.setAttribute('height', '420');
+    svg.style.position = 'absolute';
+    svg.style.left = '-10000px';
+    document.body.appendChild(svg);
+    const centers = [70, 130, 190, 250, 310];
+    const runtime = hooks.buildBoxPairAnnotationRuntime({
+      svg,
+      traces: centers.map(() => ({ rawY: [12, 16] })),
+      significanceEnabled: true,
+      annotationOpts: {
+        orientation: 'horizontal',
+        showWhiskers: true,
+        whiskerMode: 'adaptive',
+        fontSize: 20,
+        strokeWidth: 1,
+        pScientific: false,
+        pDecimals: 2
+      },
+      helpers: {
+        annotationStyle: {
+          orientation: 'horizontal',
+          showWhiskers: true,
+          whiskerMode: 'adaptive',
+          fontSize: 20,
+          strokeWidth: 1,
+          pScientific: false,
+          pDecimals: 2
+        }
+      },
+      orientation: 'horizontal',
+      categoryCenter: idx => centers[idx],
+      valueToCoord: value => value * 10,
+      annotationBracketSize: 10,
+      annotationMaxByTrace: centers.map(() => 16)
+    });
+    const pairs = [];
+    for(let ai = 0; ai < centers.length - 1; ai += 1){
+      for(let bi = ai + 1; bi < centers.length; bi += 1){
+        pairs.push({ ai, bi, rangeMax: 16, p: (ai + bi) % 2 ? 1 : 0.55 });
+      }
+    }
+    runtime.renderPairs(pairs);
+
+    const labels = Array.from(svg.querySelectorAll('text.box-significance-annotation'))
+      .map(node => {
+        const bbox = node.getBBox();
+        return {
+          text: node.textContent,
+          left: bbox.x,
+          right: bbox.x + bbox.width,
+          top: bbox.y,
+          bottom: bbox.y + bbox.height
+        };
+      });
+    const paths = Array.from(svg.querySelectorAll('path.box-significance-annotation'));
+    const pathGeometry = paths.map(path => {
+      const values = String(path.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
+      return {
+        inner: Number(path.getAttribute('data-sig-inner')),
+        level: Number(path.getAttribute('data-sig-level')),
+        top: Math.min(Number(path.getAttribute('data-sig-x1')), Number(path.getAttribute('data-sig-x2'))),
+        bottom: Math.max(Number(path.getAttribute('data-sig-x1')), Number(path.getAttribute('data-sig-x2'))),
+        values
+      };
+    });
+    const segments = pathGeometry
+      .flatMap((geometry, pathIndex) => {
+        const values = geometry.values;
+        if(values.length < 8){
+          return [];
+        }
+        return [
+          { pathIndex, level: geometry.level, left: Math.min(values[0], values[2]), right: Math.max(values[0], values[2]), y: values[1] },
+          { pathIndex, level: geometry.level, left: Math.min(values[4], values[6]), right: Math.max(values[4], values[6]), y: values[5] }
+        ];
+      });
+    const collisions = [];
+    segments.forEach((segment, segmentIndex) => {
+      labels.forEach(label => {
+        const crossesLabelRow = segment.y >= label.top && segment.y <= label.bottom;
+        const overlapsLabelWidth = segment.right > label.left && segment.left < label.right;
+        if(crossesLabelRow && overlapsLabelWidth){
+          collisions.push({ segmentIndex, segment, label });
+        }
+      });
+    });
+    const staleLevelEndpoints = [];
+    segments.forEach(segment => {
+      const precedingSpines = pathGeometry
+        .slice(0, segment.pathIndex)
+        .filter(geometry =>
+          geometry.level < segment.level
+          && segment.y >= geometry.top - 8
+          && segment.y <= geometry.bottom + 8
+        )
+        .map(geometry => geometry.inner)
+        .filter(Number.isFinite);
+      if(!precedingSpines.length){
+        return;
+      }
+      const furthestPrecedingSpine = Math.max(...precedingSpines);
+      if(segment.left < furthestPrecedingSpine){
+        staleLevelEndpoints.push({ segment, furthestPrecedingSpine });
+      }
+    });
+    const result = {
+      collisions,
+      staleLevelEndpoints,
+      labelTexts: labels.map(label => label.text),
+      labelCount: labels.length,
+      pathCount: svg.querySelectorAll('path.box-significance-annotation').length
+    };
+    svg.remove();
+    return result;
+  });
+
+  expect(layout.labelCount).toBe(10);
+  expect(layout.pathCount).toBe(10);
+  expect(new Set(layout.labelTexts)).toEqual(new Set(['0.55', '1.00']));
+  expect(layout.collisions, JSON.stringify(layout.collisions)).toEqual([]);
+  expect(layout.staleLevelEndpoints, JSON.stringify(layout.staleLevelEndpoints)).toEqual([]);
+  expect(issues.critical).toEqual([]);
+});
+
 test('box pairwise significance stays stable without manual resize and after tab restore', async ({ page }) => {
   test.setTimeout(120_000);
   const issues = registerIssueCollectors(page);
@@ -330,6 +586,7 @@ test('box pairwise significance stays stable without manual resize and after tab
 
   await loadBoxExampleData(page);
   await page.locator('#boxGraphType').selectOption('strip');
+  await page.locator('#boxShowFrame').check();
   await page.waitForTimeout(350);
   await ensureBoxStatsAndSignificanceReady(page);
   await setBoxSignificanceToggle(page, true);
@@ -341,6 +598,28 @@ test('box pairwise significance stays stable without manual resize and after tab
     () => page.locator('#boxPlot path.box-significance-annotation[data-sig-orientation="vertical"]').count(),
     { timeout: 20_000 }
   ).toBeGreaterThan(0);
+  const frameContainment = await page.evaluate(() => {
+    const svg = document.querySelector('#boxPlot svg');
+    const significanceLayer = svg?.querySelector('[data-box-significance-layer="1"]');
+    const frame = svg?.querySelector('g[data-box-frame="1"]');
+    const top = frame?.querySelector('[data-box-frame-side="top"]');
+    const right = frame?.querySelector('[data-box-frame-side="right"]');
+    const leftExtension = frame?.querySelector('[data-box-frame-extension="left"]');
+    const bounds = significanceLayer?.getBBox?.();
+    return {
+      annotationTop: Number(bounds?.y),
+      frameTop: Number(top?.getAttribute('y1')),
+      plotTop: Number(svg?.dataset?.boxPlotTop),
+      rightTop: Number(right?.getAttribute('y1')),
+      hasLeftExtension: !!leftExtension,
+      visible: frame ? getComputedStyle(frame).display !== 'none' : false
+    };
+  });
+  expect(frameContainment.visible).toBe(true);
+  expect(frameContainment.frameTop).toBeLessThan(frameContainment.plotTop);
+  expect(frameContainment.frameTop).toBeLessThanOrEqual(frameContainment.annotationTop - 3);
+  expect(frameContainment.rightTop).toBeCloseTo(frameContainment.frameTop, 6);
+  expect(frameContainment.hasLeftExtension).toBe(true);
 
   await activateWelcomeTab(page);
   await page.waitForTimeout(300);

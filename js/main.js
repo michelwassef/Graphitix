@@ -685,13 +685,17 @@
     table.append(head, body);
   }
 
-  function showWelcomeDataImportPrompt(file) {
+  function showWelcomeDataImportPrompt(file, promptOptions = {}) {
+    const fixedComponent = promptOptions.component && WORKSPACES[promptOptions.component]
+      ? promptOptions.component
+      : '';
     if (!hasWelcomeDataImportPrompt()) {
-      return Promise.resolve({ component: 'box', firstRowIsTitles: true });
+      return Promise.resolve({ component: fixedComponent || 'box', firstRowIsTitles: true });
     }
     const prompt = dom.welcomeDataImportPrompt;
     const message = dom.welcomeDataImportMessage;
     const select = dom.welcomeDataImportComponent;
+    const componentField = dom.welcomeDataImportComponentField;
     const firstRow = dom.welcomeDataImportFirstRow;
     const openBtn = dom.welcomeDataImportOpen;
     const cancelBtn = dom.welcomeDataImportCancel;
@@ -712,7 +716,8 @@
         option.textContent = getWelcomeGraphLabel(type);
         return option;
       }));
-    select.value = select.value || 'box';
+    select.value = fixedComponent || select.value || 'box';
+    if (componentField) componentField.hidden = !!fixedComponent;
     firstRow.checked = true;
     if (trim) trim.checked = true;
     if (startRow) startRow.value = '1';
@@ -720,7 +725,9 @@
     if (delimiterField) delimiterField.hidden = isSpreadsheet;
     syncWelcomeSheetOptions([], '');
     if (message) {
-      message.textContent = `Choose where to import ${file?.name || 'this table'}.`;
+      message.textContent = fixedComponent
+        ? `Import ${file?.name || 'this table'} into ${getWelcomeGraphLabel(fixedComponent)}.`
+        : `Choose where to import ${file?.name || 'this table'}.`;
     }
 
     const renderPreview = async () => {
@@ -783,10 +790,20 @@
       cancelBtn.addEventListener('click', onCancel);
       listeners.forEach(([node, event, handler]) => node.addEventListener(event, handler));
       prompt.removeAttribute('hidden');
-      select.focus?.();
+      (fixedComponent ? delimiter : select)?.focus?.();
       void renderPreview();
     });
   }
+
+  Shared.tableImport?.setImportOptionsPrompt?.(async file => {
+    const owner = MainSession.getActiveTab();
+    if (!owner || owner.isWelcome || !WELCOME_DATA_COMPONENTS.includes(owner.type)) {
+      return null;
+    }
+    const choice = await showWelcomeDataImportPrompt(file, { component: owner.type });
+    const active = MainSession.getActiveTab();
+    return active?.id === owner.id ? choice : null;
+  });
 
   function resolvePrismComponent(prismMeta) {
     const kind = String(prismMeta?.kind || '').toLowerCase();
@@ -872,7 +889,8 @@
       importDelimiter: options.delimiter || '',
       sourceStartRow: String(options.sourceStartRow || 1),
       trimCells: options.trimCells === false ? 'false' : 'true',
-      sheetName: options.sheetName || ''
+      sheetName: options.sheetName || '',
+      importOptionsConfirmed: 'true'
     };
     Object.entries(importDataset).forEach(([key, value]) => { input.dataset[key] = value; });
     input.value = '';

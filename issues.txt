@@ -26,3 +26,5 @@
 
 [open][P3][2026-07-19] The welcome file-format registry advertises `.txt`, but `openWelcomeFile` does not dispatch TXT files to the tabular importer. Route TXT through the same prompt/import path as CSV and TSV, and add a welcome-import regression covering both picker and drop-zone entry points.
 [open][P2][2026-07-19] Component graph resizing has two draw-request authorities: `componentLayout` schedules a generic draw and most component `resizableBoxOptions.onResize` callbacks schedule another specialized refresh. Frame debouncing currently hides the duplication in most components, but the contract is fragile and caused Heatmap's double render. Normalize resize ownership so each phase has one scheduler.
+
+[open][P2][2026-07-20] `scatter.statsDefaults.isolation.test.js` consistently times out while waiting for the same-component regression-overlay activation scenario, even in isolation. Replace timer-based settling with an explicit owner-scoped render-ready signal, then verify the final session/payload/SVG agreement without extending the timeout.

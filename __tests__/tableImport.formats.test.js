@@ -29,4 +29,34 @@ describe('table import format registry', () => {
     expect(api.supportsExtension('pzfx', 'table')).toBe(true);
     expect(api.supportsExtension('graph', 'table')).toBe(false);
   });
+
+  test('selected tab import options are requested before parsing', async () => {
+    const api = window.Shared.tableImport;
+    const OriginalFileReader = global.FileReader;
+    global.FileReader = class FileReader {
+      readAsText() {
+        this.onload({ target: { result: 'Heading A,Heading B\n 1 , 2 ' } });
+      }
+    };
+    const prompt = jest.fn().mockResolvedValue({
+      sourceStartRow: 2,
+      firstRowIsTitles: true,
+      trimCells: true
+    });
+    const onRows = jest.fn(rows => ({ rows: rows.length, cols: rows[0]?.length || 0 }));
+    api.setImportOptionsPrompt(prompt);
+
+    try {
+      const file = new File(['ignored'], 'data.csv', { type: 'text/csv' });
+      await api.openFile({ id: 'boxFile', files: [file], dataset: {} }, {
+        renameTab: false,
+        onRows
+      });
+
+      expect(prompt).toHaveBeenCalledTimes(1);
+      expect(onRows).toHaveBeenCalledWith([['1', '2']], expect.objectContaining({ delimiter: ',' }));
+    } finally {
+      global.FileReader = OriginalFileReader;
+    }
+  });
 });

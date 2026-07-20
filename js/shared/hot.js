@@ -3658,8 +3658,27 @@
           hostRoot,
           '.ag-header, .ag-header-viewport',
           'bottom'
+        ),
+        verticalScrollbarLeft: resolveFormulaReferenceOverlayOcclusionEdge(
+          hostRoot,
+          '.ag-body-vertical-scroll, .ag-body-vertical-scroll-viewport, .ag-body-vertical-scroll-container',
+          'left'
         )
       };
+    };
+
+    const isHorizontallyScrollableGridCell = (cellEl)=>{
+      if(!cellEl || typeof cellEl.closest !== 'function'){
+        return false;
+      }
+      if(cellEl.closest(
+        '.ag-pinned-left-cols-viewport, .ag-pinned-left-cols-container, .ag-pinned-right-cols-viewport, .ag-pinned-right-cols-container, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top'
+      )){
+        return false;
+      }
+      return !!cellEl.closest(
+        '.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-floating-top-center, .ag-pinned-top-center'
+      );
     };
 
     const resolveFormulaReferenceOverlayVisibleRect = (cellEl, rect, hostRect, visibilityContext = null)=>{
@@ -3684,8 +3703,7 @@
         }
       }
 
-      const isCenterCell = !!(cellEl && typeof cellEl.closest === 'function'
-        && cellEl.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+      const isCenterCell = isHorizontallyScrollableGridCell(cellEl);
       const isFloatingTopCell = !!(cellEl && typeof cellEl.closest === 'function'
         && cellEl.closest('.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top'));
 
@@ -3697,6 +3715,10 @@
         }
         if(Number.isFinite(pinnedRightLeft)){
           clipRight = Math.min(clipRight, pinnedRightLeft);
+        }
+        const verticalScrollbarLeft = visibilityContext.verticalScrollbarLeft;
+        if(Number.isFinite(verticalScrollbarLeft)){
+          clipRight = Math.min(clipRight, verticalScrollbarLeft);
         }
       }
       if(!isFloatingTopCell && visibilityContext){
@@ -4498,6 +4520,10 @@
         headerBottom: resolveSelectionOcclusionEdge(
           '.ag-header, .ag-header-viewport, .ag-pinned-left-header, .ag-pinned-left-header-viewport',
           'bottom'
+        ),
+        verticalScrollbarLeft: resolveSelectionOcclusionEdge(
+          '.ag-body-vertical-scroll, .ag-body-vertical-scroll-viewport, .ag-body-vertical-scroll-container',
+          'left'
         )
       };
     };
@@ -4520,8 +4546,7 @@
         clipRight = viewportRect.right;
         clipBottom = viewportRect.bottom;
       }
-      const isCenterCell = !!(cell && typeof cell.closest === 'function'
-        && cell.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+      const isCenterCell = isHorizontallyScrollableGridCell(cell);
       const isFloatingTopCell = !!(cell && typeof cell.closest === 'function'
         && cell.closest('.ag-floating-top, .ag-pinned-top, .ag-floating-top-viewport, .ag-pinned-top-viewport, .ag-pinned-left-floating-top, .ag-pinned-right-floating-top'));
       if(isCenterCell && visibilityContext){
@@ -4532,6 +4557,10 @@
         }
         if(Number.isFinite(pinnedRightLeft)){
           clipRight = Math.min(clipRight, pinnedRightLeft);
+        }
+        const verticalScrollbarLeft = visibilityContext.verticalScrollbarLeft;
+        if(Number.isFinite(verticalScrollbarLeft)){
+          clipRight = Math.min(clipRight, verticalScrollbarLeft);
         }
       }
       if(!isFloatingTopCell && visibilityContext){
@@ -4646,14 +4675,14 @@
         if(!cell || !Number.isInteger(row) || !Number.isInteger(col)){
           return;
         }
-        const isCenterCell = !!(cell && typeof cell.closest === 'function'
-          && cell.closest('.ag-center-cols-viewport, .ag-center-cols-container, .ag-center-cols-clipper'));
+        const isCenterCell = isHorizontallyScrollableGridCell(cell);
         const rawRect = (rect && typeof rect === 'object') ? rect : cell.getBoundingClientRect?.();
         if(!rawRect || rawRect.width <= 0 || rawRect.height <= 0){
           return;
         }
-        // Pinned/floating cells define visible boundaries by construction.
-        // Apply occlusion-based suppression only for center-body cells.
+        // Fixed pinned cells define visible boundaries by construction.
+        // Horizontally scrolling body and pinned-top center cells must suppress
+        // range edges clipped by the same viewport.
         if(!isCenterCell){
           if(col === selection.from.col){
             visible.left = true;
@@ -4676,7 +4705,12 @@
         if(col === selection.from.col && !isEdgeClipped(visibleRect.left, rawRect.left, 'left')){
           visible.left = true;
         }
-        if(col === selection.to.col && !isEdgeClipped(visibleRect.right, rawRect.right, 'right')){
+        const verticalScrollbarLeft = visibilityContext?.verticalScrollbarLeft;
+        const rightEdgeMeetsScrollbar = Number.isFinite(verticalScrollbarLeft)
+          && rawRect.right >= (verticalScrollbarLeft - edgeClipTolerance);
+        if(col === selection.to.col
+          && !rightEdgeMeetsScrollbar
+          && !isEdgeClipped(visibleRect.right, rawRect.right, 'right')){
           visible.right = true;
         }
         if(row === selection.from.row && !isEdgeClipped(visibleRect.top, rawRect.top, 'top')){
@@ -4768,6 +4802,10 @@
       // Keep mixed pinned-row/body selections out of column-header space.
       if(selectionIncludesPinnedTopRow){
         top = Math.max(top, bounds.top - hostRect.top);
+      }
+      const verticalScrollbarLeft = visibilityContext?.verticalScrollbarLeft;
+      if(Number.isFinite(verticalScrollbarLeft) && bounds.right >= verticalScrollbarLeft){
+        right = Math.min(right, verticalScrollbarLeft - hostRect.left);
       }
       const selectionStartsBelowPinnedTop = !!(usePinnedRows
         && Number.isInteger(normalized.from?.row)
@@ -12274,6 +12312,7 @@
         return undefined;
       },
       rowSelection: rowSelectionConfig || undefined,
+      selectionColumnDef: rowSelectionConfig ? overrides?.selectionColumnDef : undefined,
         suppressRowHoverHighlight: true,
         suppressMenuHide: true,
         ensureDomOrder: true,

@@ -122,6 +122,22 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('component import opens the import wizard with a fixed graph type', async () => {
+    await activateWorkspace('box');
+    const input = document.getElementById('boxFile');
+    const file = new File(['A,B\n1,2'], 'box-data.csv', { type: 'text/csv' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushAsyncWork(5);
+
+    expect(document.getElementById('welcomeDataImportPrompt').hidden).toBe(false);
+    expect(document.getElementById('welcomeDataImportComponentField').hidden).toBe(true);
+    expect(document.getElementById('welcomeDataImportComponent').value).toBe('box');
+    document.getElementById('welcomeDataImportCancel').click();
+    await flushAsyncWork(2);
+  });
+
   test('Box Plot: grouped example seeds condition names', async () => {
     await activateWorkspace('box');
     await flushAsyncWork(20);

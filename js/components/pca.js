@@ -1556,7 +1556,6 @@
       debugLabel: 'pca',
       data: pcaData,
       pinFirstColumn: true,
-      rowSelection: { mode: 'multiRow', headerCheckbox: false },
       firstRowClassName: 'hot-header-row htCenter',
       headerRowIndex: PCA_HEADER_ROW_INDEX,
       pinFirstRow: getPcaPinnedMetaRowCountForMode({
@@ -1630,6 +1629,10 @@
         baseRules['pca-label-row-divider'] = params => (
           Number.isInteger(params?.data?.__rowIndex) &&
           params.data.__rowIndex === PCA_LABEL_ROW_INDEX
+        );
+        baseRules['pca-label-checkbox-cell'] = params => (
+          params?.data?.__rowIndex === PCA_LABEL_ROW_INDEX &&
+          colIndex >= 1
         );
         baseRules['pca-grouped-header-row-divider'] = params => (
           pcaState.tableFormat === 'grouped' &&

@@ -1402,6 +1402,166 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(outline.style.borderTopColor).not.toBe('transparent');
   });
 
+  test('selection outline right edge scrolls under the vertical scrollbar when a pinned top row is selected', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agSelectionOutlinePinnedTopHorizontalClipHot';
+    document.body.appendChild(container);
+
+    container.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 420,
+      bottom: 320,
+      width: 420,
+      height: 320
+    });
+
+    const hot = createTable(
+      container,
+      { rows: 8, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-selection-outline-pinned-top-horizontal-clip',
+        data: Shared.createEmptyData(8, 4),
+        pinFirstRow: true
+      }
+    );
+
+    const floatingTop = document.createElement('div');
+    floatingTop.className = 'ag-floating-top';
+    const floatingViewport = document.createElement('div');
+    floatingViewport.className = 'ag-floating-top-viewport';
+    floatingViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 32,
+      right: 420,
+      bottom: 60,
+      width: 420,
+      height: 28
+    });
+    let horizontalOffset = 0;
+    const pinnedRow = document.createElement('div');
+    pinnedRow.className = 'ag-row';
+    pinnedRow.setAttribute('row-index', 't-0');
+    const pinnedStartCell = document.createElement('div');
+    pinnedStartCell.className = 'ag-cell hot-selected-cell';
+    pinnedStartCell.setAttribute('col-id', 'c1');
+    pinnedStartCell.setAttribute('row-index', 't-0');
+    pinnedStartCell.getBoundingClientRect = () => ({
+      left: 240 + horizontalOffset,
+      top: 32,
+      right: 340 + horizontalOffset,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    const pinnedClippedCell = document.createElement('div');
+    pinnedClippedCell.className = 'ag-cell hot-selected-cell';
+    pinnedClippedCell.setAttribute('col-id', 'c2');
+    pinnedClippedCell.setAttribute('row-index', 't-0');
+    pinnedClippedCell.getBoundingClientRect = () => ({
+      left: 340 + horizontalOffset,
+      top: 32,
+      right: 440 + horizontalOffset,
+      bottom: 60,
+      width: 100,
+      height: 28
+    });
+    pinnedRow.appendChild(pinnedStartCell);
+    pinnedRow.appendChild(pinnedClippedCell);
+    floatingViewport.appendChild(pinnedRow);
+    floatingTop.appendChild(floatingViewport);
+    container.appendChild(floatingTop);
+
+    const bodyViewport = document.createElement('div');
+    bodyViewport.className = 'ag-body-viewport';
+    bodyViewport.getBoundingClientRect = () => ({
+      left: 0,
+      top: 60,
+      right: 420,
+      bottom: 320,
+      width: 420,
+      height: 260
+    });
+    const centerViewport = document.createElement('div');
+    centerViewport.className = 'ag-center-cols-viewport';
+    centerViewport.getBoundingClientRect = bodyViewport.getBoundingClientRect;
+    const bodyRow = document.createElement('div');
+    bodyRow.className = 'ag-row';
+    bodyRow.setAttribute('row-index', '3');
+    const bodyStartCell = document.createElement('div');
+    bodyStartCell.className = 'ag-cell hot-selected-cell';
+    bodyStartCell.setAttribute('col-id', 'c1');
+    bodyStartCell.setAttribute('row-index', '3');
+    bodyStartCell.getBoundingClientRect = () => ({
+      left: 240 + horizontalOffset,
+      top: 116,
+      right: 340 + horizontalOffset,
+      bottom: 144,
+      width: 100,
+      height: 28
+    });
+    const bodyClippedCell = document.createElement('div');
+    bodyClippedCell.className = 'ag-cell hot-selected-cell';
+    bodyClippedCell.setAttribute('col-id', 'c2');
+    bodyClippedCell.setAttribute('row-index', '3');
+    bodyClippedCell.getBoundingClientRect = () => ({
+      left: 340 + horizontalOffset,
+      top: 116,
+      right: 440 + horizontalOffset,
+      bottom: 144,
+      width: 100,
+      height: 28
+    });
+    bodyRow.appendChild(bodyStartCell);
+    bodyRow.appendChild(bodyClippedCell);
+    centerViewport.appendChild(bodyRow);
+    bodyViewport.appendChild(centerViewport);
+    container.appendChild(bodyViewport);
+
+    const verticalScrollbar = document.createElement('div');
+    verticalScrollbar.className = 'ag-body-vertical-scroll';
+    verticalScrollbar.getBoundingClientRect = () => ({
+      left: 400,
+      top: 60,
+      right: 420,
+      bottom: 320,
+      width: 20,
+      height: 260
+    });
+    container.appendChild(verticalScrollbar);
+
+    const readOutlineRight = outline => (
+      Number.parseFloat(outline.style.left || '0')
+      + Number.parseFloat(outline.style.width || '0')
+    );
+
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    const outline = container.querySelector('.hot-selection-outline');
+    expect(outline).toBeTruthy();
+    expect(outline.style.display).toBe('block');
+    expect(outline.style.borderRightColor).toBe('transparent');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
+    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
+
+    horizontalOffset = -30;
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('none');
+    expect(readOutlineRight(outline)).toBeLessThanOrEqual(400);
+
+    horizontalOffset = -50;
+    hot.selectCell(0, 1, 3, 2);
+    await waitForNextFrame();
+
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
+    expect(readOutlineRight(outline)).toBeLessThan(400);
+  });
+
   test('first body row selection keeps top border visible below pinned first row', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

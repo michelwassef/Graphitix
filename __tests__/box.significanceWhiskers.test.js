@@ -57,6 +57,71 @@ describe('Box significance whisker modes', () => {
     expect(geom.refOuter).toBe(100);
   });
 
+  test('adaptive whiskers fill an endpoint void when only a comparison subset is rendered', () => {
+    expect(hooks).toBeDefined();
+    expect(typeof hooks.buildBoxPairAnnotationRuntime).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const render = pairs => {
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 400 300');
+      svg.setAttribute('width', '400');
+      svg.setAttribute('height', '300');
+      svg.getBoundingClientRect = () => ({ width: 400, height: 300, top: 0, left: 0, right: 400, bottom: 300 });
+      const runtime = hooks.buildBoxPairAnnotationRuntime({
+        svg,
+        traces: [
+          { rawY: [8, 10] },
+          { rawY: [10, 12] },
+          { rawY: [12, 14] }
+        ],
+        significanceEnabled: true,
+        annotationOpts: {
+          showWhiskers: true,
+          whiskerMode: 'adaptive',
+          fontSize: 12,
+          strokeWidth: 1
+        },
+        helpers: {
+          annotationStyle: {
+            showWhiskers: true,
+            whiskerMode: 'adaptive',
+            fontSize: 12,
+            strokeWidth: 1
+          }
+        },
+        orientation: 'vertical',
+        categoryCenter: idx => 100 + idx * 100,
+        valueToCoord: value => 240 - value * 10,
+        baseOffset: 25,
+        levelGap: 25,
+        levelStep: 25,
+        annotationBracketSize: 10,
+        annotationMaxByTrace: [10, 12, 14]
+      });
+      runtime.renderPairs(pairs);
+      const topPath = Array.from(svg.querySelectorAll('path.box-significance-annotation'))
+        .find(path => path.getAttribute('data-sig-x1') === '100' && path.getAttribute('data-sig-x2') === '300');
+      const coords = String(topPath?.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
+      return {
+        inner: Number(topPath?.getAttribute('data-sig-inner')),
+        leftOuter: coords[1],
+        rightOuter: coords[coords.length - 1]
+      };
+    };
+    const subset = render([
+      { ai: 0, bi: 1, rangeMax: 12, p: 0.01 },
+      { ai: 0, bi: 2, rangeMax: 14, p: 0.2 }
+    ]);
+    const all = render([
+      { ai: 0, bi: 1, rangeMax: 12, p: 0.01 },
+      { ai: 1, bi: 2, rangeMax: 14, p: 0.2 },
+      { ai: 0, bi: 2, rangeMax: 14, p: 0.2 }
+    ]);
+    expect(subset.rightOuter - subset.inner).toBeGreaterThan(25);
+    expect(subset.rightOuter).toBeGreaterThan(all.rightOuter + 10);
+    expect(subset.leftOuter - subset.inner).toBeCloseTo(all.leftOuter - all.inner, 6);
+  });
+
   test('p-value labels use threshold text in normal mode', () => {
     expect(hooks).toBeDefined();
     expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: false, decimals: 2 })).toBe('<0.01');
@@ -66,6 +131,87 @@ describe('Box significance whisker modes', () => {
   test('p-value labels use scientific notation when enabled', () => {
     expect(hooks).toBeDefined();
     expect(hooks.formatSignificanceLabel(0.0001, 'p', { scientific: true, decimals: 2 })).toBe('1.00e-4');
+  });
+
+  test('star labels are optically centered against the ns glyph', () => {
+    expect(typeof hooks.resolveSignificanceStarOpticalShiftPx).toBe('function');
+    expect(hooks.resolveSignificanceStarOpticalShiftPx(20)).toBeCloseTo(5.5, 6);
+    expect(hooks.resolveSignificanceStarOpticalShiftPx(12)).toBeCloseTo(3.3, 6);
+  });
+
+  test('significance label-to-line spacing is reduced by half', () => {
+    expect(typeof hooks.resolveSignificanceLabelGapPx).toBe('function');
+    expect(hooks.resolveSignificanceLabelGapPx(20)).toBeCloseTo(6.5, 6);
+    expect(hooks.resolveSignificanceLabelGapPx(12)).toBeCloseTo(3.9, 6);
+  });
+
+  test('significance levels compact the clearance above labels without collision', () => {
+    expect(typeof hooks.resolveSignificanceInterLevelClearancePx).toBe('function');
+    expect(typeof hooks.resolveSignificanceLevelStepPx).toBe('function');
+    expect(hooks.resolveSignificanceInterLevelClearancePx(20, 1)).toBeCloseTo(9.52, 6);
+    expect(hooks.resolveSignificanceLevelStepPx(25, 20, 'vertical', 1)).toBeCloseTo(28.02, 6);
+    expect(hooks.resolveSignificanceLevelStepPx(25, 20, 'horizontal', 1, { bracketSize: 10 })).toBeCloseTo(32.52, 6);
+  });
+
+  test('the significance stack uses the compact default data offset', () => {
+    const pair = { ai: 0, bi: 1, rangeMax: 10 };
+    const layout = hooks.buildPairAnnotationLayout([pair], {
+      categoryCenter: idx => idx * 100,
+      valueToCoord: value => value * 10,
+      levelGap: 25,
+      fontSize: 12,
+      strokeWidth: 1
+    });
+    expect(layout.geometryByPair.get(pair)?.annotationCoord).toBeCloseTo(87, 6);
+  });
+
+  test('plot frame expands around significance annotations in both orientations', () => {
+    expect(typeof hooks.syncBoxFrameToSignificanceBounds).toBe('function');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const buildSvg = bounds => {
+      const svg = document.createElementNS(svgNS, 'svg');
+      const axisLayer = document.createElementNS(svgNS, 'g');
+      const frame = document.createElementNS(svgNS, 'g');
+      frame.setAttribute('data-box-frame', '1');
+      frame.setAttribute('data-box-frame-base-left', '50');
+      frame.setAttribute('data-box-frame-base-top', '100');
+      frame.setAttribute('data-box-frame-base-right', '350');
+      frame.setAttribute('data-box-frame-base-bottom', '300');
+      frame.setAttribute('stroke', '#000');
+      frame.setAttribute('stroke-width', '1');
+      const top = document.createElementNS(svgNS, 'line');
+      top.setAttribute('data-box-frame-side', 'top');
+      const right = document.createElementNS(svgNS, 'line');
+      right.setAttribute('data-box-frame-side', 'right');
+      frame.append(top, right);
+      axisLayer.appendChild(frame);
+      svg.appendChild(axisLayer);
+      const significance = document.createElementNS(svgNS, 'g');
+      significance.setAttribute('data-box-significance-layer', '1');
+      significance.getBBox = () => ({ ...bounds });
+      const annotation = document.createElementNS(svgNS, 'text');
+      annotation.setAttribute('class', 'box-significance-annotation');
+      significance.appendChild(annotation);
+      svg.appendChild(significance);
+      return { svg, frame, top, right };
+    };
+
+    const vertical = buildSvg({ x: 80, y: 20, width: 240, height: 60 });
+    expect(hooks.syncBoxFrameToSignificanceBounds(vertical.svg, 'vertical').applied).toBe(true);
+    expect(Number(vertical.top.getAttribute('y1'))).toBe(16);
+    expect(Number(vertical.right.getAttribute('y1'))).toBe(16);
+    expect(Number(vertical.right.getAttribute('y2'))).toBe(300);
+    const leftExtension = vertical.frame.querySelector('[data-box-frame-extension="left"]');
+    expect(Number(leftExtension?.getAttribute('y1'))).toBe(16);
+    expect(Number(leftExtension?.getAttribute('y2'))).toBe(100);
+
+    const horizontal = buildSvg({ x: 360, y: 120, width: 30, height: 80 });
+    expect(hooks.syncBoxFrameToSignificanceBounds(horizontal.svg, 'horizontal').applied).toBe(true);
+    expect(Number(horizontal.top.getAttribute('x2'))).toBe(394);
+    expect(Number(horizontal.right.getAttribute('x1'))).toBe(394);
+    const bottomExtension = horizontal.frame.querySelector('[data-box-frame-extension="bottom"]');
+    expect(Number(bottomExtension?.getAttribute('x1'))).toBe(350);
+    expect(Number(bottomExtension?.getAttribute('x2'))).toBe(394);
   });
 
   test('converging whiskers separate opposite sides while keeping same-side boundaries aligned', () => {
@@ -335,11 +481,35 @@ describe('Box significance whisker modes', () => {
     expect(clamped).toBeCloseTo(132, 6);
   });
 
+  test('horizontal label clearance can move the bracket beyond its previous spine', () => {
+    expect(hooks).toBeDefined();
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const layer = document.createElementNS(svgNS, 'g');
+    const label = document.createElementNS(svgNS, 'text');
+    label.setAttribute('class', 'box-significance-annotation');
+    label.getBBox = () => ({
+      x: 116,
+      y: 45,
+      width: 34,
+      height: 10
+    });
+    layer.appendChild(label);
+
+    const previousInner = 140;
+    const cleared = hooks.clampAdaptiveWhiskerToExistingObstacles(layer, 50, previousInner, 92, {
+      orientation: 'horizontal',
+      labelGap: 4,
+      xRangeHalfWidth: 8
+    });
+    expect(cleared).toBeCloseTo(154, 6);
+    expect(cleared).toBeGreaterThan(previousInner);
+  });
+
   test('horizontal stack clamp uses the rotated equivalent of vertical mode', () => {
     expect(hooks).toBeDefined();
     expect(typeof hooks.clampAdaptiveOuterCoordForAnnotation).toBe('function');
     expect(hooks.clampAdaptiveOuterCoordForAnnotation('vertical', 50, 80, 6)).toBeCloseTo(74, 6);
-    expect(hooks.clampAdaptiveOuterCoordForAnnotation('horizontal', 150, 120, 6)).toBeCloseTo(126, 6);
+    expect(hooks.clampAdaptiveOuterCoordForAnnotation('horizontal', 92, 154, 4)).toBeCloseTo(158, 6);
   });
 
   test('significance label font size resolves from font-controls style (label key first)', () => {

@@ -250,6 +250,7 @@ describe('Scatter stats defaults isolation', () => {
     const main = window.Main;
     expect(scatterComponent).toBeTruthy();
     expect(main?.tabs).toBeTruthy();
+    expect(scatterComponent.createEmptyPayload()?.data?.[0]?.[0]).toBe('Labels');
 
     scatterComponent.loadFromPayload(createSeedPayload(scatterComponent), { source: 'test-scatter-seed-a' });
     await flushAsyncWork(20);

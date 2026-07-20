@@ -1079,10 +1079,12 @@
   const VIOLIN_SAMPLE_MIN=8;
   const VIOLIN_SAMPLE_MAX=2048;
   const SEPARATED_GROUP_GAP_MULTIPLIER = 1.5;
-  const ANN_BASE_OFFSET=25;
+  const ANN_BASE_OFFSET=13;
   const ANN_LEVEL_GAP=25;
   const ANN_LABEL_GAP_MIN=7;
   const ANN_LABEL_GAP_SCALE=0.65;
+  const ANN_LABEL_LINE_GAP_FACTOR=0.5;
+  const ANN_INTER_LEVEL_CLEARANCE_FACTOR=0.8;
   const DEFAULT_CORRECTION='holm';
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_STATS_PVALUE_DECIMALS = 4;
@@ -18801,20 +18803,19 @@
     }
     const sorted = list.slice().sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
     assignPairAnnotationLevels(sorted);
-    const levelBaseCoord = new Map();
+    let stackBaseCoord = null;
     sorted.forEach(pr => {
       const baseCoord = Number(valueToCoord(pr.rangeMax));
       if(!Number.isFinite(baseCoord)){
         return;
       }
-      const prev = levelBaseCoord.get(pr.level);
-      if(!Number.isFinite(prev)){
-        levelBaseCoord.set(pr.level, baseCoord);
+      if(!Number.isFinite(stackBaseCoord)){
+        stackBaseCoord = baseCoord;
         return;
       }
-      levelBaseCoord.set(pr.level, orientation === 'horizontal'
-        ? Math.max(prev, baseCoord)
-        : Math.min(prev, baseCoord));
+      stackBaseCoord = orientation === 'horizontal'
+        ? Math.max(stackBaseCoord, baseCoord)
+        : Math.min(stackBaseCoord, baseCoord);
     });
     const geometryByPair = new Map();
     const levelGroups = new Map();
@@ -18823,9 +18824,8 @@
       const rawX2 = Number(categoryCenter(pr.bi));
       const x1 = Number.isFinite(rawX1) && Number.isFinite(rawX2) ? Math.min(rawX1, rawX2) : rawX1;
       const x2 = Number.isFinite(rawX1) && Number.isFinite(rawX2) ? Math.max(rawX1, rawX2) : rawX2;
-      const levelBase = levelBaseCoord.get(pr.level);
       const fallbackBase = Number(valueToCoord(pr.rangeMax));
-      const baseCoord = Number.isFinite(levelBase) ? levelBase : fallbackBase;
+      const baseCoord = Number.isFinite(stackBaseCoord) ? stackBaseCoord : fallbackBase;
       const annotationCoord = orientation === 'horizontal'
         ? baseCoord + baseOffset + pr.level * levelStep
         : baseCoord - baseOffset - pr.level * levelStep;
@@ -24638,19 +24638,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return { d, refOuter, innerCoord: innerY, outerCoordA, outerCoordB };
 		  }
 
-		  function resolveSignificanceLabelGapPx(fontSizeCandidate){
+		  function resolveSignificanceLabelClearancePx(fontSizeCandidate){
 		    const fontSize = Number.isFinite(fontSizeCandidate) && fontSizeCandidate > 0
 		      ? fontSizeCandidate
 		      : 12;
 		    return Math.max(ANN_LABEL_GAP_MIN, fontSize * ANN_LABEL_GAP_SCALE);
 		  }
 
+		  function resolveSignificanceLabelGapPx(fontSizeCandidate){
+		    return resolveSignificanceLabelClearancePx(fontSizeCandidate) * ANN_LABEL_LINE_GAP_FACTOR;
+		  }
+
 		  function resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate){
-		    const labelGap = resolveSignificanceLabelGapPx(fontSizeCandidate);
+		    const labelGap = resolveSignificanceLabelClearancePx(fontSizeCandidate);
 		    const strokeWidth = Number.isFinite(strokeWidthCandidate) && strokeWidthCandidate > 0
 		      ? strokeWidthCandidate
 		      : 1;
-		    return Math.max(6, Math.min(20, labelGap * 0.8 + strokeWidth * 1.5));
+		    return Math.max(6, Math.min(20, labelGap * 0.8 + strokeWidth * 1.5))
+		      * ANN_INTER_LEVEL_CLEARANCE_FACTOR;
 		  }
 
 		  function estimateSignificanceLabelWidthPx(fontSizeCandidate, modeCandidate, options = {}){
@@ -24755,22 +24760,123 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		  function resolveSignificanceLevelStepPx(levelGapCandidate, fontSizeCandidate, orientation, strokeWidthCandidate, options = {}){
 		    const baseGap = Number.isFinite(levelGapCandidate) ? levelGapCandidate : ANN_LEVEL_GAP;
 		    if(orientation === 'horizontal'){
-		      return baseGap + resolveHorizontalSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate, options);
+		      const bracketSize = Number.isFinite(Number(options?.bracketSize)) && Number(options.bracketSize) > 0
+		        ? Number(options.bracketSize)
+		        : 10;
+		      const removedLabelGap = bracketSize * 0.4 * (1 - ANN_LABEL_LINE_GAP_FACTOR);
+		      return Math.max(0, baseGap - removedLabelGap)
+		        + resolveHorizontalSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate, options);
 		    }
 		    if(orientation !== 'vertical'){
 		      return baseGap;
 		    }
-		    return baseGap + resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate);
+		    const removedLabelGap = resolveSignificanceLabelClearancePx(fontSizeCandidate)
+		      - resolveSignificanceLabelGapPx(fontSizeCandidate);
+		    const compactBaseGap = Math.max(0, baseGap - removedLabelGap);
+		    return compactBaseGap + resolveSignificanceInterLevelClearancePx(fontSizeCandidate, strokeWidthCandidate);
+		  }
+
+		  function setBoxFrameLineGeometry(line, x1, y1, x2, y2){
+		    if(!line){
+		      return false;
+		    }
+		    line.setAttribute('x1', String(x1));
+		    line.setAttribute('y1', String(y1));
+		    line.setAttribute('x2', String(x2));
+		    line.setAttribute('y2', String(y2));
+		    return true;
+		  }
+
+		  function createBoxFrameExtensionLine(frameGroup, side, x1, y1, x2, y2){
+		    const doc = frameGroup?.ownerDocument || global.document;
+		    if(!frameGroup || !doc?.createElementNS){
+		      return null;
+		    }
+		    const line = doc.createElementNS(NS, 'line');
+		    line.setAttribute('data-box-frame-extension', side);
+		    line.setAttribute('stroke', frameGroup.getAttribute('stroke') || '#000');
+		    line.setAttribute('stroke-width', frameGroup.getAttribute('stroke-width') || '1');
+		    line.setAttribute('stroke-linecap', 'square');
+		    setBoxFrameLineGeometry(line, x1, y1, x2, y2);
+		    frameGroup.appendChild(line);
+		    return line;
+		  }
+
+		  function syncBoxFrameToSignificanceBounds(svg, orientation, options = {}){
+		    if(!svg || typeof svg.querySelector !== 'function'){
+		      return { applied: false, reason: 'missing-svg' };
+		    }
+		    const frameGroup = svg.querySelector('g[data-box-frame="1"]');
+		    const significanceLayer = svg.querySelector('[data-box-significance-layer="1"]');
+		    if(!frameGroup || !significanceLayer || typeof significanceLayer.getBBox !== 'function'){
+		      return { applied: false, reason: 'missing-frame-or-significance-layer' };
+		    }
+		    if(!significanceLayer.querySelector?.('.box-significance-annotation')){
+		      return { applied: false, reason: 'missing-annotations' };
+		    }
+		    const baseLeft = Number(frameGroup.getAttribute('data-box-frame-base-left'));
+		    const baseTop = Number(frameGroup.getAttribute('data-box-frame-base-top'));
+		    const baseRight = Number(frameGroup.getAttribute('data-box-frame-base-right'));
+		    const baseBottom = Number(frameGroup.getAttribute('data-box-frame-base-bottom'));
+		    if(![baseLeft, baseTop, baseRight, baseBottom].every(Number.isFinite)){
+		      return { applied: false, reason: 'missing-base-frame-geometry' };
+		    }
+		    let annotationBounds = null;
+		    try{
+		      annotationBounds = significanceLayer.getBBox();
+		    }catch(_err){
+		      return { applied: false, reason: 'unmeasurable-annotations' };
+		    }
+		    if(
+		      !annotationBounds
+		      || !Number.isFinite(annotationBounds.x)
+		      || !Number.isFinite(annotationBounds.y)
+		      || !Number.isFinite(annotationBounds.width)
+		      || !Number.isFinite(annotationBounds.height)
+		    ){
+		      return { applied: false, reason: 'invalid-annotation-bounds' };
+		    }
+		    const strokeWidth = Number(frameGroup.getAttribute('stroke-width'));
+		    const paddingCandidate = Number(options.padding);
+		    const padding = Number.isFinite(paddingCandidate)
+		      ? Math.max(0, paddingCandidate)
+		      : Math.max(4, (Number.isFinite(strokeWidth) ? strokeWidth : 1) * 2);
+		    const topLine = frameGroup.querySelector('[data-box-frame-side="top"]');
+		    const rightLine = frameGroup.querySelector('[data-box-frame-side="right"]');
+		    if(!topLine || !rightLine){
+		      return { applied: false, reason: 'missing-frame-sides' };
+		    }
+		    frameGroup.querySelectorAll('[data-box-frame-extension]').forEach(node => node.remove());
+		    if(orientation === 'horizontal'){
+		      const frameRight = Math.max(baseRight, annotationBounds.x + annotationBounds.width + padding);
+		      setBoxFrameLineGeometry(topLine, baseLeft, baseTop, frameRight, baseTop);
+		      setBoxFrameLineGeometry(rightLine, frameRight, baseTop, frameRight, baseBottom);
+		      if(frameRight > baseRight + 0.01){
+		        createBoxFrameExtensionLine(frameGroup, 'bottom', baseRight, baseBottom, frameRight, baseBottom);
+		      }
+		      frameGroup.setAttribute('data-box-frame-significance-edge', String(frameRight));
+		      return { applied: true, orientation: 'horizontal', edge: frameRight, bounds: annotationBounds };
+		    }
+		    const frameTop = Math.min(baseTop, annotationBounds.y - padding);
+		    setBoxFrameLineGeometry(topLine, baseLeft, frameTop, baseRight, frameTop);
+		    setBoxFrameLineGeometry(rightLine, baseRight, frameTop, baseRight, baseBottom);
+		    if(frameTop < baseTop - 0.01){
+		      createBoxFrameExtensionLine(frameGroup, 'left', baseLeft, frameTop, baseLeft, baseTop);
+		    }
+		    frameGroup.setAttribute('data-box-frame-significance-edge', String(frameTop));
+		    return { applied: true, orientation: 'vertical', edge: frameTop, bounds: annotationBounds };
 		  }
 
 		  const significanceLabelInkOffsetCache = new Map();
 		  let significanceLabelMeasureCanvas = null;
 
-		  function measureSignificanceLabelInkOffsetsPx(textNode){
+		  function measureSignificanceLabelInkOffsetsPx(textNode, labelOverride){
 		    if(!textNode){
 		      return null;
 		    }
-		    const labelText = typeof textNode.textContent === 'string' ? textNode.textContent : '';
+		    const labelText = typeof labelOverride === 'string'
+		      ? labelOverride
+		      : (typeof textNode.textContent === 'string' ? textNode.textContent : '');
 		    if(!labelText){
 		      return null;
 		    }
@@ -24873,6 +24979,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    return offsets;
 		  }
 
+		  function resolveSignificanceStarOpticalShiftPx(fontSizeCandidate){
+		    const fontSize = Number(fontSizeCandidate);
+		    return (Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 12) * 0.275;
+		  }
+
 		  function measureSignificanceLabelBottomOffsetPx(textNode){
 		    const offsets = measureSignificanceLabelInkOffsetsPx(textNode);
 		    return offsets && Number.isFinite(offsets.bottom) ? offsets.bottom : NaN;
@@ -24961,13 +25072,39 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    }
 		    let renderedBottom = NaN;
 		    let method = 'none';
+		    const rawLabel = typeof textNode.textContent === 'string' ? textNode.textContent.trim() : '';
+		    const isStarOnlyLabel = /^\*+$/.test(rawLabel);
+		    if(isStarOnlyLabel){
+		      const referenceOffsets = measureSignificanceLabelInkOffsetsPx(textNode, 'ns');
+		      const referenceBottom = Number(referenceOffsets?.bottom);
+		      const referenceBaseline = Number.isFinite(referenceBottom)
+		        ? bottomY - referenceBottom
+		        : currentY;
+		      const doc = textNode.ownerDocument || global.document;
+		      const view = doc?.defaultView || global;
+		      const computed = view && typeof view.getComputedStyle === 'function'
+		        ? view.getComputedStyle(textNode)
+		        : null;
+		      const fontSize = Number.parseFloat(computed?.fontSize || textNode.getAttribute('font-size') || '');
+		      const targetY = referenceBaseline + resolveSignificanceStarOpticalShiftPx(fontSize);
+		      const opticalDelta = targetY - currentY;
+		      if(Math.abs(opticalDelta) >= 0.01){
+		        textNode.setAttribute('y', String(targetY));
+		      }
+		      if(Shared?.isDebugEnabled?.()){
+		        boxLog('Debug: box significance star optically aligned', {
+		          bottomY,
+		          delta: opticalDelta,
+		          text: textNode.textContent
+		        });
+		      }
+		      return Math.abs(opticalDelta) >= 0.01;
+		    }
 		    const pixelBottomOffset = measureSignificanceLabelBottomOffsetPx(textNode);
 		    if(Number.isFinite(pixelBottomOffset)){
 		      renderedBottom = currentY + pixelBottomOffset;
 		      method = 'pixel';
 		    }
-		    const rawLabel = typeof textNode.textContent === 'string' ? textNode.textContent.trim() : '';
-		    const isStarOnlyLabel = /^\*+$/.test(rawLabel);
 		    if(!Number.isFinite(renderedBottom) && isStarOnlyLabel){
 		      const doc = textNode.ownerDocument || global.document;
 		      const view = doc?.defaultView || global;
@@ -25009,7 +25146,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		  }
 
 		  function enforceVerticalSignificanceLabelBracketClearance(textNode, bracketInnerY, options = {}){
-		    if(!textNode || !Number.isFinite(bracketInnerY) || typeof textNode.getBBox !== 'function'){
+		    if(!textNode || !Number.isFinite(bracketInnerY)){
 		      return false;
 		    }
 		    const fontSize = Number.isFinite(Number(options?.fontSize)) && Number(options.fontSize) > 0
@@ -25020,22 +25157,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      : 1;
 		    const requestedGap = resolveSignificanceLabelGapPx(fontSize);
 		    const minGap = Math.max(2, Math.min(8, requestedGap * 0.35 + strokeWidth * 0.5));
-		    let bbox = null;
-		    try{
-		      bbox = textNode.getBBox();
-		    }catch(_err){
-		      return false;
-		    }
-		    if(!bbox || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.height)){
-		      return false;
-		    }
-		    const renderedBottom = bbox.y + bbox.height;
-		    const targetBottom = bracketInnerY - minGap;
-		    if(renderedBottom <= targetBottom){
-		      return false;
-		    }
 		    const currentY = Number(textNode.getAttribute('y'));
 		    if(!Number.isFinite(currentY)){
+		      return false;
+		    }
+		    const pixelBottomOffset = measureSignificanceLabelBottomOffsetPx(textNode);
+		    let renderedBottom = Number.isFinite(pixelBottomOffset)
+		      ? currentY + pixelBottomOffset
+		      : NaN;
+		    if(!Number.isFinite(renderedBottom) && typeof textNode.getBBox === 'function'){
+		      try{
+		        const bbox = textNode.getBBox();
+		        if(bbox && Number.isFinite(bbox.y) && Number.isFinite(bbox.height)){
+		          renderedBottom = bbox.y + bbox.height;
+		        }
+		      }catch(_err){
+		        return false;
+		      }
+		    }
+		    if(!Number.isFinite(renderedBottom)){
+		      return false;
+		    }
+		    const targetBottom = bracketInnerY - minGap;
+		    if(renderedBottom <= targetBottom){
 		      return false;
 		    }
 		    const delta = renderedBottom - targetBottom;
@@ -25170,9 +25314,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      }
 		      clampedOuter = Math.min(clampedOuter, candidateOuter);
 		    }
-		    return orientation === 'horizontal'
-		      ? Math.min(innerCoord, clampedOuter)
-		      : Math.max(innerCoord, clampedOuter);
+		    if(orientation === 'horizontal'){
+		      // A wide flipped label can extend beyond the bracket's current spine.
+		      // Return the required clearance; the caller moves the bracket and then
+		      // constrains the endpoint against the new spine.
+		      return clampedOuter;
+		    }
+		    return Math.max(innerCoord, clampedOuter);
 		  }
 
 		  function clampAdaptiveOuterCoordForAnnotation(orientation, outerCoord, lowerInnerCoord, gap){
@@ -25182,8 +25330,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		    const resolvedGap = Number.isFinite(Number(gap)) ? Math.max(0, Number(gap)) : 0;
 		    if(orientation === 'horizontal'){
 		      // Horizontal mode is the rotated analogue of the vertical stack clamp.
-		      // Rotating y := max(yOuter, lowerInner - gap) into x-space yields min(xOuter, lowerInner + gap).
-		      return Math.min(outerCoord, lowerInnerCoord + resolvedGap);
+		      return Math.max(outerCoord, lowerInnerCoord + resolvedGap);
 		    }
 		    return Math.max(outerCoord, lowerInnerCoord - resolvedGap);
 		  }
@@ -25214,6 +25361,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    }
 	    path.setAttribute('data-box-viewport-exclude', '1');
 	    path.setAttribute('data-sig-orientation', orientation);
+	    if(Number.isFinite(Number(opts.annotationLevel))){
+	      path.setAttribute('data-sig-level', String(Number(opts.annotationLevel)));
+	    }
 		    let bracketGeom = null;
 		    let labelOuterCoord = valueCoord;
 		    if(orientation==='horizontal'){
@@ -25221,8 +25371,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		      let outerCoordA = outerX;
 		      let outerCoordB = outerX;
 		      if(showWhiskers && whiskerMode === 'adaptive'){
-		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Math.min(outerX, opts.outerCoordA); }
-		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Math.min(outerX, opts.outerCoordB); }
+		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Number(opts.outerCoordA); }
+		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Number(opts.outerCoordB); }
 		        const innerCoord = outerX + bracketSize;
 		        const gapFallback = Math.max(2, Number.isFinite(strokeWidth) ? strokeWidth * 1.5 : 2);
 		        const obstacleGap = resolveAdaptiveWhiskerGapUnits(
@@ -25267,14 +25417,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		          labelGap,
 		          xRangeHalfWidth: obstacleReachB
 		        });
-		        // In flipped mode a whisker may need to shorten toward the inner spine to avoid an
-		        // existing label. Preserve that resolved coordinate instead of snapping back to the
-		        // base outer edge, but never cross past the inner spine.
-		        outerCoordA = Math.min(innerCoord, outerCoordA);
-		        outerCoordB = Math.min(innerCoord, outerCoordB);
-		        // If a label collision pushes one endpoint inward, shift the whole bracket base
-		        // outward to that cleared coordinate so the whisker remains visible instead of
-		        // collapsing to zero length.
+		        // Move the bracket far enough to preserve the full measured label clearance.
 		        const shiftedOuterX = Math.max(outerX, outerCoordA, outerCoordB);
 		        if(Number.isFinite(shiftedOuterX) && shiftedOuterX > outerX){
 		          outerX = shiftedOuterX;
@@ -25290,6 +25433,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 		        if(Number.isFinite(shiftedInnerCoord) && shiftedInnerCoord > outerX + bracketSize){
 		          outerX = shiftedInnerCoord - bracketSize;
 		        }
+		        const finalInnerCoord = outerX + bracketSize;
+		        outerCoordA = Math.min(finalInnerCoord, outerCoordA);
+		        outerCoordB = Math.min(finalInnerCoord, outerCoordB);
 		      }
 		      bracketGeom = buildSignificanceBracketGeometry({
 		        orientation,
@@ -25428,6 +25574,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     txt.setAttribute('baseline-shift','baseline');
     txt.removeAttribute('dy');
     txt.setAttribute('data-box-viewport-exclude', '1');
+    if(Number.isFinite(Number(opts.annotationLevel))){
+      txt.setAttribute('data-sig-level', String(Number(opts.annotationLevel)));
+    }
     if(txt.style){
       txt.style.verticalAlign = 'baseline';
     }
@@ -25437,7 +25586,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    });
 		    let labelBottomTarget = NaN;
 		    if(orientation==='horizontal'){
-		      txt.setAttribute('x',labelOuterCoord+bracketSize*1.4);
+		      txt.setAttribute('x',labelOuterCoord+bracketSize*(1+0.4*ANN_LABEL_LINE_GAP_FACTOR));
 		      txt.setAttribute('y',(x1+x2)/2);
 		      txt.setAttribute('text-anchor','start');
 		      txt.setAttribute('dominant-baseline','middle');
@@ -25496,6 +25645,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         fontKey: 'significance-label'
       });
     }
+    return { path, text: txt, geometry: bracketGeom };
   }
   function annotateOverall(svg,xCenters,valueToCoord,maxVal,p,level=0,styleOptions){
     const opts=styleOptions||{};
@@ -27025,7 +27175,7 @@ Technical analysis record (advanced)
       }
       return fallbackTraceMax(idx);
     };
-    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
+    const resolveAdaptiveWhiskerOuterCoord = traceIdx => {
       if(!adaptiveWhiskersEnabled){
         return null;
       }
@@ -27037,10 +27187,12 @@ Technical analysis record (advanced)
       if(!Number.isFinite(baseCoord)){
         return null;
       }
-      const resolvedLevel = Number.isFinite(level) ? Number(level) : 0;
+      // Start from the endpoint's data, then let lower annotations clamp the whisker.
+      // A pair's global stack level is not endpoint depth: a subset can leave one
+      // endpoint unobstructed even though the pair itself occupies a higher level.
       return orientation === 'horizontal'
-        ? baseCoord + baseOffset + resolvedLevel * levelStep
-        : baseCoord - baseOffset - resolvedLevel * levelStep;
+        ? baseCoord + baseOffset
+        : baseCoord - baseOffset;
     };
     const resolveAdaptiveDataObstacleCoord = traceIdx => {
       if(!adaptiveWhiskersEnabled){
@@ -27110,10 +27262,10 @@ Technical analysis record (advanced)
       clampAdaptiveOuterCoordForAnnotation(orientation, outerCoord, lowerInnerCoord, adaptiveWhiskerGap);
     const buildPairAnnotationStyle = (idxA, idxB, level, lowerSource) => {
       if(!adaptiveWhiskersEnabled){
-        return helpers.annotationStyle;
+        return { ...helpers.annotationStyle, annotationLevel: level };
       }
-      const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA, level);
-      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
+      const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA);
+      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB);
       const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, lowerSource);
       const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, lowerSource);
       const centerA = categoryCenter(idxA);
@@ -27126,6 +27278,7 @@ Technical analysis record (advanced)
         : 0;
       return {
         ...helpers.annotationStyle,
+        annotationLevel: level,
         outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
         outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB),
         dataObstacleCoordA: resolveAdaptiveDataObstacleCoord(idxA),
@@ -27207,7 +27360,7 @@ Technical analysis record (advanced)
             ? Number(valueToCoord(pair.rangeMax)) + baseOffset + (Number(pair.level) || 0) * levelStep
             : Number(valueToCoord(pair.rangeMax)) - baseOffset - (Number(pair.level) || 0) * levelStep);
         const annotationStyle = buildPairAnnotationStyle(pair.ai, pair.bi, Number(pair.level) || 0, lowerSource);
-        annotatePair(
+        const renderedAnnotation = annotatePair(
           svg,
           Number.isFinite(geometry?.x1) ? geometry.x1 : categoryCenter(pair.ai),
           Number.isFinite(geometry?.x2) ? geometry.x2 : categoryCenter(pair.bi),
@@ -27215,12 +27368,17 @@ Technical analysis record (advanced)
           resolvePairwiseSignificanceP(pair),
           annotationStyle
         );
-        pair.annotationCoord = annotationCoord;
-        pair.innerCoord = Number.isFinite(geometry?.innerCoord)
-          ? geometry.innerCoord
-          : (orientation === 'horizontal'
-            ? annotationCoord + annotationBracketSize
-            : annotationCoord - annotationBracketSize);
+        const renderedGeometry = renderedAnnotation?.geometry || null;
+        pair.annotationCoord = Number.isFinite(Number(renderedGeometry?.refOuter))
+          ? Number(renderedGeometry.refOuter)
+          : annotationCoord;
+        pair.innerCoord = Number.isFinite(Number(renderedGeometry?.innerCoord))
+          ? Number(renderedGeometry.innerCoord)
+          : (Number.isFinite(geometry?.innerCoord)
+            ? geometry.innerCoord
+            : (orientation === 'horizontal'
+              ? annotationCoord + annotationBracketSize
+              : annotationCoord - annotationBracketSize));
       });
       return { rendered: true, maxLevel: layout.maxLevel };
     };
@@ -27518,6 +27676,7 @@ Technical analysis record (advanced)
             next.significanceMaxLevel = renderResult.maxLevel;
           });
         }
+        syncBoxFrameToSignificanceBounds(svg, orientation);
         return true;
       }
       return false;
@@ -27526,6 +27685,7 @@ Technical analysis record (advanced)
       const indices = Array.isArray(model.indices) ? model.indices : [];
       const xs = indices.map(idx => categoryCenter(idx));
       annotateOverall(svg, xs, valueToCoord, model.overallRangeMax, model.overall.p, 0, helpers.annotationStyle);
+      syncBoxFrameToSignificanceBounds(svg, orientation);
       const current = transient ? null : getBoxSignificanceResultsState(getActiveBoxSessionForState());
       if(!transient && Number(current.significanceMaxLevel) !== 0){
         updateBoxSignificanceResultsState(getBoxProjectionSession({ reason: 'box-projection-mutation' }), next => {
@@ -31668,9 +31828,19 @@ Technical analysis record (advanced)
         frameGroup.setAttribute('data-box-axis-color-target', '1');
         frameGroup.setAttribute('data-box-axis-stroke-target', '1');
         frameGroup.setAttribute('data-box-axis-width-factor', '1');
+        frameGroup.setAttribute('data-box-frame-base-left', String(Number(margin.left)));
+        frameGroup.setAttribute('data-box-frame-base-top', String(Number(margin.top)));
+        frameGroup.setAttribute('data-box-frame-base-right', String(Number(margin.left) + plotW));
+        frameGroup.setAttribute('data-box-frame-base-bottom', String(Number(margin.top) + plotH));
         frameGroup.style.display = frameVisible ? '' : 'none';
         (axisLayer || svg).appendChild(frameGroup);
+        const previousChildCount = frameGroup.children.length;
         chartStyle.drawPlotFrame({ svg, group: frameGroup, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides });
+        Array.from(frameGroup.children).slice(previousChildCount).forEach((line, index) => {
+          if(sides[index]){
+            line.setAttribute('data-box-frame-side', sides[index]);
+          }
+        });
         boxLog('Debug: box frame stroke scaled',{ axisStrokeWidth, visible: frameVisible });
       }else if(frameVisible){
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides, group: axisLayer || svg });
@@ -37928,8 +38098,14 @@ Technical analysis record (advanced)
       isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),
       buildBoxConnectedPointPathFromTraceMaps:maps=>buildBoxConnectedPointPathFromTraceMaps(maps),
 	    buildPairAnnotationLayout:(pairs,opts)=>buildPairAnnotationLayout(pairs,opts),
+	    buildBoxPairAnnotationRuntime:params=>buildBoxPairAnnotationRuntime(params),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts),
 	    formatSignificanceLabel:(p,mode,options)=>formatSignificanceLabel(p,mode,options),
+	    resolveSignificanceLabelGapPx:fontSize=>resolveSignificanceLabelGapPx(fontSize),
+	    resolveSignificanceInterLevelClearancePx:(fontSize,strokeWidth)=>resolveSignificanceInterLevelClearancePx(fontSize,strokeWidth),
+	    resolveSignificanceLevelStepPx:(levelGap,fontSize,orientation,strokeWidth,options)=>resolveSignificanceLevelStepPx(levelGap,fontSize,orientation,strokeWidth,options),
+	    resolveSignificanceStarOpticalShiftPx:fontSize=>resolveSignificanceStarOpticalShiftPx(fontSize),
+	    syncBoxFrameToSignificanceBounds:(svg,orientation,options)=>syncBoxFrameToSignificanceBounds(svg,orientation,options),
 	    clampAdaptiveWhiskerToExistingObstacles:(layer,xCoord,innerCoord,desiredOuter,options)=>clampAdaptiveWhiskerToExistingObstacles(layer,xCoord,innerCoord,desiredOuter,options),
 	    clampAdaptiveOuterCoordForAnnotation:(orientation,outerCoord,lowerInnerCoord,gap)=>clampAdaptiveOuterCoordForAnnotation(orientation,outerCoord,lowerInnerCoord,gap),
 	    resolveSvgAxisUnitsPerPixel:(svgLike,axis)=>resolveSvgAxisUnitsPerPixel(svgLike,axis),

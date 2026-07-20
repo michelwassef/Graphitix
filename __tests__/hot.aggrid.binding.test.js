@@ -84,11 +84,14 @@ describe('Shared.hot AG Grid binding', () => {
     expect(capturedGridOptions.rowSelection).toBeUndefined();
 
     const rowSelection = { mode: 'multiRow', headerCheckbox: false };
+    const selectionColumnDef = { headerName: 'Show' };
     Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, () => {}, {
       debugLabel: 'with-row-selection',
-      rowSelection
+      rowSelection,
+      selectionColumnDef
     });
     expect(capturedGridOptions.rowSelection).toBe(rowSelection);
+    expect(capturedGridOptions.selectionColumnDef).toBe(selectionColumnDef);
   });
 
   test('loadData updates valueGetter source and keeps edits in sync', () => {

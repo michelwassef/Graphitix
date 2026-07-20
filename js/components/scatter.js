@@ -112,6 +112,8 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 5;
+  const SCATTER_LABEL_HEADER = 'Labels';
+  const SCATTER_POINT_LABEL_TOGGLE_HEADER = 'Show';
   const SCATTER_SINGLE_FIXED_COLS = 5;
   const SCATTER_GROUPED_BASE_COLS = 2; // label + x
   const SCATTER_TABLE_FORMAT_SINGLE = 'single';
@@ -607,7 +609,7 @@
       ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
       : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
     if(Array.isArray(emptyData?.[0])){
-      emptyData[0][0] = '';
+      emptyData[0][0] = SCATTER_LABEL_HEADER;
       emptyData[0][1] = 'X title';
       emptyData[0][2] = 'Y title';
       emptyData[0][3] = 'Z title';
@@ -6421,7 +6423,7 @@
       changes.push([0, c, '']);
     }
     if(shouldFill(headerRow[0])){
-      changes.push([0, 0, 'Labels']);
+      changes.push([0, 0, SCATTER_LABEL_HEADER]);
     }
     const xAnchorRaw = headerRow[1] != null ? String(headerRow[1]).trim() : '';
     const genericLegacyXHeader = /^x(?:\s*(?:value|values|title))?$/i.test(xAnchorRaw);
@@ -6585,7 +6587,7 @@
     const targetCols = targetBaseCols + seriesCount * targetCount;
     const totalRows = Math.max(safeMatrix.length, DEFAULT_ROWS);
     const headerRow = padScatterRowToLength(safeMatrix[0] || [], Math.max(targetCols, SCATTER_SINGLE_FIXED_COLS));
-    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : 'Labels';
+    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : SCATTER_LABEL_HEADER;
     const sourceXHeader = headerRow[1] != null && String(headerRow[1]).trim() ? headerRow[1] : 'X title';
     const xHeaderBase = inferScatterGroupBaseName(sourceXHeader, 'X title');
     const baseNames = [];
@@ -6727,7 +6729,7 @@
       options.groupLabels || scatterSeriesGroupLabels,
       baseNames
     );
-    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : 'Labels';
+    const labelHeader = headerRow[0] != null && String(headerRow[0]).trim() ? headerRow[0] : SCATTER_LABEL_HEADER;
     const xHeader = headerRow[1] != null && String(headerRow[1]).trim()
       ? inferScatterGroupBaseName(headerRow[1], 'X title')
       : 'X title';
@@ -6803,7 +6805,7 @@
       : 'X title';
     const converted = new Array(totalRows);
     const header = new Array(targetCols).fill('');
-    header[0] = 'Labels';
+    header[0] = SCATTER_LABEL_HEADER;
     for(let xRep = 0; xRep < xReplicateCount; xRep += 1){
       const xHeaderCol = 1 + xRep;
       header[xHeaderCol] = xReplicateCount > 1 ? `X rep ${xRep + 1}` : xHeader;
@@ -6851,7 +6853,7 @@
       return row.some(cell => !shouldFill(cell));
     });
     if(!hasHeaderValues && !hasData){
-      changes.push([0, 0, 'Labels']);
+      changes.push([0, 0, SCATTER_LABEL_HEADER]);
       if(groupedMode){
         const replicates = clampScatterReplicateCount(scatterReplicates);
         const xReplicatesEnabled = isScatterGroupedXReplicatesEnabled(options);
@@ -13774,7 +13776,7 @@
       function createScatterDefaultTableData(){
     const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
     if(Array.isArray(data?.[0])){
-      data[0][0] = '';
+      data[0][0] = SCATTER_LABEL_HEADER;
       data[0][1] = 'X title';
       data[0][2] = 'Y title';
       data[0][3] = 'Z title';
@@ -13790,6 +13792,19 @@
         data,
         pinFirstRow: true,
         rowSelection: { mode: 'multiRow', headerCheckbox: false },
+        selectionColumnDef: {
+          headerName: '',
+          width: 40,
+          minWidth: 40,
+          maxWidth: 40,
+          resizable: false,
+          cellClass: params => params?.node?.rowPinned === 'top'
+            ? 'scatter-point-label-selection-cell'
+            : 'scatter-point-label-checkbox-cell',
+          cellRenderer: params => params?.node?.rowPinned === 'top'
+            ? SCATTER_POINT_LABEL_TOGGLE_HEADER
+            : ''
+        },
         colDefEnhancer(def, meta){
           const colIndex = Number(meta?.colIndex);
           if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
@@ -14145,7 +14160,7 @@
 
     const scatterExamples={
       scatter:[
-        ['','X title','Y title','Z title',''],
+        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
         ['Cat',4.5,23,'',''],
         ['Dog',20,45,'',''],
         ['Rabbit',2.5,35,'',''],
@@ -14156,7 +14171,7 @@
         ['Dog',24,55,'','']
       ],
       scatter3d:[
-        ['','X title','Y title','Z title',''],
+        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
         ['Orion',2.5,18,4.5,''],
         ['Lyra',6.2,25,9.1,''],
         ['Cygnus',4.1,14,6.8,''],
@@ -14167,7 +14182,7 @@
         ['Vela',9.4,36,13.6,'']
       ],
       scatterBubble:[
-        ['','X title','Y title','Z title',''],
+        [SCATTER_LABEL_HEADER,'X title','Y title','Z title',''],
         ['Comet A',1.8,12,25,''],
         ['Comet B',4.2,18,40,''],
         ['Comet C',2.5,22,55,''],
@@ -14178,7 +14193,7 @@
         ['Comet H',7.1,26,80,'']
       ],
       grouped:[
-        ['Labels','X title','Control','','','Treatment','',''],
+        [SCATTER_LABEL_HEADER,'X title','Control','','','Treatment','',''],
         ['Week 1',1,10.2,10.6,10.8,14.2,14.5,14.8],
         ['Week 2',2,10.8,11.0,11.2,14.9,15.2,15.5],
         ['Week 3',3,11.3,11.5,11.9,15.7,16.0,16.4],
@@ -14186,7 +14201,7 @@
         ['Week 5',5,12.5,12.8,13.1,17.3,17.7,18.1]
       ],
       groupedXY:[
-        ['Labels','X title','','','Control','','','Treatment','',''],
+        [SCATTER_LABEL_HEADER,'X title','','','Control','','','Treatment','',''],
         ['Week 1',0.95,1.02,1.05,10.2,10.6,10.8,14.2,14.5,14.8],
         ['Week 2',1.93,2.00,2.08,10.8,11.0,11.2,14.9,15.2,15.5],
         ['Week 3',2.92,3.01,3.07,11.3,11.5,11.9,15.7,16.0,16.4],
