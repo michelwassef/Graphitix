@@ -2,7 +2,8 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  confirmDataImportPrompt
 } = require('./helpers/workspaceHarness');
 
 function distinctRounded(values, digits = 2) {
@@ -32,10 +33,7 @@ test.describe('Box large strip resize behavior', () => {
     await page.getByRole('button', { name: /^Import$/ }).click();
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(csvPath);
-    await expect(page.locator('#welcomeDataImportPrompt')).toBeVisible();
-    await expect(page.locator('#welcomeDataImportPreviewStatus')).not.toHaveText(/Loading preview/i);
-    await page.locator('#welcomeDataImportOpen').click();
-    await expect(page.locator('#welcomeDataImportPrompt')).toBeHidden();
+    await confirmDataImportPrompt(page);
     await page.selectOption('#boxGraphType', 'strip');
 
     await page.waitForFunction(() => {

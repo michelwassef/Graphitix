@@ -423,6 +423,29 @@ async function clickExampleButtonIfPresent(page, buttonId) {
   return true;
 }
 
+async function confirmDataImportPrompt(page, options = {}) {
+  const timeout = Number.isFinite(Number(options.timeout)) ? Number(options.timeout) : 60_000;
+  const prompt = page.locator('#welcomeDataImportPrompt');
+  await prompt.waitFor({ state: 'visible', timeout });
+  await page.waitForFunction(() => {
+    const modal = document.getElementById('welcomeDataImportPrompt');
+    const status = document.getElementById('welcomeDataImportPreviewStatus');
+    const submit = document.getElementById('welcomeDataImportOpen');
+    if (!modal || modal.hidden || !status || !submit || submit.disabled) {
+      return false;
+    }
+    const text = String(status.textContent || '').trim();
+    return !!text && !/loading preview/i.test(text) && !/preview failed|preview unavailable/i.test(text);
+  }, null, { timeout });
+  await page.locator('#welcomeDataImportOpen').click();
+  await prompt.waitFor({ state: 'hidden', timeout });
+}
+
+async function importDataFile(page, inputSelector, filePath, options = {}) {
+  await page.locator(inputSelector).setInputFiles(filePath);
+  await confirmDataImportPrompt(page, options);
+}
+
 function toMs(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -759,6 +782,8 @@ module.exports = {
   registerIssueCollectors,
   openComponentFromWelcome,
   clickExampleButtonIfPresent,
+  confirmDataImportPrompt,
+  importDataFile,
   exerciseVisibleComponentControls,
   collectComponentPerformanceSnapshot,
   shouldIgnoreConsoleEntry

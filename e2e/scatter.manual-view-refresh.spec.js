@@ -2,7 +2,8 @@ const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  importDataFile
 } = require('./helpers/workspaceHarness');
 
 async function collectCount(page, label) {
@@ -64,7 +65,7 @@ test.describe('Scatter live updates with view-only optimizations', () => {
     );
 
     const csvPath = path.resolve(__dirname, '../__tests__/test-scatter.csv');
-    await page.setInputFiles('#scatterFile', csvPath);
+    await importDataFile(page, '#scatterFile', csvPath);
 
     await expect(page.locator('#scatterRenderRow')).toHaveCount(0);
     await expect(page.locator('#scatterRenderButton')).toHaveCount(0);

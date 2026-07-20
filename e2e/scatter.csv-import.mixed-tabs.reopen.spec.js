@@ -6,7 +6,8 @@ const {
   installLocalCdnOverrides,
   registerIssueCollectors,
   openComponentFromWelcome,
-  clickExampleButtonIfPresent
+  clickExampleButtonIfPresent,
+  importDataFile
 } = require('./helpers/workspaceHarness');
 
 const TMP_DIR = path.resolve(__dirname, '.tmp');
@@ -244,7 +245,7 @@ test('scatter CSV import + box tab: save and reopen preserves data, render cache
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
 
   // ── Step 2: Import CSV ───────────────────────────────────────────────────────
-  await page.setInputFiles('#scatterFile', CSV_PATH);
+  await importDataFile(page, '#scatterFile', CSV_PATH);
 
   // Wait for render to complete (canvas mode for ≥12000 pts, batched-circles/markers otherwise)
   await waitForScatterSnapshotReady(page);
@@ -435,7 +436,7 @@ test('scatter render cache is not destroyed by async stats callback after warmup
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
 
-  await page.setInputFiles('#scatterFile', CSV_PATH);
+  await importDataFile(page, '#scatterFile', CSV_PATH);
   await waitForScatterRender(page);
 
   const scatterTabId = await page.evaluate(() =>
