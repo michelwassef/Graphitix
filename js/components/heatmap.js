@@ -7333,6 +7333,43 @@
     return { limit: Math.max(0, limit), constraints };
   }
 
+  function resolveHeatmapRoleTextScales(options){
+    const opts = options || {};
+    const metrics = opts.metrics || state.textAspectMetrics;
+    const scaleX = Number(opts.scaleX);
+    const scaleY = Number(opts.scaleY);
+    const fallbackScale = Number(opts.fallbackScale);
+    const baseScale = Number.isFinite(fallbackScale) && fallbackScale > 0 ? fallbackScale : 1;
+    const downsized = Number.isFinite(scaleX) && Number.isFinite(scaleY) && (scaleX < 1 || scaleY < 1);
+    if(!downsized){
+      return {
+        rowLabel: opts.independentLabels ? baseScale : null,
+        columnLabel: opts.independentLabels ? baseScale : null,
+        graphTitle: baseScale,
+        scaleTick: baseScale
+      };
+    }
+    const cellSize = Number(metrics?.cellSize);
+    const rowFont = Number(metrics?.maxRowLabelFontSize);
+    const columnFont = Number(metrics?.maxColumnLabelFontSize);
+    const tickGap = Number(metrics?.scaleTickGap);
+    const tickFont = Number(metrics?.scaleTickFontSize);
+    const glyphExtentFactor = 1.15;
+    const fitScale = value => Number.isFinite(value) && value > 0
+      ? Math.max(0.02, Math.min(1, value))
+      : 1;
+    return {
+      rowLabel: opts.independentLabels
+        ? fitScale((cellSize * scaleY) / (rowFont * glyphExtentFactor))
+        : null,
+      columnLabel: opts.independentLabels
+        ? fitScale((cellSize * scaleX) / (columnFont * glyphExtentFactor))
+        : null,
+      graphTitle: 1,
+      scaleTick: fitScale((tickGap * scaleY) / (tickFont * glyphExtentFactor))
+    };
+  }
+
   function computeHeatmapCellValueScaleLimit(metrics, scaleX, scaleY){
     if(!metrics || !metrics.showValues || !Number.isFinite(scaleX) || !Number.isFinite(scaleY)){
       return { limit: NaN, constraints: null };
@@ -7476,6 +7513,13 @@
     const textScale = Number.isFinite(readableScale?.textScale) && readableScale.textScale > 0
       ? readableScale.textScale
       : defaultScale;
+    const heatmapRoleTextScales = resolveHeatmapRoleTextScales({
+      metrics: state.textAspectMetrics,
+      scaleX,
+      scaleY,
+      fallbackScale: defaultScale,
+      independentLabels: svg.dataset?.heatmapModelType === 'values'
+    });
     const cellValueScale = resolveHeatmapCellValueTextScale({ scaleX, scaleY, fallbackScale: 1 });
     const cellValueTextScale = Number.isFinite(cellValueScale?.textScale) && cellValueScale.textScale > 0
       ? cellValueScale.textScale
@@ -7491,7 +7535,11 @@
       const isCellValueText = text.dataset?.heatmapCellValue === '1'
         || text.dataset?.fontRole === 'cellValue'
         || (typeof text.dataset?.fontKey === 'string' && /^cell-\d+-\d+$/.test(text.dataset.fontKey));
-      const localTextScale = isCellValueText ? cellValueTextScale : textScale;
+      const role = text.dataset?.fontRole || '';
+      const roleTextScale = heatmapRoleTextScales?.[role];
+      const localTextScale = isCellValueText
+        ? cellValueTextScale
+        : (Number.isFinite(roleTextScale) && roleTextScale > 0 ? roleTextScale : textScale);
       const localAdjustX = scaleX > 0 ? localTextScale / scaleX : 1;
       const localAdjustY = scaleY > 0 ? localTextScale / scaleY : 1;
       const matrix = `matrix(${localAdjustX},0,0,${localAdjustY},${x - localAdjustX * x},${y - localAdjustY * y})`;
@@ -7506,6 +7554,7 @@
       uniform,
       defaultScale,
       textScale,
+      heatmapRoleTextScales,
       cellValueTextScale,
       textScaleMode: mode,
       aspectLocked,
@@ -8327,6 +8376,7 @@
     // If user thickness is at default (1), use auto-scaling; otherwise use user value
     const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
     const dendrogramStroke = dendrogramStrokeBase * strokeScale;
+    const scaleStroke = 1;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
     const scaleRect = doc.createElementNS(NS, 'rect');
@@ -8336,7 +8386,7 @@
     scaleRect.setAttribute('height', String(scaleHeight));
     scaleRect.setAttribute('fill', `url(#${gradientId})`);
     scaleRect.setAttribute('stroke', '#333');
-    scaleRect.setAttribute('stroke-width', String(strokeScale));
+    scaleRect.setAttribute('stroke-width', String(scaleStroke));
     scaleRect.setAttribute('vector-effect', 'non-scaling-stroke');
     scaleGroup.appendChild(scaleRect);
     const tickStartX = scaleStartX + scaleWidth;
@@ -8360,7 +8410,7 @@
       line.setAttribute('y1', String(y));
       line.setAttribute('y2', String(y));
       line.setAttribute('stroke', '#333');
-      line.setAttribute('stroke-width', String(strokeScale));
+      line.setAttribute('stroke-width', String(scaleStroke));
       line.setAttribute('vector-effect', 'non-scaling-stroke');
       scaleGroup.appendChild(line);
       const tickLabel = doc.createElementNS(NS, 'text');
@@ -10832,6 +10882,7 @@
   heatmap.__testHooks = Object.assign({}, heatmap.__testHooks, {
     benchmarkLoad: opts => benchmarkHeatmapLoad(opts),
     resolveDrawableFrame: targetEl => resolveHeatmapDrawableFrame(targetEl),
+    resolveRoleTextScales: opts => resolveHeatmapRoleTextScales(opts),
     getPerformance: () => ({
       performance: cloneSimple(state.performance),
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),

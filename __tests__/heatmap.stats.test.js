@@ -168,6 +168,64 @@ describe('Heatmap stats formatting', () => {
     }
   });
 
+  test('Data values scales row and column labels independently', () => {
+    const resolveScales = window.Components?.heatmap?.__testHooks?.resolveRoleTextScales;
+    expect(resolveScales).toBeTruthy();
+    const commonMetrics = {
+      cellSize: 20,
+      maxRowLabelFontSize: 12,
+      maxColumnLabelFontSize: 12,
+      scaleTickGap: 120,
+      scaleTickFontSize: 12
+    };
+
+    const manyRows = resolveScales({
+      metrics: commonMetrics,
+      scaleX: 1,
+      scaleY: 0.05,
+      fallbackScale: 0.25,
+      independentLabels: true
+    });
+    expect(manyRows.rowLabel).toBeLessThan(manyRows.columnLabel);
+    expect(manyRows.columnLabel).toBe(1);
+    expect(manyRows.graphTitle).toBe(1);
+    expect(manyRows.scaleTick).toBeGreaterThan(manyRows.rowLabel);
+
+    const manyColumns = resolveScales({
+      metrics: commonMetrics,
+      scaleX: 0.05,
+      scaleY: 1,
+      fallbackScale: 0.25,
+      independentLabels: true
+    });
+    expect(manyColumns.columnLabel).toBeLessThan(manyColumns.rowLabel);
+    expect(manyColumns.rowLabel).toBe(1);
+    expect(manyColumns.graphTitle).toBe(1);
+    expect(manyColumns.scaleTick).toBe(1);
+  });
+
+  test('all Heatmap types keep title and scale text independent from label fitting', () => {
+    const resolveScales = window.Components?.heatmap?.__testHooks?.resolveRoleTextScales;
+    const scales = resolveScales({
+      metrics: {
+        cellSize: 20,
+        maxRowLabelFontSize: 12,
+        maxColumnLabelFontSize: 12,
+        scaleTickGap: 120,
+        scaleTickFontSize: 12
+      },
+      scaleX: 1,
+      scaleY: 0.05,
+      fallbackScale: 0.25,
+      independentLabels: false
+    });
+
+    expect(scales.rowLabel).toBeNull();
+    expect(scales.columnLabel).toBeNull();
+    expect(scales.graphTitle).toBe(1);
+    expect(scales.scaleTick).toBeGreaterThan(0.25);
+  });
+
   test('value scale changes affect cached view-only redraws', async () => {
     const hot = global.__LAST_HEATMAP_HOT__;
     const heatmap = window.Components?.heatmap;
