@@ -167,6 +167,9 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     const page = document.getElementById('pcaPage');
     const schemeSelect = page.querySelector('select[data-color-scheme-select="1"][data-component-type="pca"]');
     expect(schemeSelect).toBeTruthy();
+    const geometryBeforeScheme = document.getElementById('pcaSvg');
+    expect(geometryBeforeScheme).toBeTruthy();
+    expect(workspace.getColorSchemeContext?.({ tabId: tabB.id })?.labelKeys).toContain('A');
     schemeSelect.value = 'grayscale';
     schemeSelect.dispatchEvent(new Event('change', { bubbles: true }));
     await flushAll();
@@ -175,10 +178,13 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(readSchemeId(workspace)).toBe('grayscale');
     const before = readColorState(workspace);
     expect(before.colorScheme).toBe('grayscale');
+    expect(Object.keys(JSON.parse(before.labelColors))).toContain('A');
     // Grayscale must actually have changed the fill away from the default blue.
     expect(before.fill).not.toBe('#0000ff');
     const renderedBefore = readRenderedPointFills();
     expect(renderedBefore.length).toBeGreaterThan(0);
+    expect(document.getElementById('pcaSvg')).toBe(geometryBeforeScheme);
+    expect(window.Components.pca.__state?.performance?.draw?.inPlace).toBe(true);
     // The live graph is grayscale right after applying.
     expect(renderedBefore).not.toContain('#0000ff');
 
@@ -198,6 +204,54 @@ describe('PCA color scheme survives a tab round-trip (regression)', () => {
     expect(renderedAfter.length).toBeGreaterThan(0);
     expect(renderedAfter).not.toContain('#0000ff');
     expect(renderedAfter.sort()).toEqual(renderedBefore.slice().sort());
+  });
+
+  test('in-place dark theme paints visible geometry without exposing axis hit targets', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'pca');
+    await loadExampleData();
+
+    const hot = window.Components.pca.getHotInstance();
+    hot.setDataAtCell([[0, 1, true]], 'pca-point-label-toggle');
+    await flushAll(20);
+
+    const svg = document.getElementById('pcaSvg');
+    expect(svg).toBeTruthy();
+    expect(svg.querySelectorAll('[data-axis-hit-target="1"]').length).toBeGreaterThan(0);
+    expect(svg.querySelectorAll('[data-axis-tick="1"]').length).toBeGreaterThan(0);
+    expect(svg.querySelectorAll('[data-frame-edge]').length).toBeGreaterThan(0);
+    expect(svg.querySelectorAll('[data-label-leader="1"]').length).toBeGreaterThan(0);
+
+    window.Shared.colorSchemes.applyToActiveTab('pca', 'dark');
+    await flushAll(20);
+
+    expect(document.getElementById('pcaSvg')).toBe(svg);
+    svg.querySelectorAll('[data-axis-hit-target="1"]').forEach(node => {
+      expect(node.getAttribute('fill')).toBe('transparent');
+      expect(node.getAttribute('stroke')).toBe('none');
+    });
+    svg.querySelectorAll('[data-axis-line="1"], [data-axis-tick="1"], [data-frame-edge]').forEach(node => {
+      expect(node.getAttribute('stroke')).toBe('#e6e6e6');
+    });
+    svg.querySelectorAll('[data-label-leader="1"]').forEach(node => {
+      expect(node.getAttribute('stroke')).toBe('#f2f2f2');
+    });
+    expect(svg.getAttribute('data-color-scheme-bg-color')).toBe('#000000');
+
+    window.Shared.colorSchemes.applyToActiveTab('pca', 'scientific');
+    await flushAll(20);
+
+    expect(document.getElementById('pcaSvg')).toBe(svg);
+    svg.querySelectorAll('[data-axis-hit-target="1"]').forEach(node => {
+      expect(node.getAttribute('stroke')).toBe('none');
+    });
+    svg.querySelectorAll('[data-axis-line="1"], [data-axis-tick="1"], [data-frame-edge]').forEach(node => {
+      expect(node.getAttribute('stroke')).toBe('#000000');
+    });
+    svg.querySelectorAll('[data-label-leader="1"]').forEach(node => {
+      expect(node.getAttribute('stroke')).toBe('#000000');
+    });
+    expect(svg.hasAttribute('data-color-scheme-bg-color')).toBe(false);
   });
 
   // Root-cause coverage for the switch-back revert: a same-component tab switch restores

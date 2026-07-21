@@ -514,6 +514,20 @@ describe('PCA view controls', () => {
       expect(initialDrawPerf.loadingsRendered).toBeLessThan(initialDrawPerf.loadingsTotal);
     }
 
+    const initialSvd = global.__svdCallCount;
+    const labelTimestamp = state.performance?.draw?.timestamp || 0;
+    const currentLabel = hot.getDataAtCell(0, 1);
+    const nextLabel = !([true, 1, '1', 'true', 'yes', 'on'].includes(
+      typeof currentLabel === 'string' ? currentLabel.trim().toLowerCase() : currentLabel
+    ));
+    hot.setDataAtCell([[0, 1, nextLabel]], 'pca-point-label-toggle');
+    await flushUntil(() => (state.performance?.draw?.timestamp || 0) > labelTimestamp, { limit: 80, step: 2 });
+
+    expect(global.__svdCallCount).toBe(initialSvd);
+    expect(state.performance?.draw?.viewOnly).toBe(true);
+    expect(state.performance?.draw?.cacheReused).toBe(true);
+    expect(state.performance?.draw?.computeMs).toBeLessThan(15);
+
     const originalValue = rows[1]?.[1] || '0';
     const replacement = originalValue === '0' ? '1' : '0';
     hot.setDataAtCell(1, 1, replacement);
@@ -761,6 +775,28 @@ describe('PCA view controls', () => {
     expect(drawPerf.reason).toBe('resize');
     expect(state.cachedRender).toBe(initialCache);
     expect(global.__svdCallCount).toBe(initialSvd);
+  });
+
+  test('point-label metadata updates reuse the tab-owned PCA geometry', async () => {
+    document.getElementById('pcaLoadExample').click();
+    const state = window.Components?.pca?.__state;
+    await flushUntil(() => !!state?.cachedRender, { limit: 80, step: 2 });
+
+    const hot = window.Components?.pca?.getHotInstance?.();
+    const initialSvd = global.__svdCallCount;
+    const initialTimestamp = state.performance?.draw?.timestamp || 0;
+    const current = hot.getDataAtCell(0, 1);
+    const next = !([true, 1, '1', 'true', 'yes', 'on'].includes(
+      typeof current === 'string' ? current.trim().toLowerCase() : current
+    ));
+    hot.setDataAtCell([[0, 1, next]], 'pca-point-label-toggle');
+    await flushUntil(() => (state.performance?.draw?.timestamp || 0) > initialTimestamp, { limit: 80, step: 2 });
+
+    expect(global.__svdCallCount).toBe(initialSvd);
+    expect(state.dataDirty).toBe(false);
+    expect(state.performance?.draw?.viewOnly).toBe(true);
+    expect(state.performance?.draw?.cacheReused).toBe(true);
+    expect(state.cachedRender?.points?.find(point => point.columnIndex === 1)?.isManualLabel).toBe(next);
   });
 
   test('switching PCA method redraws immediately', async () => {

@@ -197,6 +197,13 @@ test.describe('Redraw minimization audit', () => {
     expect(current?.cacheReused, 'pca border width input should reuse cache').toBe(true);
     previous = current;
 
+    const geometryToken = await page.evaluate(() => {
+      const svg = document.getElementById('pcaSvg');
+      if(!svg) return null;
+      const token = `geometry-${Date.now()}-${Math.random()}`;
+      svg.dataset.geometryToken = token;
+      return token;
+    });
     await runUiAction(page, () => {
       window.Shared?.colorSchemes?.applyToActiveTab?.('pca', 'grayscale');
     });
@@ -204,6 +211,41 @@ test.describe('Redraw minimization audit', () => {
     expect(current?.timestamp).toBeGreaterThan(previous?.timestamp || 0);
     expect(current?.viewOnly, 'pca color scheme should use view-only draw').toBe(true);
     expect(Number(current?.computeMs || 0), 'pca color scheme should avoid heavy compute').toBeLessThan(15);
+    expect(current?.inPlace, 'pca color scheme should recolor the existing geometry').toBe(true);
+    expect(await page.evaluate(() => document.getElementById('pcaSvg')?.dataset?.geometryToken || null)).toBe(geometryToken);
+    const grayscalePaint = await page.evaluate(() => {
+      const svg = document.getElementById('pcaSvg');
+      return {
+        hitTargetStrokes: Array.from(svg?.querySelectorAll('[data-axis-hit-target="1"]') || []).map(node => node.getAttribute('stroke')),
+        frameCount: svg?.querySelectorAll('[data-frame-edge]').length || 0,
+        tickCount: svg?.querySelectorAll('[data-axis-tick="1"]').length || 0
+      };
+    });
+    expect(grayscalePaint.hitTargetStrokes.length).toBeGreaterThan(0);
+    expect(grayscalePaint.hitTargetStrokes.every(stroke => stroke === 'none')).toBe(true);
+    expect(grayscalePaint.frameCount).toBeGreaterThan(0);
+    expect(grayscalePaint.tickCount).toBeGreaterThan(0);
+    previous = current;
+
+    await runUiAction(page, () => {
+      window.Shared?.colorSchemes?.applyToActiveTab?.('pca', 'dark');
+    });
+    current = await getPcaDrawPerf(page);
+    expect(current?.inPlace, 'pca dark scheme should reuse geometry').toBe(true);
+    expect(await page.evaluate(() => document.getElementById('pcaSvg')?.dataset?.geometryToken || null)).toBe(geometryToken);
+    const darkPaint = await page.evaluate(() => {
+      const svg = document.getElementById('pcaSvg');
+      const paintNodes = Array.from(svg?.querySelectorAll('[data-axis-line="1"], [data-axis-tick="1"], [data-frame-edge]') || []);
+      return {
+        background: svg?.getAttribute('data-color-scheme-bg-color') || null,
+        hitTargetStrokes: Array.from(svg?.querySelectorAll('[data-axis-hit-target="1"]') || []).map(node => node.getAttribute('stroke')),
+        paintStrokes: paintNodes.map(node => node.getAttribute('stroke'))
+      };
+    });
+    expect(darkPaint.background).toBe('#000000');
+    expect(darkPaint.hitTargetStrokes.every(stroke => stroke === 'none')).toBe(true);
+    expect(darkPaint.paintStrokes.length).toBeGreaterThan(0);
+    expect(darkPaint.paintStrokes.every(stroke => stroke === '#e6e6e6')).toBe(true);
     previous = current;
 
     await runUiAction(page, () => {

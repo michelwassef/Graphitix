@@ -89,6 +89,10 @@ test.describe('PCA label toggle regression', () => {
     await clickPcaLabelToggle(page, 'c1');
     await expect.poll(() => readPcaManualLabels(page)).toEqual(['A']);
     await expect.poll(() => readPcaLabelRow(page)).toEqual(['Label point', true, false, false, false]);
+    const labelDraw = await page.evaluate(() => window.Components?.pca?.__state?.performance?.draw || null);
+    expect(labelDraw?.viewOnly).toBe(true);
+    expect(labelDraw?.cacheReused).toBe(true);
+    expect(Number(labelDraw?.computeMs || 0)).toBeLessThan(15);
 
     await clickPcaLabelToggle(page, 'c4');
     await expect.poll(() => readPcaManualLabels(page)).toEqual(['A', 'D']);

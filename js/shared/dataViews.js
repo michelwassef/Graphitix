@@ -1027,6 +1027,7 @@
     manager.getActiveViewId = () => activeViewId;
     manager.getView = getView;
     manager.getViews = getViews;
+    manager.getViewCount = () => views.length;
     manager.updateActiveData = updateActiveData;
     manager.updateActiveExclusions = updateActiveExclusions;
     manager.updateActiveFilters = updateActiveFilters;

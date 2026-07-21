@@ -452,6 +452,9 @@
         if (meta.exclusions && typeof manager.updateActiveExclusions === 'function') {
           manager.updateActiveExclusions(meta.exclusions);
         }
+        if (typeof manager.getViewCount === 'function' && manager.getViewCount() <= 1) {
+          return { checked: true, payload: null };
+        }
         const payload = manager.serialize({ includeData: true }) || null;
         return { checked: true, payload };
       } catch (err) {
@@ -596,11 +599,55 @@
         affectsPayload: true
       });
     }
+    const component = resolveComponentForTab(tab);
+    if (typeof component?.applyTablePayloadChanges !== 'function' && typeof session?.commitTabPayload === 'function') {
+      const currentPayload = tab.payload && typeof tab.payload === 'object'
+        ? tab.payload
+        : createPayloadForTab(tab);
+      const nextPayload = {
+        ...(currentPayload || {}),
+        data: Array.isArray(currentPayload?.data) ? currentPayload.data.slice() : []
+      };
+      const clonedRows = new Set();
+      normalizedChanges.forEach(change => {
+        while (nextPayload.data.length <= change.row) {
+          nextPayload.data.push([]);
+        }
+        if (!clonedRows.has(change.row)) {
+          nextPayload.data[change.row] = Array.isArray(nextPayload.data[change.row])
+            ? nextPayload.data[change.row].slice()
+            : [];
+          clonedRows.add(change.row);
+        }
+        const row = nextPayload.data[change.row];
+        while (row.length <= change.col) {
+          row.push('');
+        }
+        row[change.col] = change.value;
+      });
+      const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
+      if (dataViewsCapture.checked) {
+        const dataViewsPayload = dataViewsCapture.payload;
+        const includeDataViews = !!(dataViewsPayload
+          && Array.isArray(dataViewsPayload.views)
+          && dataViewsPayload.views.length > 1);
+        if (includeDataViews) {
+          nextPayload.dataViews = dataViewsPayload;
+          nextPayload.activeDataViewId = dataViewsPayload.activeViewId || null;
+        } else {
+          delete nextPayload.dataViews;
+          delete nextPayload.activeDataViewId;
+        }
+      }
+      return session.commitTabPayload(tab, nextPayload, {
+        reason: effectiveReason,
+        origin: 'user'
+      });
+    }
     const updated = session.updateTabPayload(tab, draft => {
       const nextPayload = draft && typeof draft === 'object'
         ? draft
         : createPayloadForTab(tab);
-      const component = resolveComponentForTab(tab);
       if (typeof component?.applyTablePayloadChanges === 'function') {
         try {
           const result = component.applyTablePayloadChanges(nextPayload, normalizedChanges, {
@@ -1794,11 +1841,7 @@
       : false;
     const explicitDisableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === false
       || hotOptions?.enableFormulaReferenceSelection === false;
-    const explicitEnableFormulaReferenceSelection = overrides?.enableFormulaReferenceSelection === true
-      || hotOptions?.enableFormulaReferenceSelection === true;
-    const enableFormulaReferenceSelection = explicitDisableFormulaReferenceSelection
-      ? false
-      : (explicitEnableFormulaReferenceSelection || true);
+    const enableFormulaReferenceSelection = !explicitDisableFormulaReferenceSelection;
     const explicitDisableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === false
       || hotOptions?.enableFormulaReferenceOverlay === false;
     const explicitEnableFormulaReferenceOverlay = overrides?.enableFormulaReferenceOverlay === true
@@ -1808,11 +1851,7 @@
       : (explicitEnableFormulaReferenceOverlay || enableFormulaReferenceSelection);
     const explicitDisableFormulaEvaluation = overrides?.enableFormulaEvaluation === false
       || hotOptions?.enableFormulaEvaluation === false;
-    const explicitEnableFormulaEvaluation = overrides?.enableFormulaEvaluation === true
-      || hotOptions?.enableFormulaEvaluation === true;
-    const enableFormulaEvaluation = explicitDisableFormulaEvaluation
-      ? false
-      : (explicitEnableFormulaEvaluation || true);
+    const enableFormulaEvaluation = !explicitDisableFormulaEvaluation;
     const resolveFormulaReferenceInput = typeof overrides?.resolveFormulaReferenceInput === 'function'
       ? overrides.resolveFormulaReferenceInput
       : (typeof hotOptions?.resolveFormulaReferenceInput === 'function' ? hotOptions.resolveFormulaReferenceInput : null);
@@ -2124,7 +2163,7 @@
       }
     };
     const markFormulaModelDirty = (reason)=>{
-      if(!formulaEvaluationState.enabled){
+      if(!formulaEvaluationState.enabled || !formulaEvaluationState.active){
         return;
       }
       formulaEvaluationState.dirty = true;
@@ -2208,14 +2247,14 @@
       if(!formulaEvaluationState.enabled){
         return false;
       }
-      ensureFormulaModel(reason || 'matrix-sync');
-      rebuildFormulaModelFromMatrix(reason || 'matrix-sync');
-      if(matrixContainsFormulaValue(dataHandle.current || [])){
-        formulaEvaluationState.active = true;
-        return true;
+      if(!matrixContainsFormulaValue(dataHandle.current || [])){
+        deactivateFormulaModel(reason || 'matrix-without-formulas');
+        return false;
       }
-      deactivateFormulaModel(reason || 'matrix-without-formulas');
-      return false;
+      formulaEvaluationState.active = true;
+      formulaEvaluationState.dirty = true;
+      rebuildFormulaModelFromMatrix(reason || 'matrix-sync');
+      return true;
     };
     const rebuildFormulaModelFromMatrix = (reason)=>{
       const model = ensureFormulaModel(reason || 'rebuild');
@@ -2265,7 +2304,12 @@
         return false;
       }
       if(!formulaEvaluationState.active){
-        formulaEvaluationState.active = isFormulaLikeValue(value);
+        if(!isFormulaLikeValue(value)){
+          return false;
+        }
+        formulaEvaluationState.active = true;
+        formulaEvaluationState.dirty = true;
+        return rebuildFormulaModelFromMatrix(reason || 'set-cell-first-formula');
       }
       const model = ensureFormulaModel(reason || 'set-cell');
       if(!model){
@@ -8824,6 +8868,14 @@
       if(!list.length){
         return;
       }
+      if(!formulaEvaluationState.active){
+        const introducesFormula = list.some(entry => Array.isArray(entry) && entry.length >= 4 && isFormulaLikeValue(entry[3]));
+        if(!introducesFormula){
+          return;
+        }
+        formulaEvaluationState.active = true;
+        formulaEvaluationState.dirty = true;
+      }
       const model = ensureFormulaModelCurrent(reason || 'sync-visual-changes');
       if(!model){
         return;
@@ -9644,7 +9696,7 @@
         pendingRender = true;
         return;
       }
-      if(formulaEvaluationState.enabled){
+      if(formulaEvaluationState.enabled && formulaEvaluationState.active){
         ensureFormulaModelCurrent('render');
       }
       if(api && typeof api.refreshHeader === 'function'){
@@ -9925,6 +9977,7 @@
           data = adoptMatrixForLoad(incomingData, rowCount, colCount);
           dataHandle.current = data;
           markDataRevision('updateSettings:data');
+          syncFormulaModelActivityFromMatrix('updateSettings:data');
           needsSync = true;
           needsSchedule = true;
           if(colCount !== prevColCount){
@@ -9968,7 +10021,7 @@
         if(needsRebuild){
           colHeaders = resolveColHeaders(colCount);
         }
-        if(formulaEvaluationState.enabled && (formulaSettingsChanged || needsSync || needsRebuild)){
+        if(formulaEvaluationState.enabled && !hasIncomingData && (formulaSettingsChanged || needsSync || needsRebuild)){
           markFormulaModelDirty('update-settings');
         }
         if(needsSync){

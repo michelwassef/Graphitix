@@ -2885,8 +2885,10 @@
     if(!svg || typeof svg.ownerDocument?.createElementNS !== 'function'){ return null; }
     const overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
     overlay.setAttribute('fill', 'transparent');
+    overlay.setAttribute('stroke', 'none');
     overlay.setAttribute('pointer-events', 'fill');
     overlay.dataset.axisControl = '1';
+    overlay.dataset.axisHitTarget = '1';
     overlay.style.cursor = 'pointer';
     const parent = axisElement.parentNode;
     if(parent && typeof parent.insertBefore === 'function'){

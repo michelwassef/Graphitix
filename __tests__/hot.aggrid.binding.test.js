@@ -734,23 +734,44 @@ describe('Shared.hot AG Grid binding', () => {
     };
 
     expect(getCellViaColumnDef(1, 2)).toBe('3');
-    const plainDataModelCalls = createModelSpy.mock.calls.length;
+    expect(createModelSpy).not.toHaveBeenCalled();
 
-    hot.loadData([
-      ['A', 'B', 'C'],
-      ['1', '2', '=A1+B1']
-    ]);
+    hot.updateSettings({
+      data: [
+        ['A', 'B', 'C'],
+        ['4', '5', '6']
+      ],
+      minRows: 2,
+      minCols: 3,
+      trimData: true
+    });
+
+    expect(getCellViaColumnDef(1, 2)).toBe('6');
+    expect(createModelSpy).not.toHaveBeenCalled();
+
+    hot.updateSettings({
+      data: [
+        ['A', 'B', 'C'],
+        ['1', '2', '=A1+B1']
+      ],
+      minRows: 2,
+      minCols: 3,
+      trimData: true
+    });
 
     expect(getCellViaColumnDef(1, 2)).toBe(3);
-    expect(createModelSpy.mock.calls.length).toBeGreaterThanOrEqual(plainDataModelCalls);
-    expect(createModelSpy).toHaveBeenCalled();
+    expect(createModelSpy).toHaveBeenCalledTimes(1);
 
     hot.loadData([
       ['A', 'B', 'C'],
-      ['1', '2', '3']
+      ['7', '8', '3']
     ]);
 
     expect(getCellViaColumnDef(1, 2)).toBe('3');
+    expect(createModelSpy).toHaveBeenCalledTimes(1);
+
+    hot.setDataAtCell(1, 2, '=A1+B1', 'edit');
+    expect(getCellViaColumnDef(1, 2)).toBe(15);
     expect(createModelSpy).toHaveBeenCalledTimes(1);
   });
 

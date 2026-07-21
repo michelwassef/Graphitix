@@ -1751,32 +1751,20 @@
     return changed;
   }
 
-  function updateTabPayload(tabLike, updater, meta = {}) {
+  function commitTabPayload(tabLike, nextPayload, meta = {}) {
     const tab = resolveTab(tabLike);
     if (!tab || tab.isWelcome || !tab.type) {
-      console.debug('Debug: updateTabPayload skipped', {
+      console.debug('Debug: commitTabPayload skipped', {
         tabId: typeof tabLike === 'string' ? tabLike : tabLike?.id || null,
         reason: 'missing-tab'
       });
       return false;
     }
-    if (typeof updater !== 'function') {
-      console.warn('updateTabPayload requires an updater function', { tabId: tab.id, type: tab.type || null });
-      return false;
-    }
-    const previousPayload = clonePayload(tab.payload || null);
-    let nextPayload;
-    try {
-      const draft = clonePayload(tab.payload || null);
-      const result = updater(draft, tab);
-      nextPayload = typeof result === 'undefined' ? draft : result;
-    } catch (err) {
-      console.error('updateTabPayload updater error', { tabId: tab.id, type: tab.type || null, err });
-      return false;
-    }
+    const previousSignature = tab.payloadSignature || serializePayloadSignature(tab.payload || null);
     const changed = assignTabPayload(tab, nextPayload, {
       reason: meta.reason || 'update-tab-payload',
-      allowClear: meta.allowClear === true
+      allowClear: meta.allowClear === true,
+      preserveRuntimeCacheOnPayloadChange: meta.preserveRuntimeCacheOnPayloadChange === true
     });
     if (!changed) {
       return false;
@@ -1790,15 +1778,48 @@
       type: tab.type || null,
       origin: meta.origin || 'user',
       directPayloadMutation: true,
-      previousSignature: serializePayloadSignature(previousPayload),
+      previousSignature,
       nextSignature: tab.payloadSignature || null
     });
-    console.debug('Debug: updateTabPayload applied', {
+    console.debug('Debug: commitTabPayload applied', {
       tabId: tab.id,
       type: tab.type || null,
       reason: meta.reason || 'update-tab-payload'
     });
     return true;
+  }
+
+  function updateTabPayload(tabLike, updater, meta = {}) {
+    const tab = resolveTab(tabLike);
+    if (!tab || tab.isWelcome || !tab.type) {
+      console.debug('Debug: updateTabPayload skipped', {
+        tabId: typeof tabLike === 'string' ? tabLike : tabLike?.id || null,
+        reason: 'missing-tab'
+      });
+      return false;
+    }
+    if (typeof updater !== 'function') {
+      console.warn('updateTabPayload requires an updater function', { tabId: tab.id, type: tab.type || null });
+      return false;
+    }
+    let nextPayload;
+    try {
+      const draft = clonePayload(tab.payload || null);
+      const result = updater(draft, tab);
+      nextPayload = typeof result === 'undefined' ? draft : result;
+    } catch (err) {
+      console.error('updateTabPayload updater error', { tabId: tab.id, type: tab.type || null, err });
+      return false;
+    }
+    const changed = commitTabPayload(tab, nextPayload, meta);
+    if (changed) {
+      console.debug('Debug: updateTabPayload applied', {
+        tabId: tab.id,
+        type: tab.type || null,
+        reason: meta.reason || 'update-tab-payload'
+      });
+    }
+    return changed;
   }
 
   function persistUserModifiedTabState(tabLike, options = {}) {
@@ -3414,6 +3435,7 @@
   namespace.disposeWorkspaceTabs = disposeWorkspaceTabs;
   namespace.markTabRenderCommitted = markTabRenderCommitted;
   namespace.assignTabPayload = assignTabPayload;
+  namespace.commitTabPayload = commitTabPayload;
   namespace.updateTabPayload = updateTabPayload;
   namespace.persistUserModifiedTabState = persistUserModifiedTabState;
   namespace.clearTabRenderCache = clearTabRenderCache;

@@ -2842,6 +2842,7 @@
       line.setAttribute('y2', pos.y2);
       line.setAttribute('stroke', stroke);
       line.setAttribute('stroke-linecap', 'square');
+      line.setAttribute('data-frame-edge', side);
       if(strokeWidth !== null){
         line.setAttribute('stroke-width', strokeWidth);
       }

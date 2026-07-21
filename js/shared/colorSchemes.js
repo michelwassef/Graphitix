@@ -342,6 +342,19 @@
     }
   }
 
+  function cloneThemePayload(payload, type){
+    const source = payload && typeof payload === 'object' ? payload : {};
+    const next = {
+      ...source,
+      type: source.type || type,
+      config: cloneValue(source.config || {}) || {}
+    };
+    if(source.style && typeof source.style === 'object'){
+      next.style = cloneValue(source.style) || {};
+    }
+    return next;
+  }
+
   function clampHexChannel(numeric){
     const value = Number.isFinite(numeric) ? numeric : 0;
     return Math.max(0, Math.min(255, Math.round(value)));
@@ -785,13 +798,14 @@
 
   function inferPcaSampleLabelKeys(matrix, config){
     const rows = ensureArray(matrix);
-    if(!rows.length){
-      return [];
-    }
     const cfg = ensureObject(config);
+    const configuredKeys = Object.keys(ensureMap(cfg.labelColors));
+    if(!rows.length){
+      return uniqueStrings(configuredKeys);
+    }
     const grouped = String(cfg.tableFormat || '').trim().toLowerCase() === 'grouped';
     if(grouped){
-      return [];
+      return uniqueStrings(configuredKeys);
     }
     const headerNames = ['variable', 'sample'];
     let header = null;
@@ -812,9 +826,10 @@
       header = Array.isArray(rows[fallbackIndex]) ? rows[fallbackIndex] : null;
     }
     if(!header){
-      return [];
+      return uniqueStrings(configuredKeys);
     }
-    return uniqueStrings(header.slice(1));
+    const inferredKeys = uniqueStrings(header.slice(1));
+    return inferredKeys.length ? inferredKeys : uniqueStrings(configuredKeys);
   }
 
   function inferHistogramSeriesKeys(matrix){
@@ -1316,7 +1331,7 @@
   }
 
   function legacyApplySchemeToPayload(type, payload, scheme, options){
-    const next = cloneValue(payload) || { type, config: {} };
+    const next = cloneThemePayload(payload, type);
     const cfg = next.config = next.config && typeof next.config === 'object' ? next.config : {};
     const opts = ensureObject(options);
     const forceColors = opts.forceColors === true;
@@ -1982,53 +1997,53 @@
       return false;
     }
 
-    try{
-      if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, {
-          reason: `color-scheme-pre-${type}`,
-          origin: 'lifecycle',
-          forceLivePayloadCapture: true,
-          snapshotIntent: {
-            captureLivePayload: true,
-            allowSkipLivePayloadCapture: false,
-            reasonSkippable: false,
-            lifecycleSnapshot: false
-          }
-        });
-      }
-    }catch(err){
-      console.error('colorSchemes pre-persist error', { type, err });
-    }
-
-    const sourcePayload = cloneValue(tab.payload)
+    const sourcePayload = cloneThemePayload(tab.payload
       || (typeof workspace.getPayload === 'function' ? workspace.getPayload({
         tabId: tab.id,
         type,
         reason: `color-scheme-source-${type}`,
         origin: 'colorSchemes'
       }) : null)
-      || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} });
+      || (typeof workspace.createEmptyPayload === 'function' ? workspace.createEmptyPayload() : { type, config: {} }), type);
+    const colorContext = typeof workspace.getColorSchemeContext === 'function'
+      ? workspace.getColorSchemeContext({ tabId: tab.id, type, reason: `color-scheme-context-${type}` })
+      : null;
+    if(Array.isArray(colorContext?.labelKeys) && colorContext.labelKeys.length){
+      const labelColors = ensureObject(sourcePayload.config?.labelColors);
+      colorContext.labelKeys.forEach(label => {
+        const key = String(label || '').trim();
+        if(key && !Object.prototype.hasOwnProperty.call(labelColors, key)){
+          labelColors[key] = '';
+        }
+      });
+      sourcePayload.config.labelColors = labelColors;
+    }
 
     const nextPayload = applySchemeToPayload(type, sourcePayload, scheme, { forceColors: true });
     syncSharedScatterPalette(type, scheme);
 
-    if(typeof session.updateTabPayload === 'function'){
-      session.updateTabPayload(tab, () => cloneValue(nextPayload), {
+    if(typeof session.commitTabPayload === 'function'){
+      session.commitTabPayload(tab, nextPayload, {
+        reason: `color-scheme-${type}`,
+        origin: 'user'
+      });
+    }else if(typeof session.updateTabPayload === 'function'){
+      session.updateTabPayload(tab, () => cloneThemePayload(nextPayload, type), {
         reason: `color-scheme-${type}`,
         origin: 'user'
       });
     }else if(typeof session.assignTabPayload === 'function'){
-      session.assignTabPayload(tab, cloneValue(nextPayload), {
+      session.assignTabPayload(tab, cloneThemePayload(nextPayload, type), {
         reason: `color-scheme-${type}`
       });
     }else{
-      tab.payload = cloneValue(nextPayload);
+      tab.payload = cloneThemePayload(nextPayload, type);
     }
 
     let appliedViaWorkspaceFastPath = false;
     if(typeof workspace.applyColorSchemePayload === 'function'){
       try{
-        const fastResult = workspace.applyColorSchemePayload(cloneValue(nextPayload), {
+        const fastResult = workspace.applyColorSchemePayload(cloneThemePayload(nextPayload, type), {
           reason: `color-scheme-${type}`,
           source: 'color-scheme',
           viewOnly: true
@@ -2040,15 +2055,7 @@
     }
 
     if(!appliedViaWorkspaceFastPath && typeof domControls.applyWorkspacePayload === 'function'){
-      domControls.applyWorkspacePayload(workspace, cloneValue(nextPayload), { reason: `color-scheme-${type}` });
-    }
-
-    try{
-      if(typeof session.persistActiveTabState === 'function'){
-        session.persistActiveTabState(tab, { reason: `color-scheme-post-${type}`, forcePreviewCapture: true, origin: 'lifecycle' });
-      }
-    }catch(err){
-      console.error('colorSchemes post-persist error', { type, err });
+      domControls.applyWorkspacePayload(workspace, cloneThemePayload(nextPayload, type), { reason: `color-scheme-${type}` });
     }
 
     if(typeof session.updateTabPayload !== 'function' && typeof session.markSessionDirty === 'function'){

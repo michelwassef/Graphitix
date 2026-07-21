@@ -906,6 +906,7 @@
       draw: meta => scheduleDrawPca(meta || {}),
       getPreviewSvg: tab => resolveWorkspacePreviewSvg('pca', tab),
       getPayload: (meta) => window.Components?.pca?.getPayload?.(meta || {}),
+      getColorSchemeContext: (meta) => window.Components?.pca?.getColorSchemeContext?.(meta || {}),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.pca?.loadFromPayload?.(payload, options),
       applyColorSchemePayload: (payload, options) => window.Components?.pca?.applyColorSchemePayload?.(payload, options),

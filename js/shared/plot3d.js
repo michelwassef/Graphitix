@@ -941,6 +941,7 @@
     const backDash = Array.isArray(cfg.frameBackDash) ? cfg.frameBackDash : [6, 4];
     const paneGroup = showPanes && doc ? doc.createElementNS(NS, 'g') : null;
     if(paneGroup){
+      paneGroup.setAttribute('data-plot3d-panes', '1');
       paneGroup.setAttribute('fill', paneFill);
       paneGroup.setAttribute('stroke', 'none');
       (paneTarget || svg).appendChild(paneGroup);

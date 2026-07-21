@@ -1516,8 +1516,6 @@
       rows: pcaData.length,
       cols: pcaData[0]?.length || 0
     });
-    let lastKeyDownAt = 0;
-    let suppressLabelSelectionToggleUntil = 0;
     let pcaHot = null;
     const scheduleDrawPcaProxy = (payload) => {
       const meta = payload && typeof payload === 'object' ?
@@ -1527,6 +1525,9 @@
         } : {});
       const reason = meta.reason || 'hot-change';
       const source = meta.source || null;
+      if (source === 'pca-point-label-toggle') {
+        return;
+      }
       const invalidate = typeof meta.invalidate === 'string' ? meta.invalidate : 'data';
       const options = {
         ...meta,
@@ -1744,89 +1745,8 @@
       },
       hotOptions: {
         contextMenu: true,
-        beforeKeyDown() {
-          lastKeyDownAt = Date.now();
-        },
-        afterSelectionEnd(r1, c1, r2, c2) {
+        afterSelectionEnd() {
           activatePcaDataToolbar('table-selection');
-          const hot = pcaHot;
-          if (!hot || typeof hot.getData !== 'function') {
-            return;
-          }
-          const now = Date.now();
-          if (now < suppressLabelSelectionToggleUntil) {
-            return;
-          }
-          if (now - lastKeyDownAt < 80) {
-            return;
-          }
-          const data = hot.getData() || [];
-          const labelRowIndex = resolvePcaLabelRowIndex(data);
-          if (!Number.isInteger(labelRowIndex)) {
-            return;
-          }
-          const fromRow = Math.min(r1, r2);
-          const toRow = Math.max(r1, r2);
-          if (fromRow !== labelRowIndex || toRow !== labelRowIndex) {
-            return;
-          }
-          const fromCol = Math.min(c1, c2);
-          const toCol = Math.max(c1, c2);
-          if (toCol < 1) {
-            return;
-          }
-          const source = 'pca-point-label-toggle';
-          if (isPcaPinnedRow(hot, labelRowIndex)) {
-            let changed = false;
-            for (let c = Math.max(1, fromCol); c <= toCol; c += 1) {
-              const current = data[labelRowIndex]?.[c];
-              const next = !parsePcaPointLabelFlag(current);
-              if (applyPcaCellValue(hot, labelRowIndex, c, next, {
-                  source,
-                  render: false
-                })) {
-                changed = true;
-              }
-            }
-            if (changed) {
-              if (typeof hot.render === 'function') {
-                hot.render();
-              }
-              markPcaDataDirty(source);
-              schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-                reason: source
-              }, {
-                create: false
-              }) || getActivePcaSessionForState(), {
-                reason: source
-              });
-              debugLog('Debug: pca label row toggled', {
-                row: labelRowIndex,
-                fromCol,
-                toCol
-              });
-            }
-            return;
-          }
-          if (typeof hot.setDataAtCell !== 'function') {
-            return;
-          }
-          const changes = [];
-          for (let c = Math.max(1, fromCol); c <= toCol; c += 1) {
-            const current = typeof hot.getDataAtCell === 'function' ?
-              hot.getDataAtCell(labelRowIndex, c) :
-              (data[labelRowIndex]?.[c]);
-            const next = !parsePcaPointLabelFlag(current);
-            changes.push([labelRowIndex, c, next]);
-          }
-          if (changes.length) {
-            hot.setDataAtCell(changes, source);
-            debugLog('Debug: pca label row toggled', {
-              row: labelRowIndex,
-              fromCol,
-              toCol
-            });
-          }
         },
         afterPaste(data) {
           const activeHot = ensurePcaHotForActiveTab();
@@ -1862,15 +1782,22 @@
               sourceText === 'pca-label-row' ||
               sourceText === 'pca-empty-defaults';
             if (!skipSchedule) {
-              markPcaDataDirty(sourceText || 'afterChange');
-              schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-                reason: sourceText || 'afterChange'
-              }, {
-                create: false
-              }) || getActivePcaSessionForState(), {
-                force: true,
-                reason: sourceText || 'afterChange'
-              });
+              const reason = sourceText || 'afterChange';
+              if (sourceText === 'pca-point-label-toggle' && changes.every(change => (
+                  Number(change?.[0]) === PCA_LABEL_ROW_INDEX && Number(change?.[1]) >= 1
+                ))) {
+                refreshPcaManualLabelsFromChanges(pcaHot, changes, reason);
+              } else {
+                markPcaDataDirty(reason);
+                schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
+                  reason
+                }, {
+                  create: false
+                }) || getActivePcaSessionForState(), {
+                  force: true,
+                  reason
+                });
+              }
             }
           }
           const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -2014,19 +1941,6 @@
           if (!applied) {
             return;
           }
-          if (isPcaPinnedRow(hot, labelRowIndex) && typeof hot.render === 'function') {
-            hot.render();
-          }
-          syncPcaActiveDataViewFromHot(hot, 'afterChange');
-          markPcaDataDirty(source);
-          schedulePcaDrawForSession(getPcaSessionForHot(hot, {
-            reason: source
-          }, {
-            create: false
-          }) || getActivePcaSessionForState(), {
-            reason: source
-          });
-          suppressLabelSelectionToggleUntil = Date.now() + 500;
           debugLog('Debug: pca label toggle via cell click', {
             row: labelRowIndex,
             col: colIndex,
@@ -5334,6 +5248,48 @@
     });
   }
 
+  function refreshPcaManualLabelsFromChanges(hotInstance, changes, reason = 'pca-point-label-toggle') {
+    const session = getPcaSessionForHot(hotInstance, {
+      reason
+    }, {
+      create: false
+    }) || getActivePcaSessionForState();
+    const updates = new Map();
+    (Array.isArray(changes) ? changes : []).forEach(change => {
+      const columnIndex = Number(change?.[1]);
+      if (Number.isInteger(columnIndex) && columnIndex >= 1) {
+        updates.set(columnIndex, parsePcaPointLabelFlag(change?.[3]));
+      }
+    });
+    const cache = getPcaAnalysisCache(session);
+    if (cache && updates.size) {
+      const patchPoints = points => (Array.isArray(points) ? points.map((point, index) => {
+        const fallbackColumnIndex = Number(cache.sampleColumnIndices?.[index]);
+        const columnIndex = Number.isInteger(point?.columnIndex) ? point.columnIndex : fallbackColumnIndex;
+        if (!updates.has(columnIndex)) {
+          return point;
+        }
+        return {
+          ...point,
+          isManualLabel: updates.get(columnIndex)
+        };
+      }) : []);
+      setPcaAnalysisCache({
+        ...cache,
+        points: patchPoints(cache.points),
+        points3d: patchPoints(cache.points3d)
+      }, session);
+    }
+    markPcaViewDirty(reason, session);
+    requestPcaViewRefresh(reason, {
+      tabId: session?.tabId || null,
+      force: true,
+      userInitiated: true,
+      viewOnly: true,
+      silentOverlay: true
+    });
+  }
+
   function getPcaStatsSnapshot(session = null) {
     const results = getPcaResultsState(session || getActivePcaSessionForState());
     return cloneSimple(results?.stats) || null;
@@ -7112,6 +7068,86 @@
       svg.style.backgroundColor = backgroundColor;
     }
     svg.setAttribute('data-color-scheme-bg-color', backgroundColor);
+  }
+
+  function applyPcaColorSchemeInPlace(session = null) {
+    const owner = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
+    const tabId = owner?.tabId || getPcaProjectionTabId() || null;
+    const plotRoot = getPcaNodeById('pcaPlot', tabId) || getPcaNodeById('pcaPlot');
+    const svg = plotRoot?.querySelector?.('#pcaSvg') || null;
+    if (!svg || plotRoot?.querySelector?.('.pca-fast-points-layer')) {
+      return false;
+    }
+    const cache = getPcaAnalysisCache(owner) || {};
+    const pointNodes = Array.from(svg.querySelectorAll('[data-plot-point="1"]'));
+    const points = svg.dataset?.viewMode === '3d' ? cache.points3d : cache.points;
+    const renderedLabels = pointNodes.map(node => String(node.__pcaPointData?.label || ''));
+    const labels = Array.isArray(cache.labels) && cache.labels.length ? cache.labels : renderedLabels;
+    const groupMeta = resolvePcaGroupMeta(cache.sampleCount || points?.length || pointNodes.length, labels, {
+      columnIndices: cache.sampleColumnIndices || [],
+      groupHeaderRow: cache.groupedHeaderRow || []
+    });
+    const borderColor = pcaBorder?.value || '#000000';
+    const fill = pcaFill?.value || DEFAULT_SCATTER_COLORS[0];
+    const colorForPoint = data => {
+      const index = Number(data?.index);
+      const label = data?.label ? String(data.label) : '';
+      const assignment = groupMeta && Number.isInteger(index) ? groupMeta.assignments?.[index] : null;
+      const groupStyle = Number.isInteger(assignment) ? groupMeta?.styleByIndex?.[assignment] : null;
+      const labelStyle = label ? (pcaState.labelPointStyles?.[label] || null) : null;
+      return {
+        fill: groupStyle?.color || (label ? (pcaState.labelColors?.[label] || DEFAULT_SCATTER_COLORS[0]) : fill),
+        stroke: labelStyle?.borderColor || labelStyle?.stroke || borderColor
+      };
+    };
+    pointNodes.forEach(node => {
+      const colors = colorForPoint(node.__pcaPointData || {});
+      node.setAttribute('fill', colors.fill);
+      const strokeWidth = Number(node.getAttribute('stroke-width')) || 0;
+      node.setAttribute('stroke', strokeWidth > 0 ? colors.stroke : 'none');
+    });
+
+    const legendColors = new Map();
+    groupMeta?.entries?.forEach(entry => legendColors.set(String(entry.key), entry.color));
+    const seenLabels = new Set();
+    labels.forEach(label => {
+      const key = String(label || '');
+      if (!key || seenLabels.has(key)) {
+        return;
+      }
+      seenLabels.add(key);
+      legendColors.set(`label-${key}`, pcaState.labelColors?.[key] || DEFAULT_SCATTER_COLORS[legendColors.size % DEFAULT_SCATTER_COLORS.length]);
+    });
+    svg.querySelectorAll('[data-legend-key]').forEach(node => {
+      const color = legendColors.get(String(node.dataset?.legendKey || ''));
+      if (color) {
+        node.setAttribute('fill', color);
+      }
+    });
+
+    const axisColor = getAxisColor();
+    const gridColor = getGridStyle(getAxisStrokeWidthBase()).color || DEFAULT_GRID_COLOR;
+    const textColor = normalizePcaThemeColor(pcaState.theme?.textColor, chartStyle.TEXT_COLOR || '#000000');
+    svg.querySelectorAll('[data-grid-control="1"]').forEach(node => node.setAttribute('stroke', gridColor));
+    svg.querySelectorAll('[data-axis-line="1"], [data-axis-tick="1"], [data-frame-edge]').forEach(node => node.setAttribute('stroke', axisColor));
+    svg.querySelectorAll('[data-label-leader="1"]').forEach(node => node.setAttribute('stroke', textColor));
+    if (svg.dataset?.viewMode === '3d') {
+      const width = Number(svg.getAttribute('width')) || 0;
+      const height = Number(svg.getAttribute('height')) || 0;
+      appendPca3dBackground(svg, width, height);
+      svg.querySelectorAll('text,tspan').forEach(node => node.setAttribute('fill', textColor));
+      const dark = String(pcaState.theme?.colorScheme || '').toLowerCase() === 'dark';
+      const panes = Array.from(svg.querySelectorAll('[data-plot3d-panes="1"] polygon'));
+      panes.forEach((node, index) => {
+        const ratio = panes.length > 1 ? index / (panes.length - 1) : 0;
+        node.setAttribute('fill', dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.03)');
+        node.setAttribute('opacity', String((dark ? 0.10 : 0.01) + ratio * (dark ? 0.12 : 0.04)));
+      });
+    }
+    updatePcaRenderRuntime(owner, runtime => {
+      runtime.viewDirty = false;
+    });
+    return true;
   }
 
   function resetPcaRotation(reason) {
@@ -12485,26 +12521,29 @@
         plotEl.removeChild(plotEl.firstChild);
       }
 
-      const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
-      const allowEigenExport = eigenSummaryForStats.length > 0;
-      renderStatsPanel({
-        summaryLines: statsSummaryLines,
-        showScree: method === 'pca',
-        screeData,
-        method: statsMethod || method,
-        showEigenTable: method === 'pca' || method === 'mds',
-        eigenSummary: eigenSummaryForStats,
-        enableEigenExport: allowEigenExport,
-        varianceSummary: method === 'pca' ? eigenSummaryForStats : [],
-        pointColor: fill,
-        selectionSummary: method === 'pca' ? componentSelectionSummary : null,
-        parallelAnalysis: method === 'pca' ? parallelAnalysisPercent : [],
-        loadingsRows,
-        biplot: method === 'pca' ? buildPcaBiplotSnapshot(points, loadingsRows, {
-          x: pcaXLabelText,
-          y: pcaYLabelText
-        }) : null
-      });
+      const rotationOnly = viewOnly && String(drawOpts.reason || '').trim().toLowerCase() === 'rotation';
+      if (!rotationOnly) {
+        const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
+        const allowEigenExport = eigenSummaryForStats.length > 0;
+        renderStatsPanel({
+          summaryLines: statsSummaryLines,
+          showScree: method === 'pca',
+          screeData,
+          method: statsMethod || method,
+          showEigenTable: method === 'pca' || method === 'mds',
+          eigenSummary: eigenSummaryForStats,
+          enableEigenExport: allowEigenExport,
+          varianceSummary: method === 'pca' ? eigenSummaryForStats : [],
+          pointColor: fill,
+          selectionSummary: method === 'pca' ? componentSelectionSummary : null,
+          parallelAnalysis: method === 'pca' ? parallelAnalysisPercent : [],
+          loadingsRows,
+          biplot: method === 'pca' ? buildPcaBiplotSnapshot(points, loadingsRows, {
+            x: pcaXLabelText,
+            y: pcaYLabelText
+          }) : null
+        });
+      }
 
       if (effectiveViewMode === '3d') {
         if (!points3d.length) {
@@ -13229,6 +13268,7 @@
             leader.setAttribute('stroke', labelColor);
             leader.setAttribute('stroke-width', String(leaderStrokeWidth));
             leader.setAttribute('stroke-linecap', 'round');
+            leader.setAttribute('data-label-leader', '1');
             labelLayer.appendChild(leader);
             const textNode = document.createElementNS(NS, 'text');
             textNode.setAttribute('x', String(textX));
@@ -14045,7 +14085,9 @@
         y2: margin.top + plotH,
         stroke: axisStroke,
         'stroke-linecap': 'square',
-        'stroke-width': axisStrokeWidth
+        'stroke-width': axisStrokeWidth,
+        'data-axis-line': '1',
+        'data-axis-key': 'x'
       });
       if (axisControls && typeof axisControls.registerAxisElement === 'function') {
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
@@ -14057,7 +14099,9 @@
         y2: axisYEnd,
         stroke: axisStroke,
         'stroke-linecap': 'square',
-        'stroke-width': axisStrokeWidth
+        'stroke-width': axisStrokeWidth,
+        'data-axis-line': '1',
+        'data-axis-key': 'y'
       });
       if (axisControls && typeof axisControls.registerAxisElement === 'function') {
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
@@ -14098,6 +14142,8 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
+            'data-axis-tick': '1',
+            'data-axis-key': 'x',
             opacity: minorTickStyle.opacity
           });
         });
@@ -14110,7 +14156,9 @@
           x2: x,
           y2: margin.top + plotH + tickLen,
           stroke: axisStroke,
-          'stroke-width': axisStrokeWidth
+          'stroke-width': axisStrokeWidth,
+          'data-axis-tick': '1',
+          'data-axis-key': 'x'
         });
         const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
         const txt = add('text', {
@@ -14145,6 +14193,8 @@
             stroke: axisStroke,
             'stroke-width': minorTickStyle.strokeWidth,
             'stroke-linecap': 'round',
+            'data-axis-tick': '1',
+            'data-axis-key': 'y',
             opacity: minorTickStyle.opacity
           });
         });
@@ -14157,7 +14207,9 @@
           x2: margin.left,
           y2: y,
           stroke: axisStroke,
-          'stroke-width': axisStrokeWidth
+          'stroke-width': axisStrokeWidth,
+          'data-axis-tick': '1',
+          'data-axis-key': 'y'
         });
         const txt = add('text', {
           x: margin.left - (tickLen + tickGap),
@@ -14494,6 +14546,7 @@
             opacity: pointOpacityLocal,
           });
           if (pointNode) {
+            pointNode.dataset.plotPoint = '1';
             const groupLabel = Number.isInteger(assignment) ?
               (style?.label || groupMeta?.entries?.[assignment]?.label || '') :
               (style?.label || '');
@@ -14553,7 +14606,7 @@
             context: 'pca-point-label',
             min: 0.25
           });
-          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const labelColor = pcaThemeTextColor;
           const plotLeft = margin.left;
           const plotRight = margin.left + plotW;
           const plotTop = margin.top;
@@ -14596,6 +14649,7 @@
             leader.setAttribute('stroke', labelColor);
             leader.setAttribute('stroke-width', String(leaderStrokeWidth));
             leader.setAttribute('stroke-linecap', 'round');
+            leader.setAttribute('data-label-leader', '1');
             labelLayer.appendChild(leader);
             const textNode = document.createElementNS(NS, 'text');
             textNode.setAttribute('x', String(textX));
@@ -15084,9 +15138,10 @@
     }
     const skipDraw = meta?.skipDraw === true;
     const styleOnly = meta?.styleOnly === true || meta?.colorSchemeOnly === true;
+    let colorSchemeAppliedInPlace = false;
     const skipDataLoad = meta?.skipDataLoad === true || styleOnly;
     const scheduleOriginal = typeof scheduleDrawPca === 'function' ? scheduleDrawPca : null;
-    const shouldSuspendSchedule = !!(scheduleOriginal && (skipDraw || !skipDataLoad));
+    const shouldSuspendSchedule = !!(scheduleOriginal && (skipDraw || !skipDataLoad || styleOnly));
     const payloadSession = getActivePcaSessionForState();
     const payloadDrawRuntime = getPcaDrawRuntime(payloadSession, {
       seedFromActive: true
@@ -15452,14 +15507,38 @@
         reason: meta?.reason || 'pca-payload-owner-sync'
       });
       if (styleOnly) {
-        markPcaViewDirty(meta?.reason || 'pca-style-payload');
+        if (meta?.colorSchemeOnly === true) {
+          const recolorStart = nowMs();
+          colorSchemeAppliedInPlace = applyPcaColorSchemeInPlace(payloadOwnerSession);
+          if (colorSchemeAppliedInPlace) {
+            const recolorMs = nowMs() - recolorStart;
+            recordPcaPerformance('draw', {
+              totalMs: recolorMs,
+              parseMs: 0,
+              computeMs: 0,
+              renderMs: recolorMs,
+              sampleCount: getPcaAnalysisCache(payloadOwnerSession)?.sampleCount || 0,
+              featureCount: getPcaAnalysisCache(payloadOwnerSession)?.featureCount || 0,
+              method: pcaMethod?.value || 'pca',
+              viewOnly: true,
+              cacheReused: true,
+              inPlace: true,
+              reason: meta?.reason || 'pca-style-payload'
+            });
+          }
+        }
+        if (!colorSchemeAppliedInPlace) {
+          markPcaViewDirty(meta?.reason || 'pca-style-payload', payloadOwnerSession);
+        }
       }
       if (!skipDraw && scheduleOriginal) {
         if (styleOnly) {
-          scheduleOriginal({
-            viewOnly: true,
-            reason: meta?.reason || 'pca-style-payload'
-          });
+          if (!colorSchemeAppliedInPlace) {
+            scheduleOriginal({
+              viewOnly: true,
+              reason: meta?.reason || 'pca-style-payload'
+            });
+          }
         } else {
           scheduleOriginal({
             reason: meta?.reason || (meta?.source ? `payload-${meta.source}` : 'payload')
@@ -16038,6 +16117,29 @@
       colorSchemeOnly: true,
       ...options
     });
+  };
+
+  pca.getColorSchemeContext = function getPcaColorSchemeContext(meta = {}) {
+    const tabId = meta?.tabId || getPcaProjectionTabId() || null;
+    const session = tabId ? getPcaSession(tabId, meta, {
+      create: false
+    }) : getActivePcaSessionForState();
+    const cachedLabels = getPcaAnalysisCache(session)?.labels;
+    if (Array.isArray(cachedLabels) && cachedLabels.length) {
+      return {
+        labelKeys: Array.from(new Set(cachedLabels.map(label => String(label || '').trim()).filter(Boolean)))
+      };
+    }
+    if (String(tabId || '') !== String(getPcaProjectionTabId() || '')) {
+      return {
+        labelKeys: []
+      };
+    }
+    const data = ensurePcaHotForActiveTab()?.getData?.() || [];
+    const sampleRowIndex = getPcaHeaderRowIndexForMode();
+    return {
+      labelKeys: Array.from(new Set((data[sampleRowIndex] || []).slice(1).map(label => String(label || '').trim()).filter(Boolean)))
+    };
   };
 
   pca.getPayload = getPcaGraphPayload;

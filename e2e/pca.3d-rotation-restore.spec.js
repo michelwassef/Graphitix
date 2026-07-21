@@ -107,7 +107,8 @@ async function dragRestoredPca3d(page) {
       delta,
       cursor: svg.style.cursor || '',
       attached: svg.dataset?.rotationControlsAttached || null,
-      hasControlObject: !!svg.__plot3dRotationControl
+      hasControlObject: !!svg.__plot3dRotationControl,
+      drawPerformance: window.Components?.pca?.__state?.performance?.draw || null
     };
   }, before);
 }
@@ -135,5 +136,8 @@ test('PCA 3D rotation remains live after file reopen', async ({ page }) => {
   expect(drag.ok, `restored PCA 3D plot should rotate after drag: ${JSON.stringify(drag)}`).toBe(true);
   expect(drag.attached).toBe('true');
   expect(drag.hasControlObject).toBe(true);
+  expect(drag.drawPerformance?.viewOnly).toBe(true);
+  expect(drag.drawPerformance?.cacheReused).toBe(true);
+  expect(Number(drag.drawPerformance?.computeMs || 0)).toBeLessThan(15);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });
