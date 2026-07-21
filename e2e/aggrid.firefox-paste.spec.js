@@ -74,3 +74,47 @@ test('scatter AG Grid pastes clipboard text with Ctrl+V', async ({ page, context
   expect(state.cell01).toBe('22');
   expect(state.selected).toBeTruthy();
 });
+
+test('AG Grid distinguishes spreadsheet decimal commas from plain CSV', async ({ page }) => {
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await page.waitForSelector('#scatterHot .ag-root', { timeout: 20000 });
+
+  await page.evaluate(() => {
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    hot?.setDataAtCell?.(0, 1, '');
+    hot?.selectCell?.(0, 0, 0, 0);
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', '1,2\n3,4');
+    transfer.setData('text/html', '<table><tr><td>1,2</td></tr><tr><td>3,4</td></tr></table>');
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', { value: transfer });
+    document.querySelector('#scatterHot')?.dispatchEvent(pasteEvent);
+  });
+
+  await expect.poll(() => page.evaluate(() => {
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    return [hot?.getDataAtCell?.(0, 0), hot?.getDataAtCell?.(1, 0), hot?.getDataAtCell?.(0, 1)];
+  })).toEqual(['1.2', '3.4', '']);
+
+  await page.evaluate(() => {
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    hot?.selectCell?.(0, 1, 0, 1);
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', '5,6\n7,8');
+    const pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(pasteEvent, 'clipboardData', { value: transfer });
+    document.querySelector('#scatterHot')?.dispatchEvent(pasteEvent);
+  });
+
+  await expect.poll(() => page.evaluate(() => {
+    const hot = window.Components?.scatter?.__ensureHotForActiveTab?.();
+    return [
+      hot?.getDataAtCell?.(0, 1),
+      hot?.getDataAtCell?.(0, 2),
+      hot?.getDataAtCell?.(1, 1),
+      hot?.getDataAtCell?.(1, 2)
+    ];
+  })).toEqual(['5', '6', '7', '8']);
+});

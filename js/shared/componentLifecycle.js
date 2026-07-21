@@ -1543,6 +1543,9 @@
     if(target.closest('.workspace-toolbar, .font-toolbar-host, .shared-color-picker, .config-panel, .stats-advisor, [id$="StatsPanel"], [id$="StatsContent"], [id$="StatsResults"]')){
       return false;
     }
+    if(target.closest('.resizer, .resizer-control-tray, .resizer-bottom-tray')){
+      return false;
+    }
     return !!target.closest('.svgbox, svg, canvas, [id$="Plot"], [id$="GraphPanel"], [data-graph-edit-surface="1"]');
   }
 

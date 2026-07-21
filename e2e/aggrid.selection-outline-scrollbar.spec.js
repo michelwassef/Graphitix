@@ -105,5 +105,28 @@ test('vertical scrollbar gutter covers pinned-row selection and fills the top co
   expect(cornerGeometry.cornerBackground).toBe(cornerGeometry.verticalBackground);
   expect(cornerGeometry.verticalZ).toBeGreaterThan(cornerGeometry.headerZ);
   expect(cornerGeometry.verticalZ).toBeGreaterThan(cornerGeometry.floatingTopZ);
+  const selectAllOutline = await page.evaluate(async () => {
+    const state = window.Components.box.__getState();
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const root = hot.rootElement;
+    root.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const outline = root.querySelector('.hot-selection-outline');
+    const topEdge = outline?.querySelector('.hot-selection-outline-edge[data-edge="top"]');
+    return {
+      selected: hot.getSelectedLast?.(),
+      topDisplay: topEdge ? getComputedStyle(topEdge).display : null,
+      topWidth: topEdge?.getBoundingClientRect?.().width || 0
+    };
+  });
+  expect(selectAllOutline.selected?.[0]).toBe(0);
+  expect(selectAllOutline.selected?.[1]).toBe(0);
+  expect(selectAllOutline.topDisplay).toBe('block');
+  expect(selectAllOutline.topWidth).toBeGreaterThan(0);
   expect(issues.critical).toEqual([]);
 });

@@ -120,7 +120,7 @@ describe('componentLayout zoom behavior contract', () => {
     expect(lastSyncCall[4]?.skipSchedule).toBe(true);
   });
 
-  test('configured resize phases can skip internal schedule while keeping user callbacks', () => {
+  test('component resize callback is the sole draw-request owner', () => {
     const syncPanelSpy = jest.fn((table, graph, config, scheduleDraw, options) => {
       if(typeof scheduleDraw === 'function'){
         scheduleDraw();
@@ -143,7 +143,6 @@ describe('componentLayout zoom behavior contract', () => {
         resizeTarget: '#lineSvgBox'
       },
       scheduleDraw,
-      skipScheduleOnResizePhases: ['programmatic'],
       resizableBoxOptions: {
         onResize: userResize
       }
@@ -192,6 +191,12 @@ describe('componentLayout zoom behavior contract', () => {
     });
     const svgA = document.getElementById('scatterSvgBox');
     const svgB = document.getElementById('scatterSvgBoxB');
+    svgA.dataset.resizerLockedGeometryRatio = '1.25';
+    svgA.dataset.resizerLockedGeometryInsetX = '80';
+    svgA.dataset.resizerLockedGeometryInsetY = '60';
+    svgB.dataset.resizerLockedGeometryRatio = '0.75';
+    svgB.dataset.resizerLockedGeometryInsetX = '110';
+    svgB.dataset.resizerLockedGeometryInsetY = '45';
     svgA.getBoundingClientRect = () => ({ width: 400, height: 300 });
     svgB.getBoundingClientRect = () => ({ width: 500, height: 250 });
     window.Shared.syncPanelWidths = jest.fn();
@@ -224,6 +229,10 @@ describe('componentLayout zoom behavior contract', () => {
 
     expect(stateA?.svgBox?.dataset?.resizerAspectLocked).toBe('false');
     expect(stateB?.svgBox?.dataset?.resizerAspectLocked).toBe('true');
+    expect(stateA?.svgBox?.dataset?.resizerLockedGeometryRatio).toBe('1.25');
+    expect(stateB?.svgBox?.dataset?.resizerLockedGeometryRatio).toBe('0.75');
+    expect(stateA?.svgBox?.dataset?.resizerLockedGeometryInsetX).toBe('80');
+    expect(stateB?.svgBox?.dataset?.resizerLockedGeometryInsetY).toBe('45');
   });
 
   test('pending schedule suppression applies when layout is created after restore begins', () => {

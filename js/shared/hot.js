@@ -4781,6 +4781,9 @@
         && normalized.to.row >= normalized.from.row);
       const lastVisualRow = Math.max(0, getVisualRowCount() - 1);
       const isFullColumnSelection = normalized.from.row === 0 && normalized.to.row === lastVisualRow;
+      const isFullTableSelection = isFullColumnSelection
+        && normalized.from.col === 0
+        && normalized.to.col === Math.max(0, colCount - 1);
       let left = bounds.left - hostRect.left - 1;
       let top = bounds.top - hostRect.top - 1;
       let right = bounds.right - hostRect.left + 1;
@@ -4830,7 +4833,7 @@
         startRectRaw,
         endRectRaw
       });
-      if(isFullColumnSelection){
+      if(isFullColumnSelection && !isFullTableSelection){
         edgeVisibility.top = false;
       }
       const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
@@ -15123,7 +15126,7 @@
         return rows;
       };
 
-      const parsePastedText = (text)=>{
+      const parsePastedText = (text, delimiterHint)=>{
         if(typeof text !== 'string' || !text){
           return [];
         }
@@ -15135,10 +15138,10 @@
         if(!lines.length){
           return [];
         }
-        let delimiter = null;
-        if(sanitized.indexOf('\t') !== -1){
+        let delimiter = delimiterHint || null;
+        if(!delimiter && sanitized.indexOf('\t') !== -1){
           delimiter = '\t';
-        }else{
+        }else if(!delimiter){
           const commaCount = (sanitized.match(/,/g) || []).length;
           const semicolonCount = (sanitized.match(/;/g) || []).length;
           if(commaCount || semicolonCount){
@@ -15202,6 +15205,7 @@
           return;
         }
         let plain = '';
+        let clipboardDelimiter = null;
         try{
           plain = event.clipboardData?.getData?.('text/plain') || event.clipboardData?.getData?.('text') || '';
         }catch(e){ plain = '' }
@@ -15211,7 +15215,17 @@
 
         // Try shared tableImport helper first (centralized, robust logic)
         try{
-          if(typeof Shared?.tableImport?.getClipboardTextFromEvent === 'function'){
+          if(typeof Shared?.tableImport?.getClipboardPayloadFromEvent === 'function'){
+            hotDebug('Debug: hot.handlePaste calling Shared.tableImport.getClipboardPayloadFromEvent');
+            const clipboardPayload = await Shared.tableImport.getClipboardPayloadFromEvent(event);
+            plain = clipboardPayload?.text || '';
+            clipboardDelimiter = clipboardPayload?.delimiter || null;
+            hotDebug('Debug: hot.handlePaste helper returned', {
+              length: (plain || '').length,
+              source: clipboardPayload?.source || null,
+              delimiter: clipboardDelimiter
+            });
+          }else if(typeof Shared?.tableImport?.getClipboardTextFromEvent === 'function'){
             hotDebug('Debug: hot.handlePaste calling Shared.tableImport.getClipboardTextFromEvent');
             plain = await Shared.tableImport.getClipboardTextFromEvent(event);
             hotDebug('Debug: hot.handlePaste helper returned', { length: (plain || '').length });
@@ -15264,7 +15278,7 @@
         if(hotNS.__pendingClipboardMove && !pendingClipboardMove){
           invalidatePendingClipboardMove('paste-mismatch');
         }
-        const rows = parsePastedText(plain);
+        const rows = parsePastedText(plain, clipboardDelimiter);
         if(!rows.length){
           return;
         }

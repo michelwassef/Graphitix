@@ -249,7 +249,7 @@
   const PIE_DATA_VIEW_MAX = 15;
   const DEFAULT_PIE_FONT_SIZE_PT = 12;
   const PIE_RESIZE_PREVIEW_PHASES = new Set(['start', 'move', 'observe']);
-  const PIE_RESIZE_FINALIZE_PHASES = new Set(['end', 'reset', 'undo', 'redo', 'programmatic', 'aspect-toggle']);
+  const PIE_RESIZE_FINALIZE_PHASES = new Set(['end', 'reset', 'undo', 'redo', 'programmatic']);
   const TAU = Math.PI * 2;
   let emptyPayloadTemplate = null;
 
@@ -2329,14 +2329,12 @@ let state = {
       const lockRatioCheckbox = getPieLockRatioCheckbox();
       if(lockRatioCheckbox){
         const lockLabel = lockRatioCheckbox.closest('label');
+        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
         if(shouldEnforceLockRatio){
           if(getPieLockRatioEnforcePrevious() === null){
             setPieLockRatioEnforcePrevious(!!lockRatioCheckbox.checked);
           }
-          if(!lockRatioCheckbox.checked){
-            lockRatioCheckbox.checked = true;
-            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          resizerApi?.setAspectLocked?.(true, { reason: 'pie-forced-lock-ratio' });
           lockRatioCheckbox.disabled = true;
           if(lockLabel){
             if(!lockLabel.__pieOriginalTitle){
@@ -2355,10 +2353,7 @@ let state = {
           const targetValue = savedAspectLock !== null ? savedAspectLock : restoreValue;
           if(targetValue !== null){
             setPieLockRatioEnforcePrevious(null);
-            if(lockRatioCheckbox.checked !== targetValue){
-              lockRatioCheckbox.checked = targetValue;
-              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            resizerApi?.setAspectLocked?.(targetValue, { reason: 'pie-restore-lock-ratio' });
           }
         }
       }

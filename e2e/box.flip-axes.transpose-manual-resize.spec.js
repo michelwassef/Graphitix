@@ -73,6 +73,27 @@ function readFlipTransposeMetrics() {
     const height = Number(rect?.height);
     return Number.isFinite(width) && Number.isFinite(height) && width >= height;
   }).length;
+  const svgRect = svg.getBoundingClientRect();
+  const axisTitle = axisLayer.querySelector(
+    state.flipAxes === true ? '[data-box-axis-title="x"]' : '[data-box-axis-title="y"]'
+  );
+  const valueTickNodes = Array.from(axisLayer.querySelectorAll(
+    state.flipAxes === true ? '[data-box-axis-tick="x"]' : '[data-box-axis-tick="y"]'
+  ));
+  const axisTitleRect = axisTitle?.getBoundingClientRect?.() || null;
+  const valueTickRects = valueTickNodes
+    .map(node => node.getBoundingClientRect?.())
+    .filter(rect => rect && Number.isFinite(rect.left) && Number.isFinite(rect.top));
+  const axisTitleGapPx = state.flipAxes === true
+    ? (axisTitleRect && valueTickRects.length
+        ? axisTitleRect.top - Math.max(...valueTickRects.map(rect => rect.bottom))
+        : null)
+    : (axisTitleRect && valueTickRects.length
+        ? Math.min(...valueTickRects.map(rect => rect.left)) - axisTitleRect.right
+        : null);
+  const categoryOuterLeftGapPx = state.flipAxes === true && categoryLabelNodes.length
+    ? Math.min(...categoryLabelNodes.map(node => node.getBoundingClientRect().left)) - svgRect.left
+    : null;
 
   const svgBoxRect = svgBox.getBoundingClientRect();
   const svgScreenMatrix = svg.getScreenCTM?.() || null;
@@ -152,6 +173,8 @@ function readFlipTransposeMetrics() {
     categoryLabelCount: axisLabels.length,
     rotatedCategoryLabelCount,
     horizontalCategoryLabelCount,
+    axisTitleGapPx: Number.isFinite(axisTitleGapPx) ? axisTitleGapPx : null,
+    categoryOuterLeftGapPx: Number.isFinite(categoryOuterLeftGapPx) ? categoryOuterLeftGapPx : null,
     overflowMaxPx
   };
 }
@@ -540,6 +563,9 @@ test.describe('Box flip axes with manual resize', () => {
     expect(firstFlipped.bottomViewportExtensionPx).toBeGreaterThanOrEqual(0);
     expect(firstFlipped.significanceViewportExtensionPx).toBe(0);
     expect(firstFlipped.overflowMaxPx).toBeLessThanOrEqual(2.5);
+    expect(firstFlipped.categoryOuterLeftGapPx).toBeGreaterThanOrEqual(4);
+    expect(firstFlipped.categoryOuterLeftGapPx).toBeLessThanOrEqual(18);
+    expectApprox(firstFlipped.axisTitleGapPx, baselineUnflipped.axisTitleGapPx, 2.5, 'axis-title gap across flip');
     expectTransposePair(baselineUnflipped, firstFlipped, { label: 'first flip transpose', axisTolerance: 1.5 });
 
     await setFlipAxes(page, false);

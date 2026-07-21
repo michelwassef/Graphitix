@@ -20,6 +20,11 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 - UpSet color controls now use a compact two-column layout.
 
 ### Fixed
+- AG Grid full-table selection now shows a continuous top border after Ctrl+A and during copy/cut.
+- AG Grid paste now preserves Excel/LibreOffice table structure, converts decimal commas to dots, and still splits plain comma-delimited CSV text into columns.
+- Lock ratio is now geometry-neutral when toggled and preserves rendered x/y axis lengths across Cartesian components, including UpSet and Pie Stacked bar. ROC no longer forces a square plot. The current SVG viewport now enforces the ratio during the canonical render, including staged SVGs, with no delayed box-correction redraws. Heatmap Data values separately preserves its visible matrix ratio without axis semantics. Ratio geometry remains tab-owned and survives `.graph` reopen.
+- Lock/unlock transitions now preserve the renderer's exact style baseline, and clicking a resize handle without moving it no longer starts a resize or redraws the graph.
+- Component resize phases now have one draw-request owner; component-specific resize callbacks replace the former duplicate generic schedule.
 - AG Grid selection outlines that include a pinned top row now scroll beneath the vertical scrollbar like normal-row selections.
 - AG Grid’s top-right scrollbar gutter now matches the bottom scrollbar spacer instead of leaving an empty corner.
 - Box adaptive pairwise whiskers now use a stable shared stack anchor and each endpoint's actual lower obstacles, so partial sets fill unobstructed gaps without stretching obstructed whiskers.

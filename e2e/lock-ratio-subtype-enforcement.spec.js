@@ -170,6 +170,7 @@ async function readActiveLockSnapshot(page, pageId, modeSelector) {
     const svgBox = root?.querySelector?.('.svgbox') || null;
     const mode = root?.querySelector?.(modeSelector) || null;
     const activeTabId = window.Main?.session?.workspaceState?.activeTabId || null;
+    const activeTab = window.Main?.session?.workspaceState?.tabs?.find(tab => tab?.id === activeTabId) || null;
     const vennState = pageId === 'vennPage' ? window.Components?.venn?.__getState?.() : null;
     const vennSession = pageId === 'vennPage'
       ? window.Components?.venn?.__testHooks?.getSession?.(activeTabId)
@@ -179,6 +180,9 @@ async function readActiveLockSnapshot(page, pageId, modeSelector) {
       checked: !!checkbox?.checked,
       disabled: !!checkbox?.disabled,
       aspectLocked: svgBox?.dataset?.resizerAspectLocked || null,
+      resizerAspectLocked: svgBox?.__sharedResizableBoxApi?.getState?.().aspectLocked ?? null,
+      sessionAspectLocked: activeTab?.sharedState?.layout?.resizer?.aspectLocked ?? null,
+      layoutAspectLocked: activeTab?.layoutState?.svgBox?.dataset?.resizerAspectLocked ?? null,
       lockRatioPrevious: vennState?.ui?.lockRatioPrevious ?? null,
       sessionLockRatioPrevious: vennSession?.state?.lockRatioPrevious ?? null
     };
@@ -216,11 +220,38 @@ async function loadArchive(page, archivePath, type) {
   await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#welcomeScreen')).toBeVisible({ timeout: 20_000 });
   await page.locator('#workspaceSessionInput').setInputFiles(archivePath);
+  await page.waitForFunction(() => document.getElementById('workspaceSessionInput')?.value === '', null, {
+    timeout: 60_000
+  });
   await page.waitForFunction(graphType => {
     const tabs = window.Main?.session?.workspaceState?.tabs || [];
     return Array.isArray(tabs) && tabs.filter(tab => tab && !tab.isWelcome && tab.type === graphType).length >= 2;
   }, type, { timeout: 45_000 });
-  await page.waitForTimeout(1500);
+  await page.evaluate(async graphType => {
+    const state = window.Main?.session?.workspaceState;
+    const tabId = String(state?.activeTabId || '');
+    const component = window.Components?.[graphType];
+    const ready = component?.awaitReadyForSnapshot?.({
+      tabId,
+      componentKey: graphType,
+      reason: 'e2e-lock-ratio-load-ready'
+    });
+    if(ready && typeof ready.then === 'function'){
+      await ready;
+    }
+  }, type);
+  await page.waitForFunction(graphType => {
+    const state = window.Main?.session?.workspaceState;
+    const activeId = String(state?.activeTabId || '');
+    const active = state?.tabs?.find(tab => String(tab?.id || '') === activeId) || null;
+    if(!active || active.type !== graphType || active.activationError){
+      return false;
+    }
+    return window.Shared?.componentLifecycle?.isRestoreTransactionActive?.(graphType, {
+      tabId: activeId,
+      reason: 'e2e-lock-ratio-load-ready'
+    }) !== true;
+  }, type, { timeout: 45_000 });
 }
 
 test.describe('Lock ratio subtype enforcement', () => {

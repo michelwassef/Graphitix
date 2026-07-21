@@ -126,4 +126,96 @@ describe('tableImport.handlePaste with AG Grid hot instance', () => {
     expect(pasteEvent.preventDefault).toHaveBeenCalled();
     expect(hot.getDataAtCell(0, 0)).toBe('New');
   });
+
+  test('pastes spreadsheet decimal commas as dot-decimal cells', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-spreadsheet-decimals', data: Shared.createEmptyData(3, 3) }
+    );
+    hot.selectCell(0, 0);
+    const html = '<table><tr><td>1,2</td><td>5,6</td></tr><tr><td>3,4</td><td>7,8</td></tr></table>';
+    const pasteEvent = {
+      clipboardData: {
+        items: [
+          { kind: 'string', type: 'text/plain', getAsString: callback => callback('1,2\t5,6\n3,4\t7,8') },
+          { kind: 'string', type: 'text/html', getAsString: callback => callback(html) }
+        ],
+        getData: () => ''
+      },
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn()
+    };
+
+    await Shared.tableImport.handlePaste(pasteEvent, hot, { minCols: 3, minRows: 3 });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('1.2');
+    expect(hot.getDataAtCell(0, 1)).toBe('5.6');
+    expect(hot.getDataAtCell(1, 0)).toBe('3.4');
+    expect(hot.getDataAtCell(1, 1)).toBe('7.8');
+  });
+
+  test('keeps plain CSV paste split into columns', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-plain-csv', data: Shared.createEmptyData(3, 3) }
+    );
+    hot.selectCell(0, 0);
+    const pasteEvent = {
+      clipboardData: {
+        items: [
+          { kind: 'string', type: 'text/plain', getAsString: callback => callback('1,2\n3,4') }
+        ],
+        getData: () => ''
+      },
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn()
+    };
+
+    await Shared.tableImport.handlePaste(pasteEvent, hot, { minCols: 3, minRows: 3 });
+
+    expect(hot.getDataAtCell(0, 0)).toBe('1');
+    expect(hot.getDataAtCell(0, 1)).toBe('2');
+    expect(hot.getDataAtCell(1, 0)).toBe('3');
+    expect(hot.getDataAtCell(1, 1)).toBe('4');
+  });
+
+  test('AG Grid paste event keeps an ambiguous spreadsheet column intact', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-spreadsheet-single-column', data: Shared.createEmptyData(3, 3) }
+    );
+    hot.selectCell(0, 0);
+    const html = '<table><tr><td>1,2</td></tr><tr><td>3,4</td></tr></table>';
+    const pasteEvent = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvent.clipboardData = {
+      items: [
+        { kind: 'string', type: 'text/plain', getAsString: callback => callback('1,2\n3,4') },
+        { kind: 'string', type: 'text/html', getAsString: callback => callback(html) }
+      ],
+      getData: type => type === 'text/plain' ? '1,2\n3,4' : (type === 'text/html' ? html : '')
+    };
+
+    container.dispatchEvent(pasteEvent);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(pasteEvent.defaultPrevented).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('1.2');
+    expect(hot.getDataAtCell(1, 0)).toBe('3.4');
+    expect(hot.getDataAtCell(0, 1)).toBe('');
+  });
 });

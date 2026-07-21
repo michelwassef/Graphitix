@@ -329,6 +329,7 @@
     const svg = state.svg;
     if(!svg){ return; }
     const svgBox = state.svgBox || svg.closest?.('.svgbox') || null;
+    const rendererAspectLocked = shouldHeatmapRendererPreserveAspect(svg.dataset?.heatmapModelType, svgBox);
     const svgRect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
     const viewBox = svg.viewBox?.baseVal;
     applyTextAspectCorrection({
@@ -338,6 +339,7 @@
       viewBoxHeight: viewBox?.height,
       displayWidth: svgRect?.width,
       displayHeight: svgRect?.height,
+      aspectLocked: rendererAspectLocked,
       debugLabel: reason || 'heatmap-text-resize',
       textScaleMode: HEATMAP_TEXT_SCALE_MODE
     });
@@ -1499,6 +1501,9 @@
         debugLog('Debug: heatmap performance skipped stale view-only draw', { payload });
       }
       return;
+    }
+    if(section === 'draw'){
+      payload.sequence = (Number(previous.sequence) || 0) + 1;
     }
     if(section === 'draw' && typeof previous.totalMs === 'number' && typeof payload.totalMs === 'number'){
       payload.totalMs = Math.max(previous.totalMs, payload.totalMs);
@@ -7134,6 +7139,92 @@
     return false;
   }
 
+  function shouldHeatmapRendererPreserveAspect(modelType, svgBox){
+    return modelType === 'correlation' && isSvgBoxAspectLocked(svgBox);
+  }
+
+  function measureHeatmapLockedGeometry({ container } = {}){
+    const svg = container?.querySelector?.('#heatmapSvg') || null;
+    if(!svg || svg.dataset?.heatmapModelType !== 'values'){
+      return null;
+    }
+    const svgRect = svg.getBoundingClientRect?.();
+    const cells = Array.from(svg.querySelectorAll?.('[data-export-layer="heatmap-cells"] rect') || []);
+    if(!svgRect?.width || !svgRect?.height || !cells.length){
+      return null;
+    }
+    const bounds = cells.reduce((result, cell) => {
+      const rect = cell.getBoundingClientRect?.();
+      if(!rect?.width || !rect?.height){
+        return result;
+      }
+      result.left = Math.min(result.left, rect.left);
+      result.top = Math.min(result.top, rect.top);
+      result.right = Math.max(result.right, rect.right);
+      result.bottom = Math.max(result.bottom, rect.bottom);
+      return result;
+    }, { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+    const width = bounds.right - bounds.left;
+    const height = bounds.bottom - bounds.top;
+    if(!(width > 0) || !(height > 0)){
+      return null;
+    }
+    return {
+      width,
+      height,
+      constraintWidth: svgRect.width,
+      constraintHeight: svgRect.height
+    };
+  }
+
+  function enforceHeatmapLockedProjection(svgBox){
+    const svg = svgBox?.querySelector?.('#heatmapSvg') || null;
+    const targetRatio = Number(svgBox?.dataset?.resizerLockedGeometryRatio);
+    const geometry = measureHeatmapLockedGeometry({ container: svgBox });
+    const viewBox = svg?.viewBox?.baseVal;
+    if(
+      !svg
+      || !(targetRatio > 0)
+      || !(geometry?.width > 0)
+      || !(geometry?.height > 0)
+      || !(viewBox?.width > 0)
+      || !(viewBox?.height > 0)
+    ){
+      return false;
+    }
+    const measuredRatio = geometry.width / geometry.height;
+    if(Math.abs(measuredRatio / targetRatio - 1) <= 0.001){
+      return false;
+    }
+    let minX = viewBox.x;
+    let minY = viewBox.y;
+    let width = viewBox.width;
+    let height = viewBox.height;
+    if(measuredRatio > targetRatio){
+      const nextWidth = width * measuredRatio / targetRatio;
+      minX -= (nextWidth - width) / 2;
+      width = nextWidth;
+    }else{
+      const nextHeight = height * targetRatio / measuredRatio;
+      minY -= (nextHeight - height) / 2;
+      height = nextHeight;
+    }
+    svg.setAttribute('viewBox', `${minX} ${minY} ${width} ${height}`);
+    const svgRect = svg.getBoundingClientRect?.();
+    applyTextAspectCorrection({
+      svg,
+      svgBox,
+      viewBoxWidth: width,
+      viewBoxHeight: height,
+      displayWidth: svgRect?.width,
+      displayHeight: svgRect?.height,
+      aspectLocked: false,
+      debugLabel: 'heatmap-locked-matrix-projection',
+      textScaleMode: HEATMAP_TEXT_SCALE_MODE
+    });
+    return true;
+  }
+
   function applySvgBoxAspect(svgBox, options){
     if(!svgBox || typeof svgBox.style?.setProperty !== 'function'){ return; }
     const opts = options || {};
@@ -7360,7 +7451,9 @@
     const rawScaleX = Number(viewScale?.scaleX);
     const rawScaleY = Number(viewScale?.scaleY);
     if(!Number.isFinite(rawScaleX) || !Number.isFinite(rawScaleY)){ return; }
-    const aspectLocked = opts.aspectLocked === true || isSvgBoxAspectLocked(svgBox);
+    const aspectLocked = Object.prototype.hasOwnProperty.call(opts, 'aspectLocked')
+      ? opts.aspectLocked === true
+      : isSvgBoxAspectLocked(svgBox);
     const uniformScale = Math.min(rawScaleX, rawScaleY);
     const scaleX = aspectLocked ? uniformScale : rawScaleX;
     const scaleY = aspectLocked ? uniformScale : rawScaleY;
@@ -7440,10 +7533,10 @@
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
     const emptyViewport = resolveEmptyViewportSize(svgBox);
     state.svg.setAttribute('viewBox', `0 0 ${emptyViewport.width} ${emptyViewport.height}`);
-    const aspectLocked = isSvgBoxAspectLocked(svgBox);
-    state.svg.setAttribute('preserveAspectRatio', aspectLocked ? 'xMidYMid meet' : 'none');
+    const rendererAspectLocked = shouldHeatmapRendererPreserveAspect(state.svg.dataset?.heatmapModelType, svgBox);
+    state.svg.setAttribute('preserveAspectRatio', rendererAspectLocked ? 'xMidYMid meet' : 'none');
     applySvgBoxAspect(svgBox, {
-      locked: aspectLocked,
+      locked: rendererAspectLocked,
       width: emptyViewport.width,
       height: emptyViewport.height
     });
@@ -7451,7 +7544,7 @@
       width: emptyViewport.width,
       height: emptyViewport.height,
       source: emptyViewport.source,
-      aspectLocked,
+      rendererAspectLocked,
       preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
     });
 
@@ -7491,7 +7584,7 @@
       markFontEditable(text, 'emptyMessage', 'heatmap-empty');
       ensureGraphViewport(state.svg, {
         padding: 16,
-        preserveAspectRatio: aspectLocked ? 'xMidYMid meet' : 'none',
+        preserveAspectRatio: rendererAspectLocked ? 'xMidYMid meet' : 'none',
         debugLabel: 'heatmap-empty'
       });
     }
@@ -7775,11 +7868,14 @@
     const heatmapWidth = columnCount * cellSize;
     const heatmapHeight = rowCount * cellSize;
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
-    const aspectLocked = isSvgBoxAspectLocked(svgBox);
-    // The shared axis lock is a transient live-resize aid. Data-values heatmaps
-    // recompute their own unlocked matrix bounds on redraw, so auto-fit must not
-    // turn that temporary lock into the redraw's canonical viewBox.
-    const ignoreAxisViewportLock = modelType === 'values' && !aspectLocked;
+    const resizerAspectLocked = isSvgBoxAspectLocked(svgBox);
+    const rendererAspectLocked = shouldHeatmapRendererPreserveAspect(modelType, svgBox);
+    if(state.svg.dataset){
+      state.svg.dataset.heatmapModelType = modelType || '';
+    }
+    // Data-values heatmaps have no axes. Lock ratio constrains only their outer
+    // resize frame; changing SVG projection would mutate the rendered geometry.
+    const ignoreAxisViewportLock = modelType === 'values';
     const viewportOptions = { ignoreAxisViewportLock };
     const baseLabelFontSize = Math.max(6, Math.round(scaledFontSize));
     const parseFontSizePx = value => {
@@ -7854,7 +7950,7 @@
     const columnLabelPadding = Math.max(6, Math.round(maxColumnLabelFontSize * 0.35));
     const columnLabelDescenderPad = Math.max(4, Math.ceil(maxColumnLabelFontSize * 0.25));
     const computeAspectAdjust = (viewWidth, viewHeight) => {
-      if(aspectLocked){
+      if(rendererAspectLocked){
         return { adjustX: 1, adjustY: 1 };
       }
       const displayWidth = Number(drawableFrame.width);
@@ -7922,11 +8018,12 @@
     // Label row/column are part of the matrix layout so font changes expand the overall bounds.
     state.svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
 
-    const preserveAspect = aspectLocked ? 'xMidYMid meet' : 'none';
+    const preserveAspect = rendererAspectLocked ? 'xMidYMid meet' : 'none';
     state.svg.setAttribute('preserveAspectRatio', preserveAspect);
-    applySvgBoxAspect(svgBox, { locked: aspectLocked, width: totalWidth, height: totalHeight });
+    applySvgBoxAspect(svgBox, { locked: rendererAspectLocked, width: totalWidth, height: totalHeight });
     debugLog('Debug: heatmap graph viewBox set', {
-      aspectLocked,
+      resizerAspectLocked,
+      rendererAspectLocked,
       preserveAspect,
       totalWidth,
       totalHeight,
@@ -8342,7 +8439,7 @@
         strokeWidth: dendrogramStroke
       });
     }
-    if(!aspectLocked){
+    if(!rendererAspectLocked){
       applyTextAspectCorrection({
         svg: state.svg,
         svgBox,
@@ -8351,6 +8448,7 @@
         displayWidth: svgRect?.width,
         displayHeight: svgRect?.height,
         debugLabel: 'heatmap-text-correction-pre',
+        aspectLocked: false,
         textScaleMode: HEATMAP_TEXT_SCALE_MODE
       });
       ensureGraphViewport(state.svg, {
@@ -8370,6 +8468,7 @@
         displayWidth: svgRect?.width,
         displayHeight: svgRect?.height,
         debugLabel: 'heatmap-text-correction',
+        aspectLocked: false,
         textScaleMode: HEATMAP_TEXT_SCALE_MODE
       });
     }else{
@@ -8390,6 +8489,7 @@
         displayWidth: svgRect?.width,
         displayHeight: svgRect?.height,
         debugLabel: 'heatmap-text-correction-locked',
+        aspectLocked: true,
         textScaleMode: HEATMAP_TEXT_SCALE_MODE
       });
     }
@@ -8512,7 +8612,7 @@
           : null;
         const rawScaleXNow = Number(viewScaleNow?.scaleX);
         const rawScaleYNow = Number(viewScaleNow?.scaleY);
-        const effectiveScaleY = aspectLocked
+        const effectiveScaleY = rendererAspectLocked
           ? Math.min(
             Number.isFinite(rawScaleXNow) && rawScaleXNow > 0 ? rawScaleXNow : 1,
             Number.isFinite(rawScaleYNow) && rawScaleYNow > 0 ? rawScaleYNow : 1
@@ -8592,7 +8692,7 @@
     }
     const isSymmetricCorrelationMatrix = rowCount === columnCount
       && orderedRowLabels.every((label, index) => label === orderedColumnLabels[index]);
-    const skipFinalViewportExpansion = aspectLocked && isSymmetricCorrelationMatrix;
+    const skipFinalViewportExpansion = rendererAspectLocked && isSymmetricCorrelationMatrix;
     const finalSvgRect = state.svg?.getBoundingClientRect?.();
     if(!skipFinalViewportExpansion){
       applyTextAspectCorrection({
@@ -8603,6 +8703,7 @@
         displayWidth: finalSvgRect?.width,
         displayHeight: finalSvgRect?.height,
         debugLabel: 'heatmap-text-correction-final',
+        aspectLocked: rendererAspectLocked,
         textScaleMode: HEATMAP_TEXT_SCALE_MODE
       });
       ensureGraphViewport(state.svg, {
@@ -8658,7 +8759,7 @@
           : null;
         const rawScaleXNow = Number(viewScaleNow?.scaleX);
         const rawScaleYNow = Number(viewScaleNow?.scaleY);
-        const effectiveScaleY = aspectLocked
+        const effectiveScaleY = rendererAspectLocked
           ? Math.min(
             Number.isFinite(rawScaleXNow) && rawScaleXNow > 0 ? rawScaleXNow : 1,
             Number.isFinite(rawScaleYNow) && rawScaleYNow > 0 ? rawScaleYNow : 1
@@ -8700,6 +8801,7 @@
           displayWidth: correctedRect?.width,
           displayHeight: correctedRect?.height,
           debugLabel: `heatmap-text-correction-clearance-${pass}`,
+          aspectLocked: rendererAspectLocked,
           textScaleMode: HEATMAP_TEXT_SCALE_MODE
         });
         ensureGraphViewport(state.svg, {
@@ -8722,7 +8824,13 @@
       return adjusted;
     };
     ensureTitleColumnLabelClearance();
+    if(modelType === 'values' && resizerAspectLocked){
+      enforceHeatmapLockedProjection(svgBox);
+    }
     state.layout?.syncPanels?.({ skipSchedule: true });
+    if(modelType === 'values' && resizerAspectLocked){
+      svgBox?.__sharedResizableBoxApi?.calibrateLockedGeometryConstraint?.();
+    }
     debugLog('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
       columns: columnCount,
@@ -9993,6 +10101,7 @@
         debugLog('Debug: heatmap layout minSvgWidth updated', { value });
       },
       resizableBoxOptions: {
+        measureLockedGeometry: measureHeatmapLockedGeometry,
         onResize: phase => {
           const resizePhase = typeof phase === 'string' ? phase : '';
           debugLog('Debug: heatmap layout onResize', { phase: resizePhase || null });

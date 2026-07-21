@@ -167,6 +167,8 @@ describe('chartStyle proportional font resize behavior', () => {
       defaultHeight: 427,
       svgBox
     });
+    expect(Number(svgBox.dataset.resizerRenderedRawStyleScale)).toBeCloseTo(rawScale, 5);
+    expect(Number(svgBox.dataset.resizerRenderedStyleScale)).toBeCloseTo(1, 5);
     const tinyResize = chartStyle.computeResizeScale({
       width: 563,
       height: 338,

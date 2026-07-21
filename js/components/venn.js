@@ -378,11 +378,10 @@
         return;
       }
       const lockLabel = lockRatioCheckbox.closest('label');
+      const svgBox = state.ui?.svgBox || lockRatioCheckbox.closest('.svgbox');
+      const resizerApi = svgBox?.__sharedResizableBoxApi;
       if (enforceLockRatio) {
-        if (!lockRatioCheckbox.checked) {
-          lockRatioCheckbox.checked = true;
-          lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        resizerApi?.setAspectLocked?.(true, { reason: 'venn-forced-lock-ratio' });
         lockRatioCheckbox.disabled = true;
         if (lockLabel) {
           if (!lockLabel.__vennOriginalTitle) {
@@ -410,15 +409,8 @@
           if (restoreValue !== null) {
             setVennLockRatioPrevious(null);
           }
-          if (lockRatioCheckbox.checked !== targetValue) {
-            lockRatioCheckbox.checked = targetValue;
-            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          resizerApi?.setAspectLocked?.(targetValue, { reason: 'venn-restore-lock-ratio' });
         }
-      }
-      const svgBox = state.ui?.svgBox || lockRatioCheckbox.closest('.svgbox');
-      if (svgBox?.dataset) {
-        svgBox.dataset.resizerAspectLocked = lockRatioCheckbox.checked ? 'true' : 'false';
       }
       debugLog('aspect controls synced', {
         plotType,

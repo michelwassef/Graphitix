@@ -1176,7 +1176,9 @@
       const axisBackWidth = showFrame ? backWidth : axisStrokeWidth * 0.9;
       const axisAttrs = {
         stroke: axisStroke,
-        'stroke-width': isOccludedAxis ? axisBackWidth : axisFrontWidth
+        'stroke-width': isOccludedAxis ? axisBackWidth : axisFrontWidth,
+        'data-axis-line': '1',
+        'data-axis-key': def.key
       };
       if(isOccludedAxis){
         if(backDash && backDash.length){
@@ -1189,7 +1191,11 @@
         axisAttrs['stroke-opacity'] = frontOpacity;
       }
       const axisLineTarget = (isOccludedAxis && backAxisTarget) ? backAxisTarget : axisTarget;
-      if(!(showFrame && edgeKey && frameEdgeLines.has(edgeKey))){
+      if(showFrame && edgeKey && frameEdgeLines.has(edgeKey)){
+        const frameAxisLine = frameEdgeLines.get(edgeKey);
+        frameAxisLine.setAttribute('data-axis-line', '1');
+        frameAxisLine.setAttribute('data-axis-key', def.key);
+      }else{
         appendLine(startRot, endRot, axisAttrs, axisLineTarget);
       }
       const axisVector = {

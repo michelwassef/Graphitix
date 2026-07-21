@@ -658,6 +658,10 @@
     const styleScale = clampScale(styleUnclamped);
     const fontResizeScale = clampScale(fontResizeUnclamped);
     const radiusScale = Math.sqrt(styleScale);
+    if(dataset){
+      dataset.resizerRenderedRawStyleScale = String(rawStyleScale);
+      dataset.resizerRenderedStyleScale = String(styleScale);
+    }
     const payload = {
       width: safeWidth,
       height: safeHeight,

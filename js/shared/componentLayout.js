@@ -288,6 +288,13 @@
     if(!svgBox?.dataset || typeof aspectLocked !== 'boolean'){
       return false;
     }
+    if(typeof svgBox.__sharedResizableBoxApi?.setAspectLocked === 'function'){
+      svgBox.__sharedResizableBoxApi.setAspectLocked(aspectLocked, {
+        reason: 'component-layout-control-sync',
+        preserveGeometry: true
+      });
+      return true;
+    }
     svgBox.dataset.resizerAspectLocked = aspectLocked ? 'true' : 'false';
     const checkbox = svgBox.querySelector?.('.resizer-aspect-checkbox') || null;
     if(checkbox){
@@ -739,6 +746,14 @@
       applySnapshotStyle(node, state[key]?.style);
       applySnapshotDataset(node, state[key]?.dataset, { tabId: options.tabId || root?.dataset?.workspaceTabId || null, componentName: name });
     });
+    const hydratedAspect = nodes.svgBox?.dataset?.resizerAspectLocked;
+    if((hydratedAspect === 'true' || hydratedAspect === 'false')
+      && typeof nodes.svgBox?.__sharedResizableBoxApi?.setAspectLocked === 'function'){
+      nodes.svgBox.__sharedResizableBoxApi.setAspectLocked(hydratedAspect === 'true', {
+        reason: 'component-layout-root-hydrate',
+        preserveGeometry: true
+      });
+    }
     if(options.tabId && global.Shared?.workspaceTabs?.stampWorkspaceScopeDeep){
       global.Shared.workspaceTabs.stampWorkspaceScopeDeep(root, options.tabId);
     }
@@ -1064,7 +1079,6 @@
         || phase === 'reset'
         || phase === 'undo'
         || phase === 'redo'
-        || phase === 'aspect-toggle'
       );
       if(isUserResizePhase && !options.forceSchedule){
         const hadForcedSuppression = panelState.forceSkipSchedules > 0
@@ -1147,8 +1161,7 @@
         || phase === 'reset'
         || phase === 'undo'
         || phase === 'redo'
-        || phase === 'programmatic'
-        || phase === 'aspect-toggle';
+        || phase === 'programmatic';
       const suppressResizeCallback = (
         visibility.hidden
         || (
@@ -1392,8 +1405,7 @@
         || phase === 'reset'
         || phase === 'undo'
         || phase === 'redo'
-        || phase === 'programmatic'
-        || phase === 'aspect-toggle';
+        || phase === 'programmatic';
       let resizeInteractionCacheCleared = false;
       const clearActiveResizeRenderCache = phase => {
         if(isResizeFinalizePhase(phase)){
@@ -1452,13 +1464,14 @@
           zoomDisplayOnly,
           phaseSkipSchedule
         });
+        const hasComponentResizeOwner = typeof userResizeOptions.onResize === 'function';
         const flags = evaluateScheduleFlags({
           source: 'resize',
           phase,
-          skipSchedule: zoomDisplayOnly || phaseSkipSchedule
+          skipSchedule: zoomDisplayOnly || phaseSkipSchedule || hasComponentResizeOwner
         });
         syncPanels({
-          skipSchedule: flags.skipSchedule || zoomDisplayOnly,
+          skipSchedule: flags.skipSchedule || zoomDisplayOnly || hasComponentResizeOwner,
           source: 'resize',
           phase
         });
@@ -1848,6 +1861,14 @@
       applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config', { reset: resetStyles });
       applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg', { reset: resetStyles });
       applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg', { reset: resetDataset });
+      const appliedAspect = elements.svgBox?.dataset?.resizerAspectLocked;
+      if((appliedAspect === 'true' || appliedAspect === 'false')
+        && typeof elements.svgBox?.__sharedResizableBoxApi?.setAspectLocked === 'function'){
+        elements.svgBox.__sharedResizableBoxApi.setAspectLocked(appliedAspect === 'true', {
+          reason: options.reason || 'component-layout-apply',
+          preserveGeometry: true
+        });
+      }
       if(elements.svgBox?.dataset?.resizerAspectLocked === 'true'){
         const appliedWidth = Number.parseFloat(elements.svgBox.style?.width || elements.svgBox.dataset?.resizerWidth || '');
         const appliedHeight = Number.parseFloat(elements.svgBox.style?.height || elements.svgBox.dataset?.resizerHeight || '');

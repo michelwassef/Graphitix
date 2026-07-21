@@ -233,7 +233,7 @@
     }
     const componentName = opts.componentName || tab.type || null;
     const syncChange = reason === 'sync-change';
-    const restoreTransactionActive = syncChange
+    const restoreTransactionActive = reason !== 'checkbox-change'
       && componentName
       && Shared.componentLifecycle?.isRestoreTransactionActive?.(componentName, {
         tabId,
@@ -291,6 +291,22 @@
         tab.sharedState.layout.resizer.aspectRatio = String(container.dataset.resizerAspectRatio);
       }
     }
+    if(tab.payload && typeof Shared.graphSizing?.setPayloadSizing === 'function'){
+      const currentSizing = Shared.graphSizing.getPayloadSizing?.(tab.payload, {
+        context: 'resizer-aspect-lock-read'
+      }) || {};
+      tab.payload = Shared.graphSizing.setPayloadSizing(tab.payload, {
+        ...currentSizing,
+        display: {
+          ...(currentSizing.display || {}),
+          aspectLocked: !!aspectLockedValue,
+          aspectRatio: Number(container?.dataset?.resizerAspectRatio) || currentSizing.display?.aspectRatio
+        }
+      }, {
+        context: 'resizer-aspect-lock-write',
+        type: componentName
+      });
+    }
     console.debug('Debug: resizer aspect lock persisted to tab', {
       tabId,
       component: componentName,
@@ -300,6 +316,50 @@
     if(reason === 'checkbox-change'){
       markResizerTabUserModified(container, opts, 'resizer-aspect-lock');
     }
+    return true;
+  }
+
+  function persistLockedGeometryToTab(container, opts, geometry){
+    const tab = resolveResizerTab(container, opts);
+    if(!normalizeTabId(tab?.id)){
+      return false;
+    }
+    const componentName = opts.componentName || tab.type || null;
+    if(componentName && Shared.componentLifecycle?.isRestoreTransactionActive?.(componentName, {
+      tabId: tab.id,
+      reason: 'resizer-locked-geometry'
+    }) === true){
+      return false;
+    }
+    const keys = [
+      'resizerLockedGeometryRatio',
+      'resizerLockedConstraintRatio',
+      'resizerLockedGeometryInsetX',
+      'resizerLockedGeometryInsetY'
+    ];
+    tab.layoutState = tab.layoutState && typeof tab.layoutState === 'object' ? tab.layoutState : {};
+    tab.layoutState.svgBox = tab.layoutState.svgBox && typeof tab.layoutState.svgBox === 'object'
+      ? tab.layoutState.svgBox
+      : {};
+    tab.layoutState.svgBox.dataset = tab.layoutState.svgBox.dataset && typeof tab.layoutState.svgBox.dataset === 'object'
+      ? tab.layoutState.svgBox.dataset
+      : {};
+    tab.sharedState = tab.sharedState && typeof tab.sharedState === 'object' ? tab.sharedState : {};
+    tab.sharedState.layout = tab.sharedState.layout && typeof tab.sharedState.layout === 'object' ? tab.sharedState.layout : {};
+    tab.sharedState.layout.resizer = tab.sharedState.layout.resizer && typeof tab.sharedState.layout.resizer === 'object'
+      ? tab.sharedState.layout.resizer
+      : {};
+    keys.forEach(key => {
+      const value = geometry ? container?.dataset?.[key] : null;
+      if(value !== undefined && value !== null && value !== ''){
+        tab.layoutState.svgBox.dataset[key] = String(value);
+        tab.sharedState.layout.resizer[key] = String(value);
+      }else{
+        delete tab.layoutState.svgBox.dataset[key];
+        delete tab.sharedState.layout.resizer[key];
+      }
+    });
+    tab.sharedState.layout.resizer.updatedAt = Date.now();
     return true;
   }
 
@@ -1426,6 +1486,22 @@
     let suppressObserveResizeUntil = 0;
     let manualResizeActive = false;
     let resizeObserver = null;
+    let lastResizeNotificationSize = null;
+
+    function notifyResize(phase, errorLabel = 'resizer onResize error'){
+      if(typeof opts.onResize !== 'function'){
+        return;
+      }
+      try{
+        opts.onResize(phase);
+      }catch(err){
+        console.error(errorLabel, err);
+      }
+      const rect = container.getBoundingClientRect?.();
+      if(Number.isFinite(rect?.width) && Number.isFinite(rect?.height)){
+        lastResizeNotificationSize = { width: rect.width, height: rect.height };
+      }
+    }
 
     const activeResizerTab = resolveResizerTab(container, opts);
     const activeResizerTabId = normalizeTabId(activeResizerTab?.id);
@@ -1476,7 +1552,7 @@
       : NaN;
     let aspectRatio = parsePositive(data.resizerAspectRatio);
     const overrideAspectRatio = parsePositive(opts.aspectRatio);
-    if(Number.isFinite(overrideAspectRatio) && overrideAspectRatio > 0){
+    if(!Number.isFinite(aspectRatio) && Number.isFinite(overrideAspectRatio) && overrideAspectRatio > 0){
       aspectRatio = overrideAspectRatio;
       console.debug('Debug: resizer aspect ratio override', { container: containerLabel, overrideAspectRatio }); // Debug: aspect ratio override applied
     }
@@ -1537,6 +1613,76 @@
       return getActiveRatio();
     }
 
+    function captureLockedGeometry(options = {}){
+      let measurement = null;
+      if(typeof opts.measureLockedGeometry === 'function'){
+        try{
+          measurement = opts.measureLockedGeometry({ container, zoomLevel }) || null;
+        }catch(err){
+          console.error('Shared.attachResizableBox locked geometry measurement error', err);
+        }
+      }
+      if(!measurement){
+        measurement = Shared.axisControls?.measureRenderedAxes?.(container, {
+          includeUnregistered: true
+        }) || null;
+      }
+      if(!measurement){
+        return null;
+      }
+      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
+      const liveRect = container.getBoundingClientRect();
+      const frameWidth = parsePositive(liveRect.width) / zoomScale;
+      const frameHeight = parsePositive(liveRect.height) / zoomScale;
+      const geometryWidth = (parsePositive(measurement.width) || parsePositive(measurement.x)) / zoomScale;
+      const geometryHeight = (parsePositive(measurement.height) || parsePositive(measurement.y)) / zoomScale;
+      const constraintWidth = (parsePositive(measurement.constraintWidth) || geometryWidth * zoomScale) / zoomScale;
+      const constraintHeight = (parsePositive(measurement.constraintHeight) || geometryHeight * zoomScale) / zoomScale;
+      if(![frameWidth, frameHeight, geometryWidth, geometryHeight, constraintWidth, constraintHeight].every(Number.isFinite)){
+        return null;
+      }
+      const measuredRatio = geometryWidth / geometryHeight;
+      const storedRatio = parsePositive(data.resizerLockedGeometryRatio);
+      const ratio = options.resetRatio === true || !Number.isFinite(storedRatio)
+        ? measuredRatio
+        : storedRatio;
+      const measuredConstraintRatio = constraintWidth / constraintHeight;
+      const storedConstraintRatio = parsePositive(data.resizerLockedConstraintRatio);
+      const constraintRatio = options.resetRatio === true || !Number.isFinite(storedConstraintRatio)
+        ? measuredConstraintRatio
+        : storedConstraintRatio;
+      data.resizerLockedGeometryRatio = String(ratio);
+      data.resizerLockedConstraintRatio = String(constraintRatio);
+      data.resizerLockedGeometryInsetX = String(Math.max(0, frameWidth - constraintWidth));
+      data.resizerLockedGeometryInsetY = String(Math.max(0, frameHeight - constraintHeight));
+      persistLockedGeometryToTab(container, opts, true);
+      return {
+        ratio,
+        measuredRatio,
+        constraintRatio,
+        measuredConstraintRatio,
+        insetX: Number(data.resizerLockedGeometryInsetX),
+        insetY: Number(data.resizerLockedGeometryInsetY)
+      };
+    }
+
+    function calibrateLockedGeometryConstraint(){
+      if(!aspectLocked){
+        return false;
+      }
+      const geometry = captureLockedGeometry({ resetRatio: false });
+      if(!geometry){
+        return false;
+      }
+      const correctedConstraintRatio = geometry.measuredConstraintRatio * geometry.ratio / geometry.measuredRatio;
+      if(!Number.isFinite(correctedConstraintRatio) || correctedConstraintRatio <= 0){
+        return false;
+      }
+      data.resizerLockedConstraintRatio = String(correctedConstraintRatio);
+      persistLockedGeometryToTab(container, opts, true);
+      return Math.abs(geometry.measuredRatio / geometry.ratio - 1) > 0.001;
+    }
+
     function syncZoomPresentation(baseWidth, baseHeight){
       const zoomSetup = ensureZoomElements();
       if(!zoomSetup){
@@ -1594,22 +1740,49 @@
         ? aspectLockedOverride
         : aspectLocked;
       if(effectiveAspectLocked){
-        const ratio = getActiveRatio();
-        const enforced = enforceAspectRatio({
-          width: requestedBaseWidth,
-          height: requestedBaseHeight,
-          minWidth: MIN_W,
-          maxWidth: MAX_W,
-          minHeight: MIN_H,
-          maxHeight: MAX_H,
-          ratio,
-          axis,
-          fallbackWidth: fallbackBaseWidth,
-          fallbackHeight: fallbackBaseHeight,
-          label: containerLabel
-        });
-        finalBaseWidth = enforced.width;
-        finalBaseHeight = enforced.height;
+        const geometryRatio = parsePositive(data.resizerLockedConstraintRatio)
+          || parsePositive(data.resizerLockedGeometryRatio);
+        const geometryInsetX = Number(data.resizerLockedGeometryInsetX);
+        const geometryInsetY = Number(data.resizerLockedGeometryInsetY);
+        const hasGeometryConstraint = Number.isFinite(geometryRatio)
+          && geometryRatio > 0
+          && Number.isFinite(geometryInsetX)
+          && geometryInsetX >= 0
+          && Number.isFinite(geometryInsetY)
+          && geometryInsetY >= 0;
+        if(hasGeometryConstraint){
+          const enforcedPlot = enforceAspectRatio({
+            width: Number.isFinite(requestedBaseWidth) ? Math.max(1, requestedBaseWidth - geometryInsetX) : NaN,
+            height: Number.isFinite(requestedBaseHeight) ? Math.max(1, requestedBaseHeight - geometryInsetY) : NaN,
+            minWidth: Math.max(1, MIN_W - geometryInsetX),
+            maxWidth: Number.isFinite(MAX_W) ? Math.max(1, MAX_W - geometryInsetX) : MAX_W,
+            minHeight: Math.max(1, MIN_H - geometryInsetY),
+            maxHeight: Number.isFinite(MAX_H) ? Math.max(1, MAX_H - geometryInsetY) : MAX_H,
+            ratio: geometryRatio,
+            axis,
+            fallbackWidth: Number.isFinite(fallbackBaseWidth) ? Math.max(1, fallbackBaseWidth - geometryInsetX) : NaN,
+            fallbackHeight: Number.isFinite(fallbackBaseHeight) ? Math.max(1, fallbackBaseHeight - geometryInsetY) : NaN,
+            label: `${containerLabel} locked geometry`
+          });
+          finalBaseWidth = Number.isFinite(enforcedPlot.width) ? enforcedPlot.width + geometryInsetX : NaN;
+          finalBaseHeight = Number.isFinite(enforcedPlot.height) ? enforcedPlot.height + geometryInsetY : NaN;
+        }else{
+          const enforced = enforceAspectRatio({
+            width: requestedBaseWidth,
+            height: requestedBaseHeight,
+            minWidth: MIN_W,
+            maxWidth: MAX_W,
+            minHeight: MIN_H,
+            maxHeight: MAX_H,
+            ratio: getActiveRatio(),
+            axis,
+            fallbackWidth: fallbackBaseWidth,
+            fallbackHeight: fallbackBaseHeight,
+            label: containerLabel
+          });
+          finalBaseWidth = enforced.width;
+          finalBaseHeight = enforced.height;
+        }
       }
       if(!Number.isFinite(finalBaseWidth) && axis !== 'y'){
         finalBaseWidth = clampDimension(requestedBaseWidth, MIN_W, MAX_W);
@@ -1638,6 +1811,9 @@
           container.dataset.graphHeightPx = String(Math.round(finalBaseHeight));
           container.dataset.svgHeight = String(Math.round(finalBaseHeight));
         }
+      }
+      if(effectiveAspectLocked && Number.isFinite(finalBaseWidth) && Number.isFinite(finalBaseHeight) && finalBaseHeight > 0){
+        setAspectRatio(finalBaseWidth / finalBaseHeight);
       }
       const normalizedAxis = (axis === 'x' || axis === 'y') ? axis : 'both';
       container.dataset.resizerLastAxis = normalizedAxis;
@@ -1710,9 +1886,12 @@
       const scaleY = baseHeight / (defaultHeight || 1);
       const rawStyleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
       const lockedStyleScaleBase = parsePositive(data.resizerLockedStyleScaleBase);
-      const styleScaleBase = Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0
-        ? rawStyleScaleBase / lockedStyleScaleBase
-        : 1;
+      const renderedStyleScale = parsePositive(data.resizerRenderedStyleScale);
+      const styleScaleBase = Number.isFinite(renderedStyleScale)
+        ? renderedStyleScale
+        : (Number.isFinite(lockedStyleScaleBase) && lockedStyleScaleBase > 0
+          ? rawStyleScaleBase / lockedStyleScaleBase
+          : 1);
       if(Number.isFinite(styleScaleBase) && styleScaleBase > 0){
         data.resizerUnlockedStyleScaleBase = String(styleScaleBase);
         console.debug('Debug: resizer unlocked style scale base synced', {
@@ -1734,8 +1913,15 @@
       const baseHeight = parsePositive(rect.height) ? (rect.height / zoomScale) : parsePositive(data.resizerBaseHeight) || defaultHeight;
       const scaleX = baseWidth / (defaultWidth || 1);
       const scaleY = baseHeight / (defaultHeight || 1);
-      const rawStyleScaleBase = Math.sqrt(Math.max(scaleX * scaleY, 0));
-      const currentStyleScale = parsePositive(data.resizerUnlockedStyleScaleBase) || rawStyleScaleBase;
+      const outerRawStyleScale = Math.sqrt(Math.max(scaleX * scaleY, 0));
+      const renderedRawStyleScale = parsePositive(data.resizerRenderedRawStyleScale);
+      const renderedStyleScale = parsePositive(data.resizerRenderedStyleScale);
+      const rawStyleScaleBase = Number.isFinite(renderedRawStyleScale)
+        ? renderedRawStyleScale
+        : outerRawStyleScale;
+      const currentStyleScale = Number.isFinite(renderedStyleScale)
+        ? renderedStyleScale
+        : (parsePositive(data.resizerUnlockedStyleScaleBase) || rawStyleScaleBase);
       const lockedStyleScaleBase = Number.isFinite(rawStyleScaleBase) && rawStyleScaleBase > 0 && Number.isFinite(currentStyleScale) && currentStyleScale > 0
         ? rawStyleScaleBase / currentStyleScale
         : NaN;
@@ -1747,6 +1933,7 @@
           lockedStyleScaleBase,
           rawStyleScaleBase,
           currentStyleScale,
+          outerRawStyleScale,
           baseWidth,
           baseHeight
         });
@@ -1887,8 +2074,8 @@
         preserveAspectLock,
         finalAspectLocked: aspectLocked
       });
-      if(options.suppressOnResize !== true && typeof opts.onResize === 'function'){
-        try { opts.onResize('programmatic'); } catch(err) { console.error('resizer onResize programmatic error', err); }
+      if(options.suppressOnResize !== true){
+        notifyResize('programmatic', 'resizer onResize programmatic error');
       }
       return applied;
     }
@@ -2016,14 +2203,10 @@
       syncZoomPresentation(baseWidth, baseHeight);
       applyZoomBoundsStyles();
       syncZoomControls();
-      if((changed || options.forceLayout === true) && typeof opts.onResize === 'function'){
-        try {
-          // This callback is layout-sync only; componentLayout suppresses redraw work
-          // for the "zoom" phase so zoom remains a pure magnifier.
-          opts.onResize('zoom');
-        } catch (resizeErr){
-          console.error('resizer onResize zoom error', resizeErr);
-        }
+      if(changed || options.forceLayout === true){
+        // This callback is layout-sync only; componentLayout suppresses redraw work
+        // for the "zoom" phase so zoom remains a pure magnifier.
+        notifyResize('zoom', 'resizer onResize zoom error');
       }
       if(changed || options.logUnchanged){
         logZoom(changed ? 'applied' : 'unchanged', {
@@ -2114,8 +2297,79 @@
       return { changed, minWidth: MIN_W, minHeight: MIN_H, enforced: !!resized, resize: resized };
     }
 
+    let aspectCheckbox = null;
+    const setAspectLockedState = (nextLocked, options = {}) => {
+      const workspaceActiveTabId = normalizeTabId(global.Main?.session?.workspaceState?.activeTabId);
+      if(options.reason !== 'checkbox-change'
+        && activeResizerTabId
+        && workspaceActiveTabId
+        && activeResizerTabId !== workspaceActiveTabId){
+        return false;
+      }
+      const next = !!nextLocked;
+      const changed = aspectLocked !== next;
+      const ownerTab = resolveResizerTab(container, opts);
+      const projectionMatches = data.resizerAspectLocked === (next ? 'true' : 'false')
+        && (!aspectCheckbox || aspectCheckbox.checked === next);
+      const sessionMatches = ownerTab?.sharedState?.layout?.resizer?.aspectLocked === next;
+      const layoutMatches = ownerTab?.layoutState?.svgBox?.dataset?.resizerAspectLocked === (next ? 'true' : 'false');
+      if(!changed && projectionMatches && sessionMatches && layoutMatches && options.resetAxisRatio !== true){
+        return false;
+      }
+      const beforeAspect = options.recordUndo === true ? makeResizeSnapshot('aspect-toggle-before') : null;
+      aspectLocked = next;
+      data.resizerAspectLocked = next ? 'true' : 'false';
+      if(aspectCheckbox){
+        aspectCheckbox.checked = next;
+      }
+      persistAspectLockToTab(container, opts, next, options.reason || 'sync-change');
+      if(next){
+        if(options.preserveGeometry === true){
+          syncLockedStyleScaleBase(options.reason || 'aspect-lock-restore');
+        }else if(changed || options.resetAxisRatio === true){
+          delete data.resizerAxisViewportLockAxis;
+          delete data.resizerAxisViewportLockUntil;
+          readRectRatio();
+          captureLockedGeometry({ resetRatio: true });
+          syncLockedStyleScaleBase(options.reason || 'aspect-lock');
+        }else if(!parsePositive(data.resizerLockedGeometryRatio)){
+          captureLockedGeometry({ resetRatio: true });
+        }
+      }else if(changed || data.resizerLockedGeometryRatio || data.resizerLockedConstraintRatio){
+        delete data.resizerLockedGeometryRatio;
+        delete data.resizerLockedConstraintRatio;
+        delete data.resizerLockedGeometryInsetX;
+        delete data.resizerLockedGeometryInsetY;
+        persistLockedGeometryToTab(container, opts, null);
+        syncUnlockedStyleScaleBase(options.reason || 'aspect-unlock');
+        delete data.resizerLockedStyleScaleBase;
+        if(Shared.graphViewport && typeof Shared.graphViewport.captureStableAxes === 'function'){
+          try{
+            Shared.graphViewport.captureStableAxes(container, {
+              axis: 'both',
+              reason: options.reason || 'aspect-unlock'
+            });
+          }catch(err){
+            console.error('resizer aspect-toggle viewport capture error', err);
+          }
+        }
+      }
+      if(options.recordUndo === true){
+        const afterAspect = makeResizeSnapshot('aspect-toggle-after');
+        notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
+      }
+      console.debug('Debug: resizer aspect state applied', {
+        container: containerLabel,
+        aspectLocked,
+        changed,
+        reason: options.reason || null
+      });
+      return changed;
+    };
+
     container.__sharedResizableBoxApi = {
       applySize: applyProgrammaticResize,
+      setAspectLocked: setAspectLockedState,
       setIntrinsicMinSize: updateIntrinsicMinSize,
       setZoomLevel: (level, options = {}) => applyZoomLevel(level, options),
       getZoomLevel: () => zoomLevel,
@@ -2132,6 +2386,7 @@
         allowUnlimitedHeight,
         zoomLevel
       }),
+      calibrateLockedGeometryConstraint,
       destroy(options = {}){
         if(resizeObserver){
           try{
@@ -2189,7 +2444,6 @@
       aspectRatio
     }); // Debug: resizer defaults
 
-    let aspectCheckbox = null;
     if(doc){
       let controlTray = container.querySelector('.resizer-control-tray');
       if(!controlTray){
@@ -2228,36 +2482,12 @@
           aspectCheckbox.removeEventListener('change', aspectCheckbox.__resizerAspectHandler);
         }
         const onAspectChange = event => {
-          const beforeAspect = makeResizeSnapshot('aspect-toggle-before');
-          aspectLocked = !!aspectCheckbox.checked;
-          data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
           const aspectPersistReason = event?.isTrusted ? 'checkbox-change' : 'sync-change';
-          persistAspectLockToTab(container, opts, aspectLocked, aspectPersistReason);
-          console.debug('Debug: resizer aspect toggled', { container: containerLabel, aspectLocked }); // Debug: aspect toggle
-          if(aspectLocked){
-            delete data.resizerAxisViewportLockAxis;
-            delete data.resizerAxisViewportLockUntil;
-            readRectRatio();
-            syncLockedStyleScaleBase('aspect-toggle-lock');
-          }else{
-            syncUnlockedStyleScaleBase('aspect-toggle-unlock');
-            delete data.resizerLockedStyleScaleBase;
-            if(Shared.graphViewport && typeof Shared.graphViewport.captureStableAxes === 'function'){
-              try{
-                Shared.graphViewport.captureStableAxes(container, {
-                  axis: 'both',
-                  reason: 'aspect-toggle-unlock'
-                });
-              }catch(err){
-                console.error('resizer aspect-toggle viewport capture error', err);
-              }
-            }
-          }
-          const afterAspect = makeResizeSnapshot('aspect-toggle-after');
-          notifyUndoableResize('aspect-toggle', beforeAspect, afterAspect, 'checkbox');
-          if(typeof opts.onResize === 'function'){
-            try { opts.onResize('aspect-toggle'); } catch(err) { console.error('resizer onResize aspect-toggle error', err); }
-          }
+          setAspectLockedState(!!aspectCheckbox.checked, {
+            reason: aspectPersistReason,
+            recordUndo: true,
+            resetAxisRatio: true
+          });
         };
         aspectCheckbox.addEventListener('change', onAspectChange);
         aspectCheckbox.__resizerAspectHandler = onAspectChange;
@@ -2488,19 +2718,6 @@
       syncUnlockedStyleScaleBase('init-unlocked');
     }
 
-    if(aspectLocked){
-      const liveRect = container.getBoundingClientRect();
-      const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-      applyResize({
-        axis: 'both',
-        width: liveRect.width,
-        height: liveRect.height,
-        fallbackWidth: defaultWidth * zoomScale,
-        fallbackHeight: defaultHeight * zoomScale,
-        reason: 'initial-lock'
-      });
-    }
-
     const vHandle = container.querySelector('.resizer-vertical');
     const hHandle = container.querySelector('.resizer-horizontal');
     const cHandle = container.querySelector('.resizer-corner');
@@ -2522,6 +2739,10 @@
       'resizerBaseHeight',
       'resizerAspectLocked',
       'resizerAspectRatio',
+      'resizerLockedGeometryRatio',
+      'resizerLockedConstraintRatio',
+      'resizerLockedGeometryInsetX',
+      'resizerLockedGeometryInsetY',
       'resizerLastAxis',
       'resizerResized',
       'resizerProportionalFontResize',
@@ -2531,6 +2752,9 @@
       'fontBasePt',
       'fontDisplayPt',
       'resizerUnlockedStyleScaleBase',
+      'resizerLockedStyleScaleBase',
+      'resizerRenderedRawStyleScale',
+      'resizerRenderedStyleScale',
       'resizerZoom',
       'resizerZoomLevel',
       'graphWidthPx',
@@ -2653,16 +2877,12 @@
         undo: () => {
           console.debug('Debug: resizer undo snapshot apply', { container: containerLabel, mode, trigger });
           applySnapshot(before, 'undo');
-          if(typeof opts.onResize === 'function'){
-            try { opts.onResize('undo'); } catch(err){ console.error('resizer onResize undo error', err); }
-          }
+          notifyResize('undo', 'resizer onResize undo error');
         },
         redo: () => {
           console.debug('Debug: resizer redo snapshot apply', { container: containerLabel, mode, trigger });
           applySnapshot(after, 'redo');
-          if(typeof opts.onResize === 'function'){
-            try { opts.onResize('redo'); } catch(err){ console.error('resizer onResize redo error', err); }
-          }
+          notifyResize('redo', 'resizer onResize redo error');
         }
       });
     };
@@ -2778,48 +2998,61 @@
         e.preventDefault();
         pointerId = e.pointerId;
         try { handle.setPointerCapture(pointerId); } catch(_) {}
-        invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
         const rect = container.getBoundingClientRect();
         const zoomScale = Number.isFinite(zoomLevel) && zoomLevel > 0 ? zoomLevel : 1;
-        const startBaseWidth = Math.min(MAX_W, Math.max(MIN_W, Math.round(rect.width / zoomScale)));
-        const startBaseHeight = Math.min(MAX_H, Math.max(MIN_H, Math.round(rect.height / zoomScale)));
-        startW = Math.round(startBaseWidth * zoomScale);
-        startH = Math.round(startBaseHeight * zoomScale);
+        const startBaseWidth = Math.min(MAX_W, Math.max(MIN_W, rect.width / zoomScale));
+        const startBaseHeight = Math.min(MAX_H, Math.max(MIN_H, rect.height / zoomScale));
+        startW = startBaseWidth * zoomScale;
+        startH = startBaseHeight * zoomScale;
         startX = e.clientX;
         startY = e.clientY;
         startSnapshot = makeResizeSnapshot('pointer-start');
-        manualResizeActive = true;
-        suppressObserverResize(220);
-        markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
-        container.style.boxSizing = 'border-box';
-        container.style.width = px(startW);
-        container.style.height = px(startH);
-        container.style.flex = '0 0 auto';
-        container.style.maxWidth = 'none';
-        container.style.maxHeight = 'none';
-        container.dataset.resizerResized = 'true';
-        container.dataset.resizerWidth = container.style.width;
-        container.dataset.resizerHeight = container.style.height;
-        if(Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
-          try{
-            Shared.graphViewport.applyLiveResizeLock(container, {
-              axis,
-              reason: 'pointer-start'
-            });
-          }catch(err){
-            console.error('resizer graph viewport live lock error', err);
+        let pointerResizeStarted = false;
+        const beginPointerResize = () => {
+          if(pointerResizeStarted){
+            return;
           }
-        }
-        console.debug('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H }); // Debug: resizer drag start
-        if (typeof opts.onResize === 'function') {
-          try { opts.onResize('start'); } catch(e) { console.error('resizer onResize error', e); }
-        }
-        document.documentElement.style.userSelect = 'none';
-        document.documentElement.style.touchAction = 'none';
+          pointerResizeStarted = true;
+          invalidateResizerTabRenderCaches(container, opts, `resizer-start-${axis}`);
+          if(aspectLocked){
+            captureLockedGeometry({ resetRatio: true });
+          }
+          manualResizeActive = true;
+          suppressObserverResize(220);
+          markOrthogonalViewportLock(axis, 'pointer-start', { durationMs: 6000 });
+          container.style.boxSizing = 'border-box';
+          container.style.width = px(startW);
+          container.style.height = px(startH);
+          container.style.flex = '0 0 auto';
+          container.style.maxWidth = 'none';
+          container.style.maxHeight = 'none';
+          container.dataset.resizerResized = 'true';
+          container.dataset.resizerWidth = container.style.width;
+          container.dataset.resizerHeight = container.style.height;
+          if(Shared.graphViewport && typeof Shared.graphViewport.applyLiveResizeLock === 'function'){
+            try{
+              Shared.graphViewport.applyLiveResizeLock(container, {
+                axis,
+                reason: 'pointer-start'
+              });
+            }catch(err){
+              console.error('resizer graph viewport live lock error', err);
+            }
+          }
+          console.debug('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H }); // Debug: resizer drag start
+          notifyResize('start');
+          document.documentElement.style.userSelect = 'none';
+          document.documentElement.style.touchAction = 'none';
+        };
         const onPointerMove = (ev) => {
           ev.preventDefault();
           const dx = ev.clientX - startX;
           const dy = ev.clientY - startY;
+          const activeDelta = axis === 'x' ? dx : (axis === 'y' ? dy : Math.max(Math.abs(dx), Math.abs(dy)));
+          if(activeDelta === 0){
+            return;
+          }
+          beginPointerResize();
           const tentativeWidth = startW + dx;
           const tentativeHeight = startH + dy;
           suppressObserverResize(180);
@@ -2843,9 +3076,7 @@
           if(!applied.changed){
             return;
           }
-          if (typeof opts.onResize === 'function') {
-            try { opts.onResize('move'); } catch(e) { console.error('resizer onResize error', e); }
-          }
+          notifyResize('move');
         };
         let pointerFinished = false;
         const finishPointerResize = (finishReason = 'pointer-end') => {
@@ -2857,6 +3088,10 @@
           document.removeEventListener('pointermove', onPointerMove);
           document.removeEventListener('pointerup', onPointerUp);
           document.removeEventListener('pointercancel', onPointerCancel);
+          if(!pointerResizeStarted){
+            startSnapshot = null;
+            return;
+          }
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
           manualResizeActive = false;
@@ -2872,9 +3107,7 @@
             }
             startSnapshot = null;
           }
-          if (typeof opts.onResize === 'function') {
-            try { opts.onResize('end'); } catch(e) { console.error('resizer onResize error', e); }
-          }
+          notifyResize('end');
         };
         const onPointerUp = () => {
           finishPointerResize('pointer-end');
@@ -2913,9 +3146,7 @@
           markResizerTabUserModified(container, opts, 'resizer-reset');
         }
         console.debug('Debug: resizer size reset', { width: container.style.width, height: container.style.height, applied }); // Debug: resizer reset
-        if (typeof opts.onResize === 'function') {
-          try { opts.onResize('reset'); } catch(e) { console.error('resizer onResize error', e); }
-        }
+        notifyResize('reset');
       };
       handle.addEventListener('dblclick', onDoubleClick);
       dragBindingStore[axis] = {
@@ -2932,10 +3163,18 @@
         if(shouldSuppressObserverResize()){
           return;
         }
-        console.debug('Debug: resizer observer triggered'); // Debug: resize observer
-        if (typeof opts.onResize === 'function') {
-          try { opts.onResize('observe'); } catch(e) { console.error('resizer onResize error', e); }
+        const rect = container.getBoundingClientRect?.();
+        if(
+          lastResizeNotificationSize
+          && Number.isFinite(rect?.width)
+          && Number.isFinite(rect?.height)
+          && Math.abs(rect.width - lastResizeNotificationSize.width) <= 0.25
+          && Math.abs(rect.height - lastResizeNotificationSize.height) <= 0.25
+        ){
+          return;
         }
+        console.debug('Debug: resizer observer triggered'); // Debug: resize observer
+        notifyResize('observe');
       });
       resizeObserver.observe(container);
     }

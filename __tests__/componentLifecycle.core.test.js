@@ -570,6 +570,30 @@ describe('componentLifecycle — graph edit cache invalidation', () => {
     }));
   });
 
+  test('trusted resize-handle click does not begin a restored graph edit', () => {
+    document.body.innerHTML = `
+      <div data-workspace-component="box" data-workspace-tab-id="tab-a">
+        <div class="svgbox">
+          <svg id="boxSvg"></svg>
+          <div class="resizer resizer-vertical" id="resizeHandle"></div>
+        </div>
+      </div>
+    `;
+    const event = new window.MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    });
+    event.__graphitixUserTrusted = true;
+
+    document.getElementById('resizeHandle').dispatchEvent(event);
+
+    expect(draw).not.toHaveBeenCalled();
+    expect(tab.renderCache).not.toBeNull();
+    expect(tab.archiveRenderCache).not.toBeNull();
+  });
+
   test('trusted graph drag movement begins graph edit for a restored graph', () => {
     document.body.innerHTML = `
       <div data-workspace-component="box" data-workspace-tab-id="tab-a">

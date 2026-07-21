@@ -2746,20 +2746,23 @@
     return null;
   }
 
-  function getLineForcedLockRatioPrevious(){
-    const value = getLineViewState()?.forcedLockRatioPrevious;
+  function getLineForcedLockRatioPrevious(session = null){
+    const value = getLineViewState(session)?.forcedLockRatioPrevious;
     if(value === true || value === false){
       return !!value;
+    }
+    if(session){
+      return null;
     }
     return (lineAxesLengthLockRatioPrevious === true || lineAxesLengthLockRatioPrevious === false)
       ? !!lineAxesLengthLockRatioPrevious
       : null;
   }
 
-  function setLineForcedLockRatioPrevious(value){
+  function setLineForcedLockRatioPrevious(value, session = null){
     const normalized = (value === true || value === false) ? !!value : null;
     lineAxesLengthLockRatioPrevious = normalized;
-    const viewState = getLineViewState();
+    const viewState = getLineViewState(session);
     if(viewState && typeof viewState === 'object'){
       viewState.forcedLockRatioPrevious = normalized;
     }
@@ -2772,11 +2775,17 @@
     }
     lineAspectSyncing = true;
     try{
-      const equalAxesEnabled = !!getLineViewState().equalAxes;
-      const equalScaleEnabled = !!getLineViewState().equalScaleAxes;
-      const varianceAxesEnabled = !!getLineViewState().axesVarianceScaled;
-      const viewModeValue = refs.viewMode?.value || getLineViewState().viewMode || '2d';
-      const replicateModeValue = refs.replicateMode?.value;
+      const lockRatioCheckbox = getLineLockRatioCheckbox();
+      const ownerTabId = resolveLineTabIdFromNode(lockRatioCheckbox);
+      const ownerSession = ownerTabId
+        ? getLineSession(ownerTabId, { tabId: ownerTabId, reason: 'line-aspect-owner' }, { create: false })
+        : null;
+      const ownerViewState = getLineViewState(ownerSession);
+      const equalAxesEnabled = !!ownerViewState.equalAxes;
+      const equalScaleEnabled = !!ownerViewState.equalScaleAxes;
+      const varianceAxesEnabled = !!ownerViewState.axesVarianceScaled;
+      const viewModeValue = ownerViewState.viewMode || refs.viewMode?.value || '2d';
+      const replicateModeValue = ownerViewState.viewMode || refs.replicateMode?.value;
       const is3dView = String(viewModeValue).toLowerCase() === '3d' || String(replicateModeValue).toLowerCase() === '3d';
       const reasonText = String(reason || '').toLowerCase();
       const lifecycleRestoreContext = !!Shared.componentLifecycle?.isRestoreTransactionActive?.('line', { tabId: getLineProjectionTabId() || null, reason });
@@ -2795,17 +2804,14 @@
       if(lineVarianceAxisScaleInput && lineVarianceAxisScaleInput.checked !== varianceAxesEnabled){
         lineVarianceAxisScaleInput.checked = varianceAxesEnabled;
       }
-      const lockRatioCheckbox = getLineLockRatioCheckbox();
       if(lockRatioCheckbox){
         const lockLabel = lockRatioCheckbox.closest('label');
+        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
         if(enforceLockRatio){
-          if(getLineForcedLockRatioPrevious() === null){
-            setLineForcedLockRatioPrevious(!!lockRatioCheckbox.checked);
+          if(getLineForcedLockRatioPrevious(ownerSession) === null){
+            setLineForcedLockRatioPrevious(!!lockRatioCheckbox.checked, ownerSession);
           }
-          if(!lockRatioCheckbox.checked){
-            lockRatioCheckbox.checked = true;
-            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          resizerApi?.setAspectLocked?.(true, { reason: 'line-forced-lock-ratio' });
           lockRatioCheckbox.disabled = true;
           if(lockLabel){
             if(!lockLabel.__lineOriginalTitle){
@@ -2819,13 +2825,10 @@
             lockLabel.title = lockLabel.__lineOriginalTitle;
             delete lockLabel.__lineOriginalTitle;
           }
-          const restoreValue = getLineForcedLockRatioPrevious();
+          const restoreValue = getLineForcedLockRatioPrevious(ownerSession);
           if(restoreValue !== null){
-            setLineForcedLockRatioPrevious(null);
-            if(lockRatioCheckbox.checked !== restoreValue){
-              lockRatioCheckbox.checked = restoreValue;
-              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            setLineForcedLockRatioPrevious(null, ownerSession);
+            resizerApi?.setAspectLocked?.(restoreValue, { reason: 'line-restore-lock-ratio' });
           }
         }
       }

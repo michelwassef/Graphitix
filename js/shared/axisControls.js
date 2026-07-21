@@ -3104,26 +3104,32 @@
       return null;
     }
     const axisKey = axis === 'y' ? 'y' : 'x';
-    try{
-      const rect = typeof axisElement.getBoundingClientRect === 'function'
-        ? axisElement.getBoundingClientRect()
-        : null;
-      const rectLength = sanitizeAxisLengthValue(axisKey === 'y' ? rect && rect.height : rect && rect.width);
-      if(rectLength != null && rectLength > 0){
-        return rectLength;
+    const explicitAxisLine = axisElement.getAttribute?.('data-axis-line') === '1'
+      && axisElement.getAttribute?.('data-axis-key') === axisKey;
+    if(!explicitAxisLine){
+      try{
+        const rect = typeof axisElement.getBoundingClientRect === 'function'
+          ? axisElement.getBoundingClientRect()
+          : null;
+        const rectLength = sanitizeAxisLengthValue(axisKey === 'y' ? rect && rect.height : rect && rect.width);
+        if(rectLength != null && rectLength > 0){
+          return rectLength;
+        }
+      }catch(err){
+        logDebug('axis display length from rect failed', {
+          axis: axisKey,
+          error: err && err.message
+        });
       }
-    }catch(err){
-      logDebug('axis display length from rect failed', {
-        axis: axisKey,
-        error: err && err.message
-      });
     }
     try{
       const x1 = Number(axisElement.getAttribute && axisElement.getAttribute('x1'));
       const x2 = Number(axisElement.getAttribute && axisElement.getAttribute('x2'));
       const y1 = Number(axisElement.getAttribute && axisElement.getAttribute('y1'));
       const y2 = Number(axisElement.getAttribute && axisElement.getAttribute('y2'));
-      const rawLength = axisKey === 'y'
+      const rawLength = explicitAxisLine
+        ? Math.hypot(x2 - x1, y2 - y1)
+        : axisKey === 'y'
         ? (Number.isFinite(y1) && Number.isFinite(y2) ? Math.abs(y2 - y1) : NaN)
         : (Number.isFinite(x1) && Number.isFinite(x2) ? Math.abs(x2 - x1) : NaN);
       if(!Number.isFinite(rawLength) || rawLength <= 0){
@@ -3137,6 +3143,18 @@
       const vb = (svg.getAttribute && svg.getAttribute('viewBox')) ? String(svg.getAttribute('viewBox')).trim().split(/\s+/).map(Number) : null;
       const vbWidth = vb && vb.length >= 4 ? sanitizeAxisLengthValue(vb[2]) : null;
       const vbHeight = vb && vb.length >= 4 ? sanitizeAxisLengthValue(vb[3]) : null;
+      if(explicitAxisLine){
+        const scaleX = (sanitizeAxisLengthValue(svgRect?.width) || 0) / (vbWidth || 0);
+        const scaleY = (sanitizeAxisLengthValue(svgRect?.height) || 0) / (vbHeight || 0);
+        const preserveAspectRatio = String(svg.getAttribute?.('preserveAspectRatio') || 'xMidYMid meet').trim();
+        const uniformScale = preserveAspectRatio !== 'none' ? Math.min(scaleX, scaleY) : null;
+        const projectedLength = uniformScale && uniformScale > 0
+          ? Math.hypot(x2 - x1, y2 - y1) * uniformScale
+          : Math.hypot((x2 - x1) * scaleX, (y2 - y1) * scaleY);
+        if(Number.isFinite(projectedLength) && projectedLength > 0){
+          return projectedLength;
+        }
+      }
       const scale = axisKey === 'y'
         ? ((sanitizeAxisLengthValue(svgRect && svgRect.height) || 0) / (vbHeight || 0))
         : ((sanitizeAxisLengthValue(svgRect && svgRect.width) || 0) / (vbWidth || 0));
@@ -3150,12 +3168,19 @@
     return null;
   }
 
-  function resolveAxisControlElementFromTarget(target, axis){
+  function resolveAxisControlElementFromTarget(target, axis, options = {}){
     if(!target || typeof target.querySelectorAll !== 'function'){
       return null;
     }
     const axisKey = axis === 'y' ? 'y' : 'x';
-    const lines = Array.from(target.querySelectorAll('line[data-axis-control="1"]'));
+    const explicit = target.querySelector(`line[data-axis-line="1"][data-axis-key="${axisKey}"]`);
+    if(explicit){
+      return explicit;
+    }
+    const selector = options.includeUnregistered === true
+      ? 'svg:not(.resizer-options-icon) line'
+      : 'line[data-axis-control="1"]';
+    const lines = Array.from(target.querySelectorAll(selector));
     if(!lines.length){
       return null;
     }
@@ -3517,6 +3542,36 @@
 
   axisControls.ensurePanel = ensurePanel;
   axisControls.registerAxisElement = registerAxisElement;
+  axisControls.measureRenderedAxes = function measureRenderedAxes(target, options = {}){
+    let xElement = resolveAxisControlElementFromTarget(target, 'x');
+    let yElement = resolveAxisControlElementFromTarget(target, 'y');
+    let x = resolveAxisDisplayLength(xElement, 'x');
+    let y = resolveAxisDisplayLength(yElement, 'y');
+    if(x == null || y == null || x <= 0 || y <= 0){
+      if(options.includeUnregistered !== true){
+        return null;
+      }
+      xElement = resolveAxisControlElementFromTarget(target, 'x', { includeUnregistered: true });
+      yElement = resolveAxisControlElementFromTarget(target, 'y', { includeUnregistered: true });
+      x = resolveAxisDisplayLength(xElement, 'x');
+      y = resolveAxisDisplayLength(yElement, 'y');
+      if(x == null || y == null || x <= 0 || y <= 0){
+        return null;
+      }
+    }
+    const projected3d = xElement?.getAttribute?.('data-axis-line') === '1'
+      && yElement?.getAttribute?.('data-axis-line') === '1';
+    const constraintRect = projected3d ? target?.getBoundingClientRect?.() : null;
+    return {
+      x,
+      y,
+      ratio: x / y,
+      xElement,
+      yElement,
+      constraintWidth: projected3d ? sanitizeAxisLengthValue(constraintRect?.width) : null,
+      constraintHeight: projected3d ? sanitizeAxisLengthValue(constraintRect?.height) : null
+    };
+  };
   axisControls.refreshActivePanel = function refreshActivePanel(options = {}){
     if(typeof options === 'string'){
       return scheduleActivePanelRefresh(options, { scopeId: null });

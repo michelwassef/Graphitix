@@ -3444,6 +3444,32 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('none');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="left"]').style.display).toBe('block');
     expect(outline.querySelector('.hot-selection-outline-edge[data-edge="right"]').style.display).toBe('block');
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    await waitForNextFrame();
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 3, hot.countCols() - 1]);
+    expect(outline.style.borderTopColor).not.toBe('transparent');
+    expect(outline.querySelector('.hot-selection-outline-edge[data-edge="top"]').style.display).toBe('block');
+
+    global.window.navigator.clipboard = { writeText: jest.fn().mockResolvedValue(undefined) };
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      key: 'c',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await waitForNextFrame();
+
+    const clipboardOutline = container.querySelector('.hot-clipboard-outline');
+    expect(clipboardOutline).toBeTruthy();
+    expect(clipboardOutline.querySelector('.hot-clipboard-outline-edge[data-edge="top"]').style.display).toBe('block');
   });
 
   test('plain header click selects full column and header action click preserves selection coordinates', () => {

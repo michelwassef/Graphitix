@@ -171,6 +171,9 @@ describe('Shared.plot3d helper', () => {
     const backEdges = frameLines.filter((line) => line.getAttribute('data-frame-edge') === 'back');
     expect(frontEdges.length).toBeGreaterThan(0);
     expect(backEdges.length).toBeGreaterThan(0);
+    expect(axisGroup.querySelector('line[data-axis-line="1"][data-axis-key="x"]')).not.toBeNull();
+    expect(axisGroup.querySelector('line[data-axis-line="1"][data-axis-key="y"]')).not.toBeNull();
+    expect(axisGroup.querySelector('line[data-axis-line="1"][data-axis-key="z"]')).not.toBeNull();
     backEdges.forEach((line) => {
       expect(line.getAttribute('stroke-dasharray')).toBe('5 3');
       expect(Number(line.getAttribute('stroke-opacity'))).toBeCloseTo(0.25);

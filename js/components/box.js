@@ -12599,6 +12599,28 @@
     };
   }
 
+  function resolveBoxHorizontalCategoryMargin(options = {}){
+    const baseMarginLeft = Math.max(0, Number(options.baseMarginLeft) || 0);
+    const tickLength = Math.max(0, Number(options.tickLength) || 0);
+    const tickLabelGap = Math.max(0, Number(options.tickLabelGap) || 0);
+    const tickFontSize = Math.max(0, Number(options.tickFontSize) || 0);
+    const labelOffset = tickLength + tickLabelGap + Math.max(tickFontSize * 0.4, 6);
+    if(options.hasLabels !== true){
+      return { marginLeft: baseMarginLeft, extensionPx: 0, labelOffset };
+    }
+    const maxLabelWidth = Math.max(0, Number(options.maxLabelWidth) || 0);
+    const outerPadding = Math.max(0, Number(options.outerPadding) || 0);
+    const baseCanvasWidth = Math.max(0, Number(options.baseCanvasWidth) || 0);
+    const maxExtension = Math.max(120, Math.min(420, Math.round(baseCanvasWidth * 0.5)));
+    const requestedMargin = Math.ceil(maxLabelWidth + labelOffset + outerPadding);
+    const marginLeft = Math.max(baseMarginLeft, Math.min(baseMarginLeft + maxExtension, requestedMargin));
+    return {
+      marginLeft,
+      extensionPx: Math.max(0, marginLeft - baseMarginLeft),
+      labelOffset
+    };
+  }
+
   function resolveCurrentBoxAxisSpansForFlip(svg = null){
     const plot = els.plotDiv || getBoxNodeById('boxPlot');
     const firstPlotSvg = (!svg && plot && typeof plot.querySelector === 'function')
@@ -28696,6 +28718,7 @@ Technical analysis record (advanced)
       const y = y2px(t);
       addAxisElement('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const txt = addAxisElement('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
+      txt.setAttribute('data-box-axis-tick', 'y');
       txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       markFontEditable(txt,'yTick');
       yTickFontCount += 1;
@@ -28770,6 +28793,7 @@ Technical analysis record (advanced)
               'dominant-baseline': 'middle',
               fill: chartStyle.TEXT_COLOR
             });
+            txt.setAttribute('data-box-axis-tick', 'y');
             txt.textContent = label;
             markFontEditable(txt,'yTick');
             yTickFontCount += 1;
@@ -28816,6 +28840,7 @@ Technical analysis record (advanced)
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
       const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
       t.setAttribute('data-box-x-tick-label', '1');
+      t.setAttribute('data-box-axis-tick', 'x');
       t.textContent = labelText;
       Shared.applyTextBaseline && Shared.applyTextBaseline(t, 'hanging', fs);
       markFontEditable(t,'xTick');
@@ -28891,6 +28916,7 @@ Technical analysis record (advanced)
     }
 
     const yText = addAxisElement('text',{ x: absoluteYTextX, y: absoluteYTextY, transform: `rotate(-90 ${absoluteYTextX} ${absoluteYTextY})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+    yText.setAttribute('data-box-axis-title', 'y');
     yText.textContent = state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
     const applyBoxYLabel = value => {
@@ -29423,16 +29449,6 @@ Technical analysis record (advanced)
     const rightExtra = showSignificance && maxLevelEstimate >= 0
       ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * horizontalLevelStep + horizontalLabelClearance)
       : 0;
-    const requestedLeftReserve = axisLabels.length
-      ? Math.ceil(maxCategoryWidth + tickLen + tickGap + Math.max(4, xTickFontSize * 0.25))
-      : 0;
-    const maxLeftReserve = Math.max(120, Math.min(420, Math.round(baseCanvasWidth * 0.5)));
-    const leftLabelReservePx = axisLabels.length
-      ? Math.max(
-          Math.ceil(xTickFontSize * 1.2),
-          Math.min(maxLeftReserve, requestedLeftReserve)
-        )
-      : 0;
     const rightSignificanceReservePx = showSignificance && maxLevelEstimate >= 0 && Number.isFinite(rightExtra) && rightExtra > 0
       ? Math.ceil(rightExtra)
       : 0;
@@ -29445,8 +29461,19 @@ Technical analysis record (advanced)
     });
     const baseMarginLeft = Number.isFinite(Number(marginLocal.left)) ? Number(marginLocal.left) : 0;
     const baseMarginRight = Number.isFinite(Number(marginLocal.right)) ? Number(marginLocal.right) : 0;
+    const categoryMargin = resolveBoxHorizontalCategoryMargin({
+      baseMarginLeft,
+      baseCanvasWidth,
+      hasLabels: axisLabels.length > 0,
+      maxLabelWidth: maxCategoryWidth,
+      outerPadding: axisMetrics.outerPadding,
+      tickLength: tickLen,
+      tickLabelGap: tickGap,
+      tickFontSize: xTickFontSize
+    });
+    const leftLabelReservePx = categoryMargin.extensionPx;
     marginLocal.top = Math.max(marginLocal.top, fs * 2);
-    marginLocal.left = Math.max(baseMarginLeft, tickLen + tickGap + fs * 0.5) + leftLabelReservePx;
+    marginLocal.left = categoryMargin.marginLeft;
     marginLocal.right = Math.max(baseMarginRight, fs) + rightSignificanceReservePx;
     marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + xTickFontSize + axisMetrics.axisTitleGap + fs);
     marginLocal = stabilizeBoxMarginForAxisResize(marginLocal, { exactRightPx: marginLocal.right });
@@ -29678,8 +29705,7 @@ Technical analysis record (advanced)
       const y = separatedSpacing ? separatedSpacing.centers[i] : plotTopY + (i + 0.5) * bandH;
       addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const labelText = lab || `Category ${i + 1}`;
-      const yLabelOffset = tickLen + tickGap + Math.max(xTickFontSize * 0.4, 6);
-      const labelAnchorX = yAxisLeft - yLabelOffset;
+      const labelAnchorX = yAxisLeft - categoryMargin.labelOffset;
       const t = addAxisElement('text',{
         x: labelAnchorX,
         y,
@@ -29688,6 +29714,7 @@ Technical analysis record (advanced)
         'dominant-baseline': 'central',
         fill: chartStyle.TEXT_COLOR
       });
+      t.setAttribute('data-box-axis-tick', 'y');
       t.textContent = labelText;
       if(isGroupedMode){
         t.style.cursor = 'default';
@@ -29742,6 +29769,7 @@ Technical analysis record (advanced)
       addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
       const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
+      txt.setAttribute('data-box-axis-tick', 'x');
       txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
       xMajorTickLabels.push({ pixel: x, node: txt });
@@ -29815,6 +29843,7 @@ Technical analysis record (advanced)
               'text-anchor': 'middle',
               fill: chartStyle.TEXT_COLOR
             });
+            txt.setAttribute('data-box-axis-tick', 'x');
             txt.textContent = label;
             Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
           }
@@ -29889,7 +29918,12 @@ Technical analysis record (advanced)
     }
     renderSharedPlotFrame({ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, showFrame, sides: ['top', 'right'] });
     const defaultXLabelX = marginLocal.left + plotWLocal / 2;
-    const defaultXLabelY = xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + xTickFontSize * 0.8;
+    const defaultXLabelY = xAxisBottom
+      + tickLen
+      + tickGap
+      + xTickFontSize
+      + axisMetrics.axisTitleGap
+      + fs;
     const xLabelPos = state.labelPositions?.xLabel;
 
     // Convert relative positions to absolute if needed for xLabel
@@ -29908,6 +29942,7 @@ Technical analysis record (advanced)
     }
 
     const xLabel = addAxisElement('text',{ x: absoluteXLabelX, y: absoluteXLabelY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+    xLabel.setAttribute('data-box-axis-title', 'x');
     xLabel.textContent = state.yLabelText;
     const applyBoxXLabel = value => {
       const nextValue = value != null ? String(value) : '';
@@ -36700,7 +36735,6 @@ Technical analysis record (advanced)
             || phase === 'reset'
             || phase === 'undo'
             || phase === 'redo'
-            || phase === 'aspect-toggle'
           ){
             state.resizeInteractionActive = false;
             state.resizeObserveDrawMutedUntil = Date.now() + 180;
@@ -36713,8 +36747,7 @@ Technical analysis record (advanced)
             || currentPhase === 'reset'
             || currentPhase === 'undo'
             || currentPhase === 'redo'
-            || currentPhase === 'programmatic'
-            || currentPhase === 'aspect-toggle';
+            || currentPhase === 'programmatic';
           scheduleBoxViewRefresh('resize', {
             force: true,
             silentOverlay: true,
@@ -36847,8 +36880,7 @@ Technical analysis record (advanced)
         || phase === 'reset'
         || phase === 'undo'
         || phase === 'redo'
-        || phase === 'programmatic'
-        || phase === 'aspect-toggle';
+        || phase === 'programmatic';
       const mutedUntil = Number(state.resizeObserveDrawMutedUntil) || 0;
       if(source === 'observer' && (state.resizeInteractionActive || Date.now() <= mutedUntil)){
         boxDebug('Debug: box layout observer draw suppressed during active resize');

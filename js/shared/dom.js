@@ -295,6 +295,66 @@
     return next;
   }
 
+  function enforceLockedAxisViewport(svg, svgBox, viewBox, reason) {
+    const dataset = svgBox?.dataset || null;
+    const targetRatio = Number(dataset?.resizerLockedGeometryRatio);
+    if(dataset?.resizerAspectLocked !== 'true'
+      || !Number.isFinite(targetRatio) || targetRatio <= 0){
+      return normalizeViewBox(viewBox);
+    }
+    let axes = Shared.axisControls?.measureRenderedAxes?.(svg, {
+      includeUnregistered: true
+    }) || null;
+    const projected3d = axes?.xElement?.getAttribute?.('data-axis-line') === '1'
+      && axes?.yElement?.getAttribute?.('data-axis-line') === '1';
+    if(projected3d){
+      return normalizeViewBox(viewBox);
+    }
+    if(svg?.getAttribute?.('preserveAspectRatio') !== 'none'){
+      svg.setAttribute('preserveAspectRatio', 'none');
+      axes = Shared.axisControls?.measureRenderedAxes?.(svg, {
+        includeUnregistered: true
+      }) || null;
+    }
+    let next = normalizeViewBox(viewBox);
+    let measuredRatio = NaN;
+    if(!next){
+      return null;
+    }
+    for(let pass = 0; pass < 3; pass += 1){
+      const xLength = Number(axes?.x ?? axes?.width);
+      const yLength = Number(axes?.y ?? axes?.height);
+      if(!Number.isFinite(xLength) || xLength <= 0 || !Number.isFinite(yLength) || yLength <= 0){
+        break;
+      }
+      measuredRatio = xLength / yLength;
+      const relativeError = measuredRatio / targetRatio;
+      if(!Number.isFinite(relativeError) || relativeError <= 0 || Math.abs(relativeError - 1) <= 1e-6){
+        break;
+      }
+      if(relativeError > 1){
+        const width = next.viewW * relativeError;
+        next.minX -= (width - next.viewW) / 2;
+        next.viewW = width;
+      }else{
+        const height = next.viewH / relativeError;
+        next.minY -= (height - next.viewH) / 2;
+        next.viewH = height;
+      }
+      svg.setAttribute('viewBox', `${next.minX} ${next.minY} ${next.viewW} ${next.viewH}`);
+      axes = Shared.axisControls?.measureRenderedAxes?.(svg, {
+        includeUnregistered: true
+      }) || null;
+    }
+    logDebug('graphViewport locked axis ratio enforced', {
+      reason: reason || null,
+      targetRatio,
+      measuredRatio,
+      viewBox: next
+    });
+    return next;
+  }
+
   const isOrthogonalViewportLockActive = (dataset, axis) => {
     if(!dataset || (axis !== 'x' && axis !== 'y')){
       return false;
@@ -2485,6 +2545,18 @@
     const raf = typeof global.requestAnimationFrame === 'function'
       ? global.requestAnimationFrame.bind(global)
       : (cb) => global.setTimeout(cb, 16);
+    const resizeBox = svg.closest?.('.svgbox') || null;
+    const resizeDataset = resizeBox?.dataset || null;
+    const resizeContext = {
+      aspectLocked: resizeDataset ? resizeDataset.resizerAspectLocked === 'true' : false,
+      lockedResizeAxis: resizeDataset && (resizeDataset.resizerAxisViewportLockAxis === 'x' || resizeDataset.resizerAxisViewportLockAxis === 'y')
+        ? resizeDataset.resizerAxisViewportLockAxis
+        : null,
+      resizeAxis: resizeDataset && (resizeDataset.resizerLastAxis === 'x' || resizeDataset.resizerLastAxis === 'y')
+        ? resizeDataset.resizerLastAxis
+        : null,
+      axisViewportLockUntil: resizeDataset?.resizerAxisViewportLockUntil || null
+    };
 
     const applyResize = () => {
       try {
@@ -2538,20 +2610,20 @@
         }
         let viewW = Math.max(1, maxX - minX);
         let viewH = Math.max(1, maxY - minY);
-        const box = svg.closest?.('.svgbox');
+        const box = resizeBox;
         const dataset = box?.dataset || null;
-        const aspectLocked = dataset ? dataset.resizerAspectLocked === 'true' : false;
-        const lockedResizeAxis = dataset && (dataset.resizerAxisViewportLockAxis === 'x' || dataset.resizerAxisViewportLockAxis === 'y')
-          ? dataset.resizerAxisViewportLockAxis
-          : null;
-        const resizeAxis = dataset && (dataset.resizerLastAxis === 'x' || dataset.resizerLastAxis === 'y')
-          ? dataset.resizerLastAxis
-          : (lockedResizeAxis || 'both');
+        const aspectLocked = resizeContext.aspectLocked;
+        const lockedResizeAxis = resizeContext.lockedResizeAxis;
+        const resizeAxis = resizeContext.resizeAxis || lockedResizeAxis || 'both';
+        const axisLockSnapshot = lockedResizeAxis ? {
+          resizerAxisViewportLockAxis: lockedResizeAxis,
+          resizerAxisViewportLockUntil: resizeContext.axisViewportLockUntil
+        } : null;
         const stableViewBox = readStableViewBox(box);
         const stableRenderedSize = readStableRenderedSize(box);
         const lockActive = !ignoreAxisViewportLock
           && !aspectLocked
-          && isOrthogonalViewportLockActive(dataset, resizeAxis);
+          && isOrthogonalViewportLockActive(axisLockSnapshot, resizeAxis);
         const frozenAxes = { x: false, y: false };
         const orthogonalExpansion = { x: false, y: false };
         const frozenRenderedSize = { width: false, height: false };
@@ -2639,6 +2711,15 @@
           ? preserveAspectRatio
           : (shouldPreserveBaseAspect ? 'xMidYMid meet' : 'none');
         svg.setAttribute('preserveAspectRatio', preserve);
+        const lockedViewBox = enforceLockedAxisViewport(svg, box, {
+          minX,
+          minY,
+          viewW,
+          viewH
+        }, debugLabel);
+        if(lockedViewBox){
+          ({ minX, minY, viewW, viewH } = lockedViewBox);
+        }
         if(dataset){
           const keepResizeAnchorBaseline = lockActive
             && resizeAxis === 'x'
@@ -2830,6 +2911,7 @@
   Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
   Shared.graphViewport.captureStableAxes = captureGraphViewportStableAxes;
   Shared.graphViewport.applyLiveResizeLock = applyLiveResizeViewportLock;
+  Shared.graphViewport.enforceLockedAxisRatio = enforceLockedAxisViewport;
   Shared.serializeCleanSVG = serializeCleanSVG;
   Shared.DEFAULT_EMPTY_PLOT_NOTICE = DEFAULT_EMPTY_PLOT_NOTICE;
   Shared.getEmptyPlotNoticeMessage = getEmptyPlotNoticeMessage;

@@ -1071,20 +1071,14 @@
         return;
       }
       const lockLabel = lockRatioCheckbox.closest('label');
-      if(!lockRatioCheckbox.checked){
-        lockRatioCheckbox.checked = true;
-        lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      const svgBox = state.svgBox || lockRatioCheckbox.closest('.svgbox');
+      svgBox?.__sharedResizableBoxApi?.setAspectLocked?.(true, { reason: 'surface-forced-lock-ratio' });
       lockRatioCheckbox.disabled = true;
       if(lockLabel){
         if(!lockLabel.__surfaceOriginalTitle){
           lockLabel.__surfaceOriginalTitle = lockLabel.title || '';
         }
         lockLabel.title = 'Locked for 3D surface plots';
-      }
-      const svgBox = state.svgBox || lockRatioCheckbox.closest('.svgbox');
-      if(svgBox?.dataset){
-        svgBox.dataset.resizerAspectLocked = 'true';
       }
       debugLog('Debug: surface aspect controls synced', {
         checked: !!lockRatioCheckbox.checked,
@@ -5078,14 +5072,6 @@
     if(restoredSvg){
       syncSurfaceGeometryPoolsFromDom('render-cache-restore');
       bindSurface3dRotationControls(state.svg, 'surface-restore');
-      const restoredFrame = resolveSurface3dFrame(resolveSurfaceDrawableFrame(state.svg));
-      state.svg?.setAttribute?.('data-surface-base-width', String(restoredFrame.width));
-      state.svg?.setAttribute?.('data-surface-base-height', String(restoredFrame.height));
-      ensureSurfaceGraphViewport(state.svg, {
-        padding: Math.max(Number(state.settings?.fontSize) || 12, 18),
-        debugLabel: 'surface-3d-graph-restore',
-        baseViewport: { width: restoredFrame.width, height: restoredFrame.height }
-      });
     }
     const restored = restoredSvg || restoredStats || restoredMessage;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){

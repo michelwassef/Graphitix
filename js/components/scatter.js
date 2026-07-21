@@ -5400,14 +5400,12 @@
       const lockRatioCheckbox = getScatterLockRatioCheckbox();
       if(lockRatioCheckbox){
         const lockLabel = lockRatioCheckbox.closest('label');
+        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
         if(enforceLockRatio){
           if(getScatterForcedLockRatioPrevious() === null){
             setScatterForcedLockRatioPrevious(!!lockRatioCheckbox.checked, 'scatter-force-lock-ratio-before');
           }
-          if(!lockRatioCheckbox.checked){
-            lockRatioCheckbox.checked = true;
-            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-          }
+          resizerApi?.setAspectLocked?.(true, { reason: 'scatter-forced-lock-ratio' });
           lockRatioCheckbox.disabled = true;
           if(lockLabel){
             if(!lockLabel.__scatterOriginalTitle){
@@ -5424,10 +5422,7 @@
           const restoreValue = getScatterForcedLockRatioPrevious();
           if(restoreValue !== null){
             setScatterForcedLockRatioPrevious(null, 'scatter-force-lock-ratio-restore');
-            if(lockRatioCheckbox.checked !== restoreValue){
-              lockRatioCheckbox.checked = restoreValue;
-              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            resizerApi?.setAspectLocked?.(restoreValue, { reason: 'scatter-restore-lock-ratio' });
           }
         }
       }
@@ -26296,8 +26291,7 @@ async function drawScatter(drawOptions = {}){
               || resizePhase === 'reset'
               || resizePhase === 'undo'
               || resizePhase === 'redo'
-              || resizePhase === 'programmatic'
-              || resizePhase === 'aspect-toggle';
+              || resizePhase === 'programmatic';
             scheduleScatterViewRefresh('resize', {
               force: resizePhase !== 'observe',
               skipThresholdEvaluation: true,

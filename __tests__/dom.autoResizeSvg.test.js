@@ -65,6 +65,35 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
   });
 
+  test('enforces a locked rendered-axis ratio in the canonical viewport pass', () => {
+    const { box, svg } = createSvg({ locked: true });
+    box.dataset.resizerLockedGeometryRatio = '1.5';
+    const measuredTargets = [];
+    window.Shared.axisControls = {
+      measureRenderedAxes: target => {
+        measuredTargets.push(target);
+        const [, , viewWidth, viewHeight] = readViewBox(svg);
+        return {
+          x: 200 * 600 / viewWidth,
+          y: 200 * 300 / viewHeight
+        };
+      }
+    };
+
+    window.Shared.autoResizeSvg(svg, { padding: 0, remeasure: false });
+
+    const [minX, minY, width, height] = readViewBox(svg);
+    expect(minX).toBeCloseTo(-50, 5);
+    expect(minY).toBeCloseTo(0, 5);
+    expect(width).toBeCloseTo(400, 5);
+    expect(height).toBeCloseTo(300, 5);
+    expect(Number(box.dataset.graphViewportStableWidth)).toBeCloseTo(400, 5);
+    expect(measuredTargets.length).toBeGreaterThan(0);
+    expect(measuredTargets.every(target => target === svg)).toBe(true);
+    const finalAxes = window.Shared.axisControls.measureRenderedAxes(svg);
+    expect(finalAxes.x / finalAxes.y).toBeCloseTo(1.5, 5);
+  });
+
   test('keeps the content-fitted viewBox when aspect is unlocked', () => {
     const { svg } = createSvg({ locked: false });
 
@@ -177,6 +206,39 @@ describe('Shared.autoResizeSvg aspect-lock viewport', () => {
     const [, , width, height] = readViewBox(svg);
     expect(width).toBeCloseTo(600, 5);
     expect(height).toBeCloseTo(300, 5);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
+  });
+
+  test('queued remeasurement keeps the lock context of its originating resize', () => {
+    const callbacks = [];
+    window.requestAnimationFrame = callback => {
+      callbacks.push(callback);
+      return callbacks.length;
+    };
+    const { box, svg } = createSvg({ locked: false });
+    box.dataset.resizerLastAxis = 'y';
+    box.dataset.resizerAxisViewportLockAxis = 'y';
+    box.dataset.resizerAxisViewportLockUntil = String(Date.now() + 10_000);
+    box.dataset.graphViewportStableMinX = '0';
+    box.dataset.graphViewportStableMinY = '0';
+    box.dataset.graphViewportStableWidth = '500';
+    box.dataset.graphViewportStableHeight = '300';
+    svg.getBBox = () => ({ x: 0, y: 0, width: 400, height: 250 });
+
+    window.Shared.autoResizeSvg(svg, {
+      padding: 0,
+      baseViewport: { width: 600, height: 300 }
+    });
+
+    expect(readViewBox(svg)).toEqual([0, 0, 500, 300]);
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
+
+    box.dataset.resizerAspectLocked = 'true';
+    delete box.dataset.resizerAxisViewportLockAxis;
+    delete box.dataset.resizerAxisViewportLockUntil;
+    callbacks.shift()();
+
+    expect(readViewBox(svg)).toEqual([0, 0, 500, 300]);
     expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
   });
 });

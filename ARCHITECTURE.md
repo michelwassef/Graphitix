@@ -31,6 +31,8 @@ The exact script order is in `index.html` near the bottom (`<script src=...>` ta
   - Cross-cutting primitives and adapters.
   - Source of truth for reusable services: grid wiring, file IO, import/export, styling, stats, resizers, analysis integrations.
   - Title visibility is stored with tab-scoped font styles; the shared resizer menu projects graph-title and relevant axis-title toggles.
+  - Lock ratio stores tab-owned rendered geometry. Axis charts enforce it once while finalizing their current SVG viewport; the resizer never performs delayed box corrections. Measurement is bound to the SVG being committed, including staged renderers. Non-axis renderers may provide an explicit content measurement, as Heatmap Data values does for its matrix.
+  - Ratio locking is a tab-owned resize constraint: toggling and handle clicks without movement are geometry-neutral, Cartesian targets use rendered axis lengths, and component resize callbacks are the sole draw-request owner.
   - Primarily implemented under `js/shared/`.
 
 - `window.Components`

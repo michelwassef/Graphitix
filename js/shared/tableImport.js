@@ -456,71 +456,84 @@
       .trim();
   }
 
-  function chooseClipboardTextByType(entries){
-    const list = Array.isArray(entries) ? entries.filter(entry => entry && entry.text) : [];
-    if(!list.length){
-      return '';
-    }
-    const plain = list.find(entry => /^(text\/plain|text|text\/unicode)$/i.test(entry.type || ''));
-    if(plain && !looksLikeHtmlClipboard(plain.text)){
-      return plain.text;
-    }
-    const html = list.find(entry => /^text\/html$/i.test(entry.type || '') || looksLikeHtmlClipboard(entry.text));
-    if(html){
-      return htmlClipboardToTsv(html.text);
-    }
-    return plain?.text || list[0].text || '';
+  function isHtmlTableClipboard(text){
+    return /<table\b/i.test(String(text || ''));
   }
 
-  async function getClipboardTextFromEvent(event){
+  function chooseClipboardPayloadByType(entries){
+    const list = Array.isArray(entries) ? entries.filter(entry => entry && entry.text) : [];
+    if(!list.length){
+      return null;
+    }
+    const plain = list.find(entry => /^(text\/plain|text|text\/unicode)$/i.test(entry.type || ''));
+    const html = list.find(entry => /^text\/html$/i.test(entry.type || '') || looksLikeHtmlClipboard(entry.text));
+    if(html && isHtmlTableClipboard(html.text)){
+      return {
+        text: htmlClipboardToTsv(html.text),
+        delimiter: '\t',
+        source: 'html-table'
+      };
+    }
+    if(plain && !looksLikeHtmlClipboard(plain.text)){
+      return { text: plain.text, delimiter: null, source: 'plain-text' };
+    }
+    if(html){
+      return { text: htmlClipboardToTsv(html.text), delimiter: null, source: 'html' };
+    }
+    const fallback = list[0];
+    return { text: fallback.text, delimiter: null, source: fallback.type || 'unknown' };
+  }
+
+  async function getClipboardPayloadFromEvent(event){
     if(!event){
-      return '';
+      return null;
     }
     try{
       const cd = event.clipboardData || event.originalEvent?.clipboardData || null;
       tableImportDebug('Debug: tableImport.getClipboardTextFromEvent entry', { hasEvent: !!event, hasClipboardData: !!cd });
       if(cd){
-        // Prefer DataTransferItemList handling (works well in Firefox/Chrome)
+        // Clipboard formats are only guaranteed while the paste event is active.
+        // Snapshot getData values and start every item read before the first await.
+        const tryTypes = ['text/plain','text','Text','text/unicode','text/html'];
+        const dataEntries = [];
+        for(const type of tryTypes){
+          try{
+            const text = cd.getData(type);
+            if(text){
+              tableImportDebug('Debug: tableImport.getClipboardTextFromEvent getData', { type, length: text.length, snippet: text.slice(0,200) });
+              dataEntries.push({ type, text });
+            }
+          }catch(e){/* ignore */}
+        }
+        const itemReads = [];
         if(cd.items && cd.items.length){
           tableImportDebug('Debug: tableImport.getClipboardTextFromEvent using DataTransferItemList', { items: cd.items.length });
-          const itemEntries = [];
           for(let i = 0; i < cd.items.length; i++){
             const item = cd.items[i];
             try{
               if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
-                const text = await new Promise(resolve => {
-                  item.getAsString(resolve);
-                });
                 const type = item.type || '';
-                tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, type, length: (text || '').length, snippet: (text||'').slice(0,200) });
-                if(text) itemEntries.push({ type, text });
+                itemReads.push(new Promise(resolve => {
+                  item.getAsString(text => {
+                    tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, type, length: (text || '').length, snippet: (text||'').slice(0,200) });
+                    resolve(text ? { type, text } : null);
+                  });
+                }));
               }
               if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
                 const file = item.getAsFile();
                 if(file){
                   tableImportDebug('Debug: tableImport.getClipboardTextFromEvent item.file', { index: i, name: file.name, size: file.size });
-                  const txt = await readFileAsText(file);
-                  if(txt) itemEntries.push({ type: file.type || 'file', text: txt });
+                  itemReads.push(readFileAsText(file).then(text => text ? { type: file.type || 'file', text } : null));
                 }
               }
             }catch(e){/* ignore individual item errors */}
           }
-          const chosen = chooseClipboardTextByType(itemEntries);
-          if(chosen) return chosen;
         }
-        // Then try getData for common types, preferring plain text then HTML
-        const tryTypes = ['text/plain','text','Text','text/unicode','text/html'];
-        const dataEntries = [];
-        for(const t of tryTypes){
-          try{
-            const v = cd.getData(t);
-            if(v){
-              tableImportDebug('Debug: tableImport.getClipboardTextFromEvent getData', { type: t, length: (v || '').length, snippet: (v||'').slice(0,200) });
-              dataEntries.push({ type: t, text: v });
-            }
-          }catch(e){/* ignore */}
-        }
-        const chosen = chooseClipboardTextByType(dataEntries);
+        const itemEntries = itemReads.length
+          ? (await Promise.all(itemReads.map(read => read.catch(() => null)))).filter(Boolean)
+          : [];
+        const chosen = chooseClipboardPayloadByType(itemEntries.concat(dataEntries));
         if(chosen) return chosen;
       }
     }catch(e){/* ignore */}
@@ -529,7 +542,7 @@
       if(global.window && typeof global.window.clipboardData === 'object' && typeof global.window.clipboardData.getData === 'function'){
         const v = global.window.clipboardData.getData('Text');
         tableImportDebug('Debug: tableImport.getClipboardTextFromEvent window.clipboardData', { length: (v || '').length });
-        if(v) return v;
+        if(v) return { text: v, delimiter: null, source: 'plain-text' };
       }
     }catch(e){/* ignore */}
     // Clipboard API: try read() to obtain ClipboardItems, then readText()
@@ -539,6 +552,7 @@
         if(typeof nav.read === 'function'){
           const items = await nav.read();
           tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.read', { items: (items || []).length });
+          const itemEntries = [];
           for(const clipboardItem of items){
             for(const type of clipboardItem.types || []){
               try{
@@ -546,23 +560,32 @@
                   const blob = await clipboardItem.getType(type);
                   const s = await blob.text();
                   tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.read.type', { type, length: (s || '').length, snippet: (s||'').slice(0,200) });
-                  if(s) return s;
+                  if(s) itemEntries.push({ type, text: s });
                 }
               }catch(e){/* ignore per-type errors */}
             }
           }
+          const chosen = chooseClipboardPayloadByType(itemEntries);
+          if(chosen) return chosen;
         }
         if(typeof nav.readText === 'function'){
           const v = await nav.readText();
           tableImportDebug('Debug: tableImport.getClipboardTextFromEvent navigator.readText', { length: (v || '').length, snippet: (v||'').slice(0,200) });
-          if(v) return v;
+          if(v) return { text: v, delimiter: null, source: 'plain-text' };
         }
       }
     }catch(e){/* ignore */}
-    return '';
+    return null;
   }
 
-  // expose helper so other modules (e.g., Shared.hot) can reuse robust clipboard logic
+  async function getClipboardTextFromEvent(event){
+    const payload = await getClipboardPayloadFromEvent(event);
+    return payload?.text || '';
+  }
+
+  // Keep the text-only helper for existing consumers; paste paths use the
+  // structured payload so a one-column spreadsheet cannot be mistaken for CSV.
+  tableImport.getClipboardPayloadFromEvent = getClipboardPayloadFromEvent;
   tableImport.getClipboardTextFromEvent = getClipboardTextFromEvent;
 
   function readFileAsText(file){
@@ -2730,12 +2753,13 @@
       clearedHighlight = true;
     };
     try{
-      let text = await getClipboardTextFromEvent(event);
+      const clipboardPayload = await getClipboardPayloadFromEvent(event);
+      const text = clipboardPayload?.text || '';
       if(!text){
         debugLog('handlePaste.noText', {}, debugLabel);
         return null;
       }
-      const delimiter = detectDelimiter(text, options.delimiter);
+      const delimiter = clipboardPayload?.delimiter || detectDelimiter(text, options.delimiter);
       debugLog('handlePaste.delimiter', { delimiter }, debugLabel);
       const rows = normalizeDecimalSeparators(parseDelimitedText(text, delimiter), delimiter, { debugLabel });
       const filtered = filterRows(rows);

@@ -2742,16 +2742,12 @@
       const lockRatioCheckbox = getPcaLockRatioCheckbox();
       if (lockRatioCheckbox) {
         const lockLabel = lockRatioCheckbox.closest('label');
+        const resizerApi = lockRatioCheckbox.closest('.svgbox')?.__sharedResizableBoxApi;
         if (enforceLockRatio) {
           if (getPcaForcedLockRatioPrevious() === null) {
             setPcaForcedLockRatioPrevious(!!lockRatioCheckbox.checked);
           }
-          if (!lockRatioCheckbox.checked) {
-            lockRatioCheckbox.checked = true;
-            lockRatioCheckbox.dispatchEvent(new Event('change', {
-              bubbles: true
-            }));
-          }
+          resizerApi?.setAspectLocked?.(true, { reason: 'pca-forced-lock-ratio' });
           lockRatioCheckbox.disabled = true;
           if (lockLabel) {
             if (!lockLabel.__pcaOriginalTitle) {
@@ -2768,12 +2764,7 @@
           const restoreValue = getPcaForcedLockRatioPrevious();
           if (restoreValue !== null) {
             setPcaForcedLockRatioPrevious(null);
-            if (lockRatioCheckbox.checked !== restoreValue) {
-              lockRatioCheckbox.checked = restoreValue;
-              lockRatioCheckbox.dispatchEvent(new Event('change', {
-                bubbles: true
-              }));
-            }
+            resizerApi?.setAspectLocked?.(restoreValue, { reason: 'pca-restore-lock-ratio' });
           }
         }
       }

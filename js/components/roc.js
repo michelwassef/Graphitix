@@ -4085,24 +4085,7 @@
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
     }
     console.debug('Debug: roc tick targets',{tickCount, tickSteps: Math.max(tickCount - 1, 1), xTickCount: xTicks.length, yTickCount: yTicks.length}); // Debug: ROC tick density summary
-    const aspectData = drawRefs.svgBox?.dataset;
-    const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
-    console.debug('Debug: roc aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: roc aspect toggle decision
-    if(shouldLockAspect){
-      const square = chartStyle.ensureSquarePlot(width, height, margin);
-      margin = square.margin;
-      plotWidth = square.plotW;
-      plotHeight = square.plotH;
-      if(aspectData){
-        const derivedRatio = plotHeight > 0 ? plotWidth / plotHeight : NaN;
-        if(Number.isFinite(derivedRatio)){
-          aspectData.resizerAspectRatio = String(derivedRatio);
-        }
-      }
-      console.debug('Debug: roc layout (locked)',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate}); // Debug: roc square enforcement branch
-    }else{
-      console.debug('Debug: roc layout (unlocked)',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate}); // Debug: roc free resize branch
-    }
+    console.debug('Debug: roc layout',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate});
 
     const xToPx = value => margin.left + plotWidth * value;
     const yToPx = value => margin.top + plotHeight * (1 - value);
