@@ -131,36 +131,32 @@ describe('sessionActions save lazy archive build', () => {
     }));
   });
 
-  test('recovery snapshot policy captures render cache only when idle unless explicitly overridden', async () => {
+  test('recovery snapshot policy captures render cache only when opted in and idle', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
     const persistSpy = context.session.persistActiveTabState;
 
-    await sessionActions.buildWorkspaceArchiveBlob(context, {
+    const idle = await sessionActions.createDocumentCheckpoint(context, {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'recovery',
+      highFidelityEnabled: true,
       idleForMs: 5000,
       reason: 'recovery-interval'
     });
-    const idleCall = persistSpy.mock.calls.at(-1) || [];
-    expect(idleCall[1]).toEqual(expect.objectContaining({
-      captureRenderCache: true
-    }));
+    expect(idle.policy.captureRenderCache).toBe(true);
 
-    await sessionActions.buildWorkspaceArchiveBlob(context, {
+    const active = await sessionActions.createDocumentCheckpoint(context, {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'recovery',
+      highFidelityEnabled: true,
       idleForMs: 10,
       reason: 'recovery-interval'
     });
-    const activeCall = persistSpy.mock.calls.at(-1) || [];
-    expect(activeCall[1]).toEqual(expect.objectContaining({
-      captureRenderCache: false
-    }));
+    expect(active.policy.captureRenderCache).toBe(false);
 
-    await sessionActions.buildWorkspaceArchiveBlob(context, {
+    const disabled = await sessionActions.createDocumentCheckpoint(context, {
       scope: 'workspace',
       policyMode: 'recovery',
       snapshotKind: 'recovery',
@@ -168,14 +164,12 @@ describe('sessionActions save lazy archive build', () => {
       captureRenderCacheBeforeSnapshot: false,
       reason: 'recovery-interval'
     });
-    const disabledCall = persistSpy.mock.calls.at(-1) || [];
-    expect(disabledCall[1]).toEqual(expect.objectContaining({
-      captureRenderCache: false
-    }));
+    expect(disabled.policy.captureRenderCache).toBe(false);
+    expect(persistSpy).toHaveBeenCalledTimes(1);
   });
 
 
-  test('manual save and recovery checkpoints freeze the same canonical document state', async () => {
+  test('manual save establishes canonical state that lean recovery reuses unchanged', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
     const activeTab = context.workspaceState.tabs[0];
@@ -220,11 +214,6 @@ describe('sessionActions save lazy archive build', () => {
     });
     const manualPersistOptions = context.session.persistActiveTabState.mock.calls.at(-1)[1];
 
-    activeTab.payload = { type: 'scatter', data: [] };
-    activeTab.layoutState = null;
-    activeTab.payloadSignature = null;
-    activeTab.layoutSignature = null;
-
     const recovery = await sessionActions.createDocumentCheckpoint(context, {
       scope: 'workspace',
       snapshotKind: 'recovery',
@@ -232,8 +221,6 @@ describe('sessionActions save lazy archive build', () => {
       captureRenderCacheBeforeSnapshot: false,
       reason: 'recovery-interval'
     });
-    const recoveryPersistOptions = context.session.persistActiveTabState.mock.calls.at(-1)[1];
-
     expect(recovery.snapshot).toStrictEqual(manual.snapshot);
     expect(recovery.snapshot.tabs[0]).toEqual(expect.objectContaining({
       payload: livePayload,
@@ -241,7 +228,9 @@ describe('sessionActions save lazy archive build', () => {
       uiState: liveUiState,
       archiveRenderCache: null
     }));
-    expect(recoveryPersistOptions.snapshotIntent).toStrictEqual(manualPersistOptions.snapshotIntent);
+    expect(context.session.persistActiveTabState).toHaveBeenCalledTimes(1);
+    expect(manualPersistOptions.snapshotIntent.captureLivePayload).toBe(true);
+    expect(recovery.policy.snapshotIntent.captureLivePayload).toBe(false);
   });
 
   test('serializes the active cache captured by the shared session checkpoint owner', async () => {
@@ -457,10 +446,7 @@ describe('sessionActions save lazy archive build', () => {
       reason: 'recovery-interval'
     });
 
-    expect(context.session.persistActiveTabState).toHaveBeenCalledWith(
-      activeTab,
-      expect.objectContaining({ captureRenderCache: false })
-    );
+    expect(context.session.persistActiveTabState).not.toHaveBeenCalled();
     expect(context.session.serializeRenderCacheForArchive).not.toHaveBeenCalled();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCache).toBeNull();
     expect(archiveRequest?.tabs?.[0]?.archiveRenderCacheSignature).toBeNull();

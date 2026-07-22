@@ -157,6 +157,16 @@
     if(activeJobs.has(id)){
       return makePublicJob(activeJobs.get(id));
     }
+    if(options.replaceForOwner === true){
+      const component = normalizeText(options.component, '');
+      const tabId = resolveTabId(options);
+      const kind = normalizeText(options.kind, 'task');
+      Array.from(activeJobs.values()).forEach(record => {
+        if(record.component === component && record.tabId === tabId && record.kind === kind){
+          jobs.cancel(record.id, 'owner-job-replaced');
+        }
+      });
+    }
     const controller = typeof global.AbortController === 'function'
       ? new global.AbortController()
       : null;
@@ -413,6 +423,55 @@
         lastYield = now();
         jobs.throwIfCancelled(effectiveSignal || jobOrSignal || {});
         return true;
+      }
+    };
+  };
+
+  jobs.createExecutionContext = function createExecutionContext(options = {}){
+    const component = String(options.component || '').trim();
+    const tabId = String(options.tabId || '').trim();
+    const kind = String(options.kind || 'graph').trim() || 'graph';
+    if(!component || !tabId){
+      return null;
+    }
+    const job = jobs.getActiveFor({ component, tabId, kind });
+    const signal = job?.signal || null;
+    const yieldController = jobs.createYieldController({
+      signal,
+      budgetMs: options.budgetMs
+    });
+    return {
+      component,
+      tabId,
+      kind,
+      job,
+      signal,
+      isCurrent(){
+        if(signal?.aborted){
+          return false;
+        }
+        if(!job){
+          return true;
+        }
+        return jobs.getActiveFor({ component, tabId, kind })?.id === job.id;
+      },
+      async checkpoint(){
+        const yielded = await yieldController.checkpoint(signal || job || {});
+        if(job && jobs.getActiveFor({ component, tabId, kind })?.id !== job.id){
+          throw new Error('Task cancelled');
+        }
+        return yielded;
+      },
+      throwIfCancelled(){
+        return jobs.throwIfCancelled(signal || job || {});
+      },
+      workerOptions(taskName){
+        const name = String(taskName || 'task').trim() || 'task';
+        return {
+          name: `${component}:${tabId}:${name}`,
+          signal,
+          cancelStrategy: 'terminate'
+        };
       }
     };
   };

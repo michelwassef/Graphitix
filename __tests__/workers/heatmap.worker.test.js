@@ -26,6 +26,50 @@ function send(ctx, id, action, payload) {
   });
 }
 
+function pearsonDistance(first, second) {
+  const pairs = first.map((value, index) => [value, second[index]])
+    .filter(([left, right]) => Number.isFinite(left) && Number.isFinite(right));
+  if (pairs.length < 2) return 1;
+  const meanLeft = pairs.reduce((sum, pair) => sum + pair[0], 0) / pairs.length;
+  const meanRight = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
+  let numerator = 0;
+  let leftSquares = 0;
+  let rightSquares = 0;
+  pairs.forEach(([left, right]) => {
+    const centeredLeft = left - meanLeft;
+    const centeredRight = right - meanRight;
+    numerator += centeredLeft * centeredRight;
+    leftSquares += centeredLeft * centeredLeft;
+    rightSquares += centeredRight * centeredRight;
+  });
+  const denominator = Math.sqrt(leftSquares * rightSquares);
+  return denominator ? 1 - (numerator / denominator) : 1;
+}
+
+function referenceAverageMergeDistances(items) {
+  const clusters = items.map((_, index) => [index]);
+  const distances = [];
+  while (clusters.length > 1) {
+    let best = { first: 0, second: 1, distance: Infinity };
+    for (let first = 0; first < clusters.length; first += 1) {
+      for (let second = first + 1; second < clusters.length; second += 1) {
+        let sum = 0;
+        let count = 0;
+        clusters[first].forEach(left => clusters[second].forEach(right => {
+          sum += pearsonDistance(items[left].vector, items[right].vector);
+          count += 1;
+        }));
+        const distance = sum / count;
+        if (distance < best.distance) best = { first, second, distance };
+      }
+    }
+    distances.push(best.distance);
+    clusters[best.first] = clusters[best.first].concat(clusters[best.second]);
+    clusters.splice(best.second, 1);
+  }
+  return distances.sort((left, right) => left - right);
+}
+
 describe('heatmap.worker — hierarchicalCluster', () => {
   let ctx;
 
@@ -179,5 +223,44 @@ describe('heatmap.worker — hierarchicalCluster', () => {
     });
     expect(msg.ok).toBe(true);
     expect(msg.result.order).toHaveLength(2);
+  });
+
+  test('large two-value Pearson clustering remains exact without the quadratic heap', async () => {
+    const items = Array.from({ length: 7358 }, (_, index) => ({
+      index,
+      vector: index % 3 === 0 ? [1, 2] : (index % 3 === 1 ? [2, 1] : [1, 1])
+    }));
+    const msg = await send(ctx, '13', 'hierarchicalCluster', {
+      items,
+      metric: 'pearson',
+      linkage: 'average'
+    });
+    expect(msg.ok).toBe(true);
+    expect(msg.result.algorithm).toBe('two-point-correlation');
+    expect(msg.result.order).toHaveLength(items.length);
+    expect(new Set(msg.result.order).size).toBe(items.length);
+    expect(msg.result.steps).toHaveLength(items.length - 1);
+    expect(msg.result.maxDistance).toBeCloseTo(7358 / 4905, 5);
+  });
+
+  test('average-correlation vector path matches exact average linkage', async () => {
+    const items = [
+      { index: 0, vector: [1, 2, 4] },
+      { index: 1, vector: [2, 4, 8] },
+      { index: 2, vector: [4, 3, 1] },
+      { index: 3, vector: [3, 7, 2] },
+      { index: 4, vector: [1, NaN, NaN] }
+    ];
+    const msg = await send(ctx, '14', 'hierarchicalCluster', {
+      items,
+      metric: 'pearson',
+      linkage: 'average'
+    });
+    expect(msg.ok).toBe(true);
+    expect(msg.result.algorithm).toBe('average-correlation-vector');
+    const expected = referenceAverageMergeDistances(items);
+    const actual = msg.result.steps.map(step => step.distance).sort((left, right) => left - right);
+    expect(actual).toHaveLength(expected.length);
+    actual.forEach((distance, index) => expect(distance).toBeCloseTo(expected[index], 10));
   });
 });

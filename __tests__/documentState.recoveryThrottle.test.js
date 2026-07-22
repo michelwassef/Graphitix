@@ -142,9 +142,48 @@ describe('documentState recovery snapshot throttling', () => {
       expect.objectContaining({
         policyMode: 'recovery',
         snapshotKind: 'recovery',
+        highFidelityEnabled: false,
         idleForMs: expect.any(Number)
       })
     );
+  });
+
+  test('desktop recovery writes binary data and exposes phase metrics', async () => {
+    installDocumentState();
+
+    const result = await window.Main.documentState.writeRecoverySnapshot('recovery-interval');
+
+    expect(result.status).toBe('saved');
+    expect(window.desktop.writeRecoverySnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      dataBuffer: expect.any(ArrayBuffer)
+    }));
+    expect(window.desktop.writeRecoverySnapshot.mock.calls[0][0].dataBase64).toBeUndefined();
+    expect(window.Main.documentState.getRecoveryPerformance()).toEqual(expect.objectContaining({
+      storage: expect.any(Number),
+      total: expect.any(Number),
+      bytes: 3,
+      revision: 1,
+      via: 'desktop'
+    }));
+  });
+
+  test('rejects a checkpoint when the workspace revision changes during serialization', async () => {
+    const installed = installDocumentState();
+    installed.sessionActions.buildWorkspaceArchiveBlob.mockImplementation(async () => {
+      installed.workspaceState.sessionRevision = 2;
+      return {
+        size: 3,
+        arrayBuffer: jest.fn().mockResolvedValue(Uint8Array.from([1, 2, 3]).buffer)
+      };
+    });
+
+    await expect(window.Main.documentState.writeRecoverySnapshot('recovery-interval')).resolves.toEqual({
+      status: 'skipped',
+      reason: 'stale-revision',
+      revision: 1,
+      currentRevision: 2
+    });
+    expect(window.desktop.writeRecoverySnapshot).not.toHaveBeenCalled();
   });
 
   test('recovery restore blocks checkpoint creation until the shared restore transaction completes', async () => {

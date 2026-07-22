@@ -868,7 +868,11 @@
       const safeSegment = sanitizeSegment(tabTitle, `${DEFAULT_TAB_TITLE}-${index + 1}`);
       const uniqueSegment = makeUniqueFolderName(safeSegment, seenFolders);
       const folderPath = `tabs/${uniqueSegment}`;
-      const payload = optimizePayloadForArchive(tab?.payload || null);
+      const runtimeTabId = typeof tab?.runtimeTabId === 'string'
+        ? tab.runtimeTabId
+        : (typeof tab?.id === 'string' ? tab.id : null);
+      const rehomeForRuntimeTab = value => runtimeTabId ? cloneAndRehomeTabScopedArchiveState(value, runtimeTabId) : value;
+      const payload = optimizePayloadForArchive(rehomeForRuntimeTab(tab?.payload || null));
       const rawPayload = isPlainObject(payload) ? payload : null;
       const layout = tab?.layout || null;
       const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
@@ -889,10 +893,6 @@
         renderCache: hasArchiveRenderCache,
         uiState: hasUiState
       });
-      const runtimeTabId = typeof tab?.runtimeTabId === 'string'
-        ? tab.runtimeTabId
-        : (typeof tab?.id === 'string' ? tab.id : null);
-      const rehomeForRuntimeTab = value => runtimeTabId ? cloneAndRehomeTabScopedArchiveState(value, runtimeTabId) : value;
       const tabManifest = {
         index,
         title: tabTitle,
@@ -1000,7 +1000,10 @@
       ? global.performance.now()
       : Date.now();
     try {
-      const result = await SharedWorkers.runTask({
+      const transferStartedAt = typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+        ? global.performance.now()
+        : Date.now();
+      const task = SharedWorkers.runTask({
         name: 'graph-archive',
         url: GRAPH_ARCHIVE_WORKER_URL,
         action: 'build-archive',
@@ -1021,6 +1024,11 @@
         timeoutMs,
         fallback: () => buildArchiveBlobInMainThread(options)
       });
+      const transferFinishedAt = typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+        ? global.performance.now()
+        : Date.now();
+      options.onPhase?.({ phase: 'worker-transfer', ms: transferFinishedAt - transferStartedAt });
+      const result = await task;
       if (!result || !(result.buffer instanceof ArrayBuffer)) {
         return buildArchiveBlobInMainThread(options);
       }
@@ -1032,6 +1040,12 @@
         elapsedMs: Math.round(((typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
           ? global.performance.now()
           : Date.now()) - startedAt) * 10) / 10
+      });
+      options.onPhase?.({
+        phase: 'worker-build',
+        ms: (typeof global.performance !== 'undefined' && typeof global.performance.now === 'function'
+          ? global.performance.now()
+          : Date.now()) - transferFinishedAt
       });
       return blob;
     } catch (err) {

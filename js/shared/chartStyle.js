@@ -1228,9 +1228,7 @@
     }
     const ctx = canvas.getContext('2d');
     ctx.font = font || chartStyle.makeFont(12);
-    const width = ctx.measureText(text || '').width;
-    console.debug('Debug: chartStyle.measureText', {text, font: ctx.font, width}); // Debug: measurement trace
-    return width;
+    return ctx.measureText(text || '').width;
   };
 
   function parseFontSizePx(value, fallbackPx){

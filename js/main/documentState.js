@@ -4,6 +4,7 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.documentState = Main.documentState || {};
   const AUTOSAVE_PREF_KEY = 'graphitix.autosave.enabled';
+  const RECOVERY_HIGH_FIDELITY_PREF_KEY = 'graphitix.recovery.highFidelity.enabled';
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
@@ -30,6 +31,7 @@
   let recoveryPendingSince = 0;
   let recoveryInFlightRevision = 0;
   let lastRecoverySavedRevision = 0;
+  let lastRecoveryPerformance = null;
   let autosaveInFlightRevision = 0;
   let lastAutosaveNoTargetRevision = 0;
   let savedMessageTimer = null;
@@ -133,6 +135,14 @@
     return Math.max(0, Date.now() - lastActivityAt);
   }
 
+  function isHighFidelityRecoveryEnabled() {
+    try {
+      return window.localStorage.getItem(RECOVERY_HIGH_FIDELITY_PREF_KEY) === 'true';
+    } catch (_err) {
+      return false;
+    }
+  }
+
   function openWebDb() {
     if (webDbPromise) {
       return webDbPromise;
@@ -183,17 +193,6 @@
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => reject(tx.error || new Error('IndexedDB snapshot clear failed.'));
     });
-  }
-
-  async function blobToBase64(blob) {
-    const buffer = await blob.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-    }
-    return window.btoa(binary);
   }
 
   function base64ToBlob(dataBase64) {
@@ -301,7 +300,7 @@
     }, 2200);
   }
 
-  async function buildRecoveryRecord(reason) {
+  async function buildRecoveryRecord(reason, phaseMetrics = {}) {
     if (!state?.sessionActions || typeof state.sessionActions.buildWorkspaceArchiveBlob !== 'function') {
       return null;
     }
@@ -313,7 +312,13 @@
       useWorker: true,
       snapshotKind: 'recovery',
       policyMode: 'recovery',
-      idleForMs
+      idleForMs,
+      highFidelityEnabled: isHighFidelityRecoveryEnabled(),
+      onPhase: metric => {
+        if(metric?.phase && Number.isFinite(Number(metric.ms))){
+          phaseMetrics[metric.phase] = Number(metric.ms);
+        }
+      }
     });
     if (!blob || !currentWorkspaceHasRecoverableData()) {
       return null;
@@ -369,31 +374,57 @@
       reason,
       cancellable: false
     }) || null;
+    const now = () => window.performance?.now?.() ?? Date.now();
+    const totalStartedAt = now();
+    const phaseMetrics = {};
     try {
-      const record = await buildRecoveryRecord(reason);
+      const record = await buildRecoveryRecord(reason, phaseMetrics);
       if (!record) {
         await clearRecoverySnapshot('no-recoverable-data');
         lastRecoverySavedRevision = revision;
         return { status: 'skipped', reason: 'no-recoverable-data' };
+      }
+      const currentRevision = getSessionRevision();
+      if(revision > 0 && currentRevision !== revision){
+        debug('recovery.write.staleRevision', { reason, revision, currentRevision });
+        return { status: 'skipped', reason: 'stale-revision', revision, currentRevision };
       }
       if (sequence !== recoveryWriteSequence) {
         debug('recovery.write.superseded', { reason, sequence, latest: recoveryWriteSequence });
         return { status: 'skipped', reason: 'superseded' };
       }
       if (isDesktop() && typeof window.desktop.writeRecoverySnapshot === 'function') {
+        const storageStartedAt = now();
         await window.desktop.writeRecoverySnapshot({
           meta: record.meta,
-          dataBase64: await blobToBase64(record.blob)
+          dataBuffer: await record.blob.arrayBuffer()
         });
+        phaseMetrics.storage = now() - storageStartedAt;
         lastRecoverySavedRevision = revision;
+        lastRecoveryPerformance = {
+          ...phaseMetrics,
+          total: now() - totalStartedAt,
+          bytes: record.blob.size,
+          revision,
+          via: 'desktop'
+        };
         debug('recovery.write.desktop', { bytes: record.blob.size, reason });
         return { status: 'saved', via: 'desktop', bytes: record.blob.size };
       }
+      const storageStartedAt = now();
       await putWebSnapshot({
         meta: record.meta,
         blob: record.blob
       });
+      phaseMetrics.storage = now() - storageStartedAt;
       lastRecoverySavedRevision = revision;
+      lastRecoveryPerformance = {
+        ...phaseMetrics,
+        total: now() - totalStartedAt,
+        bytes: record.blob.size,
+        revision,
+        via: 'web'
+      };
       debug('recovery.write.web', { bytes: record.blob.size, reason });
       return { status: 'saved', via: 'web', bytes: record.blob.size };
     } catch (err) {
@@ -659,6 +690,7 @@
 
   namespace.setAutosaveEnabled = setAutosaveEnabled;
   namespace.writeRecoverySnapshot = writeRecoverySnapshot;
+  namespace.getRecoveryPerformance = () => lastRecoveryPerformance ? { ...lastRecoveryPerformance } : null;
   namespace.clearRecoverySnapshot = clearRecoverySnapshot;
   namespace.maybeRestoreRecovery = maybeRestoreRecovery;
   namespace.runAutosave = runAutosave;

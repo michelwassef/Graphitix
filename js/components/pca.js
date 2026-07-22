@@ -471,18 +471,6 @@
     return normalized;
   }
 
-  function getPcaPinnedTopRowCount(hot) {
-    const count = Number.isFinite(hot?.gridApi?.getPinnedTopRowCount?.()) ?
-      hot.gridApi.getPinnedTopRowCount() :
-      getPcaPinnedMetaRowCountForMode();
-    return Math.max(0, count | 0);
-  }
-
-  function isPcaPinnedRow(hot, rowIndex) {
-    const count = getPcaPinnedTopRowCount(hot);
-    return Number.isInteger(rowIndex) && rowIndex >= 0 && rowIndex < count;
-  }
-
   function applyPcaRowValues(hot, rowIndex, values, options = {}) {
     if (!hot || !Number.isInteger(rowIndex)) {
       return false;
@@ -4298,9 +4286,14 @@
       return null;
     }
     const invocation = beginPcaWorkerInvocation('svd', options);
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'pca',
+      tabId: invocation?.session?.tabId || options?.tabId || getPcaProjectionTabId() || null,
+      kind: 'graph'
+    }) || null;
     try {
       const result = await workerApi.runTask({
-        name: 'pca-svd',
+        ...(execution?.workerOptions?.('svd') || { name: `pca:${invocation?.session?.tabId || 'unowned'}:svd` }),
         url: PCA_SVD_WORKER.url,
         action: 'pca-svd',
         payload: {
@@ -4367,9 +4360,14 @@
       ...options,
       method: action
     });
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'pca',
+      tabId: invocation?.session?.tabId || options?.tabId || getPcaProjectionTabId() || null,
+      kind: 'graph'
+    }) || null;
     try {
       const result = await workerApi.runTask({
-        name: `pca-${action}`,
+        ...(execution?.workerOptions?.(action) || { name: `pca:${invocation?.session?.tabId || 'unowned'}:${action}` }),
         url: PCA_EMBED_WORKER.url,
         action,
         payload,
@@ -6096,6 +6094,9 @@
   function schedulePcaDrawForSession(session = null, options = {}) {
     const shaped = ensurePcaSessionOwnershipShape(session || getActivePcaSessionForState());
     if (!shaped) {
+      return false;
+    }
+    if (Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)) {
       return false;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
@@ -15620,7 +15621,7 @@
       status = 'error';
       throw err;
     } finally {
-      resolvePcaOverlay(status);
+      resolvePcaOverlay({ reason: status, status, tabId: drawOpts?.tabId || null });
     }
   };
 
@@ -15639,11 +15640,12 @@
 
   const schedulePcaInstrumented = (opts) => {
     const nextOpts = opts || {};
-    const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-    const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-    if (nextOpts.force && !suppressOverlay) {
-      markPcaOverlayPending(overlayReason);
+    const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'manual-render' : 'schedule');
+    const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+    if ((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay) {
+      markPcaOverlayPending({ reason: overlayReason, tabId: nextOpts.tabId || resolvePcaAsyncTabId(nextOpts) || getPcaProjectionTabId() || null });
       forcePcaOverlay(overlayReason, {
+        tabId: nextOpts.tabId || resolvePcaAsyncTabId(nextOpts) || getPcaProjectionTabId() || null,
         message: 'Rendering PCA view...'
       });
     } else if (!suppressOverlay) {
@@ -15657,7 +15659,7 @@
         tabId: nextOpts.tabId || resolvePcaAsyncTabId(nextOpts) || getPcaProjectionTabId() || null,
         reason: overlayReason,
         overlayController: pcaOverlayController,
-        delayForOverlay: !suppressOverlay && nextOpts.force !== true,
+        delayForOverlay: !suppressOverlay,
         debugLog,
         scheduleFrame: callback => schedulePcaScopedFrame({
           ...(nextOpts || {}),
@@ -17096,6 +17098,9 @@
             forcePcaOverlay(renderReason, {
               message: 'Rendering PCA view...'
             });
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolvePcaOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
         if (!result && forcedOverlay) {
@@ -17319,7 +17324,7 @@
         }); // Debug: view mode toggle listener
         applyAxisVisibility(mode);
         syncPcaAspectControls('view-mode-change');
-        requestPcaViewRefresh('view-mode-change');
+        requestPcaViewRefresh('view-mode-change', Shared.componentLifecycle.createStructuralDrawOptions('view-mode-change', { viewOnly: true }));
       });
     }
     if (pcaExportEigenTableBtn) {
@@ -17543,7 +17548,7 @@
     try {
       pca.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'pca-draw-cancel');
     } catch (_err) {}
-    resolvePcaOverlay(meta?.reason || 'cancelled');
+    resolvePcaOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'pca',
       tabId,

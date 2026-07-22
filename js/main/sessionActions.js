@@ -459,9 +459,14 @@
       return null;
     }
 
+    const deferArchiveNormalization = options.deferArchiveNormalization === true
+      && options.captureRenderCache !== true;
     let payload;
     let layout;
-    if (typeof session?.enrichTabSnapshotForArchive === 'function') {
+    if(deferArchiveNormalization){
+      payload = tab.payload || null;
+      layout = tab.layoutState || null;
+    } else if (typeof session?.enrichTabSnapshotForArchive === 'function') {
       const enriched = session.enrichTabSnapshotForArchive(tab, { contextLabel: 'archive-snapshot' });
       payload = enriched?.payload ?? cloneWithSession(session, tab.payload || null);
       layout = enriched?.layout ?? cloneWithSession(session, tab.layoutState || null);
@@ -473,14 +478,18 @@
     const config = workspaces?.[tab.type] || null;
     const includeRenderCache = options.captureRenderCache === true;
 
-    const archivePayloadForSignature = rehomeArchiveValue(session, payload, tab.id);
-    const archiveLayoutForSignature = rehomeArchiveValue(session, layout, tab.id);
-    const archivePayloadSignature = typeof session?.serializePayloadSignature === 'function'
+    const archivePayloadForSignature = deferArchiveNormalization ? payload : rehomeArchiveValue(session, payload, tab.id);
+    const archiveLayoutForSignature = deferArchiveNormalization ? layout : rehomeArchiveValue(session, layout, tab.id);
+    const archivePayloadSignature = deferArchiveNormalization
+      ? (tab.payloadSignature || null)
+      : (typeof session?.serializePayloadSignature === 'function'
       ? session.serializePayloadSignature(archivePayloadForSignature || null)
-      : (tab.payloadSignature || null);
-    const archiveLayoutSignature = typeof session?.serializePayloadSignature === 'function'
+      : (tab.payloadSignature || null));
+    const archiveLayoutSignature = deferArchiveNormalization
+      ? (tab.layoutSignature || null)
+      : (typeof session?.serializePayloadSignature === 'function'
       ? session.serializePayloadSignature(archiveLayoutForSignature || null)
-      : (tab.layoutSignature || null);
+      : (tab.layoutSignature || null));
     let cacheSnapshot = null;
     if (includeRenderCache && cacheEnvelopeMatchesSnapshot(tab, tab.renderCache, archivePayloadSignature, archiveLayoutSignature)) {
       const serialized = typeof session?.serializeRenderCacheForArchive === 'function'
@@ -573,16 +582,20 @@
       runtimeTabId: tab.id || null,
       payload: archivePayloadForSignature,
       layout: archiveLayoutForSignature,
-      previewMarkup: typeof tab.previewMarkup === 'string' ? rehomeArchiveString(session, tab.previewMarkup, tab.id) : null,
+      previewMarkup: typeof tab.previewMarkup === 'string'
+        ? (deferArchiveNormalization ? tab.previewMarkup : rehomeArchiveString(session, tab.previewMarkup, tab.id))
+        : null,
       previewSignature: tab.previewSignature || null,
-      previewMeta: rehomeArchiveValue(session, tab.previewMeta || null, tab.id),
+      previewMeta: deferArchiveNormalization
+        ? (tab.previewMeta || null)
+        : rehomeArchiveValue(session, tab.previewMeta || null, tab.id),
       archiveRenderCache: archiveRenderCache && typeof archiveRenderCache === 'object'
         ? rehomeArchiveValue(session, archiveRenderCache, tab.id)
         : null,
       archiveRenderCacheSignature: archiveRenderCache ? cacheSnapshot.payloadSignature : null,
       archiveRenderCacheLayoutSignature: archiveRenderCache ? cacheSnapshot.layoutSignature : null,
       uiState: tab.uiState && typeof tab.uiState === 'object'
-        ? rehomeArchiveValue(session, tab.uiState, tab.id)
+        ? (deferArchiveNormalization ? tab.uiState : rehomeArchiveValue(session, tab.uiState, tab.id))
         : null
     };
   }
@@ -592,13 +605,18 @@
     if (!session || !workspaceState || typeof withSessionContext !== 'function') {
       return null;
     }
-    persistActiveTabIfNeeded(context, {
+    const activeProjectionTab = session.getActiveTab?.() || null;
+    const activeTab = findTabById(workspaceState, activeProjectionTab?.id) || activeProjectionTab;
+    const canonicalActiveState = !!(activeTab?.payload && activeTab.payloadDirty !== true);
+    if(!(options.skipActiveProjectionCapture === true && canonicalActiveState)){
+      persistActiveTabIfNeeded(context, {
       reason: options.reason || 'archive-save',
       snapshotKind: options.snapshotKind || 'archive-save',
       snapshotIntent: options.snapshotIntent || null,
       captureRenderCache: options.captureRenderCache === true,
       preserveRenderCacheTabIds: options.preserveRenderCacheTabIds
-    });
+      });
+    }
 
     if (scope === 'workspace') {
       const graphTabs = getGraphTabsFromWorkspaceState(workspaceState);
@@ -1040,10 +1058,14 @@
       reason: options.reason || 'document-snapshot',
       scope,
       captureRenderCacheBeforeSnapshot: options.captureRenderCacheBeforeSnapshot,
+      highFidelityEnabled: options.highFidelityEnabled === true,
       idleForMs: options.idleForMs,
       idleThresholdMs: options.idleThresholdMs
     });
     const captureRenderCache = policy.captureRenderCache === true;
+    const deferArchiveNormalization = options.useWorker !== false
+      && policy.snapshotKind === 'recovery'
+      && !captureRenderCache;
 
     if (scope === 'workspace' && captureRenderCache && options.prepareRenderCaches === true) {
       try {
@@ -1056,7 +1078,7 @@
     }
 
     const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
-    if (activeTab && !activeTab.isWelcome && activeTab.type) {
+    if (!deferArchiveNormalization && activeTab && !activeTab.isWelcome && activeTab.type) {
       await awaitWorkspaceReadyForSnapshot(context, activeTab, {
         reason: options.readyReason || `${options.reason || 'document-checkpoint'}-active-ready`,
         timeoutMs: options.readyTimeoutMs
@@ -1073,6 +1095,8 @@
       snapshotKind: policy.snapshotKind || requestedSnapshotKind,
       snapshotIntent: policy.snapshotIntent,
       captureRenderCache,
+      deferArchiveNormalization,
+      skipActiveProjectionCapture: deferArchiveNormalization,
       preserveRenderCacheTabIds
     });
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {
@@ -1107,7 +1131,8 @@
       scope: checkpoint.scope,
       compression: options.compression || 'STORE',
       payloadMode: options.payloadMode || 'full',
-      useWorker: options.useWorker !== false
+      useWorker: options.useWorker !== false,
+      onPhase: options.onPhase
     });
   }
 
@@ -1675,6 +1700,8 @@
     if (!graphArchive || typeof graphArchive.buildArchiveBlob !== 'function') {
       throw new Error('Shared.graphArchive.buildArchiveBlob is unavailable.');
     }
+    const now = () => window.performance?.now?.() ?? Date.now();
+    const checkpointStartedAt = now();
     const checkpoint = await createDocumentCheckpoint(context, {
       ...options,
       scope: options.scope === 'tab' ? 'tab' : 'workspace',
@@ -1683,10 +1710,14 @@
       policyMode: options.policyMode || options.mode || 'manual-save',
       prepareRenderCaches: options.prepareRenderCaches === true
     });
+    options.onPhase?.({ phase: 'checkpoint', ms: now() - checkpointStartedAt });
     if (!checkpoint) {
       return null;
     }
-    return serializeDocumentCheckpoint(context, checkpoint, options);
+    const serializationStartedAt = now();
+    const blob = await serializeDocumentCheckpoint(context, checkpoint, options);
+    options.onPhase?.({ phase: 'serialization-total', ms: now() - serializationStartedAt });
+    return blob;
   };
 
   namespace.applyArchiveBlob = async function applyArchiveBlob(context, blob, meta = {}) {

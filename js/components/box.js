@@ -1259,8 +1259,10 @@
     if(!workerApi || typeof workerApi.runTask !== 'function'){
       return Promise.reject(new Error('Box stats worker unavailable'));
     }
+    const tabId = getBoxProjectionTabId() || getActiveBoxSessionForState()?.tabId || null;
+    const execution = Shared.jobs?.createExecutionContext?.({ component: 'box', tabId, kind: 'graph' }) || null;
     return workerApi.runTask({
-      name: 'box-stats',
+      ...(execution?.workerOptions?.('stats') || { name: `box:${tabId || 'unowned'}:stats` }),
       url: BOX_STATS_WORKER.url,
       action: 'box-stats',
       payload,
@@ -1292,8 +1294,10 @@
     if(!workerApi || typeof workerApi.runTask !== 'function'){
       return Promise.reject(new Error('Box swarm worker unavailable'));
     }
+    const tabId = getBoxProjectionTabId() || getActiveBoxSessionForState()?.tabId || null;
+    const execution = Shared.jobs?.createExecutionContext?.({ component: 'box', tabId, kind: 'graph' }) || null;
     return workerApi.runTask({
-      name: 'box-swarm',
+      ...(execution?.workerOptions?.('swarm') || { name: `box:${tabId || 'unowned'}:swarm` }),
       url: BOX_SWARM_WORKER.url,
       action: 'box-swarm',
       payload,
@@ -1337,6 +1341,9 @@
       }
       boxLog('Debug: box swarm worker returned empty result');
     }catch(err){
+      if(Shared.Workers?.isCancellationError?.(err)){
+        throw err;
+      }
       boxLog('Debug: box swarm worker failed',{ message: err?.message || String(err) });
     }
     return computeSwarmOffsets(points, options);
@@ -6210,7 +6217,7 @@
     };
   }
 
-  function validateStripSwarmFit(config){
+  async function validateStripSwarmFit(config){
     const coordsSource = config?.coords;
     const offsetsSource = config?.offsets;
     const coords = (Array.isArray(coordsSource) || ArrayBuffer.isView(coordsSource)) ? coordsSource : null;
@@ -6218,6 +6225,7 @@
     const pointRadius = Number(config?.pointRadius);
     const sampleSize = Number(config?.sampleSize) || (coords ? coords.length : 0);
     const maxHalfWidth = Number(config?.maxHalfWidth);
+    const checkpoint = typeof config?.checkpoint === 'function' ? config.checkpoint : null;
     if(!coords || !offsets || !coords.length || coords.length !== offsets.length){
       return false;
     }
@@ -6226,6 +6234,9 @@
     }
     if(Number.isFinite(maxHalfWidth) && maxHalfWidth >= 0){
       for(let i = 0; i < offsets.length; i++){
+        if(checkpoint && (i & 511) === 0 && !(await checkpoint())){
+          return false;
+        }
         const offset = Number(offsets[i]);
         if(!Number.isFinite(offset) || Math.abs(offset) > maxHalfWidth + 0.25){
           return false;
@@ -6237,10 +6248,16 @@
     const collisionDistanceSq = collisionDistance * collisionDistance - 0.0001;
     const sorted = new Array(coords.length);
     for(let i = 0; i < coords.length; i++){
+      if(checkpoint && (i & 511) === 0 && !(await checkpoint())){
+        return false;
+      }
       sorted[i] = i;
     }
     sorted.sort((a, b) => (Number(coords[a]) - Number(coords[b])) || (a - b));
     for(let i = 0; i < sorted.length; i++){
+      if(checkpoint && (i & 511) === 0 && !(await checkpoint())){
+        return false;
+      }
       const a = sorted[i];
       const ay = Number(coords[a]);
       const ax = Number(offsets[a]) || 0;
@@ -6312,12 +6329,13 @@
       if(onProbe && onProbe() === false){
         return { fit: false, cancelled: true, radius, availableHalfWidth };
       }
-      const fit = validateStripSwarmFit({
+      const fit = await validateStripSwarmFit({
         coords,
         offsets: swarm?.offsets,
         pointRadius: radius,
         sampleSize,
-        maxHalfWidth: availableHalfWidth
+        maxHalfWidth: availableHalfWidth,
+        checkpoint: config?.checkpoint
       });
       return { fit, radius, availableHalfWidth, swarm };
     };
@@ -6375,12 +6393,13 @@
       if(onProbe && onProbe() === false){
         return { fit: false, cancelled: true, radius, maxHalfWidth };
       }
-      const fit = validateStripSwarmFit({
+      const fit = await validateStripSwarmFit({
         coords,
         offsets: swarm?.offsets,
         pointRadius: radius,
         sampleSize,
-        maxHalfWidth
+        maxHalfWidth,
+        checkpoint: config?.checkpoint
       });
       return { fit, radius, maxHalfWidth, swarm };
     };
@@ -9433,6 +9452,9 @@
 
   function scheduleBoxDrawForSession(session = null, options = {}){
     const shaped = ensureBoxSessionOwnershipShape(session || getActiveBoxSessionForState());
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
+      return false;
+    }
     const scheduler = getBoxSessionDrawScheduler(shaped, { raw: options.raw === true });
     if(typeof scheduler !== 'function'){
       return undefined;
@@ -16741,8 +16763,10 @@
     }
     const next = captureBoxGroupedHeaderStateFromHot(hotInstance, options);
     owner.state.visual = cloneBoxPlainObject(owner.state.visual);
-    owner.state.visual.grouped = cloneSimple(state.grouped) || owner.state.visual.grouped || { replicatesPerGroup: next.replicatesPerGroup };
+    owner.state.visual.grouped = cloneSimple(owner.state.visual.grouped) || { replicatesPerGroup: next.replicatesPerGroup };
     owner.state.visual.grouped.replicatesPerGroup = next.replicatesPerGroup;
+    owner.state.visual.grouped.groups = next.groups.slice();
+    owner.state.visual.grouped.conditions = next.conditions.slice();
     owner.state.visual.groupedHeaders = next;
     owner.state.updatedAt = Date.now();
     owner.updatedAt = Date.now();
@@ -17847,25 +17871,28 @@
         debugLabel: 'box',
         onPrismStyle: applyBoxPrismStyle,
         onProcessed: info => boxLog('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
+        onBeforeCompleted: result => {
+          const prismMeta = result?.prismMeta;
+          const prismGraphType = normalizeBoxGraphType(prismMeta?.graphType || '');
+          if(prismMeta?.kind === 'column' && prismGraphType && els.boxGraphType && els.boxGraphType.value !== prismGraphType){
+            els.boxGraphType.value = prismGraphType;
+            els.boxGraphType.dispatchEvent(new Event('change', { bubbles: true }));
+            boxLog('Debug: box prism graph type applied', {
+              prismGraphType,
+              seriesCount: prismMeta?.seriesCount || 0
+            });
+          }
+        },
         onCompleted: () => {
           const renderReason = 'import-load';
           markBoxOverlayPending(renderReason);
           forceBoxOverlay(renderReason, { message: 'Rendering box plot...' });
+        },
+        onOwnerInactive: (_result, meta) => {
+          resolveBoxLoading({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
         }
       });
       Promise.resolve(importPromise).then(result => {
-        const prismMeta = result?.prismMeta;
-        const prismGraphType = normalizeBoxGraphType(prismMeta?.graphType || '');
-        if(prismMeta?.kind === 'column' && prismGraphType && els.boxGraphType){
-          if(els.boxGraphType.value !== prismGraphType){
-            els.boxGraphType.value = prismGraphType;
-            els.boxGraphType.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-          boxLog('Debug: box prism graph type applied', {
-            prismGraphType,
-            seriesCount: prismMeta?.seriesCount || 0
-          });
-        }
         if(!result && forcedOverlay){
           resolveBoxLoading('file-import-empty');
         }
@@ -18219,7 +18246,7 @@
       }
       state.currentGraphType = nextGraphType;
       updateGraphTypeControls();
-      scheduleActiveBoxDraw();
+      scheduleActiveBoxDraw(Shared.componentLifecycle.createStructuralDrawOptions('box-graph-type-change'));
     });
     if(els.boxLayoutMode){
       bindBoxControlHandler(els.boxLayoutMode, 'change', 'layout-mode', ()=>{
@@ -28022,6 +28049,10 @@ Technical analysis record (advanced)
             });
             return;
           }
+          if(Shared.Workers?.isCancellationError?.(err)){
+            statsOutcome = 'cancelled';
+            return;
+          }
           console.error('box stats worker failed', err);
           statsOutcome = 'worker-failed';
           try{
@@ -30439,6 +30470,7 @@ Technical analysis record (advanced)
       boxAxisNotationX,
       boxAxisNotationY,
       numericAxisKey,
+      checkpoint = null,
       finalizationContext = null
     } = context;
     function formatTick(v){
@@ -30852,6 +30884,9 @@ Technical analysis record (advanced)
         }
         const pointCoords = new Float64Array(values.length);
         for(let idx = 0; idx < values.length; idx++){
+          if(checkpoint && (idx & 511) === 0 && !(await checkpoint('point-radius-coordinates'))){
+            return null;
+          }
           pointCoords[idx] = projectPointCoord(values[idx], trace, i);
         }
         const localBand = resolveLocalBand(trace, i);
@@ -30876,6 +30911,7 @@ Technical analysis record (advanced)
           sampleSize: values.length,
           orientation,
           radiusStep: 0.1,
+          checkpoint: () => checkpoint ? checkpoint('point-radius-validation') : true,
           onProbe: () => tokenGuard ? tokenGuard() : true
         });
         if(tokenGuard && !tokenGuard()){
@@ -30944,6 +30980,9 @@ Technical analysis record (advanced)
       let limitingRadius = Infinity;
       let limitingTraceIndex = null;
       for(let i = 0; i < traces.length; i++){
+        if(checkpoint && !(await checkpoint('point-radius-trace'))){
+          return null;
+        }
         if(hasExplicitPointSize(i)){
           if(debugEnabled){
             const explicitSize = state.pointStyles && state.pointStyles[i] ? state.pointStyles[i]?.size : null;
@@ -30961,6 +31000,9 @@ Technical analysis record (advanced)
         }
         const pointCoords = new Float64Array(values.length);
         for(let idx = 0; idx < values.length; idx++){
+          if(checkpoint && (idx & 511) === 0 && !(await checkpoint('strip-radius-coordinates'))){
+            return null;
+          }
           pointCoords[idx] = coordProjector(values[idx]);
         }
         const profile = await computeStripTraceFeasibleRadius({
@@ -30974,6 +31016,7 @@ Technical analysis record (advanced)
           gapFactor: STRIP_INTER_DATASET_GAP_FACTOR,
           minGapPx: STRIP_INTER_DATASET_MIN_GAP_PX,
           radiusStep: 0.1,
+          checkpoint: () => checkpoint ? checkpoint('strip-radius-validation') : true,
           onProbe: () => isBoxDrawTokenCurrent(drawSession, token)
         });
         if(!isBoxDrawTokenCurrent(drawSession, token)){
@@ -31991,6 +32034,9 @@ Technical analysis record (advanced)
       const displayedPointSharedRadius = Number.isFinite(Number(displayedPointSharedRadiusProfile?.radius))
         ? Number(displayedPointSharedRadiusProfile.radius)
         : null;
+      if(checkpoint && !(await checkpoint('orientation-runtime'))){
+        return null;
+      }
       return {
         orientation,
         valueAxis,
@@ -33528,6 +33574,29 @@ Technical analysis record (advanced)
       applyEphemera: true
     }) || invocation.session || getActiveBoxSessionForState();
     const token = bumpBoxDrawToken(drawSession);
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'box',
+      tabId: drawSession?.tabId || getBoxProjectionTabId() || null,
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async phase => {
+      try{
+        await execution?.checkpoint?.();
+      }catch(err){
+        if(execution?.signal?.aborted){
+          drawOutcome = 'cancelled';
+          boxDebug('Debug: box draw cancelled at checkpoint', { phase, token });
+          return false;
+        }
+        throw err;
+      }
+      if(!isBoxDrawTokenCurrent(drawSession, token)){
+        drawOutcome = 'cancelled';
+        return false;
+      }
+      return true;
+    };
     const viewOnly = !!drawOpts?.viewOnly;
     const perfApi = Shared.Performance;
     const drawPerf = perfApi?.start('box.draw', { component: 'box', token });
@@ -34036,6 +34105,10 @@ Technical analysis record (advanced)
             if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
               boxLog('boxplot collect progress',{ component: 'box', col: i, row: r, token });
             }
+            if((r - dataStartRow) > 0 && (r - dataStartRow) % 1024 === 0 && !(await checkpoint('collect-single'))){
+              finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
+              return;
+            }
           }
           if(debugEnabled){ console.timeEnd(`boxColCollect_${i}_${token}`); }
           boxLog('boxplot collected column',{ index: i, values: col.length });
@@ -34111,6 +34184,10 @@ Technical analysis record (advanced)
               }
               if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
                 boxLog('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+              }
+              if((r - dataStartRow) > 0 && (r - dataStartRow) % 1024 === 0 && !(await checkpoint('collect-grouped'))){
+                finalizeCollect({ traces: traces.length, labels: axisLabels.length, outcome: 'cancelled' });
+                return;
               }
             }
             if(debugEnabled){ console.timeEnd(`boxColCollect_${colIndex}_${token}`); }
@@ -34221,6 +34298,9 @@ Technical analysis record (advanced)
       boxLog('boxplot draw cancelled before traces ready',{ token });
       return;
     }
+    if(!(await checkpoint('traces-ready'))){
+      return;
+    }
     if(!traces.length){
       state.lastAxisLabels = [];
       renderStatsControls([]);
@@ -34272,6 +34352,9 @@ Technical analysis record (advanced)
         reason: drawOpts?.reason || null,
         traceCount: traces.length
       });
+    }
+    if(!(await checkpoint('supporting-ui'))){
+      return;
     }
     const needSortedValues = graphTypeRaw === 'violin';
     const transformModeKey = logScale
@@ -34342,6 +34425,9 @@ Technical analysis record (advanced)
           yByTrace: traces.map(t => (Array.isArray(t?.rawY) ? t.rawY : []))
         };
       }
+    }
+    if(!(await checkpoint('data-transform'))){
+      return;
     }
     syncBoxThemeSurfaceForCurrentScheme();
     const retainPreviousPlotFrame = shouldRetainPreviousBoxFrame(drawOpts) && !!els.plotDiv?.firstChild;
@@ -34599,7 +34685,8 @@ Technical analysis record (advanced)
       const summaries = new Array(traces.length);
       ymin = Infinity;
       ymax = -Infinity;
-      traces.forEach((trace, traceIndex) => {
+      for(let traceIndex = 0; traceIndex < traces.length; traceIndex += 1){
+        const trace = traces[traceIndex];
         const summary = computeTraceSummary(trace.y, { requireSorted: needSortedValues });
         summaries[traceIndex] = summary;
         trace.__distribution = summary;
@@ -34621,7 +34708,10 @@ Technical analysis record (advanced)
           sd: summary.sd,
           hasSpread: summary.count > 1
         };
-      });
+        if(!(await checkpoint('distribution-summary'))){
+          return;
+        }
+      }
       if(cachedDrawInput){
         cachedDrawInput.distributionCache = {
           key: distributionModeKey,
@@ -34633,6 +34723,9 @@ Technical analysis record (advanced)
     }
     if(!isBoxDrawTokenCurrent(drawSession, token)){
       boxLog('boxplot draw cancelled after range calc',{ token });
+      return;
+    }
+    if(!(await checkpoint('range-ready'))){
       return;
     }
     boxLog('boxplot ymin/ymax',{ ymin, ymax });
@@ -35032,6 +35125,7 @@ Technical analysis record (advanced)
       boxAxisNotationX,
       boxAxisNotationY,
       numericAxisKey,
+      checkpoint,
       finalizationContext: {
         drawOpts,
         drawSession,
@@ -35064,6 +35158,10 @@ Technical analysis record (advanced)
     }
     return;
     }catch(err){
+      if(Shared.Workers?.isCancellationError?.(err) || execution?.signal?.aborted){
+        drawOutcome = 'cancelled';
+        return false;
+      }
       drawOutcome = 'error';
       throw err;
     }finally{
@@ -35407,7 +35505,7 @@ Technical analysis record (advanced)
     const config = nextPayload.config && typeof nextPayload.config === 'object'
       ? nextPayload.config
       : (nextPayload.config = {});
-    const tableFormat = normalizeBoxTableFormat(config.tableFormat || state.tableFormat);
+    const tableFormat = normalizeBoxTableFormat(config.tableFormat || 'single');
     const groupedHeaderTouched = tableFormat === 'grouped' && normalizedChanges.some(change => Number(change.row) < BOX_GROUPED_HEADER_ROW_COUNT);
     if(!groupedHeaderTouched){
       return null;
@@ -35433,7 +35531,7 @@ Technical analysis record (advanced)
     const matrix = hot && typeof hot.getData === 'function'
       ? hot.getData()
       : nextPayload.data;
-    const replicates = Number(config.grouped?.replicatesPerGroup ?? state.grouped?.replicatesPerGroup);
+    const replicates = Number(config.grouped?.replicatesPerGroup);
     const headerState = captureBoxGroupedHeaderStateFromHot(hot, {
       dataMatrix: matrix,
       replicates: Number.isFinite(replicates) && replicates > 0 ? Math.round(replicates) : 3,
@@ -35442,10 +35540,42 @@ Technical analysis record (advanced)
     config.tableFormat = 'grouped';
     config.grouped = {
       ...(config.grouped && typeof config.grouped === 'object' ? config.grouped : {}),
-      replicatesPerGroup: headerState.replicatesPerGroup
+      replicatesPerGroup: headerState.replicatesPerGroup,
+      groups: headerState.groups.slice(),
+      conditions: headerState.conditions.slice()
     };
     commitBoxGroupedHeaderStateToSession(hot, null, {
       reason: meta.reason || 'box-table-payload-grouped-header-sync'
+    });
+    return nextPayload;
+  };
+  box.applyTablePayloadData = function applyBoxTablePayloadData(payload, matrix, meta = {}){
+    const nextPayload = payload && typeof payload === 'object'
+      ? payload
+      : box.createEmptyPayload();
+    nextPayload.data = Array.isArray(matrix) ? matrix.slice() : [];
+    const config = nextPayload.config && typeof nextPayload.config === 'object'
+      ? nextPayload.config
+      : (nextPayload.config = {});
+    if(normalizeBoxTableFormat(config.tableFormat || 'single') !== 'grouped'){
+      return nextPayload;
+    }
+    const hot = meta.hotInstance || getBoxActiveHotManager();
+    const replicates = Number(config.grouped?.replicatesPerGroup);
+    const headerState = captureBoxGroupedHeaderStateFromHot(hot, {
+      dataMatrix: nextPayload.data,
+      replicates: Number.isFinite(replicates) && replicates > 0 ? Math.round(replicates) : 3,
+      minGroupCount: 2
+    });
+    config.tableFormat = 'grouped';
+    config.grouped = {
+      ...(config.grouped && typeof config.grouped === 'object' ? config.grouped : {}),
+      replicatesPerGroup: headerState.replicatesPerGroup,
+      groups: headerState.groups.slice(),
+      conditions: headerState.conditions.slice()
+    };
+    commitBoxGroupedHeaderStateToSession(hot, null, {
+      reason: meta.reason || 'box-table-payload-grouped-data-sync'
     });
     return nextPayload;
   };
@@ -36514,7 +36644,7 @@ Technical analysis record (advanced)
           reason: drawOptions?.reason || null
         });
       }
-      resolveBoxLoading('stale-session');
+      resolveBoxLoading({ reason: 'stale-session', tabId: sessionMeta?.tabId || null });
       return false;
     }
     guardedOptions.__boxSessionMeta = sessionMeta;
@@ -36549,7 +36679,7 @@ Technical analysis record (advanced)
         pending = runtime.pendingOptions;
         runtime.pendingOptions = null;
       });
-      resolveBoxLoading(status);
+      resolveBoxLoading({ reason: status, status, tabId: drawSession?.tabId || null });
       if(pending){
         scheduleBoxDrawForSession(drawSession, { ...pending, raw: true });
       }
@@ -36795,11 +36925,11 @@ Technical analysis record (advanced)
       ){
         nextOpts.viewOnly = true;
       }
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
-      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-      if(nextOpts.force && !suppressOverlay){
-        markBoxOverlayPending(overlayReason);
-        forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
+      const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'force-redraw' : 'schedule');
+      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
+        markBoxOverlayPending({ reason: overlayReason, tabId: sessionMeta?.tabId || nextOpts.tabId || null });
+        forceBoxOverlay(overlayReason, { tabId: sessionMeta?.tabId || nextOpts.tabId || null, message: 'Rendering box plot...' });
       }else if(!suppressOverlay){
         queueBoxLoading(overlayReason);
       }
@@ -36917,7 +37047,7 @@ Technical analysis record (advanced)
     const cancelToken = bumpBoxDrawToken(cancelSession);
     clearBoxScheduledDraw(meta?.reason || 'box-draw-cancel', cancelSession);
     try{ box.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'box-draw-cancel'); }catch(_err){}
-    resolveBoxLoading(meta?.reason || 'cancelled');
+    resolveBoxLoading({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'box',
       tabId,

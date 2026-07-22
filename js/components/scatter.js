@@ -4339,6 +4339,9 @@
     if(!shaped){
       return false;
     }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
+      return false;
+    }
     const scheduleOptions = sanitizeScatterDrawOptions(options || {}, shaped, 'scatter-session-draw');
     if(isScatterTabMarkedDisposed(shaped.tabId) || !isScatterWorkspaceTabPresent(shaped.tabId)){
       return false;
@@ -10432,6 +10435,10 @@
     if(options.heavy === false || options.forceOverlay === false){
       return false;
     }
+    const reasonText = String(reason || options.reason || '').toLowerCase();
+    if(reasonText === 'file-import' || reasonText.includes('opening saved')){
+      return true;
+    }
     return getScatterOverlayPointCount() >= SCATTER_POINT_BATCH_THRESHOLD;
   }
 
@@ -15564,18 +15571,14 @@
       if(!workerApi || typeof workerApi.runTask !== 'function'){
         return Promise.reject(new Error('Scatter stats worker unavailable'));
       }
+      const tabId = getScatterProjectionTabId() || getActiveScatterSessionForState()?.tabId || null;
+      const execution = Shared.jobs?.createExecutionContext?.({ component: 'scatter', tabId, kind: 'graph' }) || null;
       return workerApi.runTask({
-        name: 'scatter-stats',
+        ...(execution?.workerOptions?.('stats') || { name: `scatter:${tabId || 'unowned'}:stats` }),
         url: SCATTER_STATS_WORKER.url,
         action: 'scatter-stats',
         payload,
-        timeoutMs: SCATTER_STATS_WORKER.timeoutMs,
-        fallback: (data) => computeScatterStats(data.points, data.method, {
-          regressionMode: data.regressionMode,
-          fitMethod: data.fitMethod || 'ols',
-          fitSpec: data.fitSpec || {},
-          domain: data.domain || null
-        })
+        timeoutMs: SCATTER_STATS_WORKER.timeoutMs
       });
     }
 
@@ -17335,6 +17338,9 @@
                 return true;
               })
               .catch(err => {
+                if(Shared.Workers?.isCancellationError?.(err)){
+                  return false;
+                }
                 if(!isCurrentStatsApplyContext()){
                   scatterDebug('Debug: scatter stats worker failure ignored',{ reason:'stale-session', message: err?.message || String(err) });
                   return false;
@@ -25088,7 +25094,7 @@ async function drawScatter(drawOptions = {}){
               ? global.performance.now()
               : Date.now();
           });
-          resolveScatterOverlay(status);
+          resolveScatterOverlay({ reason: status, status, tabId: drawSession?.tabId || null });
           const deferredOptions = consumeScatterDeferredDraw(drawSession);
           if(deferredOptions && isScatterSessionDrawable(drawSession)){
             const replayOptions = mergeScatterDrawOptions(deferredOptions, {
@@ -25151,7 +25157,7 @@ async function drawScatter(drawOptions = {}){
         });
         return;
       }
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'force-redraw' : 'schedule');
+      const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'force-redraw' : 'schedule');
       if(nextOpts.reason){
         updateScatterDrawRuntime(scheduleSession, runtime => {
           if(!runtime.pendingReasons){
@@ -25173,16 +25179,22 @@ async function drawScatter(drawOptions = {}){
           return;
         }
       }
-      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-      if(nextOpts.force && !suppressOverlay){
-        markScatterOverlayPending(overlayReason);
-        forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
+      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      updateScatterDrawRuntime(scheduleSession, runtime => {
+        runtime.scheduled = true;
+      });
+      if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
+        markScatterOverlayPending({ reason: overlayReason, tabId: scheduleSession?.tabId || nextOpts.tabId || null });
+        forceScatterOverlay(overlayReason, { tabId: scheduleSession?.tabId || nextOpts.tabId || null, message: 'Rendering scatter plot...' });
       }else if(!suppressOverlay){
         queueScatterOverlay(overlayReason);
       }
       const runSchedule = (runOpts) => {
         const guarded = normalizeScatterSessionOptions(runOpts || nextOpts);
         if(!isScatterSessionDrawable(scheduleSession)){
+          updateScatterDrawRuntime(scheduleSession, runtime => {
+            runtime.scheduled = false;
+          });
           scatterDebug('Debug: scatter delayed schedule skipped for inactive owner', {
             tabId: guarded.tabId || guarded.__workspaceSessionMeta?.tabId || null,
             reason: guarded.reason || null
@@ -25190,6 +25202,9 @@ async function drawScatter(drawOptions = {}){
           return;
         }
         if(!isCurrentScatterSessionMeta(guarded.__workspaceSessionMeta)){
+          updateScatterDrawRuntime(scheduleSession, runtime => {
+            runtime.scheduled = false;
+          });
           scatterDebug('Debug: scatter delayed schedule skipped (stale session)', {
             tabId: guarded.__workspaceSessionMeta?.tabId || null,
             sessionGeneration: guarded.__workspaceSessionMeta?.sessionGeneration || 0,
@@ -25197,9 +25212,6 @@ async function drawScatter(drawOptions = {}){
           });
           return;
         }
-        updateScatterDrawRuntime(scheduleSession, runtime => {
-          runtime.scheduled = true;
-        });
         const scheduleBase = getScatterScheduleBase();
         scheduleBase(guarded);
       };
@@ -26444,13 +26456,96 @@ async function drawScatter(drawOptions = {}){
           forcedOverlay = !!forceScatterOverlay('file-import', { message: 'Importing table data...' });
           markScatterOverlayPending('file-import');
         }
+        const applyScatterImportResult = result => {
+          const fitRangeCleared = clearScatterFitRangeInputs('file-import');
+          if(fitRangeCleared){
+            requestScatterStatsContextRefresh('fit-range-cleared-import');
+            persistTabState('scatter-fit-range-cleared-import');
+          }
+          const prismMeta = result?.prismMeta;
+          if(prismMeta?.kind !== 'line'){
+            return;
+          }
+          const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
+          const groupLabels = Array.isArray(prismMeta.groupLabels)
+            ? prismMeta.groupLabels.map((label, idx) => sanitizeScatterGroupLabel(label, idx))
+            : [];
+          const importedMatrix = scatterHot?.getData?.() || [];
+          scatterGroupedXReplicates = false;
+          const groupedMatrix = convertScatterLineImportToGroupedMatrix(importedMatrix, {
+            replicates: replicateCount,
+            xReplicatesEnabled: false
+          });
+          if(scatterHot && typeof scatterHot.loadData === 'function'){
+            scatterHot.loadData(groupedMatrix, {
+              source: 'scatter-prism-grouped',
+              suppressSchedule: true
+            });
+            syncScatterActiveDataViewFromHot(scatterHot, 'import-prism-line');
+          }
+          if(scatterGraphTypeSelect){
+            scatterGraphTypeSelect.value = 'scatter';
+          }
+          scatterCurrentGraphType = 'scatter';
+          scatterTableFormat = SCATTER_TABLE_FORMAT_GROUPED;
+          if(scatterTableFormatSelect){
+            scatterTableFormatSelect.value = SCATTER_TABLE_FORMAT_GROUPED;
+          }
+          scatterReplicates = replicateCount;
+          if(scatterReplicates > SCATTER_MIN_REPLICATES){
+            scatterLastGroupedReplicateCount = Math.min(SCATTER_MAX_REPLICATES, Math.max(2, scatterReplicates));
+          }
+          if(groupLabels.length){
+            scatterSeriesGroupLabels = groupLabels.slice();
+          }
+          if(scatterReplicatesInput){
+            scatterReplicatesInput.value = String(scatterReplicates);
+          }
+          if(scatterGroupedXReplicatesInput){
+            scatterGroupedXReplicatesInput.checked = false;
+          }
+          ensureScatterHeaderTitles(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: false
+          });
+          normalizeScatterGroupedHeaderRow(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: false,
+            source: 'scatter-grouped-header-normalize'
+          });
+          updateScatterNestedHeaders(scatterHot, {
+            graphType: 'scatter',
+            tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
+            xReplicatesEnabled: false
+          });
+          updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
+          syncScatterGraphTypeUI();
+          scheduleActiveScatterDraw({ force: true, reason: 'import-prism-grouped', invalidate: 'data' });
+          console.debug('Debug: scatter prism grouped import applied', {
+            replicateCount,
+            groupCount: groupLabels.length || Math.max(
+              1,
+              getScatterGroupedSeriesCount(groupedMatrix?.[0]?.length || 0, replicateCount, { xReplicatesEnabled: false })
+            )
+          });
+        };
         const importPromise = tableImport.openFile(scatterFileInput, {
           hot: scatterHot,
           minCols: 4,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            markScatterOverlayPending('file-import');
-            scheduleActiveScatterDraw({ force: true, reason: 'import-load', invalidate: 'data' });
+          scheduleDraw: (meta = {}) => {
+            const tabId = meta.tabId || getScatterProjectionTabId() || null;
+            markScatterOverlayPending({ reason: 'import-load', tabId });
+            forceScatterOverlay({ reason: 'import-load', tabId }, { message: 'Rendering scatter plot...' });
+            scheduleActiveScatterDraw({
+              ...meta,
+              tabId,
+              force: true,
+              reason: 'import-load',
+              invalidate: 'data'
+            });
           },
           debugLabel: 'scatter',
           onPrismStyle: style => {
@@ -26508,89 +26603,19 @@ async function drawScatter(drawOptions = {}){
             scheduleActiveScatterDraw({ force: true, reason: 'import-prism-style' });
           },
           onProcessed: info => scatterLog('scatter data imported',{rows: info?.rows, cols: info?.cols}),
-          onCompleted: () => {
+          onBeforeCompleted: applyScatterImportResult,
+          onCompleted: (_result, meta = {}) => {
             const renderReason = 'import-load';
-            markScatterOverlayPending(renderReason);
-            forceScatterOverlay(renderReason, { message: 'Rendering scatter plot...' });
+            const tabId = meta.tabId || getScatterProjectionTabId() || null;
+            markScatterOverlayPending({ reason: renderReason, tabId });
+            forceScatterOverlay({ reason: renderReason, tabId }, { message: 'Rendering scatter plot...' });
             // Do not resolve here; final resolve happens after draw completes.
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolveScatterOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
         Promise.resolve(importPromise).then(result => {
-          const fitRangeCleared = clearScatterFitRangeInputs('file-import');
-          if(fitRangeCleared){
-            requestScatterStatsContextRefresh('fit-range-cleared-import');
-            persistTabState('scatter-fit-range-cleared-import');
-          }
-          const prismMeta = result?.prismMeta;
-          if(prismMeta?.kind === 'line'){
-            const replicateCount = clampScatterReplicateCount(prismMeta.replicatesCount || SCATTER_MIN_REPLICATES);
-            const groupLabels = Array.isArray(prismMeta.groupLabels)
-              ? prismMeta.groupLabels.map((label, idx) => sanitizeScatterGroupLabel(label, idx))
-              : [];
-            const importedMatrix = scatterHot?.getData?.() || [];
-            scatterGroupedXReplicates = false;
-            const groupedMatrix = convertScatterLineImportToGroupedMatrix(importedMatrix, {
-              replicates: replicateCount,
-              xReplicatesEnabled: false
-            });
-            if(scatterHot && typeof scatterHot.loadData === 'function'){
-              scatterHot.loadData(groupedMatrix, {
-                source: 'scatter-prism-grouped',
-                suppressSchedule: true
-              });
-              syncScatterActiveDataViewFromHot(scatterHot, 'import-prism-line');
-            }
-            if(scatterGraphTypeSelect){
-              scatterGraphTypeSelect.value = 'scatter';
-            }
-            scatterCurrentGraphType = 'scatter';
-            scatterTableFormat = SCATTER_TABLE_FORMAT_GROUPED;
-            if(scatterTableFormatSelect){
-              scatterTableFormatSelect.value = SCATTER_TABLE_FORMAT_GROUPED;
-            }
-            scatterReplicates = replicateCount;
-            if(scatterReplicates > SCATTER_MIN_REPLICATES){
-              scatterLastGroupedReplicateCount = Math.min(
-                SCATTER_MAX_REPLICATES,
-                Math.max(2, scatterReplicates)
-              );
-            }
-            if(groupLabels.length){
-              scatterSeriesGroupLabels = groupLabels.slice();
-            }
-            if(scatterReplicatesInput){
-              scatterReplicatesInput.value = String(scatterReplicates);
-            }
-            if(scatterGroupedXReplicatesInput){
-              scatterGroupedXReplicatesInput.checked = false;
-            }
-            ensureScatterHeaderTitles(scatterHot, {
-              graphType: 'scatter',
-              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-              xReplicatesEnabled: false
-            });
-            normalizeScatterGroupedHeaderRow(scatterHot, {
-              graphType: 'scatter',
-              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-              xReplicatesEnabled: false,
-              source: 'scatter-grouped-header-normalize'
-            });
-            updateScatterNestedHeaders(scatterHot, {
-              graphType: 'scatter',
-              tableFormat: SCATTER_TABLE_FORMAT_GROUPED,
-              xReplicatesEnabled: false
-            });
-            updateScatterReplicateModeControls(SCATTER_TABLE_FORMAT_GROUPED);
-            syncScatterGraphTypeUI();
-            scheduleActiveScatterDraw({ force: true, reason: 'import-prism-grouped', invalidate: 'data' });
-            console.debug('Debug: scatter prism grouped import applied',{
-              replicateCount,
-              groupCount: groupLabels.length || Math.max(
-                1,
-                getScatterGroupedSeriesCount(groupedMatrix?.[0]?.length || 0, replicateCount, { xReplicatesEnabled: false })
-              )
-            });
-          }
           if(!result && forcedOverlay){
             resolveScatterOverlay('file-import-empty');
           }
@@ -26823,7 +26848,7 @@ async function drawScatter(drawOptions = {}){
           syncScatterGraphTypeUI();
           setScatterThresholdSelectionPending(false, 'scatter-graph-type-change');
           syncScatterThresholdSelection();
-          scheduleActiveScatterDraw({ reason: 'scatter-graph-type-change' });
+          scheduleActiveScatterDraw(Shared.componentLifecycle.createStructuralDrawOptions('scatter-graph-type-change'));
         });
       }
       if(scatterTableFormatSelect){
@@ -28540,7 +28565,7 @@ async function drawScatter(drawOptions = {}){
     scatterState.rotationPendingLogged = false;
     try{ scatter.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
     try{ scatter.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'scatter-draw-cancel'); }catch(_err){}
-    resolveScatterOverlay(meta?.reason || 'cancelled');
+    resolveScatterOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'scatter',
       tabId,

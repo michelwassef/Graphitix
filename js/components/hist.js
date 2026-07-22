@@ -1224,6 +1224,9 @@
       || null
     );
     const tabId = String(resolvedOwner?.tabId || session?.tabId || '').trim();
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(session || { tabId }, options)){
+      return false;
+    }
     if(!isHistCallbackOwnerActive({ tabId, session })){
       commitHistOwnerHotRuntime({ ...resolvedOwner, session }, {
         ...(options || {}),
@@ -2255,7 +2258,7 @@
       });
     }
     if(options.schedule !== false){
-      scheduleActiveHistDraw({ reason: 'hist-plot-mode-change' });
+      scheduleActiveHistDraw(Shared.componentLifecycle.createStructuralDrawOptions('hist-plot-mode-change'));
     }
   }
 
@@ -3513,6 +3516,49 @@
     return series;
   }
 
+  async function collectHistSeriesCooperatively(options = {}){
+    const checkpoint = typeof options.checkpoint === 'function' ? options.checkpoint : null;
+    const explicitMatrix = Array.isArray(options.matrix) ? options.matrix : null;
+    const hot = state.ensureHotForActiveTab?.() || state.hot;
+    const matrix = explicitMatrix || (
+      hot && typeof hot.getIncludedDataMatrix === 'function'
+        ? hot.getIncludedDataMatrix()
+        : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(hot) : [])
+    );
+    if(!Array.isArray(matrix) || !matrix.length){ return []; }
+    let columnCount = 0;
+    for(let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1){
+      const row = matrix[rowIndex];
+      if(Array.isArray(row) && row.length > columnCount){ columnCount = row.length; }
+      if(checkpoint && rowIndex > 0 && rowIndex % 1024 === 0 && !(await checkpoint())){ return null; }
+    }
+    const labelCounts = new Map();
+    const series = [];
+    for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+      const headerRaw = Array.isArray(matrix[0]) ? matrix[0][colIndex] : '';
+      const headerText = headerRaw == null ? '' : String(headerRaw).trim();
+      const baseLabel = headerText || `Column ${colIndex + 1}`;
+      const values = [];
+      for(let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1){
+        const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+        const numeric = parseFloat(row[colIndex]);
+        if(Number.isFinite(numeric)){ values.push(numeric); }
+        if(checkpoint && rowIndex % 1024 === 0 && !(await checkpoint())){ return null; }
+      }
+      if(!values.length){ continue; }
+      const seenCount = labelCounts.get(baseLabel) || 0;
+      labelCounts.set(baseLabel, seenCount + 1);
+      series.push({
+        key: `col-${colIndex}`,
+        label: seenCount > 0 ? `${baseLabel} (${seenCount + 1})` : baseLabel,
+        baseLabel,
+        colIndex,
+        values
+      });
+    }
+    return series;
+  }
+
   // Format toolbar for histogram bars
   function showHistBarFormatControls(target){
     const doc = global.document;
@@ -4361,7 +4407,9 @@
         runHistEventOwnerCallback(event, 'hist-plot-mode-change', owner => {
           applyHistPlotMode(histPlotMode.value, { schedule: false });
           commitHistActiveStateToOwner(owner, { reason: 'hist-plot-mode-change' });
-          scheduleHistOwnerDraw(owner, { reason: 'hist-plot-mode-change', tabId: owner.tabId || undefined });
+          scheduleHistOwnerDraw(owner, Shared.componentLifecycle.createStructuralDrawOptions('hist-plot-mode-change', {
+            tabId: owner.tabId || undefined
+          }));
         });
       });
     }
@@ -4621,6 +4669,9 @@
             const renderReason = 'import-load';
             markHistOverlayPending(renderReason);
             forceHistOverlay(renderReason, { message: 'Rendering histogram...' });
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolveHistOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
         Promise.resolve(importPromise).then(result => {
@@ -6266,7 +6317,7 @@
     };
   }
 
-  function draw(options = {}, session = null){
+  async function draw(options = {}, session = null){
     const drawSession = ensureHistSessionOwnershipShape(session || getHistSessionForDrawOptions(options));
     if(drawSession && !isHistSessionActiveOrActivating(drawSession)){
       markHistOwnerDrawPending(drawSession, {
@@ -6283,7 +6334,23 @@
     const densityMode = plotMode === HIST_PLOT_MODE_DENSITY;
     const frequencySettings = sanitizeHistFrequencySettings(state.frequencySettings);
     const viewContext = resolveHistViewContext();
-    const seriesEntries = collectHistSeries({ matrix: viewContext.sourceData });
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'hist',
+      tabId: drawSession?.tabId || getHistProjectionTabId() || null,
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async () => {
+      try{
+        await execution?.checkpoint?.();
+        return !execution?.signal?.aborted;
+      }catch(err){
+        if(execution?.signal?.aborted){ return false; }
+        throw err;
+      }
+    };
+    const seriesEntries = await collectHistSeriesCooperatively({ matrix: viewContext.sourceData, checkpoint });
+    if(!seriesEntries){ return false; }
     const values = seriesEntries.flatMap(entry => entry.values);
     const plotEl=getHistNodeById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     if(!seriesEntries.length || !values.length){
@@ -6300,7 +6367,12 @@
       updateHistStats([]);
       return false;
     }
-    const fitSets = seriesEntries.map(entry => ({ ...entry, fits: prepareDistributionFits(entry.values) }));
+    const fitSets = [];
+    for(let seriesIndex = 0; seriesIndex < seriesEntries.length; seriesIndex += 1){
+      const entry = seriesEntries[seriesIndex];
+      fitSets.push({ ...entry, fits: prepareDistributionFits(entry.values) });
+      if(!(await checkpoint())){ return false; }
+    }
     // Density mode does not use cumulative frequency tables; do not gate PDF overlays
     // on histogram-only frequency mode in that case.
     const includePdf = !!state.distributionSettings.showPdf
@@ -6720,6 +6792,7 @@
       const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
       const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
       histDebug('Debug: hist tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxYLabelWidth,bins,binWidth});
+      if(!(await checkpoint())){ return false; }
       if(refinedX===xTickTarget && refinedY===yTickTarget){
         break;
       }
@@ -7247,7 +7320,7 @@
   }
 
   // Public API
-  hist.draw = function drawHistPublic(options = {}){
+  hist.draw = async function drawHistPublic(options = {}){
     const nextReason = options?.reason || 'hist-draw';
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('hist', { ...(options || {}), tabId: options?.tabId || getHistProjectionTabId() || null, reason: nextReason })){
       histDebug('Debug: hist draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getHistProjectionTabId() || null });
@@ -7263,7 +7336,7 @@
       });
       return;
     }
-    const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+    const result = await draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
     captureHistSessionStateFromActive(getHistProjectionSession({ reason: 'hist-projection-mutation' }), {
       reason: nextReason,
       syncControls: false,
@@ -7274,7 +7347,7 @@
   hist.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getHistProjectionTabId() || null;
     try{ hist.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'hist-draw-cancel'); }catch(_err){}
-    resolveHistOverlay(meta?.reason || 'cancelled');
+    resolveHistOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'hist',
       tabId,
@@ -7423,7 +7496,7 @@
         managerSession.updatedAt = Date.now();
       }
     }
-    const runHistDrawCycle = (cycleOptions = {}) => {
+    const runHistDrawCycle = async (cycleOptions = {}) => {
       const ownerTabId = String(cycleOptions?.tabId || getHistActiveTabId() || '').trim();
       const activeTabId = getHistActiveTabId();
       if(ownerTabId && activeTabId && ownerTabId !== activeTabId){
@@ -7432,17 +7505,17 @@
           activeTabId,
           reason: cycleOptions?.reason || 'hist-draw-frame'
         });
-        resolveHistOverlay(cycleOptions?.reason || 'inactive-owner');
+        resolveHistOverlay({ reason: cycleOptions?.reason || 'inactive-owner', tabId: ownerTabId || null });
         return;
       }
       let status = 'complete';
       try{
-        draw();
+        await draw(cycleOptions, getHistSessionForDrawOptions(cycleOptions, { reason: cycleOptions?.reason || 'hist-draw-cycle', create: false }));
       }catch(err){
         status = 'error';
         throw err;
       }finally{
-        resolveHistOverlay(status);
+        resolveHistOverlay({ reason: status, status, tabId: ownerTabId || null });
       }
     };
     const scheduleHistBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -7451,11 +7524,11 @@
     const scheduleHistInstrumented = (opts) => {
       const nextOpts = sanitizeHistDrawOptions(opts || {});
       nextOpts.tabId = nextOpts.tabId || getHistActiveTabId() || undefined;
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-      if(nextOpts.force && !suppressOverlay){
-        markHistOverlayPending(overlayReason);
-        forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
+      const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'manual-render' : 'schedule');
+      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
+        markHistOverlayPending({ reason: overlayReason, tabId: nextOpts.tabId || null });
+        forceHistOverlay(overlayReason, { tabId: nextOpts.tabId || null, message: 'Rendering histogram...' });
       }else if(!suppressOverlay){
         queueHistOverlay(overlayReason);
       }

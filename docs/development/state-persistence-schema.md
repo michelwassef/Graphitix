@@ -91,7 +91,7 @@ Document lifecycle state is shared by the web and Electron builds. `sessionFileH
 
 Autosave is off by default and persisted in `localStorage` under `graphitix.autosave.enabled`. When Autosave is on, there are user-originated changes, and the current `.graph` file has a writable target, `Main.sessionActions.autosaveWorkspace` writes through the same archive save path as manual save. If there is no writable target, Autosave still keeps the private recovery snapshot current without silently overwriting a user file.
 
-Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive snapshot using `Main.sessionActions.buildWorkspaceArchiveBlob`, so recovery uses the same serialization contract as manual save. Browser builds store the private archive in IndexedDB. Electron builds store `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through preload IPC and atomic main-process writes. Recovery scheduling is revision-aware: intervals only write when `sessionUserDirty` is true and `sessionRevision` has advanced since the last successful snapshot, and large payload signatures use a longer debounce before archive construction.
+Crash recovery is separate from Autosave. `Main.documentState` writes a private `.graph` archive from canonical tab payload/layout/UI state through `Main.sessionActions.buildWorkspaceArchiveBlob`. Lean recovery skips live DOM projection capture when that canonical state is current, and falls back to capture only when a tab is still payload-dirty. Browser builds store the Blob in IndexedDB. Electron writes `active-recovery.graph` plus metadata under `app.getPath('userData')/recovery` through binary preload IPC and atomic main-process writes. Recovery scheduling is revision-aware and rejects a completed checkpoint if `sessionRevision` changed while it was serialized.
 
 Snapshot capture policy is centralized in `js/main/snapshotPolicy.js` and consumed by `Main.sessionActions` + `Main.documentState`. This keeps manual save, autosave, and recovery behavior consistent:
 
@@ -103,16 +103,18 @@ Snapshot capture policy is centralized in `js/main/snapshotPolicy.js` and consum
   - preserve active-tab metadata only where possible
 - Recovery (`lifecycle-checkpoint` with recovery mode):
   - default lean capture
-  - optional **Hi-Fi recovery** opt-in (`localStorage` key `graphitix.recovery.highFidelity.enabled` or toolbar toggle)
+  - optional **Hi-Fi recovery** opt-in through `localStorage` key `graphitix.recovery.highFidelity.enabled`
   - in Hi-Fi mode, recovery upgrades to render-cache capture only when the workspace is idle (idle gate is policy controlled), so crash restore can rehydrate visuals/stats faster without adding heavy capture on every active edit event
+  - checkpoint, worker-transfer, worker-build, serialization, and storage timings are available from `Main.documentState.getRecoveryPerformance()`
 
 Recovery snapshots are eligible only when the workspace has at least one graph tab with meaningful data according to the same `Main.session.graphTabsHaveData()` / `tabHasTableData()` heuristics used by unload prompts. Explicit discard paths clear the private recovery snapshot before continuing, so discarded changes are not offered again on the next launch.
 
 ## 3. Session Payload Shape (Archive-Level)
 
 `Main.sessionActions.buildScopeSnapshot(context, 'workspace', options)` is the single
-canonical session snapshot builder. It funnels every tab through `Main.session.enrichTabSnapshotForArchive`
-(clone + `Shared.graphSizing.enrich/merge` for non-box types) and returns:
+canonical session snapshot builder. Manual archives funnel every tab through
+`Main.session.enrichTabSnapshotForArchive`. Lean recovery passes canonical owner state directly to the
+archive worker, which performs cloning and runtime-id rehoming off the main thread.
 
 ```js
 {

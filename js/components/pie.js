@@ -959,6 +959,9 @@ let state = {
     if(!shaped){
       return false;
     }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
+      return false;
+    }
     const sourceOptions = options && typeof options === 'object' ? options : {};
     const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
       ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'pie-session-draw' })
@@ -1527,7 +1530,7 @@ let state = {
     }
     const scheduleOptions = Object.assign({}, options, {
       tabId: ownerTabId || options.tabId || undefined,
-      viewOnly: true,
+      viewOnly: options.structural === true ? false : true,
       reason: nextReason,
       source: 'pie-view-refresh',
       forceDraw: lifecycleMeta.forceDraw === true,
@@ -4817,7 +4820,10 @@ let state = {
             syncPieStartAngleToolbarVisibility();
           }
           syncPieRuntimeControlsFromDom(session);
-          schedulePieViewRefresh(reason, { tabId: session?.tabId || undefined });
+          const drawOptions = el === pieChartType
+            ? Shared.componentLifecycle.createStructuralDrawOptions('pie-chart-type-change', { tabId: session?.tabId || undefined })
+            : { tabId: session?.tabId || undefined };
+          schedulePieViewRefresh(reason, drawOptions);
         });
       });
     });
@@ -5782,7 +5788,21 @@ let state = {
     updatePieColumns(Array.isArray(header) ? header : [], matrix);
   }
 
-  function draw(drawOptions = {}){
+  const pieOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'pie',
+    message: 'Rendering proportion graph...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 1,
+      startCol: 0,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
+    getTabId: () => getPieProjectionTabId() || null,
+    getHost: () => getPieNodeById('pieGraphPanel')?.querySelector?.('.svgbox') || getPieNodeById('pieGraphPanel')
+  });
+
+  async function draw(drawOptions = {}){
     const drawSession = ensurePieSessionOwnershipShape(getPieSessionForDrawOptions(drawOptions, { reason: drawOptions?.reason || 'pie-draw-session' }));
     if(drawSession && !isPieSessionActiveOrActivating(drawSession)){
       drawSession.state.drawPending = true;
@@ -5794,6 +5814,15 @@ let state = {
       reason: drawOptions?.reason || 'pie-draw-bind'
     }, { apply: false });
     const drawTabId = drawSession?.tabId || drawOptions?.tabId || getPieProjectionTabId() || null;
+    const execution = Shared.jobs?.createExecutionContext?.({ component: 'pie', tabId: drawTabId || '', kind: 'graph', budgetMs: 10 }) || null;
+    const checkpoint = async () => {
+      try{ await execution?.checkpoint?.(); }
+      catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     const plotEl = getPieNodeById('piePlot', drawTabId) || getPieNodeById('piePlot');
     if(!plotEl){
       if(drawSession){
@@ -5862,6 +5891,9 @@ let state = {
       const segmentLabels=[];
       const segmentValues=[];
       for(let r=1;r<data.length;r++){
+        if((r & 255) === 0 && !(await checkpoint())){
+          return false;
+        }
         const row=data[r];
         const seg=row[0];
         if(seg){
@@ -6212,7 +6244,11 @@ let state = {
       const xLabels=[];
       pieDebug('Debug: pie stacked layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
       let stackedXTickCount = 0;
-      barHeaders.forEach((bh,j)=>{
+      for(let j = 0; j < barHeaders.length; j += 1){
+        if((j & 15) === 0 && !(await checkpoint())){
+          return false;
+        }
+        const bh = barHeaders[j];
         let y=margin.top+chartHeight;
         const total=barTotals[j]||0;
         segmentLabels.forEach((lab,i)=>{
@@ -6269,7 +6305,7 @@ let state = {
         stackedXTickCount+=1;
         (axisLayer||svg).appendChild(lbl);
         xLabels.push(lbl);
-      });
+      }
       pieDebug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount });
       chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       // Legend now rendered inside the SVG so it can be repositioned.
@@ -6705,7 +6741,7 @@ let state = {
     }
     return true;
   }
-  pie.draw = function drawPiePublic(options = {}){
+  pie.draw = async function drawPiePublic(options = {}){
     const nextReason = options?.reason || 'pie-draw';
     const drawSession = ensurePieSessionOwnershipShape(getPieSessionForDrawOptions(options, { reason: nextReason }));
     if(drawSession && !isPieSessionActiveOrActivating(drawSession)){
@@ -6719,12 +6755,32 @@ let state = {
       return;
     }
     Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: 'pie', tabId: options?.tabId || getPieProjectionTabId() || null, action: 'draw-executed', reason: nextReason, details: { source: 'pie.draw' } });
-    const result = draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
+    const overlayTabId = drawSession?.tabId || options?.tabId || null;
+    const overlayRequested = (options?.force === true || options?.forceOverlay === true) && options?.silentOverlay !== true;
+    const overlayForced = overlayRequested && !pieOverlayController?.isActive?.({ tabId: overlayTabId })
+      ? pieOverlayController?.force(nextReason, { tabId: overlayTabId })
+      : false;
+    if(overlayForced){
+      await Shared.jobs?.nextFrame?.();
+      await Shared.jobs?.nextFrame?.();
+    }
+    let result;
+    try{
+      result = await draw({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
+    }finally{
+      pieOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || options?.tabId || null });
+    }
     capturePieSessionStateFromActive(getPieProjectionSession({ reason: 'pie-projection-mutation' }), {
       reason: nextReason,
       captureStats: false
     });
     return result;
+  };
+  pie.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || getPieProjectionTabId() || null;
+    try{ pie.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'pie-draw-cancel'); }catch(_err){}
+    pieOverlayController?.resolve({ reason: meta?.reason || 'cancelled', tabId });
+    return true;
   };
   function ensurePieDomBindings(tabLike, meta = {}){
     if(typeof Shared.workspaceTabs?.ensureActiveDomBindings !== 'function'){
@@ -6931,17 +6987,48 @@ let state = {
     initControls();
     initNotes();
     primePieStatsComputation({ matrix: getPieStatsDataMatrix(), reason: 'init' });
+    const runPieDrawCycle = async (drawOptions = {}) => {
+      try{
+        return await draw(drawOptions);
+      }finally{
+        pieOverlayController?.resolve({ reason: 'complete', tabId: drawOptions?.tabId || getPieProjectionTabId() || null });
+      }
+    };
     const schedulePieBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
-      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(pie, 'pie', draw, { reason: 'pie-draw-frame' })
-      : draw;
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(pie, 'pie', runPieDrawCycle, { reason: 'pie-draw-frame' })
+      : runPieDrawCycle;
+    const schedulePieInstrumented = drawOptions => {
+      const nextOptions = drawOptions || {};
+      if(nextOptions.force === true || nextOptions.forceOverlay === true || nextOptions.importTransactionFinal === true){
+        pieOverlayController?.force(nextOptions.reason || 'render', {
+          tabId: nextOptions.tabId || getPieProjectionTabId() || null,
+          message: 'Rendering proportion graph...'
+        });
+      }
+      const runSchedule = () => schedulePieBase(nextOptions);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: pie,
+        componentKey: 'pie',
+        options: nextOptions,
+        tabId: nextOptions.tabId || getPieProjectionTabId() || null,
+        reason: nextOptions.reason || 'render',
+        overlayController: pieOverlayController,
+        delayForOverlay: nextOptions.silentOverlay !== true,
+        debugLog: pieDebug,
+        run: runSchedule
+      })){
+        return true;
+      }
+      return runSchedule();
+    };
     state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'pie',
           debugLabel: 'pie',
           getTabId: () => getPieProjectionTabId() || null,
-          scheduleRaw: schedulePieBase
+          scheduleRaw: schedulePieInstrumented
         })
-      : schedulePieBase;
+      : schedulePieInstrumented;
     ensurePieFontEventListener();
     pieDebug('Debug: pie scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(schedulePieLayoutDraw);

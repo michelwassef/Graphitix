@@ -280,8 +280,8 @@
       return;
     }
     const scheduleOptions = Object.assign({}, options, {
-      viewOnly: true,
-      silentOverlay: true,
+      viewOnly: options.structural === true ? false : true,
+      silentOverlay: options.structural === true ? false : true,
       reason: nextReason,
       source: 'line-view-refresh',
       forceDraw: lifecycleMeta.forceDraw === true,
@@ -4577,6 +4577,9 @@
 
   function scheduleLineDrawForSession(session, options = {}){
     const target = ensureLineSessionOwnershipShape(session || getLineActiveSessionForState());
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(target, options)){
+      return false;
+    }
     const scheduler = getLineSessionDrawScheduler(target);
     if(typeof scheduler !== 'function'){
       return undefined;
@@ -12054,7 +12057,7 @@
   }
 
   // PART: DRAW
-  function drawLine3d(sessionOrOptions = {}, maybeOptions = {}){
+  async function drawLine3d(sessionOrOptions = {}, maybeOptions = {}){
     const invocation = resolveLineInvocationSession(sessionOrOptions, maybeOptions);
     const drawOpts = invocation.options || {};
     if(invocation.session && !isLineSessionActive(invocation.session)){
@@ -12065,6 +12068,23 @@
       return false;
     }
     bindLineInvocationSession(invocation.session, drawOpts.reason || 'line-3d-draw', { syncControls: false });
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'line',
+      tabId: invocation.session?.tabId || drawOpts.tabId || getLineProjectionTabId() || '',
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async () => {
+      try{
+        await execution?.checkpoint?.();
+      }catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){
+          return false;
+        }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     try{
       const debugStamp = Date.now();
       console.debug('Debug: drawLine3d start', { debugStamp });
@@ -12177,6 +12197,9 @@
       let zMinRaw = Infinity;
       let zMaxRaw = -Infinity;
       for(let r = getLine3dDataStartRow(matrix); r < matrix.length; r += 1){
+        if((r & 1023) === 0 && !(await checkpoint())){
+          return false;
+        }
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
         for(let s = 0; s < seriesCount; s += 1){
           const startCol = getLine3dDatasetStartCol(s);
@@ -12761,7 +12784,8 @@
       const markerLayer = global.document.createElementNS(NS, 'g');
       svg3.appendChild(markerLayer);
 
-      renderQueue.forEach((entry, i) => {
+      for(let i = 0; i < renderQueue.length; i += 1){
+        const entry = renderQueue[i];
         const s = entry.series;
         const color = colors[entry.index] || borderColor || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
         const styleOverride = lineStylesState.series?.[s.name] || {};
@@ -12793,6 +12817,9 @@
         let pathStr = '';
         let started = false;
         for(let p = 0; p < entry.projectedPoints.length; p += 1){
+          if((p & 511) === 0 && !(await checkpoint())){
+            return false;
+          }
           const proj = entry.projectedPoints[p];
           if(proj && Number.isFinite(proj.x) && Number.isFinite(proj.y)){
             if(!started){
@@ -12822,6 +12849,9 @@
           if(seriesDotSize > 0){
             const markerEntries = [];
             for(let p = 0; p < entry.projectedPoints.length; p += 1){
+              if((p & 511) === 0 && !(await checkpoint())){
+                return false;
+              }
               const proj = entry.projectedPoints[p];
               const pt = s.points[p];
               if(!proj || !pt){
@@ -12851,7 +12881,10 @@
           }
           seriesElems[s.seriesIndex] = { path, mGroup };
         }
-      });
+      }
+      if(!(await checkpoint())){
+        return false;
+      }
 
       svg3.appendChild(frontFrameLayer);
 
@@ -12998,7 +13031,7 @@
     }
   }
 
-  function drawLine(sessionOrOptions = {}, maybeOptions = {}){
+  async function drawLine(sessionOrOptions = {}, maybeOptions = {}){
     const invocation = resolveLineInvocationSession(sessionOrOptions, maybeOptions);
     const drawOpts = invocation.options || {};
     if(invocation.session && !isLineSessionActive(invocation.session)){
@@ -13009,6 +13042,23 @@
       return false;
     }
     bindLineInvocationSession(invocation.session, drawOpts.reason || 'line-draw', { syncControls: false });
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'line',
+      tabId: invocation.session?.tabId || drawOpts.tabId || getLineProjectionTabId() || '',
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async () => {
+      try{
+        await execution?.checkpoint?.();
+      }catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){
+          return false;
+        }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     try{
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
@@ -13020,8 +13070,7 @@
       const lineThemeState = getLineThemeState(invocation.session);
       const lineStylesState = getLineStylesState(invocation.session);
       if(controls.viewMode === '3d' || controls.tableFormat === '3d'){
-        drawLine3d(invocation.session, drawOpts);
-        return;
+        return await drawLine3d(invocation.session, drawOpts);
       }
       if(refs.plot){
         refs.plot.style.aspectRatio = '';
@@ -13156,6 +13205,9 @@
       console.debug('Debug: line series names resolved',{ seriesNames: series.map(s=>s.name), totalSeries });
       let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
       for(let r=1;r<data.length;r++){
+        if((r & 1023) === 0 && !(await checkpoint())){
+          return false;
+        }
         const row=Array.isArray(data[r])?data[r]:[];
         const xv=parseFloat(row[xIndex]);
         const hasX=Number.isFinite(xv);
@@ -13339,6 +13391,9 @@
       ensureLineLabelColors(labelsUsed);
       lineLabelsState = patchLineLabelsState(invocation.session, { colors: lineLabelColors }, { reason: 'line-2d-label-colors-sync' });
       const colors=seriesWithData.map((s,i)=>lineLabelsState.colors?.[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      if(!(await checkpoint())){
+        return false;
+      }
       const seriesShapes = seriesWithData.map((s,i)=>{
         const baseIndex = series.indexOf(s);
         const fallbackIndex = baseIndex >= 0 ? baseIndex : i;
@@ -14669,7 +14724,8 @@
         return el;
       };
       const seriesElems=[];
-      seriesWithData.forEach((s,i)=>{
+      for(let i = 0; i < seriesWithData.length; i += 1){
+        const s = seriesWithData[i];
         const color=colors[i];
         const styleOverride = lineStylesState.series?.[s.name] || {};
         const seriesAlpha = styleOverride && styleOverride.markerAlpha != null
@@ -14769,7 +14825,11 @@
           errorGroup.setAttribute('stroke-linecap','square');
           errorGroup.setAttribute('stroke-opacity',1-(seriesLineAlpha != null ? seriesLineAlpha : alpha));
         }
-        s.points.forEach(pt=>{
+        for(let pointIndex = 0; pointIndex < s.points.length; pointIndex += 1){
+          if((pointIndex & 511) === 0 && !(await checkpoint())){
+            return false;
+          }
+          const pt = s.points[pointIndex];
           if(pt){
             const xv=logX?Math.log10(pt.x):pt.x;
             const yv=logY?Math.log10(pt.y):pt.y;
@@ -14839,7 +14899,7 @@
               currentSegment=null;
             }
           }
-        });
+        }
         if(currentSegment){
           segments.push(currentSegment);
           currentSegment=null;
@@ -14948,7 +15008,10 @@
           }
         }
         seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,trendPath:trendPathEl,forecastPath:forecastPathEl,areaPath:areaPathEl});
-      });
+      }
+      if(!(await checkpoint())){
+        return false;
+      }
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
       const legendRenderer=legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
@@ -15339,7 +15402,7 @@
         if(nextMode !== lineDisplayMode){
           lineDisplayMode = nextMode;
           console.debug('Debug: line display mode change',{ mode: lineDisplayMode });
-          scheduleLineViewRefresh('line-display-mode-change');
+          scheduleLineViewRefresh('line-display-mode-change', Shared.componentLifecycle.createStructuralDrawOptions('line-display-mode-change'));
         }
       });
     }
@@ -16376,35 +16439,41 @@
           onProcessed: info => {
             console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
           },
+          onBeforeCompleted: result => {
+            const prismMeta = result?.prismMeta;
+            if(prismMeta?.kind !== 'line'){
+              return;
+            }
+            const replicateCount = clampLineReplicateCount(prismMeta.replicatesCount || LINE_MIN_REPLICATES);
+            const groupLabels = Array.isArray(prismMeta.groupLabels) ? prismMeta.groupLabels : null;
+            if(getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d'){
+              exitLine3dMode({ skipDraw: true });
+            }
+            lineReplicates = replicateCount;
+            if(lineReplicates > LINE_MIN_REPLICATES){
+              lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+            }
+            if(groupLabels?.length){
+              lineSeriesGroupLabels = groupLabels.slice();
+              lineLegendLayoutInfo.entryCount = groupLabels.length;
+            }
+            if(refs.replicatesInput){
+              refs.replicatesInput.value = String(lineReplicates);
+            }
+            updateLineReplicateModeControls();
+            if(getActiveLineHotManager()){
+              applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-import-prism' });
+            }
+          },
           onCompleted: () => {
             const renderReason = 'import-load';
             markLineOverlayPending(renderReason);
             forceLineOverlay(renderReason, { message: 'Rendering line graph...' });
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolveLineOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
-        const prismMeta = result?.prismMeta;
-        if(prismMeta?.kind === 'line'){
-          const replicateCount = clampLineReplicateCount(prismMeta.replicatesCount || LINE_MIN_REPLICATES);
-          const groupLabels = Array.isArray(prismMeta.groupLabels) ? prismMeta.groupLabels : null;
-          if(getLineViewState().viewMode === '3d' || refs.replicateMode?.value === '3d'){
-            exitLine3dMode({ skipDraw: true });
-          }
-          lineReplicates = replicateCount;
-          if(lineReplicates > LINE_MIN_REPLICATES){
-            lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
-          }
-          if(groupLabels && groupLabels.length){
-            lineSeriesGroupLabels = groupLabels.slice();
-            lineLegendLayoutInfo.entryCount = groupLabels.length;
-          }
-          if(refs.replicatesInput){
-            refs.replicatesInput.value = String(lineReplicates);
-          }
-          updateLineReplicateModeControls();
-          if(getActiveLineHotManager()){
-            applyLineTableFormatToHot(getActiveLineHotManager(), { reason: 'line-import-prism' });
-          }
-        }
         if(!result && forcedOverlay){
           resolveLineOverlay('file-import-empty');
         }
@@ -16659,15 +16728,15 @@
       }
     });
 
-    const runLineDrawCycle = (drawOpts = {}) => {
+    const runLineDrawCycle = async (drawOpts = {}) => {
       let status = 'complete';
       try{
-        drawLine(projectedLineSession || getLineActiveSessionForState(), drawOpts);
+        await drawLine(projectedLineSession || getLineActiveSessionForState(), drawOpts);
       }catch(err){
         status = 'error';
         throw err;
       }finally{
-        resolveLineOverlay(status);
+        resolveLineOverlay({ reason: status, status, tabId: drawOpts?.tabId || null });
       }
     };
     const scheduleLineBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -16675,11 +16744,11 @@
       : runLineDrawCycle;
     const scheduleLineInstrumented = (opts) => {
       const nextOpts = opts || {};
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
-      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-      if(nextOpts.force && !suppressOverlay){
-        markLineOverlayPending(overlayReason);
-        forceLineOverlay(overlayReason, { message: 'Rendering line graph...' });
+      const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'manual-render' : 'schedule');
+      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
+        markLineOverlayPending({ reason: overlayReason, tabId: nextOpts.tabId || getLineProjectionTabId() || null });
+        forceLineOverlay(overlayReason, { tabId: nextOpts.tabId || getLineProjectionTabId() || null, message: 'Rendering line graph...' });
       }else if(!suppressOverlay){
         queueLineOverlay(overlayReason);
       }
@@ -17432,7 +17501,7 @@
   line.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getLineProjectionTabId() || null;
     try{ line.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'line-draw-cancel'); }catch(_err){}
-    resolveLineOverlay(meta?.reason || 'cancelled');
+    resolveLineOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'line',
       tabId,

@@ -196,13 +196,13 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
     expect(msg.result.compressedCsvCount).toBe(0);
   });
 
-  test('tab-scoped workspace id remapping in layout', async () => {
+  test('tab-scoped workspace id remapping covers payload and layout in the worker', async () => {
     const msg = await send(ctx, '13', 'build-archive', {
       tabs: [{
         title: 'T',
         type: 'scatter',
         runtimeTabId: 'workspace-42',
-        payload: null,
+        payload: { type: 'scatter', data: [], ownerId: 'workspace-99', panelId: 'workspace-99-plot' },
         layout: { panelId: 'workspace-99-panel' }
       }]
     });
@@ -212,6 +212,9 @@ describe('graphArchive.worker — utility logic via build-archive', () => {
     const layoutStr = await zip.file(manifest.tabs[0].files.layout).async('string');
     const layout = JSON.parse(layoutStr);
     expect(layout.panelId).toBe('workspace-42-panel');
+    const payload = JSON.parse(await zip.file(manifest.tabs[0].files.payload).async('string'));
+    expect(payload.ownerId).toBe('workspace-42');
+    expect(payload.panelId).toBe('workspace-42-plot');
   });
 
   test('preview file is included when previewMarkup is provided', async () => {

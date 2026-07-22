@@ -375,7 +375,6 @@
       timers: {
         scheduleDraw: null,
         pendingDrawOptions: null,
-        overlayTimeout: null,
         rotationActive: false,
         rotationPending: false,
         rotationViewport: null
@@ -418,7 +417,6 @@
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'scheduleDraw')){ session.timers.scheduleDraw = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'pendingDrawOptions')){ session.timers.pendingDrawOptions = null; }
-    if(!Object.prototype.hasOwnProperty.call(session.timers, 'overlayTimeout')){ session.timers.overlayTimeout = null; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationActive')){ session.timers.rotationActive = false; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationPending')){ session.timers.rotationPending = false; }
     if(!Object.prototype.hasOwnProperty.call(session.timers, 'rotationViewport')){ session.timers.rotationViewport = null; }
@@ -548,6 +546,9 @@
   function scheduleSurfaceDrawForSession(session = null, options = {}){
     const shaped = ensureSurfaceSessionOwnershipShape(session);
     if(!shaped){
+      return false;
+    }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
       return false;
     }
     const sourceOptions = options && typeof options === 'object' ? options : {};
@@ -765,7 +766,6 @@
       shaped.managers.fileHandle = state.fileHandle || shaped.managers.fileHandle || null;
       shaped.managers.autoDraw = surfaceAutoDrawManager || shaped.managers.autoDraw || null;
       shaped.timers.scheduleDraw = state.scheduleDraw || shaped.timers.scheduleDraw || null;
-      shaped.timers.overlayTimeout = _surfaceOverlayTimeout || shaped.timers.overlayTimeout || null;
       shaped.cache.facePool = Array.isArray(state._facePool) ? state._facePool.slice() : [];
       shaped.cache.pointPool = Array.isArray(state._pointPool) ? state._pointPool.slice() : [];
       shaped.cache.facePoolUsed = Number(state._facePoolUsed) || 0;
@@ -786,32 +786,6 @@
       return getSurfaceSession(tabLike, { ...(opts || {}), reason: opts.reason || 'surface-overlay-session' }, { create: opts.create === true });
     }
     return getActiveSurfaceSessionForState();
-  }
-
-  function setSurfaceOverlayTimeoutForSession(session = null, timeoutHandle = null){
-    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
-    if(!shaped){ return null; }
-    shaped.timers.overlayTimeout = timeoutHandle || null;
-    if(isSurfaceSessionActiveOrActivating(shaped)){
-      _surfaceOverlayTimeout = timeoutHandle || null;
-    }
-    shaped.updatedAt = Date.now();
-    return shaped;
-  }
-
-  function clearSurfaceOverlayTimeoutForSession(session = null){
-    const shaped = ensureSurfaceSessionOwnershipShape(session || getActiveSurfaceSessionForState());
-    if(!shaped){ return null; }
-    const timeoutHandle = shaped.timers?.overlayTimeout || (isSurfaceSessionActiveOrActivating(shaped) ? _surfaceOverlayTimeout : null);
-    if(timeoutHandle){
-      try{ Shared.componentLifecycle?.clearComponentTimeout?.(surface, timeoutHandle); }catch(_err){}
-    }
-    shaped.timers.overlayTimeout = null;
-    if(isSurfaceSessionActiveOrActivating(shaped)){
-      _surfaceOverlayTimeout = null;
-    }
-    shaped.updatedAt = Date.now();
-    return shaped;
   }
 
   function captureSurfaceNotesMirror(){
@@ -860,7 +834,6 @@
     if(!state.root && shaped.root){
       state.root = shaped.root;
     }
-    _surfaceOverlayTimeout = shaped.timers?.overlayTimeout || null;
     shaped.updatedAt = Date.now();
     return true;
   }
@@ -1955,9 +1928,6 @@
     node.__surfaceControlHandlers[registryKey] = wrapped;
     attachListener(node, eventName, wrapped, options);
   }
-  const SURFACE_OVERLAY_TIMEOUT_MS = 30000;
-  let _surfaceOverlayTimeout = null;
-
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
@@ -1979,28 +1949,8 @@
 
   function markSurfaceOverlayPending(reason, options = {}){
     const session = resolveSurfaceOverlaySession(options);
-    surfaceOverlayController?.markPending(reason);
+    surfaceOverlayController?.markPending({ reason, tabId: session?.tabId || options?.tabId || null });
     debugLog('Debug: surface overlay pending flagged', { reason: reason || 'data-change' });
-    try{
-      clearSurfaceOverlayTimeoutForSession(session);
-      const timeoutTabId = session?.tabId || getSurfaceProjectionTabId() || null;
-      const timeoutHandle = Shared.componentLifecycle?.scheduleComponentTimeout?.(surface, 'surface', {
-        tabId: timeoutTabId,
-        reason: reason || 'surface-overlay-timeout'
-      }, () => {
-        try{
-          const timedOutSession = timeoutTabId
-            ? getSurfaceSession(timeoutTabId, { tabId: timeoutTabId, reason: 'surface-overlay-timeout' }, { create: false })
-            : session;
-          setSurfaceOverlayTimeoutForSession(timedOutSession, null);
-          if(!timedOutSession || isSurfaceSessionActiveOrActivating(timedOutSession)){
-            surfaceOverlayController?.resolve('timeout');
-          }
-        }catch(e){}
-        debugLog('Debug: surface overlay auto-resolved due to timeout', { reason, tabId: timeoutTabId });
-      }, SURFACE_OVERLAY_TIMEOUT_MS);
-      setSurfaceOverlayTimeoutForSession(session, timeoutHandle || null);
-    }catch(e){ /* ignore */ }
   }
 
   function queueSurfaceOverlay(reason, options = {}){
@@ -2011,9 +1961,13 @@
     const opts = options && typeof options === 'object' ? options : {};
     const session = resolveSurfaceOverlaySession(opts);
     if(opts.allowInactive === true || !session || isSurfaceSessionActiveOrActivating(session)){
-      surfaceOverlayController?.resolve(reason);
+      surfaceOverlayController?.resolve({
+        reason: typeof reason === 'object' ? (reason.reason || reason.source) : reason,
+        status: typeof reason === 'object' ? reason.status : undefined,
+        error: typeof reason === 'object' ? reason.error : undefined,
+        tabId: session?.tabId || opts.tabId || (typeof reason === 'object' ? reason.tabId : null) || null
+      });
     }
-    try{ clearSurfaceOverlayTimeoutForSession(session); }catch(e){}
   }
 
   function forceSurfaceOverlay(reason, options = {}){
@@ -2546,7 +2500,8 @@
     return state.hot;
   }
 
-  function parseSurfaceTable(){
+  async function parseSurfaceTable(options = {}){
+    const checkpoint = typeof options.checkpoint === 'function' ? options.checkpoint : null;
     const hot = state.hot;
     if(!hot){
       return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
@@ -2581,6 +2536,9 @@
     });
     const startRow = headerLooksText ? 1 : 0;
     for(let rowIndex = startRow; rowIndex < data.length; rowIndex += 1){
+      if(checkpoint && rowIndex > startRow && (rowIndex - startRow) % 1024 === 0 && !(await checkpoint('parse-rows'))){
+        return { points: [], faces: [], ranges: null, stats: { skipped, cancelled: true }, cancelled: true };
+      }
       const row = data[rowIndex];
       if(!row){ continue; }
       // Treat empty/whitespace cells as missing (skip) instead of coercing to 0
@@ -2650,6 +2608,9 @@
           }
           faces.push({ vertices: [v00, v10, v01], value: (v00.z + v10.z + v01.z) / 3 });
           faces.push({ vertices: [v11, v01, v10], value: (v11.z + v01.z + v10.z) / 3 });
+        }
+        if(checkpoint && yi > 0 && yi % 64 === 0 && !(await checkpoint('build-faces'))){
+          return { points: [], faces: [], ranges: null, stats: { skipped, cancelled: true }, cancelled: true };
         }
       }
     }
@@ -3146,7 +3107,7 @@
         const value = interpolationSelect.value;
         state.settings.interpolation = INTERPOLATION_OPTIONS[value] ? value : 'grid';
         debugLog('Debug: surface interpolation updated', { value: state.settings.interpolation });
-        scheduleActiveSurfaceDraw({ reason: 'surface-interpolation-change' });
+        scheduleActiveSurfaceDraw(Shared.componentLifecycle.createStructuralDrawOptions('surface-interpolation-change'));
       });
     }
     if(state.controls.fontSize){
@@ -3255,6 +3216,9 @@
             const renderReason = 'import-load';
             markSurfaceOverlayPending(renderReason);
             forceSurfaceOverlay(renderReason, { message: 'Rendering surface plot...' });
+          },
+          onOwnerInactive: (_result, meta) => {
+            surfaceOverlayController?.resolve({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         }).then(result => {
           if(!result && forcedOverlay && isSurfaceSessionActiveOrActivating(importSession)){
@@ -3299,11 +3263,11 @@
     return drawSurface(session || getSurfaceSessionForDrawOptions(options), options);
   }
 
-  function runSurfaceDrawCycle(options = {}){
+  async function runSurfaceDrawCycle(options = {}){
     const drawSession = getSurfaceSessionForDrawOptions(options, { reason: options?.reason || 'surface-draw-cycle-session' });
     let status = 'complete';
     try{
-      draw(options, drawSession);
+      await draw(options, drawSession);
     }catch(err){
       status = 'error';
       throw err;
@@ -3318,7 +3282,7 @@
     }
   }
 
-  function drawSurface(session = null, options = {}){
+  async function drawSurface(session = null, options = {}){
     const drawSession = ensureSurfaceSessionOwnershipShape(session || getSurfaceSessionForDrawOptions(options));
     if(drawSession && !isSurfaceSessionActiveOrActivating(drawSession)){
       drawSession.state.drawPending = true;
@@ -3337,7 +3301,25 @@
       debugLog('Debug: surface draw skipped', { reason: 'missing-svg' });
       return false;
     }
-    const parsed = parseSurfaceTable();
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'surface',
+      tabId: drawSession?.tabId || getSurfaceProjectionTabId() || null,
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async () => {
+      try{
+        await execution?.checkpoint?.();
+        return !execution?.signal?.aborted;
+      }catch(err){
+        if(execution?.signal?.aborted){ return false; }
+        throw err;
+      }
+    };
+    const parsed = await parseSurfaceTable({ checkpoint });
+    if(parsed.cancelled){
+      return false;
+    }
     if(!parsed.points.length){
       while(svg.firstChild){ svg.removeChild(svg.firstChild); }
       renderSurfaceEmptyPlotNotice();
@@ -3676,7 +3658,8 @@
         return { projected, depth, value: face.value };
       }).sort((a, b) => a.depth - b.depth);
       state._facePoolUsed = 0;
-      projectedFaces.forEach(face => {
+      for(let faceIndex = 0; faceIndex < projectedFaces.length; faceIndex += 1){
+        const face = projectedFaces[faceIndex];
         let polygon = state._facePool[state._facePoolUsed];
         if(!polygon){
           polygon = doc.createElementNS(NS, 'polygon');
@@ -3692,7 +3675,10 @@
         faceGroup.appendChild(polygon);
         polygon.style.display = '';
         state._facePoolUsed += 1;
-      });
+        if(faceIndex > 0 && faceIndex % 512 === 0 && !(await checkpoint('render-faces'))){
+          return false;
+        }
+      }
       // hide any unused polygons but keep in pool
       for(let i = state._facePoolUsed; i < state._facePool.length; i += 1){
         const extra = state._facePool[i];
@@ -3721,7 +3707,8 @@
       }).sort((a, b) => a.depth - b.depth);
       const radius = Math.max(2.5, Math.min(6, Math.sqrt(Math.max(plotWidth * plotHeight / Math.max(projectedPoints.length * 45, 1), 4))));
       state._pointPoolUsed = 0;
-      projectedPoints.forEach(entry => {
+      for(let pointIndex = 0; pointIndex < projectedPoints.length; pointIndex += 1){
+        const entry = projectedPoints[pointIndex];
         let circle = state._pointPool[state._pointPoolUsed];
         if(!circle){
           circle = doc.createElementNS(NS, 'circle');
@@ -3739,7 +3726,10 @@
         pointGroup.appendChild(circle);
         circle.style.display = '';
         state._pointPoolUsed += 1;
-      });
+        if(pointIndex > 0 && pointIndex % 512 === 0 && !(await checkpoint('render-points'))){
+          return false;
+        }
+      }
       for(let i = state._pointPoolUsed; i < state._pointPool.length; i += 1){
         const extra = state._pointPool[i];
         try{ if(extra && extra.style){ extra.style.display = 'none'; } }catch(e){}
@@ -3946,7 +3936,7 @@
       drawSession.updatedAt = Date.now();
       return;
     }
-    runSurfaceDrawCycle({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
+    void runSurfaceDrawCycle({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason });
   };
   surface.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getSurfaceProjectionTabId() || null;
@@ -4121,10 +4111,10 @@
         ownerSession.timers.pendingDrawOptions = nextOpts;
         ownerSession.updatedAt = Date.now();
       }
-      const suppressOverlay = nextOpts.viewOnly === true || nextOpts.silentOverlay === true;
-      if(nextOpts.force && !suppressOverlay){
-        markSurfaceOverlayPending(overlayReason);
-        forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
+      const suppressOverlay = nextOpts.silentOverlay === true || (nextOpts.viewOnly === true && nextOpts.forceOverlay !== true);
+      if((nextOpts.force || nextOpts.forceOverlay) && !suppressOverlay){
+        markSurfaceOverlayPending(overlayReason, { tabId: ownerSession?.tabId || nextOpts.tabId || null });
+        forceSurfaceOverlay(overlayReason, { tabId: ownerSession?.tabId || nextOpts.tabId || null, message: 'Rendering surface plot...' });
       }else if(!suppressOverlay){
         queueSurfaceOverlay(overlayReason);
       }

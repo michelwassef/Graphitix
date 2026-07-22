@@ -412,7 +412,11 @@
       const safeSegment = sanitizeSegment(tabTitle, `${DEFAULT_TAB_TITLE}-${index + 1}`);
       const uniqueSegment = makeUniqueFolderName(safeSegment, seenFolders);
       const folderPath = `tabs/${uniqueSegment}`;
-      const payloadData = optimizePayloadForArchive(tab.payload || null);
+      const runtimeTabId = typeof tab.runtimeTabId === 'string'
+        ? tab.runtimeTabId
+        : (typeof tab.id === 'string' ? tab.id : null);
+      const rehomeForRuntimeTab = value => runtimeTabId ? cloneAndRehomeTabScopedArchiveState(value, runtimeTabId) : value;
+      const payloadData = optimizePayloadForArchive(rehomeForRuntimeTab(tab.payload || null));
       const rawPayload = isPlainObject(payloadData) ? payloadData : null;
       const layout = tab.layout || null;
       const rawData = buildRawDataExport(rawPayload ? rawPayload.data : null);
@@ -433,10 +437,6 @@
         renderCache: hasArchiveRenderCache,
         uiState: hasUiState
       });
-      const runtimeTabId = typeof tab.runtimeTabId === 'string'
-        ? tab.runtimeTabId
-        : (typeof tab.id === 'string' ? tab.id : null);
-      const rehomeForRuntimeTab = value => runtimeTabId ? cloneAndRehomeTabScopedArchiveState(value, runtimeTabId) : value;
       const tabManifest = {
         index,
         title: tabTitle,

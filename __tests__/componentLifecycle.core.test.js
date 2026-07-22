@@ -1663,6 +1663,23 @@ describe('componentLifecycle — waitForAnimationFrames', () => {
 describe('componentLifecycle — draw scheduling helpers', () => {
   beforeEach(loadFresh);
 
+  test('createStructuralDrawOptions requests a full user redraw without mutating input', () => {
+    const source = { tabId: 'tab-a', silentOverlay: true };
+    const result = lc.createStructuralDrawOptions('graph-type-change', source);
+
+    expect(result).toEqual(expect.objectContaining({
+      tabId: 'tab-a',
+      reason: 'graph-type-change',
+      structural: true,
+      forceOverlay: true,
+      viewOnly: false,
+      silentOverlay: false,
+      userInitiated: true
+    }));
+    expect(source).toEqual({ tabId: 'tab-a', silentOverlay: true });
+    expect(lc.createStructuralDrawOptions('view-mode-change', { viewOnly: true }).viewOnly).toBe(true);
+  });
+
   test('mergeDrawOptions preserves resize finalize canvas recompute', () => {
     const merged = lc.mergeDrawOptions(
       { viewOnly: true, reason: 'resize', resizePhase: 'move' },

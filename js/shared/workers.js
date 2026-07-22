@@ -110,6 +110,17 @@
     return true;
   }
 
+  Workers.isCancellationError = function isCancellationError(error){
+    return error?.code === 'TASK_CANCELLED' || error?.name === 'AbortError';
+  };
+
+  function createCancellationError(reason){
+    const error = reason instanceof Error ? reason : new Error(String(reason || 'Worker task cancelled'));
+    error.name = 'AbortError';
+    error.code = 'TASK_CANCELLED';
+    return error;
+  }
+
   Workers.cancelTask = function cancelTask(task, reason = 'cancelled'){
     const name = typeof task === 'object' && task ? task.name : null;
     const id = typeof task === 'object' && task ? task.id : task;
@@ -118,7 +129,8 @@
     }
     const record = registry.get(name);
     const entry = record.pending.get(id);
-    const cancelled = rejectPendingEntry(record, id, reason);
+    const cancellationError = createCancellationError(reason);
+    const cancelled = rejectPendingEntry(record, id, cancellationError);
     if(cancelled && entry?.terminateOnCancel){
       const otherPending = Array.from(record.pending.keys());
       try{
@@ -126,7 +138,7 @@
       }catch(_err){}
       registry.delete(name);
       otherPending.forEach(otherId => {
-        rejectPendingEntry(record, otherId, new Error('Worker was terminated by a cancelled task'));
+        rejectPendingEntry(record, otherId, createCancellationError('Worker was terminated by a cancelled task'));
       });
       logDebug('Debug: Workers task cancelled with termination', { name, id, reason });
     }else if(cancelled){
@@ -170,7 +182,7 @@
       if(timeoutMs > 0){
         entry.timer = setTimeout(() => {
           if(record.pending.has(id)){
-            rejectPendingEntry(record, id, 'Worker task timeout');
+            Workers.cancelTask({ name, id }, 'Worker task timeout');
           }
         }, timeoutMs);
       }

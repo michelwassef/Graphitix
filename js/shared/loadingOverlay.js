@@ -226,6 +226,10 @@
     if(!host){ return null; }
     const state = ensureState(host);
     if(!state){ return null; }
+    if(options.replaceExisting === true){
+      state.handles.clear();
+      state.count = 0;
+    }
     const handle = createHandle(host);
     state.handles.add(handle.id);
     state.count += 1;
@@ -304,8 +308,52 @@
       }
       queuedPayload = null;
     };
+    const settleCurrent = payload => {
+      clearPendingShow();
+      if(handle){
+        if(job && payload?.status === 'error'){
+          Shared.jobs?.fail?.(job.id, payload?.error || new Error(payload?.reason || 'Rendering failed'));
+          renderJobState(overlayState.get(handle.host), Shared.jobs?.get?.(job.id));
+          job = null;
+          return true;
+        }
+        if(job && Shared.jobs?.isCancelled?.(job.id)){
+          const state = overlayState.get(handle.host);
+          const ownsVisibleHandle = !!(
+            state?.handles?.has?.(handle.id)
+            && (!state.jobId || state.jobId === job.id)
+          );
+          if(ownsVisibleHandle){
+            renderJobState(state, Shared.jobs?.get?.(job.id));
+            return true;
+          }
+          handle = null;
+          job = null;
+          return false;
+        }
+        if(job){
+          Shared.jobs?.complete?.(job.id, { reason: payload?.reason || payload?.source || null });
+        }
+        loadingOverlay.hide(handle, {
+          reason: payload?.reason || payload?.source || null,
+          component: config.component || null,
+          preserveStopped: true
+        });
+        handle = null;
+        job = null;
+        return true;
+      }
+      const host = getHost(payload || {});
+      if(host){
+        loadingOverlay.hideHost(host, {
+          reason: payload?.reason || payload?.source || null,
+          component: config.component || null
+        });
+      }
+      return false;
+    };
     const showNow = payload => {
-      const host = getHost();
+      const host = getHost(payload || {});
       if(!host){
         clearPendingShow();
         return null;
@@ -321,29 +369,77 @@
       const retry = typeof jobOptions.retry === 'function'
         ? jobOptions.retry
         : (() => {
+            const retryMessage = baseMessage || DEFAULT_MESSAGE;
             if(handle){
-              loadingOverlay.hide(handle, {
-                reason: 'overlay-retry-reset',
-                component: config.component || null,
-                preserveStopped: false
-              });
-              handle = null;
-              job = null;
+              job = Shared.jobs?.start?.({
+                kind: jobOptions.kind || 'graph',
+                component,
+                tabId: resolvedTabId,
+                tabTitle: jobOptions.tabTitle || null,
+                label: jobOptions.label || retryMessage,
+                message: retryMessage,
+                reason: 'overlay-retry',
+                cancellable: jobOptions.cancellable !== false,
+                activityDelayMs: Number.isFinite(Number(jobOptions.activityDelayMs))
+                  ? Number(jobOptions.activityDelayMs)
+                  : 0,
+                retry,
+                onCancel,
+                replaceForOwner: true
+              }) || null;
+              const overlay = overlayState.get(handle.host);
+              updateMessage(overlay, retryMessage);
+              renderJobState(overlay, job);
+              activate(overlay);
+              handle.jobId = job?.id || null;
             }else{
-              loadingOverlay.hideHost(host, {
-                reason: 'overlay-retry-reset',
-                component: config.component || null,
-                preserveStopped: false
+              showNow({
+                reason: 'overlay-retry',
+                message: retryMessage,
+                tabId: resolvedTabId || null,
+                immediate: true,
+                delayMs: 0
               });
             }
+            const retryJobId = job?.id || null;
             const targetComponent = component ? global.Components?.[component] : null;
-            if(targetComponent && typeof targetComponent.draw === 'function'){
-              targetComponent.draw({
-                force: true,
-                userInitiated: true,
-                reason: 'overlay-retry'
-              });
-            }
+            const runRetry = () => {
+              if(!targetComponent || typeof targetComponent.draw !== 'function'){
+                if(job?.id === retryJobId){
+                  settleCurrent({ reason: 'overlay-retry-missing-component', status: 'error' });
+                }
+                return;
+              }
+              let result;
+              try{
+                result = targetComponent.draw({
+                  force: true,
+                  userInitiated: true,
+                  reason: 'overlay-retry',
+                  tabId: resolvedTabId || undefined
+                });
+              }catch(err){
+                if(job?.id === retryJobId){
+                  settleCurrent({ reason: 'overlay-retry-error', status: 'error', error: err });
+                }
+                return;
+              }
+              const settleRetry = payload => {
+                if(job?.id === retryJobId){
+                  settleCurrent(payload);
+                }
+              };
+              if(result && typeof result.then === 'function'){
+                result.then(
+                  () => settleRetry({ reason: 'overlay-retry-complete' }),
+                  error => settleRetry({ reason: 'overlay-retry-error', status: 'error', error })
+                );
+              }
+            };
+            const raf = typeof global.requestAnimationFrame === 'function'
+              ? global.requestAnimationFrame.bind(global)
+              : callback => global.setTimeout(callback, 0);
+            raf(() => raf(runRetry));
           });
       const onCancel = typeof jobOptions.onCancel === 'function'
         ? jobOptions.onCancel
@@ -369,13 +465,15 @@
           ? Number(jobOptions.activityDelayMs)
           : 0,
         retry,
-        onCancel
+        onCancel,
+        replaceForOwner: true
       }) || null;
       handle = loadingOverlay.show(host, {
         message: payload?.message || baseMessage || DEFAULT_MESSAGE,
         reason: payload?.reason || payload?.source || null,
         component: config.component || null,
-        job
+        job,
+        replaceExisting: true
       });
       if(handle && job){
         handle.jobId = job.id;
@@ -413,34 +511,7 @@
       },
       resolve(meta){
         const payload = typeof meta === 'object' && meta !== null ? meta : { reason: meta };
-        clearPendingShow();
-        if(handle){
-          if(job && payload?.status === 'error'){
-            Shared.jobs?.fail?.(job.id, payload?.error || new Error(payload?.reason || 'Rendering failed'));
-            renderJobState(overlayState.get(handle.host), Shared.jobs?.get?.(job.id));
-            job = null;
-            return true;
-          }
-          if(job && !Shared.jobs?.isCancelled?.(job.id)){
-            Shared.jobs?.complete?.(job.id, { reason: payload?.reason || payload?.source || null });
-          }
-          loadingOverlay.hide(handle, {
-            reason: payload?.reason || payload?.source || null,
-            component: config.component || null,
-            preserveStopped: true
-          });
-          handle = null;
-          job = null;
-          return true;
-        }
-        const host = getHost();
-        if(host){
-          loadingOverlay.hideHost(host, {
-            reason: payload?.reason || payload?.source || null,
-            component: config.component || null
-          });
-        }
-        return false;
+        return settleCurrent(payload);
       },
       isActive(){
         return !!handle;
@@ -452,16 +523,39 @@
     if(typeof loadingOverlay.createController !== 'function'){
       return null;
     }
-    let controller = null;
-    const ensureController = () => {
-      if(controller){ return controller; }
-      controller = loadingOverlay.createController(config);
-      return controller;
+    const entries = new Map();
+    const normalizeCall = (reason, options = {}) => {
+      const reasonPayload = reason && typeof reason === 'object' ? reason : null;
+      const mergedOptions = {
+        ...(reasonPayload || {}),
+        ...(options && typeof options === 'object' ? options : {})
+      };
+      const label = reasonPayload?.reason || reasonPayload?.source || (typeof reason === 'string' ? reason : '') || 'data-change';
+      const tabId = String(
+        mergedOptions.tabId
+        || (typeof config.getTabId === 'function' ? config.getTabId(mergedOptions) : '')
+        || ''
+      ).trim() || '__unowned__';
+      return { label, options: mergedOptions, tabId };
     };
-    const state = {
-      pendingReason: null,
-      activeReason: null,
-      forceActive: false
+    const ensureEntry = tabId => {
+      let entry = entries.get(tabId);
+      if(entry){
+        return entry;
+      }
+      entry = {
+        controller: loadingOverlay.createController({
+          ...config,
+          getTabId: () => tabId === '__unowned__' ? null : tabId
+        }),
+        state: {
+          pendingReason: null,
+          activeReason: null,
+          forceActive: false
+        }
+      };
+      entries.set(tabId, entry);
+      return entry;
     };
     const showOnlyWhenForced = config.showOnlyWhenForced !== false;
     const isHeavy = (reason, options = {}) => {
@@ -481,37 +575,43 @@
       }
       return true;
     };
-    const markPending = reason => {
-      const label = reason || 'data-change';
-      state.pendingReason = label;
+    const markPending = (reason, options = {}) => {
+      const call = normalizeCall(reason, options);
+      const { state } = ensureEntry(call.tabId);
+      state.pendingReason = call.label;
       if(isDebug()){
-        console.debug('Debug: loading overlay pending flagged',{ component: config.component || null, reason: label });
+        console.debug('Debug: loading overlay pending flagged',{ component: config.component || null, reason: call.label, tabId: call.tabId });
       }
     };
     const queue = (reason, options = {}) => {
-      const ctrl = ensureController();
+      const call = normalizeCall(reason, options);
+      const entry = ensureEntry(call.tabId);
+      const ctrl = entry.controller;
+      const state = entry.state;
       if(!ctrl){
         return false;
       }
-      if(options.force){
-        if(!isHeavy(reason, options)){
+      if(call.options.force){
+        if(!isHeavy(call.label, call.options)){
           state.pendingReason = null;
           state.forceActive = false;
           if(isDebug()){
             console.debug('Debug: loading overlay force skipped for light work',{
               component: config.component || null,
-              reason
+              reason: call.label,
+              tabId: call.tabId
             });
           }
           return false;
         }
         state.pendingReason = null;
         state.forceActive = true;
-        state.activeReason = options.source || reason || 'forced';
+        state.activeReason = call.options.source || call.label || 'forced';
         ctrl.queue({
-          reason,
+          reason: call.label,
           source: state.activeReason,
-          message: options.message,
+          message: call.options.message,
+          tabId: call.tabId === '__unowned__' ? null : call.tabId,
           immediate: true,
           delayMs: 0
         });
@@ -523,7 +623,8 @@
         if(isDebug()){
           console.debug('Debug: loading overlay queue skipped',{
             component: config.component || null,
-            reason,
+            reason: call.label,
+            tabId: call.tabId,
             pendingReason: pending
           });
         }
@@ -540,17 +641,34 @@
         return false;
       }
       state.activeReason = pending;
-      ctrl.queue({ reason, source: pending, message: options.message });
+      ctrl.queue({
+        reason: call.label,
+        source: pending,
+        message: call.options.message,
+        tabId: call.tabId === '__unowned__' ? null : call.tabId
+      });
       return true;
     };
-    const resolve = reason => {
-      const ctrl = ensureController();
+    const resolve = (reason, options = {}) => {
+      const call = normalizeCall(reason, options);
+      const entry = entries.get(call.tabId);
+      const ctrl = entry?.controller || null;
       if(!ctrl){
         return false;
       }
+      const state = entry.state;
       state.activeReason = null;
       state.forceActive = false;
-      ctrl.resolve({ reason });
+      state.pendingReason = null;
+      ctrl.resolve({
+        reason: call.label,
+        status: call.options.status,
+        error: call.options.error,
+        tabId: call.tabId === '__unowned__' ? null : call.tabId
+      });
+      if(!ctrl.isActive?.()){
+        entries.delete(call.tabId);
+      }
       return true;
     };
     return {
@@ -558,7 +676,14 @@
       queue,
       resolve,
       force: (reason, options = {}) => queue(reason, { ...options, force: true }),
-      isActive: () => state.forceActive || !!controller?.isActive?.()
+      isActive: owner => {
+        if(owner){
+          const call = normalizeCall(owner, {});
+          const entry = entries.get(call.tabId);
+          return !!(entry?.state?.forceActive || entry?.controller?.isActive?.());
+        }
+        return Array.from(entries.values()).some(entry => entry.state.forceActive || !!entry.controller?.isActive?.());
+      }
     };
   };
 

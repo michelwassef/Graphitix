@@ -167,25 +167,34 @@
     }
     const tabsApi = global.Main?.tabs || null;
     const session = global.Main?.session || null;
-    const activeTab = session?.getActiveTab?.() || tabsApi?.getActiveTab?.() || null;
-    if(!activeTab || activeTab.isWelcome || !activeTab.id){
+    const ownerTabId = String(
+      options.importOwnerTabId
+      || options.hot?.__workspaceTabId
+      || options.hot?.__graphitixTabId
+      || ''
+    ).trim();
+    const tabs = Array.isArray(session?.workspaceState?.tabs) ? session.workspaceState.tabs : [];
+    const ownerTab = ownerTabId
+      ? tabs.find(tab => String(tab?.id || '') === ownerTabId) || null
+      : (session?.getActiveTab?.() || tabsApi?.getActiveTab?.() || null);
+    if(!ownerTab || ownerTab.isWelcome || !ownerTab.id){
       return;
     }
     try{
       if(typeof tabsApi?.commitTabRename === 'function'){
-        tabsApi.commitTabRename(activeTab.id, nextTitleBase, { reason: 'table-import-file-name' });
+        tabsApi.commitTabRename(ownerTab.id, nextTitleBase, { reason: 'table-import-file-name' });
       }else{
-        const previousTitle = activeTab.title || '';
+        const previousTitle = ownerTab.title || '';
         const nextTitle = typeof session?.generateUniqueTabTitle === 'function'
-          ? session.generateUniqueTabTitle(nextTitleBase, { excludeTabId: activeTab.id })
+          ? session.generateUniqueTabTitle(nextTitleBase, { excludeTabId: ownerTab.id })
           : nextTitleBase;
-        activeTab.title = nextTitle;
+        ownerTab.title = nextTitle;
         if(typeof tabsApi?.renderTabs === 'function'){
           tabsApi.renderTabs();
         }
         if(nextTitle !== previousTitle && typeof session?.markSessionDirty === 'function'){
           session.markSessionDirty('tab-title-updated-from-import', {
-            tabId: activeTab.id,
+            tabId: ownerTab.id,
             previousTitle,
             nextTitle,
             origin: 'user',
@@ -193,7 +202,7 @@
           });
         }
       }
-      debugLog('openFile.tabRenamed', { tabId: activeTab.id, title: nextTitleBase, fileName: file?.name || '' }, options.debugLabel || 'tableImport');
+      debugLog('openFile.tabRenamed', { tabId: ownerTab.id, title: nextTitleBase, fileName: file?.name || '' }, options.debugLabel || 'tableImport');
     }catch(err){
       debugLog('openFile.tabRenameError', { message: err?.message || String(err), fileName: file?.name || '' }, options.debugLabel || 'tableImport');
     }
@@ -2332,11 +2341,112 @@
     const defaultStartCol = options.startCol ?? 0;
     const allowShrink = options.allowShrink !== false;
     const prepareTabularRows = rows => prepareImportedRows(rows, inputEl, options);
-    const applyRows = (rows, meta = {}) => {
+    let importTransaction = null;
+    let importCompletionAccepted = false;
+    const beginImportTransaction = () => {
+      if(importTransaction || typeof Shared?.hot?.beginOwnerProjectionTransaction !== 'function'){
+        return importTransaction;
+      }
+      importTransaction = Shared.hot.beginOwnerProjectionTransaction({
+        hotInstance: options.hot,
+        reason: 'table-import'
+      });
+      if(importTransaction?.tabId){
+        options.importOwnerTabId = importTransaction.tabId;
+      }
+      return importTransaction;
+    };
+    const applyRows = async (rows, meta = {}) => {
+      const transaction = beginImportTransaction();
+      const ownerActive = !transaction || Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(transaction) === true;
+      const deferredOptions = cloneOptions(options, Object.assign({
+        startRow: defaultStartRow,
+        startCol: defaultStartCol,
+        allowShrink,
+        scheduleDraw: transaction && typeof options.scheduleDraw === 'function' ? () => {} : options.scheduleDraw,
+        onProcessed: ownerActive ? options.onProcessed : undefined
+      }, meta));
       const handler = typeof options.onRows === 'function'
         ? options.onRows
-        : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
+        : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(deferredOptions, metaInfo));
       return handler(rows, meta);
+    };
+    const finalizeImport = async result => {
+      const transaction = importTransaction;
+      if(!transaction){
+        importCompletionAccepted = true;
+        return result;
+      }
+      if(Shared.hot?.isOwnerProjectionTransactionCurrent?.(transaction) !== true){
+        importTransaction = null;
+        return result;
+      }
+      if(!result){
+        const ownerActive = Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(transaction) === true;
+        Shared.hot?.endOwnerProjectionTransaction?.(transaction, {
+          projected: false,
+          finalProjectionRequests: 0
+        });
+        importTransaction = null;
+        importCompletionAccepted = true;
+        if(!ownerActive && typeof options.onOwnerInactive === 'function'){
+          options.onOwnerInactive(null, { tabId: transaction.tabId, source: 'table-import' });
+        }
+        return result;
+      }
+      if(Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(transaction) === true
+        && typeof options.onBeforeCompleted === 'function'){
+        await options.onBeforeCompleted(result, {
+          tabId: transaction.tabId,
+          source: 'table-import'
+        });
+      }
+      if(Shared.hot?.isOwnerProjectionTransactionCurrent?.(transaction) !== true){
+        importTransaction = null;
+        return result;
+      }
+      const matrix = typeof options.hot?.getData === 'function' ? options.hot.getData() : null;
+      if(Array.isArray(matrix)){
+        Shared.hot?.syncOwnerTabPayloadFullData?.(matrix, 'table-import', {
+          hotInstance: options.hot,
+          source: 'table-import'
+        });
+      }
+      await Shared.hot?.awaitOwnerProjectionPaint?.(transaction);
+      const isCurrent = Shared.hot?.isOwnerProjectionTransactionCurrent?.(transaction) === true;
+      const ownerActive = isCurrent && Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(transaction) === true;
+      if(isCurrent){
+        Shared.hot.endOwnerProjectionTransaction(transaction, {
+          projected: ownerActive,
+          finalProjectionRequests: ownerActive && typeof options.scheduleDraw === 'function' ? 1 : 0
+        });
+      }
+      importTransaction = null;
+      if(!isCurrent){
+        return result;
+      }
+      importCompletionAccepted = true;
+      if(ownerActive && typeof options.scheduleDraw === 'function'){
+        options.scheduleDraw({
+          tabId: transaction.tabId,
+          reason: 'import-load',
+          source: 'table-import',
+          importTransactionFinal: true
+        });
+      }
+      if(ownerActive && typeof options.onCompleted === 'function'){
+        options.onCompleted(result, { tabId: transaction.tabId, source: 'table-import' });
+      }
+      if(!ownerActive && typeof options.onOwnerInactive === 'function'){
+        options.onOwnerInactive(result, { tabId: transaction.tabId, source: 'table-import' });
+      }
+      return result;
+    };
+    const cancelImportTransaction = () => {
+      if(importTransaction){
+        Shared.hot?.endOwnerProjectionTransaction?.(importTransaction);
+        importTransaction = null;
+      }
     };
     if(dispatchKind === 'pzfx'){
       if(options.suppressPrismLimitations !== true && inputEl?.dataset?.suppressPrismLimitations !== 'true') showPrismImportLimitations();
@@ -2351,7 +2461,10 @@
         if(result && parsed.prismMeta){
           result.prismMeta = parsed.prismMeta;
         }
-        renameActiveTabForImport(file, result, options);
+        await finalizeImport(result);
+        if(importCompletionAccepted){
+          renameActiveTabForImport(file, result, options);
+        }
         prismDebug('pzfx.import.complete', {
           tableTitle: parsed.tableTitle || '',
           tableFormat: parsed.tableFormat || '',
@@ -2364,6 +2477,7 @@
         });
         return result;
       }catch(err){
+        cancelImportTransaction();
         notifyError(options, 'Failed to import PZFX Prism file', err);
         return null;
       }
@@ -2676,14 +2790,19 @@
         }
         if(result && prismStyle){
           result.prismStyle = prismStyle;
-          if(typeof options.onPrismStyle === 'function'){
+          if(Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(importTransaction) === true
+            && typeof options.onPrismStyle === 'function'){
             options.onPrismStyle(prismStyle);
           }
         }
-        renameActiveTabForImport(file, result, options);
+        await finalizeImport(result);
+        if(importCompletionAccepted){
+          renameActiveTabForImport(file, result, options);
+        }
         prismDebug('import.complete', { rows: result?.rows || 0, cols: result?.cols || 0 });
         return result;
       }catch(err){
+        cancelImportTransaction();
         notifyError(options, 'Failed to import Prism file', err);
         return null;
       }
@@ -2699,10 +2818,14 @@
           sheetName: parsed?.sheetName || ''
         }, debugLabel);
         const result = await applyRows(filtered, { delimiter: parsed?.delimiter || ',', sheetName: parsed?.sheetName || '' });
-        renameActiveTabForImport(file, result, options);
+        await finalizeImport(result);
+        if(importCompletionAccepted){
+          renameActiveTabForImport(file, result, options);
+        }
         debugLog('openFile.complete', { rows: result?.rows || 0, cols: result?.cols || 0 }, debugLabel);
         return result;
       }catch(err){
+        cancelImportTransaction();
         notifyError(options, dispatchKind === 'spreadsheet' ? 'Failed to import spreadsheet' : 'Failed to import text file', err);
         return null;
       }

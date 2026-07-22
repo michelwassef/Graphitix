@@ -1136,6 +1136,9 @@
     if(!shaped){
       return false;
     }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
+      return false;
+    }
     const sourceOptions = options && typeof options === 'object' ? options : {};
     const scheduleOptions = {
       ...sourceOptions,
@@ -3110,6 +3113,9 @@
             const renderReason = 'import-load';
             markRocOverlayPending(renderReason);
             forceRocOverlay(renderReason, { message: 'Rendering ROC/PR plot...' });
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolveRocOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
         if(!result && forcedOverlay && isRocSessionActiveOrActivating(importSession)){
@@ -3309,6 +3315,22 @@
     return p;
   }
 
+  async function bootstrapCurveTestCooperative(pairs, baseline, graphType, options, checkpoint){
+    const config = normalizeRocResamplingOptions(options, ['roc-curve-test', graphType, baseline, pairs]);
+    let count = 0;
+    const n = pairs.length;
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
+      const sample = Array.from({ length: n }, () => pairs[Math.min(n - 1, Math.floor(config.random() * n))]);
+      if(computeCurveMetric(sample, graphType) <= baseline){
+        count += 1;
+      }
+      if(!(await checkpoint())){
+        return null;
+      }
+    }
+    return (count + 1) / (config.iterations + 1);
+  }
+
   function bootstrapCurveDiff(pairs1, pairs2, graphType, options = {}){
     const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, pairs1, pairs2]);
     const n = Math.min(pairs1.length, pairs2.length);
@@ -3333,6 +3355,31 @@
       console.debug('Debug: ROC bootstrap diff', { graphType, iterations: config.iterations, seed: config.seed, p, ci: [lower, upper] });
     }
     return { p, ci: [lower, upper], diff: baseDiff, seed: config.seed, iterations: config.iterations };
+  }
+
+  async function bootstrapCurveDiffCooperative(pairs1, pairs2, graphType, options, checkpoint){
+    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, pairs1, pairs2]);
+    const n = Math.min(pairs1.length, pairs2.length);
+    const diffs = [];
+    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
+      const sample1 = [];
+      const sample2 = [];
+      for(let index = 0; index < n; index += 1){
+        const sampleIndex = Math.min(n - 1, Math.floor(config.random() * n));
+        sample1.push(pairs1[sampleIndex]);
+        sample2.push(pairs2[sampleIndex]);
+      }
+      diffs.push(computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType));
+      if(!(await checkpoint())){
+        return null;
+      }
+    }
+    const count = diffs.filter(diff => Math.abs(diff) >= Math.abs(baseDiff)).length;
+    diffs.sort((a, b) => a - b);
+    const lower = diffs[Math.floor(0.025 * config.iterations)] ?? diffs[0];
+    const upper = diffs[Math.floor(0.975 * config.iterations)] ?? diffs[diffs.length - 1];
+    return { p: (count + 1) / (config.iterations + 1), ci: [lower, upper], diff: baseDiff, seed: config.seed, iterations: config.iterations };
   }
 
   function permutationCurveDiff(pairs1, pairs2, graphType, options = {}){
@@ -3362,6 +3409,34 @@
       console.debug('Debug: ROC permutation diff', { graphType, iterations: config.iterations, seed: config.seed, p });
     }
     return { p, diff: baseDiff, seed: config.seed, iterations: config.iterations };
+  }
+
+  async function permutationCurveDiffCooperative(pairs1, pairs2, graphType, options, checkpoint){
+    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, pairs1, pairs2]);
+    const n = Math.min(pairs1.length, pairs2.length);
+    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
+    let count = 0;
+    for(let iteration = 0; iteration < config.iterations; iteration += 1){
+      const sample1 = [];
+      const sample2 = [];
+      for(let index = 0; index < n; index += 1){
+        if(config.random() < 0.5){
+          sample1.push(pairs1[index]);
+          sample2.push(pairs2[index]);
+        }else{
+          sample1.push({ label: pairs1[index].label, score: pairs2[index].score });
+          sample2.push({ label: pairs2[index].label, score: pairs1[index].score });
+        }
+      }
+      const diff = computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType);
+      if(Math.abs(diff) >= Math.abs(baseDiff)){
+        count += 1;
+      }
+      if(!(await checkpoint())){
+        return null;
+      }
+    }
+    return { p: (count + 1) / (config.iterations + 1), diff: baseDiff, seed: config.seed, iterations: config.iterations };
   }
 
   function delongCurveDiff(pairs1, pairs2){
@@ -3788,7 +3863,7 @@
       status = 'error';
       throw err;
     }finally{
-      resolveRocOverlay(status);
+      resolveRocOverlay({ reason: status, status, tabId: drawSession?.tabId || meta?.tabId || null });
     }
   }
 
@@ -3804,6 +3879,23 @@
       reason: meta?.reason || 'roc-draw'
     }, { apply: false });
     const drawTabId = drawSession?.tabId || meta?.tabId || getRocProjectionTabId() || null;
+    const execution = Shared.jobs?.createExecutionContext?.({
+      component: 'roc',
+      tabId: drawTabId || '',
+      kind: 'graph',
+      budgetMs: 10
+    }) || null;
+    const checkpoint = async () => {
+      try{
+        await execution?.checkpoint?.();
+      }catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){
+          return false;
+        }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     const drawRefs = Object.assign(createDefaultRocRefs(drawSession?.root || state.root || null), drawSession?.refs || {}, refs || {});
     drawRefs.root = drawSession?.root || drawRefs.root || state.root || resolveRocRoot(drawTabId) || null;
     drawRefs.plotDiv = getRocNodeById('rocPlot', drawTabId) || drawRefs.plotDiv || refs.plotDiv || null;
@@ -3876,6 +3968,9 @@
     const data = typeof state.hot?.getIncludedDataMatrix === 'function'
       ? state.hot.getIncludedDataMatrix()
       : (Shared.hot?.getIncludedDataMatrix ? Shared.hot.getIncludedDataMatrix(state.hot) : []);
+    if(!(await checkpoint())){
+      return false;
+    }
     if(!data || !data.length){
       clearPlotArea('no-table');
       return;
@@ -3910,6 +4005,9 @@
       name: header[colIdx] || `Model ${index + 1}`,
       scores: bodyRows.map(row => parseFloat(row[colIdx]))
     }));
+    if(!(await checkpoint())){
+      return false;
+    }
     if(!series.length){
       clearPlotArea('no-series');
       return;
@@ -4405,9 +4503,13 @@
     const stats = [];
     const allPairs = [];
 
-    series.forEach((serie, seriesIndex) => {
+    for(let seriesIndex = 0; seriesIndex < series.length; seriesIndex += 1){
+      const serie = series[seriesIndex];
       const pairs = [];
       for(let idx = 0; idx < labels.length; idx += 1){
+        if((idx & 2047) === 0 && !(await checkpoint())){
+          return false;
+        }
         const label = labels[idx];
         const score = serie.scores[idx];
         if(!Number.isNaN(label) && !Number.isNaN(score)){
@@ -4486,11 +4588,14 @@
       }
 
       const baseline = graphType === 'roc' ? 0.5 : positives / Math.max(1, positives + negatives);
-      const pValue = bootstrapCurveTest(pairs, baseline, graphType, {
+      const pValue = await bootstrapCurveTestCooperative(pairs, baseline, graphType, {
         seed: state.resamplingSeed,
         iterations: state.resamplingIterations,
         random: createRocScopedRandom(state.resamplingSeed, 'roc-curve-test', graphType, serie.name, pairs)
-      });
+      }, checkpoint);
+      if(pValue == null){
+        return false;
+      }
       const aucUncertainty = graphType === 'roc' ? computeSingleAucUncertainty(pairs) : null;
       const thresholdRows = graphType === 'roc' ? buildRocThresholdMetricsTable(pairs) : [];
       stats.push({
@@ -4531,7 +4636,10 @@
       }
       const curveEl = add('path', curveAttrs);
       try{ curveEl.style.cursor='pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showRocStrokeFormatControls(evt.currentTarget); }); }catch(e){}
-    });
+      if(!(await checkpoint())){
+        return false;
+      }
+    }
 
     if(legendVisible){
       const defaultLegendX = margin.left + plotWidth + legendLayout.legendGapPx;
@@ -4619,9 +4727,12 @@
         if(graphType === 'roc' && state.diffMethod === 'delong'){
           diffResult = delongCurveDiff(pairsA, pairsB);
         }else if(state.diffMethod === 'bootstrap'){
-          diffResult = bootstrapCurveDiff(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations });
+          diffResult = await bootstrapCurveDiffCooperative(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations }, checkpoint);
         }else if(state.diffMethod === 'permutation'){
-          diffResult = permutationCurveDiff(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations });
+          diffResult = await permutationCurveDiffCooperative(pairsA, pairsB, graphType, { seed: state.resamplingSeed, iterations: state.resamplingIterations }, checkpoint);
+        }
+        if(diffResult == null && state.diffMethod !== 'delong'){
+          return false;
         }
         state.compareResult.textContent = formatRocCompareResultText(graphType, state.diffMethod, diffResult);
       }
@@ -5642,7 +5753,7 @@
   roc.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
     const tabId = meta?.tabId || getRocProjectionTabId() || null;
     try{ roc.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'roc-draw-cancel'); }catch(_err){}
-    resolveRocOverlay(meta?.reason || 'cancelled');
+    resolveRocOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'roc',
       tabId,

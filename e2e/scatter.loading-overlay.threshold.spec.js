@@ -1,8 +1,12 @@
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 const {
   installLocalCdnOverrides,
-  openComponentFromWelcome
+  openComponentFromWelcome,
+  confirmDataImportPrompt
 } = require('./helpers/workspaceHarness');
+
+const MEDIUM_SCATTER_CSV = path.resolve(__dirname, '..', '__tests__', 'test-scatter-medium.csv');
 
 async function waitForScatterTable(page) {
   await page.waitForFunction(() => {
@@ -98,6 +102,25 @@ test('scatter graph overlay is gated by the large point threshold', async ({ pag
   await page.waitForFunction(() => window.__scatterOverlaySeen === true, null, { timeout: 5000 });
 });
 
+test('scatter import shows its owner-scoped progress wheel before parsing', async ({ page }) => {
+  test.setTimeout(120000);
+  await installLocalCdnOverrides(page);
+  await page.goto('/index.html', { waitUntil: 'domcontentloaded' });
+  await openComponentFromWelcome(page, { type: 'scatter', pageId: 'scatterPage' }, { first: true });
+  await waitForScatterTable(page);
+
+  await page.locator('#scatterFile').setInputFiles(MEDIUM_SCATTER_CSV);
+  const overlay = page.locator('#scatterGraphPanel .venn-loading-overlay');
+  await expect(overlay).toBeVisible({ timeout: 1000 });
+  await expect(overlay.locator('.venn-loading-overlay__spinner')).toBeVisible();
+  await expect(overlay).toContainText('Importing table data...');
+
+  await confirmDataImportPrompt(page);
+  await expect(overlay).toBeVisible({ timeout: 1000 });
+  await overlay.locator('[data-overlay-action="cancel"]').click({ timeout: 5000 });
+  await expect(overlay).toContainText('Drawing stopped');
+});
+
 test('scatter stopped heavy draw can be drawn again', async ({ page }) => {
   test.setTimeout(120000);
   await installLocalCdnOverrides(page);
@@ -112,11 +135,13 @@ test('scatter stopped heavy draw can be drawn again', async ({ page }) => {
   await expect(overlay).toContainText('Drawing stopped');
 
   await overlay.locator('[data-overlay-action="retry"]').click();
+  await page.waitForFunction(() => window.Components?.scatter?.isIdleForSnapshot?.() === false, null, { timeout: 5000 });
   await page.waitForFunction(() => {
     const layer = document.querySelector('#scatterPlot svg [data-layer="points"]');
     return !!layer
       && layer.getAttribute('data-render-mode') === 'canvas'
       && !!layer.querySelector('foreignObject[data-point-renderer="canvas-preview"] canvas');
   }, null, { timeout: 90000 });
+  await page.waitForFunction(() => window.Components?.scatter?.isIdleForSnapshot?.() === true, null, { timeout: 90000 });
   await expect(overlay).toBeHidden({ timeout: 5000 });
 });

@@ -858,6 +858,24 @@
     };
   }
 
+  function ensureHeatmapRenderRuntimeShape(runtime){
+    if(!runtime || typeof runtime !== 'object'){
+      return createDefaultHeatmapRenderRuntime();
+    }
+    if(!Object.prototype.hasOwnProperty.call(runtime, 'lastRenderModel')){ runtime.lastRenderModel = null; }
+    if(!Object.prototype.hasOwnProperty.call(runtime, 'lastViewOptions')){ runtime.lastViewOptions = null; }
+    if(!Object.prototype.hasOwnProperty.call(runtime, 'textAspectMetrics')){ runtime.textAspectMetrics = null; }
+    if(!Object.prototype.hasOwnProperty.call(runtime, 'lastResolvedValueScale')){ runtime.lastResolvedValueScale = null; }
+    if(!runtime.lastDataShape || typeof runtime.lastDataShape !== 'object'){
+      runtime.lastDataShape = { rows: 0, cols: 0 };
+    }
+    if(!Object.prototype.hasOwnProperty.call(runtime, 'lastAutoDrawEvaluation')){ runtime.lastAutoDrawEvaluation = null; }
+    runtime.dataSignature = typeof runtime.dataSignature === 'string' ? runtime.dataSignature : null;
+    runtime.settingsSignature = typeof runtime.settingsSignature === 'string' ? runtime.settingsSignature : null;
+    runtime.updatedAt = Number.isFinite(Number(runtime.updatedAt)) ? Number(runtime.updatedAt) : Date.now();
+    return runtime;
+  }
+
   function createDefaultHeatmapDrawRuntime(source = {}){
     const src = source && typeof source === 'object' ? source : {};
     const rawToken = Number(src.token ?? src.drawToken);
@@ -933,9 +951,16 @@
     session.componentKey = 'heatmap';
     session.tabId = String(session.tabId || '').trim();
     session.root = session.root || null;
-    session.state = session.state && typeof session.state === 'object'
-      ? { ...createDefaultHeatmapTabContext(), ...(cloneSimple(session.state) || session.state) }
-      : createDefaultHeatmapTabContext();
+    if(!session.state || typeof session.state !== 'object'){
+      session.state = createDefaultHeatmapTabContext();
+    }else{
+      const defaults = createDefaultHeatmapTabContext();
+      Object.keys(defaults).forEach(key => {
+        if(!Object.prototype.hasOwnProperty.call(session.state, key)){
+          session.state[key] = defaults[key];
+        }
+      });
+    }
     session.state.controls = normalizeHeatmapControlState(session.state.controls || session.state.config || {});
     session.state.logPlusOne = !!session.state.controls.adjust.logPlusOne;
     session.state.statsPanelModel = normalizeHeatmapStatsPanelModel(session.state.statsPanelModel || {});
@@ -954,7 +979,7 @@
     session.refs.root = session.refs.root || session.root || null;
     session.refs.controls = session.refs.controls && typeof session.refs.controls === 'object' ? session.refs.controls : null;
     session.cache = session.cache && typeof session.cache === 'object' ? session.cache : {};
-    session.cache.renderRuntime = createDefaultHeatmapRenderRuntime(session.cache.renderRuntime || {});
+    session.cache.renderRuntime = ensureHeatmapRenderRuntimeShape(session.cache.renderRuntime);
     session.listeners = session.listeners instanceof Map ? session.listeners : new Map();
     session.timers = session.timers && typeof session.timers === 'object' ? session.timers : {};
     session.timers.drawRuntime = createDefaultHeatmapDrawRuntime(session.timers.drawRuntime || {});
@@ -1018,6 +1043,9 @@
   function scheduleHeatmapDrawForSession(session = null, options = {}){
     const shaped = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
     if(!shaped){
+      return false;
+    }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
       return false;
     }
     const sourceOptions = normalizeDrawOptions(options || {});
@@ -1313,19 +1341,16 @@
   function getHeatmapRenderRuntime(session = null, options = {}){
     const shaped = ensureHeatmapSessionOwnershipShape(session || getActiveHeatmapSessionForState());
     if(shaped?.cache){
+      const runtime = ensureHeatmapRenderRuntimeShape(shaped.cache.renderRuntime);
       if(options.seedFromActive === true){
-        shaped.cache.renderRuntime = createDefaultHeatmapRenderRuntime({
-          lastRenderModel: shaped.cache.renderRuntime?.lastRenderModel || null,
-          lastViewOptions: state.lastViewOptions,
-          textAspectMetrics: state.textAspectMetrics,
-          lastResolvedValueScale: state.lastResolvedValueScale,
-          lastDataShape: state.lastDataShape,
-          lastAutoDrawEvaluation: state.lastAutoDrawEvaluation
-        });
-      }else{
-        shaped.cache.renderRuntime = createDefaultHeatmapRenderRuntime(shaped.cache.renderRuntime || {});
+        runtime.lastViewOptions = state.lastViewOptions || null;
+        runtime.textAspectMetrics = state.textAspectMetrics || null;
+        runtime.lastResolvedValueScale = state.lastResolvedValueScale || null;
+        runtime.lastDataShape = state.lastDataShape || { rows: 0, cols: 0 };
+        runtime.lastAutoDrawEvaluation = state.lastAutoDrawEvaluation || null;
       }
-      return syncHeatmapRenderRuntimeMirror(shaped.cache.renderRuntime, shaped);
+      shaped.cache.renderRuntime = runtime;
+      return syncHeatmapRenderRuntimeMirror(runtime, shaped);
     }
     return syncHeatmapRenderRuntimeMirror(createDefaultHeatmapRenderRuntime({
       lastRenderModel: null,
@@ -4389,13 +4414,10 @@
         runtime.deferredHiddenDrawOptions = null;
         runtime.token = (Number(runtime.token) || 0) + 1;
       }, { seedFromActive: false });
-      draw({
+      scheduleHeatmapDrawForSession(ownerSession, Shared.componentLifecycle.createStructuralDrawOptions('user-view-change', {
         tabId: ownerSession?.tabId || getHeatmapActiveTabId() || undefined,
-        force: true,
-        viewOnly: false,
-        reason: 'user-view-change',
         userInitiated: true
-      });
+      }));
     });
     bindHeatmapControlHandler(refs.method, 'change', 'method-change', () => {
       debugLog('Debug: heatmap method changed', { value: refs.method.value });
@@ -4589,6 +4611,9 @@
             markHeatmapOverlayPending(renderReason);
             forceHeatmapOverlay(renderReason, { message: 'Rendering heatmap...' });
             // resolve after draw completes
+          },
+          onOwnerInactive: (_result, meta) => {
+            resolveHeatmapOverlay({ reason: 'file-import-owner-inactive', tabId: meta?.tabId || null });
           }
         });
         if(!result && forcedOverlay){
@@ -5665,14 +5690,17 @@
     const steps = Array.isArray(normalized.steps) ? normalized.steps : [];
     const maxDistance = Number.isFinite(normalized.maxDistance) ? normalized.maxDistance : 0;
     const baseDistances = { size, values: new Float32Array(0), released: true };
-    return { order, tree, steps, maxDistance, baseDistances };
+    return {
+      order,
+      tree,
+      steps,
+      maxDistance,
+      baseDistances,
+      algorithm: typeof normalized.algorithm === 'string' ? normalized.algorithm : null
+    };
   }
 
   function shouldUseClusterWorker(items){
-    const workerApi = Shared.Workers;
-    if(!workerApi || typeof workerApi.isSupported !== 'function' || !workerApi.isSupported()){
-      return false;
-    }
     const count = Array.isArray(items) ? items.length : 0;
     const vectorLength = count > 0 ? (items[0]?.vector?.length || 0) : 0;
     const cells = count * vectorLength;
@@ -5717,8 +5745,12 @@
       return { result: hierarchicalCluster(items, metric, linkage), promise: null };
     }
     const workerApi = Shared.Workers;
-    if(!workerApi || typeof workerApi.runTask !== 'function'){
-      return { result: hierarchicalCluster(items, metric, linkage), promise: null };
+    if(!workerApi
+      || typeof workerApi.runTask !== 'function'
+      || typeof workerApi.isSupported !== 'function'
+      || !workerApi.isSupported()){
+      debugLog('Debug: heatmap large clustering skipped - worker unavailable', { label, count: items.length });
+      return { result: null, promise: null };
     }
     const payload = buildClusterWorkerPayload(items, metric, linkage);
     const workerTabId = asyncState?.meta?.tabId || getHeatmapProjectionTabId() || null;
@@ -5744,14 +5776,20 @@
       });
       workerSession.updatedAt = Date.now();
     }
-    const promise = workerApi.runTask({
-      name: 'heatmap-cluster',
+    const drawJob = Shared.jobs?.getActiveFor?.({ component: 'heatmap', tabId: workerTabId, kind: 'graph' }) || null;
+    const task = workerApi.runTask({
+      name: `heatmap-cluster:${workerTabId || 'unowned'}`,
       url: HEATMAP_CLUSTER_WORKER.url,
       action: 'hierarchicalCluster',
       payload,
       timeoutMs: HEATMAP_CLUSTER_WORKER.timeoutMs,
-      fallback: () => hierarchicalCluster(items, metric, linkage)
-    }).then((result) => {
+      signal: drawJob?.signal || null,
+      cancelStrategy: 'terminate'
+    });
+    const unregisterCleanup = asyncState?.scope?.registerCleanup?.(asyncState.meta, meta => {
+      task.cancel?.(meta?.reason || 'heatmap-cluster-stale');
+    }) || (() => {});
+    const promise = task.then((result) => {
       if(!isHeatmapDrawCurrent(drawToken, asyncState)){
         if(workerSession?.workers){
           workerSession.workers.set(`cluster:${label || 'unknown'}`, {
@@ -5769,23 +5807,27 @@
         workerSession.workers.set(`cluster:${label || 'unknown'}`, {
           ...workerRecordBase,
           status: 'done',
+          algorithm: normalized?.algorithm || null,
           completedAt: Date.now()
         });
         workerSession.updatedAt = Date.now();
       }
       return normalized;
     }).catch((err) => {
+      const current = isHeatmapDrawCurrent(drawToken, asyncState);
       if(workerSession?.workers){
         workerSession.workers.set(`cluster:${label || 'unknown'}`, {
           ...workerRecordBase,
-          status: 'error',
+          status: current ? 'error' : 'cancelled',
           error: err?.message || String(err),
           completedAt: Date.now()
         });
         workerSession.updatedAt = Date.now();
       }
       debugLog('Debug: heatmap cluster worker failed', { label, message: err?.message || String(err) });
-      return hierarchicalCluster(items, metric, linkage);
+      return null;
+    }).finally(() => {
+      unregisterCleanup();
     });
     debugLog('Debug: heatmap cluster worker scheduled', { label, count: items.length });
     return { result: null, promise };
@@ -6974,27 +7016,7 @@
     group.setAttribute('stroke-linejoin', 'miter');
     group.setAttribute('shape-rendering', 'geometricPrecision');
     group.setAttribute('vector-effect', 'non-scaling-stroke');
-    parent.appendChild(group);
-
-    // Register dendrogram group with dendrogramControls for click handling
-    // Register dendrogram group with dendrogramControls for click handling
-    if (dendrogramControls && typeof dendrogramControls.registerDendrogramElement === 'function') {
-      // Always ensure overlay covers the full bounding box of the dendrogram group
-      dendrogramControls.registerDendrogramElement(group, createDendrogramControlConfig(orientation));
-      // Optionally, force overlay update after rendering all paths
-      scheduleHeatmapAsyncFrame('heatmap-dendrogram-overlay-bounds', () => {
-        if (group.__dendrogramControlOverlay && typeof group.getBBox === 'function') {
-          const info = group.__dendrogramControlOverlay;
-          if (info && info.element) {
-            // Recompute overlay bounds to ensure it covers the full area
-            if (typeof Shared.dendrogramControls.updateOverlayBounds === 'function') {
-              Shared.dendrogramControls.updateOverlayBounds(group, info.element, info.padding);
-            }
-          }
-        }
-      });
-      debugLog('Debug: heatmap dendrogram registered with controls', { orientation });
-    }
+    const branchFragment = doc.createDocumentFragment();
 
     const visitVertical = node => {
       if(!node){
@@ -7017,7 +7039,7 @@
         `M ${leftPos.x} ${leftPos.y} H ${nodeX} V ${rightPos.y} H ${rightPos.x}`
       );
       path.setAttribute('vector-effect', 'non-scaling-stroke');
-      group.appendChild(path);
+      branchFragment.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
 
@@ -7042,11 +7064,17 @@
         `M ${leftPos.x} ${leftPos.y} V ${nodeY} H ${rightPos.x} V ${rightPos.y}`
       );
       path.setAttribute('vector-effect', 'non-scaling-stroke');
-      group.appendChild(path);
+      branchFragment.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
 
     const rootPos = orientation === 'horizontal' ? visitHorizontal(tree) : visitVertical(tree);
+    group.appendChild(branchFragment);
+    parent.appendChild(group);
+    if (dendrogramControls && typeof dendrogramControls.registerDendrogramElement === 'function') {
+      dendrogramControls.registerDendrogramElement(group, createDendrogramControlConfig(orientation));
+      debugLog('Debug: heatmap dendrogram registered with controls', { orientation });
+    }
     debugLog('Debug: heatmap renderDendrogram complete', {
       orientation,
       startX,
@@ -7877,6 +7905,14 @@
     drawSession = null
   }){
     state.isRendering = true;
+    const renderStartedAt = nowMs();
+    let previousRenderStageAt = renderStartedAt;
+    const renderStages = {};
+    const markRenderStage = name => {
+      const current = nowMs();
+      renderStages[name] = Number((current - previousRenderStageAt).toFixed(1));
+      previousRenderStageAt = current;
+    };
     try{
     const ownerSession = ensureHeatmapSessionOwnershipShape(drawSession || getActiveHeatmapSessionForState());
     const rowCount = orderedRowLabels.length;
@@ -7927,6 +7963,10 @@
     const ignoreAxisViewportLock = modelType === 'values';
     const viewportOptions = { ignoreAxisViewportLock };
     const baseLabelFontSize = Math.max(6, Math.round(scaledFontSize));
+    if(state.svg.dataset){
+      state.svg.dataset.heatmapRowLabelCount = String(rowCount);
+      state.svg.dataset.heatmapRenderedRowLabelCount = String(rowCount);
+    }
     const parseFontSizePx = value => {
       if(value == null){ return NaN; }
       if(typeof value === 'number'){ return value; }
@@ -7951,9 +7991,13 @@
     const maxRowLabelFontSize = rowLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
     const maxColumnLabelFontSize = columnLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
     // Define label measurement helpers early for margin calculation
+    const labelMeasureFonts = new Map();
     const labelMeasureFont = size => {
       const safeSize = Math.max(4, Math.round(size || baseLabelFontSize));
-      return chartStyle.makeFont ? chartStyle.makeFont(safeSize) : `${safeSize}px sans-serif`;
+      if(!labelMeasureFonts.has(safeSize)){
+        labelMeasureFonts.set(safeSize, chartStyle.makeFont ? chartStyle.makeFont(safeSize) : `${safeSize}px sans-serif`);
+      }
+      return labelMeasureFonts.get(safeSize);
     };
     const measureLabelWidth = (label, size) => {
       if(typeof chartStyle.measureText === 'function'){
@@ -7980,7 +8024,7 @@
       ? Math.min(320, Math.max(60, Math.round(Math.max(cellSize * 1.6, heatmapWidth * 0.18))))
       : 0;
     const columnDendroHeight = showColumnDendrogram && columnClustering?.tree
-      ? Math.min(280, Math.max(60, Math.round(Math.max(cellSize * 1.3, heatmapHeight * 0.18))))
+      ? Math.max(60, Math.round(Math.max(cellSize * 1.3, heatmapHeight * 0.18)))
       : 0;
     const dendroPadding = (rowDendroWidth || columnDendroHeight) ? Math.max(12, Math.round(cellSize * 0.25)) : Math.max(8, Math.round(cellSize * 0.2));
     if(rowDendroWidth){
@@ -8185,6 +8229,7 @@
     const columnLabelGroup = doc.createElementNS(NS, 'g');
     columnLabelGroup.setAttribute('data-layer', 'column-labels');
     g.appendChild(columnLabelGroup);
+    const rowLabelFragment = doc.createDocumentFragment();
     orderedRowLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       const x = matrixLeft + labelColumnWidth - labelPaddingX;
@@ -8198,8 +8243,9 @@
       setHeatmapBaseTransform(text, text.getAttribute('transform') || '');
       text.textContent = label;
       markFontEditable(text, 'rowLabel', `row-label-${index}`);
-      rowLabelGroup.appendChild(text);
+      rowLabelFragment.appendChild(text);
     });
+    rowLabelGroup.appendChild(rowLabelFragment);
     orderedColumnLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       const x = dataStartX + index * cellSize + cellSize / 2;
@@ -8217,11 +8263,11 @@
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
       columnLabelGroup.appendChild(text);
     });
+    markRenderStage('layoutAndLabelsMs');
     // Create a separate layer for the data matrix cells to support composite export (PNG matrix + SVG labels)
     const cellLayer = doc.createElementNS(NS, 'g');
     cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
     cellLayer.setAttribute('data-layer', 'cells');
-    g.appendChild(cellLayer);
     const cellValuePadding = Math.max(1, Math.round(cellSize * 0.08));
     const cellInnerSize = Math.max(1, cellSize - (cellValuePadding * 2));
     const cellValueHeightFactor = 1.15;
@@ -8346,6 +8392,8 @@
         }
       }
     }
+    g.appendChild(cellLayer);
+    markRenderStage('cellsMs');
     const scaleStartX = dataStartX + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
     const resolvedLegendHeightMode = normalizeHeatmapLegendHeightMode(legendHeightMode);
     const scaleHeight = resolvedLegendHeightMode === 'fixed'
@@ -8359,15 +8407,11 @@
         )
       : heatmapHeight;
     const scaleStartY = dataStartY;
-    // Scale strokes using the minimum axis factor so thickness only changes when both axes stretch.
+    // Dendrogram paths use non-scaling strokes, so the requested thickness is already
+    // expressed in stable screen units regardless of matrix dimensions.
     const scaleX = drawableFrame.width && totalWidth ? drawableFrame.width / totalWidth : 1;
     const scaleY = drawableFrame.height && totalHeight ? drawableFrame.height / totalHeight : 1;
     const minScale = Math.min(scaleX, scaleY);
-    const hasScaleX = Number.isFinite(scaleX) && scaleX > 0;
-    const hasScaleY = Number.isFinite(scaleY) && scaleY > 0;
-    const scalesUp = hasScaleX && hasScaleY && scaleX > 1 && scaleY > 1;
-    const scalesDown = hasScaleX && hasScaleY && scaleX < 1 && scaleY < 1;
-    const strokeScale = (scalesUp || scalesDown) ? minScale : 1;
     // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
     const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
     // Use user-defined thickness from state if set, otherwise use auto-scaled value
@@ -8375,7 +8419,7 @@
     const userThickness = dendroSettings.thickness;
     // If user thickness is at default (1), use auto-scaling; otherwise use user value
     const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
-    const dendrogramStroke = dendrogramStrokeBase * strokeScale;
+    const dendrogramStroke = dendrogramStrokeBase;
     const scaleStroke = 1;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
@@ -8388,6 +8432,7 @@
     scaleRect.setAttribute('stroke', '#333');
     scaleRect.setAttribute('stroke-width', String(scaleStroke));
     scaleRect.setAttribute('vector-effect', 'non-scaling-stroke');
+    scaleRect.setAttribute('data-heatmap-color-scale-bar', '1');
     scaleGroup.appendChild(scaleRect);
     const tickStartX = scaleStartX + scaleWidth;
     const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
@@ -8489,6 +8534,7 @@
         strokeWidth: dendrogramStroke
       });
     }
+    markRenderStage('legendAndDendrogramMs');
     if(!rendererAspectLocked){
       applyTextAspectCorrection({
         svg: state.svg,
@@ -8543,6 +8589,7 @@
         textScaleMode: HEATMAP_TEXT_SCALE_MODE
       });
     }
+    markRenderStage('initialViewportMs');
     const measureTextBounds = (nodes) => {
       let minX = Infinity;
       let minY = Infinity;
@@ -8887,6 +8934,13 @@
       showRowDendrogram,
       showColumnDendrogram,
       skipFinalViewportExpansion
+    });
+    markRenderStage('finalLayoutMs');
+    recordHeatmapPerformance('renderStages', {
+      ...renderStages,
+      totalMs: Number((nowMs() - renderStartedAt).toFixed(1)),
+      rows: rowCount,
+      columns: columnCount
     });
     } finally {
       state.isRendering = false;
@@ -10037,7 +10091,7 @@
     }, { seedFromActive: true });
     try{ heatmap.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
     try{ heatmap.__drawAsyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'heatmap-draw-cancel'); }catch(_err){}
-    resolveHeatmapOverlay(meta?.reason || 'cancelled');
+    resolveHeatmapOverlay({ reason: meta?.reason || 'cancelled', tabId });
     Shared.componentLifecycle?.emitLifecycleEvent?.({
       componentKey: 'heatmap',
       tabId,
@@ -10198,11 +10252,11 @@
     bindHeatmapDataToolbar();
     initNotes();
     initFileButtons();
-    const runHeatmapDrawCycle = () => {
+    const runHeatmapDrawCycle = (drawOpts = {}) => {
       let status = 'complete';
       let pendingPromise = null;
       try{
-        const result = draw();
+        const result = draw(drawOpts);
         if(result && typeof result.then === 'function'){
           pendingPromise = result;
         }
@@ -10212,13 +10266,13 @@
       }
       if(pendingPromise){
         return pendingPromise.then(() => {
-          resolveHeatmapOverlay('complete');
+          resolveHeatmapOverlay({ reason: 'complete', tabId: drawOpts?.tabId || null });
         }).catch((err) => {
           console.error('heatmap async draw error', err);
-          resolveHeatmapOverlay('error');
+          resolveHeatmapOverlay({ reason: 'error', status: 'error', error: err, tabId: drawOpts?.tabId || null });
         });
       }
-      resolveHeatmapOverlay(status);
+      resolveHeatmapOverlay({ reason: status, status, tabId: drawOpts?.tabId || null });
       return undefined;
     };
     const scheduleHeatmapBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
@@ -10230,16 +10284,16 @@
       const nextOpts = sanitizeHeatmapDrawOptions(resolvedTabId && !rawOpts.tabId
         ? { ...rawOpts, tabId: resolvedTabId }
         : { ...rawOpts });
-      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      const overlayReason = nextOpts.reason || (nextOpts.force || nextOpts.forceOverlay ? 'manual-render' : 'schedule');
       const ownerSession = getHeatmapSessionForDrawOptions(nextOpts, { reason: overlayReason, fallbackActive: false });
       if(ownerSession){
         updateHeatmapDrawRuntime(ownerSession, runtime => {
           runtime.pendingDrawOptions = sanitizeHeatmapDrawOptions(nextOpts);
         }, { mirrorActive: false });
       }
-      if(nextOpts.force){
-        markHeatmapOverlayPending(overlayReason);
-        forceHeatmapOverlay(overlayReason, { message: 'Rendering heatmap...' });
+      if(nextOpts.force || nextOpts.forceOverlay){
+        markHeatmapOverlayPending({ reason: overlayReason, tabId: ownerSession?.tabId || nextOpts.tabId || null });
+        forceHeatmapOverlay(overlayReason, { tabId: ownerSession?.tabId || nextOpts.tabId || null, message: 'Rendering heatmap...' });
       }else{
         queueHeatmapOverlay(overlayReason);
       }
@@ -10883,6 +10937,13 @@
     benchmarkLoad: opts => benchmarkHeatmapLoad(opts),
     resolveDrawableFrame: targetEl => resolveHeatmapDrawableFrame(targetEl),
     resolveRoleTextScales: opts => resolveHeatmapRoleTextScales(opts),
+    getWorkerRecords: (tabId = null) => {
+      const ownerTabId = String(tabId || getHeatmapProjectionTabId() || '').trim();
+      const session = ownerTabId
+        ? getHeatmapSession(ownerTabId, { tabId: ownerTabId, reason: 'heatmap-test-worker-records' }, { create: false })
+        : null;
+      return Array.from(session?.workers?.values?.() || []).map(record => cloneSimple(record));
+    },
     getPerformance: () => ({
       performance: cloneSimple(state.performance),
       lastAutoDrawEvaluation: cloneSimple(state.lastAutoDrawEvaluation),

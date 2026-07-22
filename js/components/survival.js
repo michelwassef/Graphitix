@@ -946,6 +946,9 @@
     if(!shaped){
       return false;
     }
+    if(Shared.hot?.shouldDeferOwnerProjectionDraw?.(shaped, options)){
+      return false;
+    }
     const sourceOptions = options && typeof options === 'object' ? options : {};
     const scheduleOptions = Shared.componentLifecycle?.sanitizeDrawOptions
       ? Shared.componentLifecycle.sanitizeDrawOptions(sourceOptions, { tabId: shaped.tabId || null, reason: 'survival-session-draw' })
@@ -4558,7 +4561,21 @@
     ensureGraphViewport(svg, options);
   }
 
-  function drawSurvival(options = {}, session = null){
+  const survivalOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'survival',
+    message: 'Rendering survival graph...',
+    isHeavy: Shared.loadingOverlay?.createTableHeavyPredicate?.({
+      getHot: () => state.hot,
+      startRow: 0,
+      startCol: 0,
+      rowThreshold: 1000,
+      cellThreshold: 5000
+    }),
+    getTabId: () => getSurvivalProjectionTabId() || null,
+    getHost: () => getSurvivalNodeById('survivalGraphPanel')?.querySelector?.('.svgbox') || getSurvivalNodeById('survivalGraphPanel')
+  });
+
+  async function drawSurvival(options = {}, session = null){
     const drawSession = ensureSurvivalSessionOwnershipShape(session || getSurvivalSessionForDrawOptions(options));
     if(drawSession && !isSurvivalSessionActiveOrActivating(drawSession)){
       drawSession.state.drawPending = true;
@@ -4566,6 +4583,15 @@
       return false;
     }
     const drawTabId = drawSession?.tabId || options?.tabId || getSurvivalProjectionTabId() || null;
+    const execution = Shared.jobs?.createExecutionContext?.({ component: 'survival', tabId: drawTabId || '', kind: 'graph', budgetMs: 10 }) || null;
+    const checkpoint = async () => {
+      try{ await execution?.checkpoint?.(); }
+      catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     const plotDiv = getSurvivalNodeById('survivalPlot', drawTabId) || refs.plotDiv || getSurvivalNodeById('survivalPlot');
     if(!plotDiv){
       if(drawSession){
@@ -4582,6 +4608,9 @@
       refs.plotDiv.removeChild(refs.plotDiv.firstChild);
     }
     const summary = collectSeries();
+    if(!(await checkpoint())){
+      return false;
+    }
     refreshCovariateControls();
     const hazardRatiosEnabled = !!controls.showHazardRatios;
     const coxEnabled = !!controls.fitCoxModel;
@@ -4591,6 +4620,9 @@
       const shouldFitCox = hazardRatiosEnabled || coxEnabled;
       if(shouldFitCox){
         coxModelSummary = fitCoxModel(summary, { enabled: shouldFitCox });
+        if(!(await checkpoint())){
+          return false;
+        }
       }
       const selectedCovariateCount = Array.isArray(coxModelSummary?.design?.covariateSelections)
         ? coxModelSummary.design.covariateSelections.length
@@ -4603,6 +4635,9 @@
       }
     }
     summary.logRankWilcoxon = summary.series.length ? computeGehanBreslowWilcoxon(summary.series) : { available: false };
+    if(!(await checkpoint())){
+      return false;
+    }
     summary.logRankTrend = summary.series.length >= 3 ? computeLogRankTrend(summary.series) : { available: false };
     summary.pairwiseComparisons = summary.series.length >= 2
       ? computePairwiseSurvivalComparisons(summary.series, state.pairwiseCorrection || 'holm-sidak')
@@ -5200,7 +5235,11 @@
 
     const showCI = !!controls.showCI;
     const showCensor = !!controls.showCensor;
-    groupsForDraw.forEach(group => {
+    for(let groupIndex = 0; groupIndex < groupsForDraw.length; groupIndex += 1){
+      if(!(await checkpoint())){
+        return false;
+      }
+      const group = groupsForDraw[groupIndex];
       const groupMaxTime = Number.isFinite(group.km?.maxTime) ? group.km.maxTime : xScale.max;
       if(Shared.isDebugEnabled?.() && Number.isFinite(groupMaxTime) && Number.isFinite(xScale.max) && groupMaxTime < xScale.max){
         survivalDebug('Debug: survival step extent clamped', { group: group.name, groupMaxTime, axisMax: xScale.max });
@@ -5253,7 +5292,7 @@
           });
         });
       }
-    });
+    }
 
     if(legendVisible){
       const legendGapPx = Number.isFinite(legendLayout.legendGapPx) ? legendLayout.legendGapPx : 12;
@@ -6905,8 +6944,13 @@
       console.warn('Survival component init skipped: required elements missing');
       return;
     }
-    const runSurvivalScheduledDraw = (drawOptions = {}) => {
-      const result = drawSurvival(drawOptions || {});
+    const runSurvivalScheduledDraw = async (drawOptions = {}) => {
+      let result;
+      try{
+        result = await drawSurvival(drawOptions || {});
+      }finally{
+        survivalOverlayController?.resolve({ reason: 'complete', tabId: drawOptions?.tabId || getSurvivalProjectionTabId() || null });
+      }
       captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
         reason: 'survival-scheduled-draw-capture',
         captureStatsPanels: true
@@ -6916,14 +6960,24 @@
     const scheduleSurvivalBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(survival, 'survival', runSurvivalScheduledDraw, { reason: 'survival-draw-frame' })
       : runSurvivalScheduledDraw;
+    const scheduleSurvivalInstrumented = drawOptions => {
+      const nextOptions = drawOptions || {};
+      if(nextOptions.force === true || nextOptions.importTransactionFinal === true){
+        survivalOverlayController?.force(nextOptions.reason || 'render', {
+          tabId: nextOptions.tabId || getSurvivalProjectionTabId() || null,
+          message: 'Rendering survival graph...'
+        });
+      }
+      return scheduleSurvivalBase(nextOptions);
+    };
     state.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'survival',
           debugLabel: 'survival',
           getTabId: () => getSurvivalProjectionTabId() || null,
-          scheduleRaw: scheduleSurvivalBase
+          scheduleRaw: scheduleSurvivalInstrumented
         })
-      : scheduleSurvivalBase;
+      : scheduleSurvivalInstrumented;
     logDebug('scheduleDraw configured', { scheduler: 'tab-scoped lifecycle frame' });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'survival',
@@ -7243,7 +7297,7 @@
     }
     return restored;
   };
-  survival.draw = function drawSurvivalPublic(options = {}){
+  survival.draw = async function drawSurvivalPublic(options = {}){
     const nextReason = options?.reason || 'survival-draw';
     if(Shared.componentLifecycle?.shouldSuppressDraw?.('survival', { ...(options || {}), tabId: options?.tabId || getSurvivalProjectionTabId() || null, reason: nextReason })){
       survivalDebug('Debug: survival draw suppressed by lifecycle', { reason: nextReason, tabId: options?.tabId || getSurvivalProjectionTabId() || null });
@@ -7257,12 +7311,30 @@
       drawSession.updatedAt = Date.now();
       return;
     }
-    const result = drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+    const overlayForced = options?.force === true
+      ? survivalOverlayController?.force(nextReason, { tabId: drawSession?.tabId || options?.tabId || null })
+      : false;
+    if(overlayForced){
+      await Shared.jobs?.nextFrame?.();
+      await Shared.jobs?.nextFrame?.();
+    }
+    let result;
+    try{
+      result = await drawSurvival({ ...(options || {}), tabId: drawSession?.tabId || options?.tabId || undefined, reason: nextReason }, drawSession);
+    }finally{
+      survivalOverlayController?.resolve({ reason: 'complete', tabId: drawSession?.tabId || options?.tabId || null });
+    }
     captureSurvivalSessionStateFromActive(getSurvivalProjectionSession({ reason: 'survival-projection-mutation' }), {
       reason: nextReason,
       captureStatsPanels: true
     });
     return result;
+  };
+  survival.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || getSurvivalProjectionTabId() || null;
+    try{ survival.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'survival-draw-cancel'); }catch(_err){}
+    survivalOverlayController?.resolve({ reason: meta?.reason || 'cancelled', tabId });
+    return true;
   };
   survival.__getState = function(){
     survivalDebug('Debug: survival.__getState invoked');

@@ -48,7 +48,6 @@
       case 'archive-save':
       case 'document-snapshot':
       case 'append-existing':
-      case 'recovery':
         return {
           saveLike: true,
           captureLivePayload: true,
@@ -56,6 +55,18 @@
           runSkippedPayloadDriftProbe: true,
           promoteSkippedPayloadDrift: true,
           reasonSkippable: false,
+          snapshotCapture: true
+        };
+      case 'recovery':
+        return {
+          saveLike: false,
+          captureLivePayload: false,
+          skipLivePayloadCapture: true,
+          allowSkipLivePayloadCapture: true,
+          lifecycleSnapshot: true,
+          runSkippedPayloadDriftProbe: false,
+          promoteSkippedPayloadDrift: false,
+          reasonSkippable: true,
           snapshotCapture: true
         };
       case 'warmup-cache':
@@ -109,6 +120,7 @@
     const recoveryLike = modeText === 'recovery'
       || kind === 'recovery'
       || reasonText.includes('recovery');
+    const highFidelityEnabled = options.highFidelityEnabled === true;
 
     let captureRenderCache = false;
     let policyId = 'default-lean';
@@ -124,7 +136,7 @@
       captureRenderCache = true;
       policyId = 'warmup-cache';
     } else if (recoveryLike) {
-      highFidelityEligible = scope === 'workspace' && idle;
+      highFidelityEligible = highFidelityEnabled && scope === 'workspace' && idle;
       captureRenderCache = highFidelityEligible;
       policyId = highFidelityEligible ? 'recovery-high-fidelity-idle' : 'recovery-lean';
     } else {
@@ -142,6 +154,7 @@
       captureRenderCache,
       preserveRenderCacheTabScope: captureRenderCache ? 'all' : 'active-only',
       highFidelityEligible,
+      highFidelityEnabled,
       idleForMs,
       idleThresholdMs,
       idle,

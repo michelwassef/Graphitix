@@ -43,6 +43,7 @@ describe('Venn UpSet integration', () => {
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');
     require('../js/shared/debounce.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/undo.js');
     require('../js/shared/resizer.js');
     require('../js/shared/dom.js');

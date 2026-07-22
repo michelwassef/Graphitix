@@ -30,6 +30,7 @@ describe('Heatmap stats formatting', () => {
     require('../js/vendor.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/debounce.js');
+    require('../js/shared/componentLifecycle.js');
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/hot.js');

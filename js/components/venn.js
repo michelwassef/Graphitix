@@ -9218,7 +9218,41 @@
     return fallback;
   }
 
-  function refreshDiagram(drawOptions = {}) {
+  function isVennOverlayHeavy(reason, options = {}) {
+    if(options.heavy === true || options.forceOverlay === true){
+      return true;
+    }
+    if(options.heavy === false || options.forceOverlay === false){
+      return false;
+    }
+    const parsedLists = state.analysis?.lastParsedLists?.lists || null;
+    const parsedCount = ['A', 'B', 'C'].reduce((total, key) => (
+      total + (Array.isArray(parsedLists?.[key]) ? parsedLists[key].length : 0)
+    ), 0);
+    if(parsedCount >= 1000){
+      return true;
+    }
+    const inputs = state.ui?.inputs || null;
+    const textSize = ['A', 'B', 'C'].reduce((total, key) => (
+      total + String(inputs?.[key]?.value || '').length
+    ), 0);
+    if(textSize >= 20000){
+      return true;
+    }
+    const tableInfo = getUpSetTableColumns();
+    return Array.isArray(tableInfo?.columns)
+      && tableInfo.columns.reduce((total, column) => total + (Array.isArray(column?.values) ? column.values.length : 0), 0) >= 1000;
+  }
+
+  const vennOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'venn',
+    message: 'Rendering Venn graph...',
+    isHeavy: isVennOverlayHeavy,
+    getTabId: () => getVennProjectionTabId() || null,
+    getHost: () => state.ui?.svgBox || queryVennRoot('#vennGraphPanel .svgbox') || queryVennRoot('#vennGraphPanel')
+  });
+
+  async function refreshDiagram(drawOptions = {}) {
     const resizePreview = drawOptions?.resizePhase === 'move';
     bindVennSessionForTab(getVennProjectionTabId() || null, { reason: 'venn-refresh-bind', root: state.ui.root || null }, { apply: false });
     const inputs = state.ui.inputs;
@@ -9226,6 +9260,16 @@
       console.warn('Debug: venn refreshDiagram called before init');
       return;
     }
+    const drawTabId = drawOptions?.tabId || getVennProjectionTabId() || null;
+    const execution = Shared.jobs?.createExecutionContext?.({ component: 'venn', tabId: drawTabId || '', kind: 'graph', budgetMs: 10 }) || null;
+    const checkpoint = async () => {
+      try{ await execution?.checkpoint?.(); }
+      catch(err){
+        if(execution?.signal?.aborted || execution?.isCurrent?.() === false){ return false; }
+        throw err;
+      }
+      return execution?.isCurrent?.() !== false;
+    };
     try {
       const plotType = getActivePlotType();
       const hintedMode = state.analysis.lastDrawMode;
@@ -9290,6 +9334,9 @@
       } else {
         drawFromLists(drawOptions);
       }
+      if(!(await checkpoint())){
+        return false;
+      }
       if(!resizePreview && !isProjectingVennSession()){
         captureVennSessionStateFromActive(projectedVennSession, { reason: 'venn-refresh-complete' });
       }
@@ -9299,7 +9346,7 @@
     }
   }
 
-  function requestScheduledDraw(reason, modeOverride) {
+  function requestScheduledDraw(reason, modeOverride, drawOptions = {}) {
     if (modeOverride) {
       state.analysis.lastDrawMode = modeOverride;
     }
@@ -9309,9 +9356,14 @@
       session.updatedAt = Date.now();
     }
     debug('Debug: venn auto-redraw scheduled', { reason, mode: state.analysis.lastDrawMode }); // Debug: automatic redraw trigger
-    if(!scheduleActiveVennDraw({ reason: reason || 'venn-auto-redraw', mode: state.analysis.lastDrawMode || null })){
+    const scheduleOptions = {
+      ...(drawOptions && typeof drawOptions === 'object' ? drawOptions : {}),
+      reason: reason || 'venn-auto-redraw',
+      mode: state.analysis.lastDrawMode || null
+    };
+    if(!scheduleActiveVennDraw(scheduleOptions)){
       debug('Debug: venn auto-redraw fallback', { reason, mode: state.analysis.lastDrawMode }); // Debug: fallback without scheduler
-      refreshDiagram();
+      refreshDiagram(scheduleOptions);
     }
   }
 
@@ -10026,7 +10078,7 @@
       }
     }
     syncPlotMode(nextType, { updateTitle: true, syncPanels: true });
-    requestScheduledDraw('plot-type-change');
+    requestScheduledDraw('plot-type-change', null, Shared.componentLifecycle.createStructuralDrawOptions('plot-type-change'));
     persistActiveVennUserChange('venn-plot-type-change');
     debug('Debug: venn handlePlotTypeChange', { plot: nextType });
     commitVennUndo(target, 'venn:plot-type');
@@ -10943,17 +10995,48 @@
     Object.assign(state.persistence, freshState.persistence);
     debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
+    const runVennDrawCycle = async (drawOptions = {}) => {
+      try{
+        return await refreshDiagram(drawOptions);
+      }finally{
+        vennOverlayController?.resolve({ reason: 'complete', tabId: drawOptions?.tabId || getVennProjectionTabId() || null });
+      }
+    };
     const scheduleVennBase = Shared.componentLifecycle?.createTabScopedFrameDebouncer
-      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(venn, 'venn', refreshDiagram, { reason: 'venn-draw-frame' })
-      : refreshDiagram;
+      ? Shared.componentLifecycle.createTabScopedFrameDebouncer(venn, 'venn', runVennDrawCycle, { reason: 'venn-draw-frame' })
+      : runVennDrawCycle;
+    const scheduleVennInstrumented = drawOptions => {
+      const nextOptions = drawOptions || {};
+      if(((nextOptions.force === true || nextOptions.forceOverlay === true) && nextOptions.silentOverlay !== true) || nextOptions.importTransactionFinal === true){
+        vennOverlayController?.force(nextOptions.reason || 'render', {
+          tabId: nextOptions.tabId || getVennProjectionTabId() || null,
+          message: 'Rendering Venn graph...'
+        });
+      }
+      const runSchedule = () => scheduleVennBase(nextOptions);
+      if(Shared.componentLifecycle?.runDrawWithOverlayPaintGate?.({
+        component: venn,
+        componentKey: 'venn',
+        options: nextOptions,
+        tabId: nextOptions.tabId || getVennProjectionTabId() || null,
+        reason: nextOptions.reason || 'render',
+        overlayController: vennOverlayController,
+        delayForOverlay: nextOptions.silentOverlay !== true,
+        debugLog: debug,
+        run: runSchedule
+      })){
+        return true;
+      }
+      return runSchedule();
+    };
     state.ui.scheduleDraw = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey: 'venn',
           debugLabel: 'venn',
           getTabId: () => getVennProjectionTabId() || null,
-          scheduleRaw: scheduleVennBase
+          scheduleRaw: scheduleVennInstrumented
         })
-      : scheduleVennBase;
+      : scheduleVennInstrumented;
     debug('Debug: venn scheduleDraw configured via tab-scoped lifecycle frame'); // Debug: scheduler setup
     initLayout(mountedRoot, { tabId: targetTabId || undefined, reason: options?.reason || 'venn-init' });
     state.ui.layout?.setScheduleDraw?.(options => scheduleActiveVennDraw(options && typeof options === 'object' ? options : {}));
@@ -11438,7 +11521,7 @@
     return restored;
   };
 
-  venn.draw = function draw(meta = {}) {
+  venn.draw = async function draw(meta = {}) {
     try {
       const nextReason = meta?.reason || 'venn-draw';
       if(Shared.componentLifecycle?.shouldSuppressDraw?.('venn', { ...(meta || {}), tabId: meta?.tabId || getVennProjectionTabId() || null, reason: nextReason })){
@@ -11458,10 +11541,30 @@
         });
         return;
       }
-      refreshDiagram(meta);
+      const overlayTabId = targetTabId || getVennProjectionTabId() || null;
+      const overlayRequested = (meta?.force === true || meta?.forceOverlay === true) && meta?.silentOverlay !== true;
+      const overlayForced = overlayRequested && !vennOverlayController?.isActive?.({ tabId: overlayTabId })
+        ? vennOverlayController?.force(nextReason, { tabId: overlayTabId })
+        : false;
+      if(overlayForced){
+        await Shared.jobs?.nextFrame?.();
+        await Shared.jobs?.nextFrame?.();
+      }
+      try{
+        return await refreshDiagram(meta);
+      }finally{
+        vennOverlayController?.resolve({ reason: 'complete', tabId: targetTabId || getVennProjectionTabId() || null });
+      }
     } catch (e) {
       console.error('venn.draw error', e);
     }
+  };
+
+  venn.cancelCurrentDraw = function cancelCurrentDraw(meta = {}){
+    const tabId = meta?.tabId || getVennProjectionTabId() || null;
+    try{ venn.__asyncScope?.cancelAllForTab?.(tabId, meta?.reason || 'venn-draw-cancel'); }catch(_err){}
+    vennOverlayController?.resolve({ reason: meta?.reason || 'cancelled', tabId });
+    return true;
   };
 
   function resolveVennPreviewSourceSvg(tab){

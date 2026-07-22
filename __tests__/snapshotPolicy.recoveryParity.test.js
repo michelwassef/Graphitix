@@ -9,22 +9,24 @@ describe('snapshotPolicy recovery parity', () => {
     delete window.Main;
   });
 
-  test('recovery uses the same canonical live-payload capture contract as manual save', () => {
+  test('recovery serializes canonical session state without live projection capture', () => {
     const policy = window.Main.snapshotPolicy;
     const saveIntent = policy.resolvePersistSnapshotIntent({ snapshotKind: 'archive-save' });
     const recoveryIntent = policy.resolvePersistSnapshotIntent({ snapshotKind: 'recovery' });
 
-    expect(recoveryIntent).toEqual(saveIntent);
     expect(recoveryIntent).toEqual(expect.objectContaining({
-      saveLike: true,
-      captureLivePayload: true,
-      allowSkipLivePayloadCapture: false,
-      reasonSkippable: false,
+      saveLike: false,
+      captureLivePayload: false,
+      skipLivePayloadCapture: true,
+      allowSkipLivePayloadCapture: true,
+      lifecycleSnapshot: true,
+      reasonSkippable: true,
       snapshotCapture: true
     }));
+    expect(saveIntent.captureLivePayload).toBe(true);
   });
 
-  test('recovery differs from manual save only in optional cache policy', () => {
+  test('Hi-Fi recovery requires explicit opt-in and idle time', () => {
     const policy = window.Main.snapshotPolicy;
     const manual = policy.resolveArchiveBuildPolicy({
       mode: 'manual-save',
@@ -43,12 +45,18 @@ describe('snapshotPolicy recovery parity', () => {
       scope: 'workspace',
       idleForMs: policy.constants.defaultIdleThresholdMs
     });
+    const optedInIdleRecovery = policy.resolveArchiveBuildPolicy({
+      mode: 'recovery',
+      snapshotKind: 'recovery',
+      scope: 'workspace',
+      highFidelityEnabled: true,
+      idleForMs: policy.constants.defaultIdleThresholdMs
+    });
 
-    expect(activeRecovery.snapshotIntent).toEqual(manual.snapshotIntent);
-    expect(idleRecovery.snapshotIntent).toEqual(manual.snapshotIntent);
     expect(manual.captureRenderCache).toBe(true);
     expect(activeRecovery.captureRenderCache).toBe(false);
-    expect(idleRecovery.captureRenderCache).toBe(true);
+    expect(idleRecovery.captureRenderCache).toBe(false);
+    expect(optedInIdleRecovery.captureRenderCache).toBe(true);
   });
 
   test('recovery reasons normalize to the dedicated recovery kind', () => {

@@ -32,12 +32,52 @@ describe('Shared.jobs and loading overlay integration', () => {
     expect(host.hidden).toBe(true);
   });
 
-  test('loading overlay stop preserves stopped state and retry calls component draw', () => {
+  test('owner-scoped execution context propagates graph cancellation to yields and workers', async () => {
+    const job = window.Shared.jobs.start({
+      kind: 'graph',
+      component: 'box',
+      tabId: 'tab-box'
+    });
+    const execution = window.Shared.jobs.createExecutionContext({
+      component: 'box',
+      tabId: 'tab-box',
+      kind: 'graph',
+      budgetMs: 4
+    });
+
+    expect(execution.job.id).toBe(job.id);
+    expect(execution.workerOptions('swarm')).toEqual(expect.objectContaining({
+      name: 'box:tab-box:swarm',
+      signal: job.signal,
+      cancelStrategy: 'terminate'
+    }));
+
+    window.Shared.jobs.cancel(job.id, 'test-stop');
+    await expect(execution.checkpoint()).rejects.toThrow('Task cancelled');
+  });
+
+  test('replacement aborts only the previous graph job for the same owner', () => {
+    const first = window.Shared.jobs.start({ kind: 'graph', component: 'box', tabId: 'tab-a' });
+    const unrelated = window.Shared.jobs.start({ kind: 'graph', component: 'box', tabId: 'tab-b' });
+    const replacement = window.Shared.jobs.start({
+      kind: 'graph',
+      component: 'box',
+      tabId: 'tab-a',
+      replaceForOwner: true
+    });
+
+    expect(first.signal.aborted).toBe(true);
+    expect(unrelated.signal.aborted).toBe(false);
+    expect(window.Shared.jobs.getActiveFor({ component: 'box', tabId: 'tab-a', kind: 'graph' }).id).toBe(replacement.id);
+  });
+
+  test('loading overlay stop preserves stopped state and retry restores progress until draw settles', async () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
+    let completeDraw;
     const component = {
       cancelCurrentDraw: jest.fn(),
-      draw: jest.fn()
+      draw: jest.fn(() => new Promise(resolve => { completeDraw = resolve; }))
     };
     window.Components = { scatter: component };
 
@@ -62,10 +102,71 @@ describe('Shared.jobs and loading overlay integration', () => {
     expect(overlay.textContent).toContain('Draw again');
 
     overlay.querySelector('[data-overlay-action="retry"]').click();
+    expect(overlay.hidden).toBe(false);
+    expect(overlay.querySelector('.venn-loading-overlay__spinner')?.hidden).toBe(false);
+    expect(overlay.textContent).toContain('Rendering scatter plot...');
+    expect(overlay.textContent).not.toContain('Drawing stopped');
+    await new Promise(resolve => setTimeout(resolve, 50));
     expect(component.draw).toHaveBeenCalledWith(expect.objectContaining({
       force: true,
       userInitiated: true
     }));
+    completeDraw();
+    await new Promise(resolve => setTimeout(resolve, 180));
+    expect(overlay.hidden).toBe(true);
+  });
+
+  test('pending controller keeps ownership across stop and retry settlement', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    let controller;
+    window.Components = {
+      scatter: {
+        cancelCurrentDraw: jest.fn(meta => {
+          controller.resolve({ reason: 'cancelled', status: 'cancelled', tabId: meta.tabId });
+        }),
+        draw: jest.fn(options => {
+          controller.force('overlay-retry', { tabId: options.tabId });
+          controller.resolve({ reason: 'complete', status: 'complete', tabId: options.tabId });
+        })
+      }
+    };
+    controller = window.Shared.loadingOverlay.createPendingController({
+      component: 'scatter',
+      message: 'Rendering scatter plot...',
+      host,
+      getTabId: meta => meta?.tabId || 'tab-a'
+    });
+
+    controller.force('large-render', { tabId: 'tab-a' });
+    const overlay = host.querySelector('.venn-loading-overlay');
+    overlay.querySelector('[data-overlay-action="cancel"]').click();
+    expect(controller.isActive({ tabId: 'tab-a' })).toBe(true);
+    expect(overlay.textContent).toContain('Drawing stopped');
+
+    overlay.querySelector('[data-overlay-action="retry"]').click();
+    await new Promise(resolve => setTimeout(resolve, 220));
+    expect(window.Components.scatter.draw).toHaveBeenCalledTimes(1);
+    expect(window.Shared.jobs.getSnapshot().active).toHaveLength(0);
+    expect(overlay.hidden).toBe(true);
+  });
+
+  test('latest graph controller owns the single overlay handle for a host', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const first = window.Shared.loadingOverlay.createController({ component: 'box', host, getTabId: () => 'tab-a' });
+    const second = window.Shared.loadingOverlay.createController({ component: 'box', host, getTabId: () => 'tab-a' });
+
+    first.queue({ reason: 'import', immediate: true });
+    second.queue({ reason: 'render', immediate: true });
+    const overlay = host.querySelector('.venn-loading-overlay');
+    expect(overlay.hidden).toBe(false);
+
+    first.resolve({ reason: 'old-import-complete' });
+    expect(overlay.hidden).toBe(false);
+    second.resolve({ reason: 'render-complete' });
+    await new Promise(resolve => setTimeout(resolve, 180));
+    expect(overlay.hidden).toBe(true);
   });
 
   test('header cancellation updates an active graph overlay', () => {
@@ -157,5 +258,28 @@ describe('Shared.jobs and loading overlay integration', () => {
     const overlay = host.querySelector('.venn-loading-overlay');
     expect(overlay).not.toBeNull();
     expect(overlay.hidden).toBe(false);
+  });
+
+  test('pending controllers keep same-component overlays isolated by owner tab', async () => {
+    const hostA = document.createElement('div');
+    const hostB = document.createElement('div');
+    document.body.append(hostA, hostB);
+    const controller = window.Shared.loadingOverlay.createPendingController({
+      component: 'pca',
+      message: 'Rendering PCA...',
+      getTabId: meta => meta?.tabId || null,
+      getHost: meta => meta?.tabId === 'tab-b' ? hostB : hostA
+    });
+
+    controller.force('import-a', { tabId: 'tab-a' });
+    controller.force('import-b', { tabId: 'tab-b' });
+    expect(hostA.querySelector('.venn-loading-overlay')?.hidden).toBe(false);
+    expect(hostB.querySelector('.venn-loading-overlay')?.hidden).toBe(false);
+
+    controller.resolve({ reason: 'done-a', tabId: 'tab-a' });
+    await new Promise(resolve => setTimeout(resolve, 170));
+    expect(hostA.querySelector('.venn-loading-overlay')?.hidden).toBe(true);
+    expect(hostB.querySelector('.venn-loading-overlay')?.hidden).toBe(false);
+    expect(controller.isActive({ tabId: 'tab-b' })).toBe(true);
   });
 });

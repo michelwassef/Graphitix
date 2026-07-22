@@ -366,6 +366,116 @@
     return { session, tab: ownerTab };
   };
 
+  const ownerProjectionTransactions = new Map();
+  const lastOwnerProjectionTransactions = new Map();
+  let ownerProjectionTransactionSequence = 0;
+
+  const resolveOwnerTabId = owner => normalizeOwnerTabId(
+    typeof owner === 'string'
+      ? owner
+      : (owner?.tabId
+        || owner?.id
+        || owner?.workspaceTabId
+        || owner?.__workspaceTabId
+        || owner?.__graphitixTabId)
+  );
+
+  hotNS.beginOwnerProjectionTransaction = function beginOwnerProjectionTransaction(meta = {}){
+    const hotInstance = meta.hotInstance || meta.instance || null;
+    const { tab } = resolveTableOwnerSessionAndTab({ ...meta, hotInstance });
+    const tabId = normalizeOwnerTabId(tab?.id);
+    if(!tabId){
+      return null;
+    }
+    const transaction = {
+      token: `table-projection-${++ownerProjectionTransactionSequence}`,
+      tabId,
+      type: String(tab.type || meta.type || '').trim() || null,
+      reason: meta.reason || 'table-import',
+      hotInstance,
+      deferredDrawCount: 0,
+      paintCompletedAt: null,
+      startedAt: global.performance?.now?.() ?? Date.now()
+    };
+    ownerProjectionTransactions.set(tabId, transaction);
+    return transaction;
+  };
+
+  hotNS.isOwnerProjectionTransactionCurrent = function isOwnerProjectionTransactionCurrent(transaction){
+    const tabId = resolveOwnerTabId(transaction);
+    return !!(tabId && transaction?.token && ownerProjectionTransactions.get(tabId)?.token === transaction.token);
+  };
+
+  hotNS.shouldDeferOwnerProjectionDraw = function shouldDeferOwnerProjectionDraw(owner, options = {}){
+    if(options?.importTransactionFinal === true){
+      return false;
+    }
+    const tabId = resolveOwnerTabId(owner) || resolveOwnerTabId(options);
+    const transaction = tabId ? ownerProjectionTransactions.get(tabId) : null;
+    if(transaction){
+      transaction.deferredDrawCount += 1;
+      return true;
+    }
+    return false;
+  };
+
+  const hasOwnerProjectionTransaction = owner => {
+    const tabId = resolveOwnerTabId(owner);
+    return !!(tabId && ownerProjectionTransactions.has(tabId));
+  };
+
+  hotNS.isOwnerProjectionTransactionOwnerActive = function isOwnerProjectionTransactionOwnerActive(transaction){
+    if(!hotNS.isOwnerProjectionTransactionCurrent(transaction)){
+      return false;
+    }
+    const activeTab = global.Main?.session?.getActiveTab?.() || null;
+    return !!(activeTab
+      && String(activeTab.id || '') === transaction.tabId
+      && (!transaction.type || String(activeTab.type || '') === transaction.type));
+  };
+
+  hotNS.endOwnerProjectionTransaction = function endOwnerProjectionTransaction(transaction, meta = {}){
+    if(!hotNS.isOwnerProjectionTransactionCurrent(transaction)){
+      return false;
+    }
+    ownerProjectionTransactions.delete(transaction.tabId);
+    const endedAt = global.performance?.now?.() ?? Date.now();
+    lastOwnerProjectionTransactions.set(transaction.tabId, {
+      token: transaction.token,
+      tabId: transaction.tabId,
+      type: transaction.type,
+      reason: transaction.reason,
+      deferredDrawCount: transaction.deferredDrawCount,
+      paintWaitMs: transaction.paintCompletedAt == null ? null : transaction.paintCompletedAt - transaction.startedAt,
+      totalMs: endedAt - transaction.startedAt,
+      projected: meta.projected === true,
+      finalProjectionRequests: Number(meta.finalProjectionRequests) || 0
+    });
+    return true;
+  };
+
+  hotNS.getLastOwnerProjectionTransaction = owner => {
+    const tabId = resolveOwnerTabId(owner);
+    const transaction = tabId ? lastOwnerProjectionTransactions.get(tabId) : null;
+    return transaction ? { ...transaction } : null;
+  };
+
+  hotNS.awaitOwnerProjectionPaint = async function awaitOwnerProjectionPaint(transaction){
+    const waitFrame = () => new Promise(resolve => {
+      if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(() => resolve());
+      }else{
+        global.setTimeout(resolve, 0);
+      }
+    });
+    await waitFrame();
+    await waitFrame();
+    if(hotNS.isOwnerProjectionTransactionCurrent(transaction)){
+      transaction.paintCompletedAt = global.performance?.now?.() ?? Date.now();
+    }
+    return hotNS.isOwnerProjectionTransactionCurrent(transaction);
+  };
+
   const markTabUserModifiedForOwner = (tab, reason, meta = {}) => {
     try {
       const session = global.Main?.session || null;
@@ -589,6 +699,9 @@
       });
       return false;
     }
+    if(hasOwnerProjectionTransaction(tab)){
+      return false;
+    }
     // Lift restore-time draw suppression before the component schedules its
     // afterChange redraw, so the first data edit after a file reopen updates the
     // graph instead of waiting for a later resize to clear the guard.
@@ -724,6 +837,52 @@
     return true;
   };
 
+  const syncOwnerTabPayloadFullData = (matrix, reason, meta = {}) => {
+    if(!Array.isArray(matrix) || isSessionPayloadSyncSuppressedSource(meta.source) || isSessionPayloadSyncSuppressedInstance(meta)){
+      return false;
+    }
+    const effectiveReason = reason || 'table-data-replace';
+    const { session, tab } = resolveTableOwnerSessionAndTab({ ...meta, reason: effectiveReason });
+    if(!tab?.type || typeof session?.commitTabPayload !== 'function'){
+      return false;
+    }
+    releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    const component = resolveComponentForTab(tab);
+    const currentPayload = tab.payload && typeof tab.payload === 'object'
+      ? tab.payload
+      : createPayloadForTab(tab);
+    let nextPayload = {
+      ...(currentPayload || {}),
+      data: matrix.slice()
+    };
+    if(typeof component?.applyTablePayloadData === 'function'){
+      const applied = component.applyTablePayloadData(nextPayload, matrix, {
+        tab,
+        reason: effectiveReason,
+        hotInstance: meta.hotInstance || null,
+        source: meta.source || null
+      });
+      if(applied && typeof applied === 'object'){
+        nextPayload = applied;
+      }
+    }
+    const dataViewsCapture = captureAttachedDataViewsPayload(meta.hotInstance || null);
+    if(dataViewsCapture.checked){
+      const payload = dataViewsCapture.payload;
+      if(payload && Array.isArray(payload.views) && payload.views.length > 1){
+        nextPayload.dataViews = payload;
+        nextPayload.activeDataViewId = payload.activeViewId || null;
+      }else{
+        delete nextPayload.dataViews;
+        delete nextPayload.activeDataViewId;
+      }
+    }
+    return session.commitTabPayload(tab, nextPayload, {
+      reason: effectiveReason,
+      origin: 'user'
+    });
+  };
+
   const syncActiveTabPayloadDataChanges = (changes, reason, meta = {}) => {
     console.debug('Debug: Shared.hot legacy active-tab sync entry redirected to owner-tab sync', {
       reason: reason || 'table-data-change',
@@ -765,6 +924,9 @@
       reason: effectiveReason
     });
     if (!tab || !tab.type || typeof session?.updateTabPayload !== 'function') {
+      return false;
+    }
+    if(hasOwnerProjectionTransaction(tab)){
       return false;
     }
     releaseOwnerTabRestoreSuppression(tab, effectiveReason);
@@ -1584,6 +1746,8 @@
       hotDebug('Debug: Shared.hot.disposeTableForTab skipped', { type: normalizedType || null, tabId: normalizedTabId || null });
       return false;
     }
+    ownerProjectionTransactions.delete(normalizedTabId);
+    lastOwnerProjectionTransactions.delete(normalizedTabId);
     const pool = tabTablePools[normalizedType];
     const entry = pool?.byTab?.[normalizedTabId] || null;
     if(!entry){
@@ -15949,6 +16113,8 @@
     const colCount = inst.countCols();
     const visualToPhysicalRow = Array.from({ length: rowCount }, (_, row)=>toPhysicalRow(inst, row));
     const visualToPhysicalCol = Array.from({ length: colCount }, (_, col)=>toPhysicalColumn(inst, col));
+    const sourceData = typeof inst.getSourceData === 'function' ? inst.getSourceData() : null;
+    const canReadSourceDirectly = Array.isArray(sourceData);
     const data = [];
     for(let row = 0; row < rowCount; row++){
       const rowValues = [];
@@ -15960,7 +16126,13 @@
           rowValues.push(null);
         }else{
           try{
-            if(typeof inst.__hotGetDisplayDataAtCell === 'function'){
+            const rawValue = canReadSourceDirectly
+              ? sourceData?.[physicalRow]?.[physicalCol]
+              : undefined;
+            const isFormula = typeof rawValue === 'string' && rawValue.trimStart().startsWith('=');
+            if(canReadSourceDirectly && !isFormula){
+              rowValues.push(rawValue);
+            }else if(typeof inst.__hotGetDisplayDataAtCell === 'function'){
               rowValues.push(inst.__hotGetDisplayDataAtCell(row, col));
             }else{
               rowValues.push(inst.getDataAtCell(row, col));
@@ -16196,6 +16368,7 @@
   hotNS.createEmptyData = createEmptyData;
   hotNS.resolveTableOwnerSessionAndTab = resolveTableOwnerSessionAndTab;
   hotNS.syncOwnerTabPayloadDataChanges = syncOwnerTabPayloadDataChanges;
+  hotNS.syncOwnerTabPayloadFullData = syncOwnerTabPayloadFullData;
   hotNS.stampTableOwner = stampTableOwner;
   hotNS.setPayloadSyncSuppressed = setTablePayloadSyncSuppressed;
   hotNS.withPayloadSyncSuppressed = withTablePayloadSyncSuppressed;

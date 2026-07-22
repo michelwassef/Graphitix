@@ -57,6 +57,7 @@
       ...prev,
       ...next,
       force: !!(prev.force || next.force),
+      forceOverlay: !!(prev.forceOverlay || next.forceOverlay),
       viewOnly: prevView && nextView,
       reason: next.reason || prev.reason,
       resizePhase: next.resizePhase || prev.resizePhase,
@@ -642,7 +643,7 @@
   };
 
   namespace.resolveDrawCooldownMs = function resolveDrawCooldownMs(options = {}, config = {}){
-    if(options.force){
+    if(options.force || options.forceOverlay){
       return 0;
     }
     const isResizeLive = options.reason === 'resize' && (options.resizePhase === 'start' || options.resizePhase === 'move');
@@ -763,6 +764,19 @@
       run();
     }
     return true;
+  };
+
+  namespace.createStructuralDrawOptions = function createStructuralDrawOptions(reason, options = {}){
+    const source = options && typeof options === 'object' ? options : {};
+    return {
+      ...source,
+      reason: String(reason || source.reason || 'structural-view-change'),
+      structural: true,
+      forceOverlay: true,
+      viewOnly: source.viewOnly === true,
+      silentOverlay: false,
+      userInitiated: source.userInitiated !== false
+    };
   };
 
   function timeoutPromise(ms){

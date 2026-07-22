@@ -537,11 +537,17 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('desktop:writeRecoverySnapshot', async (_event, payload = {}) => {
-    if (typeof payload.dataBase64 !== 'string') {
-      throw new Error('desktop:writeRecoverySnapshot requires dataBase64');
+    const binary = payload.dataBuffer;
+    const hasBinary = binary instanceof ArrayBuffer || ArrayBuffer.isView(binary) || Buffer.isBuffer(binary);
+    if (!hasBinary && typeof payload.dataBase64 !== 'string') {
+      throw new Error('desktop:writeRecoverySnapshot requires binary data');
     }
     const paths = resolveRecoveryPaths();
-    const graphBuffer = Buffer.from(payload.dataBase64, 'base64');
+    const graphBuffer = hasBinary
+      ? (binary instanceof ArrayBuffer
+        ? Buffer.from(binary)
+        : Buffer.from(binary.buffer, binary.byteOffset, binary.byteLength))
+      : Buffer.from(payload.dataBase64, 'base64');
     const meta = payload.meta && typeof payload.meta === 'object' ? payload.meta : {};
     await writeFileAtomic(paths.graphPath, graphBuffer);
     await writeFileAtomic(paths.metaPath, Buffer.from(JSON.stringify({
