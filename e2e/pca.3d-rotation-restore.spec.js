@@ -56,6 +56,28 @@ async function buildPca3d(page) {
   await page.waitForTimeout(800);
 }
 
+
+async function capturePcaStatsState(page) {
+  return page.evaluate(() => {
+    const root = document.querySelector('#pcaPage:not([hidden])');
+    const summary = root?.querySelector('#pcaStatsSummary') || null;
+    const results = root?.querySelector('#pcaStatsResults') || null;
+    const scree = root?.querySelector('#pcaScreeContainer svg') || null;
+    const eigenRows = root?.querySelectorAll('#pcaEigenTableContainer tbody tr') || [];
+    const reportHost = root?.querySelector('#pcaStatsReportHost') || null;
+    const normalizedText = value => String(value || '').replace(/\s+/g, ' ').trim();
+    return {
+      summaryText: normalizedText(summary?.textContent),
+      resultsText: normalizedText(results?.textContent),
+      summaryChildCount: summary?.childElementCount || 0,
+      resultsChildCount: results?.childElementCount || 0,
+      hasScree: !!scree,
+      eigenRowCount: eigenRows.length,
+      reportText: normalizedText(reportHost?.textContent)
+    };
+  });
+}
+
 async function dragRestoredPca3d(page) {
   const before = await page.evaluate(() => {
     const svg = document.querySelector('#pcaPage:not([hidden]) #pcaPlot #pcaSvg');
@@ -132,6 +154,11 @@ test('PCA 3D rotation remains live after file reopen', async ({ page }) => {
     })
     .toBe('3d');
 
+  const statsBeforeRotation = await capturePcaStatsState(page);
+  expect(statsBeforeRotation.hasScree).toBe(true);
+  expect(statsBeforeRotation.eigenRowCount).toBeGreaterThan(0);
+  expect(statsBeforeRotation.resultsText.length).toBeGreaterThan(0);
+
   const drag = await dragRestoredPca3d(page);
   expect(drag.ok, `restored PCA 3D plot should rotate after drag: ${JSON.stringify(drag)}`).toBe(true);
   expect(drag.attached).toBe('true');
@@ -139,5 +166,8 @@ test('PCA 3D rotation remains live after file reopen', async ({ page }) => {
   expect(drag.drawPerformance?.viewOnly).toBe(true);
   expect(drag.drawPerformance?.cacheReused).toBe(true);
   expect(Number(drag.drawPerformance?.computeMs || 0)).toBeLessThan(15);
+
+  const statsAfterRotation = await capturePcaStatsState(page);
+  expect(statsAfterRotation).toEqual(statsBeforeRotation);
   expect(issues.critical.filter(e => e.kind !== 'requestfailed')).toEqual([]);
 });

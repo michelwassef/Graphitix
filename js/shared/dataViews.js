@@ -3,8 +3,9 @@
 
   const Shared = global.Shared = global.Shared || {};
   const dataViews = Shared.dataViews = Shared.dataViews || {};
-  const VERSION = 1;
+  const VERSION = 3;
   const DEFAULT_MAX_VIEWS = 12;
+  const tableProjectionDepth = new WeakMap();
 
   function debugLog(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -42,6 +43,12 @@
     }catch(err){
       return value;
     }
+  }
+
+  function matrixShapesMatch(left, right){
+    const leftShape = shapeOfMatrix(left);
+    const rightShape = shapeOfMatrix(right);
+    return leftShape.rows === rightShape.rows && leftShape.cols === rightShape.cols;
   }
 
   function truncateLabel(label, maxLength){
@@ -142,10 +149,61 @@
       sourceViewId: source.sourceViewId == null ? null : String(source.sourceViewId),
       transformSpec: source.transformSpec || null,
       summary: source.summary || null,
+      shareExclusions: typeof source.shareExclusions === 'boolean' ? source.shareExclusions : null,
       exclusions: source.exclusions ? cloneSimple(source.exclusions) : null,
       filters: source.filters ? cloneSimple(source.filters) : null,
       createdAt: Number.isFinite(Number(source.createdAt)) ? Number(source.createdAt) : nowMs()
     };
+  }
+
+  function isTableProjectionActive(table){
+    return !!table && (tableProjectionDepth.get(table) || 0) > 0;
+  }
+
+  function applyViewToTable(table, view, options){
+    if(!table || typeof table.loadData !== 'function' || !view){
+      return false;
+    }
+    const settings = options && typeof options === 'object' ? options : {};
+    const nextData = Array.isArray(view.data) ? view.data : [];
+    // Snapshot view-owned state before loadData. Component load hooks may run
+    // synchronously, but an atomic projection must never capture the previous
+    // table view into the newly activated DataView.
+    const exclusions = view.exclusions ? cloneSimple(view.exclusions) : null;
+    const filters = view.filters ? cloneSimple(view.filters) : null;
+    const loadOptions = settings.loadOptions && typeof settings.loadOptions === 'object'
+      ? { ...settings.loadOptions }
+      : {};
+    if(!Object.prototype.hasOwnProperty.call(loadOptions, 'suppressSchedule')){
+      loadOptions.suppressSchedule = settings.suppressLoadSchedule !== false;
+    }
+
+    const currentDepth = tableProjectionDepth.get(table) || 0;
+    tableProjectionDepth.set(table, currentDepth + 1);
+    try{
+      table.loadData(nextData, loadOptions);
+      if(typeof settings.applyExclusions === 'function'){
+        settings.applyExclusions(table, exclusions);
+      }else if(typeof table.applyExclusions === 'function'){
+        table.applyExclusions(exclusions, {
+          silent: true,
+          source: settings.exclusionSource || 'data-view-switch'
+        });
+      }
+      if(typeof table.applyFilters === 'function'){
+        table.applyFilters(filters, {
+          schedule: false,
+          reason: settings.filterReason || 'data-view-switch'
+        });
+      }
+      return true;
+    }finally{
+      if(currentDepth > 0){
+        tableProjectionDepth.set(table, currentDepth);
+      }else{
+        tableProjectionDepth.delete(table);
+      }
+    }
   }
 
   function defaultLabelForTransform(spec){
@@ -225,6 +283,7 @@
     let activeViewId = 'raw';
     let nextIdCounter = 1;
     let inActiveCallback = false;
+    let sharedExclusions = null;
 
     const manager = {};
 
@@ -250,6 +309,44 @@
       return views[index];
     }
 
+    function viewSharesExclusions(view){
+      return !!view && view.shareExclusions !== false;
+    }
+
+    function syncSharedExclusionsToViews(){
+      for(let i = 0; i < views.length; i += 1){
+        if(viewSharesExclusions(views[i])){
+          views[i].exclusions = sharedExclusions ? cloneSimple(sharedExclusions) : null;
+        }
+      }
+    }
+
+    function inferViewExclusionSharing(view, resolving){
+      if(!view){
+        return false;
+      }
+      if(view.kind === 'raw'){
+        view.shareExclusions = true;
+        return true;
+      }
+      if(typeof view.shareExclusions === 'boolean'){
+        return view.shareExclusions;
+      }
+      const resolvingIds = resolving || new Set();
+      if(resolvingIds.has(view.id)){
+        view.shareExclusions = false;
+        return false;
+      }
+      resolvingIds.add(view.id);
+      const sourceView = getView(view.sourceViewId || 'raw');
+      const shares = !!sourceView
+        && inferViewExclusionSharing(sourceView, resolvingIds)
+        && matrixShapesMatch(view.data, sourceView.data);
+      resolvingIds.delete(view.id);
+      view.shareExclusions = shares;
+      return shares;
+    }
+
     function emitViewsChanged(reason){
       if(!onViewsChanged){
         return;
@@ -265,6 +362,7 @@
             title: view.title,
             summary: view.summary || null,
             sourceViewId: view.sourceViewId || null,
+            shareExclusions: viewSharesExclusions(view),
             shape: shapeOfMatrix(view.data)
           }))
         });
@@ -310,6 +408,8 @@
           if(!first.id){
             first.id = 'raw';
           }
+          first.shareExclusions = true;
+          first.exclusions = sharedExclusions ? cloneSimple(sharedExclusions) : null;
           return first;
         }
       }
@@ -321,7 +421,8 @@
         sourceViewId: null,
         transformSpec: null,
         summary: null,
-        exclusions: null,
+        shareExclusions: true,
+        exclusions: sharedExclusions ? cloneSimple(sharedExclusions) : null,
         filters: null,
         createdAt: nowMs()
       };
@@ -338,6 +439,7 @@
         sourceViewId: view.sourceViewId || null,
         transformSpec: view.transformSpec || null,
         summary: view.summary || null,
+        shareExclusions: viewSharesExclusions(view),
         exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
         filters: view.filters ? cloneSimple(view.filters) : null,
         createdAt: view.createdAt
@@ -714,6 +816,7 @@
     }
 
     function initialize(rawData, options){
+      sharedExclusions = null;
       const rawTitle = normalizeTitle(options?.rawTitle, 'Raw');
       views = [{
         id: 'raw',
@@ -723,6 +826,7 @@
         sourceViewId: null,
         transformSpec: null,
         summary: null,
+        shareExclusions: true,
         exclusions: null,
         filters: null,
         createdAt: nowMs()
@@ -762,12 +866,38 @@
       return true;
     }
 
+    function updateSharedExclusions(exclusions){
+      if(!views.length){
+        return false;
+      }
+      sharedExclusions = exclusions ? cloneSimple(exclusions) : null;
+      syncSharedExclusionsToViews();
+      return true;
+    }
+
     function updateActiveExclusions(exclusions){
       const active = getView(activeViewId);
       if(!active){
         return false;
       }
+      if(viewSharesExclusions(active)){
+        return updateSharedExclusions(exclusions);
+      }
       active.exclusions = exclusions ? cloneSimple(exclusions) : null;
+      return true;
+    }
+
+    function setViewExclusionSharing(viewId, shouldShare, options){
+      const view = getView(viewId);
+      if(!view){
+        return false;
+      }
+      view.shareExclusions = shouldShare !== false;
+      if(view.shareExclusions){
+        view.exclusions = sharedExclusions ? cloneSimple(sharedExclusions) : null;
+      }else if(options && Object.prototype.hasOwnProperty.call(options, 'exclusions')){
+        view.exclusions = options.exclusions ? cloneSimple(options.exclusions) : null;
+      }
       return true;
     }
 
@@ -783,16 +913,24 @@
     function createDerivedView(params){
       const source = params && typeof params === 'object' ? params : {};
       const data = Array.isArray(source.data) ? source.data : [];
+      const sourceViewId = source.sourceViewId == null ? activeViewId : String(source.sourceViewId);
+      const sourceView = getView(sourceViewId);
+      const shareExclusions = typeof source.shareExclusions === 'boolean'
+        ? source.shareExclusions
+        : !!sourceView && viewSharesExclusions(sourceView) && matrixShapesMatch(data, sourceView.data);
       pruneToMaxViews();
       const record = {
         id: buildViewId(),
         kind: 'derived',
         title: normalizeTitle(source.title, nextDerivedTitle(views)),
         data,
-        sourceViewId: source.sourceViewId == null ? activeViewId : String(source.sourceViewId),
+        sourceViewId,
         transformSpec: source.transformSpec || null,
         summary: source.summary || null,
-        exclusions: source.exclusions ? cloneSimple(source.exclusions) : null,
+        shareExclusions,
+        exclusions: shareExclusions
+          ? (sharedExclusions ? cloneSimple(sharedExclusions) : null)
+          : (source.exclusions ? cloneSimple(source.exclusions) : null),
         filters: source.filters ? cloneSimple(source.filters) : null,
         createdAt: nowMs()
       };
@@ -930,6 +1068,7 @@
       return {
         version: VERSION,
         activeViewId,
+        sharedExclusions: sharedExclusions ? cloneSimple(sharedExclusions) : null,
         views: views.map(view => {
           const record = {
             id: view.id,
@@ -938,6 +1077,7 @@
             sourceViewId: view.sourceViewId || null,
             transformSpec: view.transformSpec || null,
             summary: view.summary || null,
+            shareExclusions: viewSharesExclusions(view),
             exclusions: view.exclusions ? cloneSimple(view.exclusions) : null,
             filters: view.filters ? cloneSimple(view.filters) : null,
             createdAt: view.createdAt
@@ -995,6 +1135,7 @@
           sourceViewId: null,
           transformSpec: null,
           summary: null,
+          shareExclusions: true,
           exclusions: null,
           filters: null,
           createdAt: nowMs()
@@ -1002,10 +1143,37 @@
       }
 
       views = restored;
-      ensureRawView(fallbackData);
-      nextIdCounter = Math.max(1, localCounter);
+      const rawView = views.find(view => view?.kind === 'raw') || null;
+      const incomingRaw = incomingViews.find((view, index) => (
+        view?.kind === 'raw'
+        || String(view?.id || '').trim().toLowerCase() === 'raw'
+        || index === 0
+      )) || null;
+      if(rawView && !Array.isArray(incomingRaw?.data)){
+        rawView.data = fallbackData;
+      }
+      for(let i = 0; i < views.length; i += 1){
+        inferViewExclusionSharing(views[i]);
+      }
       const requestedActive = String(options?.activeViewId || source?.activeViewId || 'raw').trim();
       activeViewId = findViewIndex(requestedActive) >= 0 ? requestedActive : 'raw';
+      const hasSerializedSharedExclusions = !!source
+        && Object.prototype.hasOwnProperty.call(source, 'sharedExclusions');
+      const activeSharedView = getView(activeViewId);
+      const legacySharedView = (
+        activeSharedView
+        && viewSharesExclusions(activeSharedView)
+        && activeSharedView.exclusions != null
+          ? activeSharedView
+          : views.find(view => viewSharesExclusions(view) && view.exclusions != null)
+            || views.find(view => viewSharesExclusions(view))
+            || null
+      );
+      sharedExclusions = hasSerializedSharedExclusions
+        ? (source.sharedExclusions ? cloneSimple(source.sharedExclusions) : null)
+        : (legacySharedView?.exclusions ? cloneSimple(legacySharedView.exclusions) : null);
+      syncSharedExclusionsToViews();
+      nextIdCounter = Math.max(1, localCounter);
       renderTabs();
       emitViewsChanged('deserialize');
       if(options?.silent !== true && options?.activate !== false){
@@ -1030,6 +1198,9 @@
     manager.getViewCount = () => views.length;
     manager.updateActiveData = updateActiveData;
     manager.updateActiveExclusions = updateActiveExclusions;
+    manager.updateSharedExclusions = updateSharedExclusions;
+    manager.setViewExclusionSharing = setViewExclusionSharing;
+    manager.getSharedExclusions = () => sharedExclusions ? cloneSimple(sharedExclusions) : null;
     manager.updateActiveFilters = updateActiveFilters;
     manager.createDerivedView = createDerivedView;
     manager.removeView = removeView;
@@ -1043,6 +1214,7 @@
       manager.unmount();
       views = [];
       activeViewId = 'raw';
+      sharedExclusions = null;
     };
 
     if(Array.isArray(settings.initialViews) && settings.initialViews.length){
@@ -1066,5 +1238,7 @@
   }
 
   dataViews.createManager = createManager;
+  dataViews.applyViewToTable = applyViewToTable;
+  dataViews.isTableProjectionActive = isTableProjectionActive;
   dataViews.VERSION = VERSION;
 })(window);

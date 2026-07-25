@@ -3494,6 +3494,14 @@ let state = {
     const testMethod = method === 'auto' ? 'chi-square' : method;
     const useYates = !!options.yatesCorrection && testMethod === 'chi-square' && rowCount === 2 && colCount === 2;
     let statistic = 0;
+    let pearsonStatistic = 0;
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+        const obs = rows[rowIndex][colIndex];
+        const exp = expected[rowIndex][colIndex];
+        if(exp > 0) pearsonStatistic += Math.pow(obs-exp,2)/exp;
+      }
+    }
     if(testMethod === 'g-test'){
       for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
         for(let colIndex = 0; colIndex < colCount; colIndex += 1){
@@ -3533,11 +3541,12 @@ let state = {
     const df = Math.max(1, (rowCount - 1) * (colCount - 1));
     const pValue = pieChiSquareUpperTailPValue(statistic, df);
     const minDim = Math.min(rowCount - 1, colCount - 1);
-    const cramersV = minDim > 0 && total > 0 ? Math.sqrt(statistic / (total * minDim)) : NaN;
+    const cramersV = minDim > 0 && total > 0 ? Math.sqrt(pearsonStatistic / (total * minDim)) : NaN;
     return {
       ok: true,
       method: testMethod,
       statistic,
+      pearsonStatistic,
       df,
       pValue,
       total,
@@ -3563,9 +3572,26 @@ let state = {
     if(exp.some(value => !Number.isFinite(value) || value <= 0) || obs.some(value => !Number.isFinite(value) || value < 0)){
       return { ok: false, message: 'Observed values must be non-negative and expected values must be positive.' };
     }
+    const observedTotal = obs.reduce((sum, value) => sum + value, 0);
+    const expectedTotal = exp.reduce((sum, value) => sum + value, 0);
+    if(!(observedTotal > 0)){
+      return { ok: false, message: 'Observed total must be greater than zero.' };
+    }
+    const totalTolerance = Math.max(1e-9, observedTotal * 1e-9);
+    if(Math.abs(observedTotal - expectedTotal) > totalTolerance){
+      return { ok: false, message: `Expected counts must sum to the observed total (${observedTotal}). Enter expected counts, not unscaled proportions.` };
+    }
     const method = sanitizePieStatsTest(options.method);
     const testMethod = method === 'auto' ? 'chi-square' : method;
     let statistic = 0;
+    let pearsonStatistic = 0;
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      for(let colIndex = 0; colIndex < colCount; colIndex += 1){
+        const obs = rows[rowIndex][colIndex];
+        const exp = expected[rowIndex][colIndex];
+        if(exp > 0) pearsonStatistic += Math.pow(obs-exp,2)/exp;
+      }
+    }
     if(testMethod === 'g-test'){
       for(let index = 0; index < obs.length; index += 1){
         const observedValue = obs[index];
@@ -3582,15 +3608,15 @@ let state = {
     }
     const df = Math.max(1, obs.length - 1);
     const pValue = pieChiSquareUpperTailPValue(statistic, df);
-    const total = obs.reduce((sum, value) => sum + value, 0);
-    const cramersV = total > 0 && df > 0 ? Math.sqrt(statistic / (total * df)) : NaN;
+    const total = observedTotal;
+    const cohensW = total > 0 ? Math.sqrt(statistic / total) : NaN;
     return {
       ok: true,
       method: testMethod,
       statistic,
       df,
       pValue,
-      cramersV,
+      cohensW,
       categories: obs.length,
       total
     };
@@ -3651,7 +3677,7 @@ let state = {
       { metric: 'Statistic', value: model.summary.statistic },
       { metric: 'df', value: model.summary.df },
       { metric: 'P value', value: model.summary.pValue },
-      { metric: "Cramer's V", value: model.summary.cramersV }
+      { metric: "Cramer's V (Pearson X²)", value: model.summary.cramersV }
     ];
     renderTable({
       caption: model.summary.caption,
@@ -3680,7 +3706,7 @@ let state = {
           { key: 'df', label: 'df', align: 'right' },
           { key: 'pValue', label: 'P value', align: 'right' },
           { key: 'pAdjusted', label: model.adjustedPLabel || 'P (adj)', align: 'right' },
-          { key: 'cramersV', label: "Cramer's V", align: 'right' }
+          { key: 'cramersV', label: "Effect size", align: 'right' }
         ],
         rows: model.pairs,
         footnotes: model.pairFootnotes || [],
@@ -3738,7 +3764,7 @@ let state = {
             statistic: formatPieStatNumber(gof.statistic, 4),
             df: String(gof.df),
             pValue: formatPiePValue(gof.pValue),
-            cramersV: formatPieStatNumber(gof.cramersV, 4),
+            cramersV: formatPieStatNumber(gof.cohensW, 4),
             footnotes: [
               `Compared ${observedMeta.label} to ${expectedMeta.label} across ${gof.categories} categories.`,
               `Alpha threshold: ${formatPieStatNumber(stats.alpha, 3)}.`,
@@ -4701,14 +4727,11 @@ let state = {
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData, { source: 'pie-data-view-switch' });
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            loadOptions: { source: 'pie-data-view-switch' },
+            exclusionSource: 'pie-data-view-switch',
+            filterReason: 'pie-data-view-switch'
+          });
           const session = getPieSessionForHot(hotInstance, { reason: 'pie-dataview-switch' }, { create: false })
             || ownerSession
             || getActivePieSessionForState();

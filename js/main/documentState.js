@@ -8,15 +8,14 @@
   const WEB_DB_NAME = 'graphitix-document-state';
   const WEB_DB_STORE = 'snapshots';
   const RECOVERY_KEY = 'active-recovery';
-  const RECOVERY_DELAY_MS = 700;
-  // Hard cap on how long a recovery snapshot can be deferred once the session has unsaved
-  // changes. The per-change debounce (RECOVERY_DELAY_MS / getRecoveryDelayMs) restarts on
-  // every change, so a burst of internal "dirty" events right after a data import (redraws,
-  // stats settling, resize) would otherwise keep sliding the timer for several seconds — long
-  // enough that closing the window in the first couple of seconds loses recovery entirely.
-  // This bounds the wait from the FIRST pending change so a snapshot is always written within
-  // ~1s of data appearing, regardless of churn.
-  const RECOVERY_MAX_WAIT_MS = 1000;
+  // Recovery uses a trailing debounce so heavy mutations, redraws, and statistics work can
+  // settle before checkpoint capture touches the main thread. Archive serialization and
+  // compression are already delegated to graphArchive.worker.js; live session capture must
+  // remain with the owner-aware main-thread state model.
+  const RECOVERY_DELAY_MS = 2500;
+  // Continuous edits may keep restarting the trailing timer, so cap deferral. The
+  // periodic checkpoint uses the same pending window instead of bypassing the delay.
+  const RECOVERY_MAX_DEFER_MS = 10000;
   const RECOVERY_INTERVAL_MS = 10000;
   const AUTOSAVE_INTERVAL_MS = 30000;
 
@@ -43,30 +42,6 @@
     return Number(state?.workspaceState?.sessionRevision) || 0;
   }
 
-
-  function estimateSnapshotSignatureSize() {
-    const tabs = Array.isArray(state?.workspaceState?.tabs) ? state.workspaceState.tabs : [];
-    let total = 0;
-    tabs.forEach(tab => {
-      if (!tab || tab.isWelcome) {
-        return;
-      }
-      total += String(tab.payloadSignature || '').length;
-      total += String(tab.layoutSignature || '').length;
-    });
-    return total;
-  }
-
-  function getRecoveryDelayMs() {
-    const signatureSize = estimateSnapshotSignatureSize();
-    if (signatureSize > 1000000) {
-      return Math.max(RECOVERY_DELAY_MS, 8000);
-    }
-    if (signatureSize > 250000) {
-      return Math.max(RECOVERY_DELAY_MS, 5000);
-    }
-    return RECOVERY_DELAY_MS;
-  }
 
   function isRecoverySnapshotCurrent() {
     const revision = getSessionRevision();
@@ -441,6 +416,14 @@
     }
   }
 
+  function clearRecoveryTimer() {
+    if (recoveryTimer) {
+      window.clearTimeout(recoveryTimer);
+    }
+    recoveryTimer = null;
+    recoveryTimerRevision = 0;
+  }
+
   function scheduleRecoverySnapshot(reason = 'document-change') {
     if (!hasRecoverySnapshotDue()) {
       debug('recovery.schedule.skipped', {
@@ -451,24 +434,21 @@
       });
       return;
     }
-    recoveryTimerRevision = getSessionRevision();
-    if (recoveryTimer) {
-      window.clearTimeout(recoveryTimer);
-    }
     const now = Date.now();
     if (!recoveryPendingSince) {
       recoveryPendingSince = now;
     }
-    // Bound the debounce: never defer past RECOVERY_MAX_WAIT_MS from the first pending change.
-    const remainingMaxWait = Math.max(0, RECOVERY_MAX_WAIT_MS - (now - recoveryPendingSince));
-    const delay = Math.min(getRecoveryDelayMs(), remainingMaxWait);
+    const scheduledRevision = getSessionRevision();
+    const remainingMaxDefer = Math.max(0, RECOVERY_MAX_DEFER_MS - (now - recoveryPendingSince));
+    const delay = Math.min(RECOVERY_DELAY_MS, remainingMaxDefer);
+    clearRecoveryTimer();
+    recoveryTimerRevision = scheduledRevision;
     recoveryTimer = window.setTimeout(() => {
-      const scheduledRevision = recoveryTimerRevision;
-      recoveryTimer = null;
-      recoveryTimerRevision = 0;
+      const timerRevision = recoveryTimerRevision;
+      clearRecoveryTimer();
       recoveryPendingSince = 0;
-      if (scheduledRevision > 0 && lastRecoverySavedRevision >= scheduledRevision) {
-        debug('recovery.timer.skippedCurrent', { reason, scheduledRevision, lastRecoverySavedRevision });
+      if (timerRevision > 0 && lastRecoverySavedRevision >= timerRevision) {
+        debug('recovery.timer.skippedCurrent', { reason, scheduledRevision: timerRevision, lastRecoverySavedRevision });
         return;
       }
       void writeRecoverySnapshot(reason);
@@ -665,17 +645,22 @@
       if (state.workspaceState?.sessionUserDirty) {
         scheduleRecoverySnapshot(type);
       } else if ((type === 'saved' || type === 'clean') && !state.restoringRecovery) {
+        clearRecoveryTimer();
+        recoveryPendingSince = 0;
         lastRecoverySavedRevision = getSessionRevision();
         lastAutosaveNoTargetRevision = 0;
-        recoveryPendingSince = 0;
         void clearRecoverySnapshot(type);
       }
     };
     window.addEventListener('graphitix:document-state-change', documentStateChangeHandler);
     recoveryInterval = window.setInterval(() => {
-      if (hasRecoverySnapshotDue()) {
-        void writeRecoverySnapshot('recovery-interval');
+      if (!hasRecoverySnapshotDue()) {
+        return;
       }
+      if (recoveryTimer || recoveryPendingSince) {
+        return;
+      }
+      void writeRecoverySnapshot('recovery-interval');
     }, RECOVERY_INTERVAL_MS);
     autosaveInterval = window.setInterval(() => {
       void runAutosave('autosave-interval');
@@ -696,7 +681,7 @@
   namespace.runAutosave = runAutosave;
   namespace.syncTitle = syncTitle;
   namespace.dispose = function dispose() {
-    if (recoveryTimer) window.clearTimeout(recoveryTimer);
+    clearRecoveryTimer();
     if (savedMessageTimer) window.clearTimeout(savedMessageTimer);
     if (recoveryInterval) window.clearInterval(recoveryInterval);
     if (autosaveInterval) window.clearInterval(autosaveInterval);
@@ -706,8 +691,6 @@
         document.removeEventListener(eventName, userActivityHandler, true);
       });
     }
-    recoveryTimer = null;
-    recoveryTimerRevision = 0;
     recoveryPendingSince = 0;
     recoveryInterval = null;
     autosaveInterval = null;

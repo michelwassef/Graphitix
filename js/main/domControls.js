@@ -1809,13 +1809,25 @@
           });
           if (restored && config.perTabDomInstances === true) {
             const restoredRoot = Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type) || activeWorkspaceElement || null;
-            if (!hasRenderableGraphContent(restoredRoot)) {
-              console.warn('workspace render cache restore produced empty graph; falling back to draw', {
+            const componentRendered = typeof config.hasRenderedGraph === 'function'
+              ? config.hasRenderedGraph({
+                  tab,
+                  tabId: tab.id,
+                  type: tab.type,
+                  root: restoredRoot,
+                  payload: tab.payload || null,
+                  reason: 'workspace-render-cache-post-restore-validation'
+                })
+              : null;
+            const graphReady = componentRendered === true
+              || (componentRendered == null && hasRenderableGraphContent(restoredRoot));
+            if (!graphReady) {
+              console.warn('workspace render cache restore produced invalid graph; falling back to draw', {
                 tabId: tab.id,
                 type: tab.type,
-                reason: options.reason || 'workspace-view'
+                reason: options.reason || 'workspace-view',
+                componentValidation: componentRendered
               });
-              setWorkspaceActivationError(tab, { reason: 'render-cache-restored-empty-graph', message: 'Restored render cache was empty; falling back to redraw.' });
               restored = false;
             }
           }

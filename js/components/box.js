@@ -6886,6 +6886,33 @@
     };
   }
 
+  function resolveDisplayedBarErrorInterval(centerValue, lowValue, highValue, mode = 'upper'){
+    const center = Number(centerValue);
+    if(!Number.isFinite(center)){
+      return null;
+    }
+    const low = Number.isFinite(Number(lowValue)) ? Number(lowValue) : center;
+    const high = Number.isFinite(Number(highValue)) ? Number(highValue) : center;
+    if(mode === 'both'){
+      return {
+        startValue: Math.min(low, high),
+        endValue: Math.max(low, high),
+        showStartCap: true
+      };
+    }
+    return center < 0
+      ? { startValue: center, endValue: Math.min(center, low), showStartCap: false }
+      : { startValue: center, endValue: Math.max(center, high), showStartCap: false };
+  }
+
+  function shouldRenderBoxZeroReferenceLine(logScale, scale){
+    return !logScale
+      && Number.isFinite(scale?.min)
+      && Number.isFinite(scale?.max)
+      && scale.min < 0
+      && scale.max > 0;
+  }
+
   function shouldAutoScaleBoxAxisToVisibleFeature(graphType, pointMode){
     const normalizedGraphType = normalizeBoxGraphType(graphType);
     const normalizedPointMode = String(pointMode || '').trim().toLowerCase();
@@ -11761,14 +11788,10 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            exclusionSource: 'box-data-view-switch',
+            filterReason: 'box-data-view-switch'
+          });
           if(getBoxTableFormatForHot(hotInstance) === 'grouped'){
             updateGroupedHeaders(hotInstance);
           }
@@ -11812,6 +11835,9 @@
   function syncBoxActiveDataViewFromHot(hotInstance, reason){
     const hot = hotInstance || getBoxActiveHotManager();
     if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    if(Shared.dataViews?.isTableProjectionActive?.(hot)){
       return;
     }
     const manager = getBoxActiveDataViewsManager(getActiveBoxSessionForState(), hot);
@@ -14867,7 +14893,7 @@
     }
     if(!oneSampleMode && state.statsPostHoc==='dunnett'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
-      noteEl.textContent=`Post-hoc: Dunnett (${detail}, versus reference).`;
+      noteEl.textContent=`Post-hoc: pooled t + Sidak control comparisons (${detail}, versus reference).`;
       noteEl.dataset.method='dunnett';
       noteEl.dataset.correctionLabel='Dunnett';
       boxLog('Debug: box updateStatsCorrectionSummary dunnett',{ count:safeCount });
@@ -14875,7 +14901,7 @@
     }
     if(!oneSampleMode && state.statsPostHoc==='dunnettT3'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
-      noteEl.textContent=`Post-hoc: Dunnett T3 (${detail}, Welch-style versus reference).`;
+      noteEl.textContent=`Post-hoc: Welch + Sidak control comparisons (${detail}, Welch-style versus reference).`;
       noteEl.dataset.method='dunnettT3';
       noteEl.dataset.correctionLabel='Dunnett T3';
       boxLog('Debug: box updateStatsCorrectionSummary dunnettT3',{ count:safeCount });
@@ -14883,7 +14909,7 @@
     }
     if(!oneSampleMode && state.statsPostHoc==='nemenyi'){
       const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:pendingDetail;
-      noteEl.textContent=`Post-hoc: Nemenyi (${detail}, Friedman rank comparisons).`;
+      noteEl.textContent=`Post-hoc: Friedman pairwise max-statistic permutation (${detail}, Friedman rank comparisons).`;
       noteEl.dataset.method='nemenyi';
       noteEl.dataset.correctionLabel='Nemenyi';
       boxLog('Debug: box updateStatsCorrectionSummary nemenyi',{ count:safeCount });
@@ -17462,6 +17488,7 @@
           manualColumnMove: true,
           afterChange(changes, source){
             if(!changes || source === 'loadData' || source === 'example-load') return;
+            const affectsAnalysis = instance?.changesAffectAnalysis?.(changes) !== false;
             const applyingPayload = state.applyingPayload === true;
             const systemGroupedHeaderNormalize = source === 'box-grouped-header-normalize';
             if(!applyingPayload && !systemGroupedHeaderNormalize){
@@ -17518,7 +17545,9 @@
               }
             }
             if(!applyingPayload && !systemGroupedHeaderNormalize){
-              revalidateActiveBoxLogScale('data-edit');
+              if(affectsAnalysis){
+                revalidateActiveBoxLogScale('data-edit');
+              }
               syncBoxActiveDataViewFromHot(instance, 'afterChange');
             }
           },
@@ -19930,7 +19959,7 @@
       return `Outlier screening used an iterative Grubbs procedure with alpha = ${formatStatNumber(resolveStatsOutlierAlpha(options),3)} and a documented exclusion log.`;
     }
     if(mode==='rout'){
-      return `Outlier screening used a ROUT-style robust FDR screen (median/MAD robust z-scores with Benjamini-Hochberg q = ${formatStatNumber(resolveStatsOutlierQ(options),3)}), with all exclusions logged.`;
+      return `Outlier screening used a MAD-based robust outlier screen (median/MAD robust z-scores with Benjamini-Hochberg q = ${formatStatNumber(resolveStatsOutlierQ(options),3)}), with all exclusions logged.`;
     }
     return 'No statistical outlier screening was applied before analysis.';
   }
@@ -20103,7 +20132,7 @@
         auditNotes.push(`${labels?.[idx] || `Group ${idx+1}`}: ${result.note}`);
       }
       if(result.removed.length){
-        auditNotes.push(`${labels?.[idx] || `Group ${idx+1}`}: excluded ${result.removed.length} value${result.removed.length===1?'':'s'} by ${mode==='grubbs'?'Grubbs':'ROUT-style'} screening.`);
+        auditNotes.push(`${labels?.[idx] || `Group ${idx+1}`}: excluded ${result.removed.length} value${result.removed.length===1?'':'s'} by ${mode==='grubbs'?'Grubbs':'MAD + BH'} screening.`);
         result.removed.forEach(item=>{
           exclusions.push({ group:labels?.[idx] || `Group ${idx+1}`, value:item.value, index:item.index });
         });
@@ -23792,11 +23821,11 @@
     }else if(state.statsPostHoc==='tamhaneT2'){
     correctionSel.title='Tamhane T2 already uses a family-wise unequal-variance adjustment.';
     }else if(state.statsPostHoc==='dunnett'){
-    correctionSel.title='Dunnett already controls family-wise error versus the reference group.';
+    correctionSel.title='The pooled t + Sidak control-comparison procedure controls family-wise error versus the reference group.';
     }else if(state.statsPostHoc==='dunnettT3'){
-    correctionSel.title='Dunnett T3 already controls family-wise error versus the reference group.';
+    correctionSel.title='The Welch + Sidak control-comparison procedure controls family-wise error versus the reference group.';
     }else if(state.statsPostHoc==='nemenyi'){
-    correctionSel.title='Nemenyi already provides a family-wise post-hoc adjustment after Friedman.';
+    correctionSel.title='The Friedman max-statistic permutation procedure controls the displayed pairwise family.';
     }else{
     correctionSel.removeAttribute('title');
     }
@@ -24047,7 +24076,7 @@
     [
     ['none','None'],
     ['grubbs','Grubbs'],
-    ['rout','ROUT-style']
+    ['rout','MAD + BH']
     ].forEach(([value,label])=>{
     const option=document.createElement('option');
     option.value=value;
@@ -28593,14 +28622,14 @@ Technical analysis record (advanced)
     syncAutoZeroAxisAdditionalTick('x', false);
     const showZeroReferenceLine = additionalYTicks.some(entry => isAxisValueNearZero(entry?.value) && entry?.showLine !== false);
     let stackOffsets = null;
-    const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
+    // Keep categorical and value axes joined at the lower plot boundary for every
+    // vertical graph type. Bars still originate at the zero reference through
+    // renderOrientationBarTrace; the zero line is a separate visual reference.
+    const xAxisY = marginLocal.top + plotHLocal;
     const stripAutoSizeRadiusConstrained = runtime.stripAutoSizeRadiusConstrained;
 
     const displayedPointSharedRadiusProfile = runtime.displayedPointSharedRadiusProfile;
     const displayedPointSharedRadius = runtime.displayedPointSharedRadius;
-    if(!isBoxDrawTokenCurrent(drawSession, token)){
-      return null;
-    }
     if(!isBoxDrawTokenCurrent(drawSession, token)){
       return null;
     }
@@ -32057,59 +32086,59 @@ Technical analysis record (advanced)
       queue.forEach(item => {
         const spineAttrs = horizontal
           ? {
-              x1: item.xLow,
+              x1: item.xStart,
               y1: item.cy,
-              x2: item.xHigh,
+              x2: item.xEnd,
               y2: item.cy,
               'data-box-overlay-kind': 'bar-error-spine'
             }
           : {
               x1: item.cx,
-              y1: item.yHigh,
+              y1: item.yEnd,
               x2: item.cx,
-              y2: item.yLow,
+              y2: item.yStart,
               'data-box-overlay-kind': 'bar-error-spine'
             };
         const errorSpine = add('line', item.overlayStroke.attrs(errorBarWidthPx, spineAttrs));
         attachBoxOverlayHandler(errorSpine);
         annotateWithTitle(errorSpine, item.whiskerAnnotation);
-        const upperCapAttrs = horizontal
+        const endCapAttrs = horizontal
           ? {
-              x1: item.xHigh,
+              x1: item.xEnd,
               y1: item.cy - item.cap / 2,
-              x2: item.xHigh,
+              x2: item.xEnd,
               y2: item.cy + item.cap / 2,
-              'data-box-overlay-kind': 'bar-error-cap-right'
+              'data-box-overlay-kind': 'bar-error-cap-end'
             }
           : {
               x1: item.cx - item.cap / 2,
-              y1: item.yHigh,
+              y1: item.yEnd,
               x2: item.cx + item.cap / 2,
-              y2: item.yHigh,
-              'data-box-overlay-kind': 'bar-error-cap-top'
+              y2: item.yEnd,
+              'data-box-overlay-kind': 'bar-error-cap-end'
             };
-        const upperCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, upperCapAttrs));
-        attachBoxOverlayHandler(upperCap);
-        annotateWithTitle(upperCap, item.whiskerAnnotation);
-        if(item.showLowerCap){
-          const lowerCapAttrs = horizontal
+        const endCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, endCapAttrs));
+        attachBoxOverlayHandler(endCap);
+        annotateWithTitle(endCap, item.whiskerAnnotation);
+        if(item.showStartCap){
+          const startCapAttrs = horizontal
             ? {
-                x1: item.xLow,
+                x1: item.xStart,
                 y1: item.cy - item.cap / 2,
-                x2: item.xLow,
+                x2: item.xStart,
                 y2: item.cy + item.cap / 2,
-                'data-box-overlay-kind': 'bar-error-cap-left'
+                'data-box-overlay-kind': 'bar-error-cap-start'
               }
             : {
                 x1: item.cx - item.cap / 2,
-                y1: item.yLow,
+                y1: item.yStart,
                 x2: item.cx + item.cap / 2,
-                y2: item.yLow,
-                'data-box-overlay-kind': 'bar-error-cap-bottom'
+                y2: item.yStart,
+                'data-box-overlay-kind': 'bar-error-cap-start'
               };
-          const lowerCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, lowerCapAttrs));
-          attachBoxOverlayHandler(lowerCap);
-          annotateWithTitle(lowerCap, item.whiskerAnnotation);
+          const startCap = add('line', item.overlayStroke.attrs(errorBarWidthPx, startCapAttrs));
+          attachBoxOverlayHandler(startCap);
+          annotateWithTitle(startCap, item.whiskerAnnotation);
         }
       });
       boxLog('Debug: box stacked error overlay',{ count: queue.length, orientation });
@@ -32577,56 +32606,65 @@ Technical analysis record (advanced)
         return;
       }
       const cap = Math.max(6, config.boxSpan * 0.4);
-      const lowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
+      const interval = resolveDisplayedBarErrorInterval(
+        errorExtents.segmentEnd,
+        errorExtents.lowValue,
+        errorExtents.highValue,
+        errorMode
+      );
+      if(!interval){
+        return;
+      }
       if(config.orientation === 'horizontal'){
         config.stackedErrorQueue.push({
           cy: config.centerCoord,
-          xHigh: config.valueToPixel(errorExtents.highValue),
-          xLow: config.valueToPixel(lowValue),
+          xStart: config.valueToPixel(interval.startValue),
+          xEnd: config.valueToPixel(interval.endValue),
           cap,
           overlayStroke: config.overlayStroke,
           whiskerAnnotation: config.whiskerAnnotation,
-          showLowerCap: errorMode === 'both'
+          showStartCap: interval.showStartCap
         });
       }else{
         config.stackedErrorQueue.push({
           cx: config.centerCoord,
-          yHigh: config.valueToPixel(errorExtents.highValue),
-          yLow: config.valueToPixel(lowValue),
+          yStart: config.valueToPixel(interval.startValue),
+          yEnd: config.valueToPixel(interval.endValue),
           cap,
           overlayStroke: config.overlayStroke,
           whiskerAnnotation: config.whiskerAnnotation,
-          showLowerCap: errorMode === 'both'
+          showStartCap: interval.showStartCap
         });
       }
     };
     const renderUnstackedBarError = (config = {}) => {
       const isHorizontal = config.orientation === 'horizontal';
       const cap = Math.max(6, config.boxSpan * 0.4);
-      const highValue = config.summarySpec?.highValue ?? config.centerValue;
-      const lowValue = errorMode === 'both' ? (config.summarySpec?.lowValue ?? config.centerValue) : config.centerValue;
-      const highPx = config.valueToPixel(highValue);
-      const lowPx = config.valueToPixel(lowValue);
-      const centerPx = config.valueToPixel(config.centerValue);
+      const interval = resolveDisplayedBarErrorInterval(
+        config.centerValue,
+        config.summarySpec?.lowValue,
+        config.summarySpec?.highValue,
+        errorMode
+      );
+      if(!interval){
+        return;
+      }
+      const startPx = config.valueToPixel(interval.startValue);
+      const endPx = config.valueToPixel(interval.endValue);
       const errorLineWidth = config.overlayStroke.baseStroke;
-      if(errorMode === 'both'){
+      addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
+        ? { x1: startPx, y1: config.centerCoord, x2: endPx, y2: config.centerCoord, 'data-box-overlay-kind': 'bar-error-spine' }
+        : { x1: config.centerCoord, y1: startPx, x2: config.centerCoord, y2: endPx, 'data-box-overlay-kind': 'bar-error-spine' }
+      ), config.whiskerAnnotation);
+      if(interval.showStartCap){
         addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
-          ? { x1: lowPx, y1: config.centerCoord, x2: highPx, y2: config.centerCoord, 'data-box-overlay-kind': 'bar-error-spine' }
-          : { x1: config.centerCoord, y1: highPx, x2: config.centerCoord, y2: lowPx, 'data-box-overlay-kind': 'bar-error-spine' }
-        ), config.whiskerAnnotation);
-        addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
-          ? { x1: lowPx, y1: config.centerCoord - cap / 2, x2: lowPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-left' }
-          : { x1: config.centerCoord - cap / 2, y1: lowPx, x2: config.centerCoord + cap / 2, y2: lowPx, 'data-box-overlay-kind': 'bar-error-cap-bottom' }
-        ), config.whiskerAnnotation);
-      }else{
-        addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
-          ? { x1: centerPx, y1: config.centerCoord, x2: highPx, y2: config.centerCoord, 'data-box-overlay-kind': 'bar-error-spine' }
-          : { x1: config.centerCoord, y1: highPx, x2: config.centerCoord, y2: centerPx, 'data-box-overlay-kind': 'bar-error-spine' }
+          ? { x1: startPx, y1: config.centerCoord - cap / 2, x2: startPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-start' }
+          : { x1: config.centerCoord - cap / 2, y1: startPx, x2: config.centerCoord + cap / 2, y2: startPx, 'data-box-overlay-kind': 'bar-error-cap-start' }
         ), config.whiskerAnnotation);
       }
       addBoxOverlayLine(config.overlayStroke.attrs(errorLineWidth, isHorizontal
-        ? { x1: highPx, y1: config.centerCoord - cap / 2, x2: highPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-right' }
-        : { x1: config.centerCoord - cap / 2, y1: highPx, x2: config.centerCoord + cap / 2, y2: highPx, 'data-box-overlay-kind': 'bar-error-cap-top' }
+        ? { x1: endPx, y1: config.centerCoord - cap / 2, x2: endPx, y2: config.centerCoord + cap / 2, 'data-box-overlay-kind': 'bar-error-cap-end' }
+        : { x1: config.centerCoord - cap / 2, y1: endPx, x2: config.centerCoord + cap / 2, y2: endPx, 'data-box-overlay-kind': 'bar-error-cap-end' }
       ), config.whiskerAnnotation);
     };
     const renderOrientationBarTrace = (config = {}) => {
@@ -34812,13 +34850,16 @@ Technical analysis record (advanced)
             barErrorMin = Math.min(barErrorMin, entry.neg);
           }
         }else{
-          const lowerCandidate = hasSpread && errorMode === 'both' ? (summarySpec?.lowValue ?? centerValue) : centerValue;
-          const upperCandidate = hasSpread ? (summarySpec?.highValue ?? centerValue) : centerValue;
+          const interval = hasSpread
+            ? resolveDisplayedBarErrorInterval(centerValue, summarySpec?.lowValue, summarySpec?.highValue, errorMode)
+            : null;
           if(!hasSpread){
             boxLog('Debug: box skip bar extent for center-only summary',{ trace: t.name, sampleCount, centerValue, summaryMode: summarySpec?.mode });
           }
-          barErrorMin = Math.min(barErrorMin, lowerCandidate);
-          barErrorMax = Math.max(barErrorMax, upperCandidate);
+          const extentStart = interval?.startValue ?? centerValue;
+          const extentEnd = interval?.endValue ?? centerValue;
+          barErrorMin = Math.min(barErrorMin, extentStart, extentEnd);
+          barErrorMax = Math.max(barErrorMax, extentStart, extentEnd);
         }
       });
       if(isFinite(barErrorMin)) ymin = Math.min(ymin, barErrorMin);
@@ -34990,14 +35031,7 @@ Technical analysis record (advanced)
       });
       return scale;
     };
-    const shouldRenderZeroReferenceLine = scale => (
-      graphTypeRaw !== 'bar'
-      && !logScale
-      && Number.isFinite(scale?.min)
-      && Number.isFinite(scale?.max)
-      && scale.min < 0
-      && scale.max > 0
-    );
+    const shouldRenderZeroReferenceLine = scale => shouldRenderBoxZeroReferenceLine(logScale, scale);
     const isNearZeroScaleValue = scaleValue => isAxisValueNearZero(scaleValue);
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
     const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
@@ -37927,6 +37961,7 @@ Technical analysis record (advanced)
         const meta=resolvePairwiseTestMeta(options || {});
         return meta ? { key:meta.key, label:meta.label } : null;
       },
+      shouldRenderBoxZeroReferenceLine:(logScale, scale)=>shouldRenderBoxZeroReferenceLine(!!logScale, scale),
       estimateGroupedMultipleComparisonCount:(data,options={})=>estimateGroupedMultipleComparisonCount(data,options || {}),
       analyzeRowWiseTTests:data=>analyzeRowWiseTTests(data),
       analyzeGroupedMultipleComparisons:data=>analyzeGroupedMultipleComparisons(data),
@@ -38046,6 +38081,7 @@ Technical analysis record (advanced)
       scheduleBoxGlobalOpacityApply:opacity=>scheduleBoxGlobalOpacityApply(opacity),
       getBoxVisualRuntime:()=>cloneSimple(getBoxVisualRuntime(getActiveBoxSessionForState())) || null,
       shouldAutoScaleBoxAxisToVisibleFeature:(graphType,pointMode)=>shouldAutoScaleBoxAxisToVisibleFeature(graphType,pointMode),
+      resolveDisplayedBarErrorInterval:(centerValue,lowValue,highValue,mode)=>resolveDisplayedBarErrorInterval(centerValue,lowValue,highValue,mode),
       resolveTraceVisibleUpperBoundForAutoAxis:options=>resolveTraceVisibleUpperBoundForAutoAxis(options),
       isBoxPointConnectionModeEligible:(graphType,pointMode)=>isBoxPointConnectionModeEligible(graphType,pointMode),
       buildBoxConnectedPointPathFromTraceMaps:maps=>buildBoxConnectedPointPathFromTraceMaps(maps),

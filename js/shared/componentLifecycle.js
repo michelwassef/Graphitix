@@ -533,6 +533,9 @@
     if(!hotInstance || typeof hotInstance.getData !== 'function'){
       return null;
     }
+    if(Shared.dataViews?.isTableProjectionActive?.(hotInstance)){
+      return config?.manager || null;
+    }
     const componentKey = normalizeLifecycleTabId(config?.componentKey || '');
     const managerField = String(config?.managerField || (componentKey ? `__${componentKey}DataViewsManager` : '')).trim();
     let manager = config?.manager || (managerField ? hotInstance[managerField] : null) || null;
@@ -544,7 +547,8 @@
       return null;
     }
     manager.updateActiveData?.(hotInstance.getData() || []);
-    manager.updateActiveExclusions?.(hotInstance.exportExclusions?.() || null);
+    const updateExclusions = manager.updateActiveExclusions || manager.updateSharedExclusions;
+    updateExclusions?.call(manager, hotInstance.exportExclusions?.() || null);
     manager.updateActiveFilters?.(hotInstance.exportFilters?.() || null);
     if(config?.refresh === true || config?.reason === 'afterLoadData'){
       manager.refresh?.();
@@ -757,7 +761,13 @@
     };
     const scheduleFrame = typeof config.scheduleFrame === 'function'
       ? config.scheduleFrame
-      : callback => namespace.scheduleComponentFrame?.(component, componentKey, { tabId, reason }, callback);
+      : callback => namespace.scheduleComponentFrame?.(
+        component,
+        componentKey,
+        { tabId, reason },
+        callback,
+        typeof config.onFrameStale === 'function' ? config.onFrameStale : null
+      );
     const scheduled = scheduleFrame(runAfterFrame);
     if(scheduled == null || scheduled === false){
       debugLog?.(`Debug: ${componentKey} overlay defer fallback executed`, { reason, tabId });
@@ -2835,7 +2845,7 @@
     };
   };
 
-  namespace.scheduleComponentFrame = function scheduleComponentFrame(component, componentKey, meta = {}, fn){
+  namespace.scheduleComponentFrame = function scheduleComponentFrame(component, componentKey, meta = {}, fn, onStale = null){
     if(typeof fn !== 'function'){
       return null;
     }
@@ -2851,7 +2861,11 @@
       tabId,
       componentKey: key,
       reason: meta?.reason || 'component-frame'
-    }, scoped => fn(scoped));
+    }, scoped => fn(scoped), scoped => {
+      if(typeof onStale === 'function'){
+        onStale(scoped);
+      }
+    });
   };
 
   namespace.scheduleComponentTimeout = function scheduleComponentTimeout(component, componentKey, meta = {}, fn, delay = 0){
@@ -2972,8 +2986,33 @@
           return;
         }
         fn.apply(pending.context, pending.args || []);
-      }, () => {
-        clearPending();
+      }, staleMeta => {
+        const pending = pendingByTab.get(tabId) || null;
+        if(!pending || (handle != null && pending.handle !== handle)){
+          return;
+        }
+        pending.scheduled = false;
+        pending.handle = null;
+        const retryAllowed = options.retryOnStale === true
+          && (typeof options.shouldRetryStale !== 'function'
+            || options.shouldRetryStale({
+              component,
+              componentKey: key,
+              tabId,
+              meta: staleMeta || meta,
+              args: pending.args || [],
+              context: pending.context
+            }) !== false);
+        if(!retryAllowed){
+          pendingByTab.delete(tabId);
+          return;
+        }
+        debug('Debug: component lifecycle tab-scoped frame requeued after stale generation', {
+          componentKey: key,
+          tabId,
+          reason: meta.reason || options.reason || 'tab-scoped-frame-debounce'
+        });
+        debounced.apply(pending.context, pending.args || []);
       });
       if(handle == null){
         pendingByTab.delete(tabId);

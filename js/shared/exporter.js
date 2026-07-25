@@ -5709,11 +5709,14 @@
       }
     };
     async function handle(mode, format) {
-      const svgEl = format === 'svg-hybrid' ? resolveHybridSvg() : resolveSvg();
-      if (!svgEl) {
-        logDebug('svgActions missing element', { contextLabel, format, mode });
-        return;
-      }
+      const resolveRequiredSvg = resolver => {
+        const svgEl = resolver();
+        if (!svgEl) {
+          logDebug('svgActions missing element', { contextLabel, format, mode });
+          return null;
+        }
+        return svgEl;
+      };
       if (format === 'png') {
         const backgroundColor = resolveBackground();
         const pngOptions = {
@@ -5727,34 +5730,55 @@
           backgroundColor
         };
         if (mode === 'download') {
+          const svgEl = resolveRequiredSvg(resolveSvg);
+          if (!svgEl) return;
           const blob = await svgElementToPngBlob(svgEl, pngOptions);
           if (!blob) return;
           downloadBlob(blob, `${fileName}.png`, `${contextLabel}-png`);
         } else {
-          const copied = await copyBlobMap({ 'image/png': svgElementToPngBlob(svgEl, pngOptions) }, `${contextLabel}-png`);
+          const blobPromise = Promise.resolve().then(async () => {
+            const svgEl = resolveRequiredSvg(resolveSvg);
+            if (!svgEl) {
+              throw new Error('SVG element is unavailable.');
+            }
+            const blob = await svgElementToPngBlob(svgEl, pngOptions);
+            if (!blob) {
+              throw new Error('PNG export produced no blob.');
+            }
+            return blob;
+          });
+          const copied = await copyBlobMap({ 'image/png': blobPromise }, `${contextLabel}-png`);
           if (!copied) {
             warn('svgActions png copy unavailable', { contextLabel: `${contextLabel}-png` });
           }
         }
       } else if (format === 'svg') {
-        const xml = svgToXml(svgEl, `${contextLabel}-svg`);
-        if (!xml) return;
-        const payload = buildSvgExportPayload(xml, {
-          fileName: `${fileName}.svg`,
-          contextLabel: `${contextLabel}-svg`,
-          includeHtmlPreview: true
-        });
-        if (!payload) return;
-        console.debug('Debug: exporter svg action payload ready', {
-          contextLabel: `${contextLabel}-svg`,
-          mode,
-          name: payload.fileName,
-          clipboardTypes: Object.keys(payload.clipboardMap || {})
-        }); // Debug: svg action payload trace
+        const buildPayload = () => {
+          const svgEl = resolveRequiredSvg(resolveSvg);
+          if (!svgEl) return null;
+          const xml = svgToXml(svgEl, `${contextLabel}-svg`);
+          if (!xml) return null;
+          const payload = buildSvgExportPayload(xml, {
+            fileName: `${fileName}.svg`,
+            contextLabel: `${contextLabel}-svg`,
+            includeHtmlPreview: true
+          });
+          if (!payload) return null;
+          console.debug('Debug: exporter svg action payload ready', {
+            contextLabel: `${contextLabel}-svg`,
+            mode,
+            name: payload.fileName,
+            clipboardTypes: Object.keys(payload.clipboardMap || {})
+          }); // Debug: svg action payload trace
+          return payload;
+        };
         if (mode === 'download') {
+          const payload = buildPayload();
+          if (!payload) return;
           downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
         } else {
-          const copied = await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
+          const payloadPromise = Promise.resolve().then(buildPayload);
+          const copied = await copyBlobMap(createDeferredClipboardBlobMap(payloadPromise), `${contextLabel}-svg`);
           if (!copied) {
             warn('svgActions svg copy unavailable', { contextLabel: `${contextLabel}-svg` });
           }
@@ -5764,11 +5788,15 @@
           warn('svgActions hybrid missing config', { contextLabel });
           return;
         }
-        const payloadPromise = Promise.resolve().then(() => buildHybridSvgExportPayload(svgEl, {
-          ...hybridConfig,
-          baseFileName: hybridConfig.baseFileName || fileName,
-          contextLabel: `${contextLabel}-hybrid`
-        }));
+        const payloadPromise = Promise.resolve().then(() => {
+          const svgEl = resolveRequiredSvg(resolveHybridSvg);
+          if (!svgEl) return null;
+          return buildHybridSvgExportPayload(svgEl, {
+            ...hybridConfig,
+            baseFileName: hybridConfig.baseFileName || fileName,
+            contextLabel: `${contextLabel}-hybrid`
+          });
+        });
         if (mode === 'copy') {
           const copied = await copyBlobMap(createDeferredClipboardBlobMap(payloadPromise), `${contextLabel}-hybrid`);
           if (!copied) {
@@ -5785,6 +5813,8 @@
           downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
         }
       } else if (format === 'emf') {
+        const svgEl = resolveRequiredSvg(resolveSvg);
+        if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToEmfBlob(svgEl, {
           contextLabel: `${contextLabel}-emf`,
@@ -5810,6 +5840,8 @@
           }
         }
       } else if (format === 'pdf') {
+        const svgEl = resolveRequiredSvg(resolveSvg);
+        if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToPdfBlob(svgEl, {
           contextLabel: `${contextLabel}-pdf`,
@@ -5835,6 +5867,8 @@
           }
         }
       } else if (format === 'tiff') {
+        const svgEl = resolveRequiredSvg(resolveSvg);
+        if (!svgEl) return;
         const backgroundColor = resolveBackground();
         const blob = await svgElementToTiffBlob(svgEl, {
           contextLabel: `${contextLabel}-tiff`,
@@ -5861,6 +5895,7 @@
         }
       }
     }
+
     const hybridLabel = hybridConfig?.label || 'SVG (rasterized)';
     return [
       {

@@ -245,6 +245,7 @@
   const svgRegistry = new WeakSet();
   const svgScopeMap = new WeakMap();
   const supportsWeakRef = typeof global.WeakRef === 'function';
+  const deferredTextNodes = typeof global.WeakSet === 'function' ? new global.WeakSet() : new Set();
   // DOM-only registries. Persistent/tab-specific font state is stored in workspaceTabs shared control state.
   const nodeGroupStore = new Map();
   const toolbarHostMap = new Map();
@@ -1802,9 +1803,17 @@
   }
 
   function logDebug(label, payload){
+    if(typeof Shared.isDebugEnabled !== 'function' || !Shared.isDebugEnabled()){
+      return;
+    }
+    const message = `Debug: fontControls ${label}`;
+    if(typeof Shared.debug === 'function'){
+      Shared.debug(message, payload);
+      return;
+    }
     try {
-      console.debug(`Debug: fontControls ${label}`, payload); // Debug: font control trace
-    } catch(err) {
+      console.debug(message, payload); // Debug: font control trace
+    } catch(_err) {
       // Logging failures should never break execution.
     }
   }
@@ -4655,6 +4664,39 @@
     });
   }
 
+  function resolveInheritedFontDataset(node, key){
+    if(!node){ return null; }
+    const direct = node.dataset?.[key];
+    if(direct !== undefined && direct !== null && direct !== ''){
+      return direct;
+    }
+    const attr = `data-${String(key || '').replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
+    const owner = typeof node.closest === 'function' ? node.closest(`[${attr}]`) : null;
+    return owner?.dataset?.[key] || null;
+  }
+
+  function ensureDeferredTextRegistration(node, options = {}){
+    if(!node || !deferredTextNodes.has(node)){
+      return false;
+    }
+    const svg = options.svg || node.ownerSVGElement || null;
+    const scopeId = resolveInheritedFontDataset(node, 'fontScope') || svgScopeMap.get(svg) || null;
+    const key = node.dataset?.fontKey || null;
+    const tabToken = resolveStoreTabToken({
+      node,
+      tabId: resolveInheritedFontDataset(node, 'fontTabId') || svg?.dataset?.fontTabId || null
+    });
+    const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
+    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
+    registerNodeForKey(node, storeKey);
+    if(graphStoreKey !== storeKey){
+      registerNodeForKey(node, graphStoreKey);
+    }
+    deferredTextNodes.delete(node);
+    applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
+    return true;
+  }
+
   function handleSvgClick(evt){
     let target = evt.target;
     if(!target){ return; }
@@ -4667,14 +4709,23 @@
       }
     }
     if(!target || target.tagName?.toLowerCase() !== 'text'){ return; }
-    const editableFlag = target.dataset?.fontEditable;
+    const editableFlag = target.dataset?.fontEditable
+      ?? resolveInheritedFontDataset(target, 'fontEditable');
     if(editableFlag === '0'){ return; }
-    const isEditable = editableFlag === '1' || typeof editableFlag === 'undefined';
+    const isEditable = editableFlag === '1' || editableFlag === null || typeof editableFlag === 'undefined';
     if(!isEditable){ return; }
     const svg = evt.currentTarget;
-    const scope = target.dataset?.fontScope || svgScopeMap.get(svg) || null;
+    ensureDeferredTextRegistration(target, { svg });
+    const scope = target.dataset?.fontScope
+      || resolveInheritedFontDataset(target, 'fontScope')
+      || svgScopeMap.get(svg)
+      || null;
     const key = target.dataset?.fontKey || null;
-    openPanelForTarget(target, { scopeId: scope, key, triggerEvent: evt });
+    const tabId = target.dataset?.fontTabId
+      || resolveInheritedFontDataset(target, 'fontTabId')
+      || svg?.dataset?.fontTabId
+      || null;
+    openPanelForTarget(target, { scopeId: scope, key, tabId, triggerEvent: evt });
     // Ensure editable-text selection is handled by font controls only.
     try{ evt.stopPropagation(); }catch(e){}
   }
@@ -4707,15 +4758,32 @@
     const role = options?.role || null;
     const key = options?.key || role || null;
     const tabToken = resolveStoreTabToken({ node, tabId: options?.tabId || null });
+    const compactContext = options?.compactContext === true;
+    const deferRegistration = options?.deferRegistration === true;
     if(node.dataset){
       node.dataset.fontEditable = '1';
-      if(scopeId){ node.dataset.fontScope = scopeId; }
-      if(tabToken){ node.dataset.fontTabId = tabToken; }
+      if(scopeId && !compactContext){ node.dataset.fontScope = scopeId; }
+      if(tabToken && !compactContext){ node.dataset.fontTabId = tabToken; }
       if(role){ node.dataset.fontRole = role; }
       if(key){ node.dataset.fontKey = key; }
+      if(deferRegistration){ deferredTextNodes.add(node); }
     }
     const storeKey = buildStoreKey(scopeId, key, { node, tabId: tabToken });
     const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN, { node, tabId: tabToken });
+    if(deferRegistration){
+      const selectionStyle = key && key !== GRAPH_SCOPE_TOKEN
+        ? getStoredStyle(storeKey, { tabId: tabToken, reason: 'deferred-text-selection-style' })
+        : null;
+      if(selectionStyle && !isStyleEmpty(selectionStyle)){
+        registerNodeForKey(node, storeKey);
+        if(graphStoreKey !== storeKey){
+          registerNodeForKey(node, graphStoreKey);
+        }
+        deferredTextNodes.delete(node);
+        applyEffectiveStyleForNode(node, { storeKey, clearWhenEmpty: false });
+      }
+      return;
+    }
     registerNodeForKey(node, storeKey);
     if(graphStoreKey !== storeKey){
       registerNodeForKey(node, graphStoreKey);
@@ -4767,6 +4835,7 @@
   fontControls.ensurePanel = ensurePanel;
   fontControls.enableForSvg = enableForSvg;
   fontControls.markText = markText;
+  fontControls.isTextRegistrationDeferred = node => !!node && deferredTextNodes.has(node);
   fontControls.openForElement = openPanelForTarget;
   fontControls.applySavedStyle = applySavedStyle;
   fontControls.captureInlineState = captureInlineStateForNode;

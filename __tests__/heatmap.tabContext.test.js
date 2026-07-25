@@ -152,6 +152,19 @@ describe('Heatmap tab context isolation', () => {
     expect(restoredB.dendrogramSettings).toEqual({ thickness: 2, color: '#445566' });
   });
 
+  test('disposing a Heatmap tab releases its owner session', async () => {
+    const Main = window.Main;
+    await handleGraphSelection(Main, 'heatmap');
+
+    const heatmap = window.Components?.heatmap;
+    const tab = Main.tabs.getActiveTab();
+    expect(tab?.type).toBe('heatmap');
+    expect(heatmap?.__testHooks?.getSession?.(tab.id)).toBeTruthy();
+
+    expect(heatmap.disposeTab(tab, { tabId: tab.id, reason: 'test-dispose-owner-session' })).toBe(true);
+    expect(heatmap.__testHooks.getSession(tab.id)).toBeNull();
+  });
+
   test('heatmap render cache restore rehydrates cached svg fragments', async () => {
     const Main = window.Main;
     await handleGraphSelection(Main, 'heatmap');
@@ -186,4 +199,16 @@ describe('Heatmap tab context isolation', () => {
     expect(svg.querySelector('[data-export-layer="heatmap-cells"]')).toBeTruthy();
   });
 
+});
+
+describe('heatmap owned DOM membership', () => {
+  test('accepts notes controls through their owned root without passing the control object to Node.contains', () => {
+    document.body.innerHTML = '<section id="owner"><div id="notes"></div></section>';
+    const owner = document.getElementById('owner');
+    const notesRoot = document.getElementById('notes');
+    const control = { root: notesRoot, setValue() {}, setOpen() {} };
+
+    expect(() => owner.contains(control)).toThrow();
+    expect(owner.contains(control.root)).toBe(true);
+  });
 });

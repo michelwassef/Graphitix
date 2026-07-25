@@ -5923,14 +5923,10 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            exclusionSource: 'line-data-view-switch',
+            filterReason: 'line-data-view-switch'
+          });
           const session = getLineSessionForHot(hotInstance, { reason: 'line-dataview-switch' }, { create: false })
             || ownerSession
             || getLineActiveSessionForState();
@@ -5979,6 +5975,9 @@
   function syncLineActiveDataViewFromHot(hotInstance, reason){
     const hot = hotInstance || getActiveLineHotManager() || refs.hot;
     if(!hot || typeof hot.getData !== 'function'){
+      return;
+    }
+    if(Shared.dataViews?.isTableProjectionActive?.(hot)){
       return;
     }
     const ownerSession = getLineSessionForHot(hot, { reason: 'line-dataview-sync-owner' }, { create: false });
@@ -7770,7 +7769,7 @@
       questions.push({
         id:'seasonality',
         prompt:'Do you expect a repeating seasonal pattern?',
-        help:'Seasonal data benefits from Holt–Winters smoothing; otherwise ARIMA is typically preferred.',
+        help:'Seasonal data benefits from additive Holt–Winters point forecasting; otherwise a differenced autoregression may be considered.',
         options:[
           { value:'seasonal', label:'Yes, there is a recurring seasonal pattern' },
           { value:'nonSeasonal', label:'No, focus on trend without seasonality' }
@@ -7831,7 +7830,7 @@
     if(answers.analysisGoal==='forecast'){
       recommendation.regression=answers.seasonality==='seasonal'?'holtWinters':'arima';
       if(recommendation.regression==='holtWinters'){
-        recommendation.rationale.push('Holt–Winters captures recurring seasonal structure alongside trend and level.');
+        recommendation.rationale.push('Additive Holt–Winters captures recurring seasonal structure alongside trend and level; current intervals are approximate prediction bands.');
         if(!context.regularSpacing){
           recommendation.warnings.push('Holt–Winters assumes evenly spaced observations; verify spacing before forecasting.');
         }
@@ -7840,9 +7839,9 @@
           recommendation.warnings.push('Provide at least two full seasons of data for Holt–Winters to stabilize.');
         }
       }else{
-        recommendation.rationale.push('ARIMA handles non-seasonal autoregressive patterns for forecasting.');
+        recommendation.rationale.push('The available differenced autoregression handles non-seasonal autoregressive patterns; it is not a full ARIMA(p,d,q) implementation.');
         if(context.avgLength<8){
-          recommendation.warnings.push('ARIMA forecasting is unstable with fewer than ~8 time points per series.');
+          recommendation.warnings.push('Differenced autoregression is unstable with fewer than ~8 time points per series.');
         }
       }
     }else if(answers.analysisGoal==='smooth'){
@@ -16065,6 +16064,7 @@
           stretchH: 'all',
           afterChange(changes, source){
             if(changes && source !== 'loadData'){
+              const affectsAnalysis = instance?.changesAffectAnalysis?.(changes) !== false;
               const groupedHeaderTouched = changes.some(change => Number(change?.[0]) === 0);
               const threeDHeaderTouched = changes.some(change => {
                 const row = Number(change?.[0]);
@@ -16095,8 +16095,10 @@
                   });
                 }
               }
-              revalidateActiveLineLogAxis('x','data-edit');
-              revalidateActiveLineLogAxis('y','data-edit');
+              if(affectsAnalysis){
+                revalidateActiveLineLogAxis('x','data-edit');
+                revalidateActiveLineLogAxis('y','data-edit');
+              }
             }
             if(changes){
               syncLineActiveDataViewFromHot(instance, 'afterChange');

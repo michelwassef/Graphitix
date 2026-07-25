@@ -778,24 +778,24 @@
     },
     nemenyi: {
       value: 'nemenyi',
-      label: "Nemenyi's test",
-      shortLabel: 'Nemenyi',
+      label: "Friedman pairwise permutation (max-statistic)",
+      shortLabel: 'Friedman max-T',
       tooltip: 'Friedman/Nemenyi post-hoc test on average ranks for paired or repeated-measures non-parametric designs.',
       applies: context => context && context.mode !== 'custom' && context.test === 'nonparametric' && context.paired && context.groupCount >= 3,
       summary: context => `Nemenyi post-hoc comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
     },
     dunnett: {
       value: 'dunnett',
-      label: "Dunnett's test",
-      shortLabel: 'Dunnett',
+      label: "Control comparisons (pooled t + Sidak)",
+      shortLabel: 'Control + Sidak',
       tooltip: 'Parametric multiple comparison versus a control/reference group (equal variances).',
       applies: context => context && context.mode === 'reference' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && isEqualVarianceParametricVariant(context.variant),
       summary: context => `Dunnett-style control comparisons across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
     },
     dunnettT3: {
       value: 'dunnettT3',
-      label: "Dunnett's T3",
-      shortLabel: 'Dunnett T3',
+      label: "Control comparisons (Welch + Sidak)",
+      shortLabel: 'Control Welch + Sidak',
       tooltip: 'Welch-type multiple comparison versus a control/reference group (unequal variances).',
       applies: context => context && context.mode === 'reference' && context.test === 'parametric' && !context.paired && context.groupCount >= 3,
       summary: context => `Dunnett T3-style control comparisons across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
@@ -1672,7 +1672,7 @@
       auditNotes.push(`Outlier screening on paired differences excluded ${result.removed.length} row(s).`);
       return {groups:[kept.map(pair=>pair.a),kept.map(pair=>pair.b)],auditNotes,exclusions};
     }
-    const processed=cleaned.map((group,index)=>{const result=mode==='grubbs'?detectGrubbsOutliers(group,{alpha:payload.statsOutlierAlpha}):detectRoutStyleOutliers(group,{q:payload.statsOutlierQ});result.removed.forEach(item=>exclusions.push({group:labels[index],index:item.index,value:item.value}));if(result.removed.length)auditNotes.push(`${labels[index]}: excluded ${result.removed.length} value(s) using ${mode==='grubbs'?'Grubbs':'ROUT-style'} screening.`);return result.kept;});
+    const processed=cleaned.map((group,index)=>{const result=mode==='grubbs'?detectGrubbsOutliers(group,{alpha:payload.statsOutlierAlpha}):detectRoutStyleOutliers(group,{q:payload.statsOutlierQ});result.removed.forEach(item=>exclusions.push({group:labels[index],index:item.index,value:item.value}));if(result.removed.length)auditNotes.push(`${labels[index]}: excluded ${result.removed.length} value(s) using ${mode==='grubbs'?'Grubbs':'MAD + BH outlier screen'} screening.`);return result.kept;});
     return {groups:processed,auditNotes,exclusions};
   }
 
@@ -2725,21 +2725,65 @@
     logDebug('Debug: box studentizedRangeCDFInfinite',{ q, r, result:clamped });
     return clamped;
   }
+  function logGammaLanczos(value){
+    const coefficients=[676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.984369578019571e-6,1.5056327351493116e-7];
+    if(value<0.5){
+      return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*value))-logGammaLanczos(1-value);
+    }
+    let z=value-1;
+    let x=0.9999999999998099;
+    for(let i=0;i<coefficients.length;i++) x+=coefficients[i]/(z+i+1);
+    const t=z+coefficients.length-0.5;
+    return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x);
+  }
 
-    function studentizedRangeCDF(q,r,df){
-    if(!Number.isFinite(q) || q<=0){
-      return 0;
-    }
-    if(!Number.isFinite(df) || df<=2){
-      const fallback=studentizedRangeCDFInfinite(q*Math.SQRT1_2,r);
-      logDebug('Debug: box studentizedRangeCDF df<=2 fallback',{ q, r, df, fallback });
-      return fallback;
-    }
-    const scale=Math.sqrt(df/(df-2));
-    const adjusted=q*scale;
-    const result=studentizedRangeCDFInfinite(adjusted,r);
-    logDebug('Debug: box studentizedRangeCDF',{ q, r, df, scale, adjusted, result });
-    return result;
+  function chiSquarePdf(value,df){
+    if(!(value>0) || !(df>0)) return 0;
+    const halfDf=df/2;
+    const logPdf=(halfDf-1)*Math.log(value)-(value/2)-(halfDf*Math.log(2))-logGammaLanczos(halfDf);
+    return Math.exp(logPdf);
+  }
+
+  function adaptiveSimpsonIntegral(fn,a,b,tolerance=2e-7,maxDepth=16){
+    const simpson=(left,right,fa,fm,fb)=>(right-left)*(fa+4*fm+fb)/6;
+    const recurse=(left,right,fa,fm,fb,whole,depth)=>{
+      const mid=(left+right)/2;
+      const leftMid=(left+mid)/2;
+      const rightMid=(mid+right)/2;
+      const fLeftMid=fn(leftMid);
+      const fRightMid=fn(rightMid);
+      const leftArea=simpson(left,mid,fa,fLeftMid,fm);
+      const rightArea=simpson(mid,right,fm,fRightMid,fb);
+      const delta=leftArea+rightArea-whole;
+      if(depth<=0 || Math.abs(delta)<=15*tolerance){
+        return leftArea+rightArea+delta/15;
+      }
+      return recurse(left,mid,fa,fLeftMid,fm,leftArea,depth-1)+recurse(mid,right,fm,fRightMid,fb,rightArea,depth-1);
+    };
+    const mid=(a+b)/2;
+    const fa=fn(a), fm=fn(mid), fb=fn(b);
+    return recurse(a,b,fa,fm,fb,simpson(a,b,fa,fm,fb),maxDepth);
+  }
+
+  function studentizedRangeCDF(q,r,df){
+    if(!Number.isFinite(q) || q<=0) return 0;
+    if(!Number.isFinite(r) || r<2) return 1;
+    if(!Number.isFinite(df) || df>1e7) return studentizedRangeCDFInfinite(q,r);
+    if(!(df>0)) return NaN;
+    // Q | V=v is the range of r standard normals divided by sqrt(v/df),
+    // with V ~ chi-square(df). Integrating this conditional CDF yields the
+    // finite-df studentized-range distribution used by Tukey/Games-Howell.
+    const epsilon=1e-9;
+    const integrand=t=>{
+      if(t<=0 || t>=1) return 0;
+      const v=df*t/(1-t);
+      const jacobian=df/Math.pow(1-t,2);
+      return studentizedRangeCDFInfinite(q*Math.sqrt(v/df),r)*chiSquarePdf(v,df)*jacobian;
+    };
+    const result=adaptiveSimpsonIntegral(integrand,epsilon,1-epsilon,2e-6,15);
+    const clamped=Math.max(0,Math.min(1,result));
+    logDebug('Debug: box studentizedRangeCDF finite',{q,r,df,result:clamped});
+    return clamped;
   }
 
   function computeAnovaComponents(groups){
@@ -2855,20 +2899,22 @@
         const varI=variances[i];
         const varJ=variances[j];
         const se2=varI/ni+varJ/nj;
-        const se=Math.sqrt(se2>0?se2:Number.EPSILON);
+        const welchSe=Math.sqrt(se2>0?se2:Number.EPSILON);
+        const rangeSe=Math.sqrt(0.5*se2);
         const diff=means[i]-means[j];
-        const q=Math.abs(diff)/se;
+        const q=Math.abs(diff)/rangeSe;
         const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
         const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
         const cdf=studentizedRangeCDF(q,k,df);
         const p=Math.max(0,Math.min(1,1-cdf));
         const qCritical=resolveStudentizedRangeCritical(resolveStatsAlpha({ alpha: options?.alpha }),k,df);
-        const ciHalf=Number.isFinite(qCritical)?qCritical*se:NaN;
+        const ciHalf=Number.isFinite(qCritical)?qCritical*rangeSe:NaN;
         pairs.push({
           i,
           j,
           diff,
-          se,
+          se:welchSe,
+          rangeSe,
           q,
           p,
           pAdj:p,
@@ -3444,7 +3490,7 @@
         if(diffStats && diffStats.total > 1 && Number.isFinite(diffStats.sd) && diffStats.sd > 0){
           const d = diffStats.mean / (diffStats.sd || 1);
           metrics.parametric.cohenD = d;
-          const correctionDenom = 4 * diffStats.total - 9;
+          const correctionDenom = 4 * (diffStats.total - 1) - 1;
           const correction = correctionDenom !== 0 ? 1 - 3 / correctionDenom : 1;
           if(Number.isFinite(correction)){
             metrics.parametric.hedgesG = d * correction;
@@ -5896,11 +5942,11 @@
       }else if(postHocMode === 'tamhaneT2'){
         correctionMeta = { key: 'tamhaneT2', label: 'Tamhane T2', shortLabel: 'Tamhane T2', footnote: null };
       }else if(postHocMode === 'nemenyi'){
-        correctionMeta = { key: 'nemenyi', label: 'Nemenyi', shortLabel: 'Nemenyi', footnote: null };
+        correctionMeta = { key: 'nemenyi', label: 'Nemenyi', shortLabel: 'Friedman max-T', footnote: null };
       }else if(postHocMode === 'dunnett'){
-        correctionMeta = { key: 'dunnett', label: 'Dunnett', shortLabel: 'Dunnett', footnote: null };
+        correctionMeta = { key: 'dunnett', label: 'Dunnett', shortLabel: 'Control + Sidak', footnote: null };
       }else if(postHocMode === 'dunnettT3'){
-        correctionMeta = { key: 'dunnettT3', label: 'Dunnett T3', shortLabel: 'Dunnett T3', footnote: null };
+        correctionMeta = { key: 'dunnettT3', label: 'Dunnett T3', shortLabel: 'Control Welch + Sidak', footnote: null };
       }else{
         correctionMeta = resolveCorrectionMeta(payload.statsCorrection, pairs.length);
       }

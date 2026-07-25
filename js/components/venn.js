@@ -6922,14 +6922,14 @@
         }
       });
     } else {
-      state.ui.significanceResults.innerHTML = '<table><caption>Overlap enrichment significance (hypergeometric test)</caption><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
+      state.ui.significanceResults.innerHTML = '<table><caption>Overlap enrichment significance (hypergeometric test)</caption><tr><th>Overlap</th><th>Raw p-value</th><th>Holm-adjusted p-value</th><th>Significant</th></tr>' +
         rows.map(r => `<tr><td>${r.overlap}</td><td>${r.pvalue}</td><td>${r.significant}</td></tr>`).join('') +
-        '</table><p class="stats-footnote">Significance threshold: p &lt; 0.05.<br>Test: One-sided hypergeometric overlap enrichment.</p>';
+        '</table><p class="stats-footnote">Significance threshold: Holm-adjusted p &lt; 0.05 across the displayed overlap family.<br>Test: One-sided hypergeometric overlap enrichment.</p>';
     }
     if (Shared.statsReporting && typeof Shared.statsReporting.appendReportPanel === 'function') {
       const best = res.reduce((current, entry) => (!current || Number(entry.p) < Number(current.p) ? entry : current), null);
       Shared.statsReporting.appendReportPanel(state.ui.significanceResults, {
-        methodsText: `Venn overlap enrichment was tested with one-sided upper-tail hypergeometric tests using a user-specified universe size of ${total}. Set sizes and overlap counts came from the currently drawn ${state.analysis.lastCounts.nC > 0 ? 'three-set' : 'two-set'} Venn diagram. Each reported P value is the probability of observing at least the displayed overlap by chance under independent sampling from the same universe; the reporting threshold was p < 0.05.`,
+        methodsText: `Venn overlap enrichment was tested with one-sided upper-tail hypergeometric tests using a user-specified universe size of ${total}. Set sizes and overlap counts came from the currently drawn ${state.analysis.lastCounts.nC > 0 ? 'three-set' : 'two-set'} Venn diagram. Each reported P value is the probability of observing at least the displayed overlap by chance under independent sampling from the same universe; the displayed family was adjusted with Holm's method and the reporting threshold was adjusted p < 0.05.`,
         resultsText: [
           `${res.length} overlap enrichment test${res.length === 1 ? ' was' : 's were'} evaluated.`,
           best ? `Smallest P value: ${best.name}, p = ${formatSharedPValue(best.p)}.` : null
@@ -10449,15 +10449,8 @@
     data[0][0] = DEFAULT_VENN_TABLE_HEADERS[0];
     data[0][1] = DEFAULT_VENN_TABLE_HEADERS[1];
     data[0][2] = DEFAULT_VENN_TABLE_HEADERS[2];
-    const handleTableStructureChange = (label) => {
-      syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
-      debugLog('venn table structure change', { label });
-    };
-    // The hot wrapper invokes this draw callback for every table mutation it applies,
-    // including undo/redo, fill, and structural changes — not only direct cell edits (which
-    // also fire the afterChange hook below). Routing it through syncVennInputsFromTable so
-    // those paths redraw the diagram normalizes venn to scatter/box/line, which pass their
-    // real draw proxy here. A no-op was the reason undo did not update the graph.
+    // Shared.hot owns table mutation classification and invokes this callback once
+    // for graph-relevant edits, including undo/redo, paste, and structural changes.
     const scheduleVennTableDraw = (payload) => {
       if (payload && payload.source === 'loadData') {
         return;
@@ -10467,32 +10460,7 @@
     const createVennTableInstance = targetContainer => Shared.hot.createStandardTable(targetContainer, { rows: 20, cols: 3 }, scheduleVennTableDraw, {
       debugLabel: 'venn',
       data,
-      pinFirstRow: true,
-      hotOptions: {
-        afterChange(changes, source) {
-          if (!changes || source === 'loadData') {
-            return;
-          }
-          syncVennInputsFromTable({ scheduleDraw: true, scheduleSpecies: true });
-        },
-        afterCreateCol() {
-          handleTableStructureChange('afterCreateCol');
-        },
-        afterRemoveCol() {
-          handleTableStructureChange('afterRemoveCol');
-        },
-        afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged) {
-          if (orderChanged) {
-            handleTableStructureChange('afterColumnMove');
-          }
-        },
-        afterCreateRow() {
-          handleTableStructureChange('afterCreateRow');
-        },
-        afterRemoveRow() {
-          handleTableStructureChange('afterRemoveRow');
-        }
-      }
+      pinFirstRow: true
     });
     const tabId = getVennProjectionTabId() || normalizeVennSessionTabId(null, { reason: 'venn-table-init' }) || null;
     const tableEntry = tabId && typeof Shared.hot.mountTableForTab === 'function'

@@ -84,4 +84,14 @@ describe('Main.components.ensureComponent', () => {
     expect(window.Main.components.registry.box.__lifecycleContract.applyRuntimeState).toBe(true);
   });
 
+  test('restore fallback draws bypass the registry frame uniformly', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'components.js'), 'utf8');
+    expect(source).toContain("source.forceDraw === true && reason === 'workspace-draw-fallback'");
+    expect(source).toContain('return runRegistryDraw(source);');
+    expect(source).toContain('Apply this uniformly to every workspace.');
+  });
+
+
 });

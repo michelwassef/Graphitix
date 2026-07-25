@@ -165,11 +165,11 @@ describe('sessionActions save lazy archive build', () => {
       reason: 'recovery-interval'
     });
     expect(disabled.policy.captureRenderCache).toBe(false);
-    expect(persistSpy).toHaveBeenCalledTimes(1);
+    expect(persistSpy).toHaveBeenCalledTimes(3);
   });
 
 
-  test('manual save establishes canonical state that lean recovery reuses unchanged', async () => {
+  test('manual save and recovery independently capture the same canonical active owner state', async () => {
     const sessionActions = installSessionActions();
     const context = createContext();
     const activeTab = context.workspaceState.tabs[0];
@@ -228,9 +228,43 @@ describe('sessionActions save lazy archive build', () => {
       uiState: liveUiState,
       archiveRenderCache: null
     }));
-    expect(context.session.persistActiveTabState).toHaveBeenCalledTimes(1);
+    expect(context.session.persistActiveTabState).toHaveBeenCalledTimes(2);
     expect(manualPersistOptions.snapshotIntent.captureLivePayload).toBe(true);
-    expect(recovery.policy.snapshotIntent.captureLivePayload).toBe(false);
+    expect(recovery.policy.snapshotIntent).toEqual(expect.objectContaining({
+      saveLike: true,
+      captureLivePayload: true,
+      allowSkipLivePayloadCapture: false
+    }));
+  });
+
+
+  test('lean worker recovery still awaits component readiness before active-owner capture', async () => {
+    const sessionActions = installSessionActions();
+    const ready = jest.fn().mockResolvedValue({ ok: true });
+    const context = createContext({
+      workspaces: {
+        scatter: { awaitReadyForSnapshot: ready }
+      }
+    });
+
+    await sessionActions.createDocumentCheckpoint(context, {
+      scope: 'workspace',
+      snapshotKind: 'recovery',
+      policyMode: 'recovery',
+      captureRenderCacheBeforeSnapshot: false,
+      useWorker: true,
+      reason: 'recovery-interval'
+    });
+
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(context.session.persistActiveTabState).toHaveBeenCalledTimes(1);
+    expect(context.session.persistActiveTabState.mock.calls[0][1]).toEqual(expect.objectContaining({
+      snapshotIntent: expect.objectContaining({
+        saveLike: true,
+        captureLivePayload: true,
+        allowSkipLivePayloadCapture: false
+      })
+    }));
   });
 
   test('serializes the active cache captured by the shared session checkpoint owner', async () => {

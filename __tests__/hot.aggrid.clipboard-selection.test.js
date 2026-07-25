@@ -3,6 +3,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
   let capturedGridOptions;
   let capturedApi;
   let originalClipboard;
+  let originalMain;
   let createdTables;
 
   beforeEach(() => {
@@ -13,6 +14,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     originalAgGrid = global.window?.agGrid;
     originalClipboard = global.window?.navigator?.clipboard;
+    originalMain = global.window?.Main;
     const api = {
       refreshCells: jest.fn(),
       setRowData: jest.fn(next => {
@@ -54,6 +56,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     }
     global.window?.Shared?.undoManager?.clear?.();
     global.window.agGrid = originalAgGrid;
+    global.window.Main = originalMain;
     if (global.window?.navigator) {
       global.window.navigator.clipboard = originalClipboard;
     }
@@ -144,6 +147,87 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     expect(evt.defaultPrevented).toBe(true);
     expect(hot.getDataAtCell(0, 0)).toBe('X');
+  });
+
+  test('first custom paste supersedes a pending projection and writes through to the owner payload', () => {
+    const Shared = global.window.Shared;
+    const clone = value => JSON.parse(JSON.stringify(value));
+    const tab = {
+      id: 'workspace-heatmap-first-paste',
+      type: 'heatmap',
+      payload: { type: 'heatmap', data: [['Old', 'Value'], ['row', 'old']] },
+      userDirty: false
+    };
+    const updateTabPayload = jest.fn((ownerTab, updater) => {
+      const draft = clone(ownerTab.payload);
+      ownerTab.payload = updater(draft) || draft;
+      ownerTab.userDirty = true;
+      return true;
+    });
+    global.window.Main = {
+      session: {
+        workspaceState: { tabs: [tab] },
+        getActiveTab: () => tab,
+        updateTabPayload,
+        commitTabPayload: jest.fn((ownerTab, payload) => {
+          ownerTab.payload = clone(payload);
+          ownerTab.userDirty = true;
+          return true;
+        }),
+        markTabUserModified: jest.fn((ownerTab) => {
+          ownerTab.userDirty = true;
+          return true;
+        })
+      },
+      components: { registry: { heatmap: {} } }
+    };
+
+    const container = document.createElement('div');
+    container.id = 'agFirstHeatmapPasteHot';
+    container.dataset.workspaceTabId = tab.id;
+    container.dataset.componentType = tab.type;
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    const hot = createTable(
+      container,
+      { rows: 6, cols: 3 },
+      scheduleDraw,
+      {
+        debugLabel: 'heatmap',
+        data: clone(tab.payload.data)
+      }
+    );
+    hot.selectCell(0, 0);
+    const transaction = Shared.hot.beginOwnerProjectionTransaction({
+      hotInstance: hot,
+      reason: 'table-import'
+    });
+
+    const event = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    event.clipboardData = { getData: () => 'Gene\tS1\nA\t1\nB\t2' };
+    container.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(Shared.hot.isOwnerProjectionTransactionCurrent(transaction)).toBe(false);
+    expect(Shared.hot.getLastOwnerProjectionTransaction(tab)).toEqual(expect.objectContaining({
+      interruptedByUserMutation: true,
+      interruptionReason: 'table-paste-start'
+    }));
+    expect(tab.payload.data.slice(0, 3).map(row => row.slice(0, 2))).toEqual([
+      ['Gene', 'S1'],
+      ['A', '1'],
+      ['B', '2']
+    ]);
+    expect(hot.getSourceData().slice(0, 3).map(row => row.slice(0, 2))).toEqual(
+      tab.payload.data.slice(0, 3).map(row => row.slice(0, 2))
+    );
+    expect(tab.userDirty).toBe(true);
+    expect(updateTabPayload).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'afterPaste',
+      changes: expect.arrayContaining([[0, 0, 'Old', 'Gene']])
+    }));
   });
 
   test('loadData adopts large matrices without mutating the source matrix or source rows', () => {
@@ -4039,6 +4123,315 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(1, 1)).toBe('B1');
   });
 
+  test('Ctrl+C copies non-contiguous rows selected through row headers', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCopyHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const createRowHeader = rowIndex => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      return cell;
+    };
+    createRowHeader(0).dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+    createRowHeader(2).dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+    // AG Grid may emit a selection-changed event after its own mouse handling.
+    // That event must not replace the adapter-owned additive row selection.
+    capturedGridOptions.onSelectionChanged({ api: capturedApi });
+
+    container.blur();
+    const keyboardTarget = document.activeElement === container ? document.body : document.activeElement;
+    const copyEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    (keyboardTarget || document.body).dispatchEvent(copyEvent);
+
+    expect(copyEvent.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    expect(writeText).toHaveBeenCalledWith(`${padRow(['A0', 'B0', 'C0'])}\n${padRow(['A2', 'B2', 'C2'])}`);
+  });
+
+  test('multi-row clipboard output follows the current sorted display order', async () => {
+    const container = document.createElement('div');
+    container.id = 'agCopySortedHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-copy-sorted-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+    const displayedPhysicalRows = [2, 0, 3, 1];
+    capturedApi.getDisplayedRowCount = jest.fn(() => displayedPhysicalRows.length);
+    capturedApi.getDisplayedRowAtIndex = jest.fn(index => ({
+      data: { __rowIndex: displayedPhysicalRows[index] }
+    }));
+
+    const selectDisplayedRow = visualRow => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(visualRow));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      cell.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ctrlKey: true
+      }));
+    };
+    selectDisplayedRow(0);
+    selectDisplayedRow(3);
+
+    container.dispatchEvent(new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const padRow = values => values.concat(Array(Math.max(0, hot.countCols() - values.length)).fill('')).join('\t');
+    expect(writeText).toHaveBeenCalledWith(`${padRow(['A2', 'B2', 'C2'])}\n${padRow(['A1', 'B1', 'C1'])}`);
+  });
+
+  test('Ctrl+X clears every non-contiguous row selected through row headers', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agCutHeaderRowsHot';
+    document.body.appendChild(container);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    const hot = createTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-cut-header-rows',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1'],
+          ['A2', 'B2', 'C2'],
+          ['A3', 'B3', 'C3']
+        ]
+      }
+    );
+
+    const selectRow = rowIndex => {
+      const row = document.createElement('div');
+      row.className = 'ag-row';
+      row.setAttribute('row-index', String(rowIndex));
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell hot-row-header';
+      cell.setAttribute('col-id', '__rowHeader');
+      row.appendChild(cell);
+      container.appendChild(row);
+      cell.dispatchEvent(new global.window.MouseEvent('mousedown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        ctrlKey: true
+      }));
+    };
+    selectRow(1);
+    selectRow(3);
+    capturedGridOptions.onSelectionChanged({ api: capturedApi });
+
+    container.blur();
+    const keyboardTarget = document.activeElement === container ? document.body : document.activeElement;
+    const cutEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    (keyboardTarget || document.body).dispatchEvent(cutEvent);
+
+    expect(cutEvent.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+    expect(hot.getDataAtCell(2, 2)).toBe('C2');
+    for(const rowIndex of [1, 3]){
+      for(let col = 0; col < hot.countCols(); col += 1){
+        expect(hot.getDataAtCell(rowIndex, col)).toBe('');
+      }
+    }
+  });
+
+  test('document-level clipboard routing stops after an outside pointer interaction', async () => {
+    const container = document.createElement('div');
+    container.id = 'agClipboardOutsideInteractionHot';
+    const outsideButton = document.createElement('button');
+    outsideButton.type = 'button';
+    outsideButton.textContent = 'Outside';
+    document.body.append(container, outsideButton);
+    const writeText = jest.fn(async () => {});
+    global.window.navigator.clipboard = { writeText };
+
+    createTable(
+      container,
+      { rows: 3, cols: 2 },
+      () => {},
+      {
+        debugLabel: 'ag-clipboard-outside-interaction',
+        data: [
+          ['A0', 'B0'],
+          ['A1', 'B1'],
+          ['A2', 'B2']
+        ]
+      }
+    );
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '1');
+    const rowHeader = document.createElement('div');
+    rowHeader.className = 'ag-cell hot-row-header';
+    rowHeader.setAttribute('col-id', '__rowHeader');
+    row.appendChild(rowHeader);
+    container.appendChild(row);
+    rowHeader.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      ctrlKey: true
+    }));
+
+    outsideButton.dispatchEvent(new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    outsideButton.focus();
+    const copyEvent = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'c',
+      ctrlKey: true
+    });
+    outsideButton.dispatchEvent(copyEvent);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(copyEvent.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  test('double-clicking one separator auto-sizes every selected data column only when all are selected', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agAutosizeAllSelectedColumnsHot';
+    document.body.appendChild(container);
+    capturedApi.autoSizeColumns = jest.fn();
+
+    const hot = createTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-autosize-all-selected-columns',
+        pinFirstRow: true,
+        data: [
+          ['A very long pinned title', 'B', 'C'],
+          [1, 2, 3],
+          [4, 5, 6]
+        ]
+      }
+    );
+    hot.selectCell(0, 0, hot.countRows() - 1, 1);
+
+    capturedGridOptions.onColumnResized({
+      api: capturedApi,
+      finished: true,
+      source: 'uiColumnResized'
+    });
+    expect(capturedApi.autoSizeColumns).not.toHaveBeenCalled();
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c0');
+    const separator = document.createElement('div');
+    separator.className = 'ag-header-cell-resize';
+    header.appendChild(separator);
+    container.appendChild(header);
+    separator.dispatchEvent(new global.window.MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+    expect(capturedApi.autoSizeColumns).not.toHaveBeenCalled();
+
+    hot.selectCell(0, 0, hot.countRows() - 1, hot.countCols() - 1);
+    separator.dispatchEvent(new global.window.MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    }));
+
+    expect(capturedApi.autoSizeColumns).toHaveBeenCalledTimes(1);
+    expect(capturedApi.autoSizeColumns).toHaveBeenCalledWith(
+      Array.from({ length: hot.countCols() }, (_, index) => `c${index}`),
+      false
+    );
+    await waitForNextFrame();
+  });
+
   test('paste writes into all additive selected header columns', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -4982,5 +5375,47 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       && hot.getDataAtCell(2, 3) === ''
     ));
     expect(undoMoveResult.reached).toBe(true);
+  });
+});
+
+describe('Shared.hot heavy paste scheduling contract', () => {
+  test('native AG Grid paste commits one table mutation and schedules one redraw', () => {
+    const source = require('fs').readFileSync(
+      require('path').join(__dirname, '../js/shared/hot.js'),
+      'utf8'
+    );
+    expect(source).toContain('let pasteTransaction = null;');
+    expect(source).toContain('onPasteStart(event)');
+    expect(source).toContain('const changes = completePasteTransaction(event);');
+    expect(source).toContain("syncActiveTabPayloadDataChanges(transaction.payloadChanges, 'table-paste'");
+    expect(source).toContain("triggerSchedule('afterPaste', { source: 'paste', changes });");
+    expect(source).toContain('if(isPasteMutation){');
+    expect(source).not.toContain("triggerSchedule('afterChange', { source: event.source || 'edit', changes: visualChanges });");
+  });
+
+  test('large pastes request the component loading overlay before redraw', () => {
+    const source = require('fs').readFileSync(
+      require('path').join(__dirname, '../js/shared/hot.js'),
+      'utf8'
+    );
+    expect(source).toContain("const HEAVY_TABLE_OVERLAY_CELL_THRESHOLD = 5000;");
+    expect(source).toContain("if(reason !== 'afterPaste')");
+    expect(source).toContain("payload.forceOverlay = true;");
+    expect(source).toContain("payload.heavy = true;");
+  });
+
+  test('clipboard outlines use the visible perimeter and contiguous header groups', () => {
+    const source = require('fs').readFileSync(
+      require('path').join(__dirname, '../js/shared/hot.js'),
+      'utf8'
+    );
+    expect(source).toContain("{ visiblePerimeter: true }");
+    expect(source).toContain('const groupContiguousVisualIndexes = indexes =>');
+    expect(source).toContain('buildSelectionRangesFromRows = rows => groupContiguousVisualIndexes(rows)');
+    expect(source).toContain('buildSelectionRangesFromColumns = (columns, rowStart, rowEnd)=>groupContiguousVisualIndexes(columns)');
+    expect(source).toContain('from: { row: group.start, col: 0 }');
+    expect(source).toContain('to: { row: group.end, col: Math.max(0, colCount - 1) }');
+    expect(source).toContain('from: { row: rowStart, col: group.start }');
+    expect(source).toContain('to: { row: rowEnd, col: group.end }');
   });
 });

@@ -2495,18 +2495,17 @@
             return;
           }
           const isFrequencyView = isHistFrequencyTableDataView(view);
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData, {
-            source: isFrequencyView
-              ? HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE
-              : HIST_LOAD_SOURCE_DATA_VIEW_SWITCH
+          const loadSource = isFrequencyView
+            ? HIST_LOAD_SOURCE_FREQUENCY_TAB_ACTIVATE
+            : HIST_LOAD_SOURCE_DATA_VIEW_SWITCH;
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            loadOptions: {
+              source: loadSource
+            },
+            suppressLoadSchedule: !isFrequencyView,
+            exclusionSource: loadSource,
+            filterReason: loadSource
           });
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
           commitHistOwnerHotRuntime(viewOwner, {
             reason: isFrequencyView ? 'hist-frequency-dataview-switch' : 'hist-dataview-switch',
             refreshDataViews: true,
@@ -2817,7 +2816,7 @@
       targetView.sourceViewId = String(context.sourceViewId || 'raw');
       targetView.transformSpec = transformSpec;
       targetView.summary = summary;
-      targetView.exclusions = null;
+      manager.setViewExclusionSharing(targetView.id, false, { exclusions: null });
       manager.refresh?.();
       if(String(manager.getActiveViewId?.() || '') === String(targetView.id) && hot && typeof hot.loadData === 'function'){
         const currentData = typeof hot.getData === 'function' ? hot.getData() : null;
@@ -2825,7 +2824,10 @@
           hot.loadData(data, { source: HIST_LOAD_SOURCE_FREQUENCY_SYNC });
         }
         if(typeof hot.applyExclusions === 'function'){
-          hot.applyExclusions(null);
+          hot.applyExclusions(null, {
+            silent: true,
+            source: HIST_LOAD_SOURCE_FREQUENCY_SYNC
+          });
         }
       }
       return true;
@@ -2836,6 +2838,7 @@
       sourceViewId: context.sourceViewId || 'raw',
       transformSpec,
       summary,
+      shareExclusions: false,
       exclusions: null,
       activate: options.activate === true,
       reason: options.reason || 'hist-frequency-view-create'
@@ -5536,6 +5539,13 @@
       return null;
     }
     const normalFit = statsHelpers.fitDistribution(cleaned, { distribution: 'normal' });
+    if(cleaned.some(value => value <= 0)){
+      return {
+        preferred: null, normalAicc: NaN, lognormalAicc: NaN, deltaAicc: NaN, normalFit, lognormalFit: null,
+        available: false,
+        message: 'Normal and log-normal AICc cannot be compared because the data contain non-positive values outside log-normal support. Candidate likelihoods must use the same observations.'
+      };
+    }
     const lognormalFit = statsHelpers.fitDistribution(cleaned, { distribution: 'lognormal' });
     const normalAicc = computeHistAicc(normalFit, 2, cleaned.length);
     const lognormalAicc = computeHistAicc(lognormalFit, 2, cleaned.length);
@@ -5550,7 +5560,9 @@
         ? Math.abs(normalAicc - lognormalAicc)
         : NaN,
       normalFit,
-      lognormalFit
+      lognormalFit,
+      available: Number.isFinite(normalAicc) && Number.isFinite(lognormalAicc),
+      message: null
     };
   }
 
@@ -5597,6 +5609,7 @@
         break;
       }
     }
+    const hasTies = new Set(arrA).size < na || new Set(arrB).size < nb;
     return {
       available: true,
       D: d,
@@ -5604,7 +5617,9 @@
       nA: na,
       nB: nb,
       method: 'asymptotic',
-      alternative: 'two-sided'
+      alternative: 'two-sided',
+      hasTies,
+      warning: hasTies ? 'The continuous two-sample KS asymptotic calibration is approximate because tied values are present.' : null
     };
   }
 

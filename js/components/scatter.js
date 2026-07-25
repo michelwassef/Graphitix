@@ -13374,14 +13374,10 @@
             if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
               return;
             }
-            const nextData = Array.isArray(view.data) ? view.data : [];
-            hotInstance.loadData(nextData);
-            if(view.exclusions){
-              hotInstance.applyExclusions?.(view.exclusions);
-            }
-            if(view.filters){
-              hotInstance.applyFilters?.(view.filters, { schedule: false });
-            }
+            Shared.dataViews.applyViewToTable(hotInstance, view, {
+              exclusionSource: 'scatter-data-view-switch',
+              filterReason: 'scatter-data-view-switch'
+            });
             ensureScatterHeaderTitles(hotInstance, {
               graphType: scatterCurrentGraphType,
               tableFormat: getScatterReplicateMode()
@@ -13468,6 +13464,9 @@
     const syncScatterActiveDataViewFromHot = (hotInstance, reason) => {
       const hot = hotInstance || scatterHot || scatterRefs.hot;
       if(!hot || typeof hot.getData !== 'function'){
+        return;
+      }
+      if(Shared.dataViews?.isTableProjectionActive?.(hot)){
         return;
       }
       const manager = hot.__scatterDataViewsManager || null;
@@ -13947,7 +13946,8 @@
           colHeaders: true,
           afterChange(changes,source){
             if(!changes||source==='loadData') return;
-            scatterLog('scatter afterChange', {count:changes.length, source});
+            const affectsAnalysis = hotInstance?.changesAffectAnalysis?.(changes) !== false;
+            scatterLog('scatter afterChange', {count:changes.length, source, affectsAnalysis});
             if(isGroupedScatterModeActive()){
               const headerTouched = changes.some(change => Number(change?.[0]) === 0);
               if(headerTouched && source !== 'scatter-grouped-header-normalize'){
@@ -13958,11 +13958,13 @@
                 updateScatterNestedHeaders(hotInstance);
               }
             }
-            revalidateActiveScatterLogAxis('x','data-edit');
-            revalidateActiveScatterLogAxis('y','data-edit');
+            if(affectsAnalysis){
+              revalidateActiveScatterLogAxis('x','data-edit');
+              revalidateActiveScatterLogAxis('y','data-edit');
+            }
             syncScatterActiveDataViewFromHot(hotInstance, 'afterChange');
             const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
-            if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
+            if(affectsAnalysis && graphType === 'volcano' && scatterShowSignificantLabels?.checked){
               markScatterThresholdSelectionPending('data-edit');
             }
           },
@@ -23099,7 +23101,9 @@ async function drawScatter(drawOptions = {}){
             cacheRuntime.cachedCollect = null;
             cacheRuntime.cachedGeometry = null;
           });
-          chartStyle.clearSvg(scatterPlotDiv);
+          while(scatterPlotDiv.firstChild){
+            scatterPlotDiv.removeChild(scatterPlotDiv.firstChild);
+          }
           const placeholder = groupedScatterActive
             ? 'Statistics unavailable until X and at least one grouped Y column are included.'
             : 'Statistics unavailable until both axes are included.';

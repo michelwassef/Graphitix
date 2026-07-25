@@ -544,7 +544,7 @@
   const ROC_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const ROC_DATA_VIEW_MAX = 15;
   const ROC_RESAMPLING_DEFAULT_SEED = 1337;
-  const ROC_RESAMPLING_DEFAULT_ITERATIONS = 200;
+  const ROC_RESAMPLING_DEFAULT_ITERATIONS = 2000;
 
   function normalizeRocResamplingSeed(value, fallback = ROC_RESAMPLING_DEFAULT_SEED){
     if(typeof Shared.resampling?.normalizeSeed === 'function'){
@@ -608,6 +608,13 @@
   }
 
   const DEFAULT_ROC_BORDER_WIDTH = 2;
+  const SINGLE_ROC_P_METHODS = new Set(['auto', 'exact', 'asymptotic']);
+  const ROC_EXACT_MANN_WHITNEY_MAX_TOTAL = 50;
+
+  function normalizeSingleRocPMethod(value){
+    const normalized = String(value || 'auto').trim().toLowerCase();
+    return SINGLE_ROC_P_METHODS.has(normalized) ? normalized : 'auto';
+  }
 
   const state = {
     hot: null,
@@ -619,6 +626,7 @@
     labelOpacity: {},
     labelLinePattern: {},
     diffMethod: 'delong',
+    singleRocPMethod: 'auto',
     resamplingSeed: ROC_RESAMPLING_DEFAULT_SEED,
     resamplingIterations: ROC_RESAMPLING_DEFAULT_ITERATIONS,
     compareSel: null,
@@ -646,6 +654,7 @@
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
   let rocFontEventBound = false;
+  let rocStatsPValueFormatEventBound = false;
 
   const rocSessionsByTabId = new Map();
   // Transient visible-DOM projection bridge. Durable state belongs to the owner session map.
@@ -702,6 +711,7 @@
       labelOpacity: cloneSimple(src.labelOpacity) || {},
       labelLinePattern: cloneSimple(src.labelLinePattern) || {},
       diffMethod: typeof src.diffMethod === 'string' && src.diffMethod.trim() ? src.diffMethod : 'delong',
+      singleRocPMethod: normalizeSingleRocPMethod(src.singleRocPMethod),
       resamplingSeed: normalizeRocResamplingSeed(src.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED),
       resamplingIterations: normalizeRocResamplingIterations(src.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS),
       compareSelection: Object.prototype.hasOwnProperty.call(src, 'compareSelection') ? (src.compareSelection || null) : null,
@@ -1301,6 +1311,7 @@
       labelOpacity: state.labelOpacity,
       labelLinePattern: state.labelLinePattern,
       diffMethod: state.diffMethod,
+      singleRocPMethod: state.singleRocPMethod,
       resamplingSeed: state.resamplingSeed,
       resamplingIterations: state.resamplingIterations,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
@@ -1342,6 +1353,7 @@
     state.labelOpacity = cloneSimple(shaped.state.labelOpacity) || {};
     state.labelLinePattern = cloneSimple(shaped.state.labelLinePattern) || {};
     state.diffMethod = shaped.state.diffMethod || 'delong';
+    state.singleRocPMethod = normalizeSingleRocPMethod(shaped.state.singleRocPMethod);
     state.resamplingSeed = normalizeRocResamplingSeed(shaped.state.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED);
     state.resamplingIterations = normalizeRocResamplingIterations(shaped.state.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS);
     state.compareSelection = shaped.results.compareSelection || shaped.state.compareSelection || null;
@@ -1798,6 +1810,76 @@
   function rocStatsPanelModelHasContent(model){
     const normalized = normalizeRocStatsPanelModel(model);
     return !!(normalized.resultsModel || normalized.reportModel);
+  }
+
+  function setRocStatsPanelPValueScientific(model, scientific){
+    const normalized = normalizeRocStatsPanelModel(model);
+    const next = scientific === true;
+    const patchNode = node => {
+      if(!node || typeof node !== 'object'){
+        return;
+      }
+      if(node.type === 'stats-table' && node.model && typeof node.model === 'object'){
+        node.model.pValueScientific = next;
+      }
+      if(Array.isArray(node.children)){
+        node.children.forEach(patchNode);
+      }
+    };
+    ['resultsModel', 'reportModel'].forEach(key => {
+      const panelModel = normalized[key];
+      if(panelModel && typeof panelModel === 'object'){
+        panelModel.pValueScientific = next;
+        patchNode(panelModel);
+      }
+    });
+    return normalized;
+  }
+
+  function commitRocStatsPValueFormat(scientific, tabId = null){
+    const normalizedTabId = normalizeRocSessionTabId(tabId || getRocProjectionTabId() || null, {});
+    const session = normalizedTabId
+      ? getRocSession(normalizedTabId, { tabId: normalizedTabId, reason: 'roc-stats-pvalue-format' }, { create: false })
+      : getActiveRocSessionForState();
+    if(!session){
+      return false;
+    }
+    const isActiveOwner = !normalizedTabId || isRocSessionActiveOrActivating(session);
+    const captured = isActiveOwner && refs.statsResults && Shared.statsReporting?.capturePanelModel
+      ? Shared.statsReporting.capturePanelModel(refs.statsResults)
+      : null;
+    const sourceModel = captured || session.results?.statsPanelModel || session.state?.statsPanelModel || state.statsPanelModel;
+    const normalized = setRocStatsPanelPValueScientific(sourceModel, scientific);
+    session.state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
+    session.results = createDefaultRocResultsState({
+      statsPanelModel: session.state.statsPanelModel,
+      compareSelection: session.results?.compareSelection || session.state.compareSelection || null,
+      diffMethod: session.results?.diffMethod || session.state.diffMethod || 'delong',
+      compareResult: session.results?.compareResult || null
+    });
+    session.updatedAt = Date.now();
+    if(isActiveOwner){
+      state.statsPanelModel = createDefaultRocStatsPanelModel(normalized);
+    }
+    return true;
+  }
+
+  function ensureRocStatsPValueFormatListener(){
+    if(rocStatsPValueFormatEventBound || typeof global.addEventListener !== 'function'){
+      return;
+    }
+    global.addEventListener('venn:stats-pvalue-format-change', event => {
+      const detail = event?.detail || {};
+      if(detail.targetId && detail.targetId !== 'rocStatsResults'){
+        return;
+      }
+      const activeTabId = getRocProjectionTabId() || getActiveRocSessionForState()?.tabId || null;
+      if(detail.tabId && activeTabId && String(detail.tabId) !== String(activeTabId)){
+        return;
+      }
+      commitRocStatsPValueFormat(detail.scientific === true, detail.tabId || activeTabId);
+    });
+    rocStatsPValueFormatEventBound = true;
   }
 
   function restoreRocStatsPanelModel(model){
@@ -2401,14 +2483,11 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData, { source: 'roc-data-view-switch' });
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            loadOptions: { source: 'roc-data-view-switch' },
+            exclusionSource: 'roc-data-view-switch',
+            filterReason: 'roc-data-view-switch'
+          });
           const session = getRocSessionForHot(hotInstance, { reason: 'roc-data-view-switch' }, { create: false })
             || ownerSession
             || getActiveRocSessionForState();
@@ -2558,15 +2637,15 @@
     const options=graphType==='roc'
       ? [
         { value:'delong', label:'DeLong analytic test (fast with ≥ ~50 positives & negatives)' },
-        { value:'bootstrap', label:'Bootstrap resampling (robust for small or imbalanced samples)' }
+        { value:'bootstrap', label:'Stratified paired bootstrap (resampling-based comparison)' }
       ]
       : [
-        { value:'bootstrap', label:'Bootstrap resampling (captures score variability)' },
-        { value:'permutation', label:'Permutation test (shuffle labels for a strict null)' }
+        { value:'bootstrap', label:'Stratified paired bootstrap (resampling-based comparison)' },
+        { value:'permutation', label:'Paired permutation test (swap model scores within observations)' }
       ];
     const help=graphType==='roc'
       ? 'Pick DeLong for well-powered ROC comparisons or bootstrap when counts are small or imbalanced.'
-      : 'Precision–recall comparisons typically rely on resampling; choose permutation if you need an exact label shuffle test.';
+      : 'Precision–recall comparisons rely on paired resampling here; permutation swaps the two model scores within each matched observation under the null of exchangeable models.';
     return [{
       id:'methodChoice',
       prompt:'How should curve differences be estimated?',
@@ -2598,12 +2677,12 @@
         recommendation.warnings.push('DeLong is not defined for precision–recall curves; use bootstrap or permutation.');
       }
     }else if(answers.methodChoice==='bootstrap'){
-      recommendation.rationale.push('Bootstrap resampling works across ROC and PR curves and tolerates small or imbalanced samples.');
+      recommendation.rationale.push('The stratified paired bootstrap preserves case/control counts while resampling matched observations within each class.');
       if(context.minPairs && context.minPairs < 20){
         recommendation.warnings.push('Increase bootstrap iterations for very small series to stabilize the resampled distribution.');
       }
     }else if(answers.methodChoice==='permutation'){
-      recommendation.rationale.push('Permutation tests construct a null distribution by shuffling labels without distributional assumptions.');
+      recommendation.rationale.push('The paired permutation test constructs a null distribution by independently swapping the two model scores within matched observations.');
       recommendation.warnings.push('Permutation tests can be computationally intensive; ensure enough shuffles for stable p-values.');
     }
     const labels={
@@ -2838,7 +2917,7 @@
     refs.statsControls.innerHTML = '';
 
     const diffLabel = document.createElement('label');
-    diffLabel.textContent = 'Diff method:';
+    diffLabel.textContent = 'Curve comparison:';
     refs.statsControls.appendChild(diffLabel);
 
     const select = document.createElement('select');
@@ -2865,10 +2944,44 @@
         commitRocCompareStateToSession(session, { diffMethod: state.diffMethod, compareResult: null });
         persistRocTabState('roc-diff-method-change');
         console.debug('Debug: ROC diff method change', state.diffMethod);
+        renderStatsControls();
+        populateRocCompareOptions(getRocSeriesNamesFromHot());
         scheduleRocControlDraw('roc-diff-method-change', { event, session });
       });
     });
     refs.statsControls.appendChild(select);
+
+    if(graphType === 'roc'){
+      const singlePLabel = document.createElement('label');
+      singlePLabel.textContent = 'Single-curve p value:';
+      singlePLabel.title = 'Tests no discrimination using the Mann–Whitney rank test. Automatic uses the exact test for small untied datasets and the tie-corrected asymptotic test otherwise.';
+      refs.statsControls.appendChild(singlePLabel);
+
+      const singlePSelect = document.createElement('select');
+      [
+        ['auto', 'Mann–Whitney (automatic)'],
+        ['exact', 'Mann–Whitney exact when eligible'],
+        ['asymptotic', 'Mann–Whitney asymptotic']
+      ].forEach(([value, label]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        option.selected = value === normalizeSingleRocPMethod(state.singleRocPMethod);
+        singlePSelect.appendChild(option);
+      });
+      singlePSelect.addEventListener('change', event => {
+        runRocControlOwner(event, 'roc-single-p-method-change', session => {
+          state.singleRocPMethod = normalizeSingleRocPMethod(singlePSelect.value);
+          if(session?.state){
+            session.state.singleRocPMethod = state.singleRocPMethod;
+            session.updatedAt = Date.now();
+          }
+          persistRocTabState('roc-single-p-method-change');
+          scheduleRocControlDraw('roc-single-p-method-change', { event, session });
+        });
+      });
+      refs.statsControls.appendChild(singlePSelect);
+    }
 
     state.compareLabel = document.createElement('label');
     state.compareLabel.textContent = 'Compare:';
@@ -2891,7 +3004,53 @@
     state.compareResult.style.marginLeft = '4px';
     refs.statsControls.appendChild(state.compareResult);
 
-    console.debug('Debug: ROC stats controls rendered', {graphType, diff: state.diffMethod});
+    if(state.diffMethod === 'bootstrap' || state.diffMethod === 'permutation'){
+      const iterationsLabel = document.createElement('label');
+      iterationsLabel.textContent = 'Iterations:';
+      refs.statsControls.appendChild(iterationsLabel);
+      const iterationsInput = document.createElement('input');
+      iterationsInput.type = 'number';
+      iterationsInput.min = '100';
+      iterationsInput.max = '1000000';
+      iterationsInput.step = '100';
+      iterationsInput.value = String(state.resamplingIterations);
+      iterationsInput.title = 'More iterations improve Monte Carlo resolution but increase computation time.';
+      iterationsInput.addEventListener('change', event => {
+        runRocControlOwner(event, 'roc-resampling-iterations-change', session => {
+          state.resamplingIterations = normalizeRocResamplingIterations(iterationsInput.value, ROC_RESAMPLING_DEFAULT_ITERATIONS);
+          iterationsInput.value = String(state.resamplingIterations);
+          state.compareResultModel = null;
+          if(session?.state){ session.state.resamplingIterations = state.resamplingIterations; session.updatedAt = Date.now(); }
+          commitRocCompareStateToSession(session, { compareResult: null });
+          persistRocTabState('roc-resampling-iterations-change');
+          scheduleRocControlDraw('roc-resampling-iterations-change', { event, session });
+        });
+      });
+      refs.statsControls.appendChild(iterationsInput);
+
+      const seedLabel = document.createElement('label');
+      seedLabel.textContent = 'Seed:';
+      refs.statsControls.appendChild(seedLabel);
+      const seedInput = document.createElement('input');
+      seedInput.type = 'number';
+      seedInput.step = '1';
+      seedInput.value = String(state.resamplingSeed);
+      seedInput.title = 'Fixed seed for reproducible resampling results.';
+      seedInput.addEventListener('change', event => {
+        runRocControlOwner(event, 'roc-resampling-seed-change', session => {
+          state.resamplingSeed = normalizeRocResamplingSeed(seedInput.value, ROC_RESAMPLING_DEFAULT_SEED);
+          seedInput.value = String(state.resamplingSeed);
+          state.compareResultModel = null;
+          if(session?.state){ session.state.resamplingSeed = state.resamplingSeed; session.updatedAt = Date.now(); }
+          commitRocCompareStateToSession(session, { compareResult: null });
+          persistRocTabState('roc-resampling-seed-change');
+          scheduleRocControlDraw('roc-resampling-seed-change', { event, session });
+        });
+      });
+      refs.statsControls.appendChild(seedInput);
+    }
+
+    console.debug('Debug: ROC stats controls rendered', {graphType, diff: state.diffMethod, singleRocPMethod: state.singleRocPMethod});
   }
 
   function getRocSeriesNamesFromHot(){
@@ -3132,59 +3291,69 @@
   }
 
   // PART: STATS
-  function computeCurveMetric(pairs, graphType){
-    const arr = pairs.slice().sort((a, b) => b.score - a.score);
+  function normalizeRocPairs(pairs){
+    return (Array.isArray(pairs) ? pairs : [])
+      .map((pair, index) => ({
+        label: pair?.label === 1 ? 1 : (pair?.label === 0 ? 0 : null),
+        score: Number(pair?.score),
+        observationIndex: Number.isInteger(pair?.observationIndex) ? pair.observationIndex : index
+      }))
+      .filter(pair => pair.label !== null && Number.isFinite(pair.score));
+  }
+
+  function buildRankedCurve(pairs, graphType = 'roc'){
+    const clean = normalizeRocPairs(pairs);
+    const sorted = clean.slice().sort((a, b) => (b.score - a.score) || (a.observationIndex - b.observationIndex));
+    const positives = sorted.reduce((sum, pair) => sum + pair.label, 0);
+    const negatives = sorted.length - positives;
+    if(positives < 1 || negatives < 1){
+      return { points: [], metric: NaN, positives, negatives, sorted };
+    }
+
     let tp = 0;
     let fp = 0;
-    let auc = 0;
-    let ap = 0;
-    const P = arr.filter(p => p.label === 1).length;
-    const N = arr.length - P;
-    let prevRec = 0;
-    let prevPrec = 1;
-    let prevFpr = 0;
-    let prevTpr = 0;
-    for(const pair of arr){
-      if(pair.label === 1){
-        tp += 1;
-      }else{
-        fp += 1;
+    let metric = 0;
+    const points = graphType === 'roc' ? [{ x: 0, y: 0 }] : [{ x: 0, y: 1 }];
+    let previous = points[0];
+
+    for(let index = 0; index < sorted.length; ){
+      const threshold = sorted[index].score;
+      while(index < sorted.length && sorted[index].score === threshold){
+        if(sorted[index].label === 1){ tp += 1; } else { fp += 1; }
+        index += 1;
       }
+      const current = graphType === 'roc'
+        ? { x: fp / negatives, y: tp / positives, threshold }
+        : { x: tp / positives, y: tp / (tp + fp), threshold };
       if(graphType === 'roc'){
-        const fpr = fp / Math.max(1, N);
-        const tpr = tp / Math.max(1, P);
-        auc += (fpr - prevFpr) * (tpr + prevTpr) / 2;
-        prevFpr = fpr;
-        prevTpr = tpr;
+        metric += (current.x - previous.x) * (current.y + previous.y) / 2;
       }else{
-        const rec = tp / Math.max(1, P);
-        const prec = tp / Math.max(1, tp + fp);
-        auc += (rec - prevRec) * (prec + prevPrec) / 2;
-        ap += (rec - prevRec) * prec;
-        prevRec = rec;
-        prevPrec = prec;
+        // Average precision: step-wise precision weighted by the increase in recall.
+        metric += (current.x - previous.x) * current.y;
       }
+      points.push(current);
+      previous = current;
     }
-    return graphType === 'roc' ? auc : ap;
+
+    return { points, metric, positives, negatives, sorted };
+  }
+
+  function computeCurveMetric(pairs, graphType){
+    return buildRankedCurve(pairs, graphType).metric;
   }
 
   function computeSampleVariance(values){
     const clean = Array.isArray(values) ? values.map(Number).filter(Number.isFinite) : [];
-    if(clean.length < 2){
-      return 0;
-    }
+    if(clean.length < 2){ return 0; }
     const mean = clean.reduce((sum, value) => sum + value, 0) / clean.length;
-    const ss = clean.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0);
-    return ss / (clean.length - 1);
+    return clean.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / (clean.length - 1);
   }
 
   function resolveRocZCritical(alpha = 0.05){
     const safeAlpha = Number.isFinite(alpha) && alpha > 0 && alpha < 1 ? alpha : 0.05;
     if(global.jStat?.normal && typeof global.jStat.normal.inv === 'function'){
       const quantile = global.jStat.normal.inv(1 - (safeAlpha / 2), 0, 1);
-      if(Number.isFinite(quantile)){
-        return quantile;
-      }
+      if(Number.isFinite(quantile)){ return quantile; }
     }
     return 1.959963984540054;
   }
@@ -3192,60 +3361,144 @@
   function computeWilsonInterval(successes, total, alpha = 0.05){
     const n = Number(total);
     const x = Number(successes);
-    if(!Number.isFinite(n) || !Number.isFinite(x) || n <= 0){
-      return null;
-    }
-    const p = Math.max(0, Math.min(1, x / n));
+    if(!Number.isFinite(n) || !Number.isFinite(x) || n <= 0 || x < 0 || x > n){ return null; }
+    const p = x / n;
     const z = resolveRocZCritical(alpha);
     const z2 = z * z;
     const denom = 1 + (z2 / n);
     const centre = (p + (z2 / (2 * n))) / denom;
     const spread = (z / denom) * Math.sqrt(((p * (1 - p)) / n) + (z2 / (4 * n * n)));
-    return {
-      low: Math.max(0, centre - spread),
-      high: Math.min(1, centre + spread)
-    };
+    return { low: Math.max(0, centre - spread), high: Math.min(1, centre + spread) };
   }
 
-  function computeSingleAucUncertainty(pairs, alpha = 0.05){
-    const clean = Array.isArray(pairs) ? pairs.filter(pair => Number.isFinite(pair?.score) && (pair?.label === 0 || pair?.label === 1)) : [];
+  function computeDeLongAucEstimate(pairs, alpha = 0.05){
+    const clean = normalizeRocPairs(pairs);
     const positives = clean.filter(pair => pair.label === 1).map(pair => pair.score);
     const negatives = clean.filter(pair => pair.label === 0).map(pair => pair.score);
     const m = positives.length;
     const n = negatives.length;
-    if(m < 1 || n < 1){
-      return null;
-    }
-    const kernel = (positive, negative) => {
-      if(positive > negative){ return 1; }
-      if(positive === negative){ return 0.5; }
-      return 0;
-    };
+    if(m < 1 || n < 1){ return null; }
+    const kernel = (positive, negative) => positive > negative ? 1 : (positive === negative ? 0.5 : 0);
     const v10 = positives.map(score => negatives.reduce((sum, negative) => sum + kernel(score, negative), 0) / n);
     const v01 = negatives.map(score => positives.reduce((sum, positive) => sum + kernel(positive, score), 0) / m);
     const auc = v10.reduce((sum, value) => sum + value, 0) / m;
-    const variance = (computeSampleVariance(v10) / m) + (computeSampleVariance(v01) / n);
-    const se = variance >= 0 ? Math.sqrt(variance) : NaN;
-    const z = resolveRocZCritical(alpha);
-    const ciLow = Number.isFinite(se) ? Math.max(0, auc - (z * se)) : NaN;
-    const ciHigh = Number.isFinite(se) ? Math.min(1, auc + (z * se)) : NaN;
+    const variance = Math.max(0, (computeSampleVariance(v10) / m) + (computeSampleVariance(v01) / n));
+    const se = Math.sqrt(variance);
+    const zCritical = resolveRocZCritical(alpha);
     return {
       auc,
+      variance,
       se,
-      ciLow,
-      ciHigh,
-      method: 'DeLong-style'
+      ciLow: Math.max(0, auc - (zCritical * se)),
+      ciHigh: Math.min(1, auc + (zCritical * se)),
+      method: 'DeLong'
+    };
+  }
+
+  function rankRocScores(clean){
+    const ordered = clean.slice().sort((a, b) => (a.score - b.score) || (a.observationIndex - b.observationIndex));
+    const ranked = [];
+    const tieSizes = [];
+    for(let index = 0; index < ordered.length; ){
+      let end = index + 1;
+      while(end < ordered.length && ordered[end].score === ordered[index].score){ end += 1; }
+      const averageRank = ((index + 1) + end) / 2;
+      const tieSize = end - index;
+      tieSizes.push(tieSize);
+      for(let cursor = index; cursor < end; cursor += 1){ ranked.push({ ...ordered[cursor], rank: averageRank }); }
+      index = end;
+    }
+    return { ranked, tieSizes, hasTies: tieSizes.some(size => size > 1) };
+  }
+
+  function exactMannWhitneyTwoSidedPValue(m, n, observedU){
+    const total = m + n;
+    const minRankSum = (m * (m + 1)) / 2;
+    const maxRankSum = (m * ((2 * total) - m + 1)) / 2;
+    const targetRankSum = observedU + minRankSum;
+    const dp = Array.from({ length: m + 1 }, () => Array(maxRankSum + 1).fill(0n));
+    dp[0][0] = 1n;
+    for(let rank = 1; rank <= total; rank += 1){
+      for(let chosen = Math.min(m, rank); chosen >= 1; chosen -= 1){
+        for(let sum = maxRankSum; sum >= rank; sum -= 1){
+          dp[chosen][sum] += dp[chosen - 1][sum - rank];
+        }
+      }
+    }
+    const observedDistance = Math.abs(observedU - ((m * n) / 2));
+    let extreme = 0n;
+    let combinations = 0n;
+    for(let rankSum = minRankSum; rankSum <= maxRankSum; rankSum += 1){
+      const count = dp[m][rankSum];
+      if(count === 0n){ continue; }
+      combinations += count;
+      const u = rankSum - minRankSum;
+      if(Math.abs(u - ((m * n) / 2)) >= observedDistance - 1e-12){ extreme += count; }
+    }
+    if(combinations === 0n){ return NaN; }
+    return Math.min(1, Number(extreme) / Number(combinations));
+  }
+
+  function computeMannWhitneyInference(pairs, requestedMethod = 'auto'){
+    const clean = normalizeRocPairs(pairs);
+    const positives = clean.filter(pair => pair.label === 1);
+    const negatives = clean.filter(pair => pair.label === 0);
+    const m = positives.length;
+    const n = negatives.length;
+    if(m < 1 || n < 1){ return null; }
+    const { ranked, tieSizes, hasTies } = rankRocScores(clean);
+    const positiveRankSum = ranked.reduce((sum, row) => sum + (row.label === 1 ? row.rank : 0), 0);
+    const u = positiveRankSum - ((m * (m + 1)) / 2);
+    const auc = u / (m * n);
+    const normalizedRequested = normalizeSingleRocPMethod(requestedMethod);
+    const exactEligible = !hasTies && clean.length <= ROC_EXACT_MANN_WHITNEY_MAX_TOTAL;
+    const useExact = normalizedRequested === 'exact' ? exactEligible : (normalizedRequested === 'auto' && exactEligible);
+    if(useExact){
+      return {
+        auc, u, pValue: exactMannWhitneyTwoSidedPValue(m, n, u),
+        requestedMethod: normalizedRequested, method: 'exact Mann–Whitney', exact: true,
+        fallbackReason: null, positives: m, negatives: n, hasTies
+      };
+    }
+    const total = m + n;
+    const tieCorrection = tieSizes.reduce((sum, size) => sum + ((size ** 3) - size), 0);
+    const variance = (m * n / 12) * ((total + 1) - (tieCorrection / (total * (total - 1))));
+    const mean = (m * n) / 2;
+    const signedDifference = u - mean;
+    const continuityAdjusted = signedDifference === 0 ? 0 : Math.sign(signedDifference) * Math.max(0, Math.abs(signedDifference) - 0.5);
+    const z = variance > 0 ? continuityAdjusted / Math.sqrt(variance) : 0;
+    const fallbackReason = normalizedRequested === 'exact'
+      ? (hasTies ? 'Exact rank inference is unavailable with tied scores.' : `Exact rank inference is limited to at most ${ROC_EXACT_MANN_WHITNEY_MAX_TOTAL} observations.`)
+      : null;
+    return {
+      auc, u, z, pValue: rocNormalTwoSidedPValue(z),
+      requestedMethod: normalizedRequested, method: 'asymptotic Mann–Whitney with tie correction and continuity correction',
+      exact: false, fallbackReason, positives: m, negatives: n, hasTies
+    };
+  }
+
+  function computeSingleAucInference(pairs, alpha = 0.05, pMethod = 'auto'){
+    const estimate = computeDeLongAucEstimate(pairs, alpha);
+    const significance = computeMannWhitneyInference(pairs, pMethod);
+    if(!estimate || !significance){ return null; }
+    return {
+      ...estimate,
+      pValue: significance.pValue,
+      pMethod: significance.method,
+      pRequestedMethod: significance.requestedMethod,
+      pFallbackReason: significance.fallbackReason,
+      mannWhitneyU: significance.u,
+      mannWhitneyZ: significance.z,
+      exactPValue: significance.exact
     };
   }
 
   function buildRocThresholdMetricsTable(pairs, alpha = 0.05){
-    const clean = Array.isArray(pairs) ? pairs.filter(pair => Number.isFinite(pair?.score) && (pair?.label === 0 || pair?.label === 1)) : [];
-    if(!clean.length){
-      return [];
-    }
-    const sorted = clean.slice().sort((a, b) => b.score - a.score);
-    const positives = sorted.reduce((sum, pair) => sum + (pair.label === 1 ? 1 : 0), 0);
-    const negatives = sorted.length - positives;
+    const ranked = buildRankedCurve(pairs, 'roc');
+    const sorted = ranked.sorted;
+    const positives = ranked.positives;
+    const negatives = ranked.negatives;
+    if(!sorted.length || positives < 1 || negatives < 1){ return []; }
     let tp = 0;
     let fp = 0;
     let tn = negatives;
@@ -3254,40 +3507,22 @@
     for(let index = 0; index < sorted.length; ){
       const threshold = sorted[index].score;
       while(index < sorted.length && sorted[index].score === threshold){
-        const current = sorted[index];
-        if(current.label === 1){
-          tp += 1;
-          fn -= 1;
-        }else{
-          fp += 1;
-          tn -= 1;
-        }
+        if(sorted[index].label === 1){ tp += 1; fn -= 1; } else { fp += 1; tn -= 1; }
         index += 1;
       }
-      const sensitivity = positives > 0 ? tp / positives : NaN;
-      const specificity = negatives > 0 ? tn / negatives : NaN;
+      const sensitivity = tp / positives;
+      const specificity = tn / negatives;
       const ppv = (tp + fp) > 0 ? tp / (tp + fp) : NaN;
       const npv = (tn + fn) > 0 ? tn / (tn + fn) : NaN;
-      const accuracy = sorted.length > 0 ? (tp + tn) / sorted.length : NaN;
-      const lrPositive = Number.isFinite(sensitivity) && Number.isFinite(specificity) && specificity < 1
-        ? sensitivity / (1 - specificity)
-        : Infinity;
-      const lrNegative = Number.isFinite(sensitivity) && Number.isFinite(specificity) && specificity > 0
-        ? (1 - sensitivity) / specificity
-        : Infinity;
+      const accuracy = (tp + tn) / sorted.length;
+      const f1 = (2 * tp + fp + fn) > 0 ? (2 * tp) / (2 * tp + fp + fn) : NaN;
+      const youden = sensitivity + specificity - 1;
+      const distanceToTopLeft = Math.hypot(1 - sensitivity, 1 - specificity);
+      const lrPositive = specificity < 1 ? sensitivity / (1 - specificity) : Infinity;
+      const lrNegative = specificity > 0 ? (1 - sensitivity) / specificity : Infinity;
       rows.push({
-        threshold,
-        tp,
-        fp,
-        tn,
-        fn,
-        sensitivity,
-        specificity,
-        ppv,
-        npv,
-        accuracy,
-        lrPositive,
-        lrNegative,
+        threshold, tp, fp, tn, fn, sensitivity, specificity, ppv, npv, accuracy, f1, youden,
+        distanceToTopLeft, lrPositive, lrNegative,
         sensitivityCi: computeWilsonInterval(tp, positives, alpha),
         specificityCi: computeWilsonInterval(tn, negatives, alpha),
         ppvCi: computeWilsonInterval(tp, tp + fp, alpha),
@@ -3297,215 +3532,167 @@
     return rows;
   }
 
-  function bootstrapCurveTest(pairs, baseline, graphType, options = {}){
-    const config = normalizeRocResamplingOptions(options, ['roc-curve-test', graphType, baseline, pairs]);
-    let count = 0;
-    const n = pairs.length;
-    for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample = Array.from({ length: n }, () => pairs[Math.min(n - 1, Math.floor(config.random() * n))]);
-      const metric = computeCurveMetric(sample, graphType);
-      if(metric <= baseline){
-        count += 1;
+  function selectYoudenThreshold(rows){
+    const candidates = (Array.isArray(rows) ? rows : []).filter(row => Number.isFinite(row?.youden));
+    if(!candidates.length){ return null; }
+    return candidates.reduce((best, row) => {
+      if(!best || row.youden > best.youden + 1e-12){ return row; }
+      if(Math.abs(row.youden - best.youden) <= 1e-12){
+        if(row.distanceToTopLeft < best.distanceToTopLeft - 1e-12){ return row; }
+        if(Math.abs(row.distanceToTopLeft - best.distanceToTopLeft) <= 1e-12 && row.threshold > best.threshold){ return row; }
       }
-    }
-    const p = (count + 1) / (config.iterations + 1);
-    if(global.DEBUG_ROC){
-      console.debug('Debug: ROC bootstrap test', { baseline, graphType, iterations: config.iterations, seed: config.seed, p });
-    }
-    return p;
+      return best;
+    }, null);
   }
 
-  async function bootstrapCurveTestCooperative(pairs, baseline, graphType, options, checkpoint){
-    const config = normalizeRocResamplingOptions(options, ['roc-curve-test', graphType, baseline, pairs]);
-    let count = 0;
-    const n = pairs.length;
-    for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample = Array.from({ length: n }, () => pairs[Math.min(n - 1, Math.floor(config.random() * n))]);
-      if(computeCurveMetric(sample, graphType) <= baseline){
-        count += 1;
+  function selectMaximumF1Threshold(rows){
+    const candidates = (Array.isArray(rows) ? rows : []).filter(row => Number.isFinite(row?.f1));
+    if(!candidates.length){ return null; }
+    return candidates.reduce((best, row) => {
+      if(!best || row.f1 > best.f1 + 1e-12){ return row; }
+      if(Math.abs(row.f1 - best.f1) <= 1e-12){
+        if(row.distanceToTopLeft < best.distanceToTopLeft - 1e-12){ return row; }
+        if(Math.abs(row.distanceToTopLeft - best.distanceToTopLeft) <= 1e-12 && row.threshold > best.threshold){ return row; }
       }
-      if(!(await checkpoint())){
-        return null;
-      }
-    }
-    return (count + 1) / (config.iterations + 1);
+      return best;
+    }, null);
+  }
+
+  function alignPairedCurveObservations(pairs1, pairs2){
+    const first = new Map(normalizeRocPairs(pairs1).map(pair => [pair.observationIndex, pair]));
+    const second = new Map(normalizeRocPairs(pairs2).map(pair => [pair.observationIndex, pair]));
+    const aligned = [];
+    first.forEach((a, observationIndex) => {
+      const b = second.get(observationIndex);
+      if(b && a.label === b.label){ aligned.push({ observationIndex, label: a.label, score1: a.score, score2: b.score }); }
+    });
+    return aligned.sort((a, b) => a.observationIndex - b.observationIndex);
+  }
+
+  function percentile(sorted, probability){
+    if(!sorted.length){ return NaN; }
+    const index = Math.max(0, Math.min(sorted.length - 1, probability * (sorted.length - 1)));
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if(lower === upper){ return sorted[lower]; }
+    const weight = index - lower;
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+  }
+
+  function sampleAlignedRowsWithinClasses(aligned, random){
+    const positives = aligned.filter(row => row.label === 1);
+    const negatives = aligned.filter(row => row.label === 0);
+    if(!positives.length || !negatives.length){ return []; }
+    const sampleClass = rows => Array.from({ length: rows.length }, () => rows[Math.min(rows.length - 1, Math.floor(random() * rows.length))]);
+    return sampleClass(positives).concat(sampleClass(negatives));
   }
 
   function bootstrapCurveDiff(pairs1, pairs2, graphType, options = {}){
-    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, pairs1, pairs2]);
-    const n = Math.min(pairs1.length, pairs2.length);
+    const aligned = alignPairedCurveObservations(pairs1, pairs2);
+    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, aligned]);
+    if(aligned.length < 2){ return null; }
+    const asPairs = (rows, key) => rows.map(row => ({ label: row.label, score: row[key], observationIndex: row.observationIndex }));
+    const baseDiff = computeCurveMetric(asPairs(aligned, 'score1'), graphType) - computeCurveMetric(asPairs(aligned, 'score2'), graphType);
     const diffs = [];
-    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
     for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample1 = [];
-      const sample2 = [];
-      for(let index = 0; index < n; index += 1){
-        const sampleIndex = Math.min(n - 1, Math.floor(config.random() * n));
-        sample1.push(pairs1[sampleIndex]);
-        sample2.push(pairs2[sampleIndex]);
-      }
-      diffs.push(computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType));
+      const sample = sampleAlignedRowsWithinClasses(aligned, config.random);
+      const diff = computeCurveMetric(asPairs(sample, 'score1'), graphType) - computeCurveMetric(asPairs(sample, 'score2'), graphType);
+      if(Number.isFinite(diff)){ diffs.push(diff); }
     }
-    const count = diffs.filter(diff => Math.abs(diff) >= Math.abs(baseDiff)).length;
+    if(!diffs.length){ return null; }
+    const centeredExtreme = diffs.filter(diff => Math.abs(diff - baseDiff) >= Math.abs(baseDiff)).length;
     diffs.sort((a, b) => a - b);
-    const lower = diffs[Math.floor(0.025 * config.iterations)] ?? diffs[0];
-    const upper = diffs[Math.floor(0.975 * config.iterations)] ?? diffs[diffs.length - 1];
-    const p = (count + 1) / (config.iterations + 1);
-    if(global.DEBUG_ROC){
-      console.debug('Debug: ROC bootstrap diff', { graphType, iterations: config.iterations, seed: config.seed, p, ci: [lower, upper] });
-    }
-    return { p, ci: [lower, upper], diff: baseDiff, seed: config.seed, iterations: config.iterations };
+    return {
+      p: (centeredExtreme + 1) / (diffs.length + 1),
+      ci: [percentile(diffs, 0.025), percentile(diffs, 0.975)],
+      diff: baseDiff,
+      seed: config.seed,
+      iterations: config.iterations,
+      pairedCount: aligned.length,
+      method: 'paired-bootstrap'
+    };
   }
 
   async function bootstrapCurveDiffCooperative(pairs1, pairs2, graphType, options, checkpoint){
-    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, pairs1, pairs2]);
-    const n = Math.min(pairs1.length, pairs2.length);
+    const aligned = alignPairedCurveObservations(pairs1, pairs2);
+    const config = normalizeRocResamplingOptions(options, ['roc-bootstrap-diff', graphType, aligned]);
+    if(aligned.length < 2){ return null; }
+    const asPairs = (rows, key) => rows.map(row => ({ label: row.label, score: row[key], observationIndex: row.observationIndex }));
+    const baseDiff = computeCurveMetric(asPairs(aligned, 'score1'), graphType) - computeCurveMetric(asPairs(aligned, 'score2'), graphType);
     const diffs = [];
-    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
     for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample1 = [];
-      const sample2 = [];
-      for(let index = 0; index < n; index += 1){
-        const sampleIndex = Math.min(n - 1, Math.floor(config.random() * n));
-        sample1.push(pairs1[sampleIndex]);
-        sample2.push(pairs2[sampleIndex]);
-      }
-      diffs.push(computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType));
-      if(!(await checkpoint())){
-        return null;
-      }
+      const sample = sampleAlignedRowsWithinClasses(aligned, config.random);
+      const diff = computeCurveMetric(asPairs(sample, 'score1'), graphType) - computeCurveMetric(asPairs(sample, 'score2'), graphType);
+      if(Number.isFinite(diff)){ diffs.push(diff); }
+      if(!(await checkpoint())){ return null; }
     }
-    const count = diffs.filter(diff => Math.abs(diff) >= Math.abs(baseDiff)).length;
+    if(!diffs.length){ return null; }
+    const centeredExtreme = diffs.filter(diff => Math.abs(diff - baseDiff) >= Math.abs(baseDiff)).length;
     diffs.sort((a, b) => a - b);
-    const lower = diffs[Math.floor(0.025 * config.iterations)] ?? diffs[0];
-    const upper = diffs[Math.floor(0.975 * config.iterations)] ?? diffs[diffs.length - 1];
-    return { p: (count + 1) / (config.iterations + 1), ci: [lower, upper], diff: baseDiff, seed: config.seed, iterations: config.iterations };
+    return { p:(centeredExtreme + 1)/(diffs.length + 1), ci:[percentile(diffs,0.025),percentile(diffs,0.975)], diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-bootstrap' };
   }
 
   function permutationCurveDiff(pairs1, pairs2, graphType, options = {}){
-    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, pairs1, pairs2]);
-    const n = Math.min(pairs1.length, pairs2.length);
-    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
-    let count = 0;
-    for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample1 = [];
-      const sample2 = [];
-      for(let index = 0; index < n; index += 1){
-        if(config.random() < 0.5){
-          sample1.push(pairs1[index]);
-          sample2.push(pairs2[index]);
-        }else{
-          sample1.push({ label: pairs1[index].label, score: pairs2[index].score });
-          sample2.push({ label: pairs2[index].label, score: pairs1[index].score });
-        }
-      }
-      const diff = computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType);
-      if(Math.abs(diff) >= Math.abs(baseDiff)){
-        count += 1;
-      }
+    const aligned = alignPairedCurveObservations(pairs1, pairs2);
+    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, aligned]);
+    if(aligned.length < 2){ return null; }
+    const asPairs = (rows, key) => rows.map(row => ({ label:row.label, score:row[key], observationIndex:row.observationIndex }));
+    const baseDiff = computeCurveMetric(asPairs(aligned,'score1'),graphType)-computeCurveMetric(asPairs(aligned,'score2'),graphType);
+    let count=0;
+    for(let iteration=0; iteration<config.iterations; iteration+=1){
+      const permuted=aligned.map(row => config.random()<0.5 ? row : { ...row, score1:row.score2, score2:row.score1 });
+      const diff=computeCurveMetric(asPairs(permuted,'score1'),graphType)-computeCurveMetric(asPairs(permuted,'score2'),graphType);
+      if(Math.abs(diff)>=Math.abs(baseDiff)-1e-15){ count+=1; }
     }
-    const p = (count + 1) / (config.iterations + 1);
-    if(global.DEBUG_ROC){
-      console.debug('Debug: ROC permutation diff', { graphType, iterations: config.iterations, seed: config.seed, p });
-    }
-    return { p, diff: baseDiff, seed: config.seed, iterations: config.iterations };
+    return { p:(count+1)/(config.iterations+1), diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-permutation' };
   }
 
   async function permutationCurveDiffCooperative(pairs1, pairs2, graphType, options, checkpoint){
-    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, pairs1, pairs2]);
-    const n = Math.min(pairs1.length, pairs2.length);
-    const baseDiff = computeCurveMetric(pairs1, graphType) - computeCurveMetric(pairs2, graphType);
-    let count = 0;
-    for(let iteration = 0; iteration < config.iterations; iteration += 1){
-      const sample1 = [];
-      const sample2 = [];
-      for(let index = 0; index < n; index += 1){
-        if(config.random() < 0.5){
-          sample1.push(pairs1[index]);
-          sample2.push(pairs2[index]);
-        }else{
-          sample1.push({ label: pairs1[index].label, score: pairs2[index].score });
-          sample2.push({ label: pairs2[index].label, score: pairs1[index].score });
-        }
-      }
-      const diff = computeCurveMetric(sample1, graphType) - computeCurveMetric(sample2, graphType);
-      if(Math.abs(diff) >= Math.abs(baseDiff)){
-        count += 1;
-      }
-      if(!(await checkpoint())){
-        return null;
-      }
+    const aligned = alignPairedCurveObservations(pairs1, pairs2);
+    const config = normalizeRocResamplingOptions(options, ['roc-permutation-diff', graphType, aligned]);
+    if(aligned.length < 2){ return null; }
+    const asPairs = (rows, key) => rows.map(row => ({ label:row.label, score:row[key], observationIndex:row.observationIndex }));
+    const baseDiff=computeCurveMetric(asPairs(aligned,'score1'),graphType)-computeCurveMetric(asPairs(aligned,'score2'),graphType);
+    let count=0;
+    for(let iteration=0; iteration<config.iterations; iteration+=1){
+      const permuted=aligned.map(row => config.random()<0.5 ? row : { ...row, score1:row.score2, score2:row.score1 });
+      const diff=computeCurveMetric(asPairs(permuted,'score1'),graphType)-computeCurveMetric(asPairs(permuted,'score2'),graphType);
+      if(Math.abs(diff)>=Math.abs(baseDiff)-1e-15){ count+=1; }
+      if(!(await checkpoint())){ return null; }
     }
-    return { p: (count + 1) / (config.iterations + 1), diff: baseDiff, seed: config.seed, iterations: config.iterations };
+    return { p:(count+1)/(config.iterations+1), diff:baseDiff, seed:config.seed, iterations:config.iterations, pairedCount:aligned.length, method:'paired-permutation' };
   }
 
   function delongCurveDiff(pairs1, pairs2){
-    const pos1 = pairs1.filter(p => p.label === 1).map(p => p.score);
-    const neg1 = pairs1.filter(p => p.label === 0).map(p => p.score);
-    const pos2 = pairs2.filter(p => p.label === 1).map(p => p.score);
-    const neg2 = pairs2.filter(p => p.label === 0).map(p => p.score);
-    const m = pos1.length;
-    const n = neg1.length;
-
-    function calcV(pos, neg){
-      const V10 = [];
-      const V01 = [];
-      for(const ps of pos){
-        let lt = 0;
-        let eq = 0;
-        for(const ns of neg){
-          if(ps > ns) lt += 1;
-          else if(ps === ns) eq += 1;
-        }
-        V10.push((lt + 0.5 * eq) / neg.length);
-      }
-      for(const ns of neg){
-        let gt = 0;
-        let eq = 0;
-        for(const ps of pos){
-          if(ps > ns) gt += 1;
-          else if(ps === ns) eq += 1;
-        }
-        V01.push((gt + 0.5 * eq) / pos.length);
-      }
-      const auc = V10.reduce((sum, val) => sum + val, 0) / pos.length;
-      return {V10, V01, auc};
-    }
-
-    const a1 = calcV(pos1, neg1);
-    const a2 = calcV(pos2, neg2);
-
-    function cov(a, b){
-      const meanA = global.jStat.mean(a);
-      const meanB = global.jStat.mean(b);
-      let sum = 0;
-      for(let i = 0; i < a.length; i += 1){
-        sum += (a[i] - meanA) * (b[i] - meanB);
-      }
-      return sum / (a.length - 1);
-    }
-
-    const s10 = [
-      [cov(a1.V10, a1.V10), cov(a1.V10, a2.V10)],
-      [cov(a2.V10, a1.V10), cov(a2.V10, a2.V10)]
-    ];
-    const s01 = [
-      [cov(a1.V01, a1.V01), cov(a1.V01, a2.V01)],
-      [cov(a2.V01, a1.V01), cov(a2.V01, a2.V01)]
-    ];
-    const var1 = s10[0][0] / m + s01[0][0] / n;
-    const var2 = s10[1][1] / m + s01[1][1] / n;
-    const covar = s10[0][1] / m + s01[0][1] / n;
-    const diff = a1.auc - a2.auc;
-    const varDiff = var1 + var2 - 2 * covar;
-    const sd = Math.sqrt(varDiff);
-    const z = diff / sd;
-    const p = rocNormalTwoSidedPValue(z);
-    const ci = [diff - 1.96 * sd, diff + 1.96 * sd];
-    if(global.DEBUG_ROC){
-      console.debug('Debug: ROC delong diff', {diff, p, ci});
-    }
-    return {p, diff, ci};
+    const aligned = alignPairedCurveObservations(pairs1, pairs2);
+    const positives = aligned.filter(row => row.label === 1);
+    const negatives = aligned.filter(row => row.label === 0);
+    const m = positives.length;
+    const n = negatives.length;
+    if(m < 2 || n < 2){ return null; }
+    const kernel = (positive, negative) => positive > negative ? 1 : (positive === negative ? 0.5 : 0);
+    const calcPlacements = scoreKey => {
+      const v10 = positives.map(pos => negatives.reduce((sum, neg) => sum + kernel(pos[scoreKey], neg[scoreKey]), 0) / n);
+      const v01 = negatives.map(neg => positives.reduce((sum, pos) => sum + kernel(pos[scoreKey], neg[scoreKey]), 0) / m);
+      return { v10, v01, auc:v10.reduce((sum,value)=>sum+value,0)/m };
+    };
+    const first=calcPlacements('score1');
+    const second=calcPlacements('score2');
+    const covariance=(a,b)=>{
+      const meanA=a.reduce((sum,value)=>sum+value,0)/a.length;
+      const meanB=b.reduce((sum,value)=>sum+value,0)/b.length;
+      return a.reduce((sum,value,index)=>sum+((value-meanA)*(b[index]-meanB)),0)/(a.length-1);
+    };
+    const variance = Math.max(0,
+      (covariance(first.v10,first.v10)+covariance(second.v10,second.v10)-2*covariance(first.v10,second.v10))/m +
+      (covariance(first.v01,first.v01)+covariance(second.v01,second.v01)-2*covariance(first.v01,second.v01))/n
+    );
+    const se=Math.sqrt(variance);
+    const diff=first.auc-second.auc;
+    const z=se>0?diff/se:(diff===0?0:Math.sign(diff)*Infinity);
+    const p=se>0?rocNormalTwoSidedPValue(z):(diff===0?1:0);
+    const critical=resolveRocZCritical(0.05);
+    return { p, diff, ci:[diff-critical*se,diff+critical*se], se, z, pairedCount:aligned.length, method:'DeLong' };
   }
 
   function formatPValue(value){
@@ -3533,13 +3720,24 @@
   }
 
   function rocNormalTwoSidedPValue(z){
+    const numericZ = Number(z);
+    if(Number.isNaN(numericZ)){ return NaN; }
+    if(!Number.isFinite(numericZ)){ return 0; }
     const helper = Shared.stats?.normalTwoSidedPValue;
     if(typeof helper === 'function'){
-      const value = helper(z);
-      return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : NaN;
+      const value = helper(numericZ);
+      if(Number.isFinite(value)){ return Math.max(0, Math.min(1, value)); }
     }
     const cdf = global.jStat?.normal?.cdf;
-    return typeof cdf === 'function' ? Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(z), 0, 1)))) : NaN;
+    if(typeof cdf === 'function'){
+      return Math.max(0, Math.min(1, 2 * (1 - cdf(Math.abs(numericZ), 0, 1))));
+    }
+    // Abramowitz-Stegun approximation of the standard-normal survival function.
+    const x = Math.abs(numericZ);
+    const t = 1 / (1 + (0.2316419 * x));
+    const density = Math.exp(-(x * x) / 2) / Math.sqrt(2 * Math.PI);
+    const upperTail = density * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+    return Math.max(0, Math.min(1, 2 * upperTail));
   }
 
   // PART: DRAW
@@ -3603,20 +3801,23 @@
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
     const summaryColumns=[
       { key:'series', label:'Series', align:'left' },
-      { key:'auc', label:graphType==='roc'?'AUC':'Area', align:'right' }
+      { key:'auc', label:graphType==='roc'?'AUC':'Average precision', align:'right' }
     ];
     if(graphType==='roc'){
       summaryColumns.push(
         { key:'aucSe', label:'AUC SE', align:'right' },
         { key:'aucCi', label:'AUC 95% CI', align:'right' }
       );
-    }else{
-      summaryColumns.push({ key:'ap', label:'Average Precision', align:'right' });
     }
-    summaryColumns.push({ key:'p', label:'p value', align:'right' });
     if(graphType==='roc'){
       summaryColumns.push(
-        { key:'threshold', label:'Best threshold', align:'right' },
+        { key:'p', label:'p value (Mann–Whitney)', align:'right' },
+        { key:'pMethod', label:'p-value method', align:'left' }
+      );
+    }
+    if(graphType==='roc'){
+      summaryColumns.push(
+        { key:'threshold', label:'Youden threshold', align:'right' },
         { key:'sensitivity', label:'Sensitivity', align:'right' },
         { key:'specificity', label:'Specificity', align:'right' },
         { key:'ppv', label:'PPV', align:'right' },
@@ -3628,7 +3829,7 @@
       );
     }else{
       summaryColumns.push(
-        { key:'threshold', label:'Best threshold', align:'right' },
+        { key:'threshold', label:'Maximum-F1 threshold', align:'right' },
         { key:'accuracy', label:'Accuracy', align:'right' },
         { key:'precision', label:'Precision', align:'right' },
         { key:'recall', label:'Recall', align:'right' },
@@ -3647,8 +3848,8 @@
           value => formatRocDecimal(value, 3)
         )
         : undefined,
-      ap:graphType==='pr' && Number.isFinite(stat.avgPrecision)?formatRocDecimal(stat.avgPrecision,3):graphType==='pr'?'—':undefined,
-      p:formatPValue(stat.pVal),
+      p:graphType==='roc' ? formatPValue(stat.pVal) : undefined,
+      pMethod:graphType==='roc' ? (stat.pMethod?.startsWith('exact') ? 'Exact' : 'Asymptotic, tie corrected') : undefined,
       threshold:Number.isFinite(stat.thr)?stat.thr.toFixed(3):'—',
       sensitivity:graphType==='roc' ? formatRocPercent(stat.recall) : undefined,
       specificity:graphType==='roc' ? formatRocPercent(stat.specificity) : undefined,
@@ -3663,12 +3864,18 @@
     }));
     const footnotes=[
       graphType==='roc'
-        ? 'AUC integrates the ROC curve relative to the 0.5 no-skill baseline.'
-        : 'Area and Average Precision integrate the precision–recall curve relative to the positive rate.',
-      'Best threshold is the cutoff that maximizes the F1 score for each series.'
+        ? 'AUC is tie-aware. The p value tests no discrimination with a two-sided Mann–Whitney rank test.'
+        : 'Average precision is computed as step-wise precision weighted by each increase in recall.',
+      graphType==='roc'
+        ? 'The reported cutoff maximizes the Youden index (sensitivity + specificity − 1); ties are resolved by proximity to the top-left ROC corner, then by the higher threshold.'
+        : 'The reported cutoff maximizes the F1 score; this criterion depends on class prevalence and does not use true negatives.'
     ];
     if(graphType==='roc'){
-      footnotes.push('AUC SE and 95% CI use a DeLong-style nonparametric variance estimate.');
+      footnotes.push('AUC SE and the Wald 95% CI use the nonparametric DeLong variance estimate. Single-curve significance uses exact Mann–Whitney inference for eligible untied samples and a tie-corrected, continuity-corrected asymptotic Mann–Whitney test otherwise.');
+      const pMethods = Array.from(new Set(stats.map(stat => stat.pMethod).filter(Boolean)));
+      if(pMethods.length){ footnotes.push(`Applied single-curve p-value method(s): ${pMethods.join('; ')}.`); }
+      const fallbacks = stats.map(stat => stat.pFallbackReason).filter(Boolean);
+      if(fallbacks.length){ footnotes.push(`Exact-test fallback: ${Array.from(new Set(fallbacks)).join(' ')}`); }
       footnotes.push('Cutoff tables include Wilson 95% confidence intervals for sensitivity, specificity, PPV, and NPV.');
     }
     const model={
@@ -3748,8 +3955,7 @@
       const paragraph=document.createElement('p');
       const metrics=[
         `${graphType==='roc'?'AUC':'Area'} ${row.auc}`,
-        graphType==='pr' && row.ap ? `AP ${row.ap}` : null,
-        `p ${row.p}`,
+        graphType==='roc' ? `p ${row.p}` : null,
         `Thr ${row.threshold}`,
         graphType==='roc' ? `Sens ${row.sensitivity}` : null,
         graphType==='roc' ? `Spec ${row.specificity}` : null,
@@ -3783,25 +3989,25 @@
     }
     const primary = stats[0] || null;
     const compareText = state.compareResult && state.compareResult.textContent ? state.compareResult.textContent.trim() : '';
-    const primaryTextPrefix = primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'area'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)})` : ''} and p = ` : '';
+    const primaryTextPrefix = primary ? `${primary.name} yielded ${graphType === 'roc' ? 'AUC' : 'average precision'} = ${formatRocDecimal(primary.auc,3)}${graphType === 'roc' && Number.isFinite(primary.aucCiLow) && Number.isFinite(primary.aucCiHigh) ? ` (95% CI ${formatRocDecimal(primary.aucCiLow,3)} to ${formatRocDecimal(primary.aucCiHigh,3)}) and two-sided Mann–Whitney p = ` : '.'}` : '';
     const compareParts = compareText && diffResult && Number.isFinite(diffResult.p)
       ? [
-          `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)}, p = `,
+          `${graphType === 'roc' ? 'ΔAUC' : 'ΔAP'} = ${diffResult.diff.toFixed(3)} (${diffResult.method || state.diffMethod}), p = `,
           { type:'pValue', value:diffResult.p, fallback:String(formatPValue(diffResult.p)) },
           Array.isArray(diffResult.ci) ? `, CI = [${diffResult.ci[0].toFixed(3)}, ${diffResult.ci[1].toFixed(3)}]` : ''
         ]
       : (compareText || null);
     Shared.statsReporting.appendReportPanel(refs.statsResults, {
-      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. ${graphType === 'roc' ? 'AUC uncertainty used a DeLong-style nonparametric variance estimate, and cutoff tables reported Wilson confidence intervals for diagnostic rates.' : 'Average precision/area summaries were calculated from the ranked score curve, and curve comparison used the selected resampling method when requested.'} Monte Carlo p-values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}. Threshold summaries were derived from the displayed score direction and should be reported together with the selected positive-class definition.`,
+      methodsText: `${graphType === 'roc' ? 'ROC' : 'Precision–recall'} summary statistics were computed for ${stats.length} series after excluding rows with missing labels or non-numeric scores. ${graphType === 'roc' ? 'Tied scores were processed as one threshold. AUC standard errors and Wald 95% confidence intervals used the nonparametric DeLong variance estimate. Single-curve significance used a two-sided Mann–Whitney test of no discrimination: exact for eligible untied samples and tie-corrected, continuity-corrected asymptotic inference otherwise. The default cutoff maximized the Youden index. Diagnostic-rate confidence intervals used the Wilson method.' : 'Tied scores were processed as one threshold. Average precision used step-wise precision weighted by increases in recall. The displayed cutoff maximized F1.'} ${diffResult && state.diffMethod !== 'delong' ? `Monte Carlo curve-comparison p values used ${state.resamplingIterations} iterations with seed ${state.resamplingSeed}.` : ''} Cutoffs classify observations as positive when score ≥ threshold.`,
       resultsText: [
         `${stats.length} series were analysed.`,
-        primary ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : null,
+        primary ? (graphType === 'roc' ? `${primaryTextPrefix}${formatPValue(primary.pVal)}.` : primaryTextPrefix) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? `${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         compareText || null
       ].filter(Boolean).join(' '),
       resultsParts: [
         `${stats.length} series were analysed.`,
-        primary ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal)) }, '.'] : null,
+        primary ? (graphType === 'roc' ? [' ', primaryTextPrefix, { type:'pValue', value:primary.pVal, fallback:String(formatPValue(primary.pVal)) }, '.'] : [' ', primaryTextPrefix]) : null,
         graphType === 'roc' && primary && Array.isArray(primary.thresholdRows) ? ` ${primary.thresholdRows.length} cutoff row(s) were tabulated for ${primary.name}.` : null,
         compareParts ? [' ', compareParts] : null
       ].filter(Boolean),
@@ -4513,91 +4719,19 @@
         const label = labels[idx];
         const score = serie.scores[idx];
         if(!Number.isNaN(label) && !Number.isNaN(score)){
-          pairs.push({label: label > 0 ? 1 : 0, score});
+          pairs.push({label: label > 0 ? 1 : 0, score, observationIndex: idx});
         }
       }
-      pairs.sort((a, b) => b.score - a.score);
-      allPairs.push(pairs);
+      const rankedCurve = buildRankedCurve(pairs, graphType);
+      const rankedPairs = rankedCurve.sorted;
+      allPairs.push(rankedPairs);
+      const points = rankedCurve.points;
+      const auc = rankedCurve.metric;
+      const avgPrecision = graphType === 'pr' ? rankedCurve.metric : undefined;
+      const thresholdRows = buildRocThresholdMetricsTable(rankedPairs);
+      const selectedCutoff = graphType === 'roc' ? selectYoudenThreshold(thresholdRows) : selectMaximumF1Threshold(thresholdRows);
+      const aucUncertainty = graphType === 'roc' ? computeSingleAucInference(rankedPairs, 0.05, state.singleRocPMethod) : null;
 
-      let tp = 0;
-      let fp = 0;
-      const P = pairs.filter(p => p.label === 1).length;
-      const N = pairs.length - P;
-      const points = [];
-
-      if(graphType === 'roc'){
-        points.push({x: 0, y: 0});
-        pairs.forEach(pair => {
-          if(pair.label === 1) tp += 1; else fp += 1;
-          points.push({x: fp / Math.max(1, N), y: tp / Math.max(1, P)});
-        });
-        points.push({x: 1, y: 1});
-      }else{
-        points.push({x: 0, y: 1});
-        pairs.forEach(pair => {
-          if(pair.label === 1) tp += 1; else fp += 1;
-          const recall = tp / Math.max(1, P);
-          const precision = tp / Math.max(1, tp + fp);
-          points.push({x: recall, y: precision});
-        });
-      }
-
-      let auc = 0;
-      let avgPrecision = 0;
-      for(let i = 1; i < points.length; i += 1){
-        const prev = points[i - 1];
-        const curr = points[i];
-        auc += (curr.x - prev.x) * (curr.y + prev.y) / 2;
-        if(graphType !== 'roc'){
-          avgPrecision += (curr.x - prev.x) * curr.y;
-        }
-      }
-      if(graphType === 'roc'){
-        avgPrecision = undefined;
-      }
-
-      let best = {thr: Infinity, accuracy: 0, precision: 0, recall: 0, specificity: 0, npv: 0, lrPositive: Infinity, lrNegative: Infinity, f1: 0};
-      let tpCount = 0;
-      let fpCount = 0;
-      let tnCount = N;
-      let fnCount = P;
-      for(let i = 0; i < pairs.length; ){
-        const threshold = pairs[i].score;
-        while(i < pairs.length && pairs[i].score === threshold){
-          const entry = pairs[i];
-          if(entry.label === 1){
-            tpCount += 1;
-            fnCount -= 1;
-          }else{
-            fpCount += 1;
-            tnCount -= 1;
-          }
-          i += 1;
-        }
-        const accuracy = (tpCount + tnCount) / Math.max(1, pairs.length);
-        const precision = tpCount / Math.max(1, tpCount + fpCount);
-        const recall = tpCount / Math.max(1, tpCount + fnCount);
-        const specificity = tnCount / Math.max(1, N);
-        const npv = tnCount / Math.max(1, tnCount + fnCount);
-        const lrPositive = specificity < 1 ? recall / Math.max(1e-12, (1 - specificity)) : Infinity;
-        const lrNegative = specificity > 0 ? (1 - recall) / specificity : Infinity;
-        const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
-        if(f1 > best.f1){
-          best = {thr: threshold, accuracy, precision, recall, specificity, npv, lrPositive, lrNegative, f1};
-        }
-      }
-
-      const baseline = graphType === 'roc' ? 0.5 : positives / Math.max(1, positives + negatives);
-      const pValue = await bootstrapCurveTestCooperative(pairs, baseline, graphType, {
-        seed: state.resamplingSeed,
-        iterations: state.resamplingIterations,
-        random: createRocScopedRandom(state.resamplingSeed, 'roc-curve-test', graphType, serie.name, pairs)
-      }, checkpoint);
-      if(pValue == null){
-        return false;
-      }
-      const aucUncertainty = graphType === 'roc' ? computeSingleAucUncertainty(pairs) : null;
-      const thresholdRows = graphType === 'roc' ? buildRocThresholdMetricsTable(pairs) : [];
       stats.push({
         name: serie.name,
         auc,
@@ -4605,16 +4739,23 @@
         aucSe: aucUncertainty?.se,
         aucCiLow: aucUncertainty?.ciLow,
         aucCiHigh: aucUncertainty?.ciHigh,
-        thr: best.thr,
-        accuracy: best.accuracy,
-        precision: best.precision,
-        recall: best.recall,
-        specificity: best.specificity,
-        npv: best.npv,
-        lrPositive: best.lrPositive,
-        lrNegative: best.lrNegative,
-        f1: best.f1,
-        pVal: pValue,
+        aucZ: aucUncertainty?.mannWhitneyZ,
+        thr: selectedCutoff?.threshold,
+        thresholdMethod: graphType === 'roc' ? 'Youden index' : 'maximum F1 score',
+        youden: selectedCutoff?.youden,
+        accuracy: selectedCutoff?.accuracy,
+        precision: selectedCutoff?.ppv,
+        recall: selectedCutoff?.sensitivity,
+        specificity: selectedCutoff?.specificity,
+        npv: selectedCutoff?.npv,
+        lrPositive: selectedCutoff?.lrPositive,
+        lrNegative: selectedCutoff?.lrNegative,
+        f1: selectedCutoff?.f1,
+        pVal: graphType === 'roc' ? aucUncertainty?.pValue : NaN,
+        pMethod: graphType === 'roc' ? aucUncertainty?.pMethod : null,
+        pRequestedMethod: graphType === 'roc' ? aucUncertainty?.pRequestedMethod : null,
+        pFallbackReason: graphType === 'roc' ? aucUncertainty?.pFallbackReason : null,
+        mannWhitneyU: graphType === 'roc' ? aucUncertainty?.mannWhitneyU : null,
         thresholdRows
       });
 
@@ -4833,6 +4974,7 @@
     const statsPanelModel = captureRocStatsPanelModel();
     payload.stats = {
       diffMethod: state.diffMethod,
+      singleRocPMethod: state.singleRocPMethod,
       resamplingSeed: state.resamplingSeed,
       resamplingIterations: state.resamplingIterations,
       compareSelection: state.compareSelection || state.compareSel?.value || null,
@@ -5191,6 +5333,7 @@
       }else{
         state.diffMethod = 'delong';
       }
+      state.singleRocPMethod = normalizeSingleRocPMethod(statsConfig.singleRocPMethod);
       state.resamplingSeed = normalizeRocResamplingSeed(statsConfig.resamplingSeed, ROC_RESAMPLING_DEFAULT_SEED);
       state.resamplingIterations = normalizeRocResamplingIterations(statsConfig.resamplingIterations, ROC_RESAMPLING_DEFAULT_ITERATIONS);
       state.compareSelection = typeof statsConfig.compareSelection === 'string'
@@ -5201,6 +5344,7 @@
       state.statsPanelModel = normalizeRocStatsPanelModel(statsConfig);
     }else{
       state.diffMethod = 'delong';
+      state.singleRocPMethod = 'auto';
       state.resamplingSeed = ROC_RESAMPLING_DEFAULT_SEED;
       state.resamplingIterations = ROC_RESAMPLING_DEFAULT_ITERATIONS;
       state.compareSelection = null;
@@ -5369,6 +5513,7 @@
   }
 
   function initControls(){
+    ensureRocStatsPValueFormatListener();
     if(refs.fontSize){
       refs.fontSize.addEventListener('input', event => {
         const session = getRocSessionForEvent(event, { reason: 'font-size-control' }, { create: true });
@@ -5884,15 +6029,12 @@
 
   roc.__testHooks = Object.assign({}, roc.__testHooks, {
     computeCurveMetric: (pairs, graphType = 'roc') => computeCurveMetric(Array.isArray(pairs) ? pairs : [], graphType),
-    computeSingleAucUncertainty: (pairs, alpha = 0.05) => computeSingleAucUncertainty(Array.isArray(pairs) ? pairs : [], alpha),
+    computeSingleAucInference: (pairs, alpha = 0.05, method = 'auto') => computeSingleAucInference(Array.isArray(pairs) ? pairs : [], alpha, method),
+    computeMannWhitneyInference: (pairs, method = 'auto') => computeMannWhitneyInference(Array.isArray(pairs) ? pairs : [], method),
+    buildRankedCurve: (pairs, graphType = 'roc') => buildRankedCurve(Array.isArray(pairs) ? pairs : [], graphType),
     buildThresholdMetricsTable: (pairs, alpha = 0.05) => buildRocThresholdMetricsTable(Array.isArray(pairs) ? pairs : [], alpha),
+    selectYoudenThreshold: rows => selectYoudenThreshold(Array.isArray(rows) ? rows : []),
     delongCurveDiff: (pairs1, pairs2) => delongCurveDiff(Array.isArray(pairs1) ? pairs1 : [], Array.isArray(pairs2) ? pairs2 : []),
-    bootstrapCurveTest: (pairs, baseline, graphType = 'roc', iterations = ROC_RESAMPLING_DEFAULT_ITERATIONS, seed = ROC_RESAMPLING_DEFAULT_SEED) => bootstrapCurveTest(
-      Array.isArray(pairs) ? pairs : [],
-      baseline,
-      graphType,
-      { iterations, seed }
-    ),
     bootstrapCurveDiff: (pairs1, pairs2, graphType = 'roc', iterations = ROC_RESAMPLING_DEFAULT_ITERATIONS, seed = ROC_RESAMPLING_DEFAULT_SEED) => bootstrapCurveDiff(
       Array.isArray(pairs1) ? pairs1 : [],
       Array.isArray(pairs2) ? pairs2 : [],
@@ -5905,7 +6047,8 @@
       graphType,
       { iterations, seed }
     ),
-    resolveDrawableFrame: plot => resolveRocDrawableFrame(plot)
+    resolveDrawableFrame: plot => resolveRocDrawableFrame(plot),
+    setStatsPanelPValueScientific: (model, scientific) => setRocStatsPanelPValueScientific(model, scientific)
   });
 
 

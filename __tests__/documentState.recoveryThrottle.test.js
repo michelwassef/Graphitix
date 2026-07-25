@@ -79,6 +79,106 @@ describe('documentState recovery snapshot throttling', () => {
     await Promise.resolve();
   }
 
+  test('ordinary edits use a trailing recovery delay', async () => {
+    const { workspaceState, sessionActions } = installDocumentState();
+    workspaceState.tabs[0].payloadSignature = 'small';
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+
+    jest.advanceTimersByTime(2499);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('subsequent edits restart the trailing recovery delay', async () => {
+    const { workspaceState, sessionActions } = installDocumentState();
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+    jest.advanceTimersByTime(2000);
+
+    workspaceState.sessionRevision = 2;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 2 }
+    }));
+
+    jest.advanceTimersByTime(2499);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('periodic recovery checks do not restart an already pending debounce', async () => {
+    const { sessionActions } = installDocumentState();
+
+    jest.advanceTimersByTime(9000);
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+
+    jest.advanceTimersByTime(1000);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1499);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('continuous edits cannot defer recovery beyond the maximum pending window', async () => {
+    const { workspaceState, sessionActions } = installDocumentState();
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+    for (const [elapsed, revision] of [[2000, 2], [2000, 3], [2000, 4], [2000, 5], [1999, 6]]) {
+      jest.advanceTimersByTime(elapsed);
+      workspaceState.sessionRevision = revision;
+      window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+        detail: { type: 'dirty', revision }
+      }));
+    }
+
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledTimes(1);
+  });
+
+  test('marking the document clean cancels a pending recovery checkpoint', async () => {
+    const { workspaceState, sessionActions } = installDocumentState();
+
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'dirty', revision: 1 }
+    }));
+    jest.advanceTimersByTime(1000);
+
+    workspaceState.sessionUserDirty = false;
+    window.dispatchEvent(new CustomEvent('graphitix:document-state-change', {
+      detail: { type: 'clean', revision: 1 }
+    }));
+
+    jest.advanceTimersByTime(5000);
+    await flushTimers();
+    expect(sessionActions.buildWorkspaceArchiveBlob).not.toHaveBeenCalled();
+  });
+
   test('recovery interval does not rebuild the same dirty revision repeatedly', async () => {
     const { sessionActions } = installDocumentState();
 
@@ -142,6 +242,7 @@ describe('documentState recovery snapshot throttling', () => {
       expect.objectContaining({
         policyMode: 'recovery',
         snapshotKind: 'recovery',
+        useWorker: true,
         highFidelityEnabled: false,
         idleForMs: expect.any(Number)
       })
@@ -254,6 +355,7 @@ describe('documentState recovery snapshot throttling', () => {
     expect(sessionActions.buildWorkspaceArchiveBlob).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
+        useWorker: true,
         snapshotKind: 'recovery',
         policyMode: 'recovery'
       })

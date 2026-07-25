@@ -261,6 +261,10 @@
   const PCA_PARALLEL_MAX_CELLS = 40000;
   const PCA_BIPLOT_POINT_LIMIT = 120;
   const PCA_BIPLOT_VECTOR_LIMIT = 8;
+  const PCA_PREPROCESSING_NONE = 'none';
+  const PCA_PREPROCESSING_RNASEQ_LOG = 'rna-seq-normalized-log';
+  const PCA_RNASEQ_TOP_VARIABLE_FEATURES = 500;
+  const PCA_COUNT_INTEGER_TOLERANCE = 1e-9;
   const PCA_COMPONENT_SELECTION_RULES = Object.freeze([{
     value: 'parallel',
     label: 'Parallel analysis'
@@ -934,6 +938,7 @@
   let pcaShowLegend = null;
   let pcaVarianceAxisScale = null;
   let pcaScale = null;
+  let pcaPreprocessing = null;
   let pcaStatsResults = null;
   let pcaStatsSummary = null;
   let pcaScreeContainer = null;
@@ -1551,6 +1556,9 @@
         forceStandard: true
       }),
       scheduleOnLoadData: true,
+      suppressScheduleForSource(source) {
+        return /^(pca-grouped-header-normalize|pca-label-row|pca-empty-defaults|pca-loadData)$/i.test(String(source || ''));
+      },
       colDefEnhancer(def, meta) {
         const colIndex = meta?.colIndex;
         if (!Number.isInteger(colIndex) || !def || typeof def !== 'object') {
@@ -1764,29 +1772,14 @@
           if (Array.isArray(changes) && changes.length) {
             syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
             const sourceText = String(source || '').trim();
-            const skipSchedule = sourceText === 'loadData' ||
-              sourceText === 'pca-loadData' ||
-              sourceText === 'pca-grouped-header-normalize' ||
-              sourceText === 'pca-label-row' ||
-              sourceText === 'pca-empty-defaults';
-            if (!skipSchedule) {
-              const reason = sourceText || 'afterChange';
-              if (sourceText === 'pca-point-label-toggle' && changes.every(change => (
-                  Number(change?.[0]) === PCA_LABEL_ROW_INDEX && Number(change?.[1]) >= 1
-                ))) {
-                refreshPcaManualLabelsFromChanges(pcaHot, changes, reason);
-              } else {
-                markPcaDataDirty(reason);
-                schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-                  reason
-                }, {
-                  create: false
-                }) || getActivePcaSessionForState(), {
-                  force: true,
-                  reason
-                });
-              }
+            if (sourceText === 'pca-point-label-toggle' && changes.every(change => (
+                Number(change?.[0]) === PCA_LABEL_ROW_INDEX && Number(change?.[1]) >= 1
+              ))) {
+              refreshPcaManualLabelsFromChanges(pcaHot, changes, sourceText);
             }
+            // All ordinary analysis invalidation and drawing is owned by the shared
+            // table schedule proxy. Keeping a second component-local scheduler here
+            // caused duplicate PCA draws and bypassed analysis-inert edit filtering.
           }
           const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
           if (!debugEnabled) {
@@ -1808,16 +1801,8 @@
             });
             updatePcaGroupedHeaders(pcaHot);
           }
+          // Shared.hot emits the single load schedule after this projection hook.
           syncPcaActiveDataViewFromHot(pcaHot, 'afterLoadData');
-          markPcaDataDirty('afterLoadData');
-          schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-            reason: 'afterLoadData'
-          }, {
-            create: false
-          }) || getActivePcaSessionForState(), {
-            force: true,
-            reason: 'afterLoadData'
-          });
         },
         afterCreateCol() {
           if (pcaState.tableFormat === 'grouped') {
@@ -1826,16 +1811,9 @@
             });
             updatePcaGroupedHeaders(pcaHot);
           }
+          // Shared.hot classifies the insertion and schedules only when its
+          // position changes the active analysis schema.
           syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
-          markPcaDataDirty('afterCreateCol');
-          schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-            reason: 'afterCreateCol'
-          }, {
-            create: false
-          }) || getActivePcaSessionForState(), {
-            force: true,
-            reason: 'afterCreateCol'
-          });
         },
         afterRemoveCol() {
           if (pcaState.tableFormat === 'grouped') {
@@ -1845,15 +1823,7 @@
             updatePcaGroupedHeaders(pcaHot);
           }
           syncPcaActiveDataViewFromHot(pcaHot, 'afterChange');
-          markPcaDataDirty('afterRemoveCol');
-          schedulePcaDrawForSession(getPcaSessionForHot(pcaHot, {
-            reason: 'afterRemoveCol'
-          }, {
-            create: false
-          }) || getActivePcaSessionForState(), {
-            force: true,
-            reason: 'afterRemoveCol'
-          });
+          // Shared.hot owns the structural invalidation and draw schedule.
         },
         afterUndo() {
           if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
@@ -1950,8 +1920,6 @@
     if (pcaHot && typeof pcaHot.loadData === 'function' && !pcaHot.__pcaPatched) {
       const originalLoadData = pcaHot.loadData;
       pcaHot.loadData = function patchedPcaLoadData() {
-        const loadOptions = arguments[1] && typeof arguments[1] === 'object' ? arguments[1] : null;
-        const loadSource = String(loadOptions?.source || '').trim();
         const dataset = arguments[0];
         let rows = 0;
         let cols = 0;
@@ -2017,19 +1985,8 @@
           hotMs: afterLoad - start,
           evaluationMs: afterEvaluation - evaluationStart
         });
-        // Normalize redraw triggering across table backends: some paths may not
-        // emit afterLoadData/afterChange hooks for direct loadData calls.
-        // Marking data dirty + scheduling here keeps automatic redraw behavior
-        // deterministic for loadData callers (tests and runtime alike).
-        markPcaDataDirty(loadSource || 'afterLoadData');
-        schedulePcaDrawForSession(getPcaSessionForHot(this, {
-          reason: loadSource || 'afterLoadData'
-        }, {
-          create: false
-        }) || getActivePcaSessionForState(), {
-          force: true,
-          reason: loadSource || 'afterLoadData'
-        });
+        // Shared.hot owns load scheduling, including suppression during atomic
+        // DataView projection. This wrapper records PCA-specific shape/performance only.
         return result;
       };
       pcaHot.__pcaPatched = true;
@@ -2139,16 +2096,10 @@
           if (!view || !hotInstance || typeof hotInstance.loadData !== 'function') {
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
-          if (view.exclusions) {
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if (view.filters) {
-            hotInstance.applyFilters?.(view.filters, {
-              schedule: false
-            });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            exclusionSource: 'pca-data-view-switch',
+            filterReason: 'pca-data-view-switch'
+          });
           const viewSession = getPcaSessionForHot(hotInstance, {
               reason: 'pca-data-view-switch'
             }, {
@@ -2200,6 +2151,9 @@
   function syncPcaActiveDataViewFromHot(hotInstance, reason) {
     const hot = hotInstance || pcaHotInstance;
     if (!hot || typeof hot.getData !== 'function') {
+      return;
+    }
+    if(Shared.dataViews?.isTableProjectionActive?.(hot)){
       return;
     }
     const manager = hot.__pcaDataViewsManager || null;
@@ -5064,6 +5018,7 @@
       normalizePcaResultsMethod(method) || '',
       viewMode || controls?.viewMode || '',
       controls?.scale ? 'scale' : 'center',
+      sanitizePcaPreprocessingMode(controls?.preprocessing),
       JSON.stringify(pcaState.axisSelection || {}),
       JSON.stringify(pcaState.componentSelection || {}),
       JSON.stringify(controls?.tsne || {}),
@@ -5298,6 +5253,123 @@
     return normalizePcaStatsPanelState(results?.statsPanel || {});
   }
 
+  function sanitizePcaPreprocessingMode(value) {
+    return String(value || '').trim().toLowerCase() === PCA_PREPROCESSING_RNASEQ_LOG ?
+      PCA_PREPROCESSING_RNASEQ_LOG :
+      PCA_PREPROCESSING_NONE;
+  }
+
+  function medianOfSortedPcaValues(sortedValues) {
+    const length = Array.isArray(sortedValues) ? sortedValues.length : 0;
+    if (!length) {
+      return NaN;
+    }
+    const midpoint = Math.floor(length / 2);
+    return length % 2 === 0 ?
+      (sortedValues[midpoint - 1] + sortedValues[midpoint]) / 2 :
+      sortedValues[midpoint];
+  }
+
+  function calculatePcaMedianRatioSizeFactors(matrix) {
+    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
+    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if (sampleCount < 2 || featureCount < 1) {
+      throw new Error('RNA-seq normalization requires at least two samples and one gene.');
+    }
+    const logGeometricMeans = new Array(featureCount).fill(NaN);
+    let eligibleFeatureCount = 0;
+    for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
+      let logSum = 0;
+      let eligible = true;
+      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+        const value = Number(matrix[sampleIndex]?.[featureIndex]);
+        if (!Number.isFinite(value) || value < 0 || Math.abs(value - Math.round(value)) > PCA_COUNT_INTEGER_TOLERANCE) {
+          throw new Error('RNA-seq normalized log counts requires finite, non-negative integer raw counts.');
+        }
+        if (value === 0) {
+          eligible = false;
+          break;
+        }
+        logSum += Math.log(value);
+      }
+      if (eligible) {
+        logGeometricMeans[featureIndex] = logSum / sampleCount;
+        eligibleFeatureCount += 1;
+      }
+    }
+    if (!eligibleFeatureCount) {
+      throw new Error('DESeq2 median-ratio normalization could not be calculated because no gene has positive counts in every sample.');
+    }
+    const sizeFactors = new Array(sampleCount);
+    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+      const logRatios = [];
+      for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
+        const logGeometricMean = logGeometricMeans[featureIndex];
+        if (!Number.isFinite(logGeometricMean)) {
+          continue;
+        }
+        logRatios.push(Math.log(matrix[sampleIndex][featureIndex]) - logGeometricMean);
+      }
+      logRatios.sort((left, right) => left - right);
+      const medianLogRatio = medianOfSortedPcaValues(logRatios);
+      const sizeFactor = Math.exp(medianLogRatio);
+      if (!Number.isFinite(sizeFactor) || sizeFactor <= 0) {
+        throw new Error(`DESeq2 median-ratio normalization produced an invalid size factor for sample ${sampleIndex + 1}.`);
+      }
+      sizeFactors[sampleIndex] = sizeFactor;
+    }
+    return {
+      sizeFactors,
+      eligibleFeatureCount
+    };
+  }
+
+  function preprocessPcaRnaSeqCounts(matrix, featureLabels, options = {}) {
+    const topFeatureLimit = Math.max(1, Math.floor(Number(options.topFeatureLimit) || PCA_RNASEQ_TOP_VARIABLE_FEATURES));
+    const sampleCount = Array.isArray(matrix) ? matrix.length : 0;
+    const featureCount = sampleCount && Array.isArray(matrix[0]) ? matrix[0].length : 0;
+    if (!featureCount || matrix.some(row => !Array.isArray(row) || row.length !== featureCount)) {
+      throw new Error('RNA-seq normalization requires a complete rectangular count matrix.');
+    }
+    const { sizeFactors, eligibleFeatureCount } = calculatePcaMedianRatioSizeFactors(matrix);
+    const transformed = Array.from({ length: sampleCount }, () => new Array(featureCount));
+    const rankedFeatures = new Array(featureCount);
+    for (let featureIndex = 0; featureIndex < featureCount; featureIndex += 1) {
+      let mean = 0;
+      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+        const value = Math.log2((matrix[sampleIndex][featureIndex] / sizeFactors[sampleIndex]) + 1);
+        transformed[sampleIndex][featureIndex] = value;
+        mean += value;
+      }
+      mean /= sampleCount;
+      let varianceSum = 0;
+      for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+        const delta = transformed[sampleIndex][featureIndex] - mean;
+        varianceSum += delta * delta;
+      }
+      rankedFeatures[featureIndex] = {
+        index: featureIndex,
+        variance: sampleCount > 1 ? varianceSum / (sampleCount - 1) : 0
+      };
+    }
+    rankedFeatures.sort((left, right) => (right.variance - left.variance) || (left.index - right.index));
+    const selectedIndices = rankedFeatures.slice(0, Math.min(topFeatureLimit, featureCount)).map(entry => entry.index);
+    return {
+      matrix: transformed.map(row => selectedIndices.map(featureIndex => row[featureIndex])),
+      featureLabels: selectedIndices.map(featureIndex => featureLabels[featureIndex]),
+      metadata: {
+        mode: PCA_PREPROCESSING_RNASEQ_LOG,
+        sizeFactors,
+        eligibleFeatureCount,
+        inputFeatureCount: featureCount,
+        selectedFeatureCount: selectedIndices.length,
+        selectedFeatureIndices: selectedIndices,
+        selectedFeatureLabels: selectedIndices.map(featureIndex => featureLabels[featureIndex]),
+        topFeatureLimit
+      }
+    };
+  }
+
   function createDefaultPcaRuntimeControls() {
     return {
       method: 'pca',
@@ -5306,6 +5378,7 @@
       showFrame: true,
       showLegend: true,
       scale: false,
+      preprocessing: PCA_PREPROCESSING_NONE,
       dotSize: '3',
       fill: '#0000ff',
       border: '#000000',
@@ -5341,6 +5414,7 @@
       showFrame: !!src.showFrame,
       showLegend: src.showLegend !== false,
       scale: !!src.scale,
+      preprocessing: sanitizePcaPreprocessingMode(src.preprocessing),
       dotSize: src.dotSize != null ? String(src.dotSize) : defaults.dotSize,
       fill: src.fill != null ? String(src.fill) : defaults.fill,
       border: src.border != null ? String(src.border) : defaults.border,
@@ -5411,6 +5485,7 @@
     const showFrameInput = getPcaNodeById('pcaShowFrame');
     const showLegendInput = getPcaNodeById('pcaShowLegend') || pcaShowLegendInput;
     const scaleInput = getPcaNodeById('pcaScale');
+    const preprocessingInput = getPcaNodeById('pcaPreprocessing');
     const dotSizeInput = getPcaNodeById('pcaDotSize');
     const fillInput = getPcaNodeById('pcaFill');
     const borderInput = getPcaNodeById('pcaBorder');
@@ -5433,6 +5508,7 @@
       showFrame: showFrameInput ? !!showFrameInput.checked : pcaState.controls?.showFrame,
       showLegend: showLegendInput ? !!showLegendInput.checked : pcaState.controls?.showLegend,
       scale: scaleInput ? !!scaleInput.checked : pcaState.controls?.scale,
+      preprocessing: preprocessingInput?.value ?? pcaState.controls?.preprocessing,
       dotSize: dotSizeInput?.value ?? pcaState.controls?.dotSize,
       fill: fillInput?.value ?? pcaState.controls?.fill,
       border: borderInput?.value ?? pcaState.controls?.border,
@@ -5923,6 +5999,33 @@
         create
       }) :
       getActivePcaSessionForState();
+  }
+
+  function rebindPcaProjectionDomRefs(tabLike = null) {
+    const root = resolvePcaRoot(tabLike || getPcaProjectionTabId() || null);
+    if (!root) {
+      return false;
+    }
+    pcaRoot = root;
+    pcaSvgBoxRef = root.querySelector?.('#pcaGraphPanel .svgbox') || null;
+    pcaStatsSummary = root.querySelector?.('#pcaStatsSummary') || null;
+    pcaStatsResults = root.querySelector?.('#pcaStatsResults') || null;
+    pcaScreeVarianceRow = root.querySelector?.('#pcaScreeVarianceRow') || null;
+    pcaScreeContainer = root.querySelector?.('#pcaScreeContainer') || null;
+    pcaScreePlot = root.querySelector?.('#pcaScreePlot') || pcaScreeContainer || null;
+    pcaScreeExportControls = root.querySelector?.('#pcaScreeExportControls') || null;
+    pcaScreeShowParallelInput = root.querySelector?.('#pcaScreeShowParallel') || null;
+    pcaVarianceSummary = root.querySelector?.('#pcaVarianceSummary') || null;
+    pcaVarianceList = root.querySelector?.('#pcaVarianceList') || null;
+    pcaEigenTableContainer = root.querySelector?.('#pcaEigenTableContainer') || null;
+    pcaEigenTableWrapper = root.querySelector?.('#pcaEigenTableWrapper') || null;
+    pcaExportEigenTableBtn = root.querySelector?.('#pcaExportEigenTable') || null;
+    pcaDefaultEigenExportHost = pcaExportEigenTableBtn?.parentElement || null;
+    pcaLoadingsContainer = root.querySelector?.('#pcaLoadingsContainer') || null;
+    pcaLoadingsTable = root.querySelector?.('#pcaLoadingsTable') || null;
+    pcaLoadingsActions = root.querySelector?.('#pcaLoadingsContainer .loadings-card__actions') || null;
+    pcaDefaultLoadingsActionsHost = pcaLoadingsActions?.parentElement || null;
+    return true;
   }
 
   function syncPcaSessionRefsFromActive(session = null) {
@@ -7374,31 +7477,32 @@
     const parallel = computePcaParallelAnalysis(matrix, svdLib, {
       iterations: options.parallelIterations
     });
-    const kaiserCount = entries.filter(entry => Number(entry?.eigenvalue) >= 1).length;
+    const standardized = options.standardized === true;
+    const kaiserAvailable = standardized;
+    const kaiserCount = kaiserAvailable ? entries.filter(entry => Number(entry?.eigenvalue) >= 1).length : 0;
     const thresholdCount = entries.filter(entry => Number(entry?.eigenvalue) >= threshold).length;
     const parallelAvailable = !!(parallel && Array.isArray(parallel.percentile95Eigenvalues) && parallel.percentile95Eigenvalues.length);
     const parallelCount = parallelAvailable ?
       entries.filter((entry, idx) => Number(entry?.eigenvalue) > (parallel.percentile95Eigenvalues[idx] || 0)).length :
       0;
-    const ruleLabel = rule === 'parallel' && !parallelAvailable ?
-      'Parallel analysis (Kaiser fallback)' :
-      getPcaComponentSelectionRuleLabel(rule);
+    const ruleAvailable = (rule !== 'parallel' || parallelAvailable) && (rule !== 'kaiser' || kaiserAvailable);
+    const ruleLabel = ruleAvailable ? getPcaComponentSelectionRuleLabel(rule) : `${getPcaComponentSelectionRuleLabel(rule)} (unavailable)`;
     const retainedCount = rule === 'kaiser' ?
-      kaiserCount :
+      (kaiserAvailable ? kaiserCount : 0) :
       rule === 'threshold' ?
       thresholdCount :
       rule === 'all' ?
       entries.length :
-      (parallelAvailable ? parallelCount : kaiserCount);
+      (parallelAvailable ? parallelCount : 0);
     const selectedThreshold = rule === 'kaiser' ?
-      'Eigenvalue > 1' :
+      (kaiserAvailable ? 'Eigenvalue > 1' : 'Unavailable without standardization') :
       rule === 'threshold' ?
       `Eigenvalue >= ${threshold.toFixed(2)}` :
       rule === 'parallel' ?
-      (parallelAvailable ? 'Observed > random 95th percentile' : 'Unavailable') :
+      (parallelAvailable ? 'Observed > random 95th percentile' : 'Unavailable; no fallback applied') :
       '—';
     const selectedDetail = rule === 'kaiser' ?
-      'Counts components above the classical Kaiser cutoff.' :
+      (kaiserAvailable ? 'Counts components with eigenvalue > 1 in standardized (correlation) PCA.' : 'Kaiser selection is unavailable because variables were not standardized.') :
       rule === 'threshold' ?
       'User-defined eigenvalue cutoff.' :
       rule === 'parallel' ?
@@ -7409,6 +7513,8 @@
     return {
       rule,
       ruleLabel,
+      ruleAvailable,
+      kaiserAvailable,
       retainedCount,
       threshold,
       kaiserCount,
@@ -8991,6 +9097,22 @@
     }
   }
 
+  function syncPcaPreprocessingUiState() {
+    const preprocessingInput = getPcaNodeById('pcaPreprocessing');
+    const mode = sanitizePcaPreprocessingMode(preprocessingInput?.value || pcaState.controls?.preprocessing);
+    if (pcaScale) {
+      const normalizedLog = mode === PCA_PREPROCESSING_RNASEQ_LOG;
+      pcaScale.disabled = normalizedLog;
+      if (normalizedLog) {
+        pcaScale.checked = false;
+      }
+      const label = pcaScale.closest?.('label');
+      if (label) {
+        label.title = normalizedLog ? 'RNA-seq normalized log PCA is always centered and unscaled.' : '';
+      }
+    }
+  }
+
   function applyMethodUiState(methodValue) {
     const methodName = (methodValue || '').toLowerCase();
     const supports3d = methodName === 'pca' || methodName === 'mds';
@@ -9020,8 +9142,15 @@
         });
       }
     }
+    const preprocessingControl = getPcaNodeById('pcaPreprocessingControl');
+    if (preprocessingControl) {
+      const showPreprocessing = methodName === 'pca';
+      preprocessingControl.hidden = !showPreprocessing;
+      preprocessingControl.style.display = showPreprocessing ? '' : 'none';
+    }
     applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
     syncPcaComponentSelectionUi();
+    syncPcaPreprocessingUiState();
     syncPcaAspectControls('method-ui-state');
     debugLog('Debug: pca method UI state', {
       method: methodName,
@@ -9063,6 +9192,10 @@
     }
     if (Object.prototype.hasOwnProperty.call(controls, 'scale') && pcaScale) {
       pcaScale.checked = !!controls.scale;
+    }
+    const preprocessingInput = getPcaNodeById('pcaPreprocessing');
+    if (preprocessingInput) {
+      preprocessingInput.value = sanitizePcaPreprocessingMode(controls.preprocessing);
     }
     if (pcaDotSize && Object.prototype.hasOwnProperty.call(controls, 'dotSize') && controls.dotSize != null) {
       pcaDotSize.value = String(controls.dotSize);
@@ -9221,7 +9354,8 @@
       tabId: target?.tabId || null,
       force: true,
       userInitiated: true,
-      silentOverlay: true
+      silentOverlay: true,
+      rotationOnly: true
     });
   }
 
@@ -9408,7 +9542,9 @@
       const reportMethods = [
         `${reportMethodLabel} summary statistics were generated from the current numeric ordination input after applying the active table-format and transformation settings.`,
         reportMethod === 'pca' ?
-        'PCA used centered/scaled numeric variables according to the active preprocessing options and reports eigenvalue, variance, cumulative-variance, component-selection, and optional biplot-loading summaries.' :
+        sanitizePcaPreprocessingMode(pcaState.controls?.preprocessing) === PCA_PREPROCESSING_RNASEQ_LOG ?
+        'PCA used DESeq2 median-ratio size factors, log2(normalized count + 1), up to the 500 most variable genes, gene centering, and no unit-variance scaling.' :
+        'PCA used centered numeric variables with optional unit-variance scaling and reports eigenvalue, variance, cumulative-variance, component-selection, and optional biplot-loading summaries.' :
         reportMethod === 'mds' ?
         'MDS reports dimension inertia/eigen summaries and stress where available for the displayed distance-based ordination.' :
         reportMethod === 'tsne' ?
@@ -9778,7 +9914,20 @@
   }
 
   function restorePcaStatsFromPayload(options = {}) {
-    const session = getActivePcaSessionForState();
+    const requestedSession = options.session && typeof options.session === 'object'
+      ? ensurePcaSessionOwnershipShape(options.session)
+      : null;
+    const session = requestedSession || getActivePcaSessionForState();
+    const projectionTabId = String(getPcaProjectionTabId() || '').trim();
+    const ownerTabId = String(session?.tabId || '').trim();
+    if (!session || (ownerTabId && projectionTabId && ownerTabId !== projectionTabId)) {
+      debugLog('Debug: pca stats projection skipped for non-owner DOM', {
+        ownerTabId: ownerTabId || null,
+        projectionTabId: projectionTabId || null,
+        reason: options.reason || 'pca-stats-restore'
+      });
+      return false;
+    }
     const resultsSnapshot = getPcaResultsState(session);
     const statsSnapshot = resultsSnapshot?.stats || null;
     if (!statsSnapshot || typeof statsSnapshot !== 'object') {
@@ -9837,7 +9986,7 @@
       summaryModel: options.savedSummaryModel || getPcaStatsPanelSnapshot(session).summaryModel || null,
       resultsModel: options.savedResultsModel || getPcaStatsPanelSnapshot(session).resultsModel || null,
       reportModel: options.savedReportModel || getPcaStatsPanelSnapshot(session).reportModel || null
-    }), getActivePcaSessionForState(), {
+    }), session, {
       mirrorActive: true
     });
     debugLog('Debug: pca stats restored from persisted payload UI', {
@@ -10810,6 +10959,11 @@
       runtime.pendingDrawOptions = {};
     });
     const viewOnly = !!drawOpts.viewOnly;
+    // Statistics are analysis-owned output. A view-only redraw (rotation, resize,
+    // graph styling, preview refresh) must never rebuild them from a partial
+    // render cache. Only a data draw or an explicitly requested statistics
+    // refresh may mutate the statistics DOM.
+    const refreshStats = !viewOnly || drawOpts.refreshStats === true;
     const shouldBumpToken = !viewOnly || !!renderRuntime.dataDirty;
     const drawToken = shouldBumpToken ?
       (Number(drawRuntime.token) || 0) + 1 :
@@ -11015,10 +11169,18 @@
         });
         return;
       }
-      resetStatsPanel();
-      clearPcaResultsState(drawSession, {
-        mirrorActive: true
-      });
+      // Statistics are analysis-owned state. View-only redraws (including
+      // switching between 2D and 3D, rotating, resizing, and styling) reuse the
+      // existing analysis and must not clear either its DOM projection or its
+      // owner-session results state. The previous unconditional reset happened
+      // before the later refreshStats guard, so the guard could not preserve the
+      // statistics panel.
+      if (refreshStats) {
+        resetStatsPanel();
+        clearPcaResultsState(drawSession, {
+          mirrorActive: true
+        });
+      }
       statsSummaryLines = [];
       eigenSummaryData = [];
       screeData = [];
@@ -11114,7 +11276,8 @@
         showFrame
       });
        // retain original reference for downstream logs
-      const scaleVars = !!controls.scale;
+      const preprocessingModeForDraw = sanitizePcaPreprocessingMode(controls.preprocessing);
+      const scaleVars = preprocessingModeForDraw === PCA_PREPROCESSING_RNASEQ_LOG ? false : !!controls.scale;
       debugLog('Debug: pca axis range auto', {
         scaleVars
       });
@@ -11127,6 +11290,8 @@
           }
           statsSummaryLines = Array.isArray(cached.statsSummaryLines) ? cached.statsSummaryLines : [];
           screeData = Array.isArray(cached.screeData) ? cached.screeData : [];
+          componentSelectionSummary = cloneSimple(cached.componentSelectionSummary) || null;
+          parallelAnalysisPercent = Array.isArray(cached.parallelAnalysisPercent) ? cached.parallelAnalysisPercent : [];
           statsMethod = cached.statsMethod || null;
           eigenSummaryData = Array.isArray(cached.eigenSummaryData) ? cached.eigenSummaryData : [];
           dimensionMeta = Array.isArray(cached.dimensionMeta) ? cached.dimensionMeta : [];
@@ -11265,6 +11430,8 @@
           length: conditionLabels.length
         }, () => []);
         const featureLabelsAccumulator = [];
+        const strictRnaSeqInput = preprocessingModeForDraw === PCA_PREPROCESSING_RNASEQ_LOG;
+        let rnaSeqInputError = null;
 
         for (let r = dataStartRow; r < data.length; r++) {
           if (analysis.isRowExcluded?.(r)) {
@@ -11275,6 +11442,10 @@
           }
           const row = data[r];
           if (!row) continue;
+          const rowHasContent = row.some(cell => cell !== null && typeof cell !== 'undefined' && String(cell).trim() !== '');
+          if (!rowHasContent) {
+            continue;
+          }
 
           const lab = row[0] ? String(row[0]).trim() : '';
           const featureIndex = featureLabelsAccumulator.length;
@@ -11295,15 +11466,21 @@
             const cell = row[colIndex];
             if (cell === null || typeof cell === 'undefined' || (typeof cell === 'string' && cell.trim() === '')) {
               rowValid = false;
+              if (strictRnaSeqInput) {
+                rnaSeqInputError = `RNA-seq raw counts contain a blank value at gene row ${r + 1}, sample "${conditionLabels[i]}".`;
+              }
               debugLog('Debug: pca row skipped due to blank cell', {
                 rowIndex: r,
                 colIndex
               });
               break;
             }
-            const v = parseFloat(cell);
-            if (Number.isNaN(v)) {
+            const v = strictRnaSeqInput ? Number(String(cell).trim()) : parseFloat(cell);
+            if (!Number.isFinite(v)) {
               rowValid = false;
+              if (strictRnaSeqInput) {
+                rnaSeqInputError = `RNA-seq raw counts contain a non-numeric value at gene row ${r + 1}, sample "${conditionLabels[i]}".`;
+              }
               debugLog('Debug: pca row skipped due to NaN', {
                 rowIndex: r,
                 colIndex,
@@ -11320,6 +11497,20 @@
               matrixByCondition[i].push(vals[i]);
             }
           }
+          if (rnaSeqInputError) {
+            break;
+          }
+        }
+
+        if (rnaSeqInputError) {
+          if (typeof Shared.renderPlotNotice === 'function') {
+            Shared.renderPlotNotice(pcaPlotDiv, rnaSeqInputError, { resetAspect: true, show: true });
+          } else {
+            pcaPlotDiv.textContent = rnaSeqInputError;
+          }
+          resetStatsPanel();
+          updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
+          return;
         }
 
         if (numericColIndices.length < 2) {
@@ -11400,6 +11591,36 @@
           method,
           statsOutputsEnabled
         });
+        const preprocessingMode = method === 'pca' ?
+          sanitizePcaPreprocessingMode(controls.preprocessing) :
+          PCA_PREPROCESSING_NONE;
+        let preprocessingMetadata = null;
+        if (preprocessingMode === PCA_PREPROCESSING_RNASEQ_LOG) {
+          try {
+            const preprocessed = preprocessPcaRnaSeqCounts(matrix, featureLabels);
+            matrix.length = 0;
+            preprocessed.matrix.forEach(row => matrix.push(row));
+            featureLabels = preprocessed.featureLabels;
+            preprocessingMetadata = preprocessed.metadata;
+          } catch (error) {
+            const message = error?.message || 'RNA-seq normalization failed.';
+            if (typeof Shared.renderPlotNotice === 'function') {
+              Shared.renderPlotNotice(pcaPlotDiv, message, {
+                resetAspect: true,
+                show: true
+              });
+            } else {
+              pcaPlotDiv.textContent = message;
+            }
+            resetStatsPanel();
+            updateAxisSelectOptions({
+              dimensionMeta: [],
+              viewMode: requestedViewMode,
+              method
+            });
+            return;
+          }
+        }
         const nSamples = matrix.length;
         const nFeatures = matrix[0].length;
         sampleCountSnapshot = nSamples;
@@ -12131,7 +12352,8 @@
             SVDLib, {
               rule: pcaState.componentSelection?.rule,
               eigenThreshold: pcaState.componentSelection?.eigenThreshold,
-              parallelIterations: pcaState.componentSelection?.parallelIterations
+              parallelIterations: pcaState.componentSelection?.parallelIterations,
+              standardized: scaleVars
             }
           );
           parallelAnalysisPercent = Array.isArray(componentSelectionSummary?.parallelAnalysis?.averageEigenvalues) ?
@@ -12310,6 +12532,7 @@
             loadingsTruncated,
             sampleCount: sampleCountSnapshot,
             featureCount: featureCountSnapshot,
+            preprocessingMetadata,
             axisIndices,
             pcaXLabelText,
             pcaYLabelText,
@@ -12345,6 +12568,7 @@
           loadingsTruncated,
           sampleCount: sampleCountSnapshot,
           featureCount: featureCountSnapshot,
+          preprocessingMetadata,
           axisIndices,
           pcaXLabelText,
           pcaYLabelText,
@@ -12412,13 +12636,15 @@
         });
         effectiveViewMode = '2d';
       }
-      updateLoadingsTable({
-        rows: loadingsRows,
-        components: loadingsComponents,
-        method,
-        viewMode: effectiveViewMode,
-        totalCount: loadingsTotalCount
-      });
+      if (refreshStats) {
+        updateLoadingsTable({
+          rows: loadingsRows,
+          components: loadingsComponents,
+          method,
+          viewMode: effectiveViewMode,
+          totalCount: loadingsTotalCount
+        });
+      }
 
       const axisVarianceInfo = resolveAxisVarianceInfo(axisIndices, dimensionMeta);
 
@@ -12522,8 +12748,7 @@
         plotEl.removeChild(plotEl.firstChild);
       }
 
-      const rotationOnly = viewOnly && String(drawOpts.reason || '').trim().toLowerCase() === 'rotation';
-      if (!rotationOnly) {
+      if (refreshStats) {
         const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
         const allowEigenExport = eigenSummaryForStats.length > 0;
         renderStatsPanel({
@@ -14955,6 +15180,7 @@
       showFrame: !!controls.showFrame,
       showLegend: controls.showLegend !== false,
       scale: !!controls.scale,
+      preprocessing: sanitizePcaPreprocessingMode(controls.preprocessing),
       axesVarianceScaled: pcaState.axesVarianceScaled,
       equalScaleAxes: pcaState.equalScaleAxes,
       equalAxes: pcaState.equalAxes,
@@ -15321,6 +15547,11 @@
         ensurePcaResizerControls();
       }
       pcaScale.checked = !!c.scale;
+      const preprocessingInput = getPcaNodeById('pcaPreprocessing');
+      if (preprocessingInput) {
+        preprocessingInput.value = sanitizePcaPreprocessingMode(c.preprocessing);
+      }
+      syncPcaPreprocessingUiState();
       const hasEqualScale = Object.prototype.hasOwnProperty.call(c, 'equalScaleAxes');
       const hasEqualAxes = Object.prototype.hasOwnProperty.call(c, 'equalAxes');
       const hasVariance = Object.prototype.hasOwnProperty.call(c, 'axesVarianceScaled');
@@ -15775,6 +16006,28 @@
     return true;
   }
 
+  function projectPcaStatsForOwner(tabLike, reason = 'activate-tab') {
+    const resolvedTab = resolvePcaActivationTab(tabLike);
+    const ownerTabId = String(resolvedTab?.id || getPcaProjectionTabId() || '').trim();
+    if (!ownerTabId || String(getPcaProjectionTabId() || '').trim() !== ownerTabId) {
+      return false;
+    }
+    const ownerSession = getPcaSession(ownerTabId, {
+      tabId: ownerTabId,
+      reason: `${reason}:project-stats`
+    }, {
+      create: false
+    });
+    if (!ownerSession || !getPcaStatsSnapshot(ownerSession)) {
+      return false;
+    }
+    return restorePcaStatsFromPayload({
+      ...normalizePcaSavedStatsModels(getPcaStatsPanelSnapshot(ownerSession)),
+      session: ownerSession,
+      reason: `${reason}:project-stats`
+    });
+  }
+
   function finalizePcaActivation(tabLike, reason = 'activate-tab') {
     const resolvedTab = resolvePcaActivationTab(tabLike);
     const payloadConfig = resolvedTab?.payload?.config || {};
@@ -15788,6 +16041,12 @@
       });
       syncPcaActiveDataViewFromHot(hot, `${reason || 'activate-tab'}:prepare-tab`);
     }
+
+    // Same-component DOM reuse is projection-only. Rebuild every statistics subpanel
+    // from the newly bound owner session so dynamic panels (notably the biplot) never
+    // inherit or lose state through the previously visible PCA tab's DOM.
+    projectPcaStatsForOwner(resolvedTab, reason || 'activate-tab');
+
     if (!hasPcaPrimaryGraphContent(resolvedTab)) {
       const requested = schedulePcaActivationRecoveryDraw(resolvedTab, reason || 'activate-tab');
       debugLog('Debug: pca activation graph probe', {
@@ -16615,7 +16874,7 @@
             root: pcaRoot || null,
             reason: meta?.reason || 'pca-passive-dom-rebind'
           });
-          pcaSvgBoxRef = pcaRoot?.querySelector?.('#pcaGraphPanel .svgbox') || pcaSvgBoxRef || null;
+          rebindPcaProjectionDomRefs(nextTabId || getPcaProjectionTabId() || null);
           syncPcaSessionRefsFromActive();
           syncPcaSessionManagersFromActive();
           pca.__domSentinel = info?.mountedSentinel || getPcaNodeById('pcaHot');
@@ -16651,6 +16910,9 @@
         ...(meta || {}),
         reason: meta?.reason || 'pca-activate-bind-existing-owned-runtime'
       });
+      // The live-DOM fast path can complete without invoking afterReady. Project the
+      // newly active owner's derived panels here after its runtime record is bound.
+      projectPcaStatsForOwner(tabLike || meta?.tabId || null, meta?.reason || 'pca-activate-bindings');
       return rebound;
     },
     init: options => setup(options),
@@ -17221,6 +17483,7 @@
     pcaVarianceAxisScale = $('#pcaVarianceAxisScale');
     pcaVarianceAxisScaleInput = pcaVarianceAxisScale;
     pcaScale = $('#pcaScale');
+    pcaPreprocessing = $('#pcaPreprocessing');
     pcaStatsResults = getPcaNodeById('pcaStatsResults');
     pcaStatsSummary = getPcaNodeById('pcaStatsSummary');
     pcaScreeContainer = getPcaNodeById('pcaScreeContainer');
@@ -17412,6 +17675,18 @@
           checked: pcaShowGrid.checked
         });
         requestPcaViewRefresh('grid-toggle');
+      });
+    }
+    if (pcaPreprocessing) {
+      bindPcaControlHandler(pcaPreprocessing, 'change', 'preprocessing', () => {
+        const mode = sanitizePcaPreprocessingMode(pcaPreprocessing.value);
+        pcaPreprocessing.value = mode;
+        if (mode === PCA_PREPROCESSING_RNASEQ_LOG && pcaScale) {
+          pcaScale.checked = false;
+        }
+        syncPcaPreprocessingUiState();
+        debugLog('Debug: pca preprocessing changed', { mode });
+        requestPcaDataRefresh('preprocessing-change');
       });
     }
     if (pcaScale) {
@@ -17632,6 +17907,8 @@
   pca.__testHooks = Object.assign({}, pca.__testHooks, {
     benchmarkLoad: opts => benchmarkPcaLoad(opts),
     resolveDrawableFrame: plotEl => resolvePcaDrawableFrame(plotEl),
+    calculateMedianRatioSizeFactors: matrix => calculatePcaMedianRatioSizeFactors(matrix),
+    preprocessRnaSeqCounts: (matrix, labels, options) => preprocessPcaRnaSeqCounts(matrix, labels, options),
     getPerformance: () => ({
       performance: cloneSimple(pcaState.performance),
       lastAutoDrawEvaluation: cloneSimple(pcaState.lastAutoDrawEvaluation),

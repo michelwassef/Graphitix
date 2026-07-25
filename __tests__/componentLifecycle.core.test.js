@@ -918,6 +918,40 @@ describe('componentLifecycle — createAsyncScope', () => {
     }
   });
 
+  test('tab-scoped frame debouncer can requeue current owner work after a stale generation', () => {
+    jest.useFakeTimers();
+    const originalRequestAnimationFrame = global.requestAnimationFrame;
+    const originalCancelAnimationFrame = global.cancelAnimationFrame;
+    global.requestAnimationFrame = cb => setTimeout(cb, 0);
+    global.cancelAnimationFrame = id => clearTimeout(id);
+    try{
+      const component = { __componentKey: 'heatmap' };
+      const callback = jest.fn();
+      const shouldRetryStale = jest.fn(() => true);
+      const debounced = lc.createTabScopedFrameDebouncer(component, 'heatmap', callback, {
+        reason: 'unit-heatmap-frame-retry',
+        retryOnStale: true,
+        shouldRetryStale
+      });
+
+      debounced({ tabId: 'tab-a', reason: 'heavy-paste' });
+      component.__asyncScope.nextToken({ tabId: 'tab-a', reason: 'payload-commit' });
+      jest.runOnlyPendingTimers();
+      jest.runOnlyPendingTimers();
+
+      expect(shouldRetryStale).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledWith(expect.objectContaining({
+        tabId: 'tab-a',
+        reason: 'heavy-paste'
+      }));
+    }finally{
+      global.requestAnimationFrame = originalRequestAnimationFrame;
+      global.cancelAnimationFrame = originalCancelAnimationFrame;
+      jest.useRealTimers();
+    }
+  });
+
   test('tab-scoped frame debouncer is cancelled with the owning async scope', () => {
     jest.useFakeTimers();
     const originalRequestAnimationFrame = global.requestAnimationFrame;
@@ -1815,6 +1849,33 @@ describe('componentLifecycle — draw scheduling helpers', () => {
     expect(frame).toHaveBeenCalled();
     expect(run).toHaveBeenCalled();
   });
+
+  test('runDrawWithOverlayPaintGate exposes stale owner-frame recovery', () => {
+    const run = jest.fn();
+    const onFrameStale = jest.fn();
+    const scheduleSpy = jest.spyOn(lc, 'scheduleComponentFrame').mockImplementation(
+      (_component, _componentKey, _meta, _callback, stale) => {
+        stale();
+        return 'raf-stale';
+      }
+    );
+    const handled = lc.runDrawWithOverlayPaintGate({
+      component: {},
+      componentKey: 'heatmap',
+      tabId: 'workspace-3',
+      reason: 'paste',
+      overlayController: { isActive: () => true },
+      delayForOverlay: true,
+      onFrameStale,
+      run
+    });
+
+    expect(handled).toBe(true);
+    expect(onFrameStale).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+    scheduleSpy.mockRestore();
+  });
+
 });
 
 

@@ -2369,7 +2369,10 @@
       const handler = typeof options.onRows === 'function'
         ? options.onRows
         : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(deferredOptions, metaInfo));
-      return handler(rows, meta);
+      const runMutation = Shared.hot?.runOwnerProjectionMutation;
+      return typeof runMutation === 'function'
+        ? runMutation(transaction, () => handler(rows, meta))
+        : handler(rows, meta);
     };
     const finalizeImport = async result => {
       const transaction = importTransaction;
@@ -2396,10 +2399,15 @@
       }
       if(Shared.hot?.isOwnerProjectionTransactionOwnerActive?.(transaction) === true
         && typeof options.onBeforeCompleted === 'function'){
-        await options.onBeforeCompleted(result, {
+        const runMutation = Shared.hot?.runOwnerProjectionMutation;
+        const invokeBeforeCompleted = () => options.onBeforeCompleted(result, {
           tabId: transaction.tabId,
-          source: 'table-import'
+          source: 'table-import',
+          ownerProjectionTransaction: transaction
         });
+        await (typeof runMutation === 'function'
+          ? runMutation(transaction, invokeBeforeCompleted)
+          : invokeBeforeCompleted());
       }
       if(Shared.hot?.isOwnerProjectionTransactionCurrent?.(transaction) !== true){
         importTransaction = null;
@@ -2409,7 +2417,8 @@
       if(Array.isArray(matrix)){
         Shared.hot?.syncOwnerTabPayloadFullData?.(matrix, 'table-import', {
           hotInstance: options.hot,
-          source: 'table-import'
+          source: 'table-import',
+          ownerProjectionTransaction: transaction
         });
       }
       await Shared.hot?.awaitOwnerProjectionPaint?.(transaction);

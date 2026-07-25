@@ -48,6 +48,7 @@
       case 'archive-save':
       case 'document-snapshot':
       case 'append-existing':
+      case 'recovery':
         return {
           saveLike: true,
           captureLivePayload: true,
@@ -55,18 +56,6 @@
           runSkippedPayloadDriftProbe: true,
           promoteSkippedPayloadDrift: true,
           reasonSkippable: false,
-          snapshotCapture: true
-        };
-      case 'recovery':
-        return {
-          saveLike: false,
-          captureLivePayload: false,
-          skipLivePayloadCapture: true,
-          allowSkipLivePayloadCapture: true,
-          lifecycleSnapshot: true,
-          runSkippedPayloadDriftProbe: false,
-          promoteSkippedPayloadDrift: false,
-          reasonSkippable: true,
           snapshotCapture: true
         };
       case 'warmup-cache':

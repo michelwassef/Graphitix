@@ -235,19 +235,25 @@ describe('Shared.hot AG Grid binding', () => {
         ]
       }
     );
+    let activeViewData = [['A', 'B'], ['C', 'D']];
     hot.__dataViewsManager = {
+      updateActiveData: jest.fn(next => {
+        activeViewData = next.map(row => Array.isArray(row) ? row.slice() : []);
+      }),
       serialize: jest.fn(() => ({
         activeViewId: 'filtered',
         views: [
           { id: 'base', data: [['A', 'B'], ['C', 'D']] },
-          { id: 'filtered', data: [['A', 'B'], ['C', 'D2']] }
+          { id: 'filtered', data: activeViewData }
         ]
       }))
     };
 
     hot.setDataAtCell(1, 1, 'D2', 'edit');
 
+    expect(hot.__dataViewsManager.updateActiveData).toHaveBeenCalled();
     expect(tab.payload.data[1][1]).toBe('D2');
+    expect(tab.payload.dataViews.views[1].data[1][1]).toBe('D2');
     expect(tab.payload.dataViews?.activeViewId).toBe('filtered');
     expect(tab.payload.activeDataViewId).toBe('filtered');
     expect(tab.userModified).toBe(true);
@@ -310,6 +316,72 @@ describe('Shared.hot AG Grid binding', () => {
     } finally {
       Shared.componentLifecycle = prevLifecycle;
       Shared.componentLayout = prevLayout;
+    }
+  });
+
+  test('title edits in data-empty columns persist without redraw or render-cache invalidation', () => {
+    require('../js/main/session.js');
+    const session = global.window.Main.session;
+    const tab = session.createTab({
+      title: 'PCA Matrix',
+      type: 'pca',
+      payload: {
+        type: 'pca',
+        data: [
+          ['Sample', 'Value', ''],
+          ['A', 1, ''],
+          ['B', 2, '']
+        ],
+        config: {}
+      }
+    });
+    session.workspaceState.tabs.push(tab);
+    session.workspaceState.activeTabId = tab.id;
+    const renderCache = { payloadSignature: tab.payloadSignature, fragment: { kind: 'unit' } };
+    tab.renderCache = renderCache;
+    tab.renderCacheSignature = tab.payloadSignature;
+
+    const Shared = global.window.Shared;
+    const clearSpy = jest.fn();
+    const releaseSpy = jest.fn();
+    const previousLifecycle = Shared.componentLifecycle;
+    const previousLayout = Shared.componentLayout;
+    Shared.componentLifecycle = Object.assign({}, previousLifecycle, { clearPostRestoreDrawSuppression: clearSpy });
+    Shared.componentLayout = Object.assign({}, previousLayout, { releaseSuppressedSchedulesFor: releaseSpy });
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    try {
+      const hot = Shared.hot.createStandardTable(
+        container,
+        { rows: 3, cols: 3 },
+        scheduleDraw,
+        {
+          debugLabel: 'pca',
+          pinFirstRow: true,
+          data: [
+            ['Sample', 'Value', ''],
+            ['A', 1, ''],
+            ['B', 2, '']
+          ]
+        }
+      );
+      scheduleDraw.mockClear();
+      clearSpy.mockClear();
+      releaseSpy.mockClear();
+
+      hot.setDataAtCell(0, 2, 'Unused title', 'edit');
+
+      expect(tab.payload.data[0][2]).toBe('Unused title');
+      expect(scheduleDraw).not.toHaveBeenCalled();
+      expect(clearSpy).not.toHaveBeenCalled();
+      expect(releaseSpy).not.toHaveBeenCalled();
+      expect(tab.renderCache).toBe(renderCache);
+      expect(tab.renderCacheSignature).toBe(tab.payloadSignature);
+    } finally {
+      Shared.componentLifecycle = previousLifecycle;
+      Shared.componentLayout = previousLayout;
     }
   });
 
@@ -619,6 +691,152 @@ describe('Shared.hot AG Grid binding', () => {
     expect(hot.countRows()).toBe(3);
     expect(hot.getDataAtCell(1, 0)).toBe('B');
     expect(hot.getDataAtCell(2, 0)).toBe('C');
+  });
+
+  test('analysis ignores titled columns that contain no data below the pinned row', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'test-ag-grid-empty-analysis-column',
+        pinFirstRow: true,
+        data: [
+          ['Sample', 'Value', 'Empty titled column'],
+          ['A', 1, ''],
+          ['B', 2, null],
+          ['C', 3, '   ']
+        ]
+      }
+    );
+
+    const analysis = hot.getAnalysisData();
+    expect(analysis.pinnedRowCount).toBe(1);
+    expect(analysis.ignoredEmptyColumns).toContain(2);
+    expect(analysis.isColumnExcluded(2)).toBe(true);
+    expect(analysis.getColumnValues(2, { skipHeader: true })).toEqual([]);
+    expect(analysis.data.map(row => row[2])).toEqual([null, null, null, null]);
+    expect(hot.getIncludedDataMatrix().map(row => row[2])).toEqual([null, null, null, null]);
+    expect(analysis.isColumnExcluded(1)).toBe(false);
+    expect(analysis.getColumnValues(1, { skipHeader: true })).toEqual([1, 2, 3]);
+  });
+
+  test('analysis treats formula columns with empty displayed results as inactive', () => {
+    const sourceData = [
+      ['Sample', 'Formula-only empty column'],
+      ['A', '=EMPTY_RESULT'],
+      ['B', '=EMPTY_RESULT']
+    ];
+    const instance = {
+      countRows: () => sourceData.length,
+      countCols: () => sourceData[0].length,
+      getSettings: () => ({ fixedRowsTop: 1 }),
+      getSourceData: () => sourceData,
+      toPhysicalRow: row => row,
+      toPhysicalColumn: col => col,
+      getDataAtCell: (row, col) => sourceData[row]?.[col],
+      __hotGetDisplayDataAtCell: (row, col) => col === 1 && row > 0 ? '' : sourceData[row]?.[col]
+    };
+
+    const analysis = window.Shared.hot.getAnalysisData(instance);
+
+    expect(analysis.ignoredEmptyColumns).toContain(1);
+    expect(analysis.inactiveAnalysisColumns).toContain(1);
+    expect(analysis.isColumnExcluded(1)).toBe(true);
+    expect(analysis.data.map(row => row[1])).toEqual([null, null, null]);
+  });
+
+  test('manual trailing blank columns persist without redraw while schema-shifting inserts redraw once', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    const afterCreateCol = jest.fn();
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      scheduleDraw,
+      {
+        debugLabel: 'test-ag-grid-manual-blank-column-insert',
+        pinFirstRow: true,
+        data: [
+          ['A', 'B', 'C'],
+          [1, 2, 3],
+          [4, 5, 6]
+        ],
+        hotOptions: { afterCreateCol }
+      }
+    );
+    scheduleDraw.mockClear();
+    afterCreateCol.mockClear();
+
+    const previousColumnCount = hot.countCols();
+    hot.alter('insert_col_end', previousColumnCount - 1, 1, 'insert_col_end');
+
+    expect(hot.countCols()).toBe(previousColumnCount + 1);
+    expect(afterCreateCol).toHaveBeenCalledWith(previousColumnCount, 1, 'insert_col_end');
+    expect(scheduleDraw).not.toHaveBeenCalled();
+
+    afterCreateCol.mockClear();
+    hot.alter('insert_col_left', 1, 1, 'insert_col_left');
+
+    expect(afterCreateCol).toHaveBeenCalledWith(1, 1, 'insert_col_left');
+    expect(scheduleDraw).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'afterCreateCol',
+      source: 'insert_col_left',
+      invalidate: 'data',
+      userInitiated: true
+    }));
+  });
+
+  test('automatic empty-column growth is structural only and does not notify graph owners', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    const afterCreateCol = jest.fn();
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      scheduleDraw,
+      {
+        debugLabel: 'test-ag-grid-silent-auto-growth',
+        pinFirstRow: true,
+        data: [
+          ['A', 'B', 'C'],
+          [1, 2, 3],
+          [4, 5, 6]
+        ],
+        hotOptions: { afterCreateCol }
+      }
+    );
+    scheduleDraw.mockClear();
+    afterCreateCol.mockClear();
+
+    const previousColumnCount = hot.countCols();
+    hot.alter('insert_col_end', previousColumnCount - 1, 1, 'autoGrow');
+
+    expect(hot.countCols()).toBe(previousColumnCount + 1);
+    expect(afterCreateCol).not.toHaveBeenCalled();
+    expect(scheduleDraw).not.toHaveBeenCalled();
+
+    hot.setDataAtCell(0, previousColumnCount, 'New title', 'edit');
+    expect(hot.getDataAtCell(0, previousColumnCount)).toBe('New title');
+    expect(scheduleDraw).not.toHaveBeenCalled();
+
+    hot.setDataAtCell(1, previousColumnCount, 7, 'edit');
+    expect(scheduleDraw).toHaveBeenCalledTimes(1);
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'afterChange',
+      userInitiated: true
+    }));
   });
 
   test('user cell edits schedule a userInitiated draw while programmatic loads stay non-user', () => {

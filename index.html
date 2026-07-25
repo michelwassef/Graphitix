@@ -1343,6 +1343,15 @@
                   </select>
                 </label>
               </div>
+              <div class="control idx-inline-041" id="pcaPreprocessingControl">
+                <label class="idx-inline-023">Input processing
+                  <select id="pcaPreprocessing" aria-label="PCA input processing">
+                    <option value="none">Values as entered</option>
+                    <option value="rna-seq-normalized-log">RNA-seq normalized log counts</option>
+                  </select>
+                </label>
+                <span class="control-help" title="For raw RNA-seq counts: DESeq2 median-ratio size factors, log2(normalized count + 1), and the 500 most variable genes.">ⓘ</span>
+              </div>
               <div class="control idx-inline-032" id="pcaScaleControl">
                 <label class="idx-inline-023">
                   <input type="checkbox" id="pcaScale" /> Scale Variables

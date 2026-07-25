@@ -827,4 +827,51 @@ describe('PCA view controls', () => {
     expect(state.lastMethod).toBe('mds');
     expect(global.__svdCallCount).toBeGreaterThan(0);
   });
+  test('matches DESeq2 median-ratio size factors for proportional count profiles', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const result = hooks.calculateMedianRatioSizeFactors([
+      [10, 20, 40],
+      [20, 40, 80],
+      [5, 10, 20]
+    ]);
+    expect(result.eligibleFeatureCount).toBe(3);
+    expect(result.sizeFactors[0]).toBeCloseTo(1, 12);
+    expect(result.sizeFactors[1]).toBeCloseTo(2, 12);
+    expect(result.sizeFactors[2]).toBeCloseTo(0.5, 12);
+  });
+
+  test('matches DESeq2 ratio normalization by excluding genes containing any zero', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    const result = hooks.calculateMedianRatioSizeFactors([
+      [10, 0, 40],
+      [20, 5, 80],
+      [5, 10, 20]
+    ]);
+    expect(result.eligibleFeatureCount).toBe(2);
+    expect(result.sizeFactors[0]).toBeCloseTo(1, 12);
+    expect(result.sizeFactors[1]).toBeCloseTo(2, 12);
+    expect(result.sizeFactors[2]).toBeCloseTo(0.5, 12);
+  });
+
+  test('normalizes, log-transforms, and deterministically retains the most variable genes', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    const result = hooks.preprocessRnaSeqCounts([
+      [10, 10, 10, 10],
+      [10, 20, 10, 40],
+      [10, 40, 10, 160]
+    ], ['stable-a', 'variable-b', 'stable-c', 'variable-d'], { topFeatureLimit: 2 });
+    expect(result.metadata.selectedFeatureCount).toBe(2);
+    expect(result.featureLabels).toEqual(['variable-d', 'variable-b']);
+    expect(result.matrix).toHaveLength(3);
+    expect(result.matrix.every(row => row.length === 2)).toBe(true);
+  });
+
+  test('rejects non-integer and negative raw counts', () => {
+    const hooks = window.Components?.pca?.__testHooks;
+    expect(() => hooks.preprocessRnaSeqCounts([[1, 2], [1.5, 3]], ['a', 'b']))
+      .toThrow(/non-negative integer raw counts/i);
+    expect(() => hooks.preprocessRnaSeqCounts([[1, 2], [-1, 3]], ['a', 'b']))
+      .toThrow(/non-negative integer raw counts/i);
+  });
 });

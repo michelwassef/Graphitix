@@ -28,4 +28,58 @@ describe('exporter hybrid SVG source selection', () => {
 
     expect(hybridGetter).toHaveBeenCalled();
   });
+
+  test('standard SVG copy enters the clipboard API before resolving a heavy export source', async () => {
+    jest.resetModules();
+    document.body.innerHTML = `
+      <div id="testExportControls"></div>
+      <svg id="exportSvg" viewBox="0 0 10 10"><path d="M0 0L1 1"></path></svg>
+    `;
+    const originalClipboard = global.navigator.clipboard;
+    const originalClipboardItem = global.ClipboardItem;
+    const writeMock = jest.fn(() => Promise.resolve());
+    class TestClipboardItem {
+      constructor(items){
+        this.items = items;
+      }
+      static supports(){
+        return true;
+      }
+    }
+    Object.defineProperty(global.navigator, 'clipboard', {
+      configurable: true,
+      value: { write: writeMock }
+    });
+    global.ClipboardItem = TestClipboardItem;
+    try{
+      require('../js/shared/exporter.js');
+      const sourceGetter = jest.fn(() => document.getElementById('exportSvg'));
+      window.Shared.exporter.mountSvgControls({
+        container: '#testExportControls',
+        fileName: 'test-chart',
+        getSvg: sourceGetter
+      });
+
+      const copySelect = document.querySelector('.export-select-wrapper[data-action-key="copy"] select');
+      copySelect.value = 'svg';
+      copySelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+
+      expect(writeMock).toHaveBeenCalledTimes(1);
+      expect(sourceGetter).not.toHaveBeenCalled();
+      const clipboardItem = writeMock.mock.calls[0][0][0];
+      expect(clipboardItem.items['image/svg+xml']).toBeInstanceOf(Promise);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(sourceGetter).toHaveBeenCalledTimes(1);
+    }finally{
+      Object.defineProperty(global.navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard
+      });
+      global.ClipboardItem = originalClipboardItem;
+    }
+  });
+
 });

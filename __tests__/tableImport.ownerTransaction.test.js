@@ -1,14 +1,19 @@
 describe('tableImport owner projection transaction', () => {
   let originalAgGrid;
   let originalRequestAnimationFrame;
+  let capturedGridOptions;
+  let capturedGridApi;
 
   beforeEach(() => {
     jest.resetModules();
     originalAgGrid = window.agGrid;
     originalRequestAnimationFrame = window.requestAnimationFrame;
+    capturedGridOptions = null;
+    capturedGridApi = null;
     window.agGrid = {
       createGrid: (_container, options) => {
-        const api = {
+        capturedGridOptions = options;
+        capturedGridApi = {
           setRowData: jest.fn(rows => { options.rowData = rows; }),
           setColumnDefs: jest.fn(columns => { options.columnDefs = columns; }),
           refreshCells: jest.fn(),
@@ -16,8 +21,8 @@ describe('tableImport owner projection transaction', () => {
           getFocusedCell: jest.fn(() => null),
           getEditingCells: jest.fn(() => [])
         };
-        options.onGridReady?.({ api, columnApi: {} });
-        return api;
+        options.onGridReady?.({ api: capturedGridApi, columnApi: {} });
+        return capturedGridApi;
       }
     };
     require('../js/vendor.js');
@@ -32,6 +37,8 @@ describe('tableImport owner projection transaction', () => {
   afterEach(() => {
     window.agGrid = originalAgGrid;
     window.requestAnimationFrame = originalRequestAnimationFrame;
+    capturedGridOptions = null;
+    capturedGridApi = null;
     delete window.Main;
     delete window.Components;
   });
@@ -160,4 +167,77 @@ describe('tableImport owner projection transaction', () => {
       finalProjectionRequests: 0
     }));
   });
+
+  test('first user paste supersedes the pending import transaction and remains canonical', async () => {
+    const session = window.Main.session;
+    const tab = createPcaTab('Heatmap-like owner', [['old']]);
+    session.workspaceState.activeTabId = tab.id;
+    window.requestAnimationFrame = callback => window.setTimeout(callback, 0);
+    const container = document.createElement('div');
+    container.dataset.workspaceTabId = tab.id;
+    container.dataset.componentType = 'pca';
+    document.body.appendChild(container);
+    const scheduleDraw = jest.fn();
+    const hot = window.Shared.hot.createStandardTable(container, { rows: 2, cols: 2 }, scheduleDraw, {
+      debugLabel: 'pca',
+      data: [['Label', 'Value'], ['row-1', 'original']]
+    });
+    const onCompleted = jest.fn();
+    let interruptedTransaction = null;
+
+    const result = await window.Shared.tableImport.openFile(createCsvInput('Gene,S1\nA,1'), {
+      hot,
+      minRows: 1,
+      minCols: 1,
+      importOptionsConfirmed: true,
+      scheduleDraw,
+      onBeforeCompleted: (_result, meta) => {
+        interruptedTransaction = meta.ownerProjectionTransaction;
+        expect(window.Shared.hot.isOwnerProjectionTransactionCurrent(interruptedTransaction)).toBe(true);
+        capturedGridOptions.onPasteStart({ source: 'paste' });
+        hot.getSourceData()[1][1] = 'pasted';
+        capturedGridOptions.onCellValueChanged({
+          node: { rowIndex: 1 },
+          rowIndex: 1,
+          column: { getColId: () => 'c1' },
+          oldValue: '1',
+          newValue: 'pasted',
+          source: 'paste',
+          api: capturedGridApi
+        });
+        capturedGridOptions.onPasteEnd({
+          source: 'paste',
+          data: [['pasted']],
+          api: capturedGridApi
+        });
+      },
+      onCompleted
+    });
+
+    expect(result.rows).toBe(2);
+    expect(interruptedTransaction).toBeTruthy();
+    expect(window.Shared.hot.isOwnerProjectionTransactionCurrent(interruptedTransaction)).toBe(false);
+    expect(window.Shared.hot.getLastOwnerProjectionTransaction(tab)).toEqual(expect.objectContaining({
+      interruptedByUserMutation: true,
+      interruptionReason: 'table-paste-start'
+    }));
+    expect(tab.payload.data[1][1]).toBe('pasted');
+    expect(tab.userDirty).toBe(true);
+    expect(onCompleted).not.toHaveBeenCalled();
+    expect(scheduleDraw).toHaveBeenCalledWith(expect.objectContaining({ reason: 'afterPaste' }));
+    expect(window.Shared.hot.shouldDeferOwnerProjectionDraw(tab, { reason: 'afterPaste' })).toBe(false);
+
+    const staleCommit = window.Shared.hot.syncOwnerTabPayloadFullData(
+      [['Gene', 'S1'], ['A', 'stale-import']],
+      'table-import',
+      {
+        hotInstance: hot,
+        source: 'table-import',
+        ownerProjectionTransaction: interruptedTransaction
+      }
+    );
+    expect(staleCommit).toBe(false);
+    expect(tab.payload.data[1][1]).toBe('pasted');
+  });
+
 });

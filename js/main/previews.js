@@ -486,13 +486,20 @@
     // treats them as ready bitmaps and skips synthetic glyph replacement.
     if (!hydrated && typeof cloneSvg.querySelectorAll === 'function') {
       const archiveBitmaps = Array.from(
-        cloneSvg.querySelectorAll('img[data-graphitix-render-cache-canvas-bitmap="true"]')
+        cloneSvg.querySelectorAll(
+          'img[data-graphitix-render-cache-canvas-bitmap="true"], '
+          + 'image[data-graphitix-render-cache-canvas-bitmap="true"]'
+        )
       );
-      archiveBitmaps.forEach(img => {
-        img.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
-        img.setAttribute('data-preview-canvas-bitmap', 'true');
-        hydrated += 1;
+      archiveBitmaps.forEach(image => {
+        image.removeAttribute('data-graphitix-render-cache-canvas-bitmap');
+        image.setAttribute('data-preview-canvas-bitmap', 'true');
       });
+      const readyBitmaps = Array.from(cloneSvg.querySelectorAll(
+        'img[data-preview-canvas-bitmap="true"], image[data-preview-canvas-bitmap="true"]'
+      ));
+      const declaredBitmapCount = Math.max(0, Number(cloneSvg.getAttribute?.('data-preview-canvas-bitmap')) || 0);
+      hydrated = Math.max(readyBitmaps.length, declaredBitmapCount);
       if (hydrated) {
         cloneSvg.setAttribute('data-preview-canvas-bitmap', String(hydrated));
       }
@@ -943,7 +950,10 @@
     }
     if (markup.length > TAB_PREVIEW_MAX_CHARS) {
       console.debug('Debug: preview oversize detected', { length: markup.length, type: config.type, tabId: tab?.id || null });
-      if (hydratedCanvasLayers && markup.length <= TAB_PREVIEW_MAX_CHARS_HYBRID) {
+      if (hydratedCanvasLayers) {
+        // A verified bitmap-backed preview is already bounded by the canvas downsampling
+        // contract. Its serialized length is dominated by the embedded PNG data URL, not
+        // by SVG node complexity, so the vector-markup character budget is not applicable.
         console.debug('Debug: preview canvas bitmap accepted above vector budget', {
           tabId: tab?.id || null,
           type: config.type,
@@ -1360,10 +1370,16 @@
       && tab.previewMeta?.layoutSignature !== layoutSignature;
     const needsPayloadVersionRefresh = Number(tab.previewMeta?.payloadVersion || 0) !== payloadVersion;
     const needsLayoutVersionRefresh = Number(tab.previewMeta?.layoutVersion || 0) !== layoutVersion;
+    const liveProjection = liveSvg?.getAttribute?.('data-heatmap-preview-projection') || null;
+    const hasCompactComponentProjection = liveProjection === 'canvas-sampled';
     const needsPlaceholderRefresh = isPreviewPlaceholderMarkup(tab.previewMarkup)
-      && !tab.previewMeta?.hybrid
-      && !tab.previewMeta?.canvasBitmap
-      && !tab.previewMeta?.canvasSimplified;
+      && (
+        hasCompactComponentProjection
+        || (tab.type === 'heatmap' && hasLivePreviewSource)
+        || (!tab.previewMeta?.hybrid
+          && !tab.previewMeta?.canvasBitmap
+          && !tab.previewMeta?.canvasSimplified)
+      );
     const needsLegacyCanvasGlyphRefresh = !!tab.previewMeta?.canvasSimplified
       && !tab.previewMeta?.canvasBitmap
       && typeof tab.previewMarkup === 'string'

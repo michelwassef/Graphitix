@@ -915,6 +915,7 @@
       applyValue: applyValueOption,
       onEditStart,
       onEditEnd,
+      onInput,
       cursor = 'pointer',
       overlayParent,
       multiline = false,
@@ -2003,8 +2004,10 @@
         input.addEventListener('blur', handleBlur);
         input.addEventListener('keydown', handleKeyDown);
         input.addEventListener('input', () => {
-          state.updateInlineText(input.value ?? '');
+          const nextValue = input.value ?? '';
+          state.updateInlineText(nextValue);
           state.refreshInlineRendering(false);
+          safeCall(onInput, [nextValue, el], 'Shared.makeEditable onInput error');
           syncSizeToContent();
         });
 

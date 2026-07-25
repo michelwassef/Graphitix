@@ -637,26 +637,14 @@
 
   function sanitizeP(value){
     const num = Number(value);
-    if(!Number.isFinite(num) || num < 0){
-      return 0;
-    }
-    if(num > 1){
-      return 1;
-    }
-    return num;
+    return Number.isFinite(num) && num >= 0 && num <= 1 ? num : null;
   }
 
   function clampUnit(value){
     if(!Number.isFinite(value)){
-      return 1;
+      return null;
     }
-    if(value < 0){
-      return 0;
-    }
-    if(value > 1){
-      return 1;
-    }
-    return value;
+    return Math.max(0, Math.min(1, value));
   }
 
   function normalizeMethod(method){
@@ -679,28 +667,21 @@
 
   function adjustBonferroni(values){
     const m = values.length || 1;
-    return values.map(v => clampUnit(sanitizeP(v) * m));
+    return values.map(p => clampUnit(p * m));
   }
 
   function adjustSidak(values){
     const m = values.length || 1;
-    return values.map(v => {
-      const p = sanitizeP(v);
-      const adjusted = 1 - Math.pow(1 - p, m);
-      return clampUnit(adjusted);
-    });
+    return values.map(p => clampUnit(1 - Math.pow(1 - p, m)));
   }
 
   function adjustHolm(values){
     const m = values.length;
-    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
-    ordered.sort((a, b) => a.p - b.p);
+    const ordered = values.map((p, index) => ({ p, index })).sort((a, b) => a.p - b.p);
     const adjusted = new Array(m).fill(1);
     let running = 0;
     ordered.forEach((entry, idx) => {
-      const rank = m - idx;
-      const raw = clampUnit(entry.p * rank);
-      running = Math.max(running, raw);
+      running = Math.max(running, clampUnit(entry.p * (m - idx)));
       adjusted[entry.index] = clampUnit(running);
     });
     return adjusted;
@@ -708,14 +689,11 @@
 
   function adjustHolmSidak(values){
     const m = values.length;
-    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
-    ordered.sort((a, b) => a.p - b.p);
+    const ordered = values.map((p, index) => ({ p, index })).sort((a, b) => a.p - b.p);
     const adjusted = new Array(m).fill(1);
     let running = 0;
     ordered.forEach((entry, idx) => {
-      const rank = m - idx;
-      const raw = clampUnit(1 - Math.pow(1 - entry.p, rank));
-      running = Math.max(running, raw);
+      running = Math.max(running, clampUnit(1 - Math.pow(1 - entry.p, m - idx)));
       adjusted[entry.index] = clampUnit(running);
     });
     return adjusted;
@@ -723,14 +701,11 @@
 
   function adjustHochberg(values){
     const m = values.length;
-    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
-    ordered.sort((a, b) => b.p - a.p);
+    const ordered = values.map((p, index) => ({ p, index })).sort((a, b) => b.p - a.p);
     const adjusted = new Array(m).fill(1);
     let running = 1;
     ordered.forEach((entry, idx) => {
-      const rank = idx + 1;
-      const raw = clampUnit(entry.p * rank);
-      running = Math.min(running, raw);
+      running = Math.min(running, clampUnit(entry.p * (idx + 1)));
       adjusted[entry.index] = clampUnit(running);
     });
     return adjusted;
@@ -738,15 +713,12 @@
 
   function adjustBenjaminiHochberg(values){
     const m = values.length;
-    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
-    ordered.sort((a, b) => a.p - b.p);
+    const ordered = values.map((p, index) => ({ p, index })).sort((a, b) => a.p - b.p);
     const adjusted = new Array(m).fill(1);
     let running = 1;
     for(let i = m - 1; i >= 0; i--){
       const entry = ordered[i];
-      const rank = i + 1;
-      const raw = clampUnit((entry.p * m) / rank);
-      running = Math.min(running, raw);
+      running = Math.min(running, clampUnit((entry.p * m) / (i + 1)));
       adjusted[entry.index] = clampUnit(running);
     }
     return adjusted;
@@ -754,27 +726,21 @@
 
   function adjustBenjaminiYekutieli(values){
     const m = values.length;
-    // Compute harmonic sum directly without intermediate array allocation
     let harmonic = 0;
-    for(let k = 1; k <= m; k++){
-      harmonic += 1 / k;
-    }
-    const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
-    ordered.sort((a, b) => a.p - b.p);
+    for(let k = 1; k <= m; k++) harmonic += 1 / k;
+    const ordered = values.map((p, index) => ({ p, index })).sort((a, b) => a.p - b.p);
     const adjusted = new Array(m).fill(1);
     let running = 1;
     for(let i = m - 1; i >= 0; i--){
       const entry = ordered[i];
-      const rank = i + 1;
-      const raw = clampUnit((entry.p * m * harmonic) / rank);
-      running = Math.min(running, raw);
+      running = Math.min(running, clampUnit((entry.p * m * harmonic) / (i + 1)));
       adjusted[entry.index] = clampUnit(running);
     }
     return adjusted;
   }
 
   function adjustNone(values){
-    return values.map(v => clampUnit(sanitizeP(v)));
+    return values.slice();
   }
 
   const METHOD_ADJUSTERS = {
@@ -791,11 +757,25 @@
   stats.adjustPValues = function(pValues, options){
     const values = Array.isArray(pValues) ? pValues.slice() : [];
     const methodKey = normalizeMethod(options?.method);
-    const adjuster = METHOD_ADJUSTERS[methodKey] || METHOD_ADJUSTERS[DEFAULT_METHOD];
-    console.debug('Debug: stats.adjustPValues start',{ method: methodKey, count: values.length });
-    const adjusted = adjuster(values);
-    console.debug('Debug: stats.adjustPValues complete',{ method: methodKey, adjusted });
-    return adjusted;
+    const valid = [];
+    values.forEach((value, index) => {
+      const pValue = sanitizeP(value);
+      if(pValue != null) valid.push({ index, pValue });
+    });
+    const output = new Array(values.length).fill(null);
+    if(valid.length){
+      const adjuster = METHOD_ADJUSTERS[methodKey] || METHOD_ADJUSTERS[DEFAULT_METHOD];
+      const adjustedValid = adjuster(valid.map(entry => entry.pValue));
+      valid.forEach((entry, validIndex) => { output[entry.index] = adjustedValid[validIndex]; });
+    }
+    console.debug('Debug: stats.adjustPValues complete',{
+      method: methodKey,
+      totalCount: values.length,
+      validCount: valid.length,
+      omittedCount: values.length - valid.length,
+      adjusted: output
+    });
+    return output;
   };
 
   const CONTINUOUS_DISTRIBUTION_COLORS = {
@@ -1185,71 +1165,101 @@
     }
   };
 
+  function createStatsSeededRandom(seed){
+    let stateValue=(Number(seed) || 1337)>>>0;
+    return function next(){
+      stateValue=(stateValue+0x6D2B79F5)>>>0;
+      let value=stateValue;
+      value=Math.imul(value^(value>>>15),value|1);
+      value^=value+Math.imul(value^(value>>>7),value|61);
+      return ((value^(value>>>14))>>>0)/4294967296;
+    };
+  }
+
+  function sampleStandardNormal(random){
+    const u1=Math.max(Number.EPSILON,random());
+    const u2=random();
+    return Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+  }
+
+  function sampleFittedDistribution(key,fit,count,random){
+    const params=fit?.params || {};
+    const result=[];
+    for(let i=0;i<count;i++){
+      if(key==='normal') result.push(params.mu+params.sigma*sampleStandardNormal(random));
+      else if(key==='lognormal') result.push(Math.exp(params.mu+params.sigma*sampleStandardNormal(random)));
+      else if(key==='exponential') result.push(-Math.log(Math.max(Number.EPSILON,1-random()))/params.lambda);
+    }
+    return result;
+  }
+
+  function computeOneSampleKsStatistic(sorted,cdf){
+    let maxDiff=0;
+    for(let i=0;i<sorted.length;i++){
+      const Fi=clampUnit(cdf(sorted[i]));
+      if(Fi==null) return NaN;
+      const diff=Math.max(Math.abs(Fi-(i+1)/sorted.length),Math.abs(Fi-i/sorted.length));
+      if(diff>maxDiff) maxDiff=diff;
+    }
+    return maxDiff;
+  }
+
   stats.goodnessOfFit = function goodnessOfFit(values, options){
-    const keyRaw = options?.distribution || options?.fit?.key || '';
-    const key = typeof keyRaw === 'string' ? keyRaw.toLowerCase() : '';
-    const def = CONTINUOUS_DISTRIBUTIONS[key];
-    if(!def){
-      console.warn('stats.goodnessOfFit unknown distribution',{ distribution: keyRaw });
-      return null;
+    const keyRaw=options?.distribution || options?.fit?.key || '';
+    const key=typeof keyRaw==='string'?keyRaw.toLowerCase():'';
+    const def=CONTINUOUS_DISTRIBUTIONS[key];
+    if(!def) return null;
+    const raw=Array.isArray(values)?values.filter(Number.isFinite):[];
+    if(!raw.length) return null;
+    const supportValid=key==='lognormal'?raw.every(v=>v>0):key==='exponential'?raw.every(v=>v>=0):true;
+    if(!supportValid){
+      return {available:false,n:raw.length,message:`${def.label} goodness-of-fit is unavailable because one or more observations violate the distribution support.`};
     }
-    const data = Array.isArray(values) ? values.filter(v => Number.isFinite(v)) : [];
-    if(!data.length){
-      return null;
-    }
-    const sorted = data.slice().sort((a,b)=>a-b);
-    const alpha = Number.isFinite(options?.alpha) && options.alpha > 0 ? options.alpha : 0.05;
-    const params = options?.params || options?.fit?.params || {};
-    const fit = options?.fit || null;
-    const pdf = typeof options?.pdf === 'function' ? options.pdf : fit?.pdf;
-    const cdfCandidate = typeof options?.cdf === 'function' ? options.cdf : fit?.cdf;
-    const cdf = typeof cdfCandidate === 'function'
-      ? cdfCandidate
-      : (key === 'normal'
-        ? (x => normalCdf((x - params.mu) / params.sigma))
-        : key === 'lognormal'
-          ? (x => logNormalCdf(x, params.mu, params.sigma))
-          : key === 'exponential'
-            ? (x => exponentialCdf(x, params.lambda))
-            : null);
-    if(typeof cdf !== 'function'){
-      console.warn('stats.goodnessOfFit missing cdf function',{ distribution: key });
-      return null;
-    }
-    const ksStat = (()=>{
-      let maxDiff = 0;
-      for(let i=0;i<sorted.length;i++){
-        const x=sorted[i];
-        const Fi = clampUnit(cdf(x));
-        const empiricalUpper = (i + 1) / sorted.length;
-        const empiricalLower = i / sorted.length;
-        const diff = Math.max(Math.abs(Fi - empiricalUpper), Math.abs(Fi - empiricalLower));
-        if(diff > maxDiff){ maxDiff = diff; }
+    const sorted=raw.slice().sort((a,b)=>a-b);
+    const alpha=Number.isFinite(options?.alpha)&&options.alpha>0&&options.alpha<1?options.alpha:0.05;
+    const fit=options?.fit?.valid===false?null:(options?.fit || def.fit(sorted));
+    if(!fit || fit.valid===false || typeof fit.cdf!=='function') return {available:false,n:sorted.length,message:fit?.message || 'Distribution fit unavailable.'};
+    const ksStat=computeOneSampleKsStatistic(sorted,fit.cdf);
+    const adStat=andersonDarlingStatistic(sorted,fit.cdf);
+    const parametersEstimated=options?.parametersEstimated!==false;
+    let ksP=kolmogorovPValue(ksStat,sorted.length);
+    let adP=andersonDarlingPValue(adStat,key,sorted.length);
+    let calibration='fully-specified asymptotic';
+    let iterations=0;
+    let seed=null;
+    if(parametersEstimated){
+      iterations=Math.max(200,Math.min(5000,Math.round(Number(options?.iterations)||500)));
+      seed=(Number(options?.seed)||1337)>>>0;
+      const random=createStatsSeededRandom(seed);
+      let ksExtreme=0;
+      let adExtreme=0;
+      let validIterations=0;
+      for(let iteration=0;iteration<iterations;iteration++){
+        const simulated=sampleFittedDistribution(key,fit,sorted.length,random).sort((a,b)=>a-b);
+        const refit=def.fit(simulated);
+        if(!refit?.valid || typeof refit.cdf!=='function') continue;
+        const simulatedKs=computeOneSampleKsStatistic(simulated,refit.cdf);
+        const simulatedAd=andersonDarlingStatistic(simulated,refit.cdf);
+        if(Number.isFinite(simulatedKs) && Number.isFinite(simulatedAd)){
+          validIterations+=1;
+          if(simulatedKs>=ksStat-1e-15) ksExtreme+=1;
+          if(simulatedAd>=adStat-1e-15) adExtreme+=1;
+        }
       }
-      return maxDiff;
-    })();
-    const ksP = kolmogorovPValue(ksStat, sorted.length);
-    const adStat = andersonDarlingStatistic(sorted, cdf);
-    const adP = andersonDarlingPValue(adStat, key, sorted.length);
-    const ksReject = ksP < alpha;
-    const adReject = adP < alpha;
+      if(validIterations){
+        ksP=(ksExtreme+1)/(validIterations+1);
+        adP=(adExtreme+1)/(validIterations+1);
+        iterations=validIterations;
+        calibration='parametric bootstrap with parameter refitting';
+      }else{
+        return {available:false,n:sorted.length,message:'Parametric-bootstrap goodness-of-fit calibration failed.'};
+      }
+    }
     return {
-      alpha,
-      n: sorted.length,
-      pdf: pdf || null,
-      cdf,
-      ks: {
-        statistic: ksStat,
-        pValue: ksP,
-        reject: ksReject,
-        decision: ksReject ? 'Reject H₀' : 'Fail to reject H₀'
-      },
-      ad: {
-        statistic: adStat,
-        pValue: adP,
-        reject: adReject,
-        decision: adReject ? 'Reject H₀' : 'Fail to reject H₀'
-      }
+      available:true,alpha,n:sorted.length,pdf:fit.pdf || null,cdf:fit.cdf,fit,
+      calibration,parametersEstimated,iterations,seed,
+      ks:{statistic:ksStat,pValue:ksP,reject:ksP<alpha,decision:ksP<alpha?'Reject H₀':'Fail to reject H₀'},
+      ad:{statistic:adStat,pValue:adP,reject:adP<alpha,decision:adP<alpha?'Reject H₀':'Fail to reject H₀'}
     };
   };
 

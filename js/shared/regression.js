@@ -1477,185 +1477,115 @@
 
   const computeLogisticModel = ({ points, alpha, domain }) => {
     const warnings = [];
-    const logisticPoints = points.map(pt => {
-      let yVal = pt.y;
-      if(yVal < 0 || yVal > 1){
-        warnings.push('Logistic regression expects Y values between 0 and 1; values were clamped.');
-        yVal = Math.min(1, Math.max(0, yVal));
-      }
-      return { x: pt.x, y: yVal };
-    });
-    const allSame = logisticPoints.every(pt => pt.y === logisticPoints[0].y);
-    if(allSame){
-      warnings.push('Logistic regression skipped due to constant response.');
+    const logisticPoints = (Array.isArray(points) ? points : []).map(pt=>({x:Number(pt.x),y:Number(pt.y)}));
+    if(logisticPoints.some(pt=>!Number.isFinite(pt.x) || !(pt.y===0 || pt.y===1))){
       return {
-        coefficients: [0, 0],
-        metrics: { sampleSize: points.length, sse: NaN, sst: NaN, r2: NaN, adjR2: NaN, rmse: NaN, mae: NaN, logLoss: NaN },
-        residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN },
-        warnings
+        coefficients:[NaN,NaN], metrics:{sampleSize:0}, residuals:{mean:NaN,sd:NaN,min:NaN,max:NaN},
+        warnings:['Binary logistic regression requires finite X values and Y encoded exactly as 0 or 1. Invalid values were not clamped.'],
+        available:false
       };
     }
-    let beta0 = 0;
-    let beta1 = 0;
-    const learningRate = 0.01;
-    const tolerance = 1e-6;
-    const maxIterations = 1000;
-    let iteration = 0;
-    for(; iteration < maxIterations; iteration++){
-      let grad0 = 0;
-      let grad1 = 0;
-      logisticPoints.forEach(pt => {
-        const z = beta0 + beta1 * pt.x;
-        const pred = 1 / (1 + Math.exp(-z));
-        const error = pred - pt.y;
-        grad0 += error;
-        grad1 += error * pt.x;
-      });
-      grad0 /= logisticPoints.length;
-      grad1 /= logisticPoints.length;
-      const delta0 = learningRate * grad0;
-      const delta1 = learningRate * grad1;
-      beta0 -= delta0;
-      beta1 -= delta1;
-      if(Math.abs(delta0) < tolerance && Math.abs(delta1) < tolerance){
-        break;
+    const n=logisticPoints.length;
+    const eventCount=logisticPoints.reduce((sum,pt)=>sum+pt.y,0);
+    if(n<3 || eventCount===0 || eventCount===n){
+      return {coefficients:[NaN,NaN],metrics:{sampleSize:n},residuals:{mean:NaN,sd:NaN,min:NaN,max:NaN},warnings:['Logistic regression requires at least one event and one non-event.'],available:false};
+    }
+    const meanX=logisticPoints.reduce((sum,pt)=>sum+pt.x,0)/n;
+    const scaleX=Math.sqrt(logisticPoints.reduce((sum,pt)=>sum+Math.pow(pt.x-meanX,2),0)/Math.max(n-1,1));
+    if(!(scaleX>0)){
+      return {coefficients:[NaN,NaN],metrics:{sampleSize:n},residuals:{mean:NaN,sd:NaN,min:NaN,max:NaN},warnings:['Logistic regression requires variation in X.'],available:false};
+    }
+    const xs=logisticPoints.map(pt=>(pt.x-meanX)/scaleX);
+    const ys=logisticPoints.map(pt=>pt.y);
+    const sigmoid=z=>z>=0 ? 1/(1+Math.exp(-Math.min(z,40))) : Math.exp(Math.max(z,-40))/(1+Math.exp(Math.max(z,-40)));
+    const logLikelihood=(b0,b1)=>ys.reduce((sum,y,i)=>{
+      const p=Math.max(1e-15,Math.min(1-1e-15,sigmoid(b0+b1*xs[i])));
+      return sum+y*Math.log(p)+(1-y)*Math.log(1-p);
+    },0);
+    let b0=Math.log(eventCount/(n-eventCount));
+    let b1=0;
+    let converged=false;
+    let information=null;
+    let iteration=0;
+    let currentLl=logLikelihood(b0,b1);
+    for(;iteration<100;iteration++){
+      let score0=0,score1=0,i00=0,i01=0,i11=0;
+      for(let i=0;i<n;i++){
+        const p=sigmoid(b0+b1*xs[i]);
+        const w=Math.max(p*(1-p),1e-12);
+        const residual=ys[i]-p;
+        score0+=residual; score1+=residual*xs[i];
+        i00+=w; i01+=w*xs[i]; i11+=w*xs[i]*xs[i];
+      }
+      const det=i00*i11-i01*i01;
+      if(!(det>1e-14)){ warnings.push('The Fisher information matrix is singular; complete or quasi-complete separation is likely.'); break; }
+      const step0=(i11*score0-i01*score1)/det;
+      const step1=(-i01*score0+i00*score1)/det;
+      let factor=1;
+      let accepted=false;
+      while(factor>=1/1024){
+        const candidate0=b0+factor*step0;
+        const candidate1=b1+factor*step1;
+        const candidateLl=logLikelihood(candidate0,candidate1);
+        if(Number.isFinite(candidateLl) && candidateLl>=currentLl-1e-10){
+          b0=candidate0; b1=candidate1; currentLl=candidateLl; accepted=true; break;
+        }
+        factor/=2;
+      }
+      if(!accepted){ warnings.push('Logistic maximum-likelihood optimization could not find an improving Newton step.'); break; }
+      information=[[i00,i01],[i01,i11]];
+      if(Math.max(Math.abs(factor*step0),Math.abs(factor*step1))<1e-9){ converged=true; break; }
+      if(Math.abs(b0)>30 || Math.abs(b1)>30){ warnings.push('Very large coefficients indicate complete or quasi-complete separation; Wald inference is unreliable.'); break; }
+    }
+    if(!converged) warnings.push('Logistic maximum-likelihood fit did not fully converge.');
+    const beta1=b1/scaleX;
+    const beta0=b0-beta1*meanX;
+    const predict=x=>sigmoid(beta0+beta1*x);
+    const predictions=logisticPoints.map(pt=>predict(pt.x));
+    const residuals=predictions.map((p,i)=>ys[i]-p);
+    const eps=1e-15;
+    const ll=logisticPoints.reduce((sum,pt,i)=>{const p=Math.max(eps,Math.min(1-eps,predictions[i]));return sum+pt.y*Math.log(p)+(1-pt.y)*Math.log(1-p);},0);
+    const meanY=eventCount/n;
+    const nullLl=ys.reduce((sum,y)=>sum+y*Math.log(meanY)+(1-y)*Math.log(1-meanY),0);
+    const pseudoR2=1-(ll/nullLl);
+    let covariance=null;
+    if(information){
+      const det=information[0][0]*information[1][1]-information[0][1]*information[1][0];
+      if(det>0){
+        const covStd=[[information[1][1]/det,-information[0][1]/det],[-information[1][0]/det,information[0][0]/det]];
+        const transform=[[1, -meanX/scaleX],[0,1/scaleX]];
+        covariance=transform.map(row=>transform.map((_,j)=>row.reduce((sum,v,k)=>sum+v*covStd[k].reduce((inner,c,l)=>inner+c*transform[j][l],0),0)));
       }
     }
-    const predict = (x) => 1 / (1 + Math.exp(-(beta0 + beta1 * x)));
-    const predictions = logisticPoints.map(pt => predict(pt.x));
-    const residuals = predictions.map((pred, idx) => logisticPoints[idx].y - pred);
-    const sse = residuals.reduce((sum,val)=>sum+val*val,0);
-    const rmse = Math.sqrt(sse / logisticPoints.length);
-    const mae = residuals.reduce((sum,val)=>sum+Math.abs(val),0)/logisticPoints.length;
-    const eps = 1e-9;
-    const logLoss = logisticPoints.reduce((sum, pt, idx) => {
-      const pred = Math.min(1 - eps, Math.max(eps, predictions[idx]));
-      return sum - (pt.y * Math.log(pred) + (1 - pt.y) * Math.log(1 - pred));
-    }, 0) / logisticPoints.length;
-    const meanY = logisticPoints.reduce((sum, pt) => sum + pt.y, 0) / logisticPoints.length;
-    const nullLoss = - (meanY * Math.log(Math.min(1 - eps, Math.max(eps, meanY))) + (1 - meanY) * Math.log(Math.min(1 - eps, Math.max(eps, 1 - meanY))));
-    const pseudoR2 = Number.isFinite(nullLoss) && nullLoss > 0 ? 1 - (logLoss / nullLoss) : NaN;
-    const diagnostics = buildExtendedRegressionDiagnostics({
-      residuals,
-      points: logisticPoints,
-      predictions,
-      parameterCount: 2
-    });
-    const design = logisticPoints.map(pt => [1, pt.x]);
-    let xtwxInv;
-    if(hasMatrixOps){
-      const designT = safeTranspose(design);
-      if(designT){
-        const weights = predictions.map(p => p * (1 - p));
-        const weightedDesign = design.map((row, idx) => row.map(val => val * weights[idx]));
-        const xtwx = safeMultiply(designT, weightedDesign);
-        if(xtwx){
-          xtwxInv = safeInverse(xtwx);
-        }
-      }
-    }else{
-      console.debug('Debug:', debugNs, 'logistic matrix operations unavailable; skipping coefficient variance');
-    }
-    let coefficientStats = [];
-    let coefficientCovariance = null;
-    if(xtwxInv){
-      coefficientStats = buildCoefficientStats({
-        coefficients: [beta0, beta1],
-        xtxInv: xtwxInv,
-        residuals,
-        alpha,
-        termLabels: ['Intercept','Slope'],
-        degreesOfFreedom: logisticPoints.length - 2
-      });
-      coefficientCovariance = buildCoefficientCovariance({
-        xtxInv: xtwxInv,
-        residuals,
-        coefficientCount: 2
-      });
-    }
-    let intervalSummary = null;
-    let intervalSamples = [];
-    let zCritical = NaN;
-    if(xtwxInv){
-      const normal = jStatLib?.normal;
-      zCritical = (normal && typeof normal.inv === 'function') ? normal.inv(1 - alpha/2, 0, 1) : NaN;
-      const minX = Number.isFinite(domain?.minX) ? domain.minX : Math.min(...logisticPoints.map(pt => pt.x));
-      const maxX = Number.isFinite(domain?.maxX) ? domain.maxX : Math.max(...logisticPoints.map(pt => pt.x));
-      if(Number.isFinite(zCritical) && Number.isFinite(minX) && Number.isFinite(maxX) && minX !== maxX){
-        const sampleCount = 160;
-        const step = (maxX - minX) / (sampleCount - 1);
-        let ciMin = Infinity, ciMax = -Infinity, piMin = Infinity, piMax = -Infinity;
-        for(let i=0;i<sampleCount;i++){
-          const xVal = i === sampleCount - 1 ? maxX : (minX + step * i);
-          const eta = beta0 + beta1 * xVal;
-          const pHat = 1 / (1 + Math.exp(-eta));
-          const basis = [1, xVal];
-          const xtwxVec = xtwxInv.map(row => row.reduce((sum,val,colIdx)=>sum + val * basis[colIdx],0));
-          const varEta = xtwxVec.reduce((sum,val,idx)=>sum + (basis[idx] * val),0);
-          const seEta = Number.isFinite(varEta) && varEta >= 0 ? Math.sqrt(varEta) : NaN;
-          const ciHalf = Number.isFinite(seEta) ? zCritical * seEta * pHat * (1 - pHat) : NaN;
-          const predHalf = Number.isFinite(pHat) ? zCritical * Math.sqrt(Math.max(pHat * (1 - pHat), 0)) : NaN;
-          const ciLow = Number.isFinite(ciHalf) ? Math.max(0, Math.min(1, pHat - ciHalf)) : NaN;
-          const ciHigh = Number.isFinite(ciHalf) ? Math.max(0, Math.min(1, pHat + ciHalf)) : NaN;
-          const piLow = Number.isFinite(predHalf) ? Math.max(0, Math.min(1, pHat - predHalf)) : NaN;
-          const piHigh = Number.isFinite(predHalf) ? Math.max(0, Math.min(1, pHat + predHalf)) : NaN;
-          if(Number.isFinite(ciLow) && ciLow < ciMin) ciMin = ciLow;
-          if(Number.isFinite(ciHigh) && ciHigh > ciMax) ciMax = ciHigh;
-          if(Number.isFinite(piLow) && piLow < piMin) piMin = piLow;
-          if(Number.isFinite(piHigh) && piHigh > piMax) piMax = piHigh;
-          intervalSamples.push({ x: xVal, y: pHat, ciLow, ciHigh, piLow, piHigh });
-        }
-        intervalSummary = {
-          ciMin: Number.isFinite(ciMin) ? ciMin : NaN,
-          ciMax: Number.isFinite(ciMax) ? ciMax : NaN,
-          piMin: Number.isFinite(piMin) ? piMin : NaN,
-          piMax: Number.isFinite(piMax) ? piMax : NaN
-        };
-        console.debug('Debug:', debugNs, 'logistic interval samples generated', {
-          sampleCount: intervalSamples.length,
-          zCritical
-        });
+    const normal=jStatLib?.normal;
+    const zCritical=normal?.inv ? normal.inv(1-alpha/2,0,1) : 1.959963984540054;
+    const normalP=z=>normal?.cdf ? 2*(1-normal.cdf(Math.abs(z),0,1)) : NaN;
+    const coefficients=[beta0,beta1];
+    const coefficientStats=covariance ? coefficients.map((estimate,index)=>{
+      const se=Math.sqrt(Math.max(0,covariance[index][index]));
+      const z=estimate/se;
+      return {term:index===0?'Intercept':'Slope',estimate,se,statistic:z,z,pValue:normalP(z),ciLow:estimate-zCritical*se,ciHigh:estimate+zCritical*se,distribution:'normal'};
+    }) : [];
+    const minX=Number.isFinite(domain?.minX)?domain.minX:Math.min(...logisticPoints.map(pt=>pt.x));
+    const maxX=Number.isFinite(domain?.maxX)?domain.maxX:Math.max(...logisticPoints.map(pt=>pt.x));
+    const intervalSamples=[];
+    if(covariance && maxX>minX){
+      for(let i=0;i<160;i++){
+        const x=i===159?maxX:minX+(maxX-minX)*i/159;
+        const eta=beta0+beta1*x;
+        const variance=Math.max(0,covariance[0][0]+2*x*covariance[0][1]+x*x*covariance[1][1]);
+        const half=zCritical*Math.sqrt(variance);
+        intervalSamples.push({x,y:predict(x),ciLow:sigmoid(eta-half),ciHigh:sigmoid(eta+half),piLow:NaN,piHigh:NaN});
       }
     }
     return {
-      coefficients: [beta0, beta1],
-      metrics: {
-        sampleSize: logisticPoints.length,
-        predictors: 1,
-        sse,
-        sst: NaN,
-        r2: pseudoR2,
-        adjR2: pseudoR2,
-        rmse,
-        mae,
-        logLoss,
-        iterations: iteration + 1
-      },
-      residuals: summarizeResiduals(residuals),
-      predictions,
-      predict,
-      diagnostics,
-      coefficientStats,
-      coefficientCovariance,
-      intervals: intervalSummary ? {
-        alpha,
-        zCritical,
-        samples: intervalSamples,
-        summary: intervalSummary
-      } : null,
-      summary: {
-        intercept: beta0,
-        slope: beta1,
-        equation: `p(x) = 1 / (1 + e^{-(${beta0.toFixed(4)} + ${beta1.toFixed(4)}x)})`,
-        parameters: {
-          Intercept: beta0,
-          Slope: beta1
-        },
-        primaryParameter: {
-          label: 'Slope',
-          value: beta1
-        }
-      },
+      available:true, coefficients,
+      metrics:{sampleSize:n,predictors:1,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
+      residuals:summarizeResiduals(residuals), predictions, predict,
+      diagnostics:buildExtendedRegressionDiagnostics({residuals,points:logisticPoints,predictions,parameterCount:2}),
+      coefficientStats, coefficientCovariance:covariance,
+      intervals:intervalSamples.length?{alpha,zCritical,samples:intervalSamples,summary:null,kind:'mean-probability-confidence'}:null,
+      summary:{intercept:beta0,slope:beta1,equation:`logit(p) = ${beta0.toFixed(4)} + ${beta1.toFixed(4)}x`,parameters:{Intercept:beta0,Slope:beta1,OddsRatioPerUnitX:Math.exp(beta1)},primaryParameter:{label:'Odds ratio per unit X',value:Math.exp(beta1)}},
       warnings
     };
   };
@@ -2155,7 +2085,7 @@
       summary: {
         intercept,
         slope: phi[0] ?? intercept,
-        equation: `ARIMA(${p},${d},0)` ,
+        equation: `Conditional AR(${p}) fitted after ${d} difference${d===1?'':'s'}` ,
         parameters: summaryParameters,
         primaryParameter
       },
@@ -2469,7 +2399,7 @@
       summary: {
         intercept: execution.level,
         slope: execution.trend,
-        equation: 'Holt-Winters (additive)',
+        equation: 'Additive Holt-Winters point forecast',
         parameters,
         primaryParameter: {
           label: 'Trend',
@@ -3056,8 +2986,8 @@
     { id: 'doseResponse5pl', family: 'Dose-response', label: '5PL dose-response', implemented: true },
     { id: 'gaussian', family: 'Gaussian', label: 'Gaussian', implemented: true },
     { id: 'gompertz', family: 'Growth', label: 'Gompertz growth', implemented: true },
-    { id: 'arima', family: 'Forecasting', label: 'ARIMA', implemented: true },
-    { id: 'holtWinters', family: 'Forecasting', label: 'Holt-Winters', implemented: true },
+    { id: 'arima', family: 'Forecasting', label: 'Differenced autoregression AR(p)', implemented: true },
+    { id: 'holtWinters', family: 'Forecasting', label: 'Additive Holt-Winters (point forecast)', implemented: true },
     { id: 'bindingSaturation', family: 'Binding', label: 'Binding - saturation', implemented: true },
     { id: 'bindingCompetitive', family: 'Binding', label: 'Binding - competitive', implemented: true },
     { id: 'enzymeKineticsSubstrate', family: 'Enzyme kinetics', label: 'Velocity as function of substrate', implemented: true },
@@ -4300,7 +4230,7 @@
     return { fStatistic, pValue, df1, df2 };
   };
 
-  const GROUPED_GLOBAL_FIT_UNSUPPORTED_MODES = new Set(['deming', 'orthogonal', 'lowess', 'spline', 'arima', 'holtwinters']);
+  const GROUPED_GLOBAL_FIT_UNSUPPORTED_MODES = new Set(['deming', 'orthogonal', 'lowess', 'spline', 'arima', 'holtwinters', 'logistic']);
 
   if(!regressionTools.fitGroupedRegression){
     regressionTools.fitGroupedRegression = function fitGroupedRegression(groupedSeries, options = {}){

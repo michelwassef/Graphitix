@@ -25,7 +25,6 @@ describe('Heatmap stats formatting', () => {
         font: '',
         measureText: text => ({ width: String(text || '').length * 8 })
       }));
-      console.debug('Debug: heatmap stats test stubbed canvas context'); // Debug: stub canvas for measureText
     }
     require('../js/vendor.js');
     require('../js/shared/chartStyle.js');
@@ -47,7 +46,6 @@ describe('Heatmap stats formatting', () => {
         const instance = originalCreateStandardTable.apply(this, arguments);
         if(instance && arguments?.[0]?.id === 'heatmapHot'){
           global.__LAST_HEATMAP_HOT__ = instance;
-          console.debug('Debug: heatmap stats test captured grid instance', { hasInstance: !!instance }); // Debug: capture test hot instance
         }
         return instance;
       };
@@ -76,7 +74,6 @@ describe('Heatmap stats formatting', () => {
       ['G3', 3, -3]
     ];
     hot.loadData(negativeCorrelationMatrix);
-    console.debug('Debug: heatmap stats test data loaded', { rows: negativeCorrelationMatrix.length }); // Debug: verify test dataset load
     await ensureCorrelationView();
     window.Components.heatmap.draw();
     await flushAsyncWork(10);
@@ -96,14 +93,12 @@ describe('Heatmap stats formatting', () => {
       ['C', 3, 4]
     ];
     hot.loadData(maliciousMatrix);
-    console.debug('Debug: heatmap stats sanitize test data loaded', { rows: maliciousMatrix.length }); // Debug: ensure dataset applied
     await ensureCorrelationView();
     window.Components.heatmap.draw();
     await flushAsyncWork(10);
 
     const statsContent = document.getElementById('heatmapStatsContent');
     expect(statsContent).toBeTruthy();
-    console.debug('Debug: heatmap stats sanitize test verifying DOM nodes', { childCount: statsContent.childElementCount }); // Debug: inspect stats DOM
     expect(statsContent.querySelector('script')).toBeNull();
     if((statsContent.textContent || '').trim()){
       expect(statsContent.textContent).toContain('<script>alert(1)</script>');
@@ -167,6 +162,273 @@ describe('Heatmap stats formatting', () => {
     } else {
       expect(statsContent).toBeTruthy();
     }
+  });
+
+  test('heavy Data-values canvas scene uses bounded display geometry', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.resolveHeavySceneLayout).toBeTruthy();
+
+    const layout = hooks.resolveHeavySceneLayout({
+      frameWidth: 396,
+      frameHeight: 338,
+      rowCount: 7358,
+      columnCount: 3,
+      maxRowLabelWidth: 70,
+      maxColumnLabelWidth: 90,
+      maxRowLabelFontSize: 16,
+      maxColumnLabelFontSize: 16,
+      titleFontSize: 16,
+      showRowDendrogram: true,
+      showColumnDendrogram: true
+    });
+
+    expect(layout.normalized).toBe(true);
+    expect(layout.totalWidth).toBe(396);
+    expect(layout.totalHeight).toBe(338);
+    expect(layout.heatmapWidth).toBeGreaterThan(40);
+    expect(layout.heatmapHeight).toBeGreaterThan(60);
+    expect(layout.cellWidth).toBeCloseTo(layout.heatmapWidth / 3, 8);
+    expect(layout.cellHeight).toBeCloseTo(layout.heatmapHeight / 7358, 8);
+    expect(layout.dataStartX + layout.heatmapWidth + layout.rowDendroWidth + layout.dendrogramPadding + layout.scalePadding + layout.scaleWidth + layout.scaleLabelGap)
+      .toBeLessThanOrEqual(layout.totalWidth);
+    expect(layout.dataStartY + layout.heatmapHeight + layout.columnDendroHeight + layout.dendrogramPadding)
+      .toBeLessThanOrEqual(layout.totalHeight);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', Array.from({ length: 1000 }, (_value, index) => (
+      `M 0 ${index} H 1 V ${index + 1} H 0`
+    )).join(' '));
+    expect(hooks.samplePreviewPathBranches(path, 320)).toBe(680);
+    expect((path.getAttribute('d').match(/M\s/g) || []).length).toBe(320);
+    expect(path.getAttribute('data-preview-source-branch-count')).toBe('1000');
+  });
+
+  test('render-runtime ownership clones cached models unless live retention is explicit', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.createRenderRuntime).toBeTruthy();
+
+    const model = {
+      type: 'values',
+      rowLabels: ['R1'],
+      cells: [[{ value: 1 }]]
+    };
+    const isolated = hooks.createRenderRuntime({ lastRenderModel: model });
+    expect(isolated.lastRenderModel).toEqual(model);
+    expect(isolated.lastRenderModel).not.toBe(model);
+    expect(isolated.lastRenderModel.cells).not.toBe(model.cells);
+
+    model.cells[0][0].value = 9;
+    expect(isolated.lastRenderModel.cells[0][0].value).toBe(1);
+
+    const retained = hooks.createRenderRuntime({ lastRenderModel: model }, { retainModel: true });
+    expect(retained.lastRenderModel).toBe(model);
+  });
+
+  test('logical Heatmap layout keeps optional reserves explicit and deterministic', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.resolveLogicalSceneLayout).toBeTruthy();
+
+    const base = hooks.resolveLogicalSceneLayout({
+      rowCount: 4,
+      columnCount: 3,
+      cellSize: 20,
+      scaledFontSize: 12,
+      titleFontSize: 16,
+      maxRowLabelFontSize: 12,
+      maxColumnLabelFontSize: 12,
+      maxRowLabelWidth: 48,
+      maxColumnLabelWidth: 56,
+      showRowDendrogram: true,
+      showColumnDendrogram: true,
+      rendererAspectLocked: true
+    });
+    const extended = hooks.resolveLogicalSceneLayout({
+      rowCount: 4,
+      columnCount: 3,
+      cellSize: 20,
+      scaledFontSize: 12,
+      titleFontSize: 16,
+      maxRowLabelFontSize: 12,
+      maxColumnLabelFontSize: 12,
+      maxRowLabelWidth: 48,
+      maxColumnLabelWidth: 56,
+      showRowDendrogram: true,
+      showColumnDendrogram: true,
+      rendererAspectLocked: true,
+      extraLabelColumnWidth: 17,
+      extraLabelRowHeight: 13
+    });
+
+    expect(base.normalized).toBe(false);
+    expect(base.cellWidth).toBe(20);
+    expect(base.cellHeight).toBe(20);
+    expect(base.heatmapWidth).toBe(60);
+    expect(base.heatmapHeight).toBe(80);
+    expect(extended.totalWidth - base.totalWidth).toBe(17);
+    expect(extended.totalHeight - base.totalHeight).toBe(13);
+    expect(extended.labelColumnWidth - base.labelColumnWidth).toBe(17);
+    expect(extended.labelRowHeight - base.labelRowHeight).toBe(13);
+  });
+
+  test('heavy Data-values label fitting is isolated from the normal font contract', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.resolveRoleTextScales).toBeTruthy();
+
+    const normal = hooks.resolveRoleTextScales({
+      metrics: {
+        normalizedHeavyScene: false,
+        cellSize: 20,
+        maxRowLabelFontSize: 16,
+        maxColumnLabelFontSize: 16,
+        scaleTickGap: 30,
+        scaleTickFontSize: 12
+      },
+      scaleX: 1,
+      scaleY: 1,
+      fallbackScale: 1,
+      independentLabels: true
+    });
+    expect(normal).toEqual({
+      rowLabel: 1,
+      columnLabel: 1,
+      graphTitle: 1,
+      scaleTick: 1
+    });
+
+    const heavy = hooks.resolveRoleTextScales({
+      metrics: {
+        normalizedHeavyScene: true,
+        cellWidth: 32,
+        cellHeight: 0.02,
+        maxRowLabelFontSize: 16,
+        maxColumnLabelFontSize: 16,
+        scaleTickGap: 30,
+        scaleTickFontSize: 12
+      },
+      scaleX: 1,
+      scaleY: 1,
+      fallbackScale: 1,
+      independentLabels: true
+    });
+    expect(heavy.rowLabel).toBeGreaterThan(0);
+    expect(heavy.rowLabel).toBeLessThan(0.002);
+    expect(heavy.columnLabel).toBeGreaterThan(0.9);
+    expect(heavy.graphTitle).toBe(1);
+    expect(heavy.scaleTick).toBe(1);
+  });
+
+  test('detached Heatmap preview projections retain their exact owner tab token', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.buildPreviewSvgFromSource).toBeTruthy();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 400 300');
+    svg.dataset.fontTabId = 'workspace-heavy-1';
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('data-layer', 'row-labels');
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.textContent = 'Row 1';
+    group.appendChild(label);
+    svg.appendChild(group);
+
+    const preview = hooks.buildPreviewSvgFromSource(svg, { ownerTabId: 'workspace-heavy-1' });
+    expect(preview).toBeTruthy();
+    expect(preview.getAttribute('data-preview-source')).toBe('true');
+    expect(preview.getAttribute('data-workspace-tab-id')).toBe('workspace-heavy-1');
+    expect(preview.getAttribute('data-preview-owner-tab-id')).toBe('workspace-heavy-1');
+    expect(preview.dataset.fontTabId).toBe('workspace-heavy-1');
+  });
+
+  test('heavy Data-values export replaces the live canvas with complete SVG-safe matrix content', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.buildExportSvgFromSource).toBeTruthy();
+
+    const namespace = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(namespace, 'svg');
+    svg.setAttribute('viewBox', '0 0 200 120');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.dataset.heatmapSceneMode = 'normalized-canvas';
+    svg.dataset.heatmapSceneWidth = '200';
+    svg.dataset.heatmapSceneHeight = '120';
+    svg.dataset.heatmapModelType = 'values';
+    svg.dataset.heatmapCellRenderMode = 'canvas';
+
+    const rowLabels = document.createElementNS(namespace, 'g');
+    rowLabels.setAttribute('data-layer', 'row-labels');
+    for(let index = 0; index < 4; index += 1){
+      const label = document.createElementNS(namespace, 'text');
+      label.textContent = `Row ${index + 1}`;
+      rowLabels.appendChild(label);
+    }
+    svg.appendChild(rowLabels);
+
+    const cellLayer = document.createElementNS(namespace, 'g');
+    cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
+    cellLayer.setAttribute('data-render-mode', 'canvas');
+    cellLayer.setAttribute('data-heatmap-data-start-x', '20');
+    cellLayer.setAttribute('data-heatmap-data-start-y', '10');
+    cellLayer.setAttribute('data-heatmap-width', '60');
+    cellLayer.setAttribute('data-heatmap-height', '80');
+    const foreignObject = document.createElementNS(namespace, 'foreignObject');
+    foreignObject.setAttribute('x', '20');
+    foreignObject.setAttribute('y', '10');
+    foreignObject.setAttribute('width', '60');
+    foreignObject.setAttribute('height', '80');
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 160;
+    canvas.toDataURL = jest.fn(() => 'data:image/png;base64,aGVhdG1hcA==');
+    foreignObject.appendChild(canvas);
+    cellLayer.appendChild(foreignObject);
+    cellLayer.__heatmapCanvasVectorExportState = {
+      orderedCells: [
+        [{ fill: '#ff0000' }, { fill: '#00ff00' }, { fill: '#ff0000' }],
+        [{ fill: '#00ff00' }, { fill: '#ff0000' }, { fill: '#00ff00' }],
+        [{ fill: '#ff0000' }, { fill: '#00ff00' }, { fill: '#ff0000' }],
+        [{ fill: '#00ff00' }, { fill: '#ff0000' }, { fill: '#00ff00' }]
+      ],
+      rowCount: 4,
+      columnCount: 3,
+      cellSize: 20,
+      cellWidth: 20,
+      cellHeight: 20,
+      dataStartX: 20,
+      dataStartY: 10,
+      heatmapWidth: 60,
+      heatmapHeight: 80,
+      cellValueFontSize: 8,
+      showCellText: false,
+      showCellGrid: true
+    };
+    svg.appendChild(cellLayer);
+
+    svg.setAttribute('viewBox', '0 0 120 120');
+    svg.style.width = '120px';
+    svg.style.height = '120px';
+    expect(hooks.applyCanvasLiveResizeProjection(svg)).toBe(true);
+    expect(svg.getAttribute('viewBox')).toBe('0 0 200 120');
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
+    expect(svg.style.width).toBe('100%');
+    expect(svg.style.height).toBe('100%');
+    expect(svg.dataset.heatmapLiveResizeProjection).toBe('true');
+
+    const vectorExport = hooks.buildExportSvgFromSource(svg);
+    expect(vectorExport).toBeTruthy();
+    expect(vectorExport.getAttribute('data-heatmap-export-projection')).toBe('vector-matrix');
+    expect(vectorExport.querySelectorAll('canvas, foreignObject')).toHaveLength(0);
+    expect(vectorExport.querySelectorAll('[data-layer="row-labels"] > text')).toHaveLength(4);
+    const vectorLayer = vectorExport.querySelector('[data-export-layer="heatmap-cells"]');
+    expect(vectorLayer.getAttribute('data-heatmap-vector-cell-count')).toBe('12');
+    expect(vectorLayer.querySelectorAll('[data-heatmap-vector-cell-bucket="1"]')).toHaveLength(2);
+    expect(vectorLayer.querySelector('[data-heatmap-vector-cell-bucket="1"]')?.getAttribute('stroke')).toBe('#fff');
+
+    delete cellLayer.__heatmapCanvasVectorExportState;
+    const rasterFallbackExport = hooks.buildExportSvgFromSource(svg);
+    expect(rasterFallbackExport).toBeTruthy();
+    expect(rasterFallbackExport.getAttribute('data-heatmap-export-projection')).toBe('raster-matrix-fallback');
+    expect(rasterFallbackExport.querySelectorAll('canvas, foreignObject')).toHaveLength(0);
+    const rasterFallbackImage = rasterFallbackExport.querySelector('image[data-heatmap-raster-export="1"]');
+    expect(rasterFallbackImage).toBeTruthy();
+    expect(rasterFallbackImage.getAttribute('href')).toBe('data:image/png;base64,aGVhdG1hcA==');
   });
 
   test('Data values scales row and column labels independently', () => {
@@ -501,7 +763,6 @@ describe('Heatmap stats formatting', () => {
       ['C', 5, 6]
     ];
     hot.loadData(longLabelMatrix);
-    console.debug('Debug: heatmap long label test data loaded', { rows: longLabelMatrix.length });
     await ensureCorrelationView();
     window.Components.heatmap.draw();
     await flushAsyncWork(10);
@@ -539,13 +800,25 @@ describe('Heatmap stats formatting', () => {
       }
     });
 
-    console.debug('Debug: heatmap title positioning test', {
-      titleY,
-      highestLabelTop,
-      titleAboveLabels: titleY < highestLabelTop
-    });
-
     // Title's y position should be above (smaller than) the highest label top extent
     expect(titleY).toBeLessThan(highestLabelTop);
   });
+  test('heavy SVG helpers compact dendrogram coordinates without changing geometry', () => {
+    const hooks = window.Components?.heatmap?.__testHooks;
+    expect(hooks?.formatSvgNumber(12.34567)).toBe('12.35');
+    expect(hooks?.formatSvgNumber(-0.0001)).toBe('0');
+    expect(hooks?.compactDendrogramBranch(
+      'vertical',
+      { x: 1.23456, y: 2.34567 },
+      { x: 3.45678, y: 4.56789 },
+      { x: 5.67891, y: 6.78912 }
+    )).toBe('M1.23 2.35H3.46V6.79H5.68');
+    expect(hooks?.compactDendrogramBranch(
+      'horizontal',
+      { x: 1.23456, y: 2.34567 },
+      { x: 3.45678, y: 4.56789 },
+      { x: 5.67891, y: 6.78912 }
+    )).toBe('M1.23 2.35V4.57H3.46V6.79');
+  });
+
 });

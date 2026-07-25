@@ -393,6 +393,7 @@
       type: String(tab.type || meta.type || '').trim() || null,
       reason: meta.reason || 'table-import',
       hotInstance,
+      mutationDepth: 0,
       deferredDrawCount: 0,
       paintCompletedAt: null,
       startedAt: global.performance?.now?.() ?? Date.now()
@@ -419,10 +420,80 @@
     return false;
   };
 
-  const hasOwnerProjectionTransaction = owner => {
+  const getOwnerProjectionTransaction = owner => {
     const tabId = resolveOwnerTabId(owner);
-    return !!(tabId && ownerProjectionTransactions.has(tabId));
+    return tabId ? (ownerProjectionTransactions.get(tabId) || null) : null;
   };
+
+  const isOwnerProjectionMutationActive = (transaction, hotInstance = null) => !!(
+    transaction
+    && hotNS.isOwnerProjectionTransactionCurrent(transaction)
+    && Number(transaction.mutationDepth) > 0
+    && (!hotInstance || !transaction.hotInstance || transaction.hotInstance === hotInstance)
+  );
+
+  // Scope only the synchronous table mutation owned by a projection transaction.
+  // Awaited work must open a new explicit scope so a real user edit can supersede
+  // the transaction while asynchronous import finalization is still pending.
+  hotNS.runOwnerProjectionMutation = function runOwnerProjectionMutation(transaction, callback){
+    if(typeof callback !== 'function'){
+      return undefined;
+    }
+    if(!hotNS.isOwnerProjectionTransactionCurrent(transaction)){
+      return callback();
+    }
+    transaction.mutationDepth = Math.max(0, Number(transaction.mutationDepth) || 0) + 1;
+    try{
+      return callback();
+    }finally{
+      transaction.mutationDepth = Math.max(0, (Number(transaction.mutationDepth) || 1) - 1);
+    }
+  };
+
+  const getSuppliedOwnerProjectionTransaction = (meta = {}) => (
+    meta.ownerProjectionTransaction || meta.projectionTransaction || null
+  );
+
+  const isMatchingOwnerProjectionCommit = (transaction, meta = {}) => {
+    const supplied = getSuppliedOwnerProjectionTransaction(meta);
+    return !!(
+      transaction
+      && supplied
+      && supplied.token
+      && transaction.token === supplied.token
+      && hotNS.isOwnerProjectionTransactionCurrent(transaction)
+    );
+  };
+
+  const interruptOwnerProjectionTransactionForUserMutation = (owner, meta = {}) => {
+    const transaction = getOwnerProjectionTransaction(owner) || getOwnerProjectionTransaction(meta);
+    if(!transaction){
+      return false;
+    }
+    ownerProjectionTransactions.delete(transaction.tabId);
+    const endedAt = global.performance?.now?.() ?? Date.now();
+    lastOwnerProjectionTransactions.set(transaction.tabId, {
+      token: transaction.token,
+      tabId: transaction.tabId,
+      type: transaction.type,
+      reason: transaction.reason,
+      deferredDrawCount: transaction.deferredDrawCount,
+      paintWaitMs: transaction.paintCompletedAt == null ? null : transaction.paintCompletedAt - transaction.startedAt,
+      totalMs: endedAt - transaction.startedAt,
+      projected: false,
+      finalProjectionRequests: 0,
+      interruptedByUserMutation: true,
+      interruptionReason: meta.reason || meta.source || 'table-user-mutation'
+    });
+    hotDebug('Debug: Shared.hot owner projection interrupted by user table mutation', {
+      tabId: transaction.tabId,
+      transactionReason: transaction.reason || null,
+      mutationReason: meta.reason || meta.source || null
+    });
+    return true;
+  };
+
+  hotNS.interruptOwnerProjectionTransactionForUserMutation = interruptOwnerProjectionTransactionForUserMutation;
 
   hotNS.isOwnerProjectionTransactionOwnerActive = function isOwnerProjectionTransactionOwnerActive(transaction){
     if(!hotNS.isOwnerProjectionTransactionCurrent(transaction)){
@@ -548,6 +619,9 @@
     if (!hotInstance || typeof hotInstance !== 'object') {
       return { checked: false, payload: null };
     }
+    if (Shared.dataViews?.isTableProjectionActive?.(hotInstance)) {
+      return { checked: true, payload: null };
+    }
     const keys = Object.keys(hotInstance);
     for (let i = 0; i < keys.length; i += 1) {
       const key = keys[i];
@@ -559,8 +633,21 @@
         continue;
       }
       try {
-        if (meta.exclusions && typeof manager.updateActiveExclusions === 'function') {
-          manager.updateActiveExclusions(meta.exclusions);
+        if(typeof manager.updateActiveData === 'function' && typeof hotInstance.getData === 'function'){
+          manager.updateActiveData(hotInstance.getData() || []);
+        }
+        const updateExclusions = manager.updateActiveExclusions || manager.updateSharedExclusions;
+        if (typeof updateExclusions === 'function') {
+          const exclusions = Object.prototype.hasOwnProperty.call(meta, 'exclusions')
+            ? meta.exclusions
+            : hotInstance.exportExclusions?.();
+          updateExclusions.call(manager, exclusions || null);
+        }
+        if (typeof manager.updateActiveFilters === 'function') {
+          const filters = Object.prototype.hasOwnProperty.call(meta, 'filters')
+            ? meta.filters
+            : hotInstance.exportFilters?.();
+          manager.updateActiveFilters(filters || null);
         }
         if (typeof manager.getViewCount === 'function' && manager.getViewCount() <= 1) {
           return { checked: true, payload: null };
@@ -680,7 +767,7 @@
     }
     const effectiveReason = reason || 'table-data-change';
     if (isSessionPayloadSyncSuppressedSource(meta.source) || isSessionPayloadSyncSuppressedInstance(meta)) {
-      console.debug('Debug: Shared.hot owner-tab payload sync suppressed for system table mutation', {
+      hotDebug('Debug: Shared.hot owner-tab payload sync suppressed for system table mutation', {
         reason: effectiveReason,
         source: meta.source || null,
         changeCount: normalizedChanges.length,
@@ -691,7 +778,7 @@
     }
     const { session, tab } = resolveTableOwnerSessionAndTab({ ...meta, reason: effectiveReason });
     if (!tab || !tab.type) {
-      console.debug('Debug: Shared.hot owner-tab payload sync skipped', {
+      hotDebug('Debug: Shared.hot owner-tab payload sync skipped', {
         reason: effectiveReason,
         source: meta.source || null,
         hasTab: !!tab,
@@ -699,13 +786,30 @@
       });
       return false;
     }
-    if(hasOwnerProjectionTransaction(tab)){
+    const suppliedOwnerProjectionTransaction = getSuppliedOwnerProjectionTransaction(meta);
+    if(suppliedOwnerProjectionTransaction
+      && !hotNS.isOwnerProjectionTransactionCurrent(suppliedOwnerProjectionTransaction)){
       return false;
     }
-    // Lift restore-time draw suppression before the component schedules its
-    // afterChange redraw, so the first data edit after a file reopen updates the
-    // graph instead of waiting for a later resize to clear the guard.
-    releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    const ownerProjectionTransaction = getOwnerProjectionTransaction(tab);
+    if(ownerProjectionTransaction){
+      if(isOwnerProjectionMutationActive(ownerProjectionTransaction, meta.hotInstance || null)
+        || isMatchingOwnerProjectionCommit(ownerProjectionTransaction, meta)){
+        return false;
+      }
+      // The visible table is a projection, but a live user mutation is canonical.
+      // It supersedes the still-pending import/projection transaction so the edit is
+      // committed immediately and its graph draw is not deferred behind stale work.
+      interruptOwnerProjectionTransactionForUserMutation(tab, {
+        reason: effectiveReason,
+        source: meta.source || null
+      });
+    }
+    // Only graph-relevant edits release restore suppression. Title-only edits in
+    // data-empty columns remain durable table changes without invalidating the plot.
+    if(meta.affectsAnalysis !== false){
+      releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    }
     if (typeof session?.updateTabPayload !== 'function') {
       return markTabUserModifiedForOwner(tab, effectiveReason, {
         source: meta.source || null,
@@ -754,7 +858,8 @@
       }
       return session.commitTabPayload(tab, nextPayload, {
         reason: effectiveReason,
-        origin: 'user'
+        origin: 'user',
+        preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
       });
     }
     const updated = session.updateTabPayload(tab, draft => {
@@ -820,7 +925,8 @@
       return nextPayload;
     }, {
       reason: effectiveReason,
-      origin: 'user'
+      origin: 'user',
+      preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
     });
     if (!updated) {
       if (payloadDataMatchesChanges(tab.payload, normalizedChanges)) {
@@ -846,17 +952,37 @@
     if(!tab?.type || typeof session?.commitTabPayload !== 'function'){
       return false;
     }
-    releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    const suppliedOwnerProjectionTransaction = getSuppliedOwnerProjectionTransaction(meta);
+    if(suppliedOwnerProjectionTransaction
+      && !hotNS.isOwnerProjectionTransactionCurrent(suppliedOwnerProjectionTransaction)){
+      return false;
+    }
+    const ownerProjectionTransaction = getOwnerProjectionTransaction(tab);
+    if(ownerProjectionTransaction){
+      if(isOwnerProjectionMutationActive(ownerProjectionTransaction, meta.hotInstance || null)){
+        return false;
+      }
+      if(!isMatchingOwnerProjectionCommit(ownerProjectionTransaction, meta)){
+        interruptOwnerProjectionTransactionForUserMutation(tab, {
+          reason: effectiveReason,
+          source: meta.source || null
+        });
+      }
+    }
+    if(meta.affectsAnalysis !== false){
+      releaseOwnerTabRestoreSuppression(tab, effectiveReason);
+    }
     const component = resolveComponentForTab(tab);
     const currentPayload = tab.payload && typeof tab.payload === 'object'
       ? tab.payload
       : createPayloadForTab(tab);
+    const payloadMatrix = matrix.map(row => Array.isArray(row) ? row.slice() : []);
     let nextPayload = {
       ...(currentPayload || {}),
-      data: matrix.slice()
+      data: payloadMatrix
     };
     if(typeof component?.applyTablePayloadData === 'function'){
-      const applied = component.applyTablePayloadData(nextPayload, matrix, {
+      const applied = component.applyTablePayloadData(nextPayload, payloadMatrix, {
         tab,
         reason: effectiveReason,
         hotInstance: meta.hotInstance || null,
@@ -879,12 +1005,13 @@
     }
     return session.commitTabPayload(tab, nextPayload, {
       reason: effectiveReason,
-      origin: 'user'
+      origin: 'user',
+      preserveRuntimeCacheOnPayloadChange: meta.affectsAnalysis === false
     });
   };
 
   const syncActiveTabPayloadDataChanges = (changes, reason, meta = {}) => {
-    console.debug('Debug: Shared.hot legacy active-tab sync entry redirected to owner-tab sync', {
+    hotDebug('Debug: Shared.hot active-table payload sync routed to owner tab', {
       reason: reason || 'table-data-change',
       source: meta?.source || null,
       explicitTabId: meta?.tabId || meta?.workspaceTabId || null,
@@ -926,8 +1053,15 @@
     if (!tab || !tab.type || typeof session?.updateTabPayload !== 'function') {
       return false;
     }
-    if(hasOwnerProjectionTransaction(tab)){
-      return false;
+    const ownerProjectionTransaction = getOwnerProjectionTransaction(tab);
+    if(ownerProjectionTransaction){
+      if(isOwnerProjectionMutationActive(ownerProjectionTransaction, hotInstance)){
+        return false;
+      }
+      interruptOwnerProjectionTransactionForUserMutation(tab, {
+        reason: effectiveReason,
+        source: meta.source || null
+      });
     }
     releaseOwnerTabRestoreSuppression(tab, effectiveReason);
     return session.updateTabPayload(tab, draft => {
@@ -1030,9 +1164,210 @@
     return !!owner;
   };
 
+  // Keyboard shortcut routing is intentionally shared and transient. AG Grid
+  // may move DOM focus after row-header modifier clicks, while the logical
+  // selection remains owned by this adapter. A document-level router keeps
+  // Ctrl/Cmd+C and Ctrl/Cmd+X attached to the last table the user interacted
+  // with, without making DOM focus or a module-global table singleton canonical.
+  const hotKeyboardShortcutRouters = hotNS.__keyboardShortcutRouters instanceof WeakMap
+    ? hotNS.__keyboardShortcutRouters
+    : new WeakMap();
+  hotNS.__keyboardShortcutRouters = hotKeyboardShortcutRouters;
 
+  const resolveKeyboardEventElement = target => {
+    if(target && target.nodeType === 1){
+      return target;
+    }
+    if(target && target.nodeType === 3){
+      const parent = target.parentElement || target.parentNode;
+      return parent && parent.nodeType === 1 ? parent : null;
+    }
+    return null;
+  };
 
+  const isKeyboardOwnerContainerVisible = container => {
+    if(!container || !isConnectedNode(container)){
+      return false;
+    }
+    const doc = container.ownerDocument || global.document || null;
+    const win = doc?.defaultView || global;
+    let node = container;
+    while(node && node.nodeType === 1){
+      if(node.hidden === true || node.getAttribute?.('aria-hidden') === 'true'){
+        return false;
+      }
+      const inlineDisplay = String(node.style?.display || '').trim().toLowerCase();
+      const inlineVisibility = String(node.style?.visibility || '').trim().toLowerCase();
+      if(inlineDisplay === 'none' || inlineVisibility === 'hidden' || inlineVisibility === 'collapse'){
+        return false;
+      }
+      try{
+        const computed = typeof win?.getComputedStyle === 'function' ? win.getComputedStyle(node) : null;
+        if(computed && (computed.display === 'none' || computed.visibility === 'hidden' || computed.visibility === 'collapse')){
+          return false;
+        }
+      }catch(err){
+        // Visibility probing is best-effort; ownership checks still apply.
+      }
+      if(node === doc?.documentElement){
+        break;
+      }
+      node = node.parentElement || null;
+    }
+    return true;
+  };
 
+  const isKeyboardShortcutEntryEligible = (entry, options = {}) => {
+    if(!entry || entry.destroyed === true || typeof entry.handleShortcut !== 'function'){
+      return false;
+    }
+    const instance = entry.instance || null;
+    if(instance?.destroyed === true || instance?.__destroyed === true){
+      return false;
+    }
+    if(!isKeyboardOwnerContainerVisible(entry.container)){
+      return false;
+    }
+    const ownerTabId = normalizeOwnerTabId(
+      instance?.__workspaceTabId
+      || instance?.__graphitixTabId
+      || entry.container?.dataset?.workspaceTabId
+      || entry.container?.__workspaceTabId
+    );
+    const activeTabId = normalizeOwnerTabId(resolveActiveTabId());
+    if(ownerTabId && activeTabId && ownerTabId !== activeTabId){
+      return false;
+    }
+    if(options.requireSelection !== false && typeof entry.hasSelection === 'function' && !entry.hasSelection()){
+      return false;
+    }
+    return true;
+  };
+
+  const findKeyboardShortcutEntryForNode = (router, node) => {
+    const element = resolveKeyboardEventElement(node);
+    if(!router || !element){
+      return null;
+    }
+    const entries = Array.from(router.entries || []);
+    for(let index = entries.length - 1; index >= 0; index -= 1){
+      const entry = entries[index];
+      if(isKeyboardShortcutEntryEligible(entry, { requireSelection: false })
+        && nodeContains(entry.container, element)){
+        return entry;
+      }
+    }
+    return null;
+  };
+
+  const ensureHotKeyboardShortcutRouter = doc => {
+    if(!doc || typeof doc.addEventListener !== 'function'){
+      return null;
+    }
+    const existing = hotKeyboardShortcutRouters.get(doc);
+    if(existing){
+      return existing;
+    }
+    const router = {
+      doc,
+      entries: new Set(),
+      activeEntry: null,
+      destroyed: false,
+      handlePointerDown: null,
+      handleFocusIn: null,
+      handleKeyDown: null
+    };
+    router.handlePointerDown = event => {
+      const directEntry = findKeyboardShortcutEntryForNode(router, event?.target || null);
+      router.activeEntry = directEntry || null;
+    };
+    router.handleFocusIn = event => {
+      const directEntry = findKeyboardShortcutEntryForNode(router, event?.target || null);
+      if(directEntry){
+        router.activeEntry = directEntry;
+        return;
+      }
+      const target = resolveKeyboardEventElement(event?.target || null);
+      if(target && target !== doc.body && target !== doc.documentElement){
+        router.activeEntry = null;
+      }
+    };
+    router.handleKeyDown = event => {
+      if(!event || event.defaultPrevented || event.altKey || event.shiftKey || event.isComposing
+        || !(event.ctrlKey || event.metaKey)){
+        return;
+      }
+      const key = String(event.key || '').toLowerCase();
+      if(key !== 'c' && key !== 'x'){
+        return;
+      }
+      const directEntry = findKeyboardShortcutEntryForNode(router, event.target)
+        || findKeyboardShortcutEntryForNode(router, doc.activeElement);
+      const entry = directEntry || router.activeEntry;
+      if(!isKeyboardShortcutEntryEligible(entry)){
+        if(router.activeEntry === entry){
+          router.activeEntry = null;
+        }
+        return;
+      }
+      const handled = entry.handleShortcut(event, key) === true;
+      if(handled){
+        router.activeEntry = entry;
+      }
+    };
+    doc.addEventListener('pointerdown', router.handlePointerDown, true);
+    doc.addEventListener('mousedown', router.handlePointerDown, true);
+    doc.addEventListener('focusin', router.handleFocusIn, true);
+    doc.addEventListener('keydown', router.handleKeyDown, true);
+    hotKeyboardShortcutRouters.set(doc, router);
+    return router;
+  };
+
+  const registerHotKeyboardShortcutOwner = options => {
+    const instance = options?.instance || null;
+    const container = options?.container || null;
+    const doc = options?.document || container?.ownerDocument || global.document || null;
+    const router = ensureHotKeyboardShortcutRouter(doc);
+    if(!router || !instance || !container || typeof options?.handleShortcut !== 'function'){
+      return null;
+    }
+    const entry = {
+      instance,
+      container,
+      handleShortcut: options.handleShortcut,
+      hasSelection: typeof options.hasSelection === 'function' ? options.hasSelection : null,
+      destroyed: false
+    };
+    router.entries.add(entry);
+    return {
+      activate(){
+        if(isKeyboardShortcutEntryEligible(entry, { requireSelection: false })){
+          router.activeEntry = entry;
+          return true;
+        }
+        return false;
+      },
+      unregister(){
+        if(entry.destroyed){
+          return;
+        }
+        entry.destroyed = true;
+        router.entries.delete(entry);
+        if(router.activeEntry === entry){
+          router.activeEntry = null;
+        }
+        if(router.entries.size || router.destroyed){
+          return;
+        }
+        router.destroyed = true;
+        try{ doc.removeEventListener('pointerdown', router.handlePointerDown, true); }catch(err){}
+        try{ doc.removeEventListener('mousedown', router.handlePointerDown, true); }catch(err){}
+        try{ doc.removeEventListener('focusin', router.handleFocusIn, true); }catch(err){}
+        try{ doc.removeEventListener('keydown', router.handleKeyDown, true); }catch(err){}
+        hotKeyboardShortcutRouters.delete(doc);
+      }
+    };
+  };
 
   const toNumber = (value)=>{
     const num = Number(value);
@@ -3070,6 +3405,8 @@
     let lastRange = null;
     let normalizedSelectionRange = null;
     let selectedHeaderColumns = new Set();
+    let selectedHeaderPhysicalRows = new Set();
+    let keyboardShortcutRegistration = null;
     let clipboardOutlineState = null;
     let normalizedClipboardOutlineRanges = [];
     let selectionOutline = null;
@@ -3201,6 +3538,7 @@
         clearPasteDrivenSelectionState();
       }
       clearSelectedHeaderColumns();
+      clearSelectedHeaderRows();
       setLastRange(normalized);
       if(options.syncGridApi !== false){
         syncGridApiSelectionToRange(api, normalized);
@@ -3278,6 +3616,12 @@
       }
     };
 
+    const clearSelectedHeaderRows = ()=>{
+      if(selectedHeaderPhysicalRows.size){
+        selectedHeaderPhysicalRows = new Set();
+      }
+    };
+
     const clearGridCellFocus = (api)=>{
       const gridApi = api || instance?.gridApi || null;
       try{
@@ -3299,6 +3643,7 @@
     };
 
     const focusGridContainer = ()=>{
+      keyboardShortcutRegistration?.activate?.();
       if(!container || typeof container.focus !== 'function'){
         return;
       }
@@ -4945,7 +5290,7 @@
       return visible;
     };
 
-    const resolveRangeOutlinePlacement = (selection, visibilityContext, hostRect)=>{
+    const resolveRangeOutlinePlacement = (selection, visibilityContext, hostRect, options = {})=>{
       const normalized = normalizeRange(selection);
       if(!normalized || !hostRect){
         return null;
@@ -5035,13 +5380,15 @@
         && normalized.from.row >= 0
         && normalized.from.row < pinRowCount);
       const shouldOverlayPinnedLeft = selectionInsidePinnedLeft || selectionIncludesPinnedDataColumn;
-      const edgeVisibility = resolveRangeOutlineEdgeVisibility(normalized, visibilityContext, {
-        startCell,
-        endCell,
-        startRectRaw,
-        endRectRaw
-      });
-      if(isFullColumnSelection && !isFullTableSelection){
+      const edgeVisibility = options.visiblePerimeter === true
+        ? { left: true, right: true, top: true, bottom: true }
+        : resolveRangeOutlineEdgeVisibility(normalized, visibilityContext, {
+            startCell,
+            endCell,
+            startRectRaw,
+            endRectRaw
+          });
+      if(options.visiblePerimeter !== true && isFullColumnSelection && !isFullTableSelection){
         edgeVisibility.top = false;
       }
       const bodySelectionClippedUnderPinnedTop = !!(usePinnedRows
@@ -5119,7 +5466,7 @@
         if(!outline){
           continue;
         }
-        const placement = resolveRangeOutlinePlacement(range, visibilityContext, hostRect);
+        const placement = resolveRangeOutlinePlacement(range, visibilityContext, hostRect, { visiblePerimeter: true });
         if(!placement){
           hideClipboardOutline(outline);
           continue;
@@ -6499,7 +6846,11 @@
         colHeaders = resolveColHeaders(colCount);
         rebuildColumns(instance.gridApi);
       }
-      triggerSchedule('afterChange', { source: changeSource || `UndoRedo.${direction}` });
+      triggerSchedule('afterChange', {
+        source: changeSource || `UndoRedo.${direction}`,
+        physicalChanges: list,
+        direction
+      });
       renderAg(instance.gridApi);
     };
 
@@ -6851,6 +7202,8 @@
       pendingViewportRestore = null;
       scrollViewportToTop();
       pendingViewportRestore = null;
+      clearSelectedHeaderColumns();
+      clearSelectedHeaderRows();
       setLastRange({ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
       renderAg(instance.gridApi);
       return true;
@@ -6904,13 +7257,14 @@
     };
 
     const getSelectedHeaderColumnsSorted = ()=>{
-      if(!selectedHeaderColumns.size){
-        return [];
-      }
-      return Array.from(selectedHeaderColumns)
+      const explicitColumns = Array.from(selectedHeaderColumns)
         .map(col => Number(col))
         .filter(col => Number.isInteger(col) && col >= 0 && col < colCount)
         .sort((a, b)=>a - b);
+      if(explicitColumns.length){
+        return explicitColumns;
+      }
+      return getFullColumnSelectionColumns();
     };
 
     const resolveRowSpanForSelection = ()=>{
@@ -6956,21 +7310,27 @@
 
 
 
-    const buildSelectionRangesFromColumns = (columns, rowStart, rowEnd)=>{
-      if(!Array.isArray(columns) || !columns.length){
-        return [];
+    const groupContiguousVisualIndexes = indexes => {
+      const sorted = Array.from(new Set((Array.isArray(indexes) ? indexes : [])
+        .filter(index => Number.isInteger(index) && index >= 0)))
+        .sort((a, b) => a - b);
+      const groups = [];
+      for(let i = 0; i < sorted.length; i += 1){
+        const value = sorted[i];
+        const previous = groups[groups.length - 1];
+        if(previous && value === previous.end + 1){
+          previous.end = value;
+        }else{
+          groups.push({ start: value, end: value });
+        }
       }
-      const ranges = [];
-      for(let i = 0; i < columns.length; i += 1){
-        ranges.push({
-          startRow: rowStart,
-          startCol: columns[i],
-          endRow: rowEnd,
-          endCol: columns[i]
-        });
-      }
-      return ranges;
+      return groups;
     };
+
+    const buildSelectionRangesFromColumns = (columns, rowStart, rowEnd)=>groupContiguousVisualIndexes(columns).map(group => ({
+      from: { row: rowStart, col: group.start },
+      to: { row: rowEnd, col: group.end }
+    }));
 
     const buildVisualClearChangesForColumns = (columns, rowStart, rowEnd)=>{
       if(!Array.isArray(columns) || !columns.length){
@@ -7038,70 +7398,203 @@
       }]);
     };
 
-    const copySelectionToClipboard = async ()=>{
-      const normalized = getEffectiveSelectionRange();
-      const selectedColumns = getSelectedHeaderColumnsSorted();
-      const useSelectedColumns = selectedColumns.length > 0;
-      const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
-      const text = useSelectedColumns
-        ? buildClipboardTextFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-        : buildClipboardTextFromRange(normalized);
-      if(text == null){
-        return false;
+    const getSelectedVisualRowsSorted = ()=>{
+      if(selectedHeaderPhysicalRows.size){
+        const selectedPhysicalRows = new Set(
+          Array.from(selectedHeaderPhysicalRows)
+            .map(Number)
+            .filter(row => Number.isInteger(row) && row >= 0)
+        );
+        const explicitRows = [];
+        const api = instance?.gridApi || null;
+        if(api && typeof api.getDisplayedRowCount === 'function' && typeof api.getDisplayedRowAtIndex === 'function'){
+          try{
+            const displayedCount = api.getDisplayedRowCount();
+            for(let visualRow = 0; visualRow < displayedCount; visualRow += 1){
+              const physicalRow = Number(api.getDisplayedRowAtIndex(visualRow)?.data?.__rowIndex);
+              if(selectedPhysicalRows.has(physicalRow)){
+                explicitRows.push(visualRow);
+              }
+            }
+          }catch(err){
+            explicitRows.length = 0;
+          }
+        }else if(Array.isArray(fallbackDisplayedPhysicalRows)){
+          fallbackDisplayedPhysicalRows.forEach((physicalRow, visualRow)=>{
+            if(selectedPhysicalRows.has(Number(physicalRow))){
+              explicitRows.push(visualRow);
+            }
+          });
+        }else{
+          selectedPhysicalRows.forEach(physicalRow=>{
+            if(physicalRow < dataHandle.current.length){
+              explicitRows.push(physicalRow);
+            }
+          });
+          explicitRows.sort((a, b)=>a - b);
+        }
+        if(explicitRows.length){
+          return explicitRows;
+        }
       }
-      const ok = await writeClipboardText(text);
-      if(ok){
-        invalidatePendingClipboardMove('copy');
-        const ranges = useSelectedColumns
-          ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-          : (normalized ? [normalized] : []);
-        setClipboardOutlineState({
-          mode: 'copy',
-          ranges,
-          clipboardText: normalizeClipboardText(text)
-        }, 'copy');
-        fireAfterCopy(useSelectedColumns
-          ? ranges
-          : normalized);
+      const rangeRows = getFullRowSelectionRows();
+      if(rangeRows.length){
+        return rangeRows;
       }
-      return ok;
+      const api = instance?.gridApi;
+      if(!api || typeof api.getSelectedNodes !== 'function'){
+        return [];
+      }
+      const rows = api.getSelectedNodes()
+        .map(node => {
+          const physicalRow = Number(node?.data?.__rowIndex);
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return null;
+          }
+          const visualRow = toVisualRowIndex(physicalRow);
+          return Number.isInteger(visualRow) && visualRow >= 0 ? visualRow : null;
+        })
+        .filter(row => row !== null);
+      return Array.from(new Set(rows)).sort((a, b)=>a - b);
     };
 
-    const cutSelectionToClipboard = async ()=>{
-      invalidatePendingClipboardMove('new-cut');
+    const buildClipboardTextFromRows = (rows)=>{
+      if(!Array.isArray(rows) || !rows.length){
+        return '';
+      }
+      const totalCells = rows.length * colCount;
+      if(totalCells > MAX_CLIPBOARD_CELLS){
+        console.warn('Shared.hot AG clipboard export skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
+        return null;
+      }
+      const matrix = dataHandle.current;
+      return rows.map(visualRow => {
+        const physicalRow = toPhysicalRowIndex(visualRow);
+        const row = Number.isInteger(physicalRow) && Array.isArray(matrix[physicalRow]) ? matrix[physicalRow] : [];
+        return Array.from({ length: colCount }, (_, visualCol)=>{
+          const physicalCol = toPhysicalColIndex(visualCol);
+          const value = Number.isInteger(physicalCol) ? row[physicalCol] : null;
+          return value == null ? '' : String(value);
+        }).join('\t');
+      }).join('\n');
+    };
+
+    const buildSelectionRangesFromRows = rows => groupContiguousVisualIndexes(rows).map(group => ({
+      from: { row: group.start, col: 0 },
+      to: { row: group.end, col: Math.max(0, colCount - 1) }
+    }));
+
+    const buildVisualClearChangesForRows = (rows)=>{
+      const changes = [];
+      rows.forEach(row => {
+        for(let col = 0; col < colCount; col += 1){
+          changes.push([row, col, '']);
+        }
+      });
+      return changes;
+    };
+
+    const resolveClipboardSelectionSnapshot = ()=>{
       const normalized = getEffectiveSelectionRange();
+      const selectedRows = getSelectedVisualRowsSorted();
       const selectedColumns = getSelectedHeaderColumnsSorted();
-      const useSelectedColumns = selectedColumns.length > 0;
+      const useSelectedRows = selectedRows.length > 0;
+      const useSelectedColumns = !useSelectedRows && selectedColumns.length > 0;
       const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
-      const text = useSelectedColumns
-        ? buildClipboardTextFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-        : buildClipboardTextFromRange(normalized);
-      if(text == null || (!normalized && !useSelectedColumns)){
+      const text = useSelectedRows
+        ? buildClipboardTextFromRows(selectedRows)
+        : (useSelectedColumns
+          ? buildClipboardTextFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+          : buildClipboardTextFromRange(normalized));
+      const ranges = useSelectedRows
+        ? buildSelectionRangesFromRows(selectedRows)
+        : (useSelectedColumns
+          ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+          : (normalized ? [normalized] : []));
+      return {
+        normalized,
+        selectedRows,
+        selectedColumns,
+        useSelectedRows,
+        useSelectedColumns,
+        rowSpan,
+        text,
+        ranges,
+        kind: useSelectedRows ? 'rows' : (useSelectedColumns ? 'columns' : 'range')
+      };
+    };
+
+    const hasClipboardSelection = ()=>{
+      if(selectedHeaderPhysicalRows.size || selectedHeaderColumns.size || getEffectiveSelectionRange()){
+        return true;
+      }
+      const api = instance?.gridApi || null;
+      if(!api || typeof api.getSelectedNodes !== 'function'){
         return false;
       }
-      const ok = await writeClipboardText(text);
+      try{
+        return api.getSelectedNodes().length > 0;
+      }catch(err){
+        return false;
+      }
+    };
+
+    const copySelectionToClipboard = async (snapshotOverride)=>{
+      const snapshot = snapshotOverride || resolveClipboardSelectionSnapshot();
+      if(snapshot.text == null || !snapshot.ranges.length){
+        return false;
+      }
+      const ok = await writeClipboardText(snapshot.text);
       if(!ok){
         return false;
       }
-      const normalizedClipboard = normalizeClipboardText(text);
-      const copiedRanges = useSelectedColumns
-        ? buildSelectionRangesFromColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-        : (normalized ? [normalized] : []);
+      invalidatePendingClipboardMove('copy');
+      setClipboardOutlineState({
+        mode: 'copy',
+        ranges: snapshot.ranges,
+        clipboardText: normalizeClipboardText(snapshot.text)
+      }, 'copy');
+      fireAfterCopy((snapshot.useSelectedRows || snapshot.useSelectedColumns)
+        ? snapshot.ranges
+        : snapshot.normalized);
+      return true;
+    };
+
+    const cutSelectionToClipboard = async (snapshotOverride)=>{
+      invalidatePendingClipboardMove('new-cut');
+      const snapshot = snapshotOverride || resolveClipboardSelectionSnapshot();
+      if(snapshot.text == null || !snapshot.ranges.length){
+        return false;
+      }
+      const ok = await writeClipboardText(snapshot.text);
+      if(!ok){
+        return false;
+      }
+      const normalizedClipboard = normalizeClipboardText(snapshot.text);
       setClipboardOutlineState({
         mode: 'cut',
-        ranges: copiedRanges,
+        ranges: snapshot.ranges,
         clipboardText: normalizedClipboard
       }, 'cut');
-      fireAfterCopy(useSelectedColumns
-        ? copiedRanges
-        : normalized);
-      const changes = useSelectedColumns
-        ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-        : buildVisualClearChangesForColumns(
-          Array.from({ length: Math.max(0, normalized.to.col - normalized.from.col + 1) }, (_, offset)=>normalized.from.col + offset),
-          normalized.from.row,
-          normalized.to.row
-        );
+      fireAfterCopy((snapshot.useSelectedRows || snapshot.useSelectedColumns)
+        ? snapshot.ranges
+        : snapshot.normalized);
+      const changes = snapshot.useSelectedRows
+        ? buildVisualClearChangesForRows(snapshot.selectedRows)
+        : (snapshot.useSelectedColumns
+          ? buildVisualClearChangesForColumns(
+            snapshot.selectedColumns,
+            snapshot.rowSpan.startRow,
+            snapshot.rowSpan.endRow
+          )
+          : buildVisualClearChangesForColumns(
+            Array.from(
+              { length: Math.max(0, snapshot.normalized.to.col - snapshot.normalized.from.col + 1) },
+              (_, offset)=>snapshot.normalized.from.col + offset
+            ),
+            snapshot.normalized.from.row,
+            snapshot.normalized.to.row
+          ));
       const capturedChanges = withUndoLock('clipboard-cut-clear', ()=>captureLockedMutationChangesDuring(()=>{
         instance.setDataAtCell(changes, 'cut');
       })) || [];
@@ -7109,7 +7602,6 @@
       registerPendingClipboardMove(normalizedClipboard, cutPhysicalChanges);
       return true;
     };
-
 
     const pinFirstRow = overrides?.pinFirstRow;
     let pinRowCount = Number.isInteger(pinFirstRow)
@@ -8806,6 +9298,11 @@
           if(selectedHeaderColumns.size && selectedHeaderColumns.has(col)){
             return true;
           }
+          if(selectedHeaderPhysicalRows.size){
+            const physicalRow = Number(params?.data?.__rowIndex ?? params?.node?.data?.__rowIndex);
+            const resolvedPhysicalRow = Number.isInteger(physicalRow) ? physicalRow : toPhysicalRowIndex(rowIndex);
+            return Number.isInteger(resolvedPhysicalRow) && selectedHeaderPhysicalRows.has(resolvedPhysicalRow);
+          }
           if(!activeSelection){
             return false;
           }
@@ -8816,7 +9313,7 @@
         };
         existing['hot-selected-range-fill'] = params=>{
           const activeSelection = getEffectiveSelectionRange();
-          if(selectedHeaderColumns.size){
+          if(selectedHeaderColumns.size || selectedHeaderPhysicalRows.size){
             return false;
           }
           if(!activeSelection){
@@ -8853,7 +9350,7 @@
         };
         existing['hot-selected-anchor'] = params=>{
           const activeSelection = getEffectiveSelectionRange();
-          if(selectedHeaderColumns.size){
+          if(selectedHeaderColumns.size || selectedHeaderPhysicalRows.size){
             return false;
           }
           if(!activeSelection){
@@ -9017,6 +9514,33 @@
       return row;
     };
 
+    const toVisualRowIndex = (physicalRow)=>{
+      const row = Number(physicalRow);
+      if(!Number.isInteger(row) || row < 0){
+        return null;
+      }
+      const api = instance?.gridApi;
+      if(api && typeof api.getDisplayedRowCount === 'function' && typeof api.getDisplayedRowAtIndex === 'function'){
+        try{
+          const displayedCount = api.getDisplayedRowCount();
+          for(let visualRow = 0; visualRow < displayedCount; visualRow += 1){
+            const node = api.getDisplayedRowAtIndex(visualRow);
+            if(Number(node?.data?.__rowIndex) === row){
+              return visualRow;
+            }
+          }
+          return null;
+        }catch(err){
+          // Fall through to the local filtered-row projection.
+        }
+      }
+      if(Array.isArray(fallbackDisplayedPhysicalRows)){
+        const visualRow = fallbackDisplayedPhysicalRows.indexOf(row);
+        return visualRow >= 0 ? visualRow : null;
+      }
+      return row < dataHandle.current.length ? row : null;
+    };
+
     const toPhysicalColIndex = (visualCol)=>{
       const col = Number(visualCol);
       if(!Number.isInteger(col) || col < 0){
@@ -9152,13 +9676,24 @@
       return dataHandle.current.length;
     };
     const updateSelectionFromApi = (api)=>{
-      if(!api){
+      if(!api || pendingSelectionReassertRange || selectionRangeOverride){
         return;
       }
-      if(pendingSelectionReassertRange || selectionRangeOverride){
-        return;
-      }
-      clearSelectedHeaderColumns();
+      const commitApiSelection = (range, hookCoordinates)=>{
+        const normalized = normalizeRange(range);
+        if(!normalized || shouldIgnoreApiSelectionRange(normalized)){
+          return false;
+        }
+        // Explicit row/column-header selections are adapter-owned. Clear them
+        // only when AG Grid reports a concrete replacement cell selection.
+        clearSelectedHeaderColumns();
+        clearSelectedHeaderRows();
+        clearPasteDrivenSelectionState();
+        setLastRange(normalized);
+        renderAg(api);
+        fireHook('afterSelectionEnd', ...hookCoordinates);
+        return true;
+      };
       if(hasEnterprise && typeof api.getCellRanges === 'function'){
         try{
           const ranges = api.getCellRanges();
@@ -9170,41 +9705,33 @@
             const endColId = range.endColumn?.getColId?.() ?? startColId;
             const startCol = colIdToIndex(startColId);
             const endCol = colIdToIndex(endColId);
-            const nextRange = {
-              from: { row: Math.min(startRow, endRow), col: Math.min(startCol, endCol) },
-              to: { row: Math.max(startRow, endRow), col: Math.max(startCol, endCol) }
-            };
-            if(shouldIgnoreApiSelectionRange(nextRange)){
+            if(commitApiSelection({
+              from: { row: startRow, col: startCol },
+              to: { row: endRow, col: endCol }
+            }, [startRow, startCol, endRow, endCol])){
               return;
             }
-            clearPasteDrivenSelectionState();
-            setLastRange(nextRange);
-            renderAg(api);
-            fireHook('afterSelectionEnd', startRow, startCol, endRow, endCol);
-            return;
           }
         }catch(err){
           hotDebug('Debug: ag selection range not available', err);
         }
       }
-      if(typeof api.getFocusedCell === 'function'){
-        try{
-          const focused = api.getFocusedCell();
-          if(focused && Number.isInteger(focused.rowIndex)){
-            const row = focused.rowIndex;
-            const col = colIdToIndex(focused.column?.getColId?.());
-            const nextRange = { from: { row, col }, to: { row, col } };
-            if(shouldIgnoreApiSelectionRange(nextRange)){
-              return;
-            }
-            clearPasteDrivenSelectionState();
-            setLastRange({ from: { row, col }, to: { row, col } });
-            renderAg(api);
-            fireHook('afterSelectionEnd', row, col, row, col);
-          }
-        }catch(err){
-          hotDebug('Debug: ag focused cell not available', err);
+      if(typeof api.getFocusedCell !== 'function'){
+        return;
+      }
+      try{
+        const focused = api.getFocusedCell();
+        if(!focused || !Number.isInteger(focused.rowIndex)){
+          return;
         }
+        const row = focused.rowIndex;
+        const col = colIdToIndex(focused.column?.getColId?.());
+        commitApiSelection(
+          { from: { row, col }, to: { row, col } },
+          [row, col, row, col]
+        );
+      }catch(err){
+        hotDebug('Debug: ag focused cell not available', err);
       }
     };
 
@@ -9344,8 +9871,7 @@
       rowCap: Math.max(rowCount, 50000),
       colCap: Math.max(colCount, 200),
       selectionThreshold: 2,
-      scrollIdleDelayMs: 180,
-      scheduleOnGrow: false
+      scrollIdleDelayMs: 180
     };
     const autoGrowthConfig = Object.assign({}, autoGrowthDefaults, overrides?.autoGrowth || {});
     autoGrowthConfig.rowBatchSize = Math.max(1, autoGrowthConfig.rowBatchSize | 0);
@@ -9354,9 +9880,7 @@
     autoGrowthConfig.colCap = Math.max(colCount, autoGrowthConfig.colCap | 0 || colCount);
     autoGrowthConfig.selectionThreshold = Math.max(0, autoGrowthConfig.selectionThreshold | 0);
 
-    const shouldScheduleAutoGrowChange = (source)=>(
-      source !== 'autoGrow' || !!autoGrowthConfig.scheduleOnGrow
-    );
+    const isAutomaticCapacityGrowth = (source)=>source === 'autoGrow';
 
     const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null, scrollElements: [], autoGrowTimerId: null };
 
@@ -9426,9 +9950,6 @@
       if(prevScroll){
         pendingViewportRestore = prevScroll;
       }
-      if(autoGrowthConfig.scheduleOnGrow){
-        triggerSchedule('autoGrowRows', { amount, reason });
-      }
     };
 
     const maybeGrowCols = (reason)=>{
@@ -9444,9 +9965,6 @@
       instance.alter('insert_col_end', insertAt, amount, 'autoGrow');
       if(prevScroll){
         pendingViewportRestore = prevScroll;
-      }
-      if(autoGrowthConfig.scheduleOnGrow){
-        triggerSchedule('autoGrowCols', { amount, reason });
       }
     };
 
@@ -9550,6 +10068,92 @@
     let pendingRebuildColumns = false;
     let pendingSyncRowData = false;
     let pendingSchedulePayload = null;
+    let pasteTransaction = null;
+
+    const beginPasteTransaction = (source = 'paste')=>{
+      interruptOwnerProjectionTransactionForUserMutation({
+        tabId: instance?.__workspaceTabId || instance?.__graphitixTabId || resolveUndoTabId()
+      }, {
+        reason: 'table-paste-start',
+        source
+      });
+      pasteTransaction = {
+        source: String(source || 'paste'),
+        visualChanges: [],
+        payloadChanges: [],
+        undoChanges: [],
+        affectsAnalysis: false
+      };
+      return pasteTransaction;
+    };
+
+    const ensurePasteTransaction = (source = 'paste')=>{
+      if(!pasteTransaction){
+        beginPasteTransaction(source);
+      }
+      return pasteTransaction;
+    };
+
+    const appendPasteChanges = (visualChanges, physicalChanges, source = 'paste')=>{
+      const transaction = ensurePasteTransaction(source);
+      const visual = Array.isArray(visualChanges) ? visualChanges : [];
+      const physical = Array.isArray(physicalChanges) ? physicalChanges : [];
+      visual.forEach(change=>{
+        if(!Array.isArray(change) || change.length < 4){
+          return;
+        }
+        const visualRow = Number(change[0]);
+        const visualCol = Number(change[1]);
+        if(!Number.isInteger(visualRow) || visualRow < 0 || !Number.isInteger(visualCol) || visualCol < 0){
+          return;
+        }
+        transaction.visualChanges.push([visualRow, visualCol, change[2], change[3]]);
+        transaction.affectsAnalysis = transaction.affectsAnalysis || visualChangeAffectsAnalysis(change);
+      });
+      physical.forEach(change=>{
+        const physicalRow = Number(change?.row);
+        const physicalCol = Number(change?.col);
+        if(!Number.isInteger(physicalRow) || physicalRow < 0 || !Number.isInteger(physicalCol) || physicalCol < 0){
+          return;
+        }
+        transaction.payloadChanges.push({ row: physicalRow, col: physicalCol, value: change.next });
+        transaction.undoChanges.push({
+          row: physicalRow,
+          col: physicalCol,
+          prev: change.prev,
+          next: change.next
+        });
+      });
+      return transaction;
+    };
+
+    const completePasteTransaction = (event = null)=>{
+      const transaction = pasteTransaction;
+      pasteTransaction = null;
+      if(!transaction){
+        return [];
+      }
+      const changes = transaction.visualChanges;
+      if(transaction.payloadChanges.length){
+        syncActiveTabPayloadDataChanges(transaction.payloadChanges, 'table-paste', {
+          source: transaction.source,
+          hotInstance: instance,
+          affectsAnalysis: transaction.affectsAnalysis
+        });
+      }
+      if(undoLockDepth === 0 && transaction.undoChanges.length){
+        pushUndoStep(`table:${debugLabel}:paste`, transaction.undoChanges);
+      }
+      if(changes.length){
+        refreshColumnFiltersForDataMutation('ag-paste');
+        fireHook('afterChange', changes, transaction.source);
+      }
+      if(formulaEvaluationState.enabled){
+        renderAg(event?.api || instance?.gridApi);
+      }
+      return changes;
+    };
+
     const applyColumnDefs = (api, defs)=>{
       if(!api || !Array.isArray(defs)){
         return;
@@ -9817,11 +10421,164 @@
         console.error('Shared.hot release restore suppression error', err);
       }
     };
+    const columnHasAnalysisData = visualCol => {
+      const physicalCol = toPhysicalColIndex(visualCol);
+      if(!Number.isInteger(physicalCol) || physicalCol < 0){
+        return false;
+      }
+      const matrix = dataHandle.current;
+      for(let physicalRow = pinRowCount; physicalRow < matrix.length; physicalRow += 1){
+        if(exclusionController.isCellExcluded(physicalRow, physicalCol)){
+          continue;
+        }
+        const rawValue = matrix?.[physicalRow]?.[physicalCol];
+        const value = isFormulaLikeValue(rawValue)
+          ? resolveFormulaDisplayValue(physicalRow, physicalCol, rawValue)
+          : rawValue;
+        if(hasAnalysisValue(value)){
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const rowHasAnalysisData = physicalRow => {
+      const row = Number(physicalRow);
+      if(!Number.isInteger(row) || row < pinRowCount || row >= dataHandle.current.length){
+        return false;
+      }
+      for(let physicalCol = 0; physicalCol < colCount; physicalCol += 1){
+        if(exclusionController.isCellExcluded(row, physicalCol)){
+          continue;
+        }
+        const rawValue = dataHandle.current?.[row]?.[physicalCol];
+        const value = isFormulaLikeValue(rawValue)
+          ? resolveFormulaDisplayValue(row, physicalCol, rawValue)
+          : rawValue;
+        if(hasAnalysisValue(value)){
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const blankRowInsertionAffectsAnalysis = insertAt => {
+      const row = Math.max(0, Number(insertAt) || 0);
+      if(row < pinRowCount){
+        return true;
+      }
+      for(let physicalRow = row; physicalRow < dataHandle.current.length; physicalRow += 1){
+        if(rowHasAnalysisData(physicalRow)){
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const blankColumnInsertionAffectsAnalysis = insertAt => {
+      const col = Math.max(0, Number(insertAt) || 0);
+      for(let visualCol = col; visualCol < colCount; visualCol += 1){
+        if(columnHasAnalysisData(visualCol)){
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const visualChangeAffectsAnalysis = change => {
+      if(!Array.isArray(change) || change.length < 4){
+        return true;
+      }
+      const visualRow = Number(change[0]);
+      const visualCol = Number(change[1]);
+      if(!Number.isInteger(visualRow) || !Number.isInteger(visualCol)){
+        return true;
+      }
+      if(visualRow >= pinRowCount){
+        const physicalRow = toPhysicalRowIndex(visualRow);
+        const physicalCol = toPhysicalColIndex(visualCol);
+        const formulaChanged = isFormulaLikeValue(change[2]) || isFormulaLikeValue(change[3]);
+        if(!formulaChanged && Number.isInteger(physicalRow) && Number.isInteger(physicalCol)
+          && exclusionController.isCellExcluded(physicalRow, physicalCol)){
+          return false;
+        }
+        return hasAnalysisValue(change[2]) || hasAnalysisValue(change[3]);
+      }
+      return columnHasAnalysisData(visualCol);
+    };
+
+    const physicalChangeAffectsAnalysis = (change, direction = 'redo') => {
+      if(!change || typeof change !== 'object'){
+        return true;
+      }
+      const physicalRow = Number(change.row);
+      const physicalCol = Number(change.col);
+      if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol)){
+        return true;
+      }
+      if(physicalRow >= pinRowCount){
+        const previousValue = direction === 'undo' ? change.next : change.prev;
+        const nextValue = direction === 'undo' ? change.prev : change.next;
+        return hasAnalysisValue(previousValue) || hasAnalysisValue(nextValue);
+      }
+      const visualCol = typeof instance?.toVisualColumn === 'function'
+        ? instance.toVisualColumn(physicalCol)
+        : physicalCol;
+      return Number.isInteger(visualCol) ? columnHasAnalysisData(visualCol) : true;
+    };
+
+    const changesAffectAnalysis = payload => {
+      if(Array.isArray(payload?.changes)){
+        return payload.changes.some(visualChangeAffectsAnalysis);
+      }
+      if(Array.isArray(payload?.physicalChanges)){
+        const direction = payload.direction === 'undo' ? 'undo' : 'redo';
+        return payload.physicalChanges.some(change => physicalChangeAffectsAnalysis(change, direction));
+      }
+      return true;
+    };
+
+    const shouldScheduleAnalysisMutation = (reason, payload) => {
+      if(reason === 'afterCreateRow' || reason === 'afterCreateCol'){
+        return payload?.affectsAnalysis !== false;
+      }
+      if(reason !== 'afterChange' && reason !== 'afterPaste'){
+        return true;
+      }
+      return changesAffectAnalysis(payload);
+    };
+
+    const HEAVY_TABLE_OVERLAY_CELL_THRESHOLD = 5000;
+    const HEAVY_PASTE_OVERLAY_CHANGE_THRESHOLD = 1000;
+    const shouldForceOverlayForTableMutation = (reason, payload = {}) => {
+      if(reason !== 'afterPaste'){
+        return false;
+      }
+      const bodyRows = Math.max(0, rowCount - pinRowCount);
+      const bodyCells = bodyRows * Math.max(0, colCount);
+      const changedCells = Array.isArray(payload.changes) ? payload.changes.length : 0;
+      return bodyCells >= HEAVY_TABLE_OVERLAY_CELL_THRESHOLD
+        || changedCells >= HEAVY_PASTE_OVERLAY_CHANGE_THRESHOLD;
+    };
+
     const triggerSchedule = (reason, meta)=>{
       if(!scheduleFn){
         return;
       }
       const payload = Object.assign({ reason }, meta || {});
+      if(!Object.prototype.hasOwnProperty.call(payload, 'forceOverlay')
+        && shouldForceOverlayForTableMutation(reason, payload)){
+        payload.forceOverlay = true;
+        payload.heavy = true;
+      }
+      if(!shouldScheduleAnalysisMutation(reason, payload)){
+        hotDebug('Debug: Shared.hot graph schedule skipped for analysis-inert table change', {
+          debugLabel,
+          reason,
+          source: payload.source || null
+        });
+        return;
+      }
       if(suppressScheduleForSource && suppressScheduleForSource(payload.source, payload, reason) === true){
         return;
       }
@@ -10039,7 +10796,14 @@
         return flushPendingStructuralTransactions('hot-instance');
       },
       getSettings(){
-        return { minRows: rowCount, minCols: colCount };
+        return {
+          minRows: rowCount,
+          minCols: colCount,
+          fixedRowsTop: pinRowCount
+        };
+      },
+      changesAffectAnalysis(changes){
+        return Array.isArray(changes) ? changes.some(visualChangeAffectsAnalysis) : true;
       },
       updateSettings(opts){
         data = dataHandle.current;
@@ -10242,6 +11006,7 @@
         return getHeaderLabel(col);
       },
       toPhysicalRow(row){ return toPhysicalRowIndex(row); },
+      toVisualRow(row){ return toVisualRowIndex(row); },
       toPhysicalColumn(col){ return toPhysicalColIndex(col); },
       getSelectedLast(){
         const selection = getEffectiveSelectionRange();
@@ -10261,6 +11026,8 @@
       },
       selectCell(row, col, endRow, endCol){
         clearPasteDrivenSelectionState();
+        clearSelectedHeaderColumns();
+        clearSelectedHeaderRows();
         const r1 = Number(row);
         const c1 = Number(col);
         const r2 = Number.isFinite(endRow) ? Number(endRow) : r1;
@@ -10388,6 +11155,7 @@
           ensureDims(data, Math.max(maxPhysicalRow + 1, rowCount), Math.max(maxPhysicalCol + 1, colCount));
           const changesForHook = [];
           const payloadChanges = [];
+          const physicalChanges = [];
           for(let i = 0; i < entries.length; i++){
             const entry = entries[i];
             if(!Array.isArray(entry) || entry.length < 3){
@@ -10412,6 +11180,7 @@
             data[physicalRow][physicalCol] = next;
             changesForHook.push([r, c, prev, next]);
             payloadChanges.push({ row: physicalRow, col: physicalCol, value: next });
+            physicalChanges.push({ row: physicalRow, col: physicalCol, prev, next });
           }
           if(!changesForHook.length){
             return;
@@ -10426,15 +11195,22 @@
             colHeaders = resolveColHeaders(colCount);
             rebuildColumns(instance.gridApi);
           }
-          refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
           captureLockedMutationChanges(changesForHook);
-          recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
-          syncActiveTabPayloadDataChanges(payloadChanges, 'table-data-change', {
-            source: changeSource,
-            hotInstance: instance
-          });
-          fireHook('afterChange', changesForHook, changeSource);
-          triggerSchedule('afterChange', { source: changeSource });
+          const isPasteMutation = pasteTransaction !== null || changeSource === 'paste';
+          if(isPasteMutation){
+            appendPasteChanges(changesForHook, physicalChanges, changeSource);
+          }else{
+            refreshColumnFiltersForDataMutation('set-data-at-cell:batch');
+            recordUndoFromVisualChanges(changeSource, changesForHook, changeSource);
+            const affectsAnalysis = changesForHook.some(visualChangeAffectsAnalysis);
+            syncActiveTabPayloadDataChanges(payloadChanges, 'table-data-change', {
+              source: changeSource,
+              hotInstance: instance,
+              affectsAnalysis
+            });
+            fireHook('afterChange', changesForHook, changeSource);
+            triggerSchedule('afterChange', { source: changeSource, changes: changesForHook });
+          }
           renderAg(instance.gridApi);
           return;
         }
@@ -10466,15 +11242,23 @@
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
         }
-        refreshColumnFiltersForDataMutation('set-data-at-cell:single');
-        captureLockedMutationChanges([[r, c, prev, value]]);
-        recordUndoFromVisualChanges(changeSource, [[r, c, prev, value]], changeSource);
-        syncActiveTabPayloadDataChanges([{ row: physicalRow, col: physicalCol, value }], 'table-data-change', {
-          source: changeSource,
-          hotInstance: instance
-        });
-        fireHook('afterChange', [[r, c, prev, value]], changeSource);
-        triggerSchedule('afterChange', { source: changeSource });
+        const visualChanges = [[r, c, prev, value]];
+        captureLockedMutationChanges(visualChanges);
+        const isPasteMutation = pasteTransaction !== null || changeSource === 'paste';
+        if(isPasteMutation){
+          appendPasteChanges(visualChanges, [{ row: physicalRow, col: physicalCol, prev, next: value }], changeSource);
+        }else{
+          refreshColumnFiltersForDataMutation('set-data-at-cell:single');
+          recordUndoFromVisualChanges(changeSource, visualChanges, changeSource);
+          const affectsAnalysis = visualChanges.some(visualChangeAffectsAnalysis);
+          syncActiveTabPayloadDataChanges([{ row: physicalRow, col: physicalCol, value }], 'table-data-change', {
+            source: changeSource,
+            hotInstance: instance,
+            affectsAnalysis
+          });
+          fireHook('afterChange', visualChanges, changeSource);
+          triggerSchedule('afterChange', { source: changeSource, changes: visualChanges });
+        }
         renderAg(instance.gridApi);
       },
       loadData(nextData, loadOptions){
@@ -10559,6 +11343,7 @@
         }
         if(action === 'insert_row_above' || action === 'insert_row_below' || action === 'insert_row'){
           const insertAt = action === 'insert_row_above' ? at : at + (action === 'insert_row_below' ? 1 : 0);
+          const affectsAnalysis = blankRowInsertionAffectsAnalysis(insertAt);
           exclusionController.shiftRowsForInsert(insertAt, safeAmount);
           const rows = Array.from({ length: safeAmount }, ()=>Array.from({ length: colCount }, ()=>''));
           data.splice(insertAt, 0, ...rows);
@@ -10567,9 +11352,14 @@
           markFormulaModelDirty('alter:insert-row');
           syncRowData(instance.gridApi);
           refreshColumnFiltersForDataMutation('alter:insert-row');
-          fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
-          if(shouldScheduleAutoGrowChange(changeSource)){
-            triggerSchedule('afterCreateRow', { source: changeSource });
+          if(!isAutomaticCapacityGrowth(changeSource)){
+            fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
+            syncOwnerTabPayloadFullData(dataHandle.current, 'table-row-insert', {
+              source: changeSource,
+              hotInstance: instance,
+              affectsAnalysis
+            });
+            triggerSchedule('afterCreateRow', { source: changeSource, affectsAnalysis });
           }
         }else if(action === 'remove_row'){
           const removed = data.splice(at, safeAmount);
@@ -10580,13 +11370,19 @@
           syncRowData(instance.gridApi);
           refreshColumnFiltersForDataMutation('alter:remove-row');
           fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, changeSource);
+          syncOwnerTabPayloadFullData(dataHandle.current, 'table-row-remove', {
+            source: changeSource,
+            hotInstance: instance,
+            affectsAnalysis: true
+          });
           triggerSchedule('afterRemoveRow', { source: changeSource });
-          }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
-            const insertAt = action === 'insert_col_start'
-              ? 0
-              : (action === 'insert_col_left'
-                ? at
-                : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
+        }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
+          const insertAt = action === 'insert_col_start'
+            ? 0
+            : (action === 'insert_col_left'
+              ? at
+              : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
+          const affectsAnalysis = blankColumnInsertionAffectsAnalysis(insertAt);
           exclusionController.shiftColsForInsert(insertAt, safeAmount);
           for(let r = 0; r < data.length; r++){
             const row = data[r] || [];
@@ -10599,16 +11395,21 @@
           if(Array.isArray(colHeadersSetting)){
             colHeadersSetting.splice(insertAt, 0, ...Array.from({ length: safeAmount }, ()=>''));
           }
-            colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
-            ensureDims(data, data.length, colCount);
-            colHeaders = resolveColHeaders(colCount);
-            rebuildColumns(instance.gridApi);
-            refreshColumnFiltersForDataMutation('alter:insert-col');
-            renderAg(instance.gridApi);
+          colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
+          ensureDims(data, data.length, colCount);
+          colHeaders = resolveColHeaders(colCount);
+          rebuildColumns(instance.gridApi);
+          refreshColumnFiltersForDataMutation('alter:insert-col');
+          renderAg(instance.gridApi);
+          if(!isAutomaticCapacityGrowth(changeSource)){
             fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
-            if(shouldScheduleAutoGrowChange(changeSource)){
-              triggerSchedule('afterCreateCol', { source: changeSource });
-            }
+            syncOwnerTabPayloadFullData(dataHandle.current, 'table-column-insert', {
+              source: changeSource,
+              hotInstance: instance,
+              affectsAnalysis
+            });
+            triggerSchedule('afterCreateCol', { source: changeSource, affectsAnalysis });
+          }
         }else if(action === 'remove_col'){
           const removedCols = [];
           for(let r = 0; r < data.length; r++){
@@ -10633,6 +11434,11 @@
           refreshColumnFiltersForDataMutation('alter:remove-col');
           renderAg(instance.gridApi);
           fireHook('afterRemoveCol', at, safeAmount, removedCols, changeSource);
+          syncOwnerTabPayloadFullData(dataHandle.current, 'table-column-remove', {
+            source: changeSource,
+            hotInstance: instance,
+            affectsAnalysis: true
+          });
           triggerSchedule('afterRemoveCol', { source: changeSource });
         }
       },
@@ -10661,6 +11467,7 @@
           ensureDims(data, Math.max(maxPhysicalRow + 1, rowCount), Math.max(maxPhysicalCol + 1, colCount));
         }
         const changes = [];
+        const physicalChanges = [];
         for(let r = 0; r < dataRows; r++){
           const physicalRow = physicalRows[r];
           if(physicalRow == null){
@@ -10680,23 +11487,43 @@
             }
             data[physicalRow][physicalCol] = next;
             changes.push([targetRow, targetCol, prev, next]);
+            physicalChanges.push({ row: physicalRow, col: physicalCol, prev, next });
           }
         }
         dataHandle.current = data;
+        if(changes.length){
+          markDataRevision('populateFromArray');
+        }
         syncFormulaModelForVisualChanges(changes, 'populate-from-array');
         syncRowData(instance.gridApi);
         rebuildColumns(instance.gridApi);
-        refreshColumnFiltersForDataMutation('populate-from-array');
+        const sourceLabel = typeof source === 'string' ? source : 'populateFromArray';
+        const isPasteMutation = pasteTransaction !== null || sourceLabel === 'paste';
         if(changes.length){
-          const sourceLabel = typeof source === 'string' ? source : 'populateFromArray';
           captureLockedMutationChanges(changes);
-          recordUndoFromVisualChanges(sourceLabel, changes, sourceLabel);
+          if(isPasteMutation){
+            appendPasteChanges(changes, physicalChanges, sourceLabel);
+          }else{
+            const payloadChanges = changes.map(change=>({
+              row: toPhysicalRowIndex(change[0]),
+              col: toPhysicalColIndex(change[1]),
+              value: change[3]
+            })).filter(change=>Number.isInteger(change.row) && change.row >= 0 && Number.isInteger(change.col) && change.col >= 0);
+            const affectsAnalysis = changes.some(visualChangeAffectsAnalysis);
+            syncActiveTabPayloadDataChanges(payloadChanges, 'table-data-change', {
+              source: sourceLabel,
+              hotInstance: instance,
+              affectsAnalysis
+            });
+            recordUndoFromVisualChanges(sourceLabel, changes, sourceLabel);
+            refreshColumnFiltersForDataMutation('populate-from-array');
+            fireHook('afterChange', changes, sourceLabel);
+          }
         }
-        if(changes.length){
-          fireHook('afterChange', changes, source || 'populateFromArray');
+        if(!isPasteMutation){
+          fireHook('afterPaste', block, [{ startRow: sr, startCol: sc, endRow: er, endCol: ec }]);
+          triggerSchedule('afterPaste', { source: sourceLabel, changes });
         }
-        fireHook('afterPaste', block, [{ startRow: sr, startCol: sc, endRow: er, endCol: ec }]);
-        triggerSchedule('afterPaste', { source: source || 'populateFromArray' });
         renderAg(instance.gridApi);
       },
       render(){
@@ -10723,6 +11550,7 @@
         return !!undoManager.redo();
       },
       destroy(){
+        instance.__destroyed = true;
         invalidatePendingClipboardMove('destroy', pending => pending?.sourceInstance === instance);
         if(hotNS.__activeClipboardSelectionOwner === instance){
           hotNS.__activeClipboardSelectionOwner = null;
@@ -11605,6 +12433,23 @@
       return cols;
     };
 
+    const getFullRowSelectionRows = ()=>{
+      const normalized = getEffectiveSelectionRange();
+      if(!normalized){
+        return [];
+      }
+      const lastCol = Math.max(0, colCount - 1);
+      const isFullRowSelection = normalized.from.col === 0 && normalized.to.col === lastCol;
+      if(!isFullRowSelection){
+        return [];
+      }
+      const rows = [];
+      for(let row = normalized.from.row; row <= normalized.to.row; row += 1){
+        rows.push(row);
+      }
+      return rows;
+    };
+
     const isHeaderColumnSelected = (colIdx)=>{
       const idx = Number(colIdx);
       if(!Number.isInteger(idx) || idx < 0){
@@ -11680,6 +12525,7 @@
       const lastRow = Math.max(0, getVisualRowCount() - 1);
       clearGridCellFocus(instance.gridApi);
       focusGridContainer();
+      clearSelectedHeaderRows();
       selectedHeaderColumns = new Set(selectedCols);
       setLastRange({ from: { row: 0, col: firstCol }, to: { row: lastRow, col: lastCol } });
       renderAg(instance.gridApi);
@@ -11697,6 +12543,7 @@
       clearGridCellFocus(instance.gridApi);
       focusGridContainer();
       clearSelectedHeaderColumns();
+      clearSelectedHeaderRows();
       setLastRange(normalized);
       renderAg(instance.gridApi);
       fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
@@ -12759,19 +13606,35 @@
         if(formulaEvaluationState.enabled && !synchronized){
           markFormulaModelDirty('ag-cell-value-changed');
         }
-        syncActiveTabPayloadDataChanges([{ row: physicalRow, col: colIndex, value: normalizedNewValue }], 'table-cell-edit', {
-          source: event.source || 'edit',
-          hotInstance: instance
-        });
-        if(undoLockDepth === 0){
-          const physicalCol = colIndex;
-          if(Number.isInteger(physicalRow) && physicalRow >= 0 && Number.isInteger(physicalCol) && physicalCol >= 0){
-            pushUndoStep(`table:${debugLabel}:edit`, [{ row: physicalRow, col: physicalCol, prev: normalizedOldValue, next: normalizedNewValue }]);
+        const visualChanges = [[visualRow, colIndex, normalizedOldValue, normalizedNewValue]];
+        const affectsAnalysis = visualChanges.some(visualChangeAffectsAnalysis);
+        const physicalCol = colIndex;
+        const source = event.source || 'edit';
+        const isPasteMutation = pasteTransaction !== null || source === 'paste';
+        if(isPasteMutation){
+          appendPasteChanges(visualChanges, [{ row: physicalRow, col: physicalCol, prev: normalizedOldValue, next: normalizedNewValue }], source);
+        }else{
+          syncActiveTabPayloadDataChanges([{ row: physicalRow, col: colIndex, value: normalizedNewValue }], 'table-cell-edit', {
+            source,
+            hotInstance: instance,
+            affectsAnalysis
+          });
+          if(undoLockDepth === 0
+            && Number.isInteger(physicalRow)
+            && physicalRow >= 0
+            && Number.isInteger(physicalCol)
+            && physicalCol >= 0){
+            pushUndoStep(`table:${debugLabel}:edit`, [{
+              row: physicalRow,
+              col: physicalCol,
+              prev: normalizedOldValue,
+              next: normalizedNewValue
+            }]);
           }
+          refreshColumnFiltersForDataMutation('ag-cell-value-changed');
+          fireHook('afterChange', visualChanges, source);
+          triggerSchedule('afterChange', { source, changes: visualChanges });
         }
-        refreshColumnFiltersForDataMutation('ag-cell-value-changed');
-        fireHook('afterChange', [[visualRow, colIndex, normalizedOldValue, normalizedNewValue]], event.source || 'edit');
-        triggerSchedule('afterChange', { source: event.source || 'edit' });
         if(snapshotKey){
           formulaEditRawSnapshots.delete(snapshotKey);
         }
@@ -12851,26 +13714,31 @@
           // swallow handler errors
         }
       },
+      onPasteStart(event){
+        beginPasteTransaction(event?.source || 'paste');
+      },
       onPasteEnd(event){
         try{
+          const changes = completePasteTransaction(event);
           const dataBlocks = event?.data || [];
           const selection = event?.source === 'clipboard' ? instance.getSelectedLast() : null;
           const ranges = Array.isArray(selection) && selection.length === 4
             ? [{ startRow: selection[0], startCol: selection[1], endRow: selection[2], endCol: selection[3] }]
             : [];
           fireHook('afterPaste', dataBlocks, ranges);
-          triggerSchedule('afterPaste', { source: 'paste' });
+          triggerSchedule('afterPaste', { source: 'paste', changes });
           maybeGrowRows('paste');
           maybeGrowCols('paste');
         }catch(err){
+          pasteTransaction = null;
           console.error('Shared.hot AG paste handler error', err);
         }
       },
       onSelectionChanged(params){
-        if(isDragSelecting){
+        if(isDragSelecting || suppressApiSelectionSyncForSort || isApplyingSortSelectionSnapshot){
           return;
         }
-        if(suppressApiSelectionSyncForSort || isApplyingSortSelectionSnapshot){
+        if(selectedHeaderColumns.size || selectedHeaderPhysicalRows.size){
           return;
         }
         const activeSelection = getEffectiveSelectionRange();
@@ -13344,6 +14212,69 @@
           }
         }
         return false;
+      };
+
+      const handleClipboardShortcutKeyDown = (event, keyOverride, options = {})=>{
+        if(!event || event.defaultPrevented || event.altKey || event.shiftKey || event.isComposing
+          || !(event.ctrlKey || event.metaKey)){
+          return false;
+        }
+        if(options.fireBeforeKeyDown === true){
+          fireHook('beforeKeyDown', event);
+          if(event.defaultPrevented){
+            return false;
+          }
+        }
+        const key = String(keyOverride || event.key || '').toLowerCase();
+        if((key !== 'c' && key !== 'x') || isEditableTarget(event.target) || isInlineEditorActive()){
+          return false;
+        }
+        const selection = resolveClipboardSelectionSnapshot();
+        if(selection.text == null || !selection.ranges.length){
+          return false;
+        }
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        event.stopImmediatePropagation?.();
+        const operation = key === 'x' ? cutSelectionToClipboard : copySelectionToClipboard;
+        const mode = key === 'x' ? 'cut' : 'copy';
+        hotDebug('Debug: Shared.hot clipboard shortcut routed', {
+          debugLabel,
+          mode,
+          selectionKind: selection.kind,
+          selectedRows: selection.selectedRows.length,
+          selectedColumns: selection.selectedColumns.length,
+          rangeCount: selection.ranges.length
+        });
+        let operationResult;
+        try{
+          // Start Clipboard API access during the trusted keydown event. Deferring
+          // this call to a microtask can lose browser user activation.
+          operationResult = operation(selection);
+        }catch(err){
+          console.error('Shared.hot clipboard shortcut failed', {
+            debugLabel,
+            mode,
+            message: err?.message || String(err)
+          });
+          return true;
+        }
+        Promise.resolve(operationResult)
+          .then(ok=>{
+            hotDebug('Debug: Shared.hot clipboard shortcut completed', {
+              debugLabel,
+              mode,
+              ok: ok === true
+            });
+          })
+          .catch(err=>{
+            console.error('Shared.hot clipboard shortcut failed', {
+              debugLabel,
+              mode,
+              message: err?.message || String(err)
+            });
+          });
+        return true;
       };
 
       const resolveCellCoords = (event)=>{
@@ -13871,7 +14802,7 @@
         ensureFormulaOverlayLoop('focusout');
       };
 
-      const selectRowByHeader = (row, extend)=>{
+      const selectRowByHeader = (row, extend, additive)=>{
         const visualRow = Number(row);
         if(!Number.isInteger(visualRow) || visualRow < 0){
           return;
@@ -13881,6 +14812,33 @@
         clearSelectedHeaderColumns();
         const fromCol = 0;
         const toCol = Math.max(0, colCount - 1);
+        if(additive){
+          const physicalRow = toPhysicalRowIndex(visualRow);
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return;
+          }
+          const seed = selectedHeaderPhysicalRows.size
+            ? Array.from(selectedHeaderPhysicalRows)
+            : getFullRowSelectionRows()
+              .map(rowIndex => toPhysicalRowIndex(rowIndex))
+              .filter(rowIndex => Number.isInteger(rowIndex) && rowIndex >= 0);
+          const next = new Set(seed);
+          if(next.has(physicalRow)){
+            next.delete(physicalRow);
+          }else{
+            next.add(physicalRow);
+          }
+          selectedHeaderPhysicalRows = next;
+          setLastRange(next.size
+            ? { from: { row: visualRow, col: fromCol }, to: { row: visualRow, col: toCol } }
+            : null);
+          renderAg(instance.gridApi);
+          if(next.size){
+            fireHook('afterSelectionEnd', visualRow, fromCol, visualRow, toCol);
+          }
+          return;
+        }
+        clearSelectedHeaderRows();
         let fromRow = visualRow;
         let toRow = visualRow;
         if(extend && normalizedSelectionRange){
@@ -13910,6 +14868,7 @@
         };
         clearGridCellFocus(instance.gridApi);
         focusGridContainer();
+        clearSelectedHeaderRows();
         const lastRow = Math.max(0, getVisualRowCount() - 1);
         if(additive){
           const seed = selectedHeaderColumns.size
@@ -13922,9 +14881,13 @@
             next.add(visualCol);
           }
           selectedHeaderColumns = next;
-          setLastRange({ from: { row: 0, col: visualCol }, to: { row: lastRow, col: visualCol } });
+          setLastRange(next.size
+            ? { from: { row: 0, col: visualCol }, to: { row: lastRow, col: visualCol } }
+            : null);
           renderSelection();
-          fireHook('afterSelectionEnd', 0, visualCol, lastRow, visualCol);
+          if(next.size){
+            fireHook('afterSelectionEnd', 0, visualCol, lastRow, visualCol);
+          }
           return;
         }
         clearSelectedHeaderColumns();
@@ -13996,7 +14959,10 @@
         const headerCols = selectedHeaderColumns.size
           ? Array.from(selectedHeaderColumns).filter(idx => Number.isInteger(idx) && idx >= 0)
           : [];
-        if(!rangeSnapshot && !headerCols.length){
+        const headerRows = selectedHeaderPhysicalRows.size
+          ? Array.from(selectedHeaderPhysicalRows).filter(idx => Number.isInteger(idx) && idx >= 0)
+          : [];
+        if(!rangeSnapshot && !headerCols.length && !headerRows.length){
           pendingSortSelectionSnapshot = null;
           return;
         }
@@ -14005,6 +14971,7 @@
         pendingSortSelectionSnapshot = {
           range: rangeSnapshot,
           headerCols,
+          headerRows,
           anchor: (Number.isInteger(anchorRow) && Number.isInteger(anchorCol))
             ? { row: anchorRow, col: anchorCol }
             : null
@@ -14030,6 +14997,11 @@
             selectedHeaderColumns = new Set(snapshot.headerCols);
           }else{
             clearSelectedHeaderColumns();
+          }
+          if(Array.isArray(snapshot.headerRows) && snapshot.headerRows.length){
+            selectedHeaderPhysicalRows = new Set(snapshot.headerRows);
+          }else{
+            clearSelectedHeaderRows();
           }
           if(snapshot.range){
             const restoredRange = cloneRange(snapshot.range);
@@ -14093,7 +15065,8 @@
         isDragSelecting = false;
         dragAnchor = null;
         pendingDragCell = null;
-        isHeaderDragSelecting = true;
+        const additive = !!(event.ctrlKey || event.metaKey);
+        isHeaderDragSelecting = !additive;
         headerDragScope = 'row';
         headerDragAnchor = { row: (event.shiftKey && normalizedSelectionRange) ? normalizedSelectionRange.from.row : row };
         pendingHeaderDragIndex = row;
@@ -14101,7 +15074,7 @@
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           hotDebug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'row', row });
         }
-        selectRowByHeader(row, !!event.shiftKey);
+        selectRowByHeader(row, !!event.shiftKey, additive);
       };
 
       const handleColumnHeaderMouseDown = (event)=>{
@@ -14206,6 +15179,65 @@
         // the intent is multi-select/extend selection.
         if(event.shiftKey || additiveSelection){
           armHeaderSortSuppression(colId);
+        }
+      };
+
+      let pendingColumnAutosizePersist = null;
+      const cancelPendingColumnAutosizePersist = ()=>{
+        const pending = pendingColumnAutosizePersist;
+        pendingColumnAutosizePersist = null;
+        if(!pending){
+          return;
+        }
+        if(pending.kind === 'raf' && typeof pending.win?.cancelAnimationFrame === 'function'){
+          pending.win.cancelAnimationFrame(pending.id);
+        }else{
+          pending.win?.clearTimeout?.(pending.id);
+        }
+      };
+
+      const handleColumnResizeDoubleClick = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target || typeof target.closest !== 'function' || !target.closest('.ag-header-cell-resize')){
+          return;
+        }
+        const selectedColumns = getSelectedHeaderColumnsSorted();
+        const allDataColumnsSelected = colCount > 1
+          && selectedColumns.length === colCount
+          && selectedColumns.every((col, index)=>col === index);
+        if(!allDataColumnsSelected){
+          return;
+        }
+        const api = instance?.gridApi || null;
+        if(typeof api?.autoSizeColumns !== 'function'){
+          return;
+        }
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        event.stopImmediatePropagation?.();
+        api.autoSizeColumns(selectedColumns.map(col=>`c${col}`), false);
+        const docLocal = container?.ownerDocument || document;
+        const winLocal = docLocal?.defaultView || global;
+        cancelPendingColumnAutosizePersist();
+        const persistAfterAutosize = ()=>{
+          pendingColumnAutosizePersist = null;
+          if(instance?.__destroyed){
+            return;
+          }
+          persistColumnWidthOverrides(api, 'selected-columns-autosize');
+        };
+        if(typeof winLocal?.requestAnimationFrame === 'function'){
+          pendingColumnAutosizePersist = {
+            kind: 'raf',
+            id: winLocal.requestAnimationFrame(persistAfterAutosize),
+            win: winLocal
+          };
+        }else{
+          pendingColumnAutosizePersist = {
+            kind: 'timeout',
+            id: winLocal?.setTimeout?.(persistAfterAutosize, 0),
+            win: winLocal
+          };
         }
       };
 
@@ -14811,6 +15843,8 @@
         if(!coords){
           return;
         }
+        clearSelectedHeaderColumns();
+        clearSelectedHeaderRows();
         isDragSelecting = true;
         selectionDragLastPointer = {
           x: typeof event?.clientX === 'number' ? event.clientX : null,
@@ -15236,20 +16270,24 @@
         const isDelete = key === 'Delete' || keyCode === 46;
         const isBackspace = key === 'Backspace' || keyCode === 8;
         if((isDelete || isBackspace) && !isEditableTarget(event.target)){
+          const selectedRows = getSelectedVisualRowsSorted();
           const selectedColumns = getSelectedHeaderColumnsSorted();
-          const useSelectedColumns = selectedColumns.length > 0;
+          const useSelectedRows = selectedRows.length > 0;
+          const useSelectedColumns = !useSelectedRows && selectedColumns.length > 0;
           const selection = getEffectiveSelectionRange();
-          if(selection || useSelectedColumns){
+          if(selection || useSelectedRows || useSelectedColumns){
             event.preventDefault?.();
             event.stopPropagation?.();
             const rowSpan = useSelectedColumns ? resolveRowSpanForSelection() : null;
-            const changes = useSelectedColumns
-              ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
-              : buildVisualClearChangesForColumns(
-                Array.from({ length: Math.max(0, selection.to.col - selection.from.col + 1) }, (_, offset)=>selection.from.col + offset),
-                selection.from.row,
-                selection.to.row
-              );
+            const changes = useSelectedRows
+              ? buildVisualClearChangesForRows(selectedRows)
+              : (useSelectedColumns
+                ? buildVisualClearChangesForColumns(selectedColumns, rowSpan.startRow, rowSpan.endRow)
+                : buildVisualClearChangesForColumns(
+                  Array.from({ length: Math.max(0, selection.to.col - selection.from.col + 1) }, (_, offset)=>selection.from.col + offset),
+                  selection.from.row,
+                  selection.to.row
+                ));
             if(changes.length){
               instance.setDataAtCell(changes, 'delete');
               setClipboardOutlineState(null, 'delete');
@@ -15293,6 +16331,8 @@
           event.stopPropagation?.();
           event.stopImmediatePropagation?.();
           clearPasteDrivenSelectionState();
+          clearSelectedHeaderColumns();
+          clearSelectedHeaderRows();
           const lastRow = Math.max(0, getVisualRowCount() - 1);
           const lastCol = Math.max(0, colCount - 1);
           setLastRange({ from: { row: 0, col: 0 }, to: { row: lastRow, col: lastCol } });
@@ -15300,14 +16340,8 @@
           fireHook('afterSelectionEnd', 0, 0, lastRow, lastCol);
           return;
         }
-        if(normalizedKey === 'c'){
-          event.preventDefault?.();
-          event.stopPropagation?.();
-          copySelectionToClipboard();
-        }else if(normalizedKey === 'x'){
-          event.preventDefault?.();
-          event.stopPropagation?.();
-          cutSelectionToClipboard();
+        if(normalizedKey === 'c' || normalizedKey === 'x'){
+          handleClipboardShortcutKeyDown(event, normalizedKey);
         }
       };
 
@@ -15515,6 +16549,7 @@
         const endCol = useSelectedColumns
           ? selectedColumns[selectedColumns.length - 1]
           : (selection.from.col + (block[0]?.length || 1) - 1);
+        beginPasteTransaction('paste');
         try{
           let capturedPasteChanges = [];
           const applyPasteMutation = ()=>{
@@ -15559,6 +16594,14 @@
           }else{
             applyPasteMutation();
           }
+          const committedChanges = completePasteTransaction({ api: instance.gridApi });
+          fireHook('afterPaste', block, [{
+            startRow: selection.from.row,
+            startCol: useSelectedColumns ? selectedColumns[0] : selection.from.col,
+            endRow,
+            endCol
+          }]);
+          triggerSchedule('afterPaste', { source: 'paste', changes: committedChanges });
           const pastedSelectionRange = {
             from: { row: selection.from.row, col: useSelectedColumns ? selectedColumns[0] : selection.from.col },
             to: { row: endRow, col: endCol }
@@ -15576,6 +16619,7 @@
           fireHook('afterSelectionEnd', pastedSelectionRange.from.row, pastedSelectionRange.from.col, pastedSelectionRange.to.row, pastedSelectionRange.to.col);
           scheduleSelectionReassert(pastedSelectionRange, 'paste');
         }catch(err){
+          pasteTransaction = null;
           console.error('Shared.hot AG paste handler failed', { debugLabel, err });
         }
       };
@@ -15742,8 +16786,19 @@
         openColumnHeaderMenu(event, colIdx);
       };
 
+      keyboardShortcutRegistration = registerHotKeyboardShortcutOwner({
+        document: doc,
+        instance,
+        container,
+        handleShortcut: (event, key)=>handleClipboardShortcutKeyDown(event, key, {
+          fireBeforeKeyDown: true
+        }),
+        hasSelection: hasClipboardSelection
+      });
+
       container.addEventListener('mousedown', handleRowHeaderMouseDown, true);
       container.addEventListener('mousedown', handleColumnHeaderMouseDown, true);
+      container.addEventListener('dblclick', handleColumnResizeDoubleClick, true);
       container.addEventListener('mousedown', handleMouseDown, true);
       container.addEventListener('pointerdown', handleTouchPointerDown, true);
       container.addEventListener('pointerup', handleTouchPointerUp, true);
@@ -15820,6 +16875,9 @@
         }
       }
       cleanupFns.push(()=>{
+        keyboardShortcutRegistration?.unregister?.();
+        keyboardShortcutRegistration = null;
+        cancelPendingColumnAutosizePersist();
         clearDeferredColumnMoveCommit();
         stopFormulaOverlayLoop();
         stopFormulaReferenceDrag('cleanup');
@@ -15827,6 +16885,7 @@
         clearSortSelectionGuard();
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
+        container.removeEventListener('dblclick', handleColumnResizeDoubleClick, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
         container.removeEventListener('pointerdown', handleTouchPointerDown, true);
         container.removeEventListener('pointerup', handleTouchPointerUp, true);
@@ -16091,6 +17150,26 @@
     return controller.isCellExcluded(physicalRow, physicalCol);
   }
 
+  function resolveAnalysisPinnedRowCount(instance, options){
+    if(Number.isInteger(options?.pinnedRowCount)){
+      return Math.max(0, Number(options.pinnedRowCount));
+    }
+    try{
+      const settings = typeof instance?.getSettings === 'function' ? instance.getSettings() : null;
+      const configured = Number(settings?.fixedRowsTop);
+      return Number.isInteger(configured) ? Math.max(0, configured) : 0;
+    }catch(err){
+      return 0;
+    }
+  }
+
+  function hasAnalysisValue(value){
+    if(value == null){
+      return false;
+    }
+    return typeof value !== 'string' || value.trim() !== '';
+  }
+
   function getAnalysisData(instance, options){
     const inst = resolveInstance(instance);
     if(!inst){
@@ -16115,32 +17194,80 @@
     const visualToPhysicalCol = Array.from({ length: colCount }, (_, col)=>toPhysicalColumn(inst, col));
     const sourceData = typeof inst.getSourceData === 'function' ? inst.getSourceData() : null;
     const canReadSourceDirectly = Array.isArray(sourceData);
+    const pinnedRowCount = Math.min(rowCount, resolveAnalysisPinnedRowCount(inst, options));
+    const readDisplayCellValue = (visualRow, visualCol, physicalRow, physicalCol)=>{
+      if(!Number.isInteger(physicalRow) || physicalRow < 0 || !Number.isInteger(physicalCol) || physicalCol < 0){
+        return null;
+      }
+      const rawValue = canReadSourceDirectly
+        ? sourceData?.[physicalRow]?.[physicalCol]
+        : undefined;
+      const isFormula = typeof rawValue === 'string' && rawValue.trimStart().startsWith('=');
+      if(canReadSourceDirectly && !isFormula){
+        return rawValue;
+      }
+      if(typeof inst.__hotGetDisplayDataAtCell === 'function'){
+        return inst.__hotGetDisplayDataAtCell(visualRow, visualCol);
+      }
+      return inst.getDataAtCell(visualRow, visualCol);
+    };
+    const readAnalysisCellValue = (visualRow, visualCol, physicalRow, physicalCol)=>{
+      if(controller?.isCellExcluded(physicalRow, physicalCol)){
+        return null;
+      }
+      return readDisplayCellValue(visualRow, visualCol, physicalRow, physicalCol);
+    };
+    const analysisColumnHasBodyData = Array.from({ length: colCount }, (_, visualCol)=>{
+      const physicalCol = visualToPhysicalCol[visualCol];
+      if(!Number.isInteger(physicalCol) || physicalCol < 0){
+        return false;
+      }
+      for(let visualRow = pinnedRowCount; visualRow < rowCount; visualRow += 1){
+        const physicalRow = visualToPhysicalRow[visualRow];
+        try{
+          if(hasAnalysisValue(readDisplayCellValue(visualRow, visualCol, physicalRow, physicalCol))){
+            return true;
+          }
+        }catch(err){
+          console.error('Shared.hot getAnalysisData body column scan error', err);
+        }
+      }
+      return false;
+    });
+    const analysisColumnHasIncludedData = Array.from({ length: colCount }, (_, visualCol)=>{
+      if(analysisColumnHasBodyData[visualCol] === false){
+        return false;
+      }
+      const physicalCol = visualToPhysicalCol[visualCol];
+      for(let visualRow = pinnedRowCount; visualRow < rowCount; visualRow += 1){
+        const physicalRow = visualToPhysicalRow[visualRow];
+        let value = null;
+        try{
+          value = readAnalysisCellValue(visualRow, visualCol, physicalRow, physicalCol);
+        }catch(err){
+          console.error('Shared.hot getAnalysisData column scan error', err);
+        }
+        if(hasAnalysisValue(value)){
+          return true;
+        }
+      }
+      return false;
+    });
     const data = [];
     for(let row = 0; row < rowCount; row++){
       const rowValues = [];
       for(let col = 0; col < colCount; col++){
         const physicalRow = visualToPhysicalRow[row];
         const physicalCol = visualToPhysicalCol[col];
-        const excluded = controller ? controller.isCellExcluded(physicalRow, physicalCol) : false;
-        if(excluded){
+        if(analysisColumnHasIncludedData[col] === false){
           rowValues.push(null);
-        }else{
-          try{
-            const rawValue = canReadSourceDirectly
-              ? sourceData?.[physicalRow]?.[physicalCol]
-              : undefined;
-            const isFormula = typeof rawValue === 'string' && rawValue.trimStart().startsWith('=');
-            if(canReadSourceDirectly && !isFormula){
-              rowValues.push(rawValue);
-            }else if(typeof inst.__hotGetDisplayDataAtCell === 'function'){
-              rowValues.push(inst.__hotGetDisplayDataAtCell(row, col));
-            }else{
-              rowValues.push(inst.getDataAtCell(row, col));
-            }
-          }catch(err){
-            console.error('Shared.hot getAnalysisData cell read error', err);
-            rowValues.push(null);
-          }
+          continue;
+        }
+        try{
+          rowValues.push(readAnalysisCellValue(row, col, physicalRow, physicalCol));
+        }catch(err){
+          console.error('Shared.hot getAnalysisData cell read error', err);
+          rowValues.push(null);
         }
       }
       data.push(rowValues);
@@ -16149,16 +17276,29 @@
       data,
       rowCount,
       colCount,
+      pinnedRowCount,
       excluded: controller ? controller.exportState() : EMPTY_EXCLUSION_STATE,
+      ignoredEmptyColumns: analysisColumnHasBodyData
+        .map((hasData, index)=>hasData ? null : index)
+        .filter(index => index !== null),
+      inactiveAnalysisColumns: analysisColumnHasIncludedData
+        .map((hasData, index)=>hasData ? null : index)
+        .filter(index => index !== null),
       isRowExcluded(visualRow){
         const physicalRow = visualToPhysicalRow[visualRow];
         return physicalRow != null && controller ? controller.isRowExcluded(physicalRow) : false;
       },
       isColumnExcluded(visualCol){
+        if(analysisColumnHasIncludedData[visualCol] === false){
+          return true;
+        }
         const physicalCol = visualToPhysicalCol[visualCol];
         return physicalCol != null && controller ? controller.isColumnExcluded(physicalCol) : false;
       },
       isCellExcluded(visualRow, visualCol){
+        if(analysisColumnHasIncludedData[visualCol] === false){
+          return true;
+        }
         const physicalRow = visualToPhysicalRow[visualRow];
         const physicalCol = visualToPhysicalCol[visualCol];
         if(physicalRow == null || physicalCol == null || !controller){
@@ -16172,7 +17312,7 @@
         const includeEmpty = optionsLocal.includeEmpty === true;
         const values = [];
         for(let row = 0; row < data.length; row++){
-          if(skipHeader && row === 0){
+          if(skipHeader && row < pinnedRowCount){
             continue;
           }
           const value = data[row][visualCol];
@@ -16189,7 +17329,7 @@
       },
       getRowValues(visualRow, opts){
         const optionsLocal = opts || {};
-        if(optionsLocal.skipHeader === true && visualRow === 0){
+        if(optionsLocal.skipHeader === true && visualRow < pinnedRowCount){
           return [];
         }
         const includeEmpty = optionsLocal.includeEmpty === true;
@@ -16275,7 +17415,9 @@
     hotDebug('Debug: Shared.hot getIncludedDataMatrix complete', {
       debugLabel: getInstanceDebugLabel(resolveInstance(instance)),
       rowCount,
-      colCount
+      colCount,
+      ignoredEmptyColumnCount: Array.isArray(analysis?.ignoredEmptyColumns) ? analysis.ignoredEmptyColumns.length : 0,
+      inactiveColumnCount: Array.isArray(analysis?.inactiveAnalysisColumns) ? analysis.inactiveAnalysisColumns.length : 0
     });
     return matrix;
   }

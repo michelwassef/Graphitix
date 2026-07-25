@@ -1063,6 +1063,9 @@
       idleThresholdMs: options.idleThresholdMs
     });
     const captureRenderCache = policy.captureRenderCache === true;
+    // Worker-backed normalization is a post-capture optimization only. It must
+    // never change which live owner state is captured or whether readiness is
+    // awaited.
     const deferArchiveNormalization = options.useWorker !== false
       && policy.snapshotKind === 'recovery'
       && !captureRenderCache;
@@ -1078,7 +1081,7 @@
     }
 
     const activeTab = typeof session.getActiveTab === 'function' ? session.getActiveTab() : null;
-    if (!deferArchiveNormalization && activeTab && !activeTab.isWelcome && activeTab.type) {
+    if (activeTab && !activeTab.isWelcome && activeTab.type) {
       await awaitWorkspaceReadyForSnapshot(context, activeTab, {
         reason: options.readyReason || `${options.reason || 'document-checkpoint'}-active-ready`,
         timeoutMs: options.readyTimeoutMs
@@ -1096,7 +1099,9 @@
       snapshotIntent: policy.snapshotIntent,
       captureRenderCache,
       deferArchiveNormalization,
-      skipActiveProjectionCapture: deferArchiveNormalization,
+      // Recovery and manual save share the same active-owner payload capture.
+      // Only render-cache richness and worker serialization may differ.
+      skipActiveProjectionCapture: false,
       preserveRenderCacheTabIds
     });
     if (!snapshot || !Array.isArray(snapshot.tabs) || !snapshot.tabs.length) {

@@ -9,21 +9,21 @@ describe('snapshotPolicy recovery parity', () => {
     delete window.Main;
   });
 
-  test('recovery serializes canonical session state without live projection capture', () => {
+  test('recovery uses the same authoritative live payload capture contract as manual save', () => {
     const policy = window.Main.snapshotPolicy;
     const saveIntent = policy.resolvePersistSnapshotIntent({ snapshotKind: 'archive-save' });
     const recoveryIntent = policy.resolvePersistSnapshotIntent({ snapshotKind: 'recovery' });
 
     expect(recoveryIntent).toEqual(expect.objectContaining({
-      saveLike: false,
-      captureLivePayload: false,
-      skipLivePayloadCapture: true,
-      allowSkipLivePayloadCapture: true,
-      lifecycleSnapshot: true,
-      reasonSkippable: true,
+      saveLike: true,
+      captureLivePayload: true,
+      skipLivePayloadCapture: false,
+      allowSkipLivePayloadCapture: false,
+      lifecycleSnapshot: false,
+      reasonSkippable: false,
       snapshotCapture: true
     }));
-    expect(saveIntent.captureLivePayload).toBe(true);
+    expect(recoveryIntent).toEqual(saveIntent);
   });
 
   test('Hi-Fi recovery requires explicit opt-in and idle time', () => {

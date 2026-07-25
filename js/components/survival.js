@@ -2011,14 +2011,11 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData, { source: 'survival-data-view-switch' });
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            loadOptions: { source: 'survival-data-view-switch' },
+            exclusionSource: 'survival-data-view-switch',
+            filterReason: 'survival-data-view-switch'
+          });
           const scheduledTabId = resolveSurvivalHotOwnerTabId(hotInstance) || ownerTabId || getSurvivalProjectionTabId() || null;
           const scheduledSession = getSurvivalSession(scheduledTabId, {
             tabId: scheduledTabId,
@@ -2885,9 +2882,18 @@
         if(atRisk - events > 0){
           cumulativeVar += events / (atRisk * (atRisk - events));
         }
-        const se = survivalProb * Math.sqrt(Math.max(cumulativeVar, 0));
-        lastLower = Math.max(0, survivalProb - z * se);
-        lastUpper = Math.min(1, survivalProb + z * se);
+        // Log-log transformed Greenwood interval: range preserving and
+        // substantially better behaved than symmetric Wald bounds near 0/1.
+        if(survivalProb > 0 && survivalProb < 1 && cumulativeVar > 0){
+          const logSurvival = Math.log(survivalProb);
+          const seLogLog = Math.sqrt(cumulativeVar) / Math.abs(logSurvival);
+          const transformed = Math.log(-logSurvival);
+          lastLower = Math.exp(-Math.exp(transformed + z * seLogLog));
+          lastUpper = Math.exp(-Math.exp(transformed - z * seLogLog));
+        }else{
+          lastLower = survivalProb;
+          lastUpper = survivalProb;
+        }
         stepPoints.push({ time: currentTime, survival: survivalProb });
         lowerSteps.push({ time: currentTime, value: lastLower });
         upperSteps.push({ time: currentTime, value: lastUpper });
@@ -3316,58 +3322,44 @@
   }
 
   function parseCovariateValue(raw, predictor){
-    let value = 0;
+    let value = NaN;
     let handled = false;
-    if(typeof raw === 'number'){
-      if(Number.isFinite(raw)){
-        value = raw;
-        handled = true;
-      }
-    } else if(typeof raw === 'boolean'){
+    if(typeof raw === 'number' && Number.isFinite(raw)){
+      value = raw;
+      handled = true;
+    }else if(typeof raw === 'boolean'){
       value = raw ? 1 : 0;
       handled = true;
-    } else if(raw != null){
+    }else if(raw != null){
       const str = String(raw).trim();
-      if(str.length){
-        const numeric = Number.parseFloat(str);
+      if(str){
+        const numeric = Number(str);
         if(Number.isFinite(numeric)){
           value = numeric;
           handled = true;
-        } else {
+        }else{
           const lowered = str.toLowerCase();
-          if(['true', 'yes', 'y', 't', 'active', 'on'].includes(lowered)){
+          if(['true','yes','y','t','active','on'].includes(lowered)){
             value = 1;
             handled = true;
-          } else if(['false', 'no', 'n', 'f', 'inactive', 'off'].includes(lowered)){
+          }else if(['false','no','n','f','inactive','off'].includes(lowered)){
             value = 0;
             handled = true;
-          } else if(predictor?.type === 'time'){
-            const matches = str.match(/-?\d+(?:\.\d+)?/g);
-            if(Array.isArray(matches) && matches.length){
-              const lastToken = matches[matches.length - 1];
-              const parsed = Number.parseFloat(lastToken);
-              if(Number.isFinite(parsed)){
-                value = parsed;
-                handled = true;
-              }
+          }else if(predictor?.type === 'time'){
+            const match = str.match(/^\s*(-?\d+(?:\.\d+)?)\s*$/);
+            if(match){
+              value = Number(match[1]);
+              handled = Number.isFinite(value);
             }
           }
         }
       }
     }
-    if(!handled){
-      value = 0;
-    }
     if(parseDebugCounter < 5){
-      logDebug('covariate parsed', {
-        raw,
-        value,
-        predictorType: predictor?.type || 'baseline',
-        handled
-      });
+      logDebug('covariate parsed',{raw,value,predictorType:predictor?.type || 'baseline',handled});
       parseDebugCounter += 1;
     }
-    return value;
+    return handled ? value : NaN;
   }
 
   function normalCDF(value){
@@ -3455,6 +3447,7 @@
       return { available: false, message: 'Cox model requires at least one predictor.' };
     }
     const data = [];
+    let excludedInvalidCovariates = 0;
     series.forEach((group, groupIndex) => {
       if(!group || !Array.isArray(group.records)){
         return;
@@ -3464,13 +3457,15 @@
           return;
         }
         const covariates = designPredictors.map(predictor => {
-          if(predictor.type === 'group'){
-            return predictor.groupIndex === groupIndex ? 1 : 0;
-          }
+          if(predictor.type === 'group') return predictor.groupIndex === groupIndex ? 1 : 0;
           const offset = predictor.columnIndex - BASE_COLUMN_COUNT;
           const raw = Array.isArray(rec.extras) ? rec.extras[offset] : undefined;
           return parseCovariateValue(raw, predictor);
         });
+        if(covariates.some(value => !Number.isFinite(value))){
+          excludedInvalidCovariates += 1;
+          return;
+        }
         data.push({
           time: rec.time,
           entry: Number.isFinite(rec.entry) ? rec.entry : 0,
@@ -3486,12 +3481,7 @@
       return { available: false, message: 'No valid observations to fit Cox model.' };
     }
     const originalCount = data.length;
-    let truncated = false;
-    if(data.length > COX_MAX_OBSERVATIONS){
-      data.length = COX_MAX_OBSERVATIONS;
-      truncated = true;
-      logDebug('cox observation cap applied', { originalCount, cappedAt: COX_MAX_OBSERVATIONS });
-    }
+    const truncated = false;
     data.sort((a, b) => a.time - b.time);
     const eventCount = data.reduce((sum, rec) => sum + (rec.event ? 1 : 0), 0);
     if(eventCount === 0){
@@ -5389,7 +5379,7 @@
           : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Breslow handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
         resultsText: [
           `${summary.series.length} group(s) contributed survival data.`,
           logRankText,
@@ -5790,11 +5780,11 @@
         ],
         rows: [
           { metric: "Harrell's C", value: formatNumber(concordance.c, 3) },
-          { metric: "Harrell's C 95% CI", value: formatInterval(concordance.ciLow, concordance.ciHigh) },
+          { metric: "Harrell's C uncertainty", value: 'Not reported (subject-level influence/bootstrap variance required)' },
           { metric: 'Comparable pairs', value: Number.isFinite(concordance.comparable) ? String(concordance.comparable) : 'n/a' },
           { metric: 'Concordant pairs', value: Number.isFinite(concordance.concordant) ? String(concordance.concordant) : 'n/a' }
         ],
-        footnotes: ['Higher concordance indicates better risk ranking by the Cox model.'],
+        footnotes: ['Higher concordance indicates better risk ranking. No confidence interval is reported because overlapping comparable pairs require subject-level influence or bootstrap variance.'],
         options: {
           fileName: 'survival-cox-diagnostics',
           contextLabel: 'survival-cox-diagnostics'
@@ -5834,7 +5824,7 @@
     }
     if(Array.isArray(residuals.schoenfeld) && residuals.schoenfeld.length){
       renderStatsTableCard(refs.statsCox, {
-        caption: 'Scaled Schoenfeld Residual Checks',
+        caption: 'Exploratory Schoenfeld Residual–Time Correlations',
         section: 'diagnostics',
         columns: [
           { key: 'predictor', label: 'Predictor', align: 'left' },

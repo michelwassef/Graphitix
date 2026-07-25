@@ -723,13 +723,14 @@
       const draw = window.Components?.[componentName]?.draw;
       if (typeof draw === 'function') {
         Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey, tabId, action: 'draw-executed', reason, details: { scheduler: 'registry' } });
-        draw(options || {});
+        return draw(options || {});
       }
+      return undefined;
     };
     const raw = Shared.componentLifecycle?.createTabScopedFrameDebouncer
       ? Shared.componentLifecycle.createTabScopedFrameDebouncer(registryAsyncOwner, componentKey, runRegistryDraw, { reason: 'registry-draw-frame' })
       : runRegistryDraw;
-    return Shared.workspaceTabs?.createTabScopedScheduler
+    const scheduled = Shared.workspaceTabs?.createTabScopedScheduler
       ? Shared.workspaceTabs.createTabScopedScheduler({
           componentKey,
           debugLabel: `registry-${componentKey}`,
@@ -737,6 +738,24 @@
           scheduleRaw: raw
         })
       : raw;
+    return function scheduleRegistryDraw(options = {}) {
+      const source = options && typeof options === 'object' ? options : {};
+      const reason = source.reason || source.source || null;
+      // A cache-rejection fallback is already inside the owning tab's restore transaction.
+      // Deferring it through another registry frame creates a gap where readiness can report
+      // idle and the restore transaction can close before the component has even seen the draw.
+      // Invoke the component contract immediately; components may still use their own
+      // owner-scoped scheduler/worker internally. Apply this uniformly to every workspace.
+      if(source.forceDraw === true && reason === 'workspace-draw-fallback'){
+        console.debug('Debug: registry draw executing restore fallback immediately', {
+          componentKey,
+          tabId: source.tabId || source.workspaceTabId || source.tab?.id || null,
+          reason
+        });
+        return runRegistryDraw(source);
+      }
+      return scheduled(source);
+    };
   };
 
   function resolveWorkspacePreviewSvg(type, tab) {
@@ -951,7 +970,7 @@
       element: document.getElementById('heatmapPage'),
       ensure: options => ensureWorkspaceComponent('heatmap', options),
       draw: meta => scheduleDrawHeatmap(meta || {}),
-      getPreviewSvg: tab => resolveWorkspacePreviewSvg('heatmap', tab),
+      getPreviewSvg: tab => window.Components?.heatmap?.getPreviewSvg?.(tab) || resolveWorkspacePreviewSvg('heatmap', tab),
       getPayload: (meta) => window.Components?.heatmap?.getPayload?.(meta || {}),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: (payload, options) => window.Components?.heatmap?.loadFromPayload?.(payload, options),
@@ -960,6 +979,7 @@
       captureRenderCache: meta => window.Components?.heatmap?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.heatmap?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.heatmap?.restoreRenderCache?.(cache, meta),
+      hasRenderedGraph: meta => window.Components?.heatmap?.hasRenderedGraph?.(meta),
       captureUiState: (meta) => window.Components?.heatmap?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.heatmap?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('heatmap', options || {}),

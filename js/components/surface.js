@@ -1540,14 +1540,10 @@
           if(!view || !hotInstance || typeof hotInstance.loadData !== 'function'){
             return;
           }
-          const nextData = Array.isArray(view.data) ? view.data : [];
-          hotInstance.loadData(nextData);
-          if(view.exclusions){
-            hotInstance.applyExclusions?.(view.exclusions);
-          }
-          if(view.filters){
-            hotInstance.applyFilters?.(view.filters, { schedule: false });
-          }
+          Shared.dataViews.applyViewToTable(hotInstance, view, {
+            exclusionSource: 'surface-data-view-switch',
+            filterReason: 'surface-data-view-switch'
+          });
           const session = getSurfaceSessionForHot(hotInstance, { reason: 'surface-data-view-switch' }, { create: false })
             || ownerSession
             || getActiveSurfaceSessionForState();
