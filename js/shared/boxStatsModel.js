@@ -762,11 +762,11 @@
     },
     tamhaneT2: {
       value: 'tamhaneT2',
-      label: 'Tamhane T2',
-      shortLabel: 'Tamhane T2',
+      label: 'Welch pairwise + Sidak',
+      shortLabel: 'Welch + Sidak',
       tooltip: 'Unequal-variance post-hoc based on Welch t tests with Sidak family-wise adjustment (unpaired, >=3 groups).',
       applies: context => context && context.mode !== 'custom' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && (isWelchStyleParametricVariant(context.variant) || context.varianceConcern === true),
-      summary: context => `Tamhane T2-style unequal-variance comparisons across ${context?.groupCount || 0} groups.`
+      summary: context => `Welch pairwise comparisons with Sidak family-wise adjustment across ${context?.groupCount || 0} groups.`
     },
     dunn: {
       value: 'dunn',
@@ -778,11 +778,11 @@
     },
     nemenyi: {
       value: 'nemenyi',
-      label: "Friedman pairwise permutation (max-statistic)",
-      shortLabel: 'Friedman max-T',
-      tooltip: 'Friedman/Nemenyi post-hoc test on average ranks for paired or repeated-measures non-parametric designs.',
+      label: "Friedman pairwise post-hoc",
+      shortLabel: 'Friedman post-hoc',
+      tooltip: 'Pairwise comparisons of mean ranks after Friedman; calibration is exact/Monte Carlo max-statistic permutation when selected, otherwise the Nemenyi studentized-range approximation.',
       applies: context => context && context.mode !== 'custom' && context.test === 'nonparametric' && context.paired && context.groupCount >= 3,
-      summary: context => `Nemenyi post-hoc comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
+      summary: context => `Pairwise mean-rank comparisons across ${context?.groupCount || 0} paired groups after Friedman.`
     },
     dunnett: {
       value: 'dunnett',
@@ -790,7 +790,7 @@
       shortLabel: 'Control + Sidak',
       tooltip: 'Parametric multiple comparison versus a control/reference group (equal variances).',
       applies: context => context && context.mode === 'reference' && context.test === 'parametric' && !context.paired && context.groupCount >= 3 && isEqualVarianceParametricVariant(context.variant),
-      summary: context => `Dunnett-style control comparisons across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
+      summary: context => `Pooled-variance t comparisons versus the reference with Sidak family-wise adjustment across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
     },
     dunnettT3: {
       value: 'dunnettT3',
@@ -798,7 +798,7 @@
       shortLabel: 'Control Welch + Sidak',
       tooltip: 'Welch-type multiple comparison versus a control/reference group (unequal variances).',
       applies: context => context && context.mode === 'reference' && context.test === 'parametric' && !context.paired && context.groupCount >= 3,
-      summary: context => `Dunnett T3-style control comparisons across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
+      summary: context => `Welch t comparisons versus the reference with Sidak family-wise adjustment across ${Math.max(0, (context?.groupCount || 0) - 1)} group${(context?.groupCount || 0) === 2 ? '' : 's'}.`
     }
   };
   const POST_HOC_ORDER = ['standard', 'tukey', 'gamesHowell', 'tamhaneT2', 'dunn', 'nemenyi', 'dunnett', 'dunnettT3'];
@@ -1265,8 +1265,18 @@
     const df2 = totalN - k;
     const msBetween = ssBetween / (df1 || 1);
     const msWithin = ssWithin / (df2 || 1);
-    const F = msWithin === 0 ? Infinity : msBetween / msWithin;
-    const pValue = Number.isFinite(F) ? fUpperTailPValue(F, df1, df2) : 0;
+    let F = NaN;
+    let pValue = NaN;
+    if(msWithin > 0){
+      F = msBetween / msWithin;
+      pValue = Number.isFinite(F) ? fUpperTailPValue(F, df1, df2) : NaN;
+    }else if(msBetween > 0){
+      F = Infinity;
+      pValue = 0;
+    }else{
+      F = NaN;
+      pValue = NaN;
+    }
     const passed = Number.isFinite(pValue) ? pValue >= ASSUMPTION_ALPHA : null;
     return { method: 'brown-forsythe', statistic: F, pValue, passed, df1, df2, sparkline: sparklineValues };
   }
@@ -3006,9 +3016,12 @@
           if(rowIndex>=n){
             total+=1;
             const simMeans=currentSums.map(sum=>sum/n);
-            pairs.forEach((pair,pairIdx)=>{
-              const stat=Math.abs(simMeans[pair.i]-simMeans[pair.j]);
-              if(stat>=observedStats[pairIdx]-1e-12){
+            let maxPairwiseStatistic=0;
+            pairs.forEach(pair=>{
+              maxPairwiseStatistic=Math.max(maxPairwiseStatistic,Math.abs(simMeans[pair.i]-simMeans[pair.j]));
+            });
+            observedStats.forEach((observedStatistic,pairIdx)=>{
+              if(maxPairwiseStatistic>=observedStatistic-1e-12){
                 exceed[pairIdx]+=1;
               }
             });
@@ -3033,7 +3046,7 @@
           ok:pairs.length>0,
           pairs,
           meanRanks,
-          footnote:'Nemenyi follow-up calibrated from the exact within-row permutation distribution after Friedman.'
+          footnote:'Friedman pairwise comparisons calibrated by the exact maximum absolute mean-rank difference across all displayed pairs.'
         };
       }
       const nextRand=createSeededRandom(seed + n*271 + k*31);
@@ -3046,9 +3059,12 @@
           }
         }
         const simMeans=simSums.map(sum=>sum/n);
-        pairs.forEach((pair,pairIdx)=>{
-          const stat=Math.abs(simMeans[pair.i]-simMeans[pair.j]);
-          if(stat>=observedStats[pairIdx]-1e-12){
+        let maxPairwiseStatistic=0;
+        pairs.forEach(pair=>{
+          maxPairwiseStatistic=Math.max(maxPairwiseStatistic,Math.abs(simMeans[pair.i]-simMeans[pair.j]));
+        });
+        observedStats.forEach((observedStatistic,pairIdx)=>{
+          if(maxPairwiseStatistic>=observedStatistic-1e-12){
             exceed[pairIdx]+=1;
           }
         });
@@ -3062,8 +3078,8 @@
         pairs,
         meanRanks,
         footnote:tieRows>0
-          ? `Nemenyi follow-up calibrated by Monte Carlo within-row permutations (${iterations} iterations; ties present).`
-          : `Nemenyi follow-up calibrated by Monte Carlo within-row permutations (${iterations} iterations).`
+          ? `Friedman pairwise comparisons calibrated by a Monte Carlo maximum-statistic within-row permutation test (${iterations} iterations; ties present).`
+          : `Friedman pairwise comparisons calibrated by a Monte Carlo maximum-statistic within-row permutation test (${iterations} iterations).`
       };
     }
     return {
@@ -3081,10 +3097,10 @@
     const counts=cleaned.map(group=>group.length);
     const k=cleaned.length;
     if(k<2){
-      return { ok:false, message:'Tamhane T2 requires at least two groups.' };
+      return { ok:false, message:'Welch + Sidak comparisons require at least two groups.' };
     }
     if(counts.some(n=>n<2)){
-      return { ok:false, message:'Tamhane T2 needs at least two observations per group.' };
+      return { ok:false, message:'Welch + Sidak comparisons need at least two observations per group.' };
     }
     const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
     const variances=cleaned.map((group,idx)=>{
@@ -3098,7 +3114,7 @@
       ? global.jStat.studentt.cdf
       : null;
     if(!cdf){
-      return { ok:false, message:'Student t distribution unavailable for Tamhane T2.' };
+      return { ok:false, message:'Student t distribution unavailable for Welch + Sidak comparisons.' };
     }
     const pairCount=Math.max(1,(k*(k-1))/2);
     const sidakAlpha=1-Math.pow(Math.max(1e-9,1-resolveStatsAlpha({ alpha:options?.alpha })),1/pairCount);
@@ -3146,7 +3162,7 @@
       means,
       counts,
       variances,
-      footnote:'Tamhane T2 approximated with Welch t-tests and Sidak family-wise adjustment.'
+      footnote:'Pairwise Welch t-tests with Sidak family-wise adjustment.'
     };
   }
 
@@ -3157,14 +3173,14 @@
     const counts=cleaned.map(group=>group.length);
     const k=cleaned.length;
     if(k<3){
-      return { ok:false, message:"Dunnett's test requires at least three groups (including the reference)." };
+      return { ok:false, message:'Reference comparisons require at least three groups (including the reference).' };
     }
     const refIdx=Number.isInteger(referenceIndex)?referenceIndex:0;
     if(refIdx<0 || refIdx>=k){
-      return { ok:false, message:'Select a valid reference group for Dunnett comparisons.' };
+      return { ok:false, message:'Select a valid reference group for the control comparisons.' };
     }
     if(counts.some(n=>n<2)){
-      return { ok:false, message:"Dunnett's test requires at least two values in each group." };
+      return { ok:false, message:'Reference comparisons require at least two values in each group.' };
     }
     const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
     const variances=cleaned.map((group,idx)=>{
@@ -3179,7 +3195,7 @@
     if(!unequalVariances){
       const anovaParts=computeAnovaComponents(cleaned);
       if(!anovaParts.ok){
-        return { ok:false, message:anovaParts.reason || "Unable to compute Dunnett's pooled variance." };
+        return { ok:false, message:anovaParts.reason || 'Unable to compute the pooled variance for reference comparisons.' };
       }
       pooledMse=anovaParts.mse;
       pooledDf=anovaParts.dfWithin;
@@ -3213,7 +3229,7 @@
         ? global.jStat.studentt.cdf
         : null;
       if(!cdf){
-        return { ok:false, message:'Student t distribution unavailable for Dunnett comparisons.' };
+        return { ok:false, message:'Student t distribution unavailable for reference comparisons.' };
       }
       const rawP=studentTTwoSidedPValue(tVal, df);
       const pAdj=1-Math.pow(Math.max(0,1-rawP),comparisonCount);
@@ -3235,7 +3251,7 @@
       });
     }
     if(!pairs.length){
-      return { ok:false, message:"Unable to compute Dunnett comparisons for the selected groups." };
+      return { ok:false, message:'Unable to compute reference comparisons for the selected groups.' };
     }
     return {
       ok:true,
@@ -4621,7 +4637,7 @@
     const pBC = Number.isFinite(fBC) ? fUpperTailPValue(fBC, dfBC, dfABC) : NaN;
     return {
       ok: true,
-      caption: 'Three-way ANOVA',
+      caption: 'Unreplicated three-factor ANOVA (ABC interaction used as error)',
       section: 'summary',
       columns: [
         { key: 'source', label: 'Source', align: 'left' },
@@ -6200,8 +6216,8 @@
   function buildGroupedStatsReport(analysis,resultModel,summary,grouped,payload){
     const labels={
       twoWayAnova:'Two-way ANOVA',
-      rowRandomMixed:'Mixed model (rows random)',
-      threeWayAnova:'Three-way ANOVA',
+      rowRandomMixed:'Rows-random repeated-measures model',
+      threeWayAnova:'Unreplicated three-factor ANOVA (ABC as error)',
       rowTTests:'Row-wise t-tests',
       multipleComparisons:'Grouped multiple comparisons'
     };

@@ -1486,6 +1486,32 @@
       }
     };
 
+    let workspaceSessionGeneration = 0;
+    const isCurrentWorkspaceSession = () => {
+      if (!Shared.workspaceTabs?.isSessionCurrent || !workspaceSessionGeneration) {
+        return true;
+      }
+      return !!Shared.workspaceTabs.isSessionCurrent(tab.type, tab.id, workspaceSessionGeneration);
+    };
+    const guardWorkspaceMutation = label => {
+      if (isCurrentWorkspaceSession()) {
+        return true;
+      }
+      console.debug('Debug: workspace mutation skipped (stale session)', {
+        tabId: tab.id,
+        type: tab.type,
+        label,
+        sessionGeneration: workspaceSessionGeneration
+      });
+      return false;
+    };
+    const buildWorkspaceDrawMeta = reason => ({
+      tabId: tab.id,
+      sessionGeneration: workspaceSessionGeneration,
+      componentType: tab.type,
+      reason: reason || options.reason || 'workspace-view'
+    });
+
     let earlyRenderRestoreTransactionEnd = null;
     const beginEarlyRenderRestoreTransaction = () => {
       if (!canRestoreRender || earlyRenderRestoreTransactionEnd || !Shared.componentLifecycle?.beginRenderCacheRestoreTransaction) {
@@ -1537,7 +1563,9 @@
         });
         sessionRecord = Shared.workspaceTabs.getSessionRecord?.(tab, tab.type) || null;
       }
-      const sessionGeneration = Number(sessionRecord?.generation) || 0;
+      workspaceSessionGeneration = Number(sessionRecord?.generation) || 0;
+      const sessionGeneration = workspaceSessionGeneration;
+      const drawMeta = buildWorkspaceDrawMeta(options.reason || 'workspace-view');
       if (canRestoreRender) {
         const postEnsureCanRestore = validateRenderCacheForRestore('post-ensure');
         if (postEnsureCanRestore !== canRestoreRender || renderCacheValidationDeferred) {
@@ -1562,31 +1590,6 @@
           }
         }
       }
-      const isCurrentWorkspaceSession = () => {
-        if (!Shared.workspaceTabs?.isSessionCurrent || !sessionGeneration) {
-          return true;
-        }
-        return !!Shared.workspaceTabs.isSessionCurrent(tab.type, tab.id, sessionGeneration);
-      };
-      const drawMeta = {
-        tabId: tab.id,
-        sessionGeneration,
-        componentType: tab.type,
-        reason: options.reason || 'workspace-view'
-      };
-      const guardWorkspaceMutation = label => {
-        if (isCurrentWorkspaceSession()) {
-          return true;
-        }
-        console.debug('Debug: workspace mutation skipped (stale session)', {
-          tabId: tab.id,
-          type: tab.type,
-          label,
-          sessionGeneration
-        });
-        return false;
-      };
-
       const resolveBaselineResetPayload = () => {
         if (typeof config.createEmptyPayload === 'function') {
           try {
@@ -1867,12 +1870,38 @@
         }
         try {
           if (typeof config.draw === 'function') {
-            if (canRestoreRender && typeof endRestoreTransaction === 'function') {
-              endRestoreTransaction({ reason: 'render-cache-restore-fallback-before-draw', cancelPostSuppress: true });
-              Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, { tabId: tab.id, reason: 'render-cache-restore-fallback-before-draw' });
+            // A payload redraw must run outside the restore transaction whether or not a
+            // render cache was present. Recovery snapshots commonly omit heavy render caches;
+            // keeping the transaction open in that case causes the shared lifecycle guard to
+            // suppress the only fallback draw. Scatter and Box often receive later incidental
+            // redraws, but Heatmap can remain permanently blank. End the transaction first and
+            // release every restore-time suppression uniformly for all components.
+            if (typeof endRestoreTransaction === 'function') {
+              endRestoreTransaction({ reason: 'workspace-fallback-before-draw', cancelPostSuppress: true });
             }
-            Shared.componentLifecycle?.emitLifecycleEvent?.({ componentKey: tab.type, tabId: tab.id, action: 'draw-executed', reason: drawMeta.reason || 'workspace-draw-fallback', details: { via: 'domControls-fallback' } });
-            config.draw({ ...drawMeta, force: true, forceDraw: true, reason: drawMeta.reason || 'workspace-draw-fallback' });
+            Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
+              tabId: tab.id,
+              reason: 'workspace-fallback-before-draw'
+            });
+            Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
+              tabId: tab.id,
+              reason: 'workspace-fallback-before-draw'
+            });
+            const fallbackDrawMeta = {
+              ...drawMeta,
+              force: true,
+              forceDraw: true,
+              reason: 'workspace-draw-fallback',
+              originReason: drawMeta.reason || options.reason || 'workspace-view'
+            };
+            Shared.componentLifecycle?.emitLifecycleEvent?.({
+              componentKey: tab.type,
+              tabId: tab.id,
+              action: 'draw-executed',
+              reason: fallbackDrawMeta.reason,
+              details: { via: 'domControls-fallback', originReason: fallbackDrawMeta.originReason }
+            });
+            config.draw(fallbackDrawMeta);
           }
         } catch (err) {
           console.error('workspace draw error', { type: tab.type, err });
@@ -1932,6 +1961,113 @@
       }
     };
 
+    const resolveMountedWorkspaceRoot = () => Shared.workspaceTabs?.getMountedRoot?.(tab, tab.type)
+      || activeWorkspaceElement
+      || config.element
+      || null;
+
+    const isWorkspaceGraphPublished = () => {
+      const root = resolveMountedWorkspaceRoot();
+      if (typeof config.hasRenderedGraph === 'function') {
+        try {
+          const result = config.hasRenderedGraph({
+            tab,
+            tabId: tab.id,
+            type: tab.type,
+            root,
+            payload: tab.payload || null,
+            reason: 'workspace-post-restore-publication-check'
+          });
+          if (result != null) {
+            return result === true;
+          }
+        } catch (err) {
+          console.warn('workspace rendered-graph validation error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
+      return hasRenderableGraphContent(root);
+    };
+
+    const tabHasRecoverableData = () => {
+      if (typeof session?.tabHasTableData === 'function') {
+        try { return !!session.tabHasTableData(tab); }
+        catch (err) {
+          console.warn('workspace recovery data inspection error', { tabId: tab.id, type: tab.type, err });
+        }
+      }
+      return !!tab?.payload?.data;
+    };
+
+    const requestWorkspaceRecoveryFallbackDraw = reason => {
+      if (typeof config.draw !== 'function' || !guardWorkspaceMutation('post-restore-fallback-draw')) {
+        return false;
+      }
+      Shared.componentLifecycle?.clearPostRestoreDrawSuppression?.(tab.type, {
+        tabId: tab.id,
+        reason: reason || 'workspace-post-restore-fallback'
+      });
+      Shared.componentLayout?.releaseSuppressedSchedulesFor?.(tab.type, {
+        tabId: tab.id,
+        reason: reason || 'workspace-post-restore-fallback'
+      });
+      const fallbackMeta = {
+        ...buildWorkspaceDrawMeta('workspace-draw-fallback'),
+        force: true,
+        forceDraw: true,
+        reason: 'workspace-draw-fallback',
+        originReason: reason || options.reason || 'workspace-post-restore-fallback'
+      };
+      console.warn('workspace graph missing after restore; forcing payload redraw', {
+        tabId: tab.id,
+        type: tab.type,
+        originReason: fallbackMeta.originReason
+      });
+      config.draw(fallbackMeta);
+      return true;
+    };
+
+    const waitForWorkspaceGraphPublication = async (timeoutMs = 90000) => {
+      const deadline = Date.now() + Math.max(1000, Number(timeoutMs) || 90000);
+      while (Date.now() < deadline) {
+        if (!guardWorkspaceMutation('post-restore-publication-wait')) {
+          return false;
+        }
+        if (isWorkspaceGraphPublished()) {
+          return true;
+        }
+        if (typeof Shared.componentLifecycle?.waitForAnimationFrames === 'function') {
+          await Shared.componentLifecycle.waitForAnimationFrames(1);
+        } else {
+          await new Promise(resolve => { setTimeout(resolve, 16); });
+        }
+      }
+      return isWorkspaceGraphPublished();
+    };
+
+    const ensureWorkspaceGraphPublishedAfterRestore = async reason => {
+      if (!tabHasRecoverableData() || isWorkspaceGraphPublished()) {
+        return true;
+      }
+      requestWorkspaceRecoveryFallbackDraw(reason || 'workspace-post-restore-empty-graph');
+      const published = await waitForWorkspaceGraphPublication(90000);
+      if (published) {
+        clearWorkspaceActivationError(tab, { reason: 'workspace-post-restore-fallback-succeeded' });
+        console.debug('Debug: workspace graph published after forced recovery redraw', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: reason || 'workspace-post-restore-empty-graph'
+        });
+        return true;
+      }
+      const error = new Error('Workspace graph remained empty after forced payload redraw.');
+      setWorkspaceActivationError(tab, {
+        reason: 'workspace-post-restore-fallback-failed',
+        message: error.message,
+        err: error
+      });
+      return false;
+    };
+
     const awaitWorkspaceActivationReady = () => {
       if (options.awaitReadyForRestore !== true) {
         return null;
@@ -1964,20 +2100,24 @@
         label: 'workspace-restore-ready',
         tabId: tab.id,
         type: tab.type
-      }).then(outcome => {
-        if (!outcome?.timedOut) {
-          return outcome;
+      }).then(async outcome => {
+        if (outcome?.timedOut) {
+          console.warn('workspace restore readiness timed out; validating final graph before failing', {
+            tabId: tab.id,
+            type: tab.type,
+            timeoutMs: WORKSPACE_ENSURE_TIMEOUT_MS
+          });
         }
-        const error = new Error(`Workspace restore readiness timed out after ${WORKSPACE_ENSURE_TIMEOUT_MS} ms.`);
-        setWorkspaceActivationError(tab, {
-          reason: 'workspace-restore-readiness-timeout',
-          message: error.message,
-          err: error
-        });
+        await ensureWorkspaceGraphPublishedAfterRestore(
+          outcome?.timedOut ? 'workspace-restore-readiness-timeout' : 'workspace-restore-ready'
+        );
         return outcome;
-      }, err => {
+      }, async err => {
         console.error('workspace restore readiness async error', { tabId: tab.id, type: tab.type, err });
-        setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-async-error', err });
+        const published = await ensureWorkspaceGraphPublishedAfterRestore('workspace-restore-readiness-async-error');
+        if (!published) {
+          setWorkspaceActivationError(tab, { reason: 'workspace-restore-readiness-async-error', err });
+        }
         return null;
       });
     };
@@ -1985,7 +2125,12 @@
     const finishWorkspaceActivation = () => {
       const readyResult = awaitWorkspaceActivationReady();
       if (readyResult && typeof readyResult.then === 'function') {
-        return readyResult.then(() => config);
+        return readyResult
+          .then(() => ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish'))
+          .then(() => config);
+      }
+      if (options.awaitReadyForRestore === true) {
+        return ensureWorkspaceGraphPublishedAfterRestore('workspace-activation-finish').then(() => config);
       }
       return config;
     };

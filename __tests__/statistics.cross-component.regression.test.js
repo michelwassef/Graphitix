@@ -47,4 +47,46 @@ describe('cross-component statistical corrections', () => {
     const result = Shared.regressionTools.fitRegression([{x:1,y:2},{x:2,y:0}], { mode: 'logistic' });
     expect(result.warnings.join(' ')).toMatch(/encoded exactly as 0 or 1/i);
   });
+
+  test('logistic coefficient inference uses the final Fisher information and a stable z-statistic contract', () => {
+    const points = [
+      {x:-3,y:0},{x:-2,y:0},{x:-1,y:1},{x:0,y:0},{x:1,y:1},
+      {x:2,y:0},{x:3,y:1},{x:4,y:1},{x:5,y:1},{x:6,y:1}
+    ];
+    const result = Shared.regressionTools.fitRegression(points, { mode: 'logistic', alpha: 0.05 });
+    expect(result.available).toBe(true);
+    expect(result.metrics.converged).toBe(true);
+    expect(result.metrics.inferenceAvailable).toBe(true);
+    expect(result.coefficientStats).toHaveLength(2);
+    result.coefficientStats.forEach(stat => {
+      expect(Number.isFinite(stat.standardError)).toBe(true);
+      expect(Number.isFinite(stat.statistic)).toBe(true);
+      expect(stat.statisticLabel).toBe('z');
+      expect(stat.distribution).toBe('normal');
+      expect(stat.pValue).toBeGreaterThanOrEqual(0);
+      expect(stat.pValue).toBeLessThanOrEqual(1);
+    });
+    expect(result.summary.oddsRatioConfidenceInterval.low).toBeGreaterThan(0);
+    expect(result.summary.oddsRatioConfidenceInterval.high).toBeGreaterThan(result.summary.oddsRatioConfidenceInterval.low);
+  });
+
+  test('Box statistical UI labels describe the implemented procedures truthfully', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js/components/box.js'), 'utf8');
+    expect(source).toContain('pooled t + Sidak control comparisons');
+    expect(source).toContain('Welch + Sidak control comparisons');
+    expect(source).toContain('Friedman pairwise max-statistic permutation');
+    expect(source).toContain("['rout','MAD + BH']");
+    expect(source).toContain("'FDR q:'");
+    expect(source).toContain('Rows-random repeated-measures model');
+    expect(source).toContain('Unreplicated three-factor ANOVA (ABC as error)');
+  });
+
+  test('Scatter coefficient tables preserve generic statistic and reference-distribution fields', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js/components/scatter.js'), 'utf8');
+    expect(source).toContain("statistic: formatMetricValue(stat?.statistic ?? stat?.zStatistic ?? stat?.tStatistic, 3)");
+    expect(source).toContain("statisticType: stat?.statisticLabel || (stat?.distribution === 'normal' ? 'z' : 't')");
+    expect(source).toContain("{ key:'statistic', label:'Test statistic' }");
+    expect(source).toContain("{ key:'statisticType', label:'Reference' }");
+  });
+
 });

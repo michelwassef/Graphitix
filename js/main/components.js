@@ -747,12 +747,27 @@
       // Invoke the component contract immediately; components may still use their own
       // owner-scoped scheduler/worker internally. Apply this uniformly to every workspace.
       if(source.forceDraw === true && reason === 'workspace-draw-fallback'){
+        // Immediate execution must preserve exactly the same owner metadata that the
+        // tab-scoped scheduler would attach. Calling runRegistryDraw with the raw
+        // options bypassed createTabScopedScheduler(), so the registry guard saw a
+        // missing session meta and rejected the recovery redraw as stale. Heavy
+        // Heatmap then remained blank until a resize scheduled a fresh owned draw.
+        const immediateMeta = source.__workspaceSessionMeta
+          || Shared.workspaceTabs?.buildSessionMeta?.(componentKey, source)
+          || null;
+        const immediateOptions = {
+          ...source,
+          tabId: source.tabId || immediateMeta?.tabId || null,
+          sessionGeneration: source.sessionGeneration || immediateMeta?.sessionGeneration || 0,
+          __workspaceSessionMeta: immediateMeta
+        };
         console.debug('Debug: registry draw executing restore fallback immediately', {
           componentKey,
-          tabId: source.tabId || source.workspaceTabId || source.tab?.id || null,
+          tabId: immediateOptions.tabId,
+          sessionGeneration: immediateOptions.sessionGeneration,
           reason
         });
-        return runRegistryDraw(source);
+        return runRegistryDraw(immediateOptions);
       }
       return scheduled(source);
     };
@@ -887,6 +902,7 @@
       captureRenderCache: meta => window.Components?.box?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.box?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.box?.restoreRenderCache?.(cache, meta),
+      hasRenderedGraph: meta => window.Components?.box?.hasRenderedGraph?.(meta),
       captureUiState: (meta) => window.Components?.box?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.box?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('box', options || {}),
@@ -910,6 +926,7 @@
       captureRenderCache: meta => window.Components?.scatter?.captureRenderCache?.(meta),
       canRestoreRenderCache: (cache, meta) => window.Components?.scatter?.canRestoreRenderCache?.(cache, meta),
       restoreRenderCache: (cache, meta) => window.Components?.scatter?.restoreRenderCache?.(cache, meta),
+      hasRenderedGraph: meta => window.Components?.scatter?.hasRenderedGraph?.(meta),
       captureUiState: (meta) => window.Components?.scatter?.captureUiState?.(meta || {}) || null,
       applyUiState: (state, meta) => window.Components?.scatter?.applyUiState?.(state, meta || {}),
       getLayoutState: options => componentLayout.captureStateFor?.('scatter', options || {}),

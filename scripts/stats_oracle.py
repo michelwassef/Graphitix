@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Independent statistical oracle used by Jest differential tests.
+"""Independent statistical oracle used by Graphitix differential tests.
+
+Oracle contract version: 2026-07-26.2
+
+The oracle intentionally relies on SciPy/statsmodels reference implementations
+where available. Missing/invalid inference is represented as JSON null and is
+never converted to significance.
 
 Input (stdin):
 {
@@ -29,6 +35,14 @@ import numpy as np
 from scipy import stats
 from scipy.interpolate import CubicSpline
 from scipy.optimize import least_squares
+from scipy.special import expit
+
+try:
+    import statsmodels.api as sm
+    from statsmodels.duration.hazard_regression import PHReg
+except Exception:  # optional dependency for oracle-only operations
+    sm = None
+    PHReg = None
 
 
 EPSILON = 1e-12
@@ -76,13 +90,27 @@ def _p_from_t_stat(t_value: float, df: float, alternative: str) -> float:
     return _clamp_unit(2 * min(cdf, 1 - cdf))
 
 
-def _sanitize_p_values(values: List[Any]) -> List[float]:
-    sanitized: List[float] = []
-    for raw in values:
-        numeric = float(raw) if _is_finite_number(raw) else 0.0
-        sanitized.append(_clamp_unit(numeric))
-    return sanitized
 
+def _sanitize_p_values(values: List[Any]) -> Tuple[List[int], List[float], List[Any]]:
+    """Return valid positions/values while preserving invalid entries as None.
+
+    Invalid, missing, negative, and >1 p-values are excluded from the
+    multiplicity family. They must never be converted to zero or silently
+    clamped because that would turn failed calculations into significance.
+    """
+    valid_indices: List[int] = []
+    valid_values: List[float] = []
+    output: List[Any] = [None] * len(values)
+    for idx, raw in enumerate(values):
+        if not _is_finite_number(raw):
+            continue
+        numeric = float(raw)
+        if numeric < 0 or numeric > 1:
+            continue
+        valid_indices.append(idx)
+        valid_values.append(numeric)
+        output[idx] = numeric
+    return valid_indices, valid_values, output
 
 def _inverse_permutation(order: List[int]) -> List[int]:
     inv = [0] * len(order)
@@ -91,60 +119,59 @@ def _inverse_permutation(order: List[int]) -> List[int]:
     return inv
 
 
-def adjust_p_values(method: str, values: List[Any]) -> List[float]:
-    p = _sanitize_p_values(values)
+
+def adjust_p_values(method: str, values: List[Any]) -> List[Any]:
+    valid_indices, p, output = _sanitize_p_values(values)
     m = len(p)
     if m == 0:
-        return []
+        return output
     key = str(method or "").strip().lower()
     if key == "none":
-        return p
+        return output
     if key == "bonferroni":
-        return [_clamp_unit(v * m) for v in p]
-    if key == "sidak":
-        return [_clamp_unit(1 - ((1 - v) ** m)) for v in p]
-
-    order = sorted(range(m), key=lambda idx: p[idx])
-    sorted_p = [p[idx] for idx in order]
-    adjusted_sorted = [0.0] * m
-
-    if key == "holm":
-        running = 0.0
-        for i, p_i in enumerate(sorted_p):
-            raw = (m - i) * p_i
-            running = max(running, raw)
-            adjusted_sorted[i] = _clamp_unit(running)
-    elif key == "holm-sidak":
-        running = 0.0
-        for i, p_i in enumerate(sorted_p):
-            raw = 1 - ((1 - p_i) ** (m - i))
-            running = max(running, raw)
-            adjusted_sorted[i] = _clamp_unit(running)
-    elif key == "hochberg":
-        running = 1.0
-        for i in range(m - 1, -1, -1):
-            raw = (m - i) * sorted_p[i]
-            running = min(running, raw)
-            adjusted_sorted[i] = _clamp_unit(running)
-    elif key == "bh":
-        running = 1.0
-        for i in range(m - 1, -1, -1):
-            raw = (sorted_p[i] * m) / (i + 1)
-            running = min(running, raw)
-            adjusted_sorted[i] = _clamp_unit(running)
-    elif key == "by":
-        harmonic = sum(1.0 / (j + 1) for j in range(m))
-        running = 1.0
-        for i in range(m - 1, -1, -1):
-            raw = (sorted_p[i] * m * harmonic) / (i + 1)
-            running = min(running, raw)
-            adjusted_sorted[i] = _clamp_unit(running)
+        adjusted = [_clamp_unit(v * m) for v in p]
+    elif key == "sidak":
+        adjusted = [_clamp_unit(-math.expm1(m * math.log1p(-v))) if v < 1 else 1.0 for v in p]
     else:
-        raise ValueError(f"Unsupported correction method: {method!r}")
-
-    inv = _inverse_permutation(order)
-    return [adjusted_sorted[inv_idx] for inv_idx in inv]
-
+        order = sorted(range(m), key=lambda idx: p[idx])
+        sorted_p = [p[idx] for idx in order]
+        adjusted_sorted = [0.0] * m
+        if key == "holm":
+            running = 0.0
+            for i, p_i in enumerate(sorted_p):
+                running = max(running, (m - i) * p_i)
+                adjusted_sorted[i] = _clamp_unit(running)
+        elif key == "holm-sidak":
+            running = 0.0
+            for i, p_i in enumerate(sorted_p):
+                exponent = m - i
+                raw = -math.expm1(exponent * math.log1p(-p_i)) if p_i < 1 else 1.0
+                running = max(running, raw)
+                adjusted_sorted[i] = _clamp_unit(running)
+        elif key == "hochberg":
+            running = 1.0
+            for i in range(m - 1, -1, -1):
+                running = min(running, (m - i) * sorted_p[i])
+                adjusted_sorted[i] = _clamp_unit(running)
+        elif key == "bh":
+            running = 1.0
+            for i in range(m - 1, -1, -1):
+                running = min(running, sorted_p[i] * m / (i + 1))
+                adjusted_sorted[i] = _clamp_unit(running)
+        elif key == "by":
+            harmonic = sum(1.0 / j for j in range(1, m + 1))
+            running = 1.0
+            for i in range(m - 1, -1, -1):
+                running = min(running, sorted_p[i] * m * harmonic / (i + 1))
+                adjusted_sorted[i] = _clamp_unit(running)
+        else:
+            raise ValueError(f"Unsupported correction method: {method!r}")
+        adjusted = [0.0] * m
+        for sorted_idx, original_idx in enumerate(order):
+            adjusted[original_idx] = adjusted_sorted[sorted_idx]
+    for original_idx, value in zip(valid_indices, adjusted):
+        output[original_idx] = value
+    return output
 
 def _fit_normal(values: List[Any]) -> Dict[str, Any]:
     numeric = [float(v) for v in values if _is_finite_number(v)]
@@ -164,20 +191,24 @@ def _fit_normal(values: List[Any]) -> Dict[str, Any]:
     }
 
 
+
 def _fit_lognormal(values: List[Any]) -> Dict[str, Any]:
-    numeric = [float(v) for v in values if _is_finite_number(v) and float(v) > 0]
+    numeric = [float(v) for v in values if _is_finite_number(v)]
     count = len(numeric)
     if count < 2:
-        return {"valid": False, "params": None, "usedCount": count}
-    logs = np.log(np.asarray(numeric, dtype=float))
+        return {"valid": False, "params": None, "usedCount": count, "message": "Need at least two finite values."}
+    if any(v <= 0 for v in numeric):
+        return {"valid": False, "params": None, "usedCount": count, "message": "Log-normal fitting requires all observations to be strictly positive."}
+    arr = np.asarray(numeric, dtype=float)
+    logs = np.log(arr)
     mu = float(np.mean(logs))
     variance_log = float(np.mean((logs - mu) ** 2))
     sigma = float(math.sqrt(max(variance_log, 0.0)))
-    arr = np.asarray(numeric, dtype=float)
-    safe_sigma = max(sigma, np.finfo(float).eps)
-    log_likelihood = float(np.sum(stats.lognorm.logpdf(arr, s=safe_sigma, scale=math.exp(mu), loc=0)))
+    if not sigma > 0:
+        return {"valid": False, "params": {"mu": mu, "sigma": sigma}, "usedCount": count, "message": "Log-scale variance is zero."}
+    log_likelihood = float(np.sum(stats.lognorm.logpdf(arr, s=sigma, scale=math.exp(mu), loc=0)))
     return {
-        "valid": sigma > 0,
+        "valid": True,
         "usedCount": count,
         "params": {
             "mu": mu,
@@ -190,10 +221,12 @@ def _fit_lognormal(values: List[Any]) -> Dict[str, Any]:
 
 
 def _fit_exponential(values: List[Any]) -> Dict[str, Any]:
-    numeric = [float(v) for v in values if _is_finite_number(v) and float(v) >= 0]
+    numeric = [float(v) for v in values if _is_finite_number(v)]
     count = len(numeric)
     if count == 0:
         return {"valid": False, "params": None, "usedCount": 0}
+    if any(v < 0 for v in numeric):
+        return {"valid": False, "params": None, "usedCount": count, "message": "Exponential fitting requires all observations to be non-negative."}
     arr = np.asarray(numeric, dtype=float)
     mean = float(np.mean(arr))
     lamb = float(1.0 / mean) if mean > 0 else 0.0
@@ -201,8 +234,9 @@ def _fit_exponential(values: List[Any]) -> Dict[str, Any]:
         "valid": lamb > 0,
         "usedCount": count,
         "params": {"lambda": lamb, "mean": mean},
+        "logLikelihood": float(count * math.log(lamb) - lamb * float(np.sum(arr))) if lamb > 0 else float("nan"),
+        "message": None if lamb > 0 else "Mean is zero."
     }
-
 
 def fit_distribution(distribution: str, values: List[Any]) -> Dict[str, Any]:
     key = str(distribution or "").strip().lower()
@@ -277,24 +311,76 @@ def _ad_statistic(sorted_values: List[float], cdf: Callable[[float], float]) -> 
     return float(-n - (total / n))
 
 
-def goodness_of_fit(distribution: str, values: List[Any], params: Dict[str, Any]) -> Dict[str, Any]:
+
+def goodness_of_fit(
+    distribution: str,
+    values: List[Any],
+    params: Dict[str, Any],
+    *,
+    parameters_estimated: bool = True,
+    iterations: int = 500,
+    seed: int = 1337,
+) -> Dict[str, Any]:
     numeric = [float(v) for v in values if _is_finite_number(v)]
     if not numeric:
-        return {"valid": False, "n": 0}
+        return {"valid": False, "available": False, "n": 0}
+    key = str(distribution or "").strip().lower()
+    if key == "lognormal" and any(v <= 0 for v in numeric):
+        return {"valid": False, "available": False, "n": len(numeric), "message": "Observations violate log-normal support."}
+    if key == "exponential" and any(v < 0 for v in numeric):
+        return {"valid": False, "available": False, "n": len(numeric), "message": "Observations violate exponential support."}
     sorted_values = sorted(numeric)
-    cdf = _make_cdf(distribution, params)
+    cdf = _make_cdf(key, params)
     ks_stat = _ks_statistic(sorted_values, cdf)
     ad_stat = _ad_statistic(sorted_values, cdf)
     n = len(sorted_values)
-    ks_exact_p = float(stats.kstwo.sf(ks_stat, n))
-    return {
-        "valid": True,
-        "n": n,
-        "ksStatistic": ks_stat,
-        "adStatistic": ad_stat,
-        "ksExactPValue": _clamp_unit(ks_exact_p),
-    }
+    if not parameters_estimated:
+        return {
+            "valid": True, "available": True, "n": n,
+            "ksStatistic": ks_stat, "adStatistic": ad_stat,
+            "ksPValue": _clamp_unit(float(stats.kstwo.sf(ks_stat, n))),
+            "calibration": "fully-specified exact/asymptotic KS",
+            "parametersEstimated": False,
+            "iterations": 0, "seed": None,
+        }
 
+    iterations = max(200, min(5000, int(round(iterations))))
+    rng = np.random.default_rng(int(seed) & 0xFFFFFFFF)
+    ks_extreme = 0
+    ad_extreme = 0
+    valid_iterations = 0
+    for _ in range(iterations):
+        if key == "normal":
+            simulated = rng.normal(float(params["mu"]), float(params["sigma"]), n)
+        elif key == "lognormal":
+            simulated = rng.lognormal(float(params["mu"]), float(params["sigma"]), n)
+        elif key == "exponential":
+            simulated = rng.exponential(1.0 / float(params["lambda"]), n)
+        else:
+            raise ValueError(f"Unsupported distribution: {distribution!r}")
+        refit = fit_distribution(key, simulated.tolist())
+        if not refit.get("valid"):
+            continue
+        sim_sorted = sorted(float(v) for v in simulated)
+        sim_cdf = _make_cdf(key, refit["params"])
+        sim_ks = _ks_statistic(sim_sorted, sim_cdf)
+        sim_ad = _ad_statistic(sim_sorted, sim_cdf)
+        if math.isfinite(sim_ks) and math.isfinite(sim_ad):
+            valid_iterations += 1
+            ks_extreme += int(sim_ks >= ks_stat - 1e-15)
+            ad_extreme += int(sim_ad >= ad_stat - 1e-15)
+    if valid_iterations == 0:
+        return {"valid": False, "available": False, "n": n, "message": "Parametric-bootstrap calibration failed."}
+    return {
+        "valid": True, "available": True, "n": n,
+        "ksStatistic": ks_stat, "adStatistic": ad_stat,
+        "ksPValue": (ks_extreme + 1) / (valid_iterations + 1),
+        "adPValue": (ad_extreme + 1) / (valid_iterations + 1),
+        "calibration": "parametric bootstrap with parameter refitting",
+        "parametersEstimated": True,
+        "iterations": valid_iterations,
+        "seed": int(seed) & 0xFFFFFFFF,
+    }
 
 def _prepare_xy(payload: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
     x_values = payload.get("x") or []
@@ -398,19 +484,43 @@ def regression_linear(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+
 def regression_linear_through_origin(payload: Dict[str, Any]) -> Dict[str, Any]:
     x, y = _prepare_xy(payload)
-    if x.size < 2:
+    if x.size < 2 or not np.any(x != 0):
         return {"valid": False, "message": "Insufficient data for through-origin regression."}
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
-    design = x.reshape(-1, 1)
-    result = _regression_core(x, y, design, alpha, ["Slope"])
-    if not result.get("valid"):
-        return result
-    slope = result["coefficients"][0]
-    result["summary"] = {"intercept": 0.0, "slope": slope}
-    return result
-
+    denominator = float(np.dot(x, x))
+    slope = float(np.dot(x, y) / denominator)
+    predictions = slope * x
+    residuals = y - predictions
+    sse = float(np.dot(residuals, residuals))
+    uncentered_sst = float(np.dot(y, y))
+    n = int(x.size)
+    p_count = 1
+    df = n - p_count
+    r2 = 1.0 - sse / uncentered_sst if uncentered_sst > 0 else float("nan")
+    adj = 1.0 - (sse / df) / (uncentered_sst / n) if df > 0 and uncentered_sst > 0 else float("nan")
+    variance = sse / df if df > 0 else float("nan")
+    se = math.sqrt(variance / denominator) if variance >= 0 and denominator > 0 else float("nan")
+    t_stat = slope / se if se > 0 else float("nan")
+    p_value = float(2 * stats.t.sf(abs(t_stat), df)) if math.isfinite(t_stat) and df > 0 else float("nan")
+    tcrit = float(stats.t.ppf(1 - alpha / 2, df)) if df > 0 else float("nan")
+    return {
+        "valid": True, "sampleSize": n, "predictors": 1,
+        "coefficients": [slope],
+        "metrics": {
+            "sse": sse, "sst": uncentered_sst, "r2": r2, "adjR2": adj,
+            "r2Kind": "uncentered",
+            "rmse": math.sqrt(sse / n), "mae": float(np.mean(np.abs(residuals))),
+        },
+        "coefficientStats": {"Slope": {
+            "estimate": slope, "standardError": se, "tStatistic": t_stat,
+            "pValue": p_value, "ciLow": slope - tcrit * se, "ciHigh": slope + tcrit * se,
+        }},
+        "coefficientCovariance": [[variance / denominator]] if math.isfinite(variance) else None,
+        "summary": {"intercept": 0.0, "slope": slope},
+    }
 
 def regression_polynomial(payload: Dict[str, Any]) -> Dict[str, Any]:
     degree_raw = payload.get("degree")
@@ -502,76 +612,70 @@ def regression_power(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+
 def regression_logistic(payload: Dict[str, Any]) -> Dict[str, Any]:
     x, y = _prepare_xy(payload)
-    if x.size < 2:
-        return {"valid": False, "message": "Insufficient data for logistic regression."}
-    y_clamped = np.clip(y, 0.0, 1.0)
-    if np.allclose(y_clamped, y_clamped[0]):
-        return {
-            "valid": True,
-            "coefficients": [0.0, 0.0],
-            "metrics": {
-                "sse": float("nan"),
-                "sst": float("nan"),
-                "r2": float("nan"),
-                "adjR2": float("nan"),
-                "rmse": float("nan"),
-                "mae": float("nan"),
-                "logLoss": float("nan"),
-                "iterations": 0,
-            },
-            "summary": {"intercept": 0.0, "slope": 0.0},
-        }
-
-    beta0 = 0.0
-    beta1 = 0.0
-    learning_rate = 0.01
-    tolerance = 1e-6
-    max_iterations = 1000
-    iteration = 0
     n = int(x.size)
-    for iteration in range(max_iterations):
-        z = beta0 + (beta1 * x)
-        pred = 1.0 / (1.0 + np.exp(-z))
-        error = pred - y_clamped
-        grad0 = float(np.mean(error))
-        grad1 = float(np.mean(error * x))
-        delta0 = learning_rate * grad0
-        delta1 = learning_rate * grad1
-        beta0 -= delta0
-        beta1 -= delta1
-        if abs(delta0) < tolerance and abs(delta1) < tolerance:
-            break
-
-    predictions = 1.0 / (1.0 + np.exp(-(beta0 + (beta1 * x))))
-    residuals = y_clamped - predictions
-    sse = float(np.sum(residuals ** 2))
-    rmse = float(math.sqrt(sse / n))
-    mae = float(np.mean(np.abs(residuals)))
-    eps = 1e-9
-    clipped = np.clip(predictions, eps, 1 - eps)
-    log_loss = float(-np.mean((y_clamped * np.log(clipped)) + ((1 - y_clamped) * np.log(1 - clipped))))
-    mean_y = float(np.mean(y_clamped))
-    mean_y = min(1 - eps, max(eps, mean_y))
-    null_loss = float(-((mean_y * math.log(mean_y)) + ((1 - mean_y) * math.log(1 - mean_y))))
-    pseudo_r2 = float(1 - (log_loss / null_loss)) if null_loss > 0 else float("nan")
+    if n < 3:
+        return {"valid": False, "available": False, "message": "Insufficient data for logistic regression."}
+    if np.any((y != 0) & (y != 1)):
+        return {"valid": False, "available": False, "message": "Binary logistic regression requires Y encoded exactly as 0 or 1."}
+    if np.unique(y).size < 2:
+        return {"valid": False, "available": False, "message": "Logistic regression requires at least one event and one non-event."}
+    if np.unique(x).size < 2:
+        return {"valid": False, "available": False, "message": "Logistic regression requires variation in X."}
+    if sm is None:
+        raise RuntimeError("statsmodels is required for the logistic-regression oracle.")
+    design = sm.add_constant(x, has_constant="add")
+    try:
+        model = sm.GLM(y, design, family=sm.families.Binomial())
+        fit = model.fit(maxiter=100, tol=1e-9)
+    except Exception as exc:
+        return {"valid": False, "available": False, "message": f"Logistic fit failed: {exc}"}
+    params = np.asarray(fit.params, dtype=float)
+    cov = np.asarray(fit.cov_params(), dtype=float)
+    se = np.asarray(fit.bse, dtype=float)
+    z = np.asarray(fit.tvalues, dtype=float)
+    pvals = np.asarray(fit.pvalues, dtype=float)
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    zcrit = float(stats.norm.ppf(1 - alpha / 2))
+    ci = np.column_stack([params - zcrit * se, params + zcrit * se])
+    predictions = np.asarray(fit.predict(design), dtype=float)
+    residuals = y - predictions
+    llf = float(fit.llf)
+    null_llf = float(fit.llnull)
+    converged = bool(getattr(fit, "converged", True))
+    coefficient_stats = []
+    for idx, term in enumerate(("Intercept", "Slope")):
+        coefficient_stats.append({
+            "term": term, "estimate": float(params[idx]), "standardError": float(se[idx]),
+            "statistic": float(z[idx]), "zStatistic": float(z[idx]), "tStatistic": float(z[idx]),
+            "pValue": float(pvals[idx]), "ciLow": float(ci[idx, 0]), "ciHigh": float(ci[idx, 1]),
+            "distribution": "normal", "statisticLabel": "z",
+        })
     return {
-        "valid": True,
-        "coefficients": [beta0, beta1],
+        "valid": True, "available": True,
+        "coefficients": [float(v) for v in params],
+        "coefficientStats": coefficient_stats,
+        "coefficientCovariance": cov.tolist(),
         "metrics": {
-            "sse": sse,
-            "sst": float("nan"),
-            "r2": pseudo_r2,
-            "adjR2": pseudo_r2,
-            "rmse": rmse,
-            "mae": mae,
-            "logLoss": log_loss,
-            "iterations": iteration + 1,
+            "sampleSize": n, "predictors": 1, "logLikelihood": llf,
+            "deviance": float(fit.deviance), "nullDeviance": float(fit.null_deviance),
+            "r2": float(1 - llf / null_llf), "adjR2": None,
+            "logLoss": float(-llf / n), "iterations": int(getattr(fit, "fit_history", {}).get("iteration", 0) or 0),
+            "converged": converged, "inferenceAvailable": converged,
+            "aic": float(fit.aic), "bic": float(-2 * llf + len(params) * math.log(n)),
+            "sse": float(np.sum(residuals ** 2)), "rmse": float(math.sqrt(np.mean(residuals ** 2))),
+            "mae": float(np.mean(np.abs(residuals))),
         },
-        "summary": {"intercept": beta0, "slope": beta1},
+        "summary": {
+            "intercept": float(params[0]), "slope": float(params[1]),
+            "parameters": {"Intercept": float(params[0]), "Slope": float(params[1]), "OddsRatioPerUnitX": float(math.exp(params[1]))},
+            "oddsRatioConfidenceInterval": {"low": float(math.exp(ci[1, 0])), "high": float(math.exp(ci[1, 1]))},
+        },
+        "predictions": predictions.tolist(),
+        "warnings": [] if converged else ["Logistic maximum-likelihood fit did not fully converge."],
     }
-
 
 def regression_deming(payload: Dict[str, Any]) -> Dict[str, Any]:
     x, y = _prepare_xy(payload)
@@ -1218,25 +1322,22 @@ def _compute_average_spacing(values: List[float]) -> float:
     return float(sum(deltas) / len(deltas)) if deltas else float("nan")
 
 
+
 def _compute_forecast_variance(phi: List[float], horizon: int, sigma_sq: float) -> List[float]:
-    if not phi:
-        return [float(sigma_sq * h) for h in range(1, horizon + 1)]
+    """Innovation forecast variance for a stationary AR(p) process.
+
+    psi_0=1 and Var(e_{t+h}) = sigma^2 * sum_{j=0}^{h-1} psi_j^2.
+    """
+    if horizon <= 0:
+        return []
     p = len(phi)
     psi = [1.0]
-    for k in range(1, horizon + 1):
-        value = 0.0
+    for k in range(1, horizon):
+        psi_k = 0.0
         for i in range(1, min(k, p) + 1):
-            value += phi[i - 1] * (psi[k - i] if k - i < len(psi) else 0.0)
-        psi.append(value)
-    variances: List[float] = []
-    for h in range(1, horizon + 1):
-        sum_sq = 0.0
-        for i in range(h):
-            psi_val = psi[i] if i < len(psi) else 0.0
-            sum_sq += psi_val * psi_val
-        variances.append(float(max(0.0, sigma_sq * (1 + sum_sq))))
-    return variances
-
+            psi_k += phi[i - 1] * psi[k - i]
+        psi.append(psi_k)
+    return [float(max(0.0, sigma_sq * sum(v * v for v in psi[:h]))) for h in range(1, horizon + 1)]
 
 def _ols_coefficients(design: List[List[float]], target: List[float]) -> np.ndarray:
     design_arr = np.asarray(design, dtype=float)
@@ -2010,48 +2111,33 @@ def box_lognormal_welch_anova(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+
 def box_brown_forsythe(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
     labels = payload.get("labels") or []
     groups = [group for group in groups if len(group) > 0]
     if len(groups) < 2:
         return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": 0, "df2": 0, "sparkline": [], "reason": "Need >=2 groups"}
-    summaries = []
-    total_n = 0
-    grand_sum = 0.0
-    sparkline = []
-    for idx, group in enumerate(groups):
-        median = float(np.median(group)) if group else float("nan")
-        deviations = [abs(value - median) for value in group]
-        count = len(deviations)
-        total_n += count
-        sum_dev = float(sum(deviations))
-        sum_sq = float(sum(value * value for value in deviations))
-        mean_dev = sum_dev / count if count else 0.0
-        grand_sum += sum_dev
-        sparkline.append({"label": labels[idx] if idx < len(labels) else None, "value": mean_dev})
-        summaries.append({"count": count, "sum": sum_dev, "sumSquares": sum_sq, "mean": mean_dev})
-    k = len(summaries)
-    if total_n <= k:
-        return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": k - 1, "df2": max(total_n - k, 0), "sparkline": sparkline, "reason": "Insufficient observations"}
-    grand_mean = grand_sum / total_n
-    ss_between = 0.0
-    ss_within = 0.0
-    for summary in summaries:
-        count = summary["count"]
-        if count <= 0:
-            continue
-        ss_between += count * ((summary["mean"] - grand_mean) ** 2)
-        ss_within += summary["sumSquares"] - ((summary["sum"] ** 2) / count)
-    df1 = k - 1
-    df2 = total_n - k
-    ms_between = ss_between / max(df1, 1)
-    ms_within = ss_within / max(df2, 1)
-    f_stat = float("inf") if ms_within == 0 and ms_between > 0 else (0.0 if ms_within == 0 else (ms_between / ms_within))
-    p_value = 0.0 if math.isinf(f_stat) else float(1 - stats.f.cdf(f_stat, df1, df2))
+    deviations = [[abs(v - float(np.median(g))) for v in g] for g in groups]
+    sparkline = [{"label": labels[i] if i < len(labels) else None, "value": float(np.mean(d))} for i, d in enumerate(deviations)]
+    k = len(groups)
+    total_n = sum(len(g) for g in groups)
+    df1, df2 = k - 1, total_n - k
+    if df2 <= 0:
+        return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": df1, "df2": max(df2, 0), "sparkline": sparkline, "reason": "Insufficient observations"}
+    all_deviations = np.concatenate([np.asarray(d, dtype=float) for d in deviations])
+    if np.allclose(all_deviations, all_deviations[0], rtol=0, atol=0):
+        return {"method": "brown-forsythe", "statistic": None, "pValue": None, "passed": None, "df1": df1, "df2": df2, "sparkline": sparkline, "reason": "All absolute deviations are identical; the F statistic is undefined."}
+    means = [float(np.mean(d)) for d in deviations]
+    grand = float(np.mean(all_deviations))
+    ss_between = sum(len(d) * (m - grand) ** 2 for d, m in zip(deviations, means))
+    ss_within = sum(sum((v - m) ** 2 for v in d) for d, m in zip(deviations, means))
+    ms_between = ss_between / df1
+    ms_within = ss_within / df2
+    f_stat = float("inf") if ms_within == 0 and ms_between > 0 else ms_between / ms_within
+    p_value = 0.0 if math.isinf(f_stat) else float(stats.f.sf(f_stat, df1, df2))
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
     return {"method": "brown-forsythe", "statistic": f_stat, "pValue": p_value, "passed": p_value >= alpha, "df1": df1, "df2": df2, "sparkline": sparkline}
-
 
 def box_bartlett(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
@@ -2144,37 +2230,90 @@ def box_linear_trend(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"available": True, "slope": slope, "intercept": intercept, "t": t_stat, "df": float(df), "p": p_value, "rSquared": r_squared, "order": list(labels)}
 
 
+
 def box_tamhane_t2(payload: Dict[str, Any]) -> Dict[str, Any]:
     groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
     labels = payload.get("labels") or []
     alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
-    if len(groups) < 2:
-        return {"ok": False, "message": "Tamhane T2 requires at least two groups."}
-    if any(len(group) < 2 for group in groups):
-        return {"ok": False, "message": "Tamhane T2 needs at least two observations per group."}
-    pair_count = (len(groups) * (len(groups) - 1)) // 2
-    sidak_alpha = 1 - ((1 - alpha) ** (1 / max(pair_count, 1)))
+    if len(groups) < 2 or any(len(group) < 2 for group in groups):
+        return {"ok": False, "message": "Welch pairwise comparisons require at least two groups and two observations per group."}
+    pair_count = len(groups) * (len(groups) - 1) // 2
+    sidak_alpha = 1 - (1 - alpha) ** (1 / pair_count)
     pairs = []
     for i in range(len(groups)):
         for j in range(i + 1, len(groups)):
             raw = box_ttest_welch({"a": groups[i], "b": groups[j], "alternative": "two-sided"})
-            if not raw.get("available"):
-                continue
             p_raw = float(raw["p"])
-            adjusted = 1 - ((1 - p_raw) ** max(pair_count, 1))
+            adjusted = -math.expm1(pair_count * math.log1p(-p_raw)) if p_raw < 1 else 1.0
             pairs.append({
-                "i": i,
-                "j": j,
+                "i": i, "j": j,
                 "groupA": labels[i] if i < len(labels) else f"Group {i + 1}",
                 "groupB": labels[j] if j < len(labels) else f"Group {j + 1}",
-                "diff": float(raw.get("diff")),
-                "t": float(raw.get("t")),
-                "df": float(raw.get("df")),
-                "p": p_raw,
-                "adjustedP": _clamp_unit(adjusted),
-                "significant": adjusted <= alpha,
+                "diff": float(raw["diff"]), "t": float(raw["t"]), "df": float(raw["df"]),
+                "p": p_raw, "adjustedP": _clamp_unit(adjusted), "significant": adjusted <= alpha,
             })
-    return {"ok": True, "pairs": pairs, "sidakAlpha": sidak_alpha, "footnote": "Tamhane T2 approximated with Welch t-tests and Sidak family-wise adjustment."}
+    return {
+        "ok": True, "method": "welch-pairwise-sidak", "pairs": pairs,
+        "sidakAlpha": sidak_alpha,
+        "footnote": "Pairwise Welch t tests with Sidak family-wise adjustment.",
+    }
+
+
+def box_tukey_hsd(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    if len(groups) < 2 or any(len(g) < 2 for g in groups):
+        return {"ok": False, "message": "Tukey HSD requires at least two groups with at least two observations each."}
+    result = stats.tukey_hsd(*groups)
+    k = len(groups)
+    pairs = []
+    for i in range(k):
+        for j in range(i + 1, k):
+            ci = result.confidence_interval(confidence_level=1-alpha)
+            pairs.append({
+                "i": i, "j": j,
+                "groupA": labels[i] if i < len(labels) else f"Group {i+1}",
+                "groupB": labels[j] if j < len(labels) else f"Group {j+1}",
+                "diff": float(np.mean(groups[i]) - np.mean(groups[j])),
+                "pAdj": float(result.pvalue[i, j]),
+                "ciLow": float(ci.low[i, j]), "ciHigh": float(ci.high[i, j]),
+                "significant": bool(result.pvalue[i, j] <= alpha),
+            })
+    return {"ok": True, "method": "tukey-hsd", "pairs": pairs}
+
+
+def box_games_howell(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(group) for group in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    if len(groups) < 2 or any(len(g) < 2 for g in groups):
+        return {"ok": False, "message": "Games-Howell requires at least two groups with at least two observations each."}
+    k = len(groups)
+    means = [float(np.mean(g)) for g in groups]
+    variances = [float(np.var(g, ddof=1)) for g in groups]
+    ns = [len(g) for g in groups]
+    pairs = []
+    for i in range(k):
+        for j in range(i + 1, k):
+            vi = variances[i] / ns[i]
+            vj = variances[j] / ns[j]
+            welch_se = math.sqrt(vi + vj)
+            diff = means[i] - means[j]
+            df = (vi + vj) ** 2 / ((vi ** 2)/(ns[i]-1) + (vj ** 2)/(ns[j]-1))
+            q = math.sqrt(2) * abs(diff) / welch_se if welch_se > 0 else float("inf")
+            pval = float(stats.studentized_range.sf(q, k, df))
+            qcrit = float(stats.studentized_range.ppf(1-alpha, k, df))
+            half = qcrit * welch_se / math.sqrt(2)
+            pairs.append({
+                "i": i, "j": j,
+                "groupA": labels[i] if i < len(labels) else f"Group {i+1}",
+                "groupB": labels[j] if j < len(labels) else f"Group {j+1}",
+                "diff": diff, "q": q, "df": df, "p": pval,
+                "ciLow": diff-half, "ciHigh": diff+half,
+                "significant": pval <= alpha,
+            })
+    return {"ok": True, "method": "games-howell", "pairs": pairs}
 
 
 def box_kruskal(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2387,135 +2526,80 @@ def _sanitize_sparse_threshold(raw: Any) -> int:
     return max(1, min(100, numeric))
 
 
+
 def pie_gof_test(payload: Dict[str, Any]) -> Dict[str, Any]:
     observed = _clean_vector(payload.get("observed"))
     expected = _clean_vector(payload.get("expected"))
-    if not observed:
-        return {"ok": False, "message": "No observed values supplied."}
-    if len(observed) != len(expected):
-        return {"ok": False, "message": "Observed and expected vectors must have the same length."}
-    if any((not math.isfinite(obs) or obs < 0) for obs in observed) or any((not math.isfinite(exp) or exp <= 0) for exp in expected):
-        return {"ok": False, "message": "Observed values must be non-negative and expected values must be positive."}
-
+    if not observed or len(observed) != len(expected):
+        return {"ok": False, "message": "Observed and expected vectors must be non-empty and have the same length."}
+    if any(v < 0 for v in observed) or any(v <= 0 for v in expected):
+        return {"ok": False, "message": "Observed values must be non-negative and expected counts must be positive."}
+    observed_total = float(sum(observed))
+    expected_total = float(sum(expected))
+    tolerance = max(1e-9, 1e-9 * max(observed_total, expected_total, 1.0))
+    if abs(observed_total - expected_total) > tolerance:
+        return {"ok": False, "message": "Expected counts must sum to the observed total."}
     method = _sanitize_pie_test_method(payload.get("method"))
     test_method = "chi-square" if method == "auto" else method
-    statistic = 0.0
-    if test_method == "g-test":
-        for obs, exp in zip(observed, expected):
-            if obs > 0:
-                statistic += 2.0 * obs * math.log(obs / exp)
-    else:
-        for obs, exp in zip(observed, expected):
-            statistic += ((obs - exp) ** 2) / exp
-    df = max(1, len(observed) - 1)
-    p_value = float(1 - stats.chi2.cdf(statistic, df))
-    total = float(sum(observed))
-    cramers_v = math.sqrt(statistic / (total * df)) if total > 0 and df > 0 else float("nan")
+    pearson = float(sum((o-e)**2/e for o,e in zip(observed, expected)))
+    g2 = float(2 * sum(o * math.log(o/e) for o,e in zip(observed, expected) if o > 0))
+    statistic = g2 if test_method == "g-test" else pearson
+    df = len(observed)-1
+    p_value = float(stats.chi2.sf(statistic, df))
+    cohens_w = math.sqrt(pearson / observed_total) if observed_total > 0 else float("nan")
     return {
-        "ok": True,
-        "method": test_method,
-        "statistic": float(statistic),
-        "df": int(df),
-        "pValue": p_value,
-        "total": total,
-        "categories": len(observed),
-        "cramersV": float(cramers_v),
+        "ok": True, "method": test_method, "statistic": statistic,
+        "pearsonStatistic": pearson, "gStatistic": g2, "df": df, "pValue": p_value,
+        "total": observed_total, "categories": len(observed), "cohensW": cohens_w,
     }
 
 
 def pie_contingency_test(payload: Dict[str, Any]) -> Dict[str, Any]:
-    raw_rows = payload.get("table")
-    rows: List[List[float]] = []
-    if isinstance(raw_rows, list):
-        for raw_row in raw_rows:
-            if not isinstance(raw_row, list):
-                return {"ok": False, "message": "Table rows must be arrays of counts."}
-            row = [float(value) if _is_finite_number(value) else float("nan") for value in raw_row]
-            rows.append(row)
-    row_count = len(rows)
-    col_count = len(rows[0]) if row_count else 0
-    if row_count < 2 or col_count < 2:
-        return {"ok": False, "message": "At least two categories and two conditions are required."}
-    if any(len(row) != col_count for row in rows):
-        return {"ok": False, "message": "All contingency rows must have the same number of columns."}
-
-    row_sums = [0.0] * row_count
-    col_sums = [0.0] * col_count
-    total = 0.0
-    for r in range(row_count):
-        for c in range(col_count):
-            value = rows[r][c]
-            if not math.isfinite(value) or value < 0:
-                return {"ok": False, "message": "Counts must be finite and non-negative."}
-            row_sums[r] += value
-            col_sums[c] += value
-            total += value
-    if total <= 0:
-        return {"ok": False, "message": "Total count must be greater than zero."}
-
-    sparse_threshold = _sanitize_sparse_threshold(payload.get("sparseThreshold"))
-    expected = [[0.0 for _ in range(col_count)] for _ in range(row_count)]
-    sparse_cell_count = 0
-    min_expected = float("inf")
-    for r in range(row_count):
-        for c in range(col_count):
-            exp = (row_sums[r] * col_sums[c]) / total
-            expected[r][c] = exp
-            if math.isfinite(exp):
-                min_expected = min(min_expected, exp)
-                if exp < sparse_threshold:
-                    sparse_cell_count += 1
-
+    raw = payload.get("table")
+    if not isinstance(raw, list) or len(raw) < 2:
+        return {"ok": False, "message": "At least two rows are required."}
+    try:
+        table = np.asarray(raw, dtype=float)
+    except Exception:
+        return {"ok": False, "message": "Table rows must contain numeric counts."}
+    if table.ndim != 2 or table.shape[0] < 2 or table.shape[1] < 2 or np.any(~np.isfinite(table)) or np.any(table < 0):
+        return {"ok": False, "message": "A finite non-negative table of at least 2x2 is required."}
+    if np.any(table.sum(axis=0) == 0) or np.any(table.sum(axis=1) == 0):
+        return {"ok": False, "message": "Rows and columns with zero totals are not testable."}
+    total = float(table.sum())
     method = _sanitize_pie_test_method(payload.get("method"))
+    sparse_threshold = _sanitize_sparse_threshold(payload.get("sparseThreshold"))
+    _, _, df, expected = stats.chi2_contingency(table, correction=False)
+    sparse_count = int(np.sum(expected < sparse_threshold))
+    auto_fisher = method == "auto" and table.shape == (2,2) and sparse_count > 0
+    if auto_fisher or method == "fisher-exact":
+        if table.shape != (2,2):
+            return {"ok": False, "message": "Fisher exact is available only for 2x2 tables."}
+        odds, pval = stats.fisher_exact(table, alternative="two-sided")
+        pearson = float(stats.chi2_contingency(table, correction=False)[0])
+        return {
+            "ok": True, "method": "fisher-exact", "statistic": float(odds), "pValue": float(pval),
+            "df": 1, "total": total, "rowCount": 2, "colCount": 2,
+            "sparseCellCount": sparse_count, "sparseThreshold": sparse_threshold,
+            "minExpected": float(expected.min()), "cramersV": math.sqrt(pearson/total),
+            "pearsonStatistic": pearson, "yatesApplied": False,
+        }
     test_method = "chi-square" if method == "auto" else method
-    use_yates = bool(payload.get("yatesCorrection")) and test_method == "chi-square" and row_count == 2 and col_count == 2
-    statistic = 0.0
     if test_method == "g-test":
-        for r in range(row_count):
-            for c in range(col_count):
-                obs = rows[r][c]
-                exp = expected[r][c]
-                if exp <= 0:
-                    if obs > 0:
-                        return {"ok": False, "message": "Unable to compute G-test because expected counts contain zeros."}
-                    continue
-                if obs > 0:
-                    statistic += 2.0 * obs * math.log(obs / exp)
+        statistic, pval, df, expected = stats.chi2_contingency(table, correction=False, lambda_="log-likelihood")
     else:
-        for r in range(row_count):
-            for c in range(col_count):
-                obs = rows[r][c]
-                exp = expected[r][c]
-                if exp <= 0:
-                    if obs > 0:
-                        return {"ok": False, "message": "Unable to compute chi-square because expected counts contain zeros."}
-                    continue
-                delta = obs - exp
-                if use_yates:
-                    corrected = max(0.0, abs(delta) - 0.5)
-                    delta = corrected if delta >= 0 else -corrected
-                statistic += (delta * delta) / exp
-
-    df = max(1, (row_count - 1) * (col_count - 1))
-    p_value = float(1 - stats.chi2.cdf(statistic, df))
-    min_dim = min(row_count - 1, col_count - 1)
-    cramers_v = math.sqrt(statistic / (total * min_dim)) if min_dim > 0 and total > 0 else float("nan")
+        use_yates = bool(payload.get("yatesCorrection")) and table.shape == (2,2)
+        statistic, pval, df, expected = stats.chi2_contingency(table, correction=use_yates)
+    pearson = float(stats.chi2_contingency(table, correction=False)[0])
+    min_dim = min(table.shape[0]-1, table.shape[1]-1)
     return {
-        "ok": True,
-        "method": test_method,
-        "statistic": float(statistic),
-        "df": int(df),
-        "pValue": p_value,
-        "total": float(total),
-        "rowCount": int(row_count),
-        "colCount": int(col_count),
-        "sparseCellCount": int(sparse_cell_count),
-        "sparseThreshold": int(sparse_threshold),
-        "minExpected": float(min_expected) if math.isfinite(min_expected) else float("nan"),
-        "cramersV": float(cramers_v),
-        "yatesApplied": bool(use_yates),
+        "ok": True, "method": test_method, "statistic": float(statistic), "pValue": float(pval), "df": int(df),
+        "total": total, "rowCount": int(table.shape[0]), "colCount": int(table.shape[1]),
+        "sparseCellCount": int(np.sum(expected < sparse_threshold)), "sparseThreshold": sparse_threshold,
+        "minExpected": float(expected.min()), "cramersV": math.sqrt(pearson/(total*min_dim)),
+        "pearsonStatistic": pearson,
+        "yatesApplied": bool(test_method == "chi-square" and payload.get("yatesCorrection") and table.shape == (2,2)),
     }
-
 
 def _prepare_pairs(raw_pairs: Any) -> List[Dict[str, float]]:
     pairs: List[Dict[str, float]] = []
@@ -2893,6 +2977,250 @@ def survival_logrank_trend(payload: Dict[str, Any]) -> Dict[str, Any]:
     return _weighted_survival_logrank(groups, "Log-rank trend", "logrank", scores=scores)
 
 
+
+def roc_mann_whitney(payload: Dict[str, Any]) -> Dict[str, Any]:
+    pairs = _prepare_pairs(payload.get("pairs"))
+    positives = [p["score"] for p in pairs if int(p["label"]) == 1]
+    negatives = [p["score"] for p in pairs if int(p["label"]) == 0]
+    if not positives or not negatives:
+        return {"available": False, "message": "Both positive and negative observations are required."}
+    requested = str(payload.get("method") or "auto").strip().lower()
+    ties = len(set(positives + negatives)) < len(positives) + len(negatives)
+    if requested == "exact" and ties:
+        return {"available": False, "message": "Exact Mann-Whitney inference is unavailable when scores are tied."}
+    if requested == "auto":
+        method = "exact" if not ties and len(positives) * len(negatives) <= 10000 else "asymptotic"
+    elif requested in {"exact", "asymptotic"}:
+        method = requested
+    else:
+        raise ValueError("Mann-Whitney method must be auto, exact, or asymptotic.")
+    result = stats.mannwhitneyu(
+        positives,
+        negatives,
+        alternative=_resolve_alternative(payload.get("alternative")),
+        method=method,
+        use_continuity=(method == "asymptotic"),
+    )
+    u = float(result.statistic)
+    auc = u / (len(positives) * len(negatives))
+    return {
+        "available": True, "method": method, "ties": ties,
+        "u": u, "auc": auc, "pValue": float(result.pvalue),
+        "nPositive": len(positives), "nNegative": len(negatives),
+    }
+
+
+def box_friedman_pairwise_maxstat(payload: Dict[str, Any]) -> Dict[str, Any]:
+    groups = [_clean_vector(g) for g in (payload.get("groups") or [])]
+    labels = payload.get("labels") or []
+    if len(groups) < 3 or not groups or len(groups[0]) < 2 or any(len(g) != len(groups[0]) for g in groups):
+        return {"ok": False, "message": "Equal paired group sizes and at least three groups are required."}
+    k = len(groups)
+    n = len(groups[0])
+    rank_matrix = np.asarray([
+        stats.rankdata([groups[j][i] for j in range(k)], method="average")
+        for i in range(n)
+    ], dtype=float)
+    mean_ranks = rank_matrix.mean(axis=0)
+    observed = {(i,j): abs(float(mean_ranks[i]-mean_ranks[j])) for i in range(k) for j in range(i+1,k)}
+    mode = str(payload.get("resamplingMode") or "auto").lower()
+    max_exact = int(payload.get("maxExact") or 200000)
+    total_permutations = math.factorial(k) ** n
+    exact = mode == "exact" or (mode == "auto" and total_permutations <= max_exact)
+    iterations = int(payload.get("iterations") or 2000)
+    seed = int(payload.get("seed") or 1337)
+    exceed = {pair: 0 for pair in observed}
+    used = 0
+    permutations = list(itertools.permutations(range(k)))
+    rng = np.random.default_rng(seed)
+
+    def consume(permuted_rows):
+        nonlocal used
+        permuted = np.asarray(permuted_rows, dtype=float)
+        perm_mean = permuted.mean(axis=0)
+        max_stat = max(abs(float(perm_mean[i]-perm_mean[j])) for i in range(k) for j in range(i+1,k))
+        for pair, stat_value in observed.items():
+            exceed[pair] += int(max_stat >= stat_value - 1e-15)
+        used += 1
+
+    if exact:
+        for choices in itertools.product(range(len(permutations)), repeat=n):
+            consume([rank_matrix[row, permutations[choice]] for row, choice in enumerate(choices)])
+    else:
+        iterations = max(1, min(1_000_000, iterations))
+        for _ in range(iterations):
+            consume([rank_matrix[row, rng.permutation(k)] for row in range(n)])
+
+    pairs = []
+    for (i,j), stat_value in observed.items():
+        pval = exceed[(i,j)] / used if exact else (exceed[(i,j)] + 1) / (used + 1)
+        pairs.append({
+            "i": i, "j": j,
+            "groupA": labels[i] if i < len(labels) else f"Group {i+1}",
+            "groupB": labels[j] if j < len(labels) else f"Group {j+1}",
+            "meanRankDifference": float(mean_ranks[i]-mean_ranks[j]),
+            "absoluteMeanRankDifference": stat_value,
+            "p": float(pval), "adjustedP": float(pval),
+        })
+    return {
+        "ok": True, "method": "friedman-pairwise-max-statistic-permutation",
+        "resamplingMode": "exact" if exact else "monte-carlo",
+        "iterations": used, "seed": None if exact else seed,
+        "meanRanks": mean_ranks.tolist(), "pairs": pairs,
+    }
+
+
+def survival_kaplan_meier(payload: Dict[str, Any]) -> Dict[str, Any]:
+    records = payload.get("records") or []
+    cleaned = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        t = record.get("time")
+        e = record.get("event")
+        if _is_finite_number(t) and float(t) >= 0:
+            cleaned.append((float(t), 1 if bool(e) else 0))
+    if not cleaned:
+        return {"available": False, "message": "No valid survival records."}
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    z = float(stats.norm.ppf(1-alpha/2))
+    cleaned.sort()
+    times = sorted(set(t for t,e in cleaned if e == 1))
+    n_at_risk = len(cleaned)
+    survival = 1.0
+    greenwood_sum = 0.0
+    points = [{"time": 0.0, "survival": 1.0, "lower": 1.0, "upper": 1.0, "atRisk": n_at_risk, "events": 0}]
+    for time in sorted(set(t for t,e in cleaned)):
+        at_risk = sum(1 for t,e in cleaned if t >= time)
+        events = sum(1 for t,e in cleaned if t == time and e == 1)
+        if events:
+            survival *= (1-events/at_risk)
+            if at_risk > events:
+                greenwood_sum += events/(at_risk*(at_risk-events))
+            if survival <= 0:
+                lower = upper = 0.0
+            elif survival >= 1 or greenwood_sum <= 0:
+                lower = upper = survival
+            else:
+                log_neg_log = math.log(-math.log(survival))
+                se_transform = math.sqrt(greenwood_sum)/abs(math.log(survival))
+                lower = math.exp(-math.exp(log_neg_log + z*se_transform))
+                upper = math.exp(-math.exp(log_neg_log - z*se_transform))
+            points.append({
+                "time": time, "survival": survival, "lower": lower, "upper": upper,
+                "atRisk": at_risk, "events": events,
+            })
+    median = next((p["time"] for p in points if p["survival"] <= 0.5), None)
+    return {"available": True, "n": len(cleaned), "events": sum(e for _,e in cleaned), "points": points, "median": median, "ciMethod": "log-log Greenwood"}
+
+
+def survival_cox_efron(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if PHReg is None:
+        raise RuntimeError("statsmodels is required for the Cox-regression oracle.")
+    times = payload.get("time") or []
+    events = payload.get("event") or []
+    covariates = payload.get("covariates") or []
+    n = min(len(times), len(events), len(covariates))
+    rows = []
+    excluded = 0
+    for i in range(n):
+        row = covariates[i]
+        if not isinstance(row, (list, tuple)):
+            row = [row]
+        if not _is_finite_number(times[i]) or float(times[i]) < 0 or not all(_is_finite_number(v) for v in row):
+            excluded += 1
+            continue
+        rows.append((float(times[i]), 1 if bool(events[i]) else 0, [float(v) for v in row]))
+    if len(rows) < 3 or sum(r[1] for r in rows) == 0:
+        return {"available": False, "message": "Insufficient valid Cox observations/events.", "excluded": excluded}
+    endog = np.asarray([r[0] for r in rows], dtype=float)
+    status = np.asarray([r[1] for r in rows], dtype=int)
+    exog = np.asarray([r[2] for r in rows], dtype=float)
+    if exog.ndim == 1:
+        exog = exog[:,None]
+    try:
+        model = PHReg(endog, exog, status=status, ties="efron")
+        fit = model.fit(disp=False)
+    except Exception as exc:
+        return {"available": False, "message": f"Cox Efron fit failed: {exc}", "excluded": excluded}
+    params = np.asarray(fit.params, dtype=float)
+    se = np.asarray(fit.bse, dtype=float)
+    zvals = params/se
+    pvals = 2*stats.norm.sf(np.abs(zvals))
+    alpha = float(payload.get("alpha")) if _is_finite_number(payload.get("alpha")) else 0.05
+    zcrit = float(stats.norm.ppf(1-alpha/2))
+    return {
+        "available": True, "ties": "efron", "n": len(rows), "events": int(status.sum()), "excluded": excluded,
+        "coefficients": params.tolist(), "standardErrors": se.tolist(), "z": zvals.tolist(), "pValues": pvals.tolist(),
+        "hazardRatios": np.exp(params).tolist(),
+        "hazardRatioCiLow": np.exp(params-zcrit*se).tolist(),
+        "hazardRatioCiHigh": np.exp(params+zcrit*se).tolist(),
+        "logLikelihood": float(model.loglike(params)),
+        "covariance": np.asarray(fit.cov_params(),dtype=float).tolist(),
+    }
+
+
+
+def survival_harrell_c(payload: Dict[str, Any]) -> Dict[str, Any]:
+    times = payload.get("time") or []
+    events = payload.get("event") or []
+    risks = payload.get("risk") or []
+    n = min(len(times), len(events), len(risks))
+    rows = []
+    excluded = 0
+    for i in range(n):
+        if not _is_finite_number(times[i]) or not _is_finite_number(risks[i]) or float(times[i]) < 0:
+            excluded += 1
+            continue
+        rows.append((float(times[i]), 1 if bool(events[i]) else 0, float(risks[i])))
+    concordant = discordant = tied_risk = comparable = 0.0
+    for i in range(len(rows)):
+        for j in range(i+1, len(rows)):
+            ti, ei, ri = rows[i]
+            tj, ej, rj = rows[j]
+            if ti == tj:
+                continue
+            if ti < tj and ei == 1:
+                earlier_risk, later_risk = ri, rj
+            elif tj < ti and ej == 1:
+                earlier_risk, later_risk = rj, ri
+            else:
+                continue
+            comparable += 1
+            if earlier_risk > later_risk:
+                concordant += 1
+            elif earlier_risk < later_risk:
+                discordant += 1
+            else:
+                tied_risk += 1
+    if comparable == 0:
+        return {"available": False, "message": "No comparable subject pairs.", "excluded": excluded}
+    c_index = (concordant + 0.5*tied_risk)/comparable
+    return {
+        "available": True, "c": c_index, "concordant": concordant,
+        "discordant": discordant, "tiedRisk": tied_risk,
+        "comparablePairs": comparable, "excluded": excluded,
+        "standardError": None, "ciLow": None, "ciHigh": None,
+        "uncertaintyAvailable": False,
+        "note": "Point estimate only; overlapping subject pairs do not support a binomial standard error.",
+    }
+
+
+def oracle_capabilities(_: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "contractVersion": "2026-07-26.2",
+        "numpy": np.__version__,
+        "scipy": getattr(__import__("scipy"), "__version__", "unknown"),
+        "statsmodelsAvailable": sm is not None,
+        "operations": [
+            "adjust_pvalues", "distribution_fit", "goodness_of_fit",
+            "regression_logistic", "box_tukey_hsd", "box_games_howell",
+            "box_welch_pairwise_sidak", "box_friedman_pairwise_maxstat",
+            "pie_gof_test", "pie_contingency_test", "roc_mann_whitney",
+            "survival_kaplan_meier", "survival_cox_efron", "survival_harrell_c",
+        ],
+    }
+
 def _clean_json(value: Any) -> Any:
     if value is None:
         return None
@@ -2917,7 +3245,9 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
     if not operation:
         raise ValueError("Missing operation.")
 
-    if operation == "adjust_pvalues":
+    if operation == "oracle_capabilities":
+        result = oracle_capabilities(payload)
+    elif operation == "adjust_pvalues":
         method = payload.get("method")
         adjusted = adjust_p_values(str(method or ""), payload.get("pValues") or [])
         result = {"adjusted": adjusted}
@@ -2935,7 +3265,14 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         if not fit_result.get("valid") or not params:
             result = {"valid": False, "n": 0}
         else:
-            result = goodness_of_fit(distribution, values, params)
+            result = goodness_of_fit(
+                distribution,
+                values,
+                params,
+                parameters_estimated=payload.get("parametersEstimated") is not False,
+                iterations=int(payload.get("iterations") or 500),
+                seed=int(payload.get("seed") or 1337),
+            )
     elif operation == "regression_linear":
         result = regression_linear(payload)
     elif operation == "regression_linear_through_origin":
@@ -3016,12 +3353,18 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = box_lognormal_comparison(payload)
     elif operation == "box_linear_trend":
         result = box_linear_trend(payload)
-    elif operation == "box_tamhane_t2":
+    elif operation in {"box_tamhane_t2", "box_welch_pairwise_sidak"}:
         result = box_tamhane_t2(payload)
+    elif operation == "box_tukey_hsd":
+        result = box_tukey_hsd(payload)
+    elif operation == "box_games_howell":
+        result = box_games_howell(payload)
     elif operation == "box_kruskal":
         result = box_kruskal(payload)
     elif operation == "box_friedman":
         result = box_friedman(payload)
+    elif operation == "box_friedman_pairwise_maxstat":
+        result = box_friedman_pairwise_maxstat(payload)
     elif operation == "box_repeated_measures_anova":
         result = box_repeated_measures_anova(payload)
     elif operation == "box_kolmogorov_smirnov":
@@ -3042,6 +3385,8 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = roc_curve_metric(payload)
     elif operation == "roc_auc_uncertainty":
         result = roc_auc_uncertainty(payload)
+    elif operation == "roc_mann_whitney":
+        result = roc_mann_whitney(payload)
     elif operation == "roc_threshold_table":
         result = roc_threshold_table(payload)
     elif operation == "roc_delong_diff":
@@ -3054,6 +3399,12 @@ def evaluate_case(case: Dict[str, Any]) -> Dict[str, Any]:
         result = survival_gehan_breslow(payload)
     elif operation == "survival_logrank_trend":
         result = survival_logrank_trend(payload)
+    elif operation == "survival_kaplan_meier":
+        result = survival_kaplan_meier(payload)
+    elif operation == "survival_cox_efron":
+        result = survival_cox_efron(payload)
+    elif operation == "survival_harrell_c":
+        result = survival_harrell_c(payload)
     else:
         raise ValueError(f"Unsupported operation: {operation}")
 

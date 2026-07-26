@@ -84,13 +84,57 @@ describe('Main.components.ensureComponent', () => {
     expect(window.Main.components.registry.box.__lifecycleContract.applyRuntimeState).toBe(true);
   });
 
-  test('restore fallback draws bypass the registry frame uniformly', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main', 'components.js'), 'utf8');
-    expect(source).toContain("source.forceDraw === true && reason === 'workspace-draw-fallback'");
-    expect(source).toContain('return runRegistryDraw(source);');
-    expect(source).toContain('Apply this uniformly to every workspace.');
+  test('restore fallback draws bypass the registry frame with current owner metadata', () => {
+    const draw = jest.fn();
+    const buildSessionMeta = jest.fn((componentKey, options) => ({
+      tabId: options.tabId,
+      sessionGeneration: options.sessionGeneration,
+      componentKey
+    }));
+    global.window.Components = { heatmap: { ready: true, draw } };
+    global.window.Shared = {
+      debounceFrame: fn => fn,
+      componentLifecycle: {
+        createTabScopedFrameDebouncer: (_owner, _key, fn) => fn,
+        shouldSuppressDraw: jest.fn(() => false),
+        emitLifecycleEvent: jest.fn()
+      },
+      workspaceTabs: {
+        buildSessionMeta,
+        isSessionMetaCurrent: jest.fn(() => true),
+        createTabScopedScheduler: jest.fn(() => jest.fn())
+      }
+    };
+    require('../js/main/components.js');
+
+    window.Main.components.registry.heatmap.draw({
+      tabId: 'workspace-heavy-heatmap',
+      sessionGeneration: 7,
+      force: true,
+      forceDraw: true,
+      reason: 'workspace-draw-fallback'
+    });
+
+    expect(buildSessionMeta).toHaveBeenCalledWith('heatmap', expect.objectContaining({
+      tabId: 'workspace-heavy-heatmap',
+      sessionGeneration: 7
+    }));
+    expect(window.Shared.workspaceTabs.isSessionMetaCurrent).toHaveBeenCalledWith('heatmap', expect.objectContaining({
+      tabId: 'workspace-heavy-heatmap',
+      sessionGeneration: 7,
+      componentKey: 'heatmap'
+    }));
+    expect(draw).toHaveBeenCalledWith(expect.objectContaining({
+      tabId: 'workspace-heavy-heatmap',
+      sessionGeneration: 7,
+      forceDraw: true,
+      reason: 'workspace-draw-fallback',
+      __workspaceSessionMeta: expect.objectContaining({
+        tabId: 'workspace-heavy-heatmap',
+        sessionGeneration: 7,
+        componentKey: 'heatmap'
+      })
+    }));
   });
 
 

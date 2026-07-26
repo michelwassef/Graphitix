@@ -16501,7 +16501,8 @@
             term: stat?.term ?? '—',
             estimate: formatMetricValue(stat?.estimate),
             se: formatMetricValue(stat?.standardError),
-            t: formatMetricValue(stat?.tStatistic, 3),
+            statistic: formatMetricValue(stat?.statistic ?? stat?.zStatistic ?? stat?.tStatistic, 3),
+            statisticType: stat?.statisticLabel || (stat?.distribution === 'normal' ? 'z' : 't'),
             p: formatP(stat?.pValue),
             ciLow: formatMetricValue(stat?.ciLow),
             ciHigh: formatMetricValue(stat?.ciHigh)
@@ -16848,7 +16849,8 @@
         const coefficientFields = [
           { key:'estimate', label:'Estimate' },
           { key:'se', label:'Std Error' },
-          { key:'t', label:'t-stat' },
+          { key:'statistic', label:'Test statistic' },
+          { key:'statisticType', label:'Reference' },
           { key:'p', label:'p-value' },
           { key:'ciLow', label:'CI Low' },
           { key:'ciHigh', label:'CI High' }
@@ -17139,7 +17141,8 @@
             { key:'term', label:'Term', align:'left' },
             { key:'estimate', label:'Estimate', align:'right' },
             { key:'se', label:'Std Error', align:'right' },
-            { key:'t', label:'t-stat', align:'right' },
+            { key:'statistic', label:'Test statistic', align:'right' },
+              { key:'statisticType', label:'Reference', align:'center' },
             { key:'p', label:'p-value', align:'right' },
             { key:'ciLow', label:'CI Low', align:'right' },
             { key:'ciHigh', label:'CI High', align:'right' }
@@ -28521,6 +28524,14 @@ async function drawScatter(drawOptions = {}){
     }
     return true;
   };
+  scatter.hasRenderedGraph = function hasRenderedGraph(meta = {}){
+    const root = meta?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(meta?.tab || meta?.tabId || null, 'scatter')
+      || null;
+    const plot = root?.querySelector?.('#scatterPlot') || getScatterNodeById('scatterPlot');
+    return !!plot && isScatterRestoredRenderCacheVisuallyReady(plot);
+  };
+
   scatter.draw = function draw(options = {}){
     const drawOptions = normalizeScatterSessionOptions(options || {});
     const drawReason = drawOptions.reason || options?.reason || 'scatter-draw';

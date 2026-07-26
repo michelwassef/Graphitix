@@ -1549,23 +1549,62 @@
     const nullLl=ys.reduce((sum,y)=>sum+y*Math.log(meanY)+(1-y)*Math.log(1-meanY),0);
     const pseudoR2=1-(ll/nullLl);
     let covariance=null;
-    if(information){
-      const det=information[0][0]*information[1][1]-information[0][1]*information[1][0];
-      if(det>0){
-        const covStd=[[information[1][1]/det,-information[0][1]/det],[-information[1][0]/det,information[0][0]/det]];
-        const transform=[[1, -meanX/scaleX],[0,1/scaleX]];
-        covariance=transform.map(row=>transform.map((_,j)=>row.reduce((sum,v,k)=>sum+v*covStd[k].reduce((inner,c,l)=>inner+c*transform[j][l],0),0)));
+    let finalInformation=null;
+    {
+      let i00=0,i01=0,i11=0;
+      for(let i=0;i<n;i++){
+        const p=sigmoid(b0+b1*xs[i]);
+        const w=p*(1-p);
+        i00+=w;
+        i01+=w*xs[i];
+        i11+=w*xs[i]*xs[i];
+      }
+      finalInformation=[[i00,i01],[i01,i11]];
+      const det=i00*i11-i01*i01;
+      if(det>1e-14){
+        const covStd=[[i11/det,-i01/det],[-i01/det,i00/det]];
+        const transform=[[1,-meanX/scaleX],[0,1/scaleX]];
+        covariance=transform.map((row,rowIndex)=>transform.map((_,columnIndex)=>{
+          let value=0;
+          for(let k=0;k<2;k++){
+            for(let l=0;l<2;l++) value+=row[k]*covStd[k][l]*transform[columnIndex][l];
+          }
+          return value;
+        }));
       }
     }
     const normal=jStatLib?.normal;
     const zCritical=normal?.inv ? normal.inv(1-alpha/2,0,1) : 1.959963984540054;
-    const normalP=z=>normal?.cdf ? 2*(1-normal.cdf(Math.abs(z),0,1)) : NaN;
+    const fallbackNormalCdf=value=>{
+      const x=Math.abs(value)/Math.SQRT2;
+      const t=1/(1+0.3275911*x);
+      const polynomial=(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t;
+      const erf=1-polynomial*Math.exp(-x*x);
+      return value>=0 ? 0.5*(1+erf) : 0.5*(1-erf);
+    };
+    const normalP=z=>Math.max(0,Math.min(1,2*(1-(normal?.cdf ? normal.cdf(Math.abs(z),0,1) : fallbackNormalCdf(Math.abs(z))))));
     const coefficients=[beta0,beta1];
-    const coefficientStats=covariance ? coefficients.map((estimate,index)=>{
-      const se=Math.sqrt(Math.max(0,covariance[index][index]));
-      const z=estimate/se;
-      return {term:index===0?'Intercept':'Slope',estimate,se,statistic:z,z,pValue:normalP(z),ciLow:estimate-zCritical*se,ciHigh:estimate+zCritical*se,distribution:'normal'};
+    const inferenceAvailable=converged && covariance && coefficients.every(Number.isFinite);
+    const coefficientStats=inferenceAvailable ? coefficients.map((estimate,index)=>{
+      const standardError=Math.sqrt(Math.max(0,covariance[index][index]));
+      const zStatistic=standardError>0 ? estimate/standardError : NaN;
+      return {
+        term:index===0?'Intercept':'Slope',
+        estimate,
+        standardError,
+        statistic:zStatistic,
+        zStatistic,
+        tStatistic:zStatistic,
+        pValue:normalP(zStatistic),
+        ciLow:estimate-zCritical*standardError,
+        ciHigh:estimate+zCritical*standardError,
+        distribution:'normal',
+        statisticLabel:'z'
+      };
     }) : [];
+    if(covariance && !converged){
+      warnings.push('Coefficient standard errors, confidence intervals, and p-values were suppressed because the logistic fit did not converge.');
+    }
     const minX=Number.isFinite(domain?.minX)?domain.minX:Math.min(...logisticPoints.map(pt=>pt.x));
     const maxX=Number.isFinite(domain?.maxX)?domain.maxX:Math.max(...logisticPoints.map(pt=>pt.x));
     const intervalSamples=[];
@@ -1580,12 +1619,12 @@
     }
     return {
       available:true, coefficients,
-      metrics:{sampleSize:n,predictors:1,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
+      metrics:{sampleSize:n,predictors:1,logLikelihood:ll,deviance:-2*ll,nullDeviance:-2*nullLl,r2:pseudoR2,adjR2:NaN,logLoss:-ll/n,iterations:iteration+1,converged,inferenceAvailable:!!inferenceAvailable,aic:-2*ll+4,bic:-2*ll+2*Math.log(n)},
       residuals:summarizeResiduals(residuals), predictions, predict,
       diagnostics:buildExtendedRegressionDiagnostics({residuals,points:logisticPoints,predictions,parameterCount:2}),
       coefficientStats, coefficientCovariance:covariance,
       intervals:intervalSamples.length?{alpha,zCritical,samples:intervalSamples,summary:null,kind:'mean-probability-confidence'}:null,
-      summary:{intercept:beta0,slope:beta1,equation:`logit(p) = ${beta0.toFixed(4)} + ${beta1.toFixed(4)}x`,parameters:{Intercept:beta0,Slope:beta1,OddsRatioPerUnitX:Math.exp(beta1)},primaryParameter:{label:'Odds ratio per unit X',value:Math.exp(beta1)}},
+      summary:{intercept:beta0,slope:beta1,equation:`logit(p) = ${beta0.toFixed(4)} + ${beta1.toFixed(4)}x`,parameters:{Intercept:beta0,Slope:beta1,OddsRatioPerUnitX:Math.exp(beta1)},primaryParameter:{label:'Odds ratio per unit X',value:Math.exp(beta1)},oddsRatioConfidenceInterval:coefficientStats[1]?{low:Math.exp(coefficientStats[1].ciLow),high:Math.exp(coefficientStats[1].ciHigh)}:null},
       warnings
     };
   };
@@ -4579,8 +4618,12 @@
           ? model.coefficientStats.map(stat => ({
             term: stat.term,
             estimate: ensureFiniteNumber(stat.estimate),
-            standardError: ensureFiniteNumber(stat.standardError),
-            tStatistic: ensureFiniteNumber(stat.tStatistic),
+            standardError: ensureFiniteNumber(stat.standardError ?? stat.se),
+            statistic: ensureFiniteNumber(stat.statistic ?? stat.zStatistic ?? stat.tStatistic),
+            tStatistic: ensureFiniteNumber(stat.tStatistic ?? stat.statistic),
+            zStatistic: ensureFiniteNumber(stat.zStatistic),
+            statisticLabel: stat.statisticLabel || (stat.distribution === 'normal' ? 'z' : 't'),
+            distribution: stat.distribution || null,
             pValue: ensureFiniteNumber(stat.pValue),
             ciLow: ensureFiniteNumber(stat.ciLow),
             ciHigh: ensureFiniteNumber(stat.ciHigh)

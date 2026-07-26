@@ -21124,8 +21124,15 @@
     const df2=totalN-k;
     const msBetween=ssBetween/(df1||1);
     const msWithin=ssWithin/(df2||1);
-    const F=msWithin===0?Infinity:msBetween/msWithin;
-    const pValue=Number.isFinite(F)?fUpperTailPValue(F, df1, df2):0;
+    let F=NaN;
+    let pValue=NaN;
+    if(msWithin>0){
+      F=msBetween/msWithin;
+      pValue=Number.isFinite(F)?fUpperTailPValue(F, df1, df2):NaN;
+    }else if(msBetween>0){
+      F=Infinity;
+      pValue=0;
+    }
     const alpha=resolveStatsAlpha({ alpha: options?.alpha });
     const passed=Number.isFinite(pValue)?pValue>=alpha:null;
     boxLog('Debug: box variance diagnostics',{ df1, df2, F, pValue, passed, grandMean });
@@ -23819,7 +23826,7 @@
     }else if(state.statsPostHoc==='gamesHowell'){
     correctionSel.title='Games–Howell already incorporates unequal-variance adjustment.';
     }else if(state.statsPostHoc==='tamhaneT2'){
-    correctionSel.title='Tamhane T2 already uses a family-wise unequal-variance adjustment.';
+    correctionSel.title='Welch + Sidak already includes a family-wise adjustment.';
     }else if(state.statsPostHoc==='dunnett'){
     correctionSel.title='The pooled t + Sidak control-comparison procedure controls family-wise error versus the reference group.';
     }else if(state.statsPostHoc==='dunnettT3'){
@@ -24097,7 +24104,7 @@
     appendInline(outlierLabel, outlierSel, true, advancedBody);
 
     const outlierParamLabel=document.createElement('label');
-    outlierParamLabel.textContent=state.statsOutlierMode==='rout' ? 'ROUT q:' : 'Outlier α:';
+    outlierParamLabel.textContent=state.statsOutlierMode==='rout' ? 'FDR q:' : 'Outlier α:';
     const outlierParamInput=document.createElement('input');
     outlierParamInput.type='number';
     outlierParamInput.step='0.001';
@@ -24292,8 +24299,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   select.dataset.boxStatsControl='grouped-analysis';
   const options=[
     { value:'twoWayAnova', text:'Two-way ANOVA' },
-    { value:'rowRandomMixed', text:'Mixed model (rows random)' },
-    { value:'threeWayAnova', text:'Three-way ANOVA' },
+    { value:'rowRandomMixed', text:'Rows-random repeated-measures model' },
+    { value:'threeWayAnova', text:'Unreplicated three-factor ANOVA (ABC as error)' },
     { value:'rowTTests', text:'Per-condition pairwise t-tests' },
     { value:'multipleComparisons', text:'Grouped multiple comparisons' }
   ];
@@ -37604,6 +37611,14 @@ Technical analysis record (advanced)
       syncBoxThemeSurfaceForCurrentScheme(targetScheme);
     }
     return restored;
+  };
+
+  box.hasRenderedGraph = function hasRenderedGraph(meta = {}){
+    const root = meta?.root
+      || Shared.workspaceTabs?.getMountedRoot?.(meta?.tab || meta?.tabId || null, 'box')
+      || null;
+    const plot = root?.querySelector?.('#boxPlot') || els.plotDiv || getBoxNodeById('boxPlot');
+    return !!plot && isBoxRestoredRenderCacheVisuallyReady(plot);
   };
 
   function bindBoxPassiveDomForTab(tabLike = null, meta = {}){

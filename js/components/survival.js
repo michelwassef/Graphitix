@@ -3585,7 +3585,9 @@
       entryOrder,
       exitOrder,
       maxRiskCount,
-      truncated
+      truncated,
+      excludedInvalidCovariates,
+      tieMethod: 'efron'
     };
   }
 
@@ -3670,30 +3672,46 @@
         }
         break;
       }
-      const denomSafe = Math.max(denom, 1e-12);
-      const expectedX = weightedX.map(val => val / denomSafe);
       const eventCount = group.eventCount || eventIndices.length;
       const observedSum = new Array(predictors).fill(0);
+      let eventWeightSum = 0;
+      const eventWeightedX = new Array(predictors).fill(0);
+      const eventWeightedXX = createZeroMatrix(predictors);
       eventIndices.forEach(eventIndex => {
         const obs = data[eventIndex];
         if(!obs){
           return;
         }
-        logLik += xbValues[eventIndex] - Math.log(denomSafe);
+        const eventWeight = weights[eventIndex];
+        eventWeightSum += eventWeight;
+        logLik += xbValues[eventIndex];
         for(let r = 0; r < predictors; r += 1){
-          observedSum[r] += obs.covariates[r] ?? 0;
+          const xr = obs.covariates[r] ?? 0;
+          observedSum[r] += xr;
+          eventWeightedX[r] += eventWeight * xr;
+          for(let c = 0; c < predictors; c += 1){
+            const xc = obs.covariates[c] ?? 0;
+            eventWeightedXX[r][c] += eventWeight * xr * xc;
+          }
         }
       });
       for(let r = 0; r < predictors; r += 1){
-        gradient[r] += observedSum[r] - eventCount * expectedX[r];
+        gradient[r] += observedSum[r];
       }
-      for(let r = 0; r < predictors; r += 1){
-        for(let c = 0; c < predictors; c += 1){
-          const expectedXX = weightedXX[r][c] / denomSafe;
-          const varTerm = expectedXX - expectedX[r] * expectedX[c];
-          fisher[r][c] += eventCount * varTerm;
+      for(let tiedIndex = 0; tiedIndex < eventCount; tiedIndex += 1){
+        const fraction = tiedIndex / eventCount;
+        const adjustedDenom = Math.max(denom - fraction * eventWeightSum, 1e-12);
+        logLik -= Math.log(adjustedDenom);
+        const expectedX = weightedX.map((value, r) => (value - fraction * eventWeightedX[r]) / adjustedDenom);
+        for(let r = 0; r < predictors; r += 1){
+          gradient[r] -= expectedX[r];
+          for(let c = 0; c < predictors; c += 1){
+            const expectedXX = (weightedXX[r][c] - fraction * eventWeightedXX[r][c]) / adjustedDenom;
+            fisher[r][c] += expectedXX - expectedX[r] * expectedX[c];
+          }
         }
       }
+      const denomSafe = Math.max(denom, 1e-12);
       while(exitPointer < exitOrder.length){
         const candidateIndex = exitOrder[exitPointer];
         const obs = data[candidateIndex];
@@ -3835,12 +3853,33 @@
       if(!(denom > 0) || !Array.isArray(group?.eventIndices) || !group.eventIndices.length){
         return;
       }
+      const eventCount=group.eventIndices.length;
+      let eventWeightSum=0;
+      const eventWeightedX=new Array(predictors).fill(0);
+      group.eventIndices.forEach(eventIndex=>{
+        const obs=data[eventIndex];
+        const weight=weights[eventIndex];
+        eventWeightSum+=weight;
+        for(let index=0;index<predictors;index++){
+          eventWeightedX[index]+=weight*Number(obs?.covariates?.[index] || 0);
+        }
+      });
+      let hazardIncrement=0;
+      const meanAccumulator=new Array(predictors).fill(0);
+      for(let tiedIndex=0;tiedIndex<eventCount;tiedIndex++){
+        const fraction=tiedIndex/eventCount;
+        const adjustedDenom=Math.max(denom-fraction*eventWeightSum,1e-12);
+        hazardIncrement+=1/adjustedDenom;
+        for(let index=0;index<predictors;index++){
+          meanAccumulator[index]+=(weightedX[index]-fraction*eventWeightedX[index])/adjustedDenom;
+        }
+      }
       eventGroups.push({
         time: timeValue,
         eventIndices: group.eventIndices.slice(),
-        eventCount: group.eventIndices.length,
-        hazardIncrement: group.eventIndices.length / denom,
-        weightedMean: weightedX.map(value => value / denom)
+        eventCount,
+        hazardIncrement,
+        weightedMean: meanAccumulator.map(value=>value/eventCount)
       });
     });
     return { weights, linearPredictors, eventGroups };
@@ -3886,15 +3925,13 @@
       return null;
     }
     const c = (concordant + (0.5 * tied)) / comparable;
-    const se = Math.sqrt(Math.max(c * (1 - c), 0) / comparable);
     return {
       c,
-      se,
-      ciLow: Math.max(0, c - (1.96 * se)),
-      ciHigh: Math.min(1, c + (1.96 * se)),
       comparable,
       concordant,
-      tied
+      tied,
+      varianceMethod: null,
+      inferenceAvailable: false
     };
   }
 
@@ -3976,6 +4013,7 @@
     let covariance = null;
     let converged = false;
     let iterations = 0;
+    let ridgeEpsilon = null;
     for(iterations = 0; iterations < 25; iterations += 1){
       const evaluation = evaluateCoxAt(beta, prepared);
       const fisherInv = tryInvertMatrix(evaluation.fisher, { context: 'cox fisher', iteration: iterations });
@@ -3984,6 +4022,7 @@
         return { available: false, message: 'Failed to invert Fisher information matrix.' };
       }
       if(fisherInv.__ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(fisherInv.__ridgeEpsilon) || 0);
         logDebug('cox fisher ridge applied', { iteration: iterations, epsilon: fisherInv.__ridgeEpsilon });
       }
       const step = multiplyMatrixVector(fisherInv, evaluation.gradient);
@@ -4009,21 +4048,30 @@
         return { available: false, message: 'Unable to compute covariance for Cox model.' };
       }
       if(covariance.__ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(covariance.__ridgeEpsilon) || 0);
         logDebug('cox covariance ridge applied', { epsilon: covariance.__ridgeEpsilon });
       }
     }
     const finalEval = evaluateCoxAt(beta, prepared);
+    const finalCovariance = tryInvertMatrix(finalEval.fisher, { context: 'cox final fisher' });
+    if(finalCovariance){
+      covariance = finalCovariance;
+      if(finalCovariance.__ridgeEpsilon){
+        ridgeEpsilon = Math.max(Number(ridgeEpsilon) || 0, Number(finalCovariance.__ridgeEpsilon) || 0);
+      }
+    }
+    const inferenceAvailable = converged && !!covariance && !(Number(ridgeEpsilon) > 0);
     const nullEval = evaluateCoxAt(new Array(predictors).fill(0), prepared);
     const designPredictors = Array.isArray(prepared.design?.predictors) ? prepared.design.predictors : [];
     const coefficients = designPredictors.map((predictor, idx) => {
       const coef = beta[idx];
-      const variance = Math.max(covariance[idx]?.[idx] ?? 0, 0);
-      const se = Math.sqrt(variance);
+      const variance = inferenceAvailable ? Math.max(covariance[idx]?.[idx] ?? NaN, 0) : NaN;
+      const se = Number.isFinite(variance) ? Math.sqrt(variance) : NaN;
       const hr = Math.exp(coef);
-      const ciLow = se > 0 ? Math.exp(coef - 1.96 * se) : hr;
-      const ciHigh = se > 0 ? Math.exp(coef + 1.96 * se) : hr;
-      const z = se > 0 ? coef / se : null;
-      const p = pValueFromZ(z);
+      const ciLow = Number.isFinite(se) && se > 0 ? Math.exp(coef - 1.96 * se) : NaN;
+      const ciHigh = Number.isFinite(se) && se > 0 ? Math.exp(coef + 1.96 * se) : NaN;
+      const z = Number.isFinite(se) && se > 0 ? coef / se : NaN;
+      const p = Number.isFinite(z) ? pValueFromZ(z) : NaN;
       const label = predictor.label || predictor.groupName || `Predictor ${idx + 1}`;
       const entry = {
         key: predictor.key || `predictor:${idx}`,
@@ -4063,7 +4111,9 @@
       bic: -2 * finalEval.logLik + predictors * Math.log(prepared.data.length),
       likelihoodRatio,
       iterations: iterations + 1,
-      converged
+      converged,
+      inferenceAvailable,
+      ridgeEpsilon: Number(ridgeEpsilon) > 0 ? Number(ridgeEpsilon) : null
     };
     const residualDiagnostics = computeCoxDiagnosticsSummary(prepared, beta, coefficients);
     if(residualDiagnostics){
@@ -4090,7 +4140,11 @@
       design: prepared.design,
       diagnostics,
       converged,
-      message: converged ? 'Cox model converged.' : 'Cox model reached iteration limit.',
+      message: !converged
+        ? 'Cox model reached the iteration limit; coefficient inference is unavailable.'
+        : (Number(ridgeEpsilon) > 0
+          ? 'Cox model required ridge stabilization; ordinary Wald inference is unavailable.'
+          : 'Cox model converged.'),
       debug: debugMetrics
     };
     logDebug('cox model fitted', {
@@ -5379,7 +5433,7 @@
           : `${summary.coxModel.coefficients.length} Cox coefficient estimate(s) were reported.`)
         : null;
       Shared.statsReporting.appendReportPanel(refs.statsCox, {
-        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Breslow handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
+        methodsText: `Kaplan–Meier survival curves were summarized for ${summary.series.length} group(s) using event-time and censoring indicators from the current table. Log-rank testing was used for overall group comparison when estimable, with Gehan-Breslow-Wilcoxon and trend tests reported when enabled and supported by the data. ${summary.flags?.hazardRatiosEnabled ? 'Pairwise hazard ratios were estimated for requested group comparisons.' : 'Pairwise hazard ratios were not requested.'} ${summary.flags?.coxEnabled ? `A Cox proportional-hazards model was fit by partial likelihood with Efron handling of tied event times when estimable${hasSelectedCoxCovariates(summary) ? ', including the selected covariates' : ''}.` : 'Cox modelling was disabled.'} Rows with invalid survival time, group, event, or covariate values were excluded from the corresponding analysis.`,
         resultsText: [
           `${summary.series.length} group(s) contributed survival data.`,
           logRankText,
@@ -5836,7 +5890,7 @@
           correlation: formatNumber(entry.correlation, 3),
           meanAbs: formatNumber(entry.meanAbs, 3)
         })),
-        footnotes: ['Large time correlations can indicate non-proportional hazards.'],
+        footnotes: ['Exploratory only: these are simple residual–log(time) correlations, not the formal Grambsch–Therneau proportional-hazards test implemented by cox.zph.'],
         options: {
           fileName: 'survival-schoenfeld-checks',
           contextLabel: 'survival-schoenfeld-checks'
